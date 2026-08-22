@@ -42,6 +42,12 @@ request -> refine query (LLM) -> DuckDuckGo -> fetch + condense pages
         -> rank -> log top 3
 ```
 
+That order is load-bearing in both joints. `clean_products` runs before `ground`
+so a name still wearing its publisher suffix ("... Review | AudioSite") is not
+failed by the coverage check for tokens the page never had to contain; `ground`
+runs before `deduplicate` so `_combine` only ever merges figures the sources
+back.
+
 | Module | Responsibility |
 | --- | --- |
 | `agent.py` | `BuyAgent.run()` -- orchestrates the pipeline, translates Ollama errors |
@@ -53,7 +59,7 @@ request -> refine query (LLM) -> DuckDuckGo -> fetch + condense pages
 | `search.py` | DuckDuckGo wrapper plus a LangChain `@tool` version |
 | `config.py`, `logging_setup.py`, `__main__.py` | Config, the report, the CLI |
 
-Three conventions matter when changing this code:
+Four conventions matter when changing this code:
 
 - **`ExtractedProduct` uses sentinels, `Product` uses `None`.** The LLM-facing
   schema asks for `-1`/`""` rather than nullable fields: Ollama compiles the JSON
@@ -66,9 +72,24 @@ Three conventions matter when changing this code:
   matches the "5" in "out of 5". Extraction and verification must be given the
   same text, or the check rejects everything -- this is why `fetch.enrich()` puts
   page content on `SearchResult` rather than passing it around separately.
+- **`GENERIC_WORDS` is shared, and edits to it pull in two directions.**
+  `verification.py` imports the set from `extraction.py`. Adding a word makes
+  `merge_variants` fold *more* names into one product, and at the same time makes
+  `mentions_name` stricter -- ignored words leave fewer distinctive tokens to
+  clear the 0.6 coverage bar. Only ever add words that identify nothing
+  ("wireless", "black"); a brand or a model number there would let an invented
+  product pass grounding.
 - **Model output is never trusted as judgement.** The model reports article
   headlines as products; `clean_products` filters them. Anything that decides the
   answer -- filtering, scoring, ordering -- belongs in Python, where it is testable.
+
+`BuyAgent.run()` raises exactly three things -- `ValueError`,
+`OllamaUnavailableError`, `SearchError` -- and `__main__.main()` catches exactly
+those, logging them and returning 1 (130 on Ctrl-C). A new failure mode needs
+handling in both places or it reaches the user as a traceback. Within the agent
+only query refinement is recoverable: it falls back to the raw request, but lets
+`OllamaUnavailableError` through rather than searching with a model that is not
+there.
 
 ## Tests
 
