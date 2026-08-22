@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from buy_agent.ranking import RankingWeights
 
 DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
-DEFAULT_BASE_URL = "http://localhost:11434"
+DEFAULT_BASE_URL = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
 
 @dataclass(slots=True)

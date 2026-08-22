@@ -10,10 +10,12 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
+from buy_agent.models import RankedProduct
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from buy_agent.models import Product, RankedProduct
+    from buy_agent.models import Product
 
 SortBy = Literal["score", "price", "rating"]
 
@@ -81,8 +83,6 @@ def rank_products(
     both cases products missing that field sink to the bottom instead of being
     dropped.
     """
-    from buy_agent.models import RankedProduct  # noqa: PLC0415  (avoids an import cycle)
-
     weights = weights or RankingWeights()
     prices = [p.price for p in products if p.price is not None]
     cheapest = min(prices) if prices else None

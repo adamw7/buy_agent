@@ -22,6 +22,7 @@ SOURCES = [
         snippet="Now $129, rated 4.3 out of 5 from 12,500 shoppers.",
     ),
 ]
+HAYSTACK = build_haystack(SOURCES)
 
 
 def test_supported_figures_are_kept() -> None:
@@ -29,7 +30,7 @@ def test_supported_figures_are_kept() -> None:
         name="Sony WH-CH720N", price=129.0, currency="USD", rating=4.3, review_count=12500
     )
 
-    verified = verify_numbers([product], SOURCES)[0]
+    verified = verify_numbers([product], HAYSTACK)[0]
 
     assert verified.price == 129.0
     assert verified.currency == "USD"
@@ -41,7 +42,7 @@ def test_an_invented_price_is_dropped() -> None:
     """The classic failure: a figure carried over from the prompt's own example."""
     product = Product(name="Sony WH-CH720N", price=99.0, currency="USD", rating=4.3)
 
-    verified = verify_numbers([product], SOURCES)[0]
+    verified = verify_numbers([product], HAYSTACK)[0]
 
     assert verified.price is None
     assert verified.currency is None
@@ -51,7 +52,7 @@ def test_an_invented_price_is_dropped() -> None:
 def test_an_invented_review_count_is_dropped() -> None:
     product = Product(name="Sony WH-CH720N", price=129.0, review_count=90000)
 
-    verified = verify_numbers([product], SOURCES)[0]
+    verified = verify_numbers([product], HAYSTACK)[0]
 
     assert verified.review_count is None
     assert verified.price == 129.0
@@ -60,7 +61,7 @@ def test_an_invented_review_count_is_dropped() -> None:
 def test_verification_never_drops_the_product_itself() -> None:
     products = [Product(name="Ghost Model", price=1.0, rating=1.0, review_count=1)]
 
-    verified = verify_numbers(products, SOURCES)
+    verified = verify_numbers(products, HAYSTACK)
 
     assert len(verified) == 1
     assert verified[0].name == "Ghost Model"
@@ -72,12 +73,12 @@ def test_thousands_separators_are_normalised() -> None:
 
 @pytest.mark.parametrize("value", [129, 129.0, 4.3])
 def test_numbers_present_in_the_text_are_found(value: float) -> None:
-    assert mentions_number(build_haystack(SOURCES), value)
+    assert mentions_number(HAYSTACK, value)
 
 
 @pytest.mark.parametrize("value", [12, 29, 1129, 4.5, 99])
 def test_digits_inside_a_longer_number_do_not_count(value: float) -> None:
-    assert not mentions_number(build_haystack(SOURCES), value)
+    assert not mentions_number(HAYSTACK, value)
 
 
 def test_a_price_written_with_decimals_still_matches() -> None:
@@ -138,7 +139,7 @@ def test_an_expensive_product_keeps_its_price() -> None:
     sources = [SearchResult(title="Studio rig", snippet="Ampex ATR-102 -- $12,999.95")]
     product = Product(name="Ampex ATR-102", price=12999.95, currency="USD")
 
-    verified = verify_numbers([product], sources)[0]
+    verified = verify_numbers([product], build_haystack(sources))[0]
 
     assert verified.price == 12999.95
     assert verified.currency == "USD"
@@ -154,7 +155,7 @@ def test_a_score_out_of_ten_does_not_vouch_for_a_rating_out_of_five() -> None:
 
 def test_a_product_absent_from_the_sources_is_dropped() -> None:
     kept = drop_ungrounded(
-        [Product(name="Sony WH-CH720N"), Product(name="Bonavita Gooseneck Kettle")], SOURCES
+        [Product(name="Sony WH-CH720N"), Product(name="Bonavita Gooseneck Kettle")], HAYSTACK
     )
 
     assert [product.name for product in kept] == ["Sony WH-CH720N"]
@@ -162,18 +163,16 @@ def test_a_product_absent_from_the_sources_is_dropped() -> None:
 
 def test_descriptive_words_do_not_have_to_appear() -> None:
     """The page says 'WH-CH720N'; the model wrote a longer marketing name."""
-    assert mentions_name(
-        build_haystack(SOURCES), "Sony WH-CH720N Wireless Noise Cancelling Headphones"
-    )
+    assert mentions_name(HAYSTACK, "Sony WH-CH720N Wireless Noise Cancelling Headphones")
 
 
 def test_a_name_of_only_generic_words_is_not_grounded() -> None:
-    assert not mentions_name(build_haystack(SOURCES), "Wireless Headphones")
+    assert not mentions_name(HAYSTACK, "Wireless Headphones")
 
 
 def test_a_partly_matching_name_still_counts() -> None:
     """Two of three distinctive words is over the coverage floor."""
-    assert mentions_name(build_haystack(SOURCES), "Sony WH-CH720N Studio")
+    assert mentions_name(HAYSTACK, "Sony WH-CH720N Studio")
 
 
 def test_ground_drops_the_product_and_then_its_figures() -> None:
