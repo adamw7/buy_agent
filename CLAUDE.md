@@ -99,10 +99,11 @@ there.
 `FakeLLM` exposing only `with_structured_output`. The network is monkeypatched
 in three places: `buy_agent.agent.search_web` and `buy_agent.agent.enrich` for
 pipeline tests, and `buy_agent.search.DDGS` / `buy_agent.fetch.httpx.Client` for
-the wrappers' own tests. Patching `DDGS.text` does *not* work -- the name `ddgs`
-exports is a wrapper that constructs a different class. No test touches the
-network or Ollama; keep it that way. 117 tests run in about 0.2s, so a run that
-suddenly takes seconds means something is reaching out.
+the wrappers' own tests. `ollama.Client` is patched too, for the one path that
+lists the installed models to name them in an error. Patching `DDGS.text` does
+*not* work -- the name `ddgs` exports is a wrapper that constructs a different
+class. No test touches the network or Ollama; keep it that way. 268 tests run in
+about 0.4s, so a run that suddenly takes seconds means something is reaching out.
 
 ## Environment
 

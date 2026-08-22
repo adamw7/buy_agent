@@ -7,10 +7,12 @@ different class, so a patched method on it would never be called.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from ddgs.exceptions import DDGSException
 
-from buy_agent.search import SearchError, search_web
+from buy_agent.search import SearchError, SearchResult, search_products_tool, search_web
 
 
 def stub_ddgs(monkeypatch, *, results=None, error: Exception | None = None) -> dict:
@@ -80,9 +82,72 @@ def test_the_tool_renders_results_for_the_model(monkeypatch) -> None:
             {"title": "B", "href": "https://b", "body": "dear"},
         ],
     )
-    from buy_agent.search import search_products_tool
-
     rendered = search_products_tool.invoke({"query": "headphones", "max_results": 2})
 
     assert "TITLE: A" in rendered
     assert "TITLE: B" in rendered
+
+
+def test_the_prompt_block_includes_the_fetched_page_text() -> None:
+    block = SearchResult(
+        title="T", url="U", snippet="S", content="JBL Live 780NC\n$149"
+    ).as_prompt_block()
+
+    assert block == "TITLE: T\nURL: U\nSNIPPET: S\nPAGE:\nJBL Live 780NC\n$149"
+
+
+def test_a_fresh_result_carries_no_page_content() -> None:
+    """content is filled in later by fetch.enrich, if at all."""
+    assert SearchResult(title="T").content == ""
+
+
+def test_finding_nothing_is_an_empty_list_not_a_failure(monkeypatch) -> None:
+    stub_ddgs(monkeypatch, results=[])
+
+    assert search_web("something nobody sells") == []
+
+
+def test_the_search_and_its_result_count_are_logged(monkeypatch, caplog) -> None:
+    stub_ddgs(monkeypatch, results=[{"title": "A"}])
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.search"):
+        search_web("headphones")
+
+    assert "headphones" in caplog.text
+    assert "Search returned 1 results" in caplog.text
+
+
+def test_the_default_is_ten_results_from_the_us(monkeypatch) -> None:
+    seen = stub_ddgs(monkeypatch)
+
+    search_web("headphones")
+
+    assert seen == {"query": "headphones", "max_results": 10, "region": "us-en"}
+
+
+def test_an_unexpected_error_is_not_disguised_as_a_search_failure(monkeypatch) -> None:
+    """Only backend failures become SearchError; a bug must not look like one."""
+    stub_ddgs(monkeypatch, error=TypeError("bug in the wrapper"))
+
+    with pytest.raises(TypeError, match="bug in the wrapper"):
+        search_web("headphones")
+
+
+def test_the_tool_describes_itself_for_the_model() -> None:
+    assert search_products_tool.name == "search_products"
+    assert "search" in search_products_tool.description.lower()
+    assert "query" in search_products_tool.args
+
+
+def test_the_tool_defaults_to_ten_results(monkeypatch) -> None:
+    seen = stub_ddgs(monkeypatch)
+
+    search_products_tool.invoke({"query": "tents"})
+
+    assert seen["max_results"] == 10
+
+
+def test_the_tool_renders_nothing_for_no_results(monkeypatch) -> None:
+    stub_ddgs(monkeypatch, results=[])
+
+    assert search_products_tool.invoke({"query": "tents"}) == ""

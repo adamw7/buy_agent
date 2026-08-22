@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from buy_agent.models import Product
@@ -195,3 +197,101 @@ def test_page_content_counts_as_a_source() -> None:
 
     assert mentions_name(build_haystack(sources), "JBL Live 780NC")
     assert mentions_number(build_haystack(sources), 149)
+
+
+def test_an_empty_source_set_grounds_nothing() -> None:
+    """No sources means no support -- not a free pass."""
+    assert build_haystack([]) == ""
+    assert drop_ungrounded([Product(name="Sony WH-CH720N")], "") == []
+
+
+def test_grounding_nothing_yields_nothing() -> None:
+    assert ground([], SOURCES) == []
+
+
+def test_a_wholly_invented_listing_keeps_only_its_name() -> None:
+    product = Product(
+        name="Sony WH-CH720N", price=11.0, currency="USD", rating=1.1, review_count=7
+    )
+
+    verified = verify_numbers([product], HAYSTACK)[0]
+
+    assert verified.name == "Sony WH-CH720N"
+    assert verified.price is None
+    assert verified.currency is None
+    assert verified.rating is None
+    assert verified.review_count is None
+
+
+def test_verification_copies_rather_than_editing_in_place() -> None:
+    original = Product(name="Sony WH-CH720N", price=99.0)
+
+    verified = verify_numbers([original], HAYSTACK)[0]
+
+    assert original.price == 99.0
+    assert verified.price is None
+
+
+def test_a_free_extra_keeps_its_price() -> None:
+    """0 is a real price; blanking it would score a giveaway as unknown."""
+    haystack = build_haystack([SearchResult(snippet="Bundled adapter: $0 with purchase")])
+
+    assert mentions_number(haystack, 0)
+
+
+def test_a_price_inside_a_longer_price_is_not_a_match() -> None:
+    haystack = build_haystack([SearchResult(snippet="Was $1299.99, now less")])
+
+    assert not mentions_number(haystack, 129.0)
+
+
+def test_a_rating_lead_in_out_of_ten_is_rejected() -> None:
+    """'scored it 8 out of 10' means 4/5, and must not vouch for a claimed 8."""
+    haystack = build_haystack([SearchResult(snippet="Our testers scored it 8 out of 10")])
+
+    assert not mentions_rating(haystack, 8)
+
+
+def test_a_rating_below_the_claimed_one_does_not_vouch_for_it() -> None:
+    haystack = build_haystack([SearchResult(snippet="Rated 4.3 out of 5")])
+
+    assert not mentions_rating(haystack, 4.7)
+
+
+def test_one_distinctive_word_in_four_is_not_a_mention() -> None:
+    assert not mentions_name(HAYSTACK, "Bose QuietComfort Ultra Sony")
+
+
+def test_a_name_whose_only_distinctive_word_is_present_counts() -> None:
+    assert mentions_name(HAYSTACK, "Wireless Sony Headphones")
+    assert not mentions_name(HAYSTACK, "Wireless Bose Headphones")
+
+
+def test_a_nameless_product_is_never_grounded() -> None:
+    assert not mentions_name(HAYSTACK, "")
+    assert not mentions_name(HAYSTACK, "--- !!!")
+
+
+def test_the_title_is_searched_as_well_as_the_snippet() -> None:
+    sources = [SearchResult(title="Ampex ATR-102 for sale", snippet="Studio gear")]
+
+    assert mentions_name(build_haystack(sources), "Ampex ATR-102")
+
+
+def test_figures_are_verified_across_all_of_the_results() -> None:
+    """One page named the product, another quoted the price; both are sources."""
+    sources = [
+        SearchResult(title="JBL Live 780NC hands-on", snippet="A solid pair."),
+        SearchResult(title="Deals roundup", snippet="The 780NC is $149 this week."),
+    ]
+
+    grounded = ground([Product(name="JBL Live 780NC", price=149.0)], sources)
+
+    assert grounded[0].price == 149.0
+
+
+def test_grounding_reports_what_it_dropped(caplog) -> None:
+    with caplog.at_level(logging.INFO, logger="buy_agent.verification"):
+        ground([Product(name="Bonavita Gooseneck Kettle", price=80.0)], SOURCES)
+
+    assert "Dropped 1 product(s) absent from the search results" in caplog.text
