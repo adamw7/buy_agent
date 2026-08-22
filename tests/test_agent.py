@@ -281,3 +281,42 @@ def test_fetching_can_be_turned_off(
     agent.run("headphones")
 
     assert not any("enriched" in call for call in calls)
+
+
+@pytest.fixture
+def recorded_chat_ollama(monkeypatch):
+    """Capture the kwargs BuyAgent builds its real ChatOllama with."""
+    captured: dict = {}
+
+    class Recorder(FakeLLM):
+        def __init__(self, **kwargs) -> None:
+            super().__init__()
+            captured.update(kwargs)
+
+    monkeypatch.setattr("buy_agent.agent.ChatOllama", Recorder)
+    return captured
+
+
+def test_model_settings_reach_the_chat_model(recorded_chat_ollama) -> None:
+    BuyAgent(AgentConfig(model="qwen3.5:9b", temperature=0.2, num_ctx=8192, reasoning=False))
+
+    assert recorded_chat_ollama["model"] == "qwen3.5:9b"
+    assert recorded_chat_ollama["temperature"] == 0.2
+    assert recorded_chat_ollama["num_ctx"] == 8192
+    assert recorded_chat_ollama["reasoning"] is False
+
+
+def test_thinking_and_context_are_left_alone_by_default(recorded_chat_ollama) -> None:
+    """None means "send nothing": a model that cannot think must not be told to."""
+    BuyAgent(AgentConfig())
+
+    assert recorded_chat_ollama["num_ctx"] is None
+    assert recorded_chat_ollama["reasoning"] is None
+
+
+def test_an_injected_model_bypasses_chat_ollama(recorded_chat_ollama) -> None:
+    llm = FakeLLM()
+    agent = BuyAgent(AgentConfig(num_ctx=8192), llm=llm)
+
+    assert agent.llm is llm
+    assert recorded_chat_ollama == {}

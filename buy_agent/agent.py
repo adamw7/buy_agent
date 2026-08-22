@@ -63,6 +63,8 @@ class BuyAgent:
             model=self.config.model,
             base_url=self.config.base_url,
             temperature=self.config.temperature,
+            num_ctx=self.config.num_ctx,
+            reasoning=self.config.reasoning,
         )
         self.query_chain = build_query_chain(self.llm)
         self.extraction_chain = build_extraction_chain(self.llm)

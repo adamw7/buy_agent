@@ -105,3 +105,23 @@ def test_expected_failures_exit_one_with_a_logged_reason(fake_agent, caplog, err
 
     assert main(["headphones"]) == 1
     assert str(error) in caplog.text
+
+
+def test_context_and_thinking_flags_reach_the_config(fake_agent) -> None:
+    main(["headphones", "--num-ctx", "8192", "--no-think"])
+    config = fake_agent["config"]
+    assert config.num_ctx == 8192
+    assert config.reasoning is False
+
+
+def test_thinking_can_be_forced_on(fake_agent) -> None:
+    main(["headphones", "--think"])
+    assert fake_agent["config"].reasoning is True
+
+
+def test_context_and_thinking_are_unset_by_default(fake_agent) -> None:
+    """Unset must stay unset, so the default model keeps behaving as it did."""
+    main(["headphones"])
+    config = fake_agent["config"]
+    assert config.num_ctx is None
+    assert config.reasoning is None

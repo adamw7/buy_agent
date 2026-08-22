@@ -52,6 +52,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--temperature", type=float, default=0.0, help="Model temperature (default: 0.0)."
     )
     parser.add_argument(
+        "--num-ctx",
+        type=int,
+        default=None,
+        help="Context window in tokens (default: Ollama's own, usually 4096). The "
+        "extraction prompt runs to ~3.3k tokens, so a larger window leaves room for "
+        "more products; 8192 is a good starting point.",
+    )
+    parser.add_argument(
+        "--think",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Force the model's thinking mode on or off (default: leave it alone). "
+        "Thinking models need --no-think: they reason until the context runs out and "
+        "never answer.",
+    )
+    parser.add_argument(
         "--no-fetch",
         dest="fetch",
         action="store_false",
@@ -71,6 +87,8 @@ def main(argv: list[str] | None = None) -> int:
         model=args.model,
         base_url=args.base_url,
         temperature=args.temperature,
+        num_ctx=args.num_ctx,
+        reasoning=args.think,
         search_results=max(args.results, args.top),
         num_products=args.results,
         top_n=args.top,

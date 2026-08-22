@@ -19,6 +19,13 @@ class AgentConfig:
         model: Ollama model tag, e.g. ``llama3.2`` or ``qwen2.5:7b``.
         base_url: Where the Ollama server listens.
         temperature: Low by default; extraction is a copying task, not a creative one.
+        num_ctx: Context window in tokens, or None to leave Ollama's default (4096)
+            alone. The extraction prompt runs to ~3.3k tokens, so on the default a
+            thinking model has no room left to answer -- see ``reasoning``.
+        reasoning: Thinking mode. None (default) sends nothing and leaves the model's
+            own behaviour alone; False turns thinking off; True turns it on. Thinking
+            models need False here: they spend the whole remaining context reasoning
+            about a copying task and get cut off before emitting any JSON.
         search_results: How many raw web results to feed the extractor.
         num_products: How many products to keep after extraction.
         top_n: How many products to log at the end.
@@ -33,6 +40,8 @@ class AgentConfig:
     model: str = DEFAULT_MODEL
     base_url: str = DEFAULT_BASE_URL
     temperature: float = 0.0
+    num_ctx: int | None = None
+    reasoning: bool | None = None
     search_results: int = 10
     num_products: int = 10
     top_n: int = 3

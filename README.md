@@ -54,9 +54,26 @@ python -m buy_agent "running shoes" --sort-by price --json results.json
 | `--top` | `3` | How many to log |
 | `--sort-by` | `score` | `score`, `price` or `rating` |
 | `--region` | `us-en` | Search region, e.g. `uk-en`, `pl-pl` |
+| `--num-ctx` | Ollama's own (usually 4096) | Context window in tokens |
+| `--think` / `--no-think` | leave the model alone | Force thinking mode on or off |
 | `--no-fetch` | off | Use search snippets only, without opening the result pages |
 | `--json` | -- | Also write every result to a JSON file |
 | `-v` | off | Debug logging |
+
+### Thinking models
+
+A thinking model (`qwen3.5`, `gemma4`, `lfm2.5` -- anything listing the `thinking`
+capability) needs `--no-think`, and is worth giving `--num-ctx 8192` as well:
+
+```powershell
+python -m buy_agent "wireless headphones under $200" --model qwen3.5:9b --no-think --num-ctx 8192
+```
+
+Left to itself it fails. The extraction prompt runs to roughly 3.3k tokens, so
+inside Ollama's default 4096-token window the model spends what is left thinking,
+gets cut off before it writes any JSON, and the run ends with `Invalid json
+output:` and nothing after the colon. The wider window is what gets you the full
+ten products rather than five.
 
 As a library:
 
