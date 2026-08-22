@@ -119,6 +119,39 @@ def test_a_rounded_price_is_still_accepted() -> None:
     assert mentions_number(build_haystack([SearchResult(snippet="$179.99")]), 179.0)
 
 
+def test_a_four_figure_price_with_decimals_survives() -> None:
+    """Six significant digits are not enough: 12999.95 must not become "13000"."""
+    sources = [SearchResult(snippet="The rig is $12,999.95 with the upgrade.")]
+
+    assert mentions_number(build_haystack(sources), 12999.95)
+
+
+def test_a_decimal_price_matches_a_trailing_zero() -> None:
+    """A page writes 10000.5 as "$10,000.50"."""
+    sources = [SearchResult(snippet="Yours for $10,000.50 today")]
+
+    assert mentions_number(build_haystack(sources), 10000.50)
+    assert not mentions_number(build_haystack(sources), 10000.55)
+
+
+def test_an_expensive_product_keeps_its_price() -> None:
+    sources = [SearchResult(title="Studio rig", snippet="Ampex ATR-102 -- $12,999.95")]
+    product = Product(name="Ampex ATR-102", price=12999.95, currency="USD")
+
+    verified = verify_numbers([product], sources)[0]
+
+    assert verified.price == 12999.95
+    assert verified.currency == "USD"
+
+
+def test_a_score_out_of_ten_does_not_vouch_for_a_rating_out_of_five() -> None:
+    """4.5/10 means 2.25/5; taking it as a 4.5 puts a mediocre product on top."""
+    haystack = build_haystack([SearchResult(snippet="Our testers scored it 4.5 out of 10")])
+
+    assert not mentions_rating(haystack, 4.5)
+    assert not mentions_rating(build_haystack([SearchResult(snippet="Scores 4.5/10")]), 4.5)
+
+
 def test_a_product_absent_from_the_sources_is_dropped() -> None:
     kept = drop_ungrounded(
         [Product(name="Sony WH-CH720N"), Product(name="Bonavita Gooseneck Kettle")], SOURCES

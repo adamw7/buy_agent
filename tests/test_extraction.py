@@ -43,6 +43,35 @@ def test_deduplicate_keeps_the_most_complete_listing() -> None:
     assert deduped[0].rating == 4.7
 
 
+def test_deduplicate_merges_figures_across_identical_names() -> None:
+    """Two pages, one product: one quoted the price, the other the rating."""
+    deduped = deduplicate(
+        [
+            Product(name="Sony WH-1000XM5", price=328.0, currency="USD"),
+            Product(name="Sony WH-1000XM5", rating=4.6, review_count=3200, url="http://x"),
+        ],
+        limit=10,
+    )
+
+    assert len(deduped) == 1
+    assert deduped[0].price == 328.0
+    assert deduped[0].currency == "USD"
+    assert deduped[0].rating == 4.6
+    assert deduped[0].review_count == 3200
+
+
+def test_deduplicate_does_not_overwrite_a_figure_it_already_has() -> None:
+    deduped = deduplicate(
+        [
+            Product(name="Sony WH-1000XM5", price=328.0, rating=4.6),
+            Product(name="Sony WH-1000XM5", price=399.0),
+        ],
+        limit=10,
+    )
+
+    assert [product.price for product in deduped] == [328.0]
+
+
 def test_deduplicate_preserves_first_seen_order() -> None:
     deduped = deduplicate(
         [Product(name="B"), Product(name="A"), Product(name="b", price=1.0)], limit=10

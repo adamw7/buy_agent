@@ -34,8 +34,17 @@ _NAME_COVERAGE = 0.6
 #: A rating is a small number that occurs in text for a hundred other reasons, so
 #: it counts as supported only where it is written like a rating: "4.3/5",
 #: "4.3 out of 5", "4.3 stars", "rated 4.3".
-_RATING_AFTER = r"\s*(?:/\s*(?:5|10)\b|(?:out\s+of|of)\s+(?:5|10)\b|stars?\b)"
+#:
+#: Only the 0-5 scale, deliberately. ``Product.rating`` is always out of 5, so
+#: accepting "4.5 out of 10" here would vouch for a claimed 4.5/5 using a score
+#: that actually means 2.25/5 -- it can only ever confirm the unconverted figure
+#: the extraction prompt asks the model not to report.
+_RATING_AFTER = r"\s*(?:/\s*5\b|(?:out\s+of|of)\s+5\b|stars?\b)"
 _RATING_BEFORE = r"(?:rated|rating|score[ds]?)\b[^\d]{0,12}"
+
+#: "scored it 4.5" reads like a rating whatever the scale, so the lead-in form
+#: has to be told when the figure it found is out of ten rather than five.
+_RATING_OUT_OF_TEN = r"\s*(?:/\s*10\b|(?:out\s+of|of)\s+10\b)"
 
 
 def build_haystack(results: Sequence[SearchResult]) -> str:
@@ -50,15 +59,24 @@ def mentions_number(haystack: str, value: float) -> bool:
     """Whether ``value`` appears in ``haystack`` as a standalone number.
 
     ``129`` matches "$129" and "129.99" but not "1129" or "3129", so a price is
-    not accepted merely because its digits occur inside a longer number.
+    not accepted merely because its digits occur inside a longer number. A
+    decimal may pick up trailing zeros -- 10000.5 is written "$10,000.50" -- so
+    those are allowed too.
     """
-    pattern = rf"(?<![\d.]){re.escape(_as_literal(value))}(?!\d)"
+    literal = _as_literal(value)
+    padding = "0*" if "." in literal else ""
+    pattern = rf"(?<![\d.]){re.escape(literal)}{padding}(?!\d)"
     return re.search(pattern, haystack) is not None
 
 
 def _as_literal(value: float) -> str:
-    """Render a number the way a page would write it: 129.0 -> "129"."""
-    return f"{value:.0f}" if float(value).is_integer() else f"{value:g}"
+    """Render a number the way a page would write it: 129.0 -> "129".
+
+    ``.10g`` rather than ``g``: the default six significant digits turn a real
+    12999.95 into "13000", which then matches nothing and costs the product its
+    price -- and every price over 9999.99 has more than six digits.
+    """
+    return f"{value:.0f}" if float(value).is_integer() else f"{value:.10g}"
 
 
 def mentions_rating(haystack: str, value: float) -> bool:
@@ -66,7 +84,7 @@ def mentions_rating(haystack: str, value: float) -> bool:
     literal = re.escape(_as_literal(value))
     # (?!\.?\d) so a claimed 4.0 is not "verified" by the 4 in a printed 4.3.
     after = rf"(?<![\d.]){literal}(?!\.?\d){_RATING_AFTER}"
-    before = rf"{_RATING_BEFORE}{literal}(?!\.?\d)"
+    before = rf"{_RATING_BEFORE}{literal}(?!\.?\d)(?!{_RATING_OUT_OF_TEN})"
     return bool(
         re.search(after, haystack, re.IGNORECASE)
         or re.search(before, haystack, re.IGNORECASE)

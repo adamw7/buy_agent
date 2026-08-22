@@ -185,8 +185,14 @@ def deduplicate(products: Sequence[Product], limit: int) -> list[Product]:
         if key not in best:
             best[key] = product
             order.append(key)
-        elif _completeness(product) > _completeness(best[key]):
-            best[key] = product
+            continue
+        # Two listings of the same name are two pages describing one product, and
+        # each may be the only one that quoted a figure. Keep the fuller listing's
+        # name and wording, but take whatever it left blank from the other.
+        incumbent = best[key]
+        if _completeness(product) > _completeness(incumbent):
+            incumbent, product = product, incumbent
+        best[key] = incumbent.model_copy(update=_fill_gaps(incumbent, product))
 
     deduped = merge_variants([best[key] for key in order])
     dropped = len(products) - len(deduped)
@@ -238,13 +244,18 @@ def _combine(first: Product, second: Product) -> Product:
     winner, loser = (
         (first, second) if _completeness(first) >= _completeness(second) else (second, first)
     )
-    updates = {
+    updates = _fill_gaps(winner, loser)
+    updates["name"] = min(first.name, second.name, key=len)
+    return winner.model_copy(update=updates)
+
+
+def _fill_gaps(winner: Product, loser: Product) -> dict[str, object]:
+    """The fields ``loser`` can contribute because ``winner`` left them blank."""
+    return {
         field: getattr(loser, field)
         for field in _MERGEABLE_FIELDS
         if getattr(winner, field) is None and getattr(loser, field) is not None
     }
-    updates["name"] = min(first.name, second.name, key=len)
-    return winner.model_copy(update=updates)
 
 
 def _completeness(product: Product) -> int:
