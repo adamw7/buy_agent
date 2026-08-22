@@ -2,20 +2,84 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Repository status
+## What this is
 
-This repository is empty as of the initial commit. It contains only:
+A shopping agent: it takes a plain-language request ("wireless headphones under
+$200"), searches the web, extracts up to 10 products, ranks them, and logs the
+top 3. Built on LangChain with a local Ollama model. See `README.md` for usage.
 
-- `README.md` — a single line, `# buy_agent`
-- `.gitignore` — the unmodified GitHub `Python.gitignore` template
+## Commands
 
-There is no source code, no dependency manifest (`pyproject.toml` / `requirements.txt`), no test suite, and no CI configuration. Consequently there are **no build, lint, or test commands to document yet**, and there is no architecture to describe. Any command or module layout stated here that is not listed above would be a guess.
+Dependencies live in a `.venv` created with stdlib `venv`; there is no
+`pyproject.toml` and no packaging step. Run everything from the repository root.
 
-The Python `.gitignore` is the only signal about the intended stack; treat it as an intent, not a decision. Nothing has been chosen about packaging (uv / poetry / pip), test runner, or linter.
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt          # runtime deps: requirements.txt
 
-## When adding the first code
+python -m pytest                              # whole suite (~0.2s)
+python -m pytest tests/test_ranking.py        # one file
+python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
+python -m pytest -k verification              # by name
 
-Replace the "Repository status" section above with the real build/lint/test commands (including how to run a single test) and a description of the architecture, once those exist. Until then, ask the user rather than assuming a toolchain.
+python -m buy_agent "gaming laptop under $1500"          # run the agent
+python -m buy_agent "espresso machine" --model lfm2.5 -v
+```
+
+There is no linter or CI configured. `pytest.ini` sets `pythonpath = .`, which is
+why the package imports without being installed.
+
+## Architecture
+
+The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
+for the two steps it is reliable at, and ordinary Python does everything else,
+because Ollama is typically run with small models that drive tool loops badly.
+
+```
+request -> refine query (LLM) -> DuckDuckGo -> fetch + condense pages
+        -> extract products (LLM) -> clean_products -> ground -> deduplicate
+        -> rank -> log top 3
+```
+
+| Module | Responsibility |
+| --- | --- |
+| `agent.py` | `BuyAgent.run()` -- orchestrates the pipeline, translates Ollama errors |
+| `extraction.py` | Both prompts, both chains, name cleaning, deduplication |
+| `fetch.py` | Fetches result pages, keeps the lines quoting a price or rating |
+| `verification.py` | Drops products and figures absent from the sources |
+| `ranking.py` | Scoring and sorting; no LLM involved |
+| `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain) |
+| `search.py` | DuckDuckGo wrapper plus a LangChain `@tool` version |
+| `config.py`, `logging_setup.py`, `__main__.py` | Config, the report, the CLI |
+
+Three conventions matter when changing this code:
+
+- **`ExtractedProduct` uses sentinels, `Product` uses `None`.** The LLM-facing
+  schema asks for `-1`/`""` rather than nullable fields: Ollama compiles the JSON
+  schema into a decoding grammar, and a required `number` makes `"N/A"` -- which
+  would fail validation for the entire batch -- structurally impossible. Keep new
+  extraction fields non-nullable with a sentinel, and convert in `to_product()`.
+- **Never rank on an unverified number.** `verification.ground()` drops products
+  whose name is absent from the sources and blanks any price, rating or review
+  count that is. Ratings need context ("4.3/5", "rated 4.3") because a bare `5`
+  matches the "5" in "out of 5". Extraction and verification must be given the
+  same text, or the check rejects everything -- this is why `fetch.enrich()` puts
+  page content on `SearchResult` rather than passing it around separately.
+- **Model output is never trusted as judgement.** The model reports article
+  headlines as products; `clean_products` filters them. Anything that decides the
+  answer -- filtering, scoring, ordering -- belongs in Python, where it is testable.
+
+## Tests
+
+`BuyAgent(config, llm=...)` is the injection seam: `tests/conftest.py` provides a
+`FakeLLM` exposing only `with_structured_output`. The network is monkeypatched
+in three places: `buy_agent.agent.search_web` and `buy_agent.agent.enrich` for
+pipeline tests, and `buy_agent.search.DDGS` / `buy_agent.fetch.httpx.Client` for
+the wrappers' own tests. Patching `DDGS.text` does *not* work -- the name `ddgs`
+exports is a wrapper that constructs a different class. No test touches the
+network or Ollama; keep it that way. 117 tests run in about 0.2s, so a run that
+suddenly takes seconds means something is reaching out.
 
 ## Environment
 

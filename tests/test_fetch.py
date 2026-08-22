@@ -1,0 +1,160 @@
+"""Page fetching and condensing, with httpx stubbed out."""
+
+from __future__ import annotations
+
+import httpx
+import pytest
+
+from buy_agent.fetch import condense, enrich, fetch_page, html_to_text
+from buy_agent.search import SearchResult
+
+PAGE = """<html><body>
+<h1>Best headphones</h1><script>var tracking = 1;</script><style>p {color: red}</style>
+<div><h2>Sony WH-CH720N</h2><span>Now $129.99, rated 4.3 out of 5</span></div>
+<p>Free shipping on all orders, no minimum</p>
+<ul><li>JBL Tune 770NC</li><li>$99.95 (4.1/5 from 2,300 reviews)</li></ul>
+<footer>Copyright 2026 AudioSite. All rights reserved.</footer>
+</body></html>"""
+
+
+def test_scripts_and_styles_are_stripped() -> None:
+    text = html_to_text(PAGE)
+
+    assert "tracking" not in text
+    assert "color: red" not in text
+    assert "Sony WH-CH720N" in text
+
+
+def test_elements_stay_on_separate_lines() -> None:
+    """text_content() would glue the product name onto its price."""
+    assert "Sony WH-CH720N\n" in html_to_text(PAGE)
+
+
+def test_unparseable_markup_yields_no_text() -> None:
+    assert html_to_text("") == ""
+
+
+def test_only_lines_with_figures_are_kept() -> None:
+    condensed = condense(html_to_text(PAGE), max_chars=1000)
+
+    assert "$129.99" in condensed
+    assert "$99.95" in condensed
+    assert "Free shipping" not in condensed
+    assert "All rights reserved" not in condensed
+
+
+def test_the_line_above_a_price_is_kept_as_context() -> None:
+    """A price is useless without the product name it sits under."""
+    condensed = condense(html_to_text(PAGE), max_chars=1000)
+
+    assert "Sony WH-CH720N" in condensed
+    assert "JBL Tune 770NC" in condensed
+
+
+def test_the_character_budget_is_respected() -> None:
+    assert len(condense(html_to_text(PAGE), max_chars=50)) <= 51
+
+
+def test_repeated_lines_appear_once() -> None:
+    repeated = "Sony WH-CH720N\n$129.00\n" * 5
+
+    assert condense(repeated, max_chars=1000).count("$129.00") == 1
+
+
+def test_boilerplate_without_figures_condenses_to_nothing() -> None:
+    assert condense("About us\nContact\nPrivacy policy\n", max_chars=1000) == ""
+
+
+def stub_client(monkeypatch, handler) -> None:
+    """Point buy_agent.fetch at a fake httpx client."""
+
+    class FakeClient:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc) -> None:
+            return None
+
+        def get(self, url: str):
+            return handler(url)
+
+    monkeypatch.setattr("buy_agent.fetch.httpx.Client", FakeClient)
+
+
+def make_response(url: str, body: str, *, status: int = 200, content_type: str = "text/html"):
+    return httpx.Response(
+        status, text=body, headers={"content-type": content_type},
+        request=httpx.Request("GET", url),
+    )
+
+
+def test_fetch_page_condenses_a_live_page(monkeypatch) -> None:
+    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
+    with httpx.Client() as client:
+        assert "$129.99" in fetch_page(client, "https://shop.example", max_chars=1000)
+
+
+def test_a_failed_request_yields_no_content(monkeypatch) -> None:
+    def explode(url: str):
+        raise httpx.ConnectTimeout("too slow")
+
+    stub_client(monkeypatch, explode)
+    with httpx.Client() as client:
+        assert fetch_page(client, "https://slow.example", max_chars=1000) == ""
+
+
+def test_an_error_status_yields_no_content(monkeypatch) -> None:
+    stub_client(monkeypatch, lambda url: make_response(url, PAGE, status=403))
+    with httpx.Client() as client:
+        assert fetch_page(client, "https://blocked.example", max_chars=1000) == ""
+
+
+def test_non_html_responses_are_ignored(monkeypatch) -> None:
+    stub_client(
+        monkeypatch, lambda url: make_response(url, "%PDF-1.4", content_type="application/pdf")
+    )
+    with httpx.Client() as client:
+        assert fetch_page(client, "https://manual.example/x.pdf", max_chars=1000) == ""
+
+
+def test_enrich_attaches_content_to_each_result(monkeypatch) -> None:
+    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
+    results = [
+        SearchResult(title="A", url="https://a.example", snippet="s"),
+        SearchResult(title="B", url="https://b.example", snippet="s"),
+    ]
+
+    enriched = enrich(results, max_chars=1000)
+
+    assert all("$129.99" in result.content for result in enriched)
+    assert [result.title for result in enriched] == ["A", "B"]
+    assert results[0].content == "", "the originals must not be mutated"
+
+
+def test_one_unreachable_page_does_not_lose_the_others(monkeypatch) -> None:
+    def handler(url: str):
+        if "bad" in url:
+            raise httpx.ConnectError("refused")
+        return make_response(url, PAGE)
+
+    stub_client(monkeypatch, handler)
+    results = [
+        SearchResult(title="ok", url="https://good.example"),
+        SearchResult(title="down", url="https://bad.example"),
+    ]
+
+    enriched = enrich(results, max_chars=1000)
+
+    assert "$129.99" in enriched[0].content
+    assert enriched[1].content == ""
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["Sony WH-CH720N EUR 129 today", "Sony deal 4.5 stars", "Price: 250 PLN here"],
+)
+def test_prices_and_ratings_are_recognised_in_several_shapes(line: str) -> None:
+    assert condense(line, max_chars=200) == line

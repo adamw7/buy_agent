@@ -1,0 +1,8 @@
+# Direct dependencies, pinned to the versions this was tested against.
+# Transitive packages (httpx, ollama, primp, ...) are resolved by pip.
+langchain-core==1.6.0
+langchain-ollama==1.1.0
+ddgs==9.15.0
+pydantic==2.13.4
+httpx==0.28.1
+lxml==6.1.2
