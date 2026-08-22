@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import httpx
 import pytest
 
@@ -158,3 +160,134 @@ def test_one_unreachable_page_does_not_lose_the_others(monkeypatch) -> None:
 )
 def test_prices_and_ratings_are_recognised_in_several_shapes(line: str) -> None:
     assert condense(line, max_chars=200) == line
+
+
+def test_a_wall_of_text_is_dropped_even_when_it_quotes_a_price() -> None:
+    """The ceiling is what keeps paragraphs of boilerplate out of the prompt."""
+    wall = "Terms and conditions apply to this offer. " * 10 + "$129"
+    assert len(wall) > 300
+
+    assert condense(wall, max_chars=5000) == ""
+
+
+def test_a_stray_fragment_is_too_short_to_keep() -> None:
+    assert condense("$1", max_chars=100) == ""
+
+
+def test_condensing_stops_once_the_budget_is_spent() -> None:
+    condensed = condense("Sony WH-1\n$100.00\nJBL T7\n$200.00", max_chars=20)
+
+    assert "$100.00" in condensed
+    assert "$200.00" not in condensed
+
+
+def test_nothing_to_condense_is_empty() -> None:
+    assert condense("", max_chars=1000) == ""
+
+
+def test_a_line_without_a_figure_is_dropped_even_next_to_one() -> None:
+    """Only the immediately preceding line rides along as context."""
+    condensed = condense("Unrelated banner\nSony WH-CH720N\n$129.00", max_chars=1000)
+
+    assert "Unrelated banner" not in condensed
+    assert "Sony WH-CH720N" in condensed
+
+
+def test_markup_without_a_body_still_yields_its_text() -> None:
+    assert "Sony XM5" in html_to_text("<div>Sony XM5</div><span>$328</span>")
+
+
+def test_noscript_and_svg_are_stripped_too() -> None:
+    text = html_to_text(
+        "<html><body><noscript>Enable JavaScript</noscript>"
+        "<svg><title>cart icon</title></svg><p>Sony XM5</p></body></html>"
+    )
+
+    assert "Enable JavaScript" not in text
+    assert "cart icon" not in text
+    assert "Sony XM5" in text
+
+
+def test_a_response_without_a_content_type_is_read_as_html(monkeypatch) -> None:
+    """Shops that omit the header still serve pages worth reading."""
+    stub_client(
+        monkeypatch,
+        lambda url: httpx.Response(
+            200, content=PAGE.encode(), request=httpx.Request("GET", url)
+        ),
+    )
+
+    with httpx.Client() as client:
+        assert "$129.99" in fetch_page(client, "https://shop.example", max_chars=1000)
+
+
+def test_a_page_with_no_figures_yields_no_content(monkeypatch) -> None:
+    stub_client(monkeypatch, lambda url: make_response(url, "<html><p>About us</p></html>"))
+
+    with httpx.Client() as client:
+        assert fetch_page(client, "https://about.example", max_chars=1000) == ""
+
+
+def test_enriching_nothing_fetches_nothing(monkeypatch) -> None:
+    def explode(url: str):
+        raise AssertionError(f"nothing should have been fetched, got {url}")
+
+    stub_client(monkeypatch, explode)
+
+    assert enrich([], max_chars=1000) == []
+
+
+def test_enrich_reports_how_many_pages_were_usable(monkeypatch, caplog) -> None:
+    def handler(url: str):
+        if "bad" in url:
+            raise httpx.ConnectError("refused")
+        return make_response(url, PAGE)
+
+    stub_client(monkeypatch, handler)
+    results = [
+        SearchResult(title="ok", url="https://good.example"),
+        SearchResult(title="down", url="https://bad.example"),
+    ]
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
+        enrich(results, max_chars=1000)
+
+    assert "Got usable page text from 1 of 2 result(s)" in caplog.text
+
+
+def test_pages_are_requested_as_a_browser_would(monkeypatch) -> None:
+    """Many shops answer python-httpx with a 403."""
+    captured: dict = {}
+
+    class Recorder:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc) -> None:
+            return None
+
+        def get(self, url: str):
+            return make_response(url, PAGE)
+
+    monkeypatch.setattr("buy_agent.fetch.httpx.Client", Recorder)
+
+    enrich([SearchResult(url="https://shop.example")], max_chars=100, timeout=2.5)
+
+    assert captured["timeout"] == 2.5
+    assert captured["follow_redirects"] is True
+    assert "Mozilla" in captured["headers"]["User-Agent"]
+
+
+def test_the_character_budget_is_per_page(monkeypatch) -> None:
+    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
+    results = [
+        SearchResult(url="https://a.example"),
+        SearchResult(url="https://b.example"),
+    ]
+
+    enriched = enrich(results, max_chars=40)
+
+    assert all(len(result.content) <= 41 for result in enriched)

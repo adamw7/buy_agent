@@ -4,8 +4,14 @@ from __future__ import annotations
 
 import pytest
 
+from buy_agent import verification
 from buy_agent.extraction import (
     EXTRACTION_PROMPT,
+    GENERIC_WORDS,
+    NAME_TOKENS,
+    QUERY_PROMPT,
+    build_extraction_chain,
+    build_query_chain,
     clean_name,
     clean_products,
     deduplicate,
@@ -13,7 +19,10 @@ from buy_agent.extraction import (
     looks_like_a_product,
     merge_variants,
 )
-from buy_agent.models import Product
+from buy_agent.models import Product, ProductList, SearchQuery
+from buy_agent.search import SearchResult
+
+from tests.conftest import FakeLLM
 
 
 def test_format_results_numbers_every_result(search_results) -> None:
@@ -199,3 +208,136 @@ def test_unrelated_products_are_left_alone() -> None:
     products = [Product(name="Sony WH-CH720N"), Product(name="JBL Tune 770NC")]
 
     assert len(merge_variants(products)) == 2
+
+
+def test_the_query_prompt_asks_for_a_shopping_query() -> None:
+    messages = QUERY_PROMPT.format_messages(request="a two person tent under $300")
+
+    assert "search query" in messages[0].content.lower()
+    assert "a two person tent under $300" in messages[1].content
+
+
+def test_the_query_chain_answers_with_a_search_query() -> None:
+    llm = FakeLLM(query=SearchQuery(query="two person tent price review"))
+
+    answer = build_query_chain(llm).invoke({"request": "a two person tent"})
+
+    assert answer.query == "two person tent price review"
+
+
+def test_the_extraction_chain_answers_with_a_product_list() -> None:
+    llm = FakeLLM(products=ProductList(products=[]))
+
+    answer = build_extraction_chain(llm).invoke(
+        {"request": "tents", "results": "[1] nothing", "limit": 3}
+    )
+
+    assert isinstance(answer, ProductList)
+
+
+def test_both_chains_ask_for_a_schema_constrained_answer() -> None:
+    """json_schema is what stops a small model answering with prose."""
+    calls: list[dict] = []
+
+    class Recorder(FakeLLM):
+        def with_structured_output(self, schema, **kwargs):
+            calls.append({"schema": schema, **kwargs})
+            return super().with_structured_output(schema, **kwargs)
+
+    llm = Recorder()
+    build_query_chain(llm)
+    build_extraction_chain(llm)
+
+    assert [call["schema"] for call in calls] == [SearchQuery, ProductList]
+    assert all(call["method"] == "json_schema" for call in calls)
+
+
+def test_format_results_includes_the_fetched_page_text() -> None:
+    rendered = format_results(
+        [SearchResult(title="Shop", url="https://s", snippet="s", content="JBL Live 780NC\n$149")]
+    )
+
+    assert "PAGE:" in rendered
+    assert "$149" in rendered
+
+
+def test_format_results_of_nothing_is_empty() -> None:
+    assert format_results([]) == ""
+
+
+def test_clean_name_keeps_only_what_precedes_the_first_publisher_bar() -> None:
+    assert clean_name("Sony WH-1000XM5 | Audio | Site") == "Sony WH-1000XM5"
+
+
+def test_clean_name_of_pure_page_furniture_is_empty() -> None:
+    """And an empty name never gets past looks_like_a_product."""
+    assert clean_name("Reviews") == ""
+    assert not looks_like_a_product("")
+
+
+def test_clean_name_leaves_a_name_with_nothing_to_strip_alone() -> None:
+    assert clean_name("Sony WH-1000XM5") == "Sony WH-1000XM5"
+
+
+def test_a_question_is_an_article_not_a_product() -> None:
+    assert not looks_like_a_product("Are the Sony XM5 worth it?")
+
+
+def test_a_blank_name_is_not_a_product() -> None:
+    assert not looks_like_a_product("   ")
+
+
+def test_clean_products_of_nothing_is_nothing() -> None:
+    assert clean_products([]) == []
+
+
+def test_clean_products_copies_rather_than_renaming_in_place() -> None:
+    original = Product(name="Sony WH-1000XM5 Review", price=328.0)
+
+    cleaned = clean_products([original])
+
+    assert original.name == "Sony WH-1000XM5 Review"
+    assert cleaned[0].name == "Sony WH-1000XM5"
+
+
+def test_deduplicate_of_nothing_is_nothing() -> None:
+    assert deduplicate([], limit=10) == []
+
+
+def test_the_limit_is_applied_after_merging_not_before() -> None:
+    """Two listings of one product plus a second product must not cost a slot."""
+    deduped = deduplicate(
+        [Product(name="Sony XM5"), Product(name="sony xm5"), Product(name="JBL 770NC")],
+        limit=2,
+    )
+
+    assert [product.name for product in deduped] == ["Sony XM5", "JBL 770NC"]
+
+
+def test_a_name_with_no_words_at_all_is_never_merged() -> None:
+    """Two nameless entries share no tokens, so they are not one product."""
+    assert len(merge_variants([Product(name="---"), Product(name="***")])) == 2
+
+
+def test_merging_ignores_case_and_word_order() -> None:
+    merged = merge_variants(
+        [Product(name="Sony WH-CH720N"), Product(name="sony wireless wh-ch720n")]
+    )
+
+    assert len(merged) == 1
+
+
+def test_merge_variants_of_nothing_is_nothing() -> None:
+    assert merge_variants([]) == []
+
+
+def test_generic_words_identify_nothing_on_their_own() -> None:
+    """A brand or a model number in this set would let an invented product pass grounding."""
+    assert not any(character.isdigit() for word in GENERIC_WORDS for character in word)
+    assert not {"sony", "bose", "anker", "jbl", "apple"} & GENERIC_WORDS
+
+
+def test_merging_and_grounding_read_a_name_the_same_way() -> None:
+    """They must agree on what a name's words are, or one contradicts the other."""
+    assert verification.NAME_TOKENS is NAME_TOKENS
+    assert verification.GENERIC_WORDS is GENERIC_WORDS

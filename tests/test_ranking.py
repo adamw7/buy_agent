@@ -127,3 +127,120 @@ def test_zero_weights_do_not_divide_by_zero() -> None:
     weights = RankingWeights(rating=0.0, popularity=0.0, price=0.0)
     ranked = rank_products([product("anything", price=10.0)], weights=weights)
     assert ranked[0].score == 0.0
+
+
+def popularity_of(review_count: int | None) -> float:
+    """The popularity term on its own, with the other criteria weighted out."""
+    return score_product(
+        product("x", review_count=review_count),
+        cheapest=None,
+        priciest=None,
+        weights=RankingWeights(rating=0.0, popularity=1.0, price=0.0),
+    )
+
+
+def test_popularity_saturates_past_a_thousand_reviews() -> None:
+    """Beyond a thousand, another thousand reviews says nothing new."""
+    assert popularity_of(999) == pytest.approx(1.0)
+    assert popularity_of(10_000) == pytest.approx(1.0)
+    assert popularity_of(1_000_000) == pytest.approx(1.0)
+
+
+def test_early_reviews_are_worth_more_than_late_ones() -> None:
+    """Ten reviews say much more than nothing; ten thousand say no more than a thousand."""
+    assert popularity_of(10) - popularity_of(1) > popularity_of(10_000) - popularity_of(1_000)
+
+
+def test_more_reviews_never_score_worse() -> None:
+    counts = [1, 10, 100, 999, 1_000, 50_000]
+    scores = [popularity_of(count) for count in counts]
+
+    assert scores == sorted(scores)
+
+
+def test_no_reviews_scores_neutral_rather_than_zero() -> None:
+    """An unreviewed listing is unknown, not unpopular."""
+    assert popularity_of(None) == pytest.approx(NEUTRAL)
+    assert popularity_of(0) == pytest.approx(NEUTRAL)
+
+
+def test_a_zero_rating_is_the_floor_and_a_missing_one_is_not() -> None:
+    """0.0 is a real, terrible score; None is an absent one. They must not tie."""
+    rating_only = RankingWeights(rating=1.0, popularity=0.0, price=0.0)
+    scored = score_product(
+        product("awful", rating=0.0), cheapest=None, priciest=None, weights=rating_only
+    )
+    absent = score_product(
+        product("unrated"), cheapest=None, priciest=None, weights=rating_only
+    )
+
+    assert scored == 0.0
+    assert absent == pytest.approx(NEUTRAL)
+
+
+def price_score(value: float, *, cheapest: float | None, priciest: float | None) -> float:
+    """The price term on its own."""
+    return score_product(
+        product("x", price=value),
+        cheapest=cheapest,
+        priciest=priciest,
+        weights=RankingWeights(rating=0.0, popularity=0.0, price=1.0),
+    )
+
+
+def test_the_cheapest_and_dearest_candidates_anchor_the_price_scale() -> None:
+    assert price_score(100.0, cheapest=100.0, priciest=200.0) == pytest.approx(1.0)
+    assert price_score(200.0, cheapest=100.0, priciest=200.0) == pytest.approx(0.0)
+    assert price_score(150.0, cheapest=100.0, priciest=200.0) == pytest.approx(0.5)
+
+
+def test_price_scores_neutral_when_nothing_in_the_set_has_a_price() -> None:
+    assert price_score(10.0, cheapest=None, priciest=None) == pytest.approx(NEUTRAL)
+
+
+def test_an_unpriced_product_among_priced_ones_scores_neutral_on_price() -> None:
+    scored = score_product(
+        product("unpriced"),
+        cheapest=10.0,
+        priciest=900.0,
+        weights=RankingWeights(rating=0.0, popularity=0.0, price=1.0),
+    )
+
+    assert scored == pytest.approx(NEUTRAL)
+
+
+def test_ranking_does_not_reorder_the_caller_s_list() -> None:
+    products = [product("zeta", rating=1.0), product("alpha", rating=5.0)]
+
+    rank_products(products)
+
+    assert [entry.name for entry in products] == ["zeta", "alpha"]
+
+
+def test_ranking_keeps_every_product_it_was_given() -> None:
+    """rank_products orders; dropping is verification's job, done earlier."""
+    products = [product(f"product {index}") for index in range(7)]
+
+    assert len(rank_products(products)) == 7
+
+
+def test_sorting_by_price_still_reports_the_blended_score() -> None:
+    """--sort-by price changes the order, not what a score means."""
+    ranked = rank_products(
+        [
+            product("dear but excellent", price=300.0, rating=5.0),
+            product("cheap but poor", price=30.0, rating=1.0),
+        ],
+        sort_by="price",
+    )
+
+    assert [entry.rank for entry in ranked] == [1, 2]
+    assert ranked[0].product.name == "cheap but poor"
+    assert ranked[1].score > ranked[0].score, "the score is unaffected by the sort order"
+
+
+def test_a_single_product_ranks_first() -> None:
+    ranked = rank_products([product("alone", price=10.0, rating=4.0)])
+
+    assert ranked[0].rank == 1
+    assert 0.0 <= ranked[0].score <= 1.0

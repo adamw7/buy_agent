@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 
 import pytest
-from ollama import ResponseError
+from ollama import RequestError, ResponseError
 
 from buy_agent.agent import BuyAgent, OllamaUnavailableError
 from buy_agent.config import AgentConfig
-from buy_agent.models import ProductList, SearchQuery
-from buy_agent.search import SearchError
+from buy_agent.models import ExtractedProduct, ProductList, SearchQuery
+from buy_agent.search import SearchError, SearchResult
 
 from tests.conftest import FakeLLM
 
@@ -320,3 +321,251 @@ def test_an_injected_model_bypasses_chat_ollama(recorded_chat_ollama) -> None:
 
     assert agent.llm is llm
     assert recorded_chat_ollama == {}
+
+
+@pytest.fixture
+def installed_models(monkeypatch):
+    """Stand in for ollama.Client, so listing models never opens a socket."""
+
+    def install(models: list[str] | None, *, error: Exception | None = None) -> None:
+        class FakeClient:
+            def __init__(self, base_url: str) -> None:
+                if error is not None:
+                    raise error
+
+            def list(self):
+                return SimpleNamespace(
+                    models=[SimpleNamespace(model=name) for name in models or []]
+                )
+
+        monkeypatch.setattr("ollama.Client", FakeClient)
+
+    return install
+
+
+def test_the_missing_model_error_names_what_is_installed(
+    agent_factory, search_results, installed_models
+) -> None:
+    """Half of these failures are a typo in the tag, so show the real ones."""
+    installed_models(["lfm2.5:latest", "qwen3:8b"])
+    llm = FakeLLM(raises=ResponseError("model 'llama3.2' not found", 404))
+    agent, _ = agent_factory(llm, search_results, model="llama3.2")
+
+    with pytest.raises(OllamaUnavailableError, match="lfm2.5:latest, qwen3:8b"):
+        agent.run("headphones")
+
+
+def test_an_ollama_with_nothing_pulled_reports_none(
+    agent_factory, search_results, installed_models
+) -> None:
+    installed_models([])
+    llm = FakeLLM(raises=ResponseError("model 'llama3.2' not found", 404))
+    agent, _ = agent_factory(llm, search_results, model="llama3.2")
+
+    with pytest.raises(OllamaUnavailableError, match="installed: none"):
+        agent.run("headphones")
+
+
+def test_an_unlistable_server_still_gives_the_pull_command(
+    agent_factory, search_results, installed_models
+) -> None:
+    """Whatever else is broken, 'ollama pull' is still the thing to try."""
+    installed_models(None, error=ConnectionError("refused"))
+    llm = FakeLLM(raises=ResponseError("model 'llama3.2' not found", 404))
+    agent, _ = agent_factory(llm, search_results, model="llama3.2")
+
+    with pytest.raises(OllamaUnavailableError, match="installed: unknown"):
+        agent.run("headphones")
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        RequestError("malformed request"),
+        ConnectionError("connection refused"),
+        OSError("socket died"),
+    ],
+)
+def test_transport_failures_all_become_one_actionable_error(
+    agent_factory, search_results, error
+) -> None:
+    agent, _ = agent_factory(FakeLLM(raises=error), search_results)
+
+    with pytest.raises(OllamaUnavailableError, match="ollama serve"):
+        agent.run("headphones")
+
+
+def test_a_missing_ollama_is_not_papered_over_by_the_query_fallback(
+    agent_factory, search_results
+) -> None:
+    """Refinement is recoverable; searching with a model that is not there is not."""
+    agent, calls = agent_factory(FakeLLM(raises=ConnectionError("refused")), search_results)
+
+    with pytest.raises(OllamaUnavailableError):
+        agent.run("headphones")
+
+    assert calls == [], "the search must not run without a working model"
+
+
+def test_the_request_is_stripped_before_it_reaches_the_model(
+    agent_factory, search_results, extracted_products
+) -> None:
+    llm = FakeLLM(products=extracted_products)
+    agent, _ = agent_factory(llm, search_results)
+
+    agent.run("  wireless earbuds \n")
+
+    assert llm.calls[0].to_messages()[-1].content.endswith("wireless earbuds")
+
+
+def test_the_extraction_prompt_gets_the_results_and_the_limit(
+    agent_factory, search_results, extracted_products
+) -> None:
+    llm = FakeLLM(products=extracted_products)
+    agent, _ = agent_factory(llm, search_results, num_products=4)
+
+    agent.run("headphones")
+
+    system, human = llm.calls[1].to_messages()
+    assert "at most 4 distinct products" in system.content
+    assert "https://example.com/sony" in human.content
+
+
+def test_sort_by_reaches_the_ranking(
+    agent_factory, search_results, extracted_products
+) -> None:
+    agent, _ = agent_factory(FakeLLM(products=extracted_products), search_results)
+
+    ranked = agent.run("headphones", sort_by="price")
+
+    assert [entry.product.price for entry in ranked] == [79.0, 328.0, None]
+
+
+def test_the_number_of_products_kept_is_capped(
+    agent_factory, search_results, extracted_products
+) -> None:
+    agent, _ = agent_factory(FakeLLM(products=extracted_products), search_results, num_products=1)
+
+    assert len(agent.run("headphones")) == 1
+
+
+def _one_page(content: str) -> tuple[list, list]:
+    """A single result, and the same result once its page has been read."""
+    found = [
+        SearchResult(
+            title="JBL Live 780NC deal",
+            url="https://shop.example/jbl",
+            snippet="Great headphones.",
+        )
+    ]
+    return found, [found[0].model_copy(update={"content": content})]
+
+
+def test_a_figure_only_on_the_fetched_page_is_still_grounded(monkeypatch) -> None:
+    """Extraction and verification must be handed the same text, or nothing passes."""
+    found, fetched = _one_page("JBL Live 780NC\n$149.00\nRated 4.4 out of 5")
+    monkeypatch.setattr("buy_agent.agent.search_web", lambda *_a, **_k: found)
+    monkeypatch.setattr("buy_agent.agent.enrich", lambda _results, **_k: fetched)
+    llm = FakeLLM(
+        products=ProductList(
+            products=[
+                ExtractedProduct(name="JBL Live 780NC", price=149.0, currency="USD", rating=4.4)
+            ]
+        )
+    )
+
+    ranked = BuyAgent(AgentConfig(), llm=llm).run("headphones")
+
+    assert ranked[0].product.price == 149.0
+    assert ranked[0].product.rating == 4.4
+
+
+def test_without_the_page_the_same_figures_are_unsupported(monkeypatch) -> None:
+    """Snippets alone back nothing, so with --no-fetch the figures are blanked."""
+    found, _ = _one_page("JBL Live 780NC\n$149.00\nRated 4.4 out of 5")
+    monkeypatch.setattr("buy_agent.agent.search_web", lambda *_a, **_k: found)
+    llm = FakeLLM(
+        products=ProductList(
+            products=[
+                ExtractedProduct(name="JBL Live 780NC", price=149.0, currency="USD", rating=4.4)
+            ]
+        )
+    )
+
+    ranked = BuyAgent(AgentConfig(fetch_pages=False), llm=llm).run("headphones")
+
+    assert ranked[0].product.name == "JBL Live 780NC"
+    assert ranked[0].product.price is None
+    assert ranked[0].product.rating is None
+
+
+def test_the_report_is_logged_even_when_the_top_n_exceeds_what_was_found(
+    agent_factory, search_results, extracted_products, caplog
+) -> None:
+    agent, _ = agent_factory(FakeLLM(products=extracted_products), search_results, top_n=10)
+
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        agent.run("headphones")
+
+    assert "TOP 3 OF 3 PRODUCTS" in caplog.text
+
+
+def test_a_name_wearing_a_headline_is_cleaned_before_it_is_grounded(monkeypatch) -> None:
+    """Grounding must not fail a real product for words the page never had to contain."""
+    found = [
+        SearchResult(
+            title="Sennheiser HD 450BT",
+            url="https://shop.example/sennheiser",
+            snippet="$129 today.",
+        )
+    ]
+    monkeypatch.setattr("buy_agent.agent.search_web", lambda *_a, **_k: found)
+    llm = FakeLLM(
+        products=ProductList(
+            products=[
+                ExtractedProduct(
+                    name="Sennheiser HD 450BT Review | Gadget Site Weekly", price=129.0
+                )
+            ]
+        )
+    )
+
+    ranked = BuyAgent(AgentConfig(fetch_pages=False), llm=llm).run("headphones")
+
+    assert [entry.product.name for entry in ranked] == ["Sennheiser HD 450BT"]
+    assert ranked[0].product.price == 129.0
+
+
+def test_listings_are_grounded_before_they_are_merged(monkeypatch) -> None:
+    """Merging picks the fuller listing, so invented figures must be gone by then."""
+    found = [
+        SearchResult(
+            title="Sony WH-CH720N deal",
+            url="https://real.example",
+            snippet="Now $129 at the shop.",
+        )
+    ]
+    monkeypatch.setattr("buy_agent.agent.search_web", lambda *_a, **_k: found)
+    llm = FakeLLM(
+        products=ProductList(
+            products=[
+                ExtractedProduct(name="Sony WH-CH720N", price=129.0, url="https://real.example"),
+                ExtractedProduct(
+                    name="Sony WH-CH720N Wireless",
+                    price=99.0,
+                    rating=4.9,
+                    review_count=5,
+                    url="https://invented.example",
+                ),
+            ]
+        )
+    )
+
+    ranked = BuyAgent(AgentConfig(fetch_pages=False), llm=llm).run("headphones")
+
+    assert len(ranked) == 1
+    product = ranked[0].product
+    assert product.price == 129.0, "the supported price must survive the merge"
+    assert product.url == "https://real.example", "invented figures must not win completeness"
+    assert product.rating is None
+    assert product.review_count is None
