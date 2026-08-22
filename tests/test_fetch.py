@@ -291,3 +291,35 @@ def test_the_character_budget_is_per_page(monkeypatch) -> None:
     enriched = enrich(results, max_chars=40)
 
     assert all(len(result.content) <= 41 for result in enriched)
+
+
+def test_the_budget_counts_the_newline_between_segments() -> None:
+    """The budget is for the text as joined, so each segment costs its newline too."""
+    text = "Price $10\nPrice $20\nPrice $30"
+
+    assert condense(text, max_chars=28).splitlines() == ["Price $10", "Price $20"]
+    assert len(condense(text, max_chars=28)) <= 28
+
+
+def test_pages_are_asked_for_in_english(monkeypatch) -> None:
+    """A shop that answers in the local language yields prices in another currency."""
+    captured: dict = {}
+
+    class Recorder:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc) -> None:
+            return None
+
+        def get(self, url: str):
+            return make_response(url, PAGE)
+
+    monkeypatch.setattr("buy_agent.fetch.httpx.Client", Recorder)
+
+    enrich([SearchResult(url="https://shop.example")], max_chars=100)
+
+    assert captured["headers"]["Accept-Language"].startswith("en")
