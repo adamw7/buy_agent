@@ -15,7 +15,7 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
-from buy_agent.extraction import GENERIC_WORDS
+from buy_agent.extraction import GENERIC_WORDS, NAME_TOKENS
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -26,7 +26,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _THOUSANDS_SEPARATOR = re.compile(r"(?<=\d),(?=\d)")
-_NAME_TOKENS = re.compile(r"[a-z0-9]+")
 
 #: Fraction of a name's distinctive words that must appear in the sources.
 _NAME_COVERAGE = 0.6
@@ -101,7 +100,7 @@ def mentions_name(haystack: str, name: str) -> bool:
     """
     tokens = [
         token
-        for token in _NAME_TOKENS.findall(name.lower())
+        for token in NAME_TOKENS.findall(name.lower())
         if token not in GENERIC_WORDS
     ]
     if not tokens:
@@ -111,16 +110,13 @@ def mentions_name(haystack: str, name: str) -> bool:
     return found / len(tokens) >= _NAME_COVERAGE
 
 
-def drop_ungrounded(
-    products: Sequence[Product], results: Sequence[SearchResult]
-) -> list[Product]:
-    """Remove products the search results never mention.
+def drop_ungrounded(products: Sequence[Product], haystack: str) -> list[Product]:
+    """Remove products ``haystack`` never mentions.
 
     A small model will carry a product straight out of the prompt's own example
     -- a search for headphones returning an electric kettle -- and a name absent
     from every result cannot have been read from one.
     """
-    haystack = build_haystack(results)
     kept = [product for product in products if mentions_name(haystack, product.name)]
     dropped = len(products) - len(kept)
     if dropped:
@@ -132,14 +128,12 @@ def ground(
     products: Sequence[Product], results: Sequence[SearchResult]
 ) -> list[Product]:
     """Keep only what the sources support: real products, with real figures."""
-    return verify_numbers(drop_ungrounded(products, results), results)
-
-
-def verify_numbers(
-    products: Sequence[Product], results: Sequence[SearchResult]
-) -> list[Product]:
-    """Blank out any price, rating or review count the sources do not contain."""
     haystack = build_haystack(results)
+    return verify_numbers(drop_ungrounded(products, haystack), haystack)
+
+
+def verify_numbers(products: Sequence[Product], haystack: str) -> list[Product]:
+    """Blank out any price, rating or review count ``haystack`` does not contain."""
     verified: list[Product] = []
     dropped = 0
 

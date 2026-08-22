@@ -117,7 +117,9 @@ GENERIC_WORDS = frozenset(
     """.split()
 )
 
-_NAME_TOKENS = re.compile(r"[a-z0-9]+")
+#: How a name is broken into words, shared with :mod:`buy_agent.verification` --
+#: merging and grounding must agree on what a name's words are.
+NAME_TOKENS = re.compile(r"[a-z0-9]+")
 
 
 def build_query_chain(llm: BaseChatModel) -> Runnable:
@@ -221,8 +223,8 @@ def merge_variants(products: Sequence[Product]) -> list[Product]:
 
 def _same_product(left: str, right: str) -> bool:
     """Whether two names identify the same thing modulo descriptive words."""
-    left_tokens = frozenset(_NAME_TOKENS.findall(left.lower()))
-    right_tokens = frozenset(_NAME_TOKENS.findall(right.lower()))
+    left_tokens = frozenset(NAME_TOKENS.findall(left.lower()))
+    right_tokens = frozenset(NAME_TOKENS.findall(right.lower()))
     if not left_tokens or not right_tokens:
         return False
     if not (left_tokens <= right_tokens or right_tokens <= left_tokens):

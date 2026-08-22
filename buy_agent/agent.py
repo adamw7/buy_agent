@@ -125,7 +125,7 @@ class BuyAgent:
             logger.warning("Query refinement failed; using the raw request", exc_info=True)
             return request
 
-        query = str(getattr(refined, "query", "") or "").strip()
+        query = refined.query.strip()
         if not query:
             return request
         logger.info("Refined search query: %s", query)
@@ -144,7 +144,7 @@ class BuyAgent:
                 "limit": self.config.num_products,
             },
         )
-        products = [item.to_product() for item in extracted.products if item.name.strip()]
+        products = [item.to_product() for item in extracted.products]
         logger.info("Extracted %d candidate(s)", len(products))
         grounded = ground(clean_products(products), results)
         return deduplicate(grounded, self.config.num_products)

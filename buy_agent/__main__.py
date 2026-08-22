@@ -5,17 +5,18 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import sys
 from pathlib import Path
 
 from buy_agent.agent import BuyAgent, OllamaUnavailableError
-from buy_agent.config import DEFAULT_BASE_URL, DEFAULT_MODEL, AgentConfig
+from buy_agent.config import AgentConfig
 from buy_agent.logging_setup import configure_logging
-from buy_agent.ranking import RankingWeights
 from buy_agent.search import SearchError
 
 logger = logging.getLogger("buy_agent")
+
+#: The flag defaults are the config's own, so the two cannot drift apart.
+_DEFAULTS = AgentConfig()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,18 +27,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("request", help="What you want to buy, in plain words.")
     parser.add_argument(
         "--model",
-        default=DEFAULT_MODEL,
-        help=f"Ollama model tag (default: {DEFAULT_MODEL}, override with $OLLAMA_MODEL).",
+        default=_DEFAULTS.model,
+        help=f"Ollama model tag (default: {_DEFAULTS.model}, override with $OLLAMA_MODEL).",
     )
     parser.add_argument(
-        "--base-url", default=os.getenv("OLLAMA_HOST", DEFAULT_BASE_URL),
-        help=f"Ollama server URL (default: {DEFAULT_BASE_URL}, override with $OLLAMA_HOST).",
+        "--base-url",
+        default=_DEFAULTS.base_url,
+        help=f"Ollama server URL (default: {_DEFAULTS.base_url}, override with $OLLAMA_HOST).",
     )
     parser.add_argument(
-        "--results", type=int, default=10, help="How many products to find (default: 10)."
+        "--results",
+        type=int,
+        default=_DEFAULTS.num_products,
+        help=f"How many products to find (default: {_DEFAULTS.num_products}).",
     )
     parser.add_argument(
-        "--top", type=int, default=3, help="How many products to log (default: 3)."
+        "--top",
+        type=int,
+        default=_DEFAULTS.top_n,
+        help=f"How many products to log (default: {_DEFAULTS.top_n}).",
     )
     parser.add_argument(
         "--sort-by",
@@ -46,15 +54,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Ranking criterion (default: score, a blend of rating, reviews and price).",
     )
     parser.add_argument(
-        "--region", default="us-en", help="Search region, e.g. us-en, uk-en, pl-pl."
+        "--region", default=_DEFAULTS.region, help="Search region, e.g. us-en, uk-en, pl-pl."
     )
     parser.add_argument(
-        "--temperature", type=float, default=0.0, help="Model temperature (default: 0.0)."
+        "--temperature",
+        type=float,
+        default=_DEFAULTS.temperature,
+        help=f"Model temperature (default: {_DEFAULTS.temperature}).",
     )
     parser.add_argument(
         "--num-ctx",
         type=int,
-        default=None,
+        default=_DEFAULTS.num_ctx,
         help="Context window in tokens (default: Ollama's own, usually 4096). The "
         "extraction prompt runs to ~3.3k tokens, so a larger window leaves room for "
         "more products; 8192 is a good starting point.",
@@ -62,7 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--think",
         action=argparse.BooleanOptionalAction,
-        default=None,
+        default=_DEFAULTS.reasoning,
         help="Force the model's thinking mode on or off (default: leave it alone). "
         "Thinking models need --no-think: they reason until the context runs out and "
         "never answer.",
@@ -94,7 +105,6 @@ def main(argv: list[str] | None = None) -> int:
         top_n=args.top,
         region=args.region,
         fetch_pages=args.fetch,
-        weights=RankingWeights(),
     )
 
     try:
