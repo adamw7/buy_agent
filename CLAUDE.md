@@ -28,7 +28,7 @@ python -m buy_agent "espresso machine" --model lfm2.5 -v
 ```
 
 There is no linter. CI (`.github/workflows/ci.yml`) installs
-`requirements-dev.txt` and runs `python -m pytest` on Python 3.11, 3.12 and 3.13
+`requirements-dev.txt` and runs `python -m pytest` on Python 3.13
 for pushes to `main` and for every pull request. `pytest.ini` sets
 `pythonpath = .`, which is why the package imports without being installed.
 
