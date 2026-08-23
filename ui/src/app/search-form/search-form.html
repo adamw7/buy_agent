@@ -1,0 +1,131 @@
+<form class="card form" (ngSubmit)="submit()">
+  <label class="field request">
+    <span>What do you want to buy?</span>
+    <input
+      name="request"
+      type="text"
+      autocomplete="off"
+      placeholder="wireless noise cancelling headphones under $200"
+      [(ngModel)]="request"
+      [disabled]="running()"
+    />
+  </label>
+
+  <div class="actions">
+    @if (running()) {
+      <button type="button" class="secondary" (click)="stop.emit()">Stop</button>
+    } @else {
+      <button type="submit" [disabled]="!canSubmit()">Find products</button>
+    }
+  </div>
+
+  <div class="examples">
+    @for (example of examples; track example) {
+      <button
+        type="button"
+        class="pill example"
+        [disabled]="running()"
+        (click)="useExample(example)"
+      >
+        {{ example }}
+      </button>
+    }
+  </div>
+
+  <details class="advanced" [open]="advanced()" (toggle)="advanced.set($any($event.target).open)">
+    <summary>Settings</summary>
+
+    <div class="grid">
+      <label class="field">
+        <span>Model</span>
+        <input name="model" list="installed-models" [(ngModel)]="model" [disabled]="running()" />
+        <datalist id="installed-models">
+          @for (name of status()?.models ?? []; track name) {
+            <option [value]="name"></option>
+          }
+        </datalist>
+      </label>
+
+      <label class="field">
+        <span>Ollama server</span>
+        <input name="baseUrl" [(ngModel)]="baseUrl" [disabled]="running()" />
+      </label>
+
+      <label class="field">
+        <span>Region</span>
+        <input name="region" placeholder="us-en" [(ngModel)]="region" [disabled]="running()" />
+      </label>
+
+      <label class="field">
+        <span>Products to find</span>
+        <input
+          name="results"
+          type="number"
+          min="1"
+          max="50"
+          [(ngModel)]="results"
+          [disabled]="running()"
+        />
+      </label>
+
+      <label class="field">
+        <span>Products to highlight</span>
+        <input name="top" type="number" min="1" max="50" [(ngModel)]="top" [disabled]="running()" />
+      </label>
+
+      <label class="field">
+        <span>Rank by</span>
+        <select name="sortBy" [(ngModel)]="sortBy" [disabled]="running()">
+          @for (option of sortOptions(); track option) {
+            <option [value]="option">{{ option }}</option>
+          }
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Temperature</span>
+        <input
+          name="temperature"
+          type="number"
+          min="0"
+          max="2"
+          step="0.1"
+          [(ngModel)]="temperature"
+          [disabled]="running()"
+        />
+      </label>
+
+      <label class="field">
+        <span>Context window</span>
+        <input
+          name="numCtx"
+          type="number"
+          min="1"
+          placeholder="Ollama's own (4096)"
+          [(ngModel)]="numCtx"
+          [disabled]="running()"
+        />
+        <small>Thinking models need 8192 to leave room for an answer.</small>
+      </label>
+
+      <label class="field">
+        <span>Thinking mode</span>
+        <select name="thinking" [(ngModel)]="thinking" [disabled]="running()">
+          <option value="default">Leave the model alone</option>
+          <option value="off">Off — needed by thinking models</option>
+          <option value="on">On</option>
+        </select>
+      </label>
+
+      <label class="field checkbox">
+        <input name="fetch" type="checkbox" [(ngModel)]="fetchPages" [disabled]="running()" />
+        <span>Read the result pages</span>
+      </label>
+    </div>
+
+    <p class="hint">
+      Turning off page reading falls back to search snippets: much faster, but snippets rarely quote
+      a price.
+    </p>
+  </details>
+</form>

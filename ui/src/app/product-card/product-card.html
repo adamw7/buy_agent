@@ -1,0 +1,37 @@
+<article class="card product">
+  <div class="rank" [attr.aria-label]="'Rank ' + product().rank">#{{ product().rank }}</div>
+
+  <div class="body">
+    <h3>
+      @if (product().url) {
+        <a [href]="product().url" target="_blank" rel="noreferrer noopener">{{ product().name }}</a>
+      } @else {
+        {{ product().name }}
+      }
+    </h3>
+
+    <div class="figures">
+      <span class="price" [class.unknown]="product().price === null">{{
+        product().price_label
+      }}</span>
+      <span class="pill" [class.unknown]="product().rating === null">{{
+        product().rating_label
+      }}</span>
+      @if (product().seller) {
+        <span class="pill">{{ product().seller }}</span>
+      }
+      @if (host()) {
+        <span class="pill">{{ host() }}</span>
+      }
+    </div>
+
+    @if (product().notes) {
+      <p class="notes">{{ product().notes }}</p>
+    }
+
+    <div class="score" [attr.title]="'Score ' + product().score">
+      <div class="track"><div class="fill" [style.inline-size.%]="percent()"></div></div>
+      <span>{{ percent() }}</span>
+    </div>
+  </div>
+</article>

@@ -1,0 +1,101 @@
+.masthead {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.inner,
+main {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-block: 22px;
+}
+
+h1 {
+  font-family: var(--mono);
+  font-size: 20px;
+}
+
+.brand p {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin: 6px 0 0;
+}
+
+.ollama {
+  border: 1px solid var(--border);
+  cursor: pointer;
+  color: var(--text-dim);
+}
+
+.ollama .dot {
+  color: var(--bad);
+}
+
+.ollama.up .dot {
+  color: var(--good);
+}
+
+main {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-block: 24px 64px;
+}
+
+.banner {
+  padding: 14px 18px;
+  margin: 0;
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.banner.quiet {
+  border-color: var(--border);
+  color: var(--text-dim);
+}
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.results h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-dim);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.also {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.also summary {
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding-block: 6px;
+  width: fit-content;
+}
+
+@media (width < 640px) {
+  .inner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
