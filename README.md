@@ -203,7 +203,7 @@ python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
 cd ui; npm test               # the UI's own tests, in jsdom
 ```
 
-341 Python tests and 35 UI tests. Nothing in either suite touches the network or
+342 Python tests and 35 UI tests. Nothing in either suite touches the network or
 Ollama: the model is faked through the `llm=` argument of `BuyAgent`, both the
 search backend and the page fetcher are monkeypatched, and the server tests
 inject a stub agent through `create_server(agent_factory=...)`. The only real
