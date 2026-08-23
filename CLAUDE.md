@@ -20,20 +20,28 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt          # runtime deps: requirements.txt
 
-python -m pytest                              # whole suite (~0.2s)
+python -m pytest                              # whole suite (~2s)
 python -m pytest tests/test_ranking.py        # one file
 python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
 python -m pytest -k verification              # by name
 
 python -m buy_agent "gaming laptop under $1500"          # run the agent
 python -m buy_agent "espresso machine" --model lfm2.5 -v
+python -m buy_agent "running shoes" --sort-by price --json results.json
 
 python -m buy_agent.server                    # the UI and its API on :8000
 ```
 
+`$OLLAMA_MODEL` and `$OLLAMA_HOST` move the model and server defaults, and every
+CLI flag defaults to the matching `AgentConfig` field, so a new setting is added
+in `config.py` and picked up rather than repeated. `buy_agent.server` wants the
+UI built first: without `ui/dist/ui/browser` the API still answers and the page
+is a 503 saying how to build it (`--ui-dir` points at a build elsewhere).
+
 The UI is a separate, ordinary Angular workspace in `ui/`, with its own
-`package.json` and its own tests. Node 22.22.3+ or 24.15+; nothing in the Python
-side needs it.
+`package.json` and its own tests. Angular 22 on Node 22.22.3+, 24.15+ or 26+ --
+older Node is refused by the Angular CLI, not by anything here. Nothing in the
+Python side needs Node at all.
 
 ```powershell
 cd ui
@@ -46,8 +54,9 @@ npm start                                     # dev server on :4200, proxying /a
 There is no Python linter; the UI has Prettier (`npx prettier --write "src/**/*"`).
 CI (`.github/workflows/ci.yml`) runs two jobs for pushes to `main` and for every
 pull request: `python -m pytest` on Python 3.13, and `npm test && npm run build`
-in `ui/` on Node 22. `pytest.ini` sets `pythonpath = .`, which is why the package
-imports without being installed.
+in `ui/` on Node 22.22.3. `pytest.ini` sets `pythonpath = .`, which is why the
+package imports without being installed, plus `testpaths = tests` and
+`addopts = -q --strict-markers`.
 
 ## Architecture
 
@@ -84,7 +93,7 @@ back.
 | `api.py` | Request options in, ranked products out -- the web-facing half worth testing |
 | `server.py` | A stdlib HTTP server: the JSON API, the event stream, the built UI |
 
-Four conventions matter when changing this code:
+Five conventions matter when changing this code:
 
 - **`ExtractedProduct` uses sentinels, `Product` uses `None`.** The LLM-facing
   schema asks for `-1`/`""` rather than nullable fields: Ollama compiles the JSON
@@ -98,12 +107,19 @@ Four conventions matter when changing this code:
   same text, or the check rejects everything -- this is why `fetch.enrich()` puts
   page content on `SearchResult` rather than passing it around separately.
 - **`GENERIC_WORDS` is shared, and edits to it pull in two directions.**
-  `verification.py` imports the set from `extraction.py`. Adding a word makes
-  `merge_variants` fold *more* names into one product, and at the same time makes
-  `mentions_name` stricter -- ignored words leave fewer distinctive tokens to
-  clear the 0.6 coverage bar. Only ever add words that identify nothing
-  ("wireless", "black"); a brand or a model number there would let an invented
-  product pass grounding.
+  `verification.py` imports the set from `extraction.py` (along with
+  `NAME_TOKENS`, so merging and grounding agree on what a name's words are).
+  Adding a word makes `merge_variants` fold *more* names into one product, and at
+  the same time makes `mentions_name` stricter -- ignored words leave fewer
+  distinctive tokens to clear the 0.6 coverage bar. Only ever add words that
+  identify nothing ("wireless", "black"); a brand or a model number there would
+  let an invented product pass grounding.
+- **Missing data scores neutral, not zero.** `ranking.NEUTRAL` is 0.5, and an
+  unknown rating, review count or price scores that. Grounding blanks figures the
+  sources did not back, so scoring a blank as 0 would punish a product for the
+  extractor's misses rather than for anything about the product. For the same
+  reason `sort_by="price"` and `"rating"` sink products missing that field to the
+  bottom instead of dropping them.
 - **Model output is never trusted as judgement.** The model reports article
   headlines as products; `clean_products` filters them. Anything that decides the
   answer -- filtering, scoring, ordering -- belongs in Python, where it is testable.
@@ -117,6 +133,12 @@ Within the agent only query refinement is recoverable: it falls back to the raw
 request, but lets `OllamaUnavailableError` through rather than searching with a
 model that is not there.
 
+The CLI and the API are two ways of filling in the same `AgentConfig`, and both
+set `search_results = max(results, top)` -- searching for fewer pages than the
+report intends to show would cap the report. A new option belongs in
+`__main__.build_parser`, `api.parse_options` and `api.defaults_payload`, which is
+what seeds the web form.
+
 ## The UI and its server
 
 `buy_agent.server` is stdlib-only on purpose -- the dependency list is already
@@ -125,22 +147,43 @@ one person does not need a framework under it. It hands `/api` to `api.py` and
 everything else to the built Angular app, with unknown paths falling back to
 `index.html` so the app keeps its own routing.
 
-Three things there are load-bearing:
+| Endpoint | Answers with |
+| --- | --- |
+| `GET /api/config` | The form's defaults -- the same ones `--help` prints |
+| `GET /api/models` | Which models Ollama has pulled, or why it could not be asked |
+| `POST /api/search` | One run, as JSON |
+| `GET /api/search/stream` | One run, as SSE: `log` lines, then `result` or `failure` |
+
+Four things there are load-bearing:
 
 - **A run is streamed, not requested.** A search takes tens of seconds, so
   `GET /api/search/stream` runs the agent in a worker thread and relays its log
   lines as Server-Sent Events while it works. `_LogRelay` routes records by the
   thread that produced them, which is what keeps two concurrent runs from seeing
-  each other's progress. `POST /api/search` is the same run in one response.
+  each other's progress. Extraction is slow and logs nothing while it runs, so a
+  `ping` event goes out every 15s to keep browsers and proxies from timing the
+  stream out. `POST /api/search` is the same run in one response.
 - **The stream's failure event is called `failure`, not `error`.** A browser's
   `EventSource` delivers transport errors under `error` and then reconnects; a
   named `error` event would be indistinguishable from a dropped connection, and
-  the reconnect would silently start the whole search again.
+  the reconnect would silently start the whole search again. For the same reason
+  `HEAD /api/search/stream` answers 405 rather than starting a run nobody reads.
 - **The browser decides nothing.** Ranking, grounding and even the wording of an
   unknown price stay in Python: `product_payload` sends `price_label` and
   `rating_label` next to the raw figures, and `sort_by` is a request parameter
   rather than a client-side re-sort. The same rule as `clean_products` -- whatever
-  decides the answer belongs where it is testable.
+  decides the answer belongs where it is testable. `ui/src/app/agent.types.ts`
+  mirrors those payloads for TypeScript, so a field added to `api.py` is added
+  there too.
+- **A blank value means "use the default".** `api.parse_options` treats a missing
+  key and an empty string alike, because an empty form field means "unset", not
+  "zero" -- and the UI's `toQuery` drops blanks for the same reason. Values that
+  are present but unusable raise `ApiError` with the status the client deserves.
+
+`server._CONTENT_TYPES` spells out the types `ng build` emits rather than leaving
+them to `mimetypes`, which reads the registry on Windows and can answer
+`text/plain` for `.js` -- which a browser refuses to run as a module, leaving a
+blank page and no error.
 
 `create_server(agent_factory=...)` is the seam the server tests inject a stub
 agent through, the way `BuyAgent(config, llm=...)` is for the pipeline. Angular
@@ -159,11 +202,12 @@ lists the installed models to name them in an error. Patching `DDGS.text` does
 class. No test touches the network or Ollama; keep it that way. The server tests are
 the one exception to "no sockets": they bind loopback, because routing and status
 codes are what they are about. They pass `serve_forever(0.01)` -- the default 0.5s
-poll would otherwise cost half a second per test on shutdown. 341 tests run in
-under a second, plus roughly a second for the one test that spawns an interpreter
-to check `python -m buy_agent` still runs as a script -- so a run that takes
-several seconds still means something is reaching out. The UI's 35 tests run in
-about two seconds, most of which is building the app first.
+poll would otherwise cost half a second per test on shutdown. 342 tests run in
+under a second, plus about another second for the one test that spawns an
+interpreter to check `python -m buy_agent` still runs as a script -- so a run that
+takes several seconds still means something is reaching out. The UI's 35 tests
+run in about two seconds, most of which is building the app first. `README.md`
+quotes both counts, so a new test file is two edits.
 
 ## Environment
 
