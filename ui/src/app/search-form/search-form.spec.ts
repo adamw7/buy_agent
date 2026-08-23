@@ -24,6 +24,14 @@ describe('SearchForm', () => {
   const element = <T extends HTMLElement>(selector: string): T =>
     fixture.nativeElement.querySelector(selector) as T;
 
+  /** A second form, rendered after storage has been set up by the test. */
+  const seeded = async (): Promise<HTMLElement> => {
+    const next = TestBed.createComponent(SearchForm);
+    next.componentRef.setInput('defaults', DEFAULTS);
+    await next.whenStable();
+    return next.nativeElement as HTMLElement;
+  };
+
   const type = async (selector: string, value: string) => {
     const input = element<HTMLInputElement>(selector);
     input.value = value;
@@ -110,6 +118,73 @@ describe('SearchForm', () => {
     await type('input[name="region"]', 'pl-pl');
     await type('input[name="model"]', 'qwen2.5');
     expect(element<HTMLInputElement>('input[name="region"]').value).toBe('pl-pl');
+  });
+
+  it('falls back to the served defaults when what was remembered is unreadable', async () => {
+    /* Storage is shared with whatever else the browser kept; it can be anything. */
+    localStorage.setItem('buy_agent.settings', '{ not json at all');
+
+    const form = await seeded();
+
+    expect(form.querySelector<HTMLInputElement>('input[name="region"]')!.value).toBe('us-en');
+    expect(form.querySelector<HTMLInputElement>('input[name="model"]')!.value).toBe('llama3.2');
+  });
+
+  it('ignores remembered settings that are not settings', async () => {
+    localStorage.setItem('buy_agent.settings', '42');
+
+    const form = await seeded();
+
+    expect(form.querySelector<HTMLInputElement>('input[name="region"]')!.value).toBe('us-en');
+  });
+
+  it('still searches in a browser that refuses to store anything', async () => {
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = () => {
+      throw new Error('storage is disabled');
+    };
+
+    try {
+      await type('input[name="request"]', 'kettle');
+      element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+      await fixture.whenStable();
+    } finally {
+      Storage.prototype.setItem = setItem;
+    }
+
+    expect(submitted).toHaveLength(1);
+    expect(submitted[0].request).toBe('kettle');
+  });
+
+  it('will not start a second run on top of the one already going', async () => {
+    await type('input[name="request"]', 'kettle');
+    fixture.componentRef.setInput('running', true);
+    await fixture.whenStable();
+
+    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+
+    expect(submitted).toHaveLength(0);
+  });
+
+  it('keeps the settings panel open once it has been opened', async () => {
+    const settings = element<HTMLDetailsElement>('details.advanced');
+    expect(settings.open).toBe(false);
+
+    settings.open = true;
+    settings.dispatchEvent(new Event('toggle'));
+    await fixture.whenStable();
+
+    expect(element<HTMLDetailsElement>('details.advanced').open).toBe(true);
+  });
+
+  it('locks the settings too while a search is running', async () => {
+    fixture.componentRef.setInput('running', true);
+    await fixture.whenStable();
+
+    expect(element<HTMLInputElement>('input[name="model"]').disabled).toBe(true);
+    expect(element<HTMLInputElement>('input[name="region"]').disabled).toBe(true);
+    expect(element<HTMLButtonElement>('.pill.example').disabled).toBe(true);
   });
 
   it('remembers the settings but not the request', async () => {

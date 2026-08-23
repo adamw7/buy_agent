@@ -1,0 +1,13 @@
+# Coverage settings for `coverage run --branch -m pytest`; see README.md.
+[run]
+branch = true
+source = buy_agent
+
+[report]
+show_missing = true
+# The suite covers every line and branch; the floor leaves a little headroom.
+fail_under = 99
+exclude_also =
+    # The script guard runs only under `python -m buy_agent`, which
+    # tests/test_cli.py checks by spawning a real interpreter.
+    if __name__ == .__main__.:

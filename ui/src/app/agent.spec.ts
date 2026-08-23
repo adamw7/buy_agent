@@ -3,7 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { provideHttpClient } from '@angular/common/http';
 
 import { AgentService, toQuery } from './agent';
-import type { SearchEvent } from './agent.types';
+import type { ModelStatus, SearchEvent } from './agent.types';
 
 /** A stand-in for the browser's EventSource, so no test opens a connection. */
 class FakeEventSource {
@@ -66,6 +66,20 @@ describe('AgentService', () => {
     service.defaults().subscribe();
     const http = TestBed.inject(HttpTestingController);
     http.expectOne('/api/config').flush({});
+    http.verify();
+  });
+
+  it('asks which models are pulled, naming the server to ask', () => {
+    /* The picker is per-server: the form can point at an Ollama elsewhere. */
+    let answered: ModelStatus | null = null;
+    service.models('http://elsewhere:11434').subscribe((status) => (answered = status));
+
+    const http = TestBed.inject(HttpTestingController);
+    const asked = http.expectOne((request) => request.url === '/api/models');
+    expect(asked.request.params.get('base_url')).toBe('http://elsewhere:11434');
+
+    asked.flush({ base_url: 'http://elsewhere:11434', reachable: true, models: ['lfm2.5'] });
+    expect(answered!.models).toEqual(['lfm2.5']);
     http.verify();
   });
 

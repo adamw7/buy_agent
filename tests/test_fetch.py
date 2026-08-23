@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 import pytest
@@ -323,3 +324,40 @@ def test_pages_are_asked_for_in_english(monkeypatch) -> None:
     enrich([SearchResult(url="https://shop.example")], max_chars=100)
 
     assert captured["headers"]["Accept-Language"].startswith("en")
+
+
+def test_the_fetch_defaults_are_the_ones_the_agent_relies_on(monkeypatch) -> None:
+    """The eight-second cap and the eight-way pool are the defaults, not just kwargs.
+
+    Every other test here passes ``timeout`` explicitly, which pins the argument
+    and leaves the default free to drift -- and the default is what a caller that
+    omits it actually gets.
+    """
+    captured: dict = {}
+
+    class Recorder:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc) -> None:
+            return None
+
+        def get(self, url: str):
+            return make_response(url, PAGE)
+
+    pool = ThreadPoolExecutor
+
+    def record_pool(*, max_workers: int, **kwargs):
+        captured["max_workers"] = max_workers
+        return pool(max_workers=max_workers, **kwargs)
+
+    monkeypatch.setattr("buy_agent.fetch.httpx.Client", Recorder)
+    monkeypatch.setattr("buy_agent.fetch.ThreadPoolExecutor", record_pool)
+
+    enrich([SearchResult(url="https://shop.example")], max_chars=100)
+
+    assert captured["timeout"] == 8.0
+    assert captured["max_workers"] == 8
