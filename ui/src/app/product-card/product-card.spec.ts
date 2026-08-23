@@ -66,6 +66,14 @@ describe('ProductCard', () => {
     expect((await render(SONY)).textContent).toContain('example.com');
   });
 
+  it('survives a link the model made up rather than showing a broken host', async () => {
+    /* The url comes from the model, so it is not necessarily a url at all. */
+    const card = await render({ ...SONY, url: 'wherever you buy headphones' });
+
+    expect(card.querySelector('.host')).toBeNull();
+    expect(card.textContent).toContain('Sony WH-1000XM5');
+  });
+
   it('is still readable when there is no link to give', async () => {
     const card = await render(UNKNOWN);
     expect(card.querySelector('h3 a')).toBeNull();

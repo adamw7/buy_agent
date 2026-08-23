@@ -345,3 +345,16 @@ def test_the_coverage_bar_is_three_distinctive_words_in_five() -> None:
 
     assert mentions_name(haystack, "Anker Soundcore Life Q30 Pro"), "3 of 5 clears the bar"
     assert not mentions_name(haystack, "Anker Soundcore Boost Max Pro"), "2 of 5 does not"
+
+
+def test_half_a_name_is_not_enough_to_ground_it() -> None:
+    """The half-way case, which is what actually fixes the floor at 0.6.
+
+    Three-in-five above and two-in-five below leave every threshold from 0.5 to
+    0.6 looking identical, and a 0.5 bar is the one that lets a model pair a real
+    brand with an invented model number and have it pass.
+    """
+    haystack = build_haystack([SearchResult(snippet="The Bose QuietComfort is $279.")])
+
+    assert not mentions_name(haystack, "Bose QuietComfort Ultra 2024"), "2 of 4 is short"
+    assert mentions_name(haystack, "Bose QuietComfort Ultra"), "2 of 3 clears it"

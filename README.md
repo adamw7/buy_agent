@@ -200,15 +200,27 @@ mix through `AgentConfig(weights=RankingWeights(rating=0.7, price=0.3, ...))`.
 python -m pytest              # whole suite
 python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
 
+python -m coverage run -m pytest ; python -m coverage report   # with coverage
+
 cd ui; npm test               # the UI's own tests, in jsdom
+cd ui; npm run test:coverage  # the same, with a coverage floor
 ```
 
-342 Python tests and 35 UI tests. Nothing in either suite touches the network or
+382 Python tests and 46 UI tests. Nothing in either suite touches the network or
 Ollama: the model is faked through the `llm=` argument of `BuyAgent`, both the
 search backend and the page fetcher are monkeypatched, and the server tests
 inject a stub agent through `create_server(agent_factory=...)`. The only real
 sockets are the loopback ones the HTTP tests need in order to be about HTTP at
 all.
+
+Both suites are measured, and CI fails on a drop: the Python side covers every
+line and branch (`.coveragerc` sets the floor at 99%), and the UI's statements
+and lines sit just under 100% (`ui/scripts/check-coverage.mjs`, floor 98%). Line
+coverage that high stops being a useful signal on its own, so
+`tests/test_conventions.py` asserts the rules that hold *between* modules --
+the three places a failure mode has to be listed, the four places a sort
+criterion has to be offered, and the payloads `ui/src/app/agent.types.ts`
+mirrors -- which no amount of per-module coverage can protect.
 
 ## Limitations
 

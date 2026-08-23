@@ -7,6 +7,7 @@ import pytest
 from buy_agent.agent import OllamaUnavailableError
 from buy_agent.api import (
     ApiError,
+    _status_for,
     defaults_payload,
     installed_models,
     parse_options,
@@ -118,6 +119,23 @@ def test_a_blank_field_means_unset_not_zero(blank: str) -> None:
     assert config.reasoning is defaults.reasoning
 
 
+def test_a_native_json_boolean_is_taken_as_it_is() -> None:
+    """A JSON body carries real booleans; only a query string turns them into text."""
+    config, _ = parse_options({"fetch": False, "think": True})
+
+    assert config.fetch_pages is False
+    assert config.reasoning is True
+
+
+@pytest.mark.parametrize("yes", ["true", "1", "yes", "on", "TRUE", " On "])
+def test_a_flag_can_be_turned_on_in_any_of_the_spellings_a_form_sends(yes: str) -> None:
+    """A checkbox reaches the query string as one of several words for the same thing."""
+    config, _ = parse_options({"think": yes, "fetch": yes})
+
+    assert config.reasoning is True
+    assert config.fetch_pages is True
+
+
 def test_searching_covers_the_wider_of_results_and_top() -> None:
     """Reporting more products than were searched for would cap the report."""
     config, _ = parse_options({"results": 3, "top": 8})
@@ -211,6 +229,11 @@ def test_each_failure_gets_the_status_it_deserves(error: Exception, status: int)
 
 
 # -- the rest ------------------------------------------------------------------
+
+
+def test_an_unrecognised_failure_would_reach_the_client_as_a_server_error() -> None:
+    """The fallback exists so a failure mode nobody mapped is still answerable."""
+    assert _status_for(RuntimeError("something new")) == 500
 
 
 def test_defaults_payload_matches_the_config() -> None:

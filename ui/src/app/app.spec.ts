@@ -52,15 +52,18 @@ const RESULT: SearchResult = {
 class FakeAgent {
   readonly stream = new Subject<SearchEvent>();
   defaultsResponse = of(DEFAULTS);
+  modelsResponse: Observable<ModelStatus> = of(STATUS);
   searched: unknown[] = [];
+  modelsAsked: string[] = [];
   unsubscribed = false;
 
   defaults() {
     return this.defaultsResponse;
   }
 
-  models() {
-    return of(STATUS);
+  models(baseUrl: string) {
+    this.modelsAsked.push(baseUrl);
+    return this.modelsResponse;
   }
 
   search(options: unknown): Observable<SearchEvent> {
@@ -107,6 +110,26 @@ describe('App', () => {
     const page = (await render()).nativeElement as HTMLElement;
     expect(page.querySelector<HTMLInputElement>('input[name="model"]')!.value).toBe('llama3.2');
     expect(page.querySelector('.ollama')!.textContent).toContain('1 model');
+  });
+
+  it('says Ollama is unreachable rather than pretending it has no models', async () => {
+    /* An empty model list and a server that never answered are different things. */
+    agent.modelsResponse = throwError(() => new Error('connection refused'));
+
+    const page = (await render()).nativeElement as HTMLElement;
+
+    expect(page.querySelector('.ollama')!.textContent).toContain('Ollama unreachable');
+    expect(page.querySelector('.ollama')!.classList).not.toContain('up');
+  });
+
+  it('re-asks the same server when the Ollama pill is clicked', async () => {
+    const fixture = await render();
+    const page = fixture.nativeElement as HTMLElement;
+
+    page.querySelector<HTMLButtonElement>('.ollama')!.click();
+    await fixture.whenStable();
+
+    expect(agent.modelsAsked).toEqual([DEFAULTS.base_url, STATUS.base_url]);
   });
 
   it('says so when the agent server itself cannot be reached', async () => {
@@ -164,6 +187,20 @@ describe('App', () => {
 
     const page = fixture.nativeElement as HTMLElement;
     expect(page.querySelector('.banner.quiet')!.textContent).toContain('Nothing came back');
+  });
+
+  it('says the connection went, and stops looking busy', async () => {
+    /* AgentService turns a dropped EventSource into an error rather than letting
+       it reconnect and silently start the whole search again. */
+    const fixture = await render();
+    const page = fixture.nativeElement as HTMLElement;
+    await searchFor(fixture, 'kettle');
+
+    agent.stream.error(new Error('Lost the connection to the agent. Is it still running?'));
+    await fixture.whenStable();
+
+    expect(page.querySelector('.banner')!.textContent).toContain('Lost the connection');
+    expect(page.querySelector('button[type="submit"]')).not.toBeNull();
   });
 
   it('stops a run by closing the stream', async () => {

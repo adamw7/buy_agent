@@ -30,7 +30,10 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Run tests
-        run: python -m pytest
+        run: python -m coverage run -m pytest
+
+      - name: Check coverage
+        run: python -m coverage report
 
   ui:
     name: ng test (Node 22)
@@ -52,7 +55,7 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: npm test
+        run: npm run test:coverage
 
       - name: Build
         run: npm run build

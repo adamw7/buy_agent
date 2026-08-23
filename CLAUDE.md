@@ -24,6 +24,7 @@ python -m pytest                              # whole suite (~2s)
 python -m pytest tests/test_ranking.py        # one file
 python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
 python -m pytest -k verification              # by name
+python -m coverage run -m pytest ; python -m coverage report   # with coverage
 
 python -m buy_agent "gaming laptop under $1500"          # run the agent
 python -m buy_agent "espresso machine" --model lfm2.5 -v
@@ -47,16 +48,21 @@ Python side needs Node at all.
 cd ui
 npm install
 npm test                                      # vitest in jsdom
+npm run test:coverage                         # the same, then the coverage floor
 npm run build                                 # dist/ui/browser, what the server serves
 npm start                                     # dev server on :4200, proxying /api to :8000
 ```
 
 There is no Python linter; the UI has Prettier (`npx prettier --write "src/**/*"`).
 CI (`.github/workflows/ci.yml`) runs two jobs for pushes to `main` and for every
-pull request: `python -m pytest` on Python 3.13, and `npm test && npm run build`
-in `ui/` on Node 22.22.3. `pytest.ini` sets `pythonpath = .`, which is why the
-package imports without being installed, plus `testpaths = tests` and
-`addopts = -q --strict-markers`.
+pull request: `coverage run -m pytest` plus `coverage report` on Python 3.13, and
+`npm run test:coverage && npm run build` in `ui/` on Node 22.22.3. `pytest.ini`
+sets `pythonpath = .`, which is why the package imports without being installed,
+plus `testpaths = tests` and `addopts = -q --strict-markers`. `.coveragerc` holds
+the Python floor (99%, against 100% actual); `ui/scripts/check-coverage.mjs` holds
+the UI's (98% of statements and lines) -- the Angular unit-test builder reads a
+vitest config's coverage *reporters* but does not fail a run on its `thresholds`,
+so the floor has to be checked separately or it is not a floor.
 
 ## Architecture
 
@@ -202,12 +208,29 @@ lists the installed models to name them in an error. Patching `DDGS.text` does
 class. No test touches the network or Ollama; keep it that way. The server tests are
 the one exception to "no sockets": they bind loopback, because routing and status
 codes are what they are about. They pass `serve_forever(0.01)` -- the default 0.5s
-poll would otherwise cost half a second per test on shutdown. 342 tests run in
-under a second, plus about another second for the one test that spawns an
-interpreter to check `python -m buy_agent` still runs as a script -- so a run that
-takes several seconds still means something is reaching out. The UI's 35 tests
+poll would otherwise cost half a second per test on shutdown. Three server tests
+speak the protocol over a raw socket, because urllib will not build a request with
+a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
+since the headers and the body are separate writes and so can land in separate
+segments. 382 tests run in about two and a half seconds: most of that is the one
+test that spawns an interpreter to check `python -m buy_agent` still runs as a
+script, plus 0.7s of deliberate `StubAgent.delay` in the two server tests that
+need a run to still be going -- the keepalive ping, and two streams overlapping.
+Nothing else should sleep, so a run that takes much longer still means something
+is reaching out. The UI's 46 tests
 run in about two seconds, most of which is building the app first. `README.md`
 quotes both counts, so a new test file is two edits.
+
+Both suites cover essentially every line, which means coverage no longer tells
+you where the next test should go. `tests/test_conventions.py` covers what it
+cannot: the rules that hold *between* modules, read off the declarations
+themselves rather than exercised. It asserts that `api._STATUS`, the `except`
+tuple in `__main__.main` (parsed with `ast`) and `BuyAgent.run`'s documented
+`Raises` name the same three failures; that `ranking.SortBy`, `api.SORT_OPTIONS`,
+the CLI's `--sort-by` choices and the TypeScript `SortBy` union offer the same
+criteria; and that `agent.types.ts` mirrors `defaults_payload`, `product_payload`
+and `run_search` field for field. A field added on one side of the language
+boundary and forgotten on the other is otherwise invisible to both suites.
 
 ## Environment
 

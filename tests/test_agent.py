@@ -272,6 +272,26 @@ def test_result_pages_are_fetched_by_default(
     assert calls[1] == {"enriched": 3, "max_chars": 1200, "timeout": 8.0}
 
 
+def test_the_page_budget_and_timeout_are_the_config_s_own(
+    agent_factory, search_results, extracted_products
+) -> None:
+    """Deliberately not the defaults: asserting those would pin nothing.
+
+    ``page_chars`` and ``fetch_timeout`` exist to be changed, so the test has to
+    show the config's value arriving rather than a literal that happens to match.
+    """
+    agent, calls = agent_factory(
+        FakeLLM(products=extracted_products),
+        search_results,
+        page_chars=777,
+        fetch_timeout=2.5,
+    )
+
+    agent.run("headphones")
+
+    assert calls[1] == {"enriched": 3, "max_chars": 777, "timeout": 2.5}
+
+
 def test_fetching_can_be_turned_off(
     agent_factory, search_results, extracted_products
 ) -> None:
