@@ -1,0 +1,72 @@
+<header class="masthead">
+  <div class="inner">
+    <div class="brand">
+      <h1>buy_agent</h1>
+      <p>Say what you want to buy. It searches, reads the pages, and ranks what it finds.</p>
+    </div>
+
+    @if (status(); as ollama) {
+      <button
+        type="button"
+        class="pill ollama"
+        [class.up]="ollama.reachable"
+        [attr.title]="ollama.detail ?? ollama.base_url"
+        (click)="refreshModels()"
+      >
+        <span class="dot"></span>
+        @if (ollama.reachable) {
+          Ollama · {{ ollama.models.length }} model{{ ollama.models.length === 1 ? '' : 's' }}
+        } @else {
+          Ollama unreachable
+        }
+      </button>
+    }
+  </div>
+</header>
+
+<main>
+  <app-search-form
+    [defaults]="defaults()"
+    [status]="status()"
+    [running]="running()"
+    (search)="start($event)"
+    (stop)="stop()"
+  />
+
+  @if (failure(); as message) {
+    <p class="card banner" role="alert">{{ message }}</p>
+  }
+
+  @if (started()) {
+    <app-progress-log [lines]="logs()" [running]="running()" />
+  }
+
+  @if (result(); as found) {
+    @if (found.count) {
+      <section class="results">
+        <h2>
+          Top {{ highlighted().length }} of {{ found.count }}
+          <span class="pill">ranked by {{ found.sort_by }}</span>
+        </h2>
+        @for (product of highlighted(); track product.rank) {
+          <app-product-card [product]="product" [highlighted]="true" />
+        }
+
+        @if (rest().length) {
+          <details class="also">
+            <summary>{{ rest().length }} more the agent found</summary>
+            @for (product of rest(); track product.rank) {
+              <app-product-card [product]="product" />
+            }
+          </details>
+        }
+      </section>
+    } @else {
+      <p class="card banner quiet">
+        Nothing came back for “{{ found.request }}”. Either the search found no pages worth reading,
+        or nothing on them survived grounding — every figure shown here has to appear in the
+        sources.
+      </p>
+    }
+  }
+</main>

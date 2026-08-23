@@ -1,0 +1,99 @@
+:host {
+  display: block;
+}
+
+.product {
+  display: flex;
+  gap: 16px;
+  padding: 16px 18px;
+}
+
+:host(.highlighted) .product {
+  border-color: var(--accent);
+}
+
+.rank {
+  flex: 0 0 auto;
+  align-self: start;
+  min-width: 40px;
+  padding: 5px 9px;
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  text-align: center;
+}
+
+:host(.highlighted) .rank {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+}
+
+h3 {
+  font-size: 16px;
+  margin-bottom: 9px;
+  overflow-wrap: anywhere;
+}
+
+h3 a {
+  text-decoration: none;
+}
+
+h3 a:hover {
+  text-decoration: underline;
+}
+
+.figures {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.price {
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.price.unknown,
+.pill.unknown {
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.notes {
+  color: var(--text-dim);
+  margin: 10px 0 0;
+}
+
+.score {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.track {
+  flex: 1;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}

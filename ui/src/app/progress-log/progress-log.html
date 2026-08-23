@@ -1,0 +1,21 @@
+<section class="card log">
+  <header>
+    <h2>Progress</h2>
+    @if (running()) {
+      <span class="pill working"><span class="dot"></span>working</span>
+    } @else {
+      <span class="pill">{{ lines().length }} lines</span>
+    }
+  </header>
+
+  <div class="scroller" #scroller role="log" aria-live="polite">
+    @for (line of lines(); track $index) {
+      <p class="line" [class.warn]="line.level === 'WARNING'" [class.bad]="line.level === 'ERROR'">
+        <span class="source">{{ shortName(line.logger) }}</span>
+        <span class="message">{{ line.message }}</span>
+      </p>
+    } @empty {
+      <p class="line idle">Waiting for the first step…</p>
+    }
+  </div>
+</section>

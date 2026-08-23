@@ -85,6 +85,55 @@ ranked = agent.run("noise cancelling headphones under $200")   # logs the top 3
 print(ranked[0].product.name, ranked[0].score)                 # returns all of them
 ```
 
+## The web UI
+
+The same agent, with a page in front of it. `buy_agent.server` serves a small
+JSON API and the built Angular app in `ui/`:
+
+```powershell
+cd ui
+npm install
+npm run build          # writes ui/dist/ui/browser
+cd ..
+
+python -m buy_agent.server         # http://127.0.0.1:8000
+```
+
+![The search form, with its settings open](docs/ui.png)
+
+The page takes the same settings the CLI takes as flags, shows the agent's log
+lines as the run happens, and lists the ranked products with a link to the page
+each was found on. It binds loopback by default: it drives a model on your own
+machine, and is not meant to be exposed.
+
+A search takes tens of seconds, so the browser does not wait on one response.
+`GET /api/search/stream` runs the search and relays the agent's own log lines as
+Server-Sent Events, finishing on a `result` or a `failure`. `POST /api/search`
+does the same run in one JSON response, which is the shape a script wants:
+
+```powershell
+curl -X POST http://127.0.0.1:8000/api/search `
+  -H "Content-Type: application/json" `
+  -d '{"request": "espresso machine", "top": 5, "sort_by": "price"}'
+```
+
+| Endpoint | Answers with |
+| --- | --- |
+| `GET /api/config` | The form's defaults -- the same ones `--help` prints |
+| `GET /api/models` | Which models Ollama has pulled, or why it could not be asked |
+| `POST /api/search` | One run, as JSON |
+| `GET /api/search/stream` | One run, as an event stream |
+
+Working on the UI itself is nicer through the Angular dev server, which rebuilds
+on save and proxies `/api` to the Python one:
+
+```powershell
+python -m buy_agent.server         # in one terminal
+cd ui; npm start                   # in another -- http://localhost:4200
+```
+
+See `ui/README.md` for how the app is put together.
+
 ## How it works
 
 ```
@@ -147,11 +196,16 @@ mix through `AgentConfig(weights=RankingWeights(rating=0.7, price=0.3, ...))`.
 ```powershell
 python -m pytest              # whole suite
 python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
+
+cd ui; npm test               # the UI's own tests, in jsdom
 ```
 
-117 tests, about 0.2s. Nothing in the suite touches the network or Ollama: the
-model is faked through the `llm=` argument of `BuyAgent`, and both the search
-backend and the page fetcher are monkeypatched.
+341 Python tests and 35 UI tests. Nothing in either suite touches the network or
+Ollama: the model is faked through the `llm=` argument of `BuyAgent`, both the
+search backend and the page fetcher are monkeypatched, and the server tests
+inject a stub agent through `create_server(agent_factory=...)`. The only real
+sockets are the loopback ones the HTTP tests need in order to be about HTTP at
+all.
 
 ## Limitations
 

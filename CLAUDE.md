@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A shopping agent: it takes a plain-language request ("wireless headphones under
 $200"), searches the web, extracts up to 10 products, ranks them, and logs the
-top 3. Built on LangChain with a local Ollama model. See `README.md` for usage.
+top 3. Built on LangChain with a local Ollama model. `ui/` is an Angular front
+end onto the same pipeline, served by `buy_agent.server`. See `README.md` for
+usage.
 
 ## Commands
 
@@ -25,12 +27,27 @@ python -m pytest -k verification              # by name
 
 python -m buy_agent "gaming laptop under $1500"          # run the agent
 python -m buy_agent "espresso machine" --model lfm2.5 -v
+
+python -m buy_agent.server                    # the UI and its API on :8000
 ```
 
-There is no linter. CI (`.github/workflows/ci.yml`) installs
-`requirements-dev.txt` and runs `python -m pytest` on Python 3.13
-for pushes to `main` and for every pull request. `pytest.ini` sets
-`pythonpath = .`, which is why the package imports without being installed.
+The UI is a separate, ordinary Angular workspace in `ui/`, with its own
+`package.json` and its own tests. Node 22.22.3+ or 24.15+; nothing in the Python
+side needs it.
+
+```powershell
+cd ui
+npm install
+npm test                                      # vitest in jsdom
+npm run build                                 # dist/ui/browser, what the server serves
+npm start                                     # dev server on :4200, proxying /api to :8000
+```
+
+There is no Python linter; the UI has Prettier (`npx prettier --write "src/**/*"`).
+CI (`.github/workflows/ci.yml`) runs two jobs for pushes to `main` and for every
+pull request: `python -m pytest` on Python 3.13, and `npm test && npm run build`
+in `ui/` on Node 22. `pytest.ini` sets `pythonpath = .`, which is why the package
+imports without being installed.
 
 ## Architecture
 
@@ -60,6 +77,8 @@ back.
 | `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain) |
 | `search.py` | DuckDuckGo wrapper plus a LangChain `@tool` version |
 | `config.py`, `logging_setup.py`, `__main__.py` | Config, the report, the CLI |
+| `api.py` | Request options in, ranked products out -- the web-facing half worth testing |
+| `server.py` | A stdlib HTTP server: the JSON API, the event stream, the built UI |
 
 Four conventions matter when changing this code:
 
@@ -87,11 +106,42 @@ Four conventions matter when changing this code:
 
 `BuyAgent.run()` raises exactly three things -- `ValueError`,
 `OllamaUnavailableError`, `SearchError` -- and `__main__.main()` catches exactly
-those, logging them and returning 1 (130 on Ctrl-C). A new failure mode needs
-handling in both places or it reaches the user as a traceback. Within the agent
-only query refinement is recoverable: it falls back to the raw request, but lets
-`OllamaUnavailableError` through rather than searching with a model that is not
-there.
+those, logging them and returning 1 (130 on Ctrl-C). `api._STATUS` maps the same
+three onto HTTP statuses (400, 503, 502). A new failure mode needs handling in
+all three places, or it reaches the user as a traceback and the browser as a 500.
+Within the agent only query refinement is recoverable: it falls back to the raw
+request, but lets `OllamaUnavailableError` through rather than searching with a
+model that is not there.
+
+## The UI and its server
+
+`buy_agent.server` is stdlib-only on purpose -- the dependency list is already
+the interesting part of this project, and a run that takes a minute and serves
+one person does not need a framework under it. It hands `/api` to `api.py` and
+everything else to the built Angular app, with unknown paths falling back to
+`index.html` so the app keeps its own routing.
+
+Three things there are load-bearing:
+
+- **A run is streamed, not requested.** A search takes tens of seconds, so
+  `GET /api/search/stream` runs the agent in a worker thread and relays its log
+  lines as Server-Sent Events while it works. `_LogRelay` routes records by the
+  thread that produced them, which is what keeps two concurrent runs from seeing
+  each other's progress. `POST /api/search` is the same run in one response.
+- **The stream's failure event is called `failure`, not `error`.** A browser's
+  `EventSource` delivers transport errors under `error` and then reconnects; a
+  named `error` event would be indistinguishable from a dropped connection, and
+  the reconnect would silently start the whole search again.
+- **The browser decides nothing.** Ranking, grounding and even the wording of an
+  unknown price stay in Python: `product_payload` sends `price_label` and
+  `rating_label` next to the raw figures, and `sort_by` is a request parameter
+  rather than a client-side re-sort. The same rule as `clean_products` -- whatever
+  decides the answer belongs where it is testable.
+
+`create_server(agent_factory=...)` is the seam the server tests inject a stub
+agent through, the way `BuyAgent(config, llm=...)` is for the pipeline. Angular
+components are tested in jsdom with `TestBed`; `AgentService` is tested against a
+fake `EventSource` rather than a live one.
 
 ## Tests
 
@@ -102,10 +152,14 @@ pipeline tests, and `buy_agent.search.DDGS` / `buy_agent.fetch.httpx.Client` for
 the wrappers' own tests. `ollama.Client` is patched too, for the one path that
 lists the installed models to name them in an error. Patching `DDGS.text` does
 *not* work -- the name `ddgs` exports is a wrapper that constructs a different
-class. No test touches the network or Ollama; keep it that way. 293 tests run in
-about 0.4s, plus roughly a second for the one test that spawns an interpreter to
-check `python -m buy_agent` still runs as a script -- so a run that takes several
-seconds still means something is reaching out.
+class. No test touches the network or Ollama; keep it that way. The server tests are
+the one exception to "no sockets": they bind loopback, because routing and status
+codes are what they are about. They pass `serve_forever(0.01)` -- the default 0.5s
+poll would otherwise cost half a second per test on shutdown. 341 tests run in
+under a second, plus roughly a second for the one test that spawns an interpreter
+to check `python -m buy_agent` still runs as a script -- so a run that takes
+several seconds still means something is reaching out. The UI's 35 tests run in
+about two seconds, most of which is building the app first.
 
 ## Environment
 

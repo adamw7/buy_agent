@@ -1,0 +1,79 @@
+.form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px 12px;
+  padding: 20px;
+}
+
+.request {
+  grid-column: 1;
+}
+
+.request input {
+  padding: 13px 15px;
+  font-size: 16px;
+}
+
+.actions {
+  grid-column: 2;
+  align-self: end;
+}
+
+.examples {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.example {
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.example:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.advanced {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+summary {
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  padding-top: 16px;
+}
+
+.hint {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin: 14px 0 0;
+}
+
+@media (width < 640px) {
+  .form {
+    grid-template-columns: 1fr;
+  }
+
+  .actions {
+    grid-column: 1;
+  }
+
+  .actions button {
+    width: 100%;
+  }
+}
