@@ -19,6 +19,7 @@ which is the only way to check that two lists agree about what is *not* in them.
 from __future__ import annotations
 
 import ast
+import inspect
 import re
 from pathlib import Path
 from typing import get_args
@@ -68,9 +69,16 @@ def caught_by_main() -> set[str]:
 
 
 def documented_raises() -> set[str]:
-    """The exception names ``BuyAgent.run`` promises in its docstring."""
-    body = (BuyAgent.run.__doc__ or "").partition("Raises:")[2]
-    return set(re.findall(r"^\s{12}(\w+):", body, re.MULTILINE))
+    """The exception names ``BuyAgent.run`` promises in its docstring.
+
+    ``inspect.cleandoc`` first, rather than matching the indentation as written:
+    Python 3.13 strips a docstring's common leading whitespace at compile time and
+    earlier versions do not, so the entries sit twelve columns in on 3.12 and four
+    on 3.13. Cleaned, a section heading is flush left and its entries are indented,
+    which is what tells the two apart here.
+    """
+    body = inspect.cleandoc(BuyAgent.run.__doc__ or "").partition("Raises:")[2]
+    return set(re.findall(r"^\s+(\w+):", body, re.MULTILINE))
 
 
 def ts_interface(name: str) -> list[str]:
