@@ -341,3 +341,87 @@ def test_merging_and_grounding_read_a_name_the_same_way() -> None:
     """They must agree on what a name's words are, or one contradicts the other."""
     assert verification.NAME_TOKENS is NAME_TOKENS
     assert verification.GENERIC_WORDS is GENERIC_WORDS
+
+
+def test_where_to_buy_is_an_article_not_a_product() -> None:
+    """A "where/how/why" opener is a guide about the product, not the product."""
+    assert not looks_like_a_product("Where to buy the Sony WH-1000XM5")
+
+
+def test_a_coupon_page_is_not_a_product() -> None:
+    assert not looks_like_a_product("Sony WH-1000XM5 coupon code")
+
+
+def test_a_greatest_headline_is_not_a_product() -> None:
+    """Every superlative the rule lists has to bite, not just "best" and "top"."""
+    assert not looks_like_a_product("The Greatest Headphones of 2026")
+    assert not looks_like_a_product("Cheapest Headphones Right Now")
+    assert not looks_like_a_product("Worst Headphones We Tested")
+
+
+def test_clean_name_strips_a_hands_on_suffix() -> None:
+    """Hyphenated or not, it is the article's angle rather than part of the name."""
+    assert clean_name("Sony WH-1000XM5 Hands-On") == "Sony WH-1000XM5"
+    assert clean_name("Sony WH-1000XM5 Hands on") == "Sony WH-1000XM5"
+
+
+def test_clean_name_strips_an_on_sale_suffix() -> None:
+    assert clean_name("Sony WH-1000XM5 on sale") == "Sony WH-1000XM5"
+    assert clean_name("Sony WH-1000XM5 - Tested") == "Sony WH-1000XM5"
+
+
+def test_clean_name_drops_punctuation_left_behind() -> None:
+    """Whatever the strip leaves dangling must not become part of the dedup key."""
+    assert clean_name("Sony WH-1000XM5,") == "Sony WH-1000XM5"
+    assert clean_name("Sony WH-1000XM5 -") == "Sony WH-1000XM5"
+    assert clean_name("Sony WH-1000XM5: Price") == "Sony WH-1000XM5"
+
+
+def test_only_the_first_publisher_bar_splits_the_name() -> None:
+    """"Name | Review | Site" keeps the name alone, not the name and the angle."""
+    assert clean_name("Sony WH-1000XM5 | Review | AudioSite") == "Sony WH-1000XM5"
+
+
+def test_colour_variants_are_not_merged_into_one_product() -> None:
+    """Black and white are both generic, but neither name contains the other.
+
+    Without the subset check the symmetric difference is generic on its own, so
+    two genuinely different listings would collapse into one.
+    """
+    merged = merge_variants(
+        [Product(name="Sony WH-CH720N Black"), Product(name="Sony WH-CH720N White")]
+    )
+
+    assert len(merged) == 2
+
+
+def test_merging_carries_over_the_seller_and_the_notes() -> None:
+    """Text fields are worth as much as figures: only one page may carry them."""
+    merged = merge_variants(
+        [
+            Product(name="JBL Live 780NC", price=149.0, rating=4.4, review_count=800),
+            Product(name="JBL Live 780NC Headphones", seller="Amazon", notes="Great value."),
+        ]
+    )
+
+    assert len(merged) == 1
+    assert merged[0].seller == "Amazon"
+    assert merged[0].notes == "Great value."
+
+
+def test_a_listing_with_a_link_beats_one_without() -> None:
+    """A URL counts towards completeness, so the linked listing wins a conflict.
+
+    Both listings fill in ``notes``, and only the winner's survives -- which is
+    the only way to see which of the two was judged the more complete.
+    """
+    merged = merge_variants(
+        [
+            Product(name="JBL Live 780NC Wireless Headphones", notes="from the roundup"),
+            Product(name="JBL Live 780NC", url="https://shop.example/jbl", notes="from the shop"),
+        ]
+    )
+
+    assert len(merged) == 1
+    assert merged[0].notes == "from the shop", "the linked listing is the more complete one"
+    assert merged[0].url == "https://shop.example/jbl"

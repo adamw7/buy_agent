@@ -295,3 +295,53 @@ def test_grounding_reports_what_it_dropped(caplog) -> None:
         ground([Product(name="Bonavita Gooseneck Kettle", price=80.0)], SOURCES)
 
     assert "Dropped 1 product(s) absent from the search results" in caplog.text
+
+
+def test_a_slash_rating_needs_no_lead_in_word() -> None:
+    """"4.6/5" is a rating on its own; nothing has to introduce it."""
+    haystack = build_haystack([SearchResult(snippet="The Sony sits at 4.6/5 overall")])
+
+    assert mentions_rating(haystack, 4.6)
+
+
+def test_a_rating_written_as_of_five_is_recognised() -> None:
+    """Pages drop the "out": "a steady 4.6 of 5"."""
+    haystack = build_haystack([SearchResult(snippet="A steady 4.6 of 5 across the panel")])
+
+    assert mentions_rating(haystack, 4.6)
+
+
+def test_a_rating_is_recognised_whatever_its_case() -> None:
+    """Shop pages shout their figures in headings, with no lead-in word to lean on."""
+    assert mentions_rating(build_haystack([SearchResult(snippet="A SOLID 4.6 STARS")]), 4.6)
+    assert mentions_rating(build_haystack([SearchResult(snippet="4.6 OUT OF 5")]), 4.6)
+
+
+def test_a_scored_lead_in_is_a_rating() -> None:
+    """"scored it 4.6" names a rating without ever writing the scale."""
+    assert mentions_rating(build_haystack([SearchResult(snippet="Reviewers scored it 4.6")]), 4.6)
+    assert mentions_rating(build_haystack([SearchResult(snippet="We score it 4.6 here")]), 4.6)
+
+
+def test_a_lead_in_word_far_from_the_figure_does_not_vouch_for_it() -> None:
+    """"rated" and a number a sentence apart are not one claim about one product."""
+    near = build_haystack([SearchResult(snippet="rated a solid 4.6 by our testers")])
+    far = build_haystack([SearchResult(snippet="rated by our whole panel of testers, 4.6")])
+
+    assert mentions_rating(near, 4.6)
+    assert not mentions_rating(far, 4.6)
+
+
+def test_a_rating_that_is_only_the_tail_of_a_longer_number_is_rejected() -> None:
+    """As with prices, a figure must not be verified by digits it merely ends."""
+    haystack = build_haystack([SearchResult(snippet="Rated 14.6 out of 5")])
+
+    assert not mentions_rating(haystack, 4.6)
+
+
+def test_the_coverage_bar_is_three_distinctive_words_in_five() -> None:
+    """Where the 0.6 floor falls decides whether an invented name can pass."""
+    haystack = build_haystack([SearchResult(snippet="The Anker Soundcore Life sits at $99.")])
+
+    assert mentions_name(haystack, "Anker Soundcore Life Q30 Pro"), "3 of 5 clears the bar"
+    assert not mentions_name(haystack, "Anker Soundcore Boost Max Pro"), "2 of 5 does not"

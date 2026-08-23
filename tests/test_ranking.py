@@ -244,3 +244,42 @@ def test_a_single_product_ranks_first() -> None:
 
     assert ranked[0].rank == 1
     assert 0.0 <= ranked[0].score <= 1.0
+
+
+def test_the_name_tiebreak_ignores_case() -> None:
+    """Otherwise every capitalised name sorts ahead of every lowercase one."""
+    ranked = rank_products([Product(name="Zebra"), Product(name="apple")])
+
+    assert [entry.product.name for entry in ranked] == ["apple", "Zebra"]
+
+
+def test_a_product_with_no_data_scores_exactly_neutral() -> None:
+    """Mid-field, not last: a listing that published nothing is not thereby bad."""
+    score = score_product(
+        Product(name="Unknown Brand Buds"),
+        cheapest=None,
+        priciest=None,
+        weights=RankingWeights(),
+    )
+
+    assert score == 0.5 == NEUTRAL
+
+
+def test_the_default_weights_favour_rating_then_price_then_popularity() -> None:
+    """The blend is the product's opinion about what makes a good buy."""
+    weights = RankingWeights()
+
+    assert (weights.rating, weights.popularity, weights.price) == (0.5, 0.2, 0.3)
+
+
+def test_scores_are_normalised_by_the_total_weight() -> None:
+    """Weights that do not sum to 1 must not push scores outside [0, 1]."""
+    weights = RankingWeights(rating=2.0, popularity=1.0, price=1.0)
+    best = score_product(
+        Product(name="Best", rating=5.0, review_count=10_000, price=10.0),
+        cheapest=10.0,
+        priciest=100.0,
+        weights=weights,
+    )
+
+    assert best == pytest.approx(1.0)

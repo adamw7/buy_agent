@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -290,3 +293,25 @@ def test_every_flag_is_documented_in_the_help() -> None:
         "--verbose",
     ):
         assert flag in help_text, flag
+
+
+def test_only_the_three_sort_criteria_are_offered() -> None:
+    """Every choice here needs a branch in rank_products, so the set is closed."""
+    action = {action.dest: action for action in build_parser()._actions}["sort_by"]
+
+    assert set(action.choices) == {"score", "price", "rating"}
+
+
+def test_the_module_is_runnable_as_a_script() -> None:
+    """python -m buy_agent is the documented entry point; it must reach main()."""
+    completed = subprocess.run(
+        [sys.executable, "-m", "buy_agent"],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert completed.returncode == 2, "no request is a usage error, not a traceback"
+    assert "usage: buy_agent" in completed.stderr
+    assert "Traceback" not in completed.stderr

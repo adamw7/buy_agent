@@ -102,8 +102,10 @@ pipeline tests, and `buy_agent.search.DDGS` / `buy_agent.fetch.httpx.Client` for
 the wrappers' own tests. `ollama.Client` is patched too, for the one path that
 lists the installed models to name them in an error. Patching `DDGS.text` does
 *not* work -- the name `ddgs` exports is a wrapper that constructs a different
-class. No test touches the network or Ollama; keep it that way. 268 tests run in
-about 0.4s, so a run that suddenly takes seconds means something is reaching out.
+class. No test touches the network or Ollama; keep it that way. 293 tests run in
+about 0.4s, plus roughly a second for the one test that spawns an interpreter to
+check `python -m buy_agent` still runs as a script -- so a run that takes several
+seconds still means something is reaching out.
 
 ## Environment
 
