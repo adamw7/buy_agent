@@ -136,6 +136,9 @@ See `ui/README.md` for how the app is put together.
 
 ## How it works
 
+For the same thing at three zoom levels -- context, containers, components --
+see the C4 diagrams in [docs/architecture.md](docs/architecture.md).
+
 ```
 request ──▶ [LLM] refine into a search query
                       │

@@ -51,6 +51,10 @@ imports without being installed.
 
 ## Architecture
 
+`docs/architecture.md` holds the same picture as C4 diagrams (context,
+containers, components, and a streamed run end to end); keep it in step when
+a module's responsibility or a boundary moves.
+
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
 for the two steps it is reliable at, and ordinary Python does everything else,
 because Ollama is typically run with small models that drive tool loops badly.
