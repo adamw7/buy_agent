@@ -108,8 +108,31 @@ describe('App', () => {
 
   it('seeds the form from the agent defaults and shows the Ollama status', async () => {
     const page = (await render()).nativeElement as HTMLElement;
-    expect(page.querySelector<HTMLInputElement>('input[name="model"]')!.value).toBe('llama3.2');
+    expect(page.querySelector<HTMLSelectElement>('select[name="model"]')!.value).toBe('llama3.2');
     expect(page.querySelector('.ollama')!.textContent).toContain('1 model');
+  });
+
+  it('fills the model dropdown with what that Ollama has pulled', async () => {
+    agent.modelsResponse = of({ ...STATUS, models: ['llama3.2', 'lfm2.5', 'qwen2.5'] });
+
+    const page = (await render()).nativeElement as HTMLElement;
+    const options = page.querySelectorAll<HTMLOptionElement>('select[name="model"] option');
+
+    expect([...options].map((option) => option.value)).toEqual(['llama3.2', 'lfm2.5', 'qwen2.5']);
+  });
+
+  it('re-asks when the form is pointed at another Ollama', async () => {
+    /* The dropdown lists one server's models; a different server has its own. */
+    const fixture = await render();
+    const page = fixture.nativeElement as HTMLElement;
+
+    const server = page.querySelector<HTMLInputElement>('input[name="baseUrl"]')!;
+    server.value = 'http://10.0.0.5:11434';
+    server.dispatchEvent(new Event('input'));
+    server.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    expect(agent.modelsAsked).toEqual([DEFAULTS.base_url, 'http://10.0.0.5:11434']);
   });
 
   it('says Ollama is unreachable rather than pretending it has no models', async () => {

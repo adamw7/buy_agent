@@ -38,17 +38,28 @@
     <div class="grid">
       <label class="field">
         <span>Model</span>
-        <input name="model" list="installed-models" [(ngModel)]="model" [disabled]="running()" />
-        <datalist id="installed-models">
-          @for (name of status()?.models ?? []; track name) {
-            <option [value]="name"></option>
-          }
-        </datalist>
+        @if (modelOptions().length) {
+          <select name="model" [(ngModel)]="model" [disabled]="running()">
+            @for (option of modelOptions(); track option.name) {
+              <option [value]="option.name">
+                {{ option.name }}{{ option.installed ? '' : ' — not pulled' }}
+              </option>
+            }
+          </select>
+        } @else {
+          <input name="model" [(ngModel)]="model" [disabled]="running()" />
+          <small>Ollama listed nothing to choose from, so type a name.</small>
+        }
       </label>
 
       <label class="field">
         <span>Ollama server</span>
-        <input name="baseUrl" [(ngModel)]="baseUrl" [disabled]="running()" />
+        <input
+          name="baseUrl"
+          [(ngModel)]="baseUrl"
+          [disabled]="running()"
+          (change)="serverChanged()"
+        />
       </label>
 
       <label class="field">
