@@ -653,3 +653,41 @@ def test_listings_are_grounded_before_they_are_merged(monkeypatch) -> None:
     assert product.url == "https://real.example", "invented figures must not win completeness"
     assert product.rating is None
     assert product.review_count is None
+
+
+def test_a_product_the_model_gave_no_link_for_is_linked_to_its_page(
+    agent_factory, search_results
+) -> None:
+    """The real-world case: models leave the link empty, so the run supplies it."""
+    llm = FakeLLM(
+        products=ProductList(
+            products=[ExtractedProduct(name="Anker Soundcore Q30", price=79.0)]
+        )
+    )
+    agent, _ = agent_factory(llm, search_results)
+
+    ranked = agent.run("headphones")
+
+    assert ranked[0].product.url == "https://example.com/anker"
+
+
+def test_an_invented_link_never_reaches_the_report(
+    agent_factory, search_results, caplog
+) -> None:
+    """A link is what the shopper clicks, so a page nobody searched must not survive."""
+    llm = FakeLLM(
+        products=ProductList(
+            products=[
+                ExtractedProduct(
+                    name="Anker Soundcore Q30", price=79.0, url="https://phishing.example/deal"
+                )
+            ]
+        )
+    )
+    agent, _ = agent_factory(llm, search_results)
+
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        ranked = agent.run("headphones")
+
+    assert ranked[0].product.url == "https://example.com/anker"
+    assert "phishing.example" not in caplog.text

@@ -7,7 +7,8 @@ import type { RankedProduct } from '../agent.types';
  *
  * Every figure shown here came out of `verification.ground()`, which blanks
  * anything the source pages did not actually say -- so an unknown price is shown
- * as unknown rather than quietly left out.
+ * as unknown rather than quietly left out. The link comes from there too: it is
+ * the page the product was found on, never one the model named.
  */
 @Component({
   selector: 'app-product-card',

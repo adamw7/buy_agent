@@ -105,7 +105,7 @@ graph TB
         extraction["<b>Extraction</b><br/><i>[Component: extraction.py]</i><br/>Both prompts and both chains,<br/>plus name cleaning and merging<br/>of variant names"]
         search["<b>Search</b><br/><i>[Component: search.py]</i><br/>DuckDuckGo wrapper; raises<br/>SearchError on a rate limit"]
         fetch["<b>Fetch</b><br/><i>[Component: fetch.py]</i><br/>Fetches result pages in parallel and<br/>keeps only the lines quoting a price<br/>or a rating"]
-        verification["<b>Verification</b><br/><i>[Component: verification.py]</i><br/>Drops products the sources never<br/>named, and blanks any figure the<br/>page text does not contain"]
+        verification["<b>Verification</b><br/><i>[Component: verification.py]</i><br/>Drops products the sources never<br/>named, blanks any figure the page<br/>text does not contain, and links<br/>each product to the page naming it"]
         ranking["<b>Ranking</b><br/><i>[Component: ranking.py]</i><br/>Weighted score over rating,<br/>popularity and price. No LLM"]
         models["<b>Models</b><br/><i>[Component: models.py]</i><br/>ExtractedProduct (sentinels, for the<br/>LLM's schema) vs Product (None)"]
         logsetup["<b>Report and logging</b><br/><i>[Component: logging_setup.py]</i><br/>Log format, and the top-N report<br/>the browser also reads as events"]
@@ -152,11 +152,16 @@ number nobody wrote down:
   publisher suffix ("... Review | AudioSite") is not failed by a coverage check
   for tokens the page never had to contain.
 - `ground` runs **before** `deduplicate`, so merging only ever combines figures
-  the sources back.
+  -- and links -- the sources back.
 
 Extraction and verification must be handed the *same* text, which is why
 `fetch.enrich()` puts the condensed page content on `SearchResult` rather than
 passing it alongside.
+
+Grounding also decides where a product *links*. The model is asked for a `url`
+but reliably leaves it empty, so `attribute_sources()` gives each product the
+first searched page whose own text mentions it, and keeps a model-supplied link
+only when it names one of those pages (ADR-0017).
 
 ## Level 3 -- Components of the web tier
 

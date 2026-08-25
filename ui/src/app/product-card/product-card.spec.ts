@@ -66,11 +66,11 @@ describe('ProductCard', () => {
     expect((await render(SONY)).textContent).toContain('example.com');
   });
 
-  it('survives a link the model made up rather than showing a broken host', async () => {
-    /* The url comes from the model, so it is not necessarily a url at all. */
+  it('survives an unparseable link rather than showing a broken host', async () => {
+    /* The url is a search result's own, so nothing guarantees it parses. */
     const card = await render({ ...SONY, url: 'wherever you buy headphones' });
 
-    expect(card.querySelector('.host')).toBeNull();
+    expect(card.querySelectorAll('.pill').length).toBe(2); // rating and seller, no host
     expect(card.textContent).toContain('Sony WH-1000XM5');
   });
 
