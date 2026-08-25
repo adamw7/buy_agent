@@ -135,6 +135,16 @@ lines as the run happens, and lists the ranked products with a link to the page
 each was found on. It binds loopback by default: it drives a model on your own
 machine, and is not meant to be exposed.
 
+Loopback keeps it off the network but not out of the browser, where any page you
+have open can send requests to `127.0.0.1`. So the server answers its own page
+and nothing else: a request a page on another site made is refused, as is one
+addressed to a name that merely resolves here -- which is what a rebinding attack
+looks like from this end. Clients that are not browsers send none of the headers
+that decide this and are unaffected, so the `curl` below still works. Reaching
+the server by some other name -- a container published on a LAN -- means naming
+that name, with `--allowed-host buy.lan`, or it is refused too. See
+[ADR-0018](docs/adr/0018-guard-the-loopback-server-against-other-pages.md).
+
 Under Settings, **Model** is a dropdown of what that Ollama has actually pulled --
 the same list `ollama list` prints, asked for over its API through
 `GET /api/models`. Point the Ollama server field somewhere else and the list is
@@ -284,7 +294,7 @@ cd ui; npm test               # the UI's own tests, in jsdom
 cd ui; npm run test:coverage  # the same, with a coverage floor
 ```
 
-540 Python tests and 58 UI tests. Nothing in either suite touches the network or
+559 Python tests and 58 UI tests. Nothing in either suite touches the network or
 Ollama: the model is faked through the `llm=` argument of `BuyAgent`, both the
 search backend and the page fetcher are monkeypatched, and the server tests
 inject a stub agent through `create_server(agent_factory=...)`. The only real

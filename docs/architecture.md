@@ -84,7 +84,10 @@ graph TB
 
 The CLI and the server are two front ends onto the same `BuyAgent.run()`. The
 server is stdlib-only on purpose -- a run that takes a minute and serves one
-person does not need a framework under it.
+person does not need a framework under it. It binds loopback, which keeps it off
+the network but not out of the browser: every request is admitted before it is
+routed, so the API answers its own page and not the other tabs
+([ADR-0018](adr/0018-guard-the-loopback-server-against-other-pages.md)).
 
 The three containers inside the box ship as one image when the `Dockerfile` is
 used: the UI is built in a Node stage and copied into the Python one, and the
@@ -178,7 +181,8 @@ graph TB
     end
 
     subgraph srv["HTTP server [Python]"]
-        handler["<b>BuyAgentHandler</b><br/><i>[Component: server.py]</i><br/>Routes /api to the API and<br/>everything else to the built app,<br/>falling back to index.html"]
+        handler["<b>BuyAgentHandler</b><br/><i>[Component: server.py]</i><br/>Admits the request, then routes /api<br/>to the API and everything else to the<br/>built app, falling back to index.html"]
+        guard["<b>_admits</b><br/><i>[Component: server.py]</i><br/>Refuses a request another site's page<br/>made, and a Host that merely resolves<br/>here -- loopback is not a boundary<br/>the browser respects"]
         relay["<b>_LogRelay</b><br/><i>[Component: server.py]</i><br/>A logging handler that fans records<br/>out by thread id, so two concurrent<br/>runs never see each other's progress"]
         api["<b>API</b><br/><i>[Component: api.py]</i><br/>Coerces options into an AgentConfig,<br/>runs the pipeline, shapes products as<br/>JSON, maps each failure to a status<br/>(400 / 502 / 503)"]
     end
@@ -193,6 +197,7 @@ graph TB
     agentsvc -->|"GET /api/search/stream<br/>[SSE: log, result, failure, ping]"| handler
     agentsvc -->|"GET /api/config, /api/models<br/>POST /api/search<br/>[JSON]"| handler
 
+    handler -->|"before any routing"| guard
     handler -->|"parse_options, run_search"| api
     handler -->|"reads the queue for this run"| relay
     api -->|"agent_factory(config).run()<br/>[worker thread]"| agentpipeline
@@ -203,10 +208,10 @@ graph TB
     classDef component fill:#85bbf0,stroke:#5d82a8,color:#000
     class browserUser person
     class agentpipeline container
-    class app,form,log,card,agentsvc,handler,relay,api component
+    class app,form,log,card,agentsvc,handler,guard,relay,api component
 ```
 
-Three details there are easy to get wrong and are deliberate:
+Four details there are easy to get wrong and are deliberate:
 
 - **A run is streamed, not requested.** A search takes tens of seconds, so the
   UI uses `GET /api/search/stream` and watches the same progress the CLI prints.
@@ -219,6 +224,11 @@ Three details there are easy to get wrong and are deliberate:
   unknown price stay in Python: `product_payload` sends `price_label` and
   `rating_label` next to the raw figures, and `sort_by` is a request parameter
   rather than a client-side re-sort.
+- **Loopback is not a boundary the browser respects.** Any page the shopper has
+  open can reach `127.0.0.1`, so `_admits` runs before routing and refuses a
+  request another site's page made -- which would otherwise start a run whose
+  answer it could never read -- and a `Host` that merely resolves here, which is
+  how such a page would arrange to read one (ADR-0018).
 
 ## A streamed run, end to end
 

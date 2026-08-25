@@ -17,6 +17,9 @@ Two ways to ask for the same thing:
 
 Everything outside ``/api`` is the built Angular app, with unknown paths falling
 back to ``index.html`` so the single-page app keeps its own routing.
+
+Both are guarded by :meth:`BuyAgentHandler._admits`, because a server on
+loopback is reachable from every page the same browser has open (ADR-0018).
 """
 
 from __future__ import annotations
@@ -46,7 +49,7 @@ from buy_agent.config import DEFAULT_BASE_URL
 from buy_agent.logging_setup import configure_logging
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
 
     from buy_agent.api import AgentFactory
 
@@ -61,6 +64,44 @@ DEFAULT_UI_DIR = Path(__file__).resolve().parent.parent / "ui" / "dist" / "ui" /
 _KEEPALIVE_SECONDS = 15.0
 
 _MAX_BODY_BYTES = 64 * 1024
+
+#: Host names that mean "this machine". A ``Host`` header outside the allowed set
+#: is a name that resolved here without being one of ours -- the shape of a DNS
+#: rebinding attack, where a page on ``evil.example`` re-resolves to 127.0.0.1 and
+#: is then same-origin with this server for as long as the browser believes it.
+#: 0.0.0.0 is deliberately absent: it is an address to *bind*, meaning every
+#: interface, and never a name a browser addresses a request to. Counting it here
+#: would read ``--host 0.0.0.0`` -- the container's bind (ADR-0015) -- as a
+#: loopback one and quietly refuse every name that actually reaches it.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+#: The ``Sec-Fetch-Site`` value meaning a page on another site made the request.
+#: Browsers send this header on every request, including the ones that carry no
+#: ``Origin`` at all -- an ``<img>``, an ``<iframe>``, a cross-site form post --
+#: which is the gap it is here to close. Anything that is not a browser sends
+#: nothing and is judged on ``Origin`` and ``Host`` alone.
+#:
+#: ``same-site`` is deliberately not here. A site is a registrable domain and not
+#: a port, so a page on ``localhost:4200`` -- the Angular dev server, proxying
+#: here -- calls this ``same-site``, and refusing that would refuse ``npm start``
+#: to close a hole nobody on the internet can reach through.
+_CROSS_SITE = "cross-site"
+
+#: Headers on every response. The app loads its own scripts, styles and fonts and
+#: talks to its own origin, so the policy can be as tight as ``'self'`` -- with
+#: ``'unsafe-inline'`` for styles only, which is what Angular's per-component
+#: ``<style>`` blocks need.
+_SECURITY_HEADERS = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("Referrer-Policy", "no-referrer"),
+    (
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; font-src 'self'; connect-src 'self'; "
+        "form-action 'self'; base-uri 'self'; object-src 'none'; "
+        "frame-ancestors 'none'",
+    ),
+)
 
 #: Content types for what ``ng build`` emits. Spelled out rather than left to
 #: ``mimetypes``, which reads the registry on Windows and can answer ``text/plain``
@@ -142,15 +183,92 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def __init__(
-        self, *args: Any, ui_dir: Path, agent_factory: AgentFactory, **kwargs: Any
+        self,
+        *args: Any,
+        ui_dir: Path,
+        agent_factory: AgentFactory,
+        allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS,
+        **kwargs: Any,
     ) -> None:
         self.ui_dir = ui_dir
         self.agent_factory = agent_factory
+        #: None means every ``Host`` is accepted -- what an operator who bound a
+        #: public interface has already chosen (see ``main``). It has to be asked
+        #: for: the default here is the guarded one, so a handler built without
+        #: the argument is not the unprotected one by accident.
+        self.allowed_hosts = allowed_hosts
         super().__init__(*args, **kwargs)
+
+    # -- who is allowed to ask --------------------------------------------------
+
+    def _admits(self) -> bool:
+        """Whether this request came from the page this server serves.
+
+        There is no authentication here and there should not be: it serves one
+        person on their own machine. But loopback is not a boundary a browser
+        respects -- any page the user has open can reach 127.0.0.1 -- and both of
+        the things that follow from that have to be shut off explicitly.
+
+        A cross-site *write* needs no reply to be worth making: a page can post a
+        form or open an ``EventSource`` at this server, and although the browser
+        refuses to show it the answer, the run happens anyway -- ten pages
+        fetched, a model driven, on someone else's say-so. A cross-site *read*
+        needs the origin to match, which DNS rebinding manufactures: the attacker
+        re-points their own name at 127.0.0.1, at which point the browser
+        believes their page and this server are the same origin and hands over
+        every answer.
+
+        So: the fetch metadata and the ``Origin`` say who asked, and the ``Host``
+        says which name they used to get here. Both have to be ours.
+        """
+        return self._origin_admits() and self._host_admits()
+
+    def _origin_admits(self) -> bool:
+        """Reject a request a page on another site made."""
+        if self.headers.get("Sec-Fetch-Site", "").strip().lower() == _CROSS_SITE:
+            return False
+        origin = self.headers.get("Origin")
+        # "null" is an opaque origin -- a sandboxed iframe, a data: document --
+        # and is never this app, which is served from a real one.
+        if origin is None or origin == "null":
+            return origin is None
+
+        netloc = urlparse(origin).netloc.strip().lower()
+        # An origin equal to the authority the request was addressed to is this
+        # server's own page, whatever that authority is: the browser writes both
+        # headers, and a page elsewhere cannot make them agree. That is what keeps
+        # a deliberately public bind -- the container reached at buy.lan:8000 --
+        # usable without loosening anything for a page on the internet.
+        if netloc and netloc == self.headers.get("Host", "").strip().lower():
+            return True
+        return _hostname(netloc) in _LOOPBACK_HOSTS
+
+    def _host_admits(self) -> bool:
+        """Reject a name that resolved here without being one of ours."""
+        if self.allowed_hosts is None:
+            return True
+        return _hostname(self.headers.get("Host", "")) in self.allowed_hosts
+
+    def _refuse(self) -> None:
+        """Answer a request from somewhere else, without doing any of its work."""
+        # Deliberately terse and deliberately not CORS-negotiable: there is
+        # nothing here another site is meant to be able to ask for.
+        self.close_connection = True
+        logger.warning(
+            "Refused a %s %s from origin %r with host %r",
+            self.command,
+            self.path,
+            self.headers.get("Origin", ""),
+            self.headers.get("Host", ""),
+        )
+        self._send_json(403, {"error": "This API only answers its own page."})
 
     # -- routing ---------------------------------------------------------------
 
     def do_GET(self) -> None:  # noqa: N802 -- BaseHTTPRequestHandler's spelling
+        if not self._admits():
+            self._refuse()
+            return
         url = urlparse(self.path)
         params = {key: values[-1] for key, values in parse_qs(url.query).items()}
         if url.path == "/api/config":
@@ -165,6 +283,9 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             self._serve_static(url.path)
 
     def do_POST(self) -> None:  # noqa: N802 -- BaseHTTPRequestHandler's spelling
+        if not self._admits():
+            self._refuse()
+            return
         url = urlparse(self.path)
         if url.path != "/api/search":
             self._send_json(404, {"error": f"No such endpoint: {url.path}"})
@@ -185,6 +306,9 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
     def do_HEAD(self) -> None:  # noqa: N802 -- BaseHTTPRequestHandler's spelling
         """Answer HEAD like GET, minus the body -- but never by running a search."""
+        if not self._admits():
+            self._refuse()
+            return
         if urlparse(self.path).path == "/api/search/stream":
             self._send_json(405, {"error": "A search stream has to be asked for with GET."})
             return
@@ -210,6 +334,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache, no-transform")
             self.send_header("Connection", "close")
+            self._send_security_headers()
             self.end_headers()
         except OSError:
             return
@@ -305,7 +430,15 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
         root = self.ui_dir.resolve()
         relative = unquote(urlparse(path).path).lstrip("/")
-        candidate = (self.ui_dir / relative).resolve()
+        try:
+            candidate = (self.ui_dir / relative).resolve()
+        except (OSError, ValueError):
+            # A percent-encoded NUL makes resolve() raise rather than answer, and
+            # an exception here escapes to socketserver, which drops the socket
+            # without a reply -- indistinguishable, from the browser, from the
+            # server having died. It is a path that cannot name a file: say so
+            # the way every other unservable path is answered.
+            return index
         # A candidate outside the UI directory is someone walking out of it with
         # '..'; fall through to the app rather than reading the filesystem.
         if relative and candidate.is_relative_to(root) and candidate.is_file():
@@ -326,7 +459,14 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         if length > _MAX_BODY_BYTES:
             self.close_connection = True
             raise ApiError("Request body is too large.", 413)
-        if length <= 0:
+        if length < 0:
+            # A negative length declares a body this loop will never read, which
+            # leaves it in the socket to be parsed as the next request -- the same
+            # desync the two branches above close the connection to avoid, arrived
+            # at through a number that is technically an integer.
+            self.close_connection = True
+            raise ApiError("Content-Length is not a number.")
+        if length == 0:
             return {}
         raw = self.rfile.read(length)
         try:
@@ -341,11 +481,22 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         body = json.dumps(payload).encode("utf-8")
         self._send_bytes(status, body, "application/json; charset=utf-8")
 
+    def _send_security_headers(self) -> None:
+        """Say what the page is allowed to do, on every response.
+
+        Cheap here in a way it is not elsewhere: the app is served whole from this
+        one origin and asks nothing of any other, so the policy that describes it
+        is the tightest one there is.
+        """
+        for name, value in _SECURITY_HEADERS:
+            self.send_header(name, value)
+
     def _send_bytes(self, status: int, body: bytes, content_type: str) -> None:
         try:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
+            self._send_security_headers()
             if self.close_connection:
                 # Say so, rather than letting the client discover it by having its
                 # next request on this connection answered with a reset.
@@ -371,12 +522,41 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         logger.debug("%s - %s", self.address_string(), format % args)
 
 
+def _hostname(netloc: str) -> str:
+    """The host out of a ``Host`` header or an origin's netloc, lowercased.
+
+    Written by hand because the value may be a bare authority rather than a URL:
+    ``urlparse("localhost:8000").hostname`` is None, the port having been read as
+    a scheme. Strips the brackets IPv6 literals are written in, so ``[::1]:8000``
+    and ``::1`` are the one host they are.
+    """
+    host = netloc.strip().lower()
+    if host.startswith("["):
+        return host[1:].partition("]")[0]
+    return host.partition(":")[0]
+
+
+def allowed_hosts_for(host: str, extra: Sequence[str] = ()) -> frozenset[str] | None:
+    """Which ``Host`` headers a server bound to ``host`` should answer.
+
+    Loopback binds get the loopback names plus anything the operator named. A
+    bind to a public interface gets None -- every host accepted -- because the
+    name that reaches it is the operator's to know and not ours to guess; naming
+    it with ``--allowed-host`` is what turns the check back on.
+    """
+    named = frozenset(_hostname(entry) for entry in extra if entry.strip())
+    if _hostname(host) not in _LOOPBACK_HOSTS:
+        return named or None
+    return _LOOPBACK_HOSTS | named
+
+
 def create_server(
     host: str = "127.0.0.1",
     port: int = 8000,
     *,
     ui_dir: Path | None = None,
     agent_factory: AgentFactory = BuyAgent,
+    allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS,
 ) -> ThreadingHTTPServer:
     """Build the HTTP server without starting it.
 
@@ -386,11 +566,14 @@ def create_server(
         port: Port to bind, or 0 to let the OS choose (what the tests do).
         ui_dir: Directory holding the built Angular app.
         agent_factory: Builds the agent from a config; the tests' injection seam.
+        allowed_hosts: ``Host`` headers to answer. None answers any, which is
+            what a bind to a public interface gets -- see :func:`allowed_hosts_for`.
     """
     handler = partial(
         BuyAgentHandler,
         ui_dir=ui_dir or DEFAULT_UI_DIR,
         agent_factory=agent_factory,
+        allowed_hosts=allowed_hosts,
     )
     return ThreadingHTTPServer((host, port), handler)  # type: ignore[arg-type]
 
@@ -408,6 +591,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_UI_DIR,
         help="Directory holding the built Angular app (default: ui/dist/ui/browser).",
     )
+    parser.add_argument(
+        "--allowed-host",
+        action="append",
+        default=[],
+        metavar="HOST",
+        help=(
+            "Extra Host header to answer, repeatable. The loopback names are "
+            "always answered; anything else is refused, so that a name pointed "
+            "at this machine cannot pass itself off as this server."
+        ),
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging.")
     return parser
 
@@ -420,8 +614,19 @@ def main(argv: list[str] | None = None) -> int:
     # the package logger so every module's output reaches the browser.
     _install_relay()
 
+    allowed = allowed_hosts_for(args.host, args.allowed_host)
+    if allowed is None:
+        logger.warning(
+            "Bound to %s with no --allowed-host: this answers any Host header, so "
+            "a name resolved here by someone else is answered too. Name the host "
+            "you reach it by to close that.",
+            args.host,
+        )
+
     try:
-        httpd = create_server(args.host, args.port, ui_dir=args.ui_dir)
+        httpd = create_server(
+            args.host, args.port, ui_dir=args.ui_dir, allowed_hosts=allowed
+        )
     except OSError as exc:
         logger.error("Could not listen on %s:%s (%s)", args.host, args.port, exc)
         return 1
