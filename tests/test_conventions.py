@@ -12,6 +12,10 @@ The same shape recurs for the sort criteria and for the payloads
 forgotten on the TypeScript side is a runtime ``undefined`` in the browser that
 neither suite can see, because neither suite can see the other language.
 
+The decision log has the same shape: ``docs/adr/README.md`` indexes records that
+live in files beside it, so an unindexed decision -- or an index row still quoting
+a title the record has since changed -- is invisible to every other test here.
+
 These tests read the declarations themselves rather than exercising behaviour,
 which is the only way to check that two lists agree about what is *not* in them.
 """
@@ -169,3 +173,69 @@ class _StubAgent:
 
     def run(self, request, *, sort_by="score"):
         return [RANKED]
+
+
+# -- the decision log ----------------------------------------------------------
+
+_ADR = _ROOT / "docs" / "adr"
+_ADR_INDEX = _ADR / "README.md"
+_ADR_SECTIONS = ("## Context", "## Decision", "## Consequences")
+_ADR_ROW = re.compile(r"^\| \[(\d{4})\]\((\d{4}-[a-z0-9-]+\.md)\) \| (.+?) \| (.+?) \|$", re.M)
+
+
+def adr_files() -> list[Path]:
+    """Every accepted record, template excluded, in numbered order."""
+    return sorted(path for path in _ADR.glob("[0-9][0-9][0-9][0-9]-*.md") if path.stem[:4] != "0000")
+
+
+def adr_heading(path: Path) -> tuple[str, str]:
+    """One record's number and title, read off its ``# ADR-NNNN: Title`` line."""
+    first = path.read_text(encoding="utf-8").splitlines()[0]
+    match = re.fullmatch(r"# ADR-(\d{4}): (.+)", first)
+    assert match, f"{path.name} does not open with '# ADR-NNNN: Title'"
+    return match.group(1), match.group(2)
+
+
+def adr_status(path: Path) -> str:
+    """One record's status, from its ``- **Status:**`` line."""
+    match = re.search(r"^- \*\*Status:\*\* (.+)$", path.read_text(encoding="utf-8"), re.M)
+    assert match, f"{path.name} has no Status line"
+    return match.group(1)
+
+
+def test_the_adr_index_lists_every_record_and_nothing_else() -> None:
+    """An unindexed decision is one nobody reading docs/adr/ will find."""
+    indexed = [row[1] for row in _ADR_ROW.findall(_ADR_INDEX.read_text(encoding="utf-8"))]
+
+    assert indexed == [path.name for path in adr_files()]
+
+
+@pytest.mark.parametrize("row", _ADR_ROW.findall(_ADR_INDEX.read_text(encoding="utf-8")))
+def test_each_index_row_says_what_the_record_says(row: tuple[str, str, str, str]) -> None:
+    """Title and status live in two places; the index is the one that goes stale."""
+    number, filename, title, status = row
+    path = _ADR / filename
+
+    assert filename.startswith(f"{number}-"), f"row {number} links to {filename}"
+    assert adr_heading(path) == (number, title)
+    assert adr_status(path) == status
+
+
+@pytest.mark.parametrize("path", adr_files(), ids=lambda path: path.stem[:4])
+def test_every_record_has_a_status_a_date_and_the_three_sections(path: Path) -> None:
+    """The shape ADR-0001 asks for: context, the decision, and its consequences."""
+    text = path.read_text(encoding="utf-8")
+
+    assert adr_heading(path)[0] == path.stem[:4], "the heading and the filename disagree"
+    assert re.search(r"^- \*\*Date:\*\* \d{4}-\d{2}-\d{2}$", text, re.M), "no ISO date"
+    assert re.fullmatch(r"Accepted|Proposed|Superseded by \[ADR-\d{4}\]\(.+\)", adr_status(path))
+    for section in _ADR_SECTIONS:
+        assert f"\n{section}\n" in text, f"{path.name} has no {section} section"
+
+
+@pytest.mark.parametrize("path", adr_files(), ids=lambda path: path.stem[:4])
+def test_every_record_a_record_points_at_exists(path: Path) -> None:
+    """Records supersede and cite each other by number; a dangling one reads as a gap."""
+    numbers = {other.stem[:4] for other in adr_files()}
+
+    assert set(re.findall(r"ADR-(\d{4})", path.read_text(encoding="utf-8"))) <= numbers
