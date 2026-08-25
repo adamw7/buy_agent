@@ -31,6 +31,11 @@ python -m buy_agent "espresso machine" --model lfm2.5 -v
 python -m buy_agent "running shoes" --sort-by price --json results.json
 
 python -m buy_agent.server                    # the UI and its API on :8000
+
+pip install -r requirements-mutation.txt      # mutmut, on top of the dev deps
+python -m mutmut run                          # mutation testing; ~2 min, cached
+python -m mutmut results --all true > mutation-results.txt
+python scripts/mutation_report.py mutation-results.txt   # the report CI publishes
 ```
 
 The `Dockerfile` is a third way to run that server, for someone who wants the page
@@ -74,13 +79,23 @@ npm start                                     # dev server on :4200, proxying /a
 There is no Python linter; the UI has Prettier (`npx prettier --write "src/**/*"`).
 CI (`.github/workflows/ci.yml`) runs two jobs for pushes to `main` and for every
 pull request: `coverage run -m pytest` plus `coverage report` on Python 3.13, and
-`npm run test:coverage && npm run build` in `ui/` on Node 22.22.3. `pytest.ini`
-sets `pythonpath = .`, which is why the package imports without being installed,
-plus `testpaths = tests` and `addopts = -q --strict-markers`. `.coveragerc` holds
-the Python floor (99%, against 100% actual); `ui/scripts/check-coverage.mjs` holds
-the UI's (98% of statements and lines) -- the Angular unit-test builder reads a
-vitest config's coverage *reporters* but does not fail a run on its `thresholds`,
-so the floor has to be checked separately or it is not a floor.
+`npm run test:coverage && npm run build` in `ui/` on Node 22.22.3.
+`.github/workflows/mutation.yml` is the second workflow: mutmut against
+`buy_agent/` at 05:17 UTC on Saturdays (and on `workflow_dispatch`), never on a
+pull request. Its settings live in `setup.cfg` -- which exists for that and is not
+a packaging file -- and `scripts/mutation_report.py` turns a run into the job
+summary and fails it if the score drops under 75% (ADR-0016). A run copies the
+tree to `mutants/` and tests the copy, so anything the suite reads off disk or
+imports from outside `buy_agent` has to be named in `also_copy`, or the whole run
+dies at collection.
+
+`pytest.ini` sets `pythonpath = .`, which is why the package imports without
+being installed, plus `testpaths = tests` and `addopts = -q --strict-markers`.
+`.coveragerc` holds the Python floor (99%, against 100% actual);
+`ui/scripts/check-coverage.mjs` holds the UI's (98% of statements and lines) --
+the Angular unit-test builder reads a vitest config's coverage *reporters* but
+does not fail a run on its `thresholds`, so the floor has to be checked
+separately or it is not a floor.
 
 ## Architecture
 
@@ -246,7 +261,7 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 440 tests
+to EOF instead -- what it checks is that nothing follows the reply. 466 tests
 run in about three seconds: most of that is the one
 test that spawns an interpreter to check `python -m buy_agent` still runs as a
 script, plus 0.7s of deliberate `StubAgent.delay` in the two server tests that
@@ -266,9 +281,17 @@ the CLI's `--sort-by` choices and the TypeScript `SortBy` union offer the same
 criteria; that `agent.types.ts` mirrors `defaults_payload`, `product_payload`
 and `run_search` field for field; that the `Dockerfile` pins the versions CI tests
 against, copies the built UI where the server looks and exposes the port it binds;
-and that every ADR is indexed, numbered to match its heading, and carries the
-status, date and sections ADR-0001 asks for. A field added on one side of the language
-boundary and forgotten on the other is otherwise invisible to both suites.
+that every ADR is indexed, numbered to match its heading, and carries the
+status, date and sections ADR-0001 asks for; and that the Saturday mutation run
+mutates the package `.coveragerc` measures, on the Python `ci.yml` pins, with
+every file these tests open -- or import from outside `buy_agent` -- named in
+mutmut's `also_copy`. A field added on one side of the language boundary and
+forgotten on the other is otherwise invisible to both suites.
+
+`scripts/mutation_report.py` is tested like the rest (`tests/test_mutation_report.py`):
+it decides whether a mutation run passes, and by the same rule as `clean_products`,
+whatever decides an answer belongs where it is testable rather than in a
+workflow's shell.
 
 ## Environment
 
