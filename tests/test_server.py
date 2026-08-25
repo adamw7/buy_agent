@@ -22,9 +22,14 @@ from buy_agent.agent import OllamaUnavailableError
 from buy_agent.models import Product, RankedProduct
 from buy_agent.search import SearchError
 from buy_agent.server import (
+    _CROSS_SITE,
     _KEEPALIVE_SECONDS,
+    _LOOPBACK_HOSTS,
+    _SECURITY_HEADERS,
     BuyAgentHandler,
+    _hostname,
     _relay,
+    allowed_hosts_for,
     build_parser,
     create_server,
     main,
@@ -77,9 +82,11 @@ def server(tmp_path: Path) -> Iterator[str]:
 
 
 @contextmanager
-def serving(ui_dir: Path) -> Iterator[str]:
+def serving(ui_dir: Path, allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS) -> Iterator[str]:
     """Run a server on a loopback port for the duration of the block."""
-    httpd = create_server("127.0.0.1", 0, ui_dir=ui_dir, agent_factory=StubAgent)
+    httpd = create_server(
+        "127.0.0.1", 0, ui_dir=ui_dir, agent_factory=StubAgent, allowed_hosts=allowed_hosts
+    )
     # 0.01 rather than the default 0.5s poll: otherwise shutdown costs half a
     # second per test.
     thread = threading.Thread(target=httpd.serve_forever, args=(0.01,), daemon=True)
@@ -150,6 +157,18 @@ def raw(base: str, request: bytes) -> str:
                 break
             body += chunk
     return (head + b"\r\n\r\n" + body).decode("utf-8", "replace")
+
+
+def ask(base: str, path: str = "/api/config", **headers: str) -> str:
+    """Send a GET with exactly the headers given, and read the whole reply.
+
+    Built by hand because these tests are about headers urllib insists on
+    writing itself -- Host above all, which it derives from the URL.
+    """
+    sent = {"Host": urlparse(base).netloc, "Connection": "close"}
+    sent |= {name.replace("_", "-"): value for name, value in headers.items()}
+    lines = [f"GET {path} HTTP/1.1", *(f"{k}: {v}" for k, v in sent.items())]
+    return raw(base, ("\r\n".join(lines) + "\r\n\r\n").encode())
 
 
 def events(url: str) -> list[tuple[str, Any]]:
@@ -273,7 +292,7 @@ def test_a_body_over_the_cap_is_refused_without_being_read(server: str) -> None:
     """The length is enough to refuse on; reading 100 KB to then reject it is not."""
     reply = raw(
         server,
-        b"POST /api/search HTTP/1.1\r\nHost: x\r\nContent-Length: 100000\r\n\r\n{}",
+        b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 100000\r\n\r\n{}",
     )
 
     assert "413" in reply.splitlines()[0]
@@ -281,7 +300,7 @@ def test_a_body_over_the_cap_is_refused_without_being_read(server: str) -> None:
 
 def test_a_content_length_that_is_not_a_number_is_the_clients_mistake(server: str) -> None:
     reply = raw(
-        server, b"POST /api/search HTTP/1.1\r\nHost: x\r\nContent-Length: lots\r\n\r\n"
+        server, b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: lots\r\n\r\n"
     )
 
     assert "400" in reply.splitlines()[0]
@@ -293,13 +312,231 @@ def test_a_request_with_no_body_is_read_as_an_empty_object(server: str) -> None:
     StubAgent.result = ValueError("Nothing to shop for: the request is empty.")
 
     reply = raw(
-        server, b"POST /api/search HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n\r\n"
+        server, b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\n\r\n"
     )
 
     assert "400" in reply.splitlines()[0]
     assert "Nothing to shop for" in reply
     assert "JSON" not in reply, "an absent body is not a malformed one"
     assert StubAgent.captured["request"] == ""
+
+
+# -- who is allowed to ask -----------------------------------------------------
+
+
+def test_a_page_on_another_site_cannot_start_a_run(server: str) -> None:
+    """The reply it cannot read is not the point -- the run happening is.
+
+    A cross-site POST needs no answer to be worth making: the browser refuses to
+    show it, and ten pages have still been fetched and a model driven on somebody
+    else's say-so. So it is refused before the agent is built, not after.
+    """
+    reply = raw(
+        server,
+        b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+        b"Origin: https://evil.example\r\nContent-Type: text/plain\r\n"
+        b"Content-Length: 25\r\nConnection: close\r\n\r\n"
+        b'{"request": "headphones"}',
+    )
+
+    assert "403" in reply.splitlines()[0]
+    assert "captured" not in StubAgent.captured
+    assert "request" not in StubAgent.captured
+
+
+def test_a_cross_site_request_carrying_no_origin_is_still_refused(server: str) -> None:
+    """An <img> or an <iframe> pointed here sends no Origin, only fetch metadata.
+
+    Which is why both are read: Origin covers what fetch metadata a proxy stripped
+    would not, and fetch metadata covers the requests that never carry an Origin.
+    """
+    reply = ask(server, "/api/search/stream?request=headphones", Sec_Fetch_Site="cross-site")
+
+    assert "403" in reply.splitlines()[0]
+    assert "request" not in StubAgent.captured
+
+
+def test_the_dev_servers_proxy_is_not_a_foreign_site(server: str) -> None:
+    """`npm start` serves the app on :4200 and proxies /api here, Origin and all.
+
+    Loopback is the boundary being drawn, not the port: the attack is a page on
+    the internet, and another port on this machine is the developer's own.
+    """
+    reply = ask(server, Origin="http://localhost:4200", Sec_Fetch_Site="same-origin")
+
+    assert "200" in reply.splitlines()[0]
+    assert "llama3.2" in reply
+    # Ports do not make a site, so a loopback page calling this one directly --
+    # not through the proxy -- reports same-site. That is the developer, not a
+    # stranger, and the loopback Origin is what says so.
+    assert "200" in ask(
+        server, Origin="http://127.0.0.1:4200", Sec_Fetch_Site="same-site"
+    ).splitlines()[0]
+    assert _CROSS_SITE == "cross-site"
+
+
+def test_an_opaque_origin_is_refused(server: str) -> None:
+    """A sandboxed iframe posts as "null"; the app is served from a real origin."""
+    assert "403" in ask(server, Origin="null").splitlines()[0]
+
+
+def test_a_client_that_is_not_a_browser_is_answered(server: str) -> None:
+    """curl and the scripts POST /api/search was shaped for send none of this.
+
+    Nothing here is an authentication check -- it is the browser's own account of
+    where a request came from, which only a browser gives.
+    """
+    reply = ask(server)
+
+    assert "200" in reply.splitlines()[0]
+    assert "llama3.2" in reply
+
+
+def test_a_name_that_merely_resolves_here_is_not_answered(server: str) -> None:
+    """DNS rebinding: evil.example re-points at 127.0.0.1 and is then same-origin.
+
+    At that point every check above passes -- the browser genuinely believes the
+    page and this server share an origin -- and the only thing left that tells
+    them apart is the name the request was addressed to.
+    """
+    reply = ask(server, Host="evil.example")
+
+    assert "403" in reply.splitlines()[0]
+    assert "llama3.2" not in reply, "the defaults leaked to a rebound name"
+
+
+def test_head_is_guarded_like_the_others(server: str) -> None:
+    """It answers by way of do_GET, so a guard only on GET would still run it."""
+    reply = raw(
+        server,
+        b"HEAD /api/config HTTP/1.1\r\nHost: evil.example\r\nConnection: close\r\n\r\n",
+    )
+
+    assert "403" in reply.splitlines()[0]
+
+
+def test_a_refused_request_ends_the_connection(server: str) -> None:
+    """Nothing more is coming from a caller who was not meant to be asking."""
+    reply = ask(server, Host="evil.example")
+
+    assert "Connection: close" in reply
+
+
+def test_every_response_says_what_the_page_may_do(server: str) -> None:
+    """Including the JSON: the headers are cheap and the omission is the bug."""
+    reply = ask(server)
+
+    for name, value in _SECURITY_HEADERS:
+        assert f"{name}: {value}" in reply
+
+
+def test_the_stream_carries_the_security_headers_too(server: str) -> None:
+    """It writes its own header block rather than going through _send_bytes."""
+    with urllib.request.urlopen(f"{server}/api/search/stream?request=x", timeout=30) as response:
+        headers = response.headers
+    assert headers["X-Content-Type-Options"] == "nosniff"
+    assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
+
+
+def test_a_negative_content_length_does_not_desync_the_connection(server: str) -> None:
+    """The third way to declare a body this loop will never read.
+
+    An over-long body and an unparseable length both close the connection for
+    this reason; a negative one parses as an integer and used to slip past into
+    "no body at all", leaving the bytes to be read as the next request line.
+    """
+    parsed = urlparse(server)
+    with socket.create_connection((parsed.hostname, parsed.port), timeout=10) as sock:
+        sock.sendall(
+            b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: -1\r\n\r\n"
+            b"GET /api/config HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+        )
+        reply = b""
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            reply += chunk
+
+    text = reply.decode("utf-8", "replace")
+    assert "400" in text.splitlines()[0]
+    assert "Connection: close" in text
+    assert text.count("HTTP/1.1 ") == 1, "the smuggled request was answered"
+
+
+def test_a_path_that_cannot_name_a_file_is_answered_not_dropped(tmp_path: Path) -> None:
+    """An encoded NUL makes resolve() raise, and an exception here writes nothing.
+
+    The browser cannot tell a dropped socket from a server that died, so the path
+    that cannot name a file is answered the way every other one is.
+    """
+    (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
+
+    with serving(tmp_path) as base:
+        reply = ask(base, "/main%00.js")
+
+    assert "200" in reply.splitlines()[0]
+    assert "<app-root>" in reply
+
+
+def test_a_server_told_to_answer_any_host_does(tmp_path: Path) -> None:
+    """What a bind to a public interface gets, since its name is not ours to guess.
+
+    The Origin and fetch-metadata checks still stand -- this turns off the one
+    check that needs to know what this server is called.
+    """
+    (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
+
+    with serving(tmp_path, allowed_hosts=None) as base:
+        assert "200" in ask(base, "/", Host="buy.lan").splitlines()[0]
+        assert "403" in ask(base, "/", Host="buy.lan", Sec_Fetch_Site="cross-site").splitlines()[0]
+
+
+def test_the_apps_own_page_is_answered_whatever_the_server_is_called(tmp_path: Path) -> None:
+    """A public bind is reached by a name that is not loopback, and it still works.
+
+    The container binds 0.0.0.0 (ADR-0015) and someone reaches it at buy.lan. Its
+    page then sends an Origin no loopback rule would recognise -- so what admits
+    it is that the Origin and the Host agree, which only this server's own page
+    can manage: the browser writes both.
+    """
+    (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
+
+    with serving(tmp_path, allowed_hosts=frozenset({"buy.lan"})) as base:
+        own = ask(base, "/api/config", Host="buy.lan:8000", Origin="http://buy.lan:8000")
+        assert "200" in own.splitlines()[0]
+        # The same page name, on a host this server does not answer to.
+        borrowed = ask(base, "/api/config", Host="buy.lan:8000", Origin="http://evil.example")
+        assert "403" in borrowed.splitlines()[0]
+
+
+def test_the_hostname_of_an_authority_is_read_without_a_scheme() -> None:
+    """urlparse reads 'localhost:8000' as a scheme and a path, hence by hand."""
+    assert _hostname("localhost:8000") == "localhost"
+    assert _hostname("127.0.0.1") == "127.0.0.1"
+    assert _hostname("[::1]:8000") == "::1"
+    assert _hostname("[::1]") == "::1"
+    assert _hostname(" EVIL.example ") == "evil.example"
+    assert _hostname("") == ""
+
+
+def test_a_loopback_bind_answers_the_loopback_names_and_what_was_named() -> None:
+    allowed = allowed_hosts_for("127.0.0.1", ["buy.local"])
+    assert allowed is not None
+    assert _LOOPBACK_HOSTS <= allowed
+    assert "buy.local" in allowed
+    assert "evil.example" not in allowed
+
+
+def test_a_public_bind_answers_any_host_until_one_is_named() -> None:
+    """The name that reaches a public interface is the operator's to know.
+
+    Guessing it would refuse the container's own users (ADR-0015 binds 0.0.0.0),
+    so the check is off by default there and --allowed-host is what turns it on.
+    """
+    assert allowed_hosts_for("192.168.1.5") is None
+    assert allowed_hosts_for("192.168.1.5", ["buy.lan:8000"]) == frozenset({"buy.lan"})
+    assert allowed_hosts_for("127.0.0.1", ["  "]) == _LOOPBACK_HOSTS
 
 
 # -- the event stream ----------------------------------------------------------
@@ -380,7 +617,7 @@ def test_a_rejected_body_ends_the_connection_rather_than_desyncing_it(
     parsed = urlparse(server)
     with socket.create_connection((parsed.hostname, parsed.port), timeout=10) as sock:
         sock.sendall(
-            b"POST /api/search HTTP/1.1\r\nHost: x\r\nContent-Length: " + length + b"\r\n\r\n{}"
+            b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: " + length + b"\r\n\r\n{}"
         )
         reply = b""
         while True:
@@ -596,6 +833,34 @@ def test_an_unbuilt_ui_is_warned_about_at_startup(monkeypatch, tmp_path: Path, c
         main(["--ui-dir", str(tmp_path)])
 
     assert "npm run build" in caplog.text
+
+
+def test_a_public_bind_with_no_named_host_is_warned_about(
+    monkeypatch, tmp_path: Path, caplog
+) -> None:
+    """Binding 0.0.0.0 turns the rebinding check off, so it is said out loud."""
+    monkeypatch.setattr("buy_agent.server.create_server", lambda *a, **k: FakeHttpd())
+
+    with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
+        main(["--host", "0.0.0.0", "--ui-dir", str(tmp_path)])  # noqa: S104
+
+    assert "--allowed-host" in caplog.text
+
+
+def test_naming_the_host_turns_the_check_back_on(monkeypatch, tmp_path: Path, caplog) -> None:
+    captured: dict[str, Any] = {}
+
+    def remember(*args: Any, **kwargs: Any) -> FakeHttpd:
+        captured.update(kwargs)
+        return FakeHttpd()
+
+    monkeypatch.setattr("buy_agent.server.create_server", remember)
+
+    with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
+        main(["--host", "0.0.0.0", "--allowed-host", "buy.lan", "--ui-dir", str(tmp_path)])  # noqa: S104
+
+    assert captured["allowed_hosts"] == frozenset({"buy.lan"})
+    assert "--allowed-host" not in caplog.text
 
 
 def test_a_built_ui_is_not_warned_about(monkeypatch, tmp_path: Path, caplog) -> None:

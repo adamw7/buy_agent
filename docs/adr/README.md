@@ -26,6 +26,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0015](0015-package-the-web-tier-as-a-container.md) | Package the web tier as a container, with Ollama left outside it | Accepted |
 | [0016](0016-mutation-testing-weekly-not-per-push.md) | Check the tests with mutation testing, weekly rather than on every push | Accepted |
 | [0017](0017-attribute-links-to-the-page-that-mentions-them.md) | Attribute a product's link to the searched page that mentions it | Accepted |
+| [0018](0018-guard-the-loopback-server-against-other-pages.md) | Guard the loopback server against the other pages in the browser | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

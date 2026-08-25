@@ -249,11 +249,30 @@ Four things there are load-bearing:
   key and an empty string alike, because an empty form field means "unset", not
   "zero" -- and the UI's `toQuery` drops blanks for the same reason. Values that
   are present but unusable raise `ApiError` with the status the client deserves.
+- **Loopback is not a boundary a browser respects, so every request is admitted
+  first.** `BuyAgentHandler._admits()` runs at the top of `do_GET`, `do_POST` and
+  `do_HEAD` -- a new method added without it is unguarded and nothing fails --
+  and refuses `Sec-Fetch-Site: cross-site`, an `Origin` that is neither loopback
+  nor equal to the request's own `Host`, and a `Host` outside `allowed_hosts`
+  (ADR-0018). The first stops a page on another site starting a run whose answer
+  it could never read; the last stops DNS rebinding, which is how that page would
+  get to read one. `--allowed-host` names a further host; a bind to a public
+  interface turns the `Host` check off and says so at startup.
 
 `server._CONTENT_TYPES` spells out the types `ng build` emits rather than leaving
 them to `mimetypes`, which reads the registry on Windows and can answer
 `text/plain` for `.js` -- which a browser refuses to run as a module, leaving a
 blank page and no error.
+
+`_SECURITY_HEADERS` goes out on every response, and its CSP is `'self'` throughout
+because the app is served whole from one origin -- `'unsafe-inline'` for styles
+only, which is what Angular's per-component `<style>` blocks need. That policy and
+the UI's build are coupled: `optimization.styles.inlineCritical` is off in
+`ui/angular.json` because Angular's critical-CSS inliner defers the global
+stylesheet with an inline `onload`, and `script-src 'self'` refuses to run it --
+leaving the sheet at `media="print"` and the page unstyled. Neither suite can see
+that; it takes a browser. Anything else that adds an inline handler, an inline
+`<script>` or a request to another origin has the same shape of symptom.
 
 `progress-log` offers a **Download log** button once a run has failed, and only
 then -- a successful run is on the page in front of you, a failed one is a bug
@@ -280,7 +299,9 @@ typing. Because the list belongs to one server, editing the Ollama server field
 emits `refresh` and `App.refreshModels` asks that one instead.
 
 `create_server(agent_factory=...)` is the seam the server tests inject a stub
-agent through, the way `BuyAgent(config, llm=...)` is for the pipeline. Angular
+agent through, the way `BuyAgent(config, llm=...)` is for the pipeline; its
+`allowed_hosts=` is the second seam, since `None` there means "answer any `Host`"
+and is what a public bind gets. Angular
 components are tested in jsdom with `TestBed`; `AgentService` is tested against a
 fake `EventSource` rather than a live one.
 
@@ -301,7 +322,7 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 540 tests
+to EOF instead -- what it checks is that nothing follows the reply. 559 tests
 run in about three seconds: most of that is the one
 test that spawns an interpreter to check `python -m buy_agent` still runs as a
 script, plus 0.7s of deliberate `StubAgent.delay` in the two server tests that
