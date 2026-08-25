@@ -164,7 +164,13 @@ three onto HTTP statuses (400, 503, 502). A new failure mode needs handling in
 all three places, or it reaches the user as a traceback and the browser as a 500.
 Within the agent only query refinement is recoverable: it falls back to the raw
 request, but lets `OllamaUnavailableError` through rather than searching with a
-model that is not there.
+model that is not there. What `BuyAgent._invoke` has to catch to produce that
+error is wider than it looks: the ollama client turns a refused connection into a
+builtin `ConnectionError` only on its *non*-streaming path, and `ChatOllama`
+always chats over the streaming one, so a stopped server, a model too slow to
+answer and a killed stream all arrive as raw `httpx` errors -- none of which is an
+`OSError`. Hence `httpx.HTTPError` in the `except`, next to ollama's own
+`RequestError`, which is a different class from httpx's identically named one.
 
 The CLI and the API are two ways of filling in the same `AgentConfig`, and both
 set `search_results = max(results, top)` -- searching for fewer pages than the
@@ -235,11 +241,13 @@ lists the installed models to name them in an error. Patching `DDGS.text` does
 class. No test touches the network or Ollama; keep it that way. The server tests are
 the one exception to "no sockets": they bind loopback, because routing and status
 codes are what they are about. They pass `serve_forever(0.01)` -- the default 0.5s
-poll would otherwise cost half a second per test on shutdown. Three server tests
+poll would otherwise cost half a second per test on shutdown. Four server tests
 speak the protocol over a raw socket, because urllib will not build a request with
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
-segments. 432 tests run in about three seconds: most of that is the one
+segments. The one asserting that a body refused unread ends the connection reads
+to EOF instead -- what it checks is that nothing follows the reply. 440 tests
+run in about three seconds: most of that is the one
 test that spawns an interpreter to check `python -m buy_agent` still runs as a
 script, plus 0.7s of deliberate `StubAgent.delay` in the two server tests that
 need a run to still be going -- the keepalive ping, and two streams overlapping.

@@ -6,6 +6,7 @@ import logging
 from types import SimpleNamespace
 
 import pytest
+import httpx
 from ollama import RequestError, ResponseError
 
 from buy_agent.agent import BuyAgent, OllamaUnavailableError
@@ -404,6 +405,12 @@ def test_an_unlistable_server_still_gives_the_pull_command(
         RequestError("malformed request"),
         ConnectionError("connection refused"),
         OSError("socket died"),
+        # What the real client actually raises. ``ChatOllama`` chats over the
+        # ollama client's *streaming* path, and that path -- unlike the plain one
+        # -- does not convert httpx's errors into builtins, so these arrive raw.
+        httpx.ConnectError("[Errno 111] Connection refused"),
+        httpx.RemoteProtocolError("the server closed the stream"),
+        httpx.ProxyError("no route to the proxy"),
     ],
 )
 def test_transport_failures_all_become_one_actionable_error(
@@ -413,6 +420,22 @@ def test_transport_failures_all_become_one_actionable_error(
 
     with pytest.raises(OllamaUnavailableError, match="ollama serve"):
         agent.run("headphones")
+
+
+@pytest.mark.parametrize(
+    "error", [httpx.ReadTimeout("timed out"), httpx.ConnectTimeout("timed out")]
+)
+def test_a_model_too_slow_to_answer_says_so_rather_than_ollama_serve(
+    agent_factory, search_results, error
+) -> None:
+    """A timeout is a running server, so telling the user to start one misleads."""
+    agent, _ = agent_factory(FakeLLM(raises=error), search_results, model="qwen3.5:9b")
+
+    with pytest.raises(OllamaUnavailableError, match="did not answer in time") as caught:
+        agent.run("headphones")
+
+    assert "ollama serve" not in str(caught.value)
+    assert "qwen3.5:9b" in str(caught.value)
 
 
 def test_a_missing_ollama_is_not_papered_over_by_the_query_fallback(

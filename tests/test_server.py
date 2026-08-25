@@ -349,6 +349,52 @@ def test_an_unexpected_failure_still_ends_the_stream(server: str) -> None:
     assert "something nobody predicted" in data["error"]
 
 
+def test_an_unexpected_failure_is_a_500_and_not_a_dropped_connection(server: str) -> None:
+    """The one-shot endpoint answers what the stream answers.
+
+    Letting the exception escape hands the socket to socketserver, which closes it
+    without writing anything -- and a browser cannot tell that from the server
+    going away mid-run.
+    """
+    StubAgent.result = RuntimeError("something nobody predicted")
+
+    status, payload = post(f"{server}/api/search", {"request": "headphones"})
+
+    assert status == 500
+    assert "something nobody predicted" in payload["error"]
+
+
+@pytest.mark.parametrize(
+    ("length", "expected"),
+    [(b"100000", "413"), (b"lots", "400")],
+)
+def test_a_rejected_body_ends_the_connection_rather_than_desyncing_it(
+    server: str, length: bytes, expected: str
+) -> None:
+    """A body refused unread would otherwise be parsed as the next request.
+
+    Both of these answer without reading the body, so on a kept-alive HTTP/1.1
+    connection the leftover bytes become the next request line -- the client asks
+    for /api/config and gets a 414 off its own JSON.
+    """
+    parsed = urlparse(server)
+    with socket.create_connection((parsed.hostname, parsed.port), timeout=10) as sock:
+        sock.sendall(
+            b"POST /api/search HTTP/1.1\r\nHost: x\r\nContent-Length: " + length + b"\r\n\r\n{}"
+        )
+        reply = b""
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            reply += chunk
+
+    text = reply.decode("utf-8", "replace")
+    assert expected in text.splitlines()[0]
+    assert "Connection: close" in text
+    assert text.count("HTTP/1.1 ") == 1, "the leftover body was parsed as a request"
+
+
 def test_two_streams_do_not_see_each_others_progress(server: str) -> None:
     """Log lines are routed by the thread that produced them.
 
@@ -607,6 +653,7 @@ def test_a_body_nobody_is_left_to_read_is_not_an_error() -> None:
 
     handler = BuyAgentHandler.__new__(BuyAgentHandler)
     handler.command = "GET"
+    handler.close_connection = False
     handler.wfile = BrokenPipe()
     handler.send_response = lambda *_a: None
     handler.send_header = lambda *_a: None

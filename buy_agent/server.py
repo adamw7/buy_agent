@@ -174,6 +174,14 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             self._send_json(200, self._search(payload))
         except ApiError as exc:
             self._send_json(exc.status, exc.payload())
+        except Exception as exc:  # noqa: BLE001 -- a 500 beats a dropped connection
+            # Without this the exception escapes to socketserver, which closes the
+            # socket without writing anything: the browser sees a network error and
+            # cannot tell a failed run from a server that went away. The stream
+            # already answers unexpected failures with a ``failure`` event, and the
+            # one-shot endpoint has to match it.
+            logger.exception("Unexpected failure during a search")
+            self._send_json(500, {"error": f"Unexpected failure: {exc}"})
 
     def do_HEAD(self) -> None:  # noqa: N802 -- BaseHTTPRequestHandler's spelling
         """Answer HEAD like GET, minus the body -- but never by running a search."""
@@ -305,11 +313,16 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     # -- plumbing --------------------------------------------------------------
 
     def _read_json(self) -> dict[str, Any]:
+        # Rejecting a body without reading it leaves it in the socket, where the
+        # next request on a kept-alive connection would be parsed out of the
+        # leftover bytes -- so those two paths end the connection instead.
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError as exc:
+            self.close_connection = True
             raise ApiError("Content-Length is not a number.") from exc
         if length > _MAX_BODY_BYTES:
+            self.close_connection = True
             raise ApiError("Request body is too large.", 413)
         if length <= 0:
             return {}
@@ -331,6 +344,10 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
+            if self.close_connection:
+                # Say so, rather than letting the client discover it by having its
+                # next request on this connection answered with a reset.
+                self.send_header("Connection", "close")
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(body)

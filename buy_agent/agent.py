@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+import httpx
 from langchain_ollama import ChatOllama
 from ollama import RequestError, ResponseError
 
@@ -150,15 +151,37 @@ class BuyAgent:
         return deduplicate(grounded, self.config.num_products)
 
     def _invoke(self, chain: Runnable, payload: dict[str, Any]) -> Any:
-        """Invoke a chain, turning Ollama transport errors into an actionable message."""
+        """Invoke a chain, turning Ollama transport errors into an actionable message.
+
+        ``httpx.HTTPError`` is in the list because it is what actually reaches us
+        when Ollama is not running. The ollama client only converts a refused
+        connection into a builtin ``ConnectionError`` on its *non*-streaming path,
+        and ``ChatOllama`` always chats over the streaming one -- so a stopped
+        server, a model too slow to answer and a killed stream all arrive here as
+        raw ``httpx`` errors, none of which is an ``OSError``. Note that the
+        ``RequestError`` above is ollama's own, a different class from httpx's.
+        """
         try:
             return chain.invoke(payload)
-        except (ResponseError, RequestError, ConnectionError, OSError) as exc:
+        except (
+            ResponseError,
+            RequestError,
+            ConnectionError,
+            OSError,
+            httpx.HTTPError,
+        ) as exc:
             raise OllamaUnavailableError(self._ollama_hint(exc)) from exc
 
     def _ollama_hint(self, exc: Exception) -> str:
         """Turn an Ollama failure into something the user can act on."""
         detail = str(exc)
+        if isinstance(exc, httpx.TimeoutException):
+            return (
+                f"Ollama at {self.config.base_url} did not answer in time "
+                f"({detail or type(exc).__name__}). "
+                f"The model {self.config.model!r} may be too slow for this prompt -- "
+                "try a smaller model, or a smaller --num-ctx."
+            )
         if "not found" in detail.lower():
             return (
                 f"Ollama has no model named {self.config.model!r}. "
