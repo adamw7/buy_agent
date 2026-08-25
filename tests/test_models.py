@@ -39,6 +39,30 @@ def test_out_of_range_rating_is_discarded() -> None:
     assert ExtractedProduct(name="Thing", rating=88).to_product().rating is None
 
 
+def test_a_rating_just_over_the_scale_is_discarded() -> None:
+    """A 5.1 is a score off some other scale, not a product that beat this one.
+
+    The obvious cases -- 9.2, 88 -- are rejected by a bound anywhere above 5, so
+    the value that actually pins the bound is the one a step past it.
+    """
+    assert ExtractedProduct(name="Thing", rating=5.1).to_product().rating is None
+
+
+def test_a_single_review_is_still_a_review_count() -> None:
+    """0 is the sentinel for unknown; 1 is a product with one review."""
+    assert ExtractedProduct(name="Thing", review_count=1).to_product().review_count == 1
+
+
+def test_the_seller_and_the_notes_survive_conversion() -> None:
+    converted = ExtractedProduct(
+        name="Thing", seller="  Amazon ", url=" https://shop.example ", notes="\n Quiet. "
+    ).to_product()
+
+    assert converted.seller == "Amazon"
+    assert converted.url == "https://shop.example"
+    assert converted.notes == "Quiet."
+
+
 def test_dedup_key_ignores_case_punctuation_and_spacing() -> None:
     a = Product(name="Sony WH-1000XM5")
     b = Product(name="sony  wh 1000xm5!!")
