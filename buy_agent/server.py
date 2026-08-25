@@ -286,8 +286,10 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             return
 
         body = target.read_bytes()
-        content_type = _CONTENT_TYPES.get(target.suffix.lower()) or (
-            mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        content_type = (
+            _CONTENT_TYPES.get(target.suffix.lower())
+            or mimetypes.guess_type(target.name)[0]
+            or "application/octet-stream"
         )
         self._send_bytes(200, body, content_type)
 
@@ -301,12 +303,12 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         if not index.is_file():
             return None
 
+        root = self.ui_dir.resolve()
         relative = unquote(urlparse(path).path).lstrip("/")
         candidate = (self.ui_dir / relative).resolve()
         # A candidate outside the UI directory is someone walking out of it with
         # '..'; fall through to the app rather than reading the filesystem.
-        inside = candidate == self.ui_dir.resolve() or self.ui_dir.resolve() in candidate.parents
-        if relative and inside and candidate.is_file():
+        if relative and candidate.is_relative_to(root) and candidate.is_file():
             return candidate
         return index
 

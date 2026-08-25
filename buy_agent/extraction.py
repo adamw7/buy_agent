@@ -178,15 +178,15 @@ def deduplicate(products: Sequence[Product], limit: int) -> list[Product]:
     Search results overlap heavily -- the same headphones show up on three sites --
     so without this the top 3 can be one product listed three times.
     """
+    # Insertion-ordered, so the first sighting of a product keeps its place in
+    # the search results' own ranking however many later listings merge into it.
     best: dict[str, Product] = {}
-    order: list[str] = []
     for product in products:
         key = product.dedup_key
         if not key:
             continue
         if key not in best:
             best[key] = product
-            order.append(key)
             continue
         # Two listings of the same name are two pages describing one product, and
         # each may be the only one that quoted a figure. Keep the fuller listing's
@@ -196,7 +196,7 @@ def deduplicate(products: Sequence[Product], limit: int) -> list[Product]:
             incumbent, product = product, incumbent
         best[key] = incumbent.model_copy(update=_fill_gaps(incumbent, product))
 
-    deduped = merge_variants([best[key] for key in order])
+    deduped = merge_variants(list(best.values()))
     dropped = len(products) - len(deduped)
     if dropped:
         logger.info("Merged %d duplicate listing(s)", dropped)

@@ -158,18 +158,14 @@ class BuyAgent:
         connection into a builtin ``ConnectionError`` on its *non*-streaming path,
         and ``ChatOllama`` always chats over the streaming one -- so a stopped
         server, a model too slow to answer and a killed stream all arrive here as
-        raw ``httpx`` errors, none of which is an ``OSError``. Note that the
-        ``RequestError`` above is ollama's own, a different class from httpx's.
+        raw ``httpx`` errors, none of which is an ``OSError``. ``OSError`` covers
+        the builtin ``ConnectionError`` the non-streaming path raises, since that
+        is a subclass of it. Note that the ``RequestError`` above is ollama's own,
+        a different class from httpx's.
         """
         try:
             return chain.invoke(payload)
-        except (
-            ResponseError,
-            RequestError,
-            ConnectionError,
-            OSError,
-            httpx.HTTPError,
-        ) as exc:
+        except (ResponseError, RequestError, OSError, httpx.HTTPError) as exc:
             raise OllamaUnavailableError(self._ollama_hint(exc)) from exc
 
     def _ollama_hint(self, exc: Exception) -> str:
@@ -195,9 +191,20 @@ class BuyAgent:
 
     def _installed_models(self) -> str:
         try:
-            from ollama import Client
-
-            models = [model.model for model in Client(self.config.base_url).list().models]
-        except Exception:
+            models = list_models(self.config.base_url)
+        except Exception:  # noqa: BLE001 -- any transport failure means "not there"
             return "unknown"
         return ", ".join(models) or "none"
+
+
+def list_models(base_url: str) -> list[str]:
+    """Every model tag Ollama has pulled. Raises whatever the transport raises.
+
+    Lives here rather than in :mod:`buy_agent.api` because both callers need it
+    and ``api`` already imports from this module. Each phrases the failure its
+    own way -- a hint on the CLI, a status payload in the browser -- so the
+    shared part is only the call.
+    """
+    from ollama import Client
+
+    return [model.model for model in Client(base_url).list().models if model.model]

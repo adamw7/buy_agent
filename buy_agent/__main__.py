@@ -7,10 +7,12 @@ import json
 import logging
 import sys
 from pathlib import Path
+from typing import get_args
 
 from buy_agent.agent import BuyAgent, OllamaUnavailableError
 from buy_agent.config import AgentConfig
 from buy_agent.logging_setup import configure_logging
+from buy_agent.ranking import SortBy
 from buy_agent.search import SearchError
 
 logger = logging.getLogger("buy_agent")
@@ -49,7 +51,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--sort-by",
-        choices=("score", "price", "rating"),
+        # Read off the type rather than repeated: rank_products has a branch per
+        # criterion, and a fourth one must not be offered here without one there.
+        choices=get_args(SortBy),
         default="score",
         help="Ranking criterion (default: score, a blend of rating, reviews and price).",
     )
