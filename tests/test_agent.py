@@ -12,6 +12,7 @@ from ollama import RequestError, ResponseError
 from buy_agent.agent import BuyAgent, OllamaUnavailableError
 from buy_agent.config import AgentConfig
 from buy_agent.models import ExtractedProduct, ProductList, SearchQuery
+from buy_agent.ranking import RankingWeights
 from buy_agent.search import SearchError, SearchResult
 
 from tests.conftest import FakeLLM
@@ -328,6 +329,13 @@ def test_model_settings_reach_the_chat_model(recorded_chat_ollama) -> None:
     assert recorded_chat_ollama["reasoning"] is False
 
 
+def test_the_ollama_address_reaches_the_chat_model(recorded_chat_ollama) -> None:
+    """$OLLAMA_HOST is only worth having if the model is built with what it set."""
+    BuyAgent(AgentConfig(base_url="http://ollama.internal:11434"))
+
+    assert recorded_chat_ollama["base_url"] == "http://ollama.internal:11434"
+
+
 def test_thinking_and_context_are_left_alone_by_default(recorded_chat_ollama) -> None:
     """None means "send nothing": a model that cannot think must not be told to."""
     BuyAgent(AgentConfig())
@@ -472,6 +480,39 @@ def test_the_extraction_prompt_gets_the_results_and_the_limit(
     system, human = llm.calls[1].to_messages()
     assert "at most 4 distinct products" in system.content
     assert "https://example.com/sony" in human.content
+
+
+def test_the_configured_weights_reach_the_ranking(
+    agent_factory, search_results, extracted_products
+) -> None:
+    """The default blend puts the cheap Anker first; rating alone puts the Sony there.
+
+    Ranking on the wrong weights is invisible in the output -- it is still a
+    plausible order -- so the only way to see the config arrive is to pick weights
+    that reorder the same products.
+    """
+    agent, _ = agent_factory(
+        FakeLLM(products=extracted_products),
+        search_results,
+        weights=RankingWeights(rating=1.0, popularity=0.0, price=0.0),
+    )
+
+    ranked = agent.run("headphones")
+
+    assert ranked[0].product.name == "Sony WH-1000XM5"
+
+
+def test_the_request_reaches_the_extraction_prompt(
+    agent_factory, search_results, extracted_products
+) -> None:
+    """Without it the model is asked to pick products out of results for nothing."""
+    llm = FakeLLM(products=extracted_products)
+    agent, _ = agent_factory(llm, search_results)
+
+    agent.run("noise cancelling headphones under $200")
+
+    _, human = llm.calls[1].to_messages()
+    assert "noise cancelling headphones under $200" in human.content
 
 
 def test_sort_by_reaches_the_ranking(

@@ -143,6 +143,63 @@ def test_searching_covers_the_wider_of_results_and_top() -> None:
 
 
 @pytest.mark.parametrize(
+    ("data", "field", "expected"),
+    [
+        ({"results": 1}, "num_products", 1),
+        ({"results": 50}, "num_products", 50),
+        ({"top": 1}, "top_n", 1),
+        ({"top": 50}, "top_n", 50),
+        ({"num_ctx": 1}, "num_ctx", 1),
+        ({"num_ctx": 1_000_000}, "num_ctx", 1_000_000),
+        ({"temperature": 0.0}, "temperature", 0.0),
+        ({"temperature": 2.0}, "temperature", 2.0),
+    ],
+)
+def test_both_ends_of_a_range_are_inside_it(data: dict, field: str, expected) -> None:
+    """The bounds are inclusive, which is only true while something checks it."""
+    config, _ = parse_options(data)
+
+    assert getattr(config, field) == expected
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"results": 51},
+        {"top": 51},
+        {"num_ctx": 0},
+        {"num_ctx": 1_000_001},
+        {"temperature": 2.1},
+        {"temperature": -0.1},
+    ],
+)
+def test_one_step_outside_a_range_is_rejected(data: dict) -> None:
+    with pytest.raises(ApiError):
+        parse_options(data)
+
+
+@pytest.mark.parametrize(
+    ("data", "message"),
+    [
+        ({"results": 51}, "results must be between 1 and 50; got 51."),
+        ({"top": 0}, "top must be between 1 and 50; got 0."),
+        ({"num_ctx": 0}, "num_ctx must be between 1 and 1000000; got 0."),
+        ({"results": "many"}, "results must be a whole number; got 'many'."),
+        ({"temperature": 2.5}, "temperature must be between 0 and 2; got 2.5."),
+        ({"temperature": "hot"}, "temperature must be a number; got 'hot'."),
+        ({"think": "maybe"}, "think must be true or false; got 'maybe'."),
+        ({"sort_by": "cheapness"}, "sort_by must be one of score, price, rating; got 'cheapness'."),
+    ],
+)
+def test_a_rejection_says_what_was_wrong_and_what_was_wanted(data: dict, message: str) -> None:
+    """The message is the whole of a 400 response, so it is checked word for word."""
+    with pytest.raises(ApiError) as excinfo:
+        parse_options(data)
+
+    assert str(excinfo.value) == message
+
+
+@pytest.mark.parametrize(
     "data",
     [
         {"sort_by": "cheapness"},
