@@ -38,6 +38,9 @@ python -m venv .venv
 pip install -r requirements-dev.txt
 ```
 
+To run the web UI without setting up either toolchain, build the image instead --
+see [In Docker](#in-docker). Ollama still runs on the host.
+
 ## Usage
 
 ```powershell
@@ -124,6 +127,40 @@ curl -X POST http://127.0.0.1:8000/api/search `
 | `POST /api/search` | One run, as JSON |
 | `GET /api/search/stream` | One run, as an event stream |
 
+### In Docker
+
+The image carries the built UI and the Python side already installed, so serving
+the page needs neither toolchain -- only Ollama, which stays on the host:
+
+```powershell
+docker build -t buy-agent .
+docker run --rm -p 8000:8000 buy-agent          # http://127.0.0.1:8000
+```
+
+Ollama is deliberately *not* in the image: it is a several-gigabyte server
+holding models you have already pulled, usually with GPU access a container here
+cannot arrange (see [ADR-0015](docs/adr/0015-package-the-web-tier-as-a-container.md)).
+The container reaches the host's copy through `host.docker.internal`, which Docker
+Desktop supplies on its own; on Linux, hand it over explicitly:
+
+```bash
+docker run --rm -p 8000:8000 --add-host=host.docker.internal:host-gateway buy-agent
+```
+
+`OLLAMA_HOST` overrides that for an Ollama somewhere else, and the CLI is in the
+same image -- the entrypoint is `python`, so anything after the image name is
+what `python` is given:
+
+```powershell
+docker run --rm -e OLLAMA_HOST=http://10.0.0.5:11434 -p 8000:8000 buy-agent
+docker run --rm buy-agent -m buy_agent "espresso machine" --top 5
+docker run --rm -v "${PWD}:/out" buy-agent -m buy_agent "running shoes" --json /out/results.json
+```
+
+The container runs as a non-root user and writes nothing, so `--json` needs a
+mounted directory to write into, as above. Nothing in CI builds the image; the
+tests still run on the host.
+
 Working on the UI itself is nicer through the Angular dev server, which rebuilds
 on save and proxies `/api` to the Python one:
 
@@ -208,7 +245,7 @@ cd ui; npm test               # the UI's own tests, in jsdom
 cd ui; npm run test:coverage  # the same, with a coverage floor
 ```
 
-425 Python tests and 46 UI tests. Nothing in either suite touches the network or
+432 Python tests and 46 UI tests. Nothing in either suite touches the network or
 Ollama: the model is faked through the `llm=` argument of `BuyAgent`, both the
 search backend and the page fetcher are monkeypatched, and the server tests
 inject a stub agent through `create_server(agent_factory=...)`. The only real
@@ -222,8 +259,9 @@ coverage that high stops being a useful signal on its own, so
 `tests/test_conventions.py` asserts the rules that hold *between* modules --
 the three places a failure mode has to be listed, the four places a sort
 criterion has to be offered, the payloads `ui/src/app/agent.types.ts`
-mirrors, and the decision log agreeing with its own index -- which no amount of
-per-module coverage can protect.
+mirrors, the `Dockerfile` agreeing with CI and with the server's own defaults, and
+the decision log agreeing with its own index -- which no amount of per-module
+coverage can protect.
 
 ## Limitations
 

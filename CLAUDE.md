@@ -33,6 +33,24 @@ python -m buy_agent "running shoes" --sort-by price --json results.json
 python -m buy_agent.server                    # the UI and its API on :8000
 ```
 
+The `Dockerfile` is a third way to run that server, for someone who wants the page
+rather than the source: a `node:22.22.3-bookworm-slim` stage builds `ui/`, a
+`python:3.13-slim` stage installs `requirements.txt` and gets the build copied to
+`ui/dist/ui/browser` beside the package -- where `server.DEFAULT_UI_DIR` looks, so
+no `--ui-dir`. Ollama is not in the image and not started by it (ADR-0015): the
+container talks to the host's through `host.docker.internal`, which needs
+`--add-host=host.docker.internal:host-gateway` on Linux. `ENTRYPOINT` is `python`
+and `CMD` is `-m buy_agent.server --host 0.0.0.0`, so the CLI is reachable from
+the same image and `--host` stays out of the server's own default (it binds
+loopback everywhere else). Nothing in CI builds it; `tests/test_conventions.py`
+is what keeps its version pins, its copy destination and its `EXPOSE` in step.
+
+```powershell
+docker build -t buy-agent .
+docker run --rm -p 8000:8000 buy-agent
+docker run --rm buy-agent -m buy_agent "espresso machine"
+```
+
 `$OLLAMA_MODEL` and `$OLLAMA_HOST` move the model and server defaults, and every
 CLI flag defaults to the matching `AgentConfig` field, so a new setting is added
 in `config.py` and picked up rather than repeated. `buy_agent.server` wants the
@@ -221,7 +239,7 @@ poll would otherwise cost half a second per test on shutdown. Three server tests
 speak the protocol over a raw socket, because urllib will not build a request with
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
-segments. 425 tests run in about three seconds: most of that is the one
+segments. 432 tests run in about three seconds: most of that is the one
 test that spawns an interpreter to check `python -m buy_agent` still runs as a
 script, plus 0.7s of deliberate `StubAgent.delay` in the two server tests that
 need a run to still be going -- the keepalive ping, and two streams overlapping.
@@ -238,8 +256,10 @@ tuple in `__main__.main` (parsed with `ast`) and `BuyAgent.run`'s documented
 `Raises` name the same three failures; that `ranking.SortBy`, `api.SORT_OPTIONS`,
 the CLI's `--sort-by` choices and the TypeScript `SortBy` union offer the same
 criteria; that `agent.types.ts` mirrors `defaults_payload`, `product_payload`
-and `run_search` field for field; and that every ADR is indexed, numbered to
-match its heading, and carries the status, date and sections ADR-0001 asks for. A field added on one side of the language
+and `run_search` field for field; that the `Dockerfile` pins the versions CI tests
+against, copies the built UI where the server looks and exposes the port it binds;
+and that every ADR is indexed, numbered to match its heading, and carries the
+status, date and sections ADR-0001 asks for. A field added on one side of the language
 boundary and forgotten on the other is otherwise invisible to both suites.
 
 ## Environment

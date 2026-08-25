@@ -86,6 +86,12 @@ The CLI and the server are two front ends onto the same `BuyAgent.run()`. The
 server is stdlib-only on purpose -- a run that takes a minute and serves one
 person does not need a framework under it.
 
+The three containers inside the box ship as one image when the `Dockerfile` is
+used: the UI is built in a Node stage and copied into the Python one, and the
+same image runs either front end. Ollama stays outside it, on the host, for the
+reasons in [ADR-0015](adr/0015-package-the-web-tier-as-a-container.md) -- the
+boundary drawn here is the one the image keeps.
+
 ## Level 3 -- Components of the agent pipeline
 
 ```mermaid
