@@ -58,7 +58,15 @@ docker run --rm buy-agent -m buy_agent "espresso machine"
 
 `$OLLAMA_MODEL` and `$OLLAMA_HOST` move the model and server defaults, and every
 CLI flag defaults to the matching `AgentConfig` field, so a new setting is added
-in `config.py` and picked up rather than repeated. `buy_agent.server` wants the
+in `config.py` and picked up rather than repeated. One field is deliberately not
+named the same on the way out: `AgentConfig.reasoning` is `--think`
+(`BooleanOptionalAction`, so `--no-think` is the off switch) on the CLI and
+`think` in both the JSON payloads and `agent.types.ts` -- the tri-state it carries
+is Ollama's thinking mode, and `None` means "send nothing and leave the model
+alone" rather than "off". It pairs with `num_ctx`: the extraction prompt runs to
+~3.3k tokens, so on Ollama's default 4096 window a thinking model reasons until
+the context is gone and never emits any JSON. A thinking model wants `--no-think`,
+a bigger `--num-ctx` (8192 is a good start), or both. `buy_agent.server` wants the
 UI built first: without `ui/dist/ui/browser` the API still answers and the page
 is a 503 saying how to build it (`--ui-dir` points at a build elsewhere).
 
@@ -239,6 +247,11 @@ them to `mimetypes`, which reads the registry on Windows and can answer
 `text/plain` for `.js` -- which a browser refuses to run as a module, leaving a
 blank page and no error.
 
+`search-form` remembers the advanced settings in `localStorage` and the request
+deliberately not -- what to shop for is a new question every time -- and every read
+and write of it is wrapped, so a browser that refuses storage still gets a working
+form.
+
 `create_server(agent_factory=...)` is the seam the server tests inject a stub
 agent through, the way `BuyAgent(config, llm=...)` is for the pipeline. Angular
 components are tested in jsdom with `TestBed`; `AgentService` is tested against a
@@ -280,9 +293,10 @@ tuple in `__main__.main` (parsed with `ast`) and `BuyAgent.run`'s documented
 the CLI's `--sort-by` choices and the TypeScript `SortBy` union offer the same
 criteria; that `agent.types.ts` mirrors `defaults_payload`, `product_payload`
 and `run_search` field for field; that the `Dockerfile` pins the versions CI tests
-against, copies the built UI where the server looks and exposes the port it binds;
-that every ADR is indexed, numbered to match its heading, and carries the
-status, date and sections ADR-0001 asks for; and that the Saturday mutation run
+against, copies the built UI where the server looks, exposes the port it binds and
+installs the runtime dependencies only; that every ADR is indexed, numbered to
+match its heading, carries the status, date and sections ADR-0001 asks for, and
+cites only records that exist; and that the Saturday mutation run
 mutates the package `.coveragerc` measures, on the Python `ci.yml` pins, with
 every file these tests open -- or import from outside `buy_agent` -- named in
 mutmut's `also_copy`. A field added on one side of the language boundary and
