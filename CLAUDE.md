@@ -70,6 +70,15 @@ so the floor has to be checked separately or it is not a floor.
 containers, components, and a streamed run end to end); keep it in step when
 a module's responsibility or a boundary moves.
 
+`docs/adr/` is the decision log: one numbered record per architectural decision,
+with the context and the consequences, indexed by `docs/adr/README.md`. The
+conventions below are the *rules*; the ADRs are why they exist and what was
+rejected. A change that contradicts an accepted record gets a new record
+superseding it rather than an edit to the old one -- numbers are never reused,
+and accepted records are not rewritten. `tests/test_conventions.py` checks that
+the index and the directory agree, so a new ADR is two edits: the file and its
+row in the index. `docs/adr/0000-template.md` is the starting point.
+
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
 for the two steps it is reliable at, and ordinary Python does everything else,
 because Ollama is typically run with small models that drive tool loops badly.
@@ -212,7 +221,7 @@ poll would otherwise cost half a second per test on shutdown. Three server tests
 speak the protocol over a raw socket, because urllib will not build a request with
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
-segments. 382 tests run in about two and a half seconds: most of that is the one
+segments. 425 tests run in about three seconds: most of that is the one
 test that spawns an interpreter to check `python -m buy_agent` still runs as a
 script, plus 0.7s of deliberate `StubAgent.delay` in the two server tests that
 need a run to still be going -- the keepalive ping, and two streams overlapping.
@@ -228,8 +237,9 @@ themselves rather than exercised. It asserts that `api._STATUS`, the `except`
 tuple in `__main__.main` (parsed with `ast`) and `BuyAgent.run`'s documented
 `Raises` name the same three failures; that `ranking.SortBy`, `api.SORT_OPTIONS`,
 the CLI's `--sort-by` choices and the TypeScript `SortBy` union offer the same
-criteria; and that `agent.types.ts` mirrors `defaults_payload`, `product_payload`
-and `run_search` field for field. A field added on one side of the language
+criteria; that `agent.types.ts` mirrors `defaults_payload`, `product_payload`
+and `run_search` field for field; and that every ADR is indexed, numbered to
+match its heading, and carries the status, date and sections ADR-0001 asks for. A field added on one side of the language
 boundary and forgotten on the other is otherwise invisible to both suites.
 
 ## Environment

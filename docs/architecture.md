@@ -4,6 +4,11 @@ The [C4 model](https://c4model.com) at three zoom levels: who uses the system,
 what it is made of, and how the pieces inside each part fit together. The
 diagrams are Mermaid, so GitHub renders them in place.
 
+This is what the system *is*. Why it is this way -- and what was tried and
+rejected on the way -- is the decision log in [adr/](adr/README.md); the two are
+meant to be read together, and a boundary that moves here usually means a new
+record there.
+
 The one idea worth carrying through all three levels: **the LLM is not in
 charge.** It refines the query and reads products out of pages; every decision
 that shapes the answer -- filtering, grounding, ranking, ordering -- is ordinary
