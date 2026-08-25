@@ -255,6 +255,15 @@ them to `mimetypes`, which reads the registry on Windows and can answer
 `text/plain` for `.js` -- which a browser refuses to run as a module, leaving a
 blank page and no error.
 
+`progress-log` offers a **Download log** button once a run has failed, and only
+then -- a successful run is on the page in front of you, a failed one is a bug
+report. `transcript()` writes what the panel was showing plus the failure
+message, which the panel itself never has: a failure arrives as its own SSE
+event rather than as a log line. It keeps whole logger names where the panel
+trims them, since the fixed column on screen is worth a prefix and a bug report
+is not. This is presentation, not judgement -- the browser is formatting lines
+Python wrote, the way `shortName` already does.
+
 `search-form` remembers the advanced settings in `localStorage` and the request
 deliberately not -- what to shop for is a new question every time -- and every read
 and write of it is wrapped, so a browser that refuses storage still gets a working
@@ -298,7 +307,7 @@ test that spawns an interpreter to check `python -m buy_agent` still runs as a
 script, plus 0.7s of deliberate `StubAgent.delay` in the two server tests that
 need a run to still be going -- the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. The UI's 53 tests
+is reaching out. The UI's 58 tests
 run in about two seconds, most of which is building the app first. `README.md`
 quotes both counts, so a new test file is two edits.
 

@@ -1,11 +1,17 @@
 <section class="card log">
   <header>
     <h2>Progress</h2>
-    @if (running()) {
-      <span class="pill working"><span class="dot"></span>working</span>
-    } @else {
-      <span class="pill">{{ lines().length }} lines</span>
-    }
+    <div class="state">
+      @if (running()) {
+        <span class="pill working"><span class="dot"></span>working</span>
+      } @else {
+        <span class="pill">{{ lines().length }} lines</span>
+      }
+
+      @if (failure()) {
+        <button type="button" class="secondary save" (click)="download()">Download log</button>
+      }
+    </div>
   </header>
 
   <div class="scroller" #scroller role="log" aria-live="polite">

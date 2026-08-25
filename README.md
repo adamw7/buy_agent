@@ -143,6 +143,11 @@ dropdown marked `not pulled`, so a stale setting is visible rather than silently
 swapped; a server that answered with nothing at all turns the field back into a
 text box, so a name can still be typed.
 
+When a run ends badly, the Progress panel offers **Download log**: the lines it
+was showing, plus the error that ended the run, saved as
+`buy-agent-log-20260825-140311.txt`. The panel scrolls and the next search clears
+it, so without this a failure worth reporting is gone as soon as it is retried.
+
 A search takes tens of seconds, so the browser does not wait on one response.
 `GET /api/search/stream` runs the search and relays the agent's own log lines as
 Server-Sent Events, finishing on a `result` or a `failure`. `POST /api/search`
@@ -279,7 +284,7 @@ cd ui; npm test               # the UI's own tests, in jsdom
 cd ui; npm run test:coverage  # the same, with a coverage floor
 ```
 
-540 Python tests and 53 UI tests. Nothing in either suite touches the network or
+540 Python tests and 58 UI tests. Nothing in either suite touches the network or
 Ollama: the model is faked through the `llm=` argument of `BuyAgent`, both the
 search backend and the page fetcher are monkeypatched, and the server tests
 inject a stub agent through `create_server(agent_factory=...)`. The only real

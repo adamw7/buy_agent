@@ -18,6 +18,19 @@ h2 {
   color: var(--text-dim);
 }
 
+.state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Offered beside the line count, not in the error banner: the file is the log,
+   and this is where the log is. */
+.save {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
 .working {
   color: var(--accent);
 }

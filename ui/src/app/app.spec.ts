@@ -196,6 +196,9 @@ describe('App', () => {
 
     expect(page.querySelector('.banner')!.textContent).toContain('ollama serve');
     expect(page.querySelector('.results')).toBeNull();
+    // The log is what a bug report needs, and the panel is thrown away by the
+    // next search, so a failed run offers to save it.
+    expect(page.querySelector('app-progress-log .save')).not.toBeNull();
   });
 
   it('explains an empty result instead of showing an empty list', async () => {
