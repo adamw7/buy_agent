@@ -33,7 +33,7 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 )
 
-_CURRENCY_SIGNS = "$" + "€£¥"  # dollar, euro, pound, yen
+_CURRENCY_SIGNS = "$€£¥"  # dollar, euro, pound, yen
 _CURRENCY_CODES = r"USD|EUR|GBP|PLN|CHF|SEK|CAD|AUD"
 
 _PRICE = re.compile(

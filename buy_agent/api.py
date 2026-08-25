@@ -15,7 +15,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, get_args
 
-from buy_agent.agent import BuyAgent, OllamaUnavailableError
+from buy_agent.agent import BuyAgent, OllamaUnavailableError, list_models
 from buy_agent.config import AgentConfig
 from buy_agent.ranking import SortBy
 from buy_agent.search import SearchError
@@ -174,13 +174,11 @@ def installed_models(base_url: str) -> dict[str, Any]:
     status rather than refusing to render a form.
     """
     try:
-        from ollama import Client
-
-        models = [model.model for model in Client(base_url).list().models]
+        models = list_models(base_url)
     except Exception as exc:  # noqa: BLE001 -- any transport failure means "not there"
         logger.debug("Could not list Ollama models at %s", base_url, exc_info=True)
         return {"base_url": base_url, "reachable": False, "models": [], "detail": str(exc)}
-    return {"base_url": base_url, "reachable": True, "models": [m for m in models if m]}
+    return {"base_url": base_url, "reachable": True, "models": models}
 
 
 def _status_for(exc: Exception) -> int:

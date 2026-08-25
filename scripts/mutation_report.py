@@ -78,6 +78,11 @@ def readable(mutant: str) -> str:
     return f"{module}.{name.replace('ǁ', '.')}"
 
 
+def caught(statuses: Counter[str]) -> int:
+    """How many of these mutants the suite reacted to."""
+    return sum(count for status, count in statuses.items() if status in CAUGHT)
+
+
 def score(statuses: Counter[str]) -> float | None:
     """Caught mutants as a percentage of the ones that were actually tested.
 
@@ -87,8 +92,7 @@ def score(statuses: Counter[str]) -> float | None:
     checked = sum(count for status, count in statuses.items() if status not in UNCHECKED)
     if not checked:
         return None
-    caught = sum(count for status, count in statuses.items() if status in CAUGHT)
-    return 100.0 * caught / checked
+    return 100.0 * caught(statuses) / checked
 
 
 def percentage(value: float | None) -> str:
@@ -107,9 +111,8 @@ def module_table(results: list[tuple[str, str]]) -> list[str]:
     ]
     worst_first = sorted(statuses.items(), key=lambda item: (score(item[1]) or 0.0, item[0]))
     for module, counted in worst_first:
-        caught = sum(count for status, count in counted.items() if status in CAUGHT)
         lines.append(
-            f"| `{module}` | {counted.total()} | {caught} "
+            f"| `{module}` | {counted.total()} | {caught(counted)} "
             f"| {counted['survived']} | {percentage(score(counted))} |"
         )
     return lines
@@ -143,8 +146,7 @@ def report(results: list[tuple[str, str]]) -> tuple[list[str], bool]:
     lines = [
         "## Mutation testing",
         "",
-        f"{total} mutants, "
-        f"{sum(count for status, count in statuses.items() if status in CAUGHT)} caught, "
+        f"{total} mutants, {caught(statuses)} caught, "
         f"{statuses['survived']} survived: a score of {percentage(achieved)}, "
         f"which {verdict} the {FLOOR:.0f}% floor.",
         "",

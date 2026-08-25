@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 _UNKNOWN_NUMBER = -1.0
 _WHITESPACE = re.compile(r"\s+")
+_PUNCTUATION = re.compile(r"[^\w\s]")
 
 
 class ExtractedProduct(BaseModel):
@@ -95,7 +96,7 @@ class Product(BaseModel):
     @property
     def dedup_key(self) -> str:
         """Loose identity: same name modulo case, punctuation and spacing."""
-        return _WHITESPACE.sub(" ", re.sub(r"[^\w\s]", " ", self.name.lower())).strip()
+        return _WHITESPACE.sub(" ", _PUNCTUATION.sub(" ", self.name.lower())).strip()
 
     def price_label(self) -> str:
         if self.price is None:
