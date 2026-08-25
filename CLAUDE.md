@@ -32,6 +32,8 @@ python -m buy_agent "running shoes" --sort-by price --json results.json
 
 python -m buy_agent.server                    # the UI and its API on :8000
 
+python -m scripts.update_ollama               # re-pull Ollama's models, report what moved
+
 pip install -r requirements-mutation.txt      # mutmut, on top of the dev deps
 python -m mutmut run                          # mutation testing; ~2 min, cached
 python -m mutmut results --all true > mutation-results.txt
@@ -274,7 +276,7 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 466 tests
+to EOF instead -- what it checks is that nothing follows the reply. 495 tests
 run in about three seconds: most of that is the one
 test that spawns an interpreter to check `python -m buy_agent` still runs as a
 script, plus 0.7s of deliberate `StubAgent.delay` in the two server tests that
@@ -302,10 +304,16 @@ every file these tests open -- or import from outside `buy_agent` -- named in
 mutmut's `also_copy`. A field added on one side of the language boundary and
 forgotten on the other is otherwise invisible to both suites.
 
-`scripts/mutation_report.py` is tested like the rest (`tests/test_mutation_report.py`):
-it decides whether a mutation run passes, and by the same rule as `clean_products`,
-whatever decides an answer belongs where it is testable rather than in a
-workflow's shell.
+Both scripts in `scripts/` are tested like the rest, by the same rule as
+`clean_products`: whatever decides an answer belongs where it is testable rather
+than in a workflow's shell or a one-off run. `mutation_report.py`
+(`tests/test_mutation_report.py`) decides whether a mutation run passes;
+`update_ollama.py` (`tests/test_update_ollama.py`) decides what "updated" means --
+a digest that moved between the listing before the pulls and the one after, since
+`ollama pull` reports `success` whether it replaced anything or not. It is the one
+thing in `scripts/` that imports from `buy_agent` (`config` for the `$OLLAMA_HOST`
+defaults), which is why it is run as `python -m scripts.update_ollama` from the
+repository root rather than by path.
 
 ## Environment
 
