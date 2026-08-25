@@ -1,0 +1,6 @@
+# What the Saturday mutation run installs: the test dependencies, plus the
+# mutation tester itself. It is kept out of requirements-dev.txt because mutmut
+# pulls libcst, textual and rich behind it, and the two CI jobs that run on every
+# push have no use for any of them.
+-r requirements-dev.txt
+mutmut==3.7.0

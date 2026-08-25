@@ -1,0 +1,62 @@
+name: Mutation testing
+
+on:
+  schedule:
+    # 05:17 UTC on Saturdays. Off the hour on purpose: scheduled runs queue behind
+    # everyone else's at :00 and can start an hour late. GitHub only schedules
+    # workflows that are on the default branch, so this fires once it is on main.
+    - cron: "17 5 * * 6"
+  workflow_dispatch:
+
+concurrency:
+  group: mutation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  mutmut:
+    name: mutmut (Python 3.13)
+    runs-on: ubuntu-latest
+    # A full run is a couple of minutes on a four-core runner; an hour is the
+    # guard against a mutant that hangs the suite in a way mutmut's own timeout
+    # does not catch, not an expectation.
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-mutation.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-mutation.txt
+
+      # Settings, including what to mutate, come from setup.cfg. mutmut exits 0
+      # whatever the mutants do; what fails this job is the floor in
+      # scripts/mutation_report.py.
+      - name: Run mutation testing
+        run: python -m mutmut run
+
+      - name: Collect the results
+        if: always()
+        run: python -m mutmut results --all true > mutation-results.txt
+
+      - name: Report
+        if: always()
+        run: |
+          set -o pipefail
+          python scripts/mutation_report.py mutation-results.txt | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-results
+          path: mutation-results.txt

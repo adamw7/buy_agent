@@ -245,7 +245,7 @@ cd ui; npm test               # the UI's own tests, in jsdom
 cd ui; npm run test:coverage  # the same, with a coverage floor
 ```
 
-440 Python tests and 46 UI tests. Nothing in either suite touches the network or
+466 Python tests and 46 UI tests. Nothing in either suite touches the network or
 Ollama: the model is faked through the `llm=` argument of `BuyAgent`, both the
 search backend and the page fetcher are monkeypatched, and the server tests
 inject a stub agent through `create_server(agent_factory=...)`. The only real
@@ -262,6 +262,38 @@ criterion has to be offered, the payloads `ui/src/app/agent.types.ts`
 mirrors, the `Dockerfile` agreeing with CI and with the server's own defaults, and
 the decision log agreeing with its own index -- which no amount of per-module
 coverage can protect.
+
+### Mutation testing
+
+Coverage says every line ran. Whether anything would have complained had a line
+run *differently* is a separate question, and the one
+[mutmut](https://github.com/boxed/mutmut) asks: it breaks the code on purpose --
+an `and` for an `or`, a `+= 1` for a `= 1` -- and reports the mutants the suite
+still passes on. Those are the lines that are covered and unchecked.
+
+`.github/workflows/mutation.yml` runs it against `buy_agent/` every Saturday
+morning and on demand, never on a pull request: it takes a couple of minutes
+where the suite takes three seconds, and it is a report rather than a gate
+(ADR-0016). The job summary carries the score, a row per module worst first, and
+the functions the survivors cluster in; the full list is uploaded as an artifact.
+The run fails only if the score drops under 75%, which is a guard against a
+module arriving with thin tests, not a target. It sits at 77% today, and a good
+share of the survivors are equivalent mutants -- a reworded log line, a debug
+counter nothing reads.
+
+To run it locally (settings, including what to mutate and what to copy alongside
+it, are in `setup.cfg`):
+
+```powershell
+pip install -r requirements-mutation.txt
+python -m mutmut run                        # a couple of minutes; results cached
+python -m mutmut results --all true > mutation-results.txt
+python scripts/mutation_report.py mutation-results.txt
+python -m mutmut browse                     # or read them one mutant at a time
+```
+
+A run copies the tree to `mutants/` and tests the copy, so both that directory
+and `mutation-results.txt` are ignored by git.
 
 ## Limitations
 

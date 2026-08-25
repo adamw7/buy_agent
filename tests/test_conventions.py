@@ -21,6 +21,11 @@ The decision log has the same shape: ``docs/adr/README.md`` indexes records that
 live in files beside it, so an unindexed decision -- or an index row still quoting
 a title the record has since changed -- is invisible to every other test here.
 
+The Saturday mutation run is the shape at its sharpest: mutmut tests a *copy* of
+the tree, so a file this suite reads or imports and ``setup.cfg`` does not list
+is missing only there. Every path resolves in a normal run, and the weekly one
+dies at collection with nobody watching.
+
 These tests read the declarations themselves rather than exercising behaviour,
 which is the only way to check that two lists agree about what is *not* in them.
 """
@@ -30,6 +35,8 @@ from __future__ import annotations
 import ast
 import inspect
 import re
+import sys
+from configparser import ConfigParser
 from pathlib import Path
 from typing import get_args
 
@@ -252,6 +259,9 @@ def test_every_record_a_record_points_at_exists(path: Path) -> None:
 
 _DOCKERFILE = _ROOT / "Dockerfile"
 _CI = _ROOT / ".github" / "workflows" / "ci.yml"
+_MUTATION = _ROOT / ".github" / "workflows" / "mutation.yml"
+_MUTMUT = _ROOT / "setup.cfg"
+_COVERAGERC = _ROOT / ".coveragerc"
 
 
 def dockerfile() -> str:
@@ -265,11 +275,16 @@ def base_image_tag(image: str) -> str:
     return match.group(1)
 
 
-def ci_version(key: str) -> str:
-    """A version `.github/workflows/ci.yml` sets up, e.g. ``node-version: "22.22.3"``."""
-    match = re.search(rf'^\s+{key}: "([^"]+)"', _CI.read_text(encoding="utf-8"), re.M)
-    assert match, f"no {key} in ci.yml"
+def workflow_version(workflow: Path, key: str) -> str:
+    """A version a workflow sets up, e.g. ``node-version: "22.22.3"``."""
+    match = re.search(rf'^\s+{key}: "([^"]+)"', workflow.read_text(encoding="utf-8"), re.M)
+    assert match, f"no {key} in {workflow.name}"
     return match.group(1)
+
+
+def ci_version(key: str) -> str:
+    """A version `.github/workflows/ci.yml` sets up."""
+    return workflow_version(_CI, key)
 
 
 def server_default(dest: str) -> object:
@@ -304,3 +319,89 @@ def test_the_image_installs_the_runtime_dependencies_only() -> None:
     """pytest and coverage in an image are weight, and a wider surface to patch."""
     assert "requirements-dev.txt" not in dockerfile()
     assert re.search(r"^RUN pip install .* -r requirements\.txt$", dockerfile(), re.M)
+
+
+# -- the Saturday mutation run -------------------------------------------------
+
+# mutmut copies these two into the tree it tests without being asked; everything
+# else the suite reaches for has to be named in ``also_copy``.
+_COPIED_ANYWAY = ("tests", "setup.cfg")
+
+
+def ini_values(path: Path, section: str, key: str) -> list[str]:
+    """One whitespace-separated setting, from an ini file neither tool exports."""
+    parser = ConfigParser()
+    parser.read(path, encoding="utf-8")
+    return parser.get(section, key).split()
+
+
+def test_the_mutation_run_mutates_what_coverage_measures() -> None:
+    """Coverage says which lines ran; mutation testing says whether anything would
+    have noticed had they run differently. A package measured by one and not the
+    other has the reassuring number and none of the checking behind it."""
+    assert ini_values(_MUTMUT, "mutmut", "source_paths") == ini_values(_COVERAGERC, "run", "source")
+
+
+def test_the_mutation_run_uses_the_python_the_tests_run_on() -> None:
+    """Mutants are tested by the same suite CI runs; on another Python they are a
+    report about an interpreter nothing else in this project uses."""
+    assert workflow_version(_MUTATION, "python-version") == ci_version("python-version")
+
+
+def test_the_mutation_run_is_scheduled_for_saturdays() -> None:
+    """Weekly and off the hour, as README.md and CLAUDE.md both say: cron counts
+    days from Sunday, so Saturday is 6, and a run that quietly moved to another
+    day would leave the two of them describing a schedule that is not this one."""
+    match = re.search(r'^\s+- cron: "([^"]+)"$', _MUTATION.read_text(encoding="utf-8"), re.M)
+    assert match, "no cron schedule in mutation.yml"
+
+    minute, _hour, day_of_month, month, day_of_week = match.group(1).split()
+    assert (day_of_week, day_of_month, month) == ("6", "*", "*")
+    assert minute != "0", "the top of the hour is where scheduled runs queue"
+
+
+def files_read() -> list[Path]:
+    """The paths these tests open, off the ``_NAME`` constants declared above.
+
+    A Path that arrived by import -- ``DEFAULT_UI_DIR`` -- is one they compare
+    against rather than read, so only this module's own constants count.
+    """
+    return [
+        value
+        for name, value in globals().items()
+        if name.startswith("_") and isinstance(value, Path) and value != _ROOT
+    ]
+
+
+def files_imported() -> list[Path]:
+    """Every module the suite has imported from a file in this repository.
+
+    ``sys.modules`` is the honest answer to "what does the suite need on disk":
+    pytest imports every test module before it runs the first test, so a helper
+    imported by any of them is in here. Installed packages are not -- except in a
+    virtual environment inside the repository, hence the site-packages check.
+    """
+    mutated = [_ROOT / name for name in ini_values(_MUTMUT, "mutmut", "source_paths")]
+    files = (getattr(module, "__file__", None) for module in list(sys.modules.values()))
+    return [
+        path
+        for path in map(Path, filter(None, files))
+        if path.is_relative_to(_ROOT)
+        and "site-packages" not in path.parts
+        and not any(path.is_relative_to(package) for package in mutated)
+    ]
+
+
+def test_a_mutation_run_copies_everything_the_tests_reach_for() -> None:
+    """A mutation run tests a copy of the tree under mutants/, and this suite both
+    reads files rather than importing them and imports from outside the package
+    being mutated. Whatever ``also_copy`` leaves behind is missing only there, so
+    the whole Saturday run dies at collection -- and nothing in a normal run,
+    where every path resolves, can see it coming."""
+    also_copy = ini_values(_MUTMUT, "mutmut", "also_copy") + list(_COPIED_ANYWAY)
+    copied = [_ROOT / name for name in also_copy]
+    needed = files_read() + files_imported()
+
+    assert needed, "the suite reads and imports nothing; this test has outlived its rule"
+    for path in needed:
+        assert any(path.is_relative_to(destination) for destination in copied), path

@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# mutmut
+#   A run copies the tree to mutants/ and tests the copy; the results file is
+#   what .github/workflows/mutation.yml reports from and uploads.
+mutants/
+mutation-results.txt

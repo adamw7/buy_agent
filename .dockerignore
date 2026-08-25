@@ -16,9 +16,13 @@ ui/.angular/
 **/__pycache__/
 *.py[codz]
 
-# Tests, coverage and docs: none of them run in the image.
+# Tests, coverage, mutation testing and docs: none of them run in the image.
 tests/
 docs/
+scripts/
+mutants/
+setup.cfg
+requirements-mutation.txt
 .coverage
 .coveragerc
 coverage/
