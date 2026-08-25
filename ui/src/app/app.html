@@ -39,7 +39,7 @@
   }
 
   @if (started()) {
-    <app-progress-log [lines]="logs()" [running]="running()" />
+    <app-progress-log [lines]="logs()" [running]="running()" [failure]="failure()" />
   }
 
   @if (result(); as found) {
