@@ -1,0 +1,28 @@
+# Everything the build does not need. The two stages copy `ui/` and then
+# `requirements.txt` plus `buy_agent/`; anything else here only slows the
+# context upload down or, worse, ends up in the image.
+
+.git/
+.github/
+.gitignore
+.dockerignore
+Dockerfile
+
+# Built or installed locally: the image builds its own copies from source.
+.venv/
+ui/node_modules/
+ui/dist/
+ui/.angular/
+**/__pycache__/
+*.py[codz]
+
+# Tests, coverage and docs: none of them run in the image.
+tests/
+docs/
+.coverage
+.coveragerc
+coverage/
+htmlcov/
+pytest.ini
+requirements-dev.txt
+*.md

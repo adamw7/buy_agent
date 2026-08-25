@@ -12,6 +12,11 @@ The same shape recurs for the sort criteria and for the payloads
 forgotten on the TypeScript side is a runtime ``undefined`` in the browser that
 neither suite can see, because neither suite can see the other language.
 
+The ``Dockerfile`` is the same shape again, across a file no import reaches: it
+pins the versions CI tests against, copies the built UI to the path
+``server.DEFAULT_UI_DIR`` names, and publishes the port the server binds -- three
+agreements whose failure shows up only in a built container.
+
 The decision log has the same shape: ``docs/adr/README.md`` indexes records that
 live in files beside it, so an unindexed decision -- or an index row still quoting
 a title the record has since changed -- is invisible to every other test here.
@@ -43,6 +48,8 @@ from buy_agent.api import (
 from buy_agent.config import AgentConfig
 from buy_agent.models import Product, RankedProduct
 from buy_agent.ranking import SortBy
+from buy_agent.server import DEFAULT_UI_DIR
+from buy_agent.server import build_parser as build_server_parser
 
 _ROOT = Path(__file__).resolve().parents[1]
 _TYPES_TS = _ROOT / "ui" / "src" / "app" / "agent.types.ts"
@@ -239,3 +246,61 @@ def test_every_record_a_record_points_at_exists(path: Path) -> None:
     numbers = {other.stem[:4] for other in adr_files()}
 
     assert set(re.findall(r"ADR-(\d{4})", path.read_text(encoding="utf-8"))) <= numbers
+
+
+# -- the container image -------------------------------------------------------
+
+_DOCKERFILE = _ROOT / "Dockerfile"
+_CI = _ROOT / ".github" / "workflows" / "ci.yml"
+
+
+def dockerfile() -> str:
+    return _DOCKERFILE.read_text(encoding="utf-8")
+
+
+def base_image_tag(image: str) -> str:
+    """The tag one stage's ``FROM <image>:<tag>`` pins, e.g. ``3.13-slim``."""
+    match = re.search(rf"^FROM {image}:(\S+)", dockerfile(), re.M)
+    assert match, f"no stage builds on {image} in the Dockerfile"
+    return match.group(1)
+
+
+def ci_version(key: str) -> str:
+    """A version `.github/workflows/ci.yml` sets up, e.g. ``node-version: "22.22.3"``."""
+    match = re.search(rf'^\s+{key}: "([^"]+)"', _CI.read_text(encoding="utf-8"), re.M)
+    assert match, f"no {key} in ci.yml"
+    return match.group(1)
+
+
+def server_default(dest: str) -> object:
+    """One default `buy_agent.server`'s parser fills in, read off the parser itself."""
+    return {action.dest: action for action in build_server_parser()._actions}[dest].default
+
+
+def test_the_image_pins_the_versions_ci_tests_against() -> None:
+    """Two toolchains, now in a third place: an image built on another Python or
+    another Node is running code no job has run."""
+    assert base_image_tag("python").startswith(ci_version("python-version"))
+    assert base_image_tag("node").startswith(ci_version("node-version"))
+
+
+def test_the_image_puts_the_built_ui_where_the_server_looks() -> None:
+    """Copied anywhere else, the container serves the 503 that says to build the UI."""
+    match = re.search(r"^COPY --from=ui \S+ \./(\S+?)/?$", dockerfile(), re.M)
+    assert match, "the runtime stage copies nothing from the ui stage"
+
+    assert match.group(1) == DEFAULT_UI_DIR.relative_to(_ROOT).as_posix()
+    assert re.search(r"^WORKDIR /app$", dockerfile(), re.M), "the copy is relative to /app"
+
+
+def test_the_image_publishes_the_port_it_binds_on_every_interface() -> None:
+    """Loopback inside a container is the container's own: a published port would
+    reach nothing, and an EXPOSE of another port would document a lie."""
+    assert re.search(rf"^EXPOSE {server_default('port')}$", dockerfile(), re.M)
+    assert '"--host", "0.0.0.0"' in dockerfile(), "the default command binds loopback"
+
+
+def test_the_image_installs_the_runtime_dependencies_only() -> None:
+    """pytest and coverage in an image are weight, and a wider surface to patch."""
+    assert "requirements-dev.txt" not in dockerfile()
+    assert re.search(r"^RUN pip install .* -r requirements\.txt$", dockerfile(), re.M)

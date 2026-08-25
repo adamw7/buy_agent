@@ -23,6 +23,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0012](0012-the-browser-decides-nothing.md) | The browser decides nothing | Accepted |
 | [0013](0013-ui-as-a-separate-angular-workspace.md) | Keep the UI a separate Angular workspace with its own toolchain | Accepted |
 | [0014](0014-conventions-tests-over-coverage.md) | Guard cross-module conventions with a test that reads the declarations | Accepted |
+| [0015](0015-package-the-web-tier-as-a-container.md) | Package the web tier as a container, with Ollama left outside it | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written
