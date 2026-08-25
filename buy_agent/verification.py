@@ -7,6 +7,9 @@ headphones returning the electric kettle used to illustrate the schema.
 So nothing reaches the ranking unsupported: a product whose name is absent from
 the sources is dropped, and a price, rating or review count that is absent gets
 blanked. A blank scores neutral, whereas an invented price wins the top spot.
+
+Links are grounded the same way, and worked out here rather than read off the
+model: a product is pointed at the searched page that actually mentions it.
 """
 
 from __future__ import annotations
@@ -127,9 +130,61 @@ def drop_ungrounded(products: Sequence[Product], haystack: str) -> list[Product]
 def ground(
     products: Sequence[Product], results: Sequence[SearchResult]
 ) -> list[Product]:
-    """Keep only what the sources support: real products, with real figures."""
+    """Keep only what the sources support: real products, figures and links."""
     haystack = build_haystack(results)
-    return verify_numbers(drop_ungrounded(products, haystack), haystack)
+    kept = verify_numbers(drop_ungrounded(products, haystack), haystack)
+    return attribute_sources(kept, results)
+
+
+def source_urls(results: Sequence[SearchResult]) -> set[str]:
+    """Every page the model was actually shown, by URL."""
+    return {result.url for result in results if result.url}
+
+
+def attribute_sources(
+    products: Sequence[Product], results: Sequence[SearchResult]
+) -> list[Product]:
+    """Point each product at the searched page that mentions it.
+
+    A link is the one field where a wrong value is worse than a blank. A blanked
+    price scores neutral (ADR-0007) and an unknown one is *shown* as unknown,
+    whereas a link is the part of the report the shopper actually acts on: a
+    made-up one sends them to a page nobody vouched for.
+
+    It is also the field the model is worst at. Asked for a link it usually
+    leaves the field empty -- the extraction prompt is about names and figures,
+    and every product in a run comes back with no link at all -- and when it does
+    fill one in there is nothing tying it to the page the figures came from.
+
+    Nothing here needs the model, though, because the answer is already in the
+    prompt: each result block carries its own ``URL:``. So the model's link is
+    accepted only when it names one of the pages that were searched, and
+    otherwise the link is worked out from the sources -- the first result whose
+    own text mentions the product, by the same coverage rule that decided the
+    product was real in the first place. A product no single page mentions keeps
+    no link rather than borrowing one.
+    """
+    known = source_urls(results)
+    pages = [(result.url, build_haystack([result])) for result in results if result.url]
+
+    attributed: list[Product] = []
+    invented = 0
+    for product in products:
+        url = product.url if product.url in known else None
+        if url is None:
+            if product.url:
+                invented += 1
+            url = next(
+                (page for page, text in pages if mentions_name(text, product.name)),
+                None,
+            )
+        attributed.append(
+            product if url == product.url else product.model_copy(update={"url": url})
+        )
+
+    if invented:
+        logger.info("Dropped %d link(s) to pages that were never searched", invented)
+    return attributed
 
 
 def verify_numbers(products: Sequence[Product], haystack: str) -> list[Product]:

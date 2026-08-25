@@ -9,12 +9,14 @@ import pytest
 from buy_agent.models import Product
 from buy_agent.search import SearchResult
 from buy_agent.verification import (
+    attribute_sources,
     build_haystack,
     drop_ungrounded,
     ground,
     mentions_name,
     mentions_number,
     mentions_rating,
+    source_urls,
     verify_numbers,
 )
 
@@ -358,3 +360,124 @@ def test_half_a_name_is_not_enough_to_ground_it() -> None:
 
     assert not mentions_name(haystack, "Bose QuietComfort Ultra 2024"), "2 of 4 is short"
     assert mentions_name(haystack, "Bose QuietComfort Ultra"), "2 of 3 clears it"
+
+
+PAGES = [
+    SearchResult(
+        title="Sony WH-CH720N deal",
+        url="https://shop.example/sony",
+        snippet="Now $129, rated 4.3 out of 5 from 12,500 shoppers.",
+    ),
+    SearchResult(
+        title="Anker Soundcore Q30 review",
+        url="https://review.example/anker",
+        snippet="The Q30 is $79.",
+    ),
+]
+
+
+def test_a_product_is_linked_to_the_page_that_mentions_it() -> None:
+    """The usual case: the model reports no link at all, so one is worked out."""
+    linked = attribute_sources([Product(name="Anker Soundcore Q30")], PAGES)[0]
+
+    assert linked.url == "https://review.example/anker"
+
+
+def test_a_link_to_a_page_that_was_never_searched_is_replaced() -> None:
+    """An invented link is the one hallucination the shopper would click."""
+    product = Product(name="Sony WH-CH720N", url="https://invented.example/deal")
+
+    linked = attribute_sources([product], PAGES)[0]
+
+    assert linked.url == "https://shop.example/sony"
+
+
+def test_a_link_the_model_copied_off_a_searched_page_is_kept() -> None:
+    product = Product(name="Sony WH-CH720N", url="https://shop.example/sony")
+
+    linked = attribute_sources([product], PAGES)[0]
+
+    assert linked.url == "https://shop.example/sony"
+
+
+def test_each_product_gets_its_own_page() -> None:
+    """Attribution is per product, not one link for the whole run."""
+    linked = attribute_sources(
+        [Product(name="Sony WH-CH720N"), Product(name="Anker Soundcore Q30")], PAGES
+    )
+
+    assert [product.url for product in linked] == [
+        "https://shop.example/sony",
+        "https://review.example/anker",
+    ]
+
+
+def test_a_product_no_single_page_mentions_keeps_no_link() -> None:
+    """Better no link than one borrowed from a page about something else."""
+    linked = attribute_sources([Product(name="Bose QuietComfort Ultra")], PAGES)[0]
+
+    assert linked.url is None
+
+
+def test_a_name_split_across_two_pages_is_not_attributed_to_either() -> None:
+    """``ground`` clears a name the sources cover jointly; a link needs one page.
+
+    ``drop_ungrounded`` asks whether the results as a whole mention the product,
+    so a name each page only half covers survives -- and then has nowhere to
+    point, because neither page is the one it was found on.
+    """
+    pages = [
+        SearchResult(url="https://a.example", snippet="Sony WH headphones are here."),
+        SearchResult(url="https://b.example", snippet="The CH720N Ultra is in stock."),
+    ]
+    name = "Sony WH-CH720N Ultra Max"
+
+    assert mentions_name(build_haystack(pages), name), "4 of 5 tokens, jointly"
+    assert not any(mentions_name(build_haystack([page]), name) for page in pages)
+    assert attribute_sources([Product(name=name)], pages)[0].url is None
+
+
+def test_sources_without_urls_leave_the_link_blank() -> None:
+    """Fetching can hand back a result the search never gave a URL."""
+    product = Product(name="Sony WH-CH720N", url="https://invented.example")
+
+    assert attribute_sources([product], SOURCES)[0].url is None
+
+
+def test_attribution_copies_rather_than_editing_in_place() -> None:
+    original = Product(name="Sony WH-CH720N", url="https://invented.example")
+
+    linked = attribute_sources([original], PAGES)[0]
+
+    assert original.url == "https://invented.example"
+    assert linked.url == "https://shop.example/sony"
+
+
+def test_grounding_links_what_it_keeps() -> None:
+    """The link is attached inside ``ground``, so ranking never sees a bare product."""
+    grounded = ground([Product(name="Sony WH-CH720N", price=129.0)], PAGES)
+
+    assert grounded[0].url == "https://shop.example/sony"
+    assert grounded[0].price == 129.0
+
+
+def test_a_replaced_link_is_reported(caplog) -> None:
+    product = Product(name="Sony WH-CH720N", url="https://invented.example")
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.verification"):
+        attribute_sources([product], PAGES)
+
+    assert "1 link(s)" in caplog.text
+
+
+def test_a_missing_link_is_not_reported_as_dropped(caplog) -> None:
+    """Nothing was dropped when the model never offered a link in the first place."""
+    with caplog.at_level(logging.INFO, logger="buy_agent.verification"):
+        attribute_sources([Product(name="Sony WH-CH720N")], PAGES)
+
+    assert "link(s)" not in caplog.text
+
+
+def test_the_searched_pages_are_the_ones_with_urls() -> None:
+    assert source_urls(PAGES) == {"https://shop.example/sony", "https://review.example/anker"}
+    assert source_urls(SOURCES) == set()

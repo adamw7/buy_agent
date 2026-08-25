@@ -143,7 +143,7 @@ back.
 | `agent.py` | `BuyAgent.run()` -- orchestrates the pipeline, translates Ollama errors |
 | `extraction.py` | Both prompts, both chains, name cleaning, deduplication |
 | `fetch.py` | Fetches result pages, keeps the lines quoting a price or rating |
-| `verification.py` | Drops products and figures absent from the sources |
+| `verification.py` | Drops products and figures absent from the sources; links what is left |
 | `ranking.py` | Scoring and sorting; no LLM involved |
 | `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain) |
 | `search.py` | DuckDuckGo wrapper plus a LangChain `@tool` version |
@@ -158,12 +158,18 @@ Five conventions matter when changing this code:
   schema into a decoding grammar, and a required `number` makes `"N/A"` -- which
   would fail validation for the entire batch -- structurally impossible. Keep new
   extraction fields non-nullable with a sentinel, and convert in `to_product()`.
-- **Never rank on an unverified number.** `verification.ground()` drops products
-  whose name is absent from the sources and blanks any price, rating or review
-  count that is. Ratings need context ("4.3/5", "rated 4.3") because a bare `5`
-  matches the "5" in "out of 5". Extraction and verification must be given the
-  same text, or the check rejects everything -- this is why `fetch.enrich()` puts
-  page content on `SearchResult` rather than passing it around separately.
+- **Never rank on an unverified number, and never link to an unverified page.**
+  `verification.ground()` drops products whose name is absent from the sources
+  and blanks any price, rating or review count that is. Ratings need context
+  ("4.3/5", "rated 4.3") because a bare `5` matches the "5" in "out of 5".
+  Extraction and verification must be given the same text, or the check rejects
+  everything -- this is why `fetch.enrich()` puts page content on `SearchResult`
+  rather than passing it around separately. `attribute_sources()` then gives each
+  product the URL of the first searched page that mentions it, keeping the
+  model's own `url` only when it names a page that was searched (ADR-0017): a
+  blanked figure still shows as "price unknown", but a made-up link is one the
+  shopper clicks. It runs inside `ground`, so `deduplicate` only ever merges
+  links the sources back.
 - **`GENERIC_WORDS` is shared, and edits to it pull in two directions.**
   `verification.py` imports the set from `extraction.py` (along with
   `NAME_TOKENS`, so merging and grounding agree on what a name's words are).
@@ -286,7 +292,7 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 523 tests
+to EOF instead -- what it checks is that nothing follows the reply. 540 tests
 run in about three seconds: most of that is the one
 test that spawns an interpreter to check `python -m buy_agent` still runs as a
 script, plus 0.7s of deliberate `StubAgent.delay` in the two server tests that
