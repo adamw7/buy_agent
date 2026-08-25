@@ -135,6 +135,14 @@ lines as the run happens, and lists the ranked products with a link to the page
 each was found on. It binds loopback by default: it drives a model on your own
 machine, and is not meant to be exposed.
 
+Under Settings, **Model** is a dropdown of what that Ollama has actually pulled --
+the same list `ollama list` prints, asked for over its API through
+`GET /api/models`. Point the Ollama server field somewhere else and the list is
+fetched again from there. A model that is configured but not pulled stays in the
+dropdown marked `not pulled`, so a stale setting is visible rather than silently
+swapped; a server that answered with nothing at all turns the field back into a
+text box, so a name can still be typed.
+
 A search takes tens of seconds, so the browser does not wait on one response.
 `GET /api/search/stream` runs the search and relays the agent's own log lines as
 Server-Sent Events, finishing on a `result` or a `failure`. `POST /api/search`
@@ -271,7 +279,7 @@ cd ui; npm test               # the UI's own tests, in jsdom
 cd ui; npm run test:coverage  # the same, with a coverage floor
 ```
 
-523 Python tests and 46 UI tests. Nothing in either suite touches the network or
+523 Python tests and 53 UI tests. Nothing in either suite touches the network or
 Ollama: the model is faked through the `llm=` argument of `BuyAgent`, both the
 search backend and the page fetcher are monkeypatched, and the server tests
 inject a stub agent through `create_server(agent_factory=...)`. The only real

@@ -6,6 +6,14 @@ import type { AgentDefaults, ModelStatus, SearchOptions, SortBy } from '../agent
 /** The three states of Ollama's thinking mode, as a `<select>` can hold them. */
 type Thinking = 'default' | 'on' | 'off';
 
+/** One entry in the model dropdown. `installed` is false for a name Ollama has
+ *  not pulled -- kept in the list so a remembered setting is never silently
+ *  swapped for someone else's model. */
+export interface ModelOption {
+  name: string;
+  installed: boolean;
+}
+
 const SETTINGS_KEY = 'buy_agent.settings';
 
 const EXAMPLES = [
@@ -35,6 +43,8 @@ export class SearchForm {
 
   readonly search = output<SearchOptions>();
   readonly stop = output<void>();
+  /** Ask for the model list of another Ollama, when the server field changes. */
+  readonly refresh = output<string>();
 
   protected readonly examples = EXAMPLES;
 
@@ -54,6 +64,28 @@ export class SearchForm {
   protected readonly sortOptions = computed<SortBy[]>(
     () => this.defaults()?.sort_options ?? ['score', 'price', 'rating'],
   );
+
+  /**
+   * What the model dropdown offers: everything `ollama list` reported, plus the
+   * name currently chosen if that is not among them.
+   *
+   * Empty means there is nothing to pick from -- Ollama was unreachable, or has
+   * pulled nothing -- and the field falls back to a text box, because a dropdown
+   * with one unusable entry would be worse than typing.
+   */
+  protected readonly modelOptions = computed<ModelOption[]>(() => {
+    const installed = this.status()?.models ?? [];
+    if (!installed.length) {
+      return [];
+    }
+    const options = installed.map((name) => ({ name, installed: true }));
+    const chosen = this.model().trim();
+    if (chosen && !installed.includes(chosen)) {
+      options.unshift({ name: chosen, installed: false });
+    }
+    return options;
+  });
+
   protected readonly canSubmit = computed(() => this.request().trim().length > 0);
 
   constructor() {
@@ -106,6 +138,14 @@ export class SearchForm {
 
   protected useExample(example: string): void {
     this.request.set(example);
+  }
+
+  /** The Ollama server field was left: whatever is pulled there is a new list. */
+  protected serverChanged(): void {
+    const url = this.baseUrl().trim();
+    if (url) {
+      this.refresh.emit(url);
+    }
   }
 
   /** Advanced settings only: what to shop for is a new question every time. */

@@ -31,6 +31,7 @@
     [running]="running()"
     (search)="start($event)"
     (stop)="stop()"
+    (refresh)="refreshModels($event)"
   />
 
   @if (failure(); as message) {

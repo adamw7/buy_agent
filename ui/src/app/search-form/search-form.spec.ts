@@ -39,6 +39,28 @@ describe('SearchForm', () => {
     await fixture.whenStable();
   };
 
+  const choose = async (selector: string, value: string) => {
+    const select = element<HTMLSelectElement>(selector);
+    select.value = value;
+    select.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+  };
+
+  /** Tell the form what `ollama list` reported, the way the page does. */
+  const pulled = async (models: string[]) => {
+    fixture.componentRef.setInput('status', {
+      base_url: 'http://localhost:11434',
+      reachable: true,
+      models,
+    });
+    await fixture.whenStable();
+  };
+
+  const modelNames = (): string[] =>
+    [...fixture.nativeElement.querySelectorAll('select[name="model"] option')].map(
+      (option) => (option as HTMLOptionElement).value,
+    );
+
   beforeEach(async () => {
     localStorage.clear();
     submitted = [];
@@ -85,18 +107,70 @@ describe('SearchForm', () => {
     expect(submitted[0].think).toBe(false);
   });
 
-  it('offers the models Ollama has pulled', async () => {
+  it('offers the models Ollama has pulled, as a dropdown', async () => {
+    await pulled(['llama3.2', 'lfm2.5']);
+
+    expect(modelNames()).toEqual(['llama3.2', 'lfm2.5']);
+    expect(element<HTMLSelectElement>('select[name="model"]').value).toBe('llama3.2');
+  });
+
+  it('sends the model picked from the dropdown', async () => {
+    await pulled(['llama3.2', 'lfm2.5']);
+    await type('input[name="request"]', 'kettle');
+    await choose('select[name="model"]', 'lfm2.5');
+
+    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+
+    expect(submitted[0].model).toBe('lfm2.5');
+  });
+
+  it('keeps a chosen model Ollama has not pulled in the list', async () => {
+    /* Dropping it would silently run the search on somebody else's model. */
+    await pulled(['lfm2.5']);
+
+    expect(modelNames()).toEqual(['llama3.2', 'lfm2.5']);
+    expect(element<HTMLSelectElement>('select[name="model"]').value).toBe('llama3.2');
+    expect(element('select[name="model"] option')!.textContent).toContain('not pulled');
+  });
+
+  it('falls back to typing a name when Ollama listed nothing', async () => {
+    /* A dropdown holding one unusable entry is worse than a text box. */
     fixture.componentRef.setInput('status', {
       base_url: 'http://localhost:11434',
-      reachable: true,
-      models: ['llama3.2', 'lfm2.5'],
+      reachable: false,
+      models: [],
     });
     await fixture.whenStable();
-    const options = fixture.nativeElement.querySelectorAll('#installed-models option');
-    expect([...options].map((option: HTMLOptionElement) => option.value)).toEqual([
-      'llama3.2',
-      'lfm2.5',
-    ]);
+
+    expect(element('select[name="model"]')).toBeNull();
+    expect(element<HTMLInputElement>('input[name="model"]').value).toBe('llama3.2');
+  });
+
+  it('asks for the model list of the server that was typed in', async () => {
+    const asked: string[] = [];
+    fixture.componentInstance.refresh.subscribe((url) => asked.push(url));
+
+    const server = element<HTMLInputElement>('input[name="baseUrl"]');
+    server.value = ' http://10.0.0.5:11434 ';
+    server.dispatchEvent(new Event('input'));
+    server.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    expect(asked).toEqual(['http://10.0.0.5:11434']);
+  });
+
+  it('does not go asking a server with no address', async () => {
+    const asked: string[] = [];
+    fixture.componentInstance.refresh.subscribe((url) => asked.push(url));
+
+    const server = element<HTMLInputElement>('input[name="baseUrl"]');
+    server.value = '   ';
+    server.dispatchEvent(new Event('input'));
+    server.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    expect(asked).toEqual([]);
   });
 
   it('fills the request box from an example', async () => {

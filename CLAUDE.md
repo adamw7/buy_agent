@@ -254,6 +254,16 @@ deliberately not -- what to shop for is a new question every time -- and every r
 and write of it is wrapped, so a browser that refuses storage still gets a working
 form.
 
+Its model field is a `<select>` over `GET /api/models` -- what `ollama list`
+prints -- and its two edge cases are the point. A name that is chosen but *not* in
+that list (a remembered setting, or a default for a model nobody pulled) is kept
+in the dropdown marked "not pulled" rather than dropped, because dropping it would
+silently run the search on whichever model happened to sort first. A list that
+came back empty -- Ollama unreachable, or nothing pulled -- falls back to the text
+box it used to be, since a dropdown holding one unusable entry is worse than
+typing. Because the list belongs to one server, editing the Ollama server field
+emits `refresh` and `App.refreshModels` asks that one instead.
+
 `create_server(agent_factory=...)` is the seam the server tests inject a stub
 agent through, the way `BuyAgent(config, llm=...)` is for the pipeline. Angular
 components are tested in jsdom with `TestBed`; `AgentService` is tested against a
@@ -282,7 +292,7 @@ test that spawns an interpreter to check `python -m buy_agent` still runs as a
 script, plus 0.7s of deliberate `StubAgent.delay` in the two server tests that
 need a run to still be going -- the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. The UI's 46 tests
+is reaching out. The UI's 53 tests
 run in about two seconds, most of which is building the app first. `README.md`
 quotes both counts, so a new test file is two edits.
 
