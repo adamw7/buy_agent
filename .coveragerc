@@ -1,4 +1,4 @@
-# Coverage settings for `coverage run --branch -m pytest`; see README.md.
+# Coverage settings for `coverage run --branch -m pytest`; see docs/testing.md.
 [run]
 branch = true
 source = buy_agent
