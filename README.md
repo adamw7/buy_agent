@@ -117,16 +117,36 @@ print(ranked[0].product.name, ranked[0].score)                 # returns all of 
 ## The web UI
 
 The same agent, with a page in front of it. `buy_agent.server` serves a small
-JSON API and the built Angular app in `ui/`:
+JSON API and the built Angular app in `ui/`.
+
+### Starting it on localhost
+
+Two things run and one gets built: Ollama with a model pulled, the Angular
+build, and the server that serves that build alongside the API.
 
 ```powershell
+# 1. Ollama, in its own terminal -- skip it if Ollama already runs as a service
+ollama serve
+ollama pull llama3.2               # once; pulled tags are what the Model dropdown lists
+
+# 2. The UI, built once -- and again after any change under ui/src
 cd ui
 npm install
-npm run build          # writes ui/dist/ui/browser
+npm run build                      # writes ui/dist/ui/browser
 cd ..
 
+# 3. The server, in a second terminal
+.venv\Scripts\Activate.ps1
 python -m buy_agent.server         # http://127.0.0.1:8000
 ```
+
+Then open <http://127.0.0.1:8000> and search. Skip step 2 and the API still
+answers, but the page is a 503 telling you to build it; `--ui-dir` points at a
+build kept somewhere else, and `--host` / `--port` move the binding, which is
+loopback on port 8000 by default. Ollama need not be local either --
+`$OLLAMA_HOST`, or the Ollama server field under Settings, points the run at
+another machine. To work on the UI itself, run the Angular dev server instead of
+building for every change -- see [The dev server](#the-dev-server) below.
 
 ![The search form, with its settings open](docs/ui.png)
 
@@ -209,6 +229,8 @@ docker run --rm -v "${PWD}:/out" buy-agent -m buy_agent "running shoes" --json /
 The container runs as a non-root user and writes nothing, so `--json` needs a
 mounted directory to write into, as above. Nothing in CI builds the image; the
 tests still run on the host.
+
+### The dev server
 
 Working on the UI itself is nicer through the Angular dev server, which rebuilds
 on save and proxies `/api` to the Python one:
