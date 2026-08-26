@@ -265,6 +265,23 @@ def test_no_json_is_written_when_the_run_fails(fake_agent, tmp_path) -> None:
     assert not destination.exists()
 
 
+def test_an_unwritable_json_path_is_an_exit_code_not_a_traceback(
+    fake_agent, tmp_path, caplog
+) -> None:
+    """A mistyped ``--json`` path must not end a minute of work in a stack trace.
+
+    The report is already on stderr by the time the file is written, so what
+    failed is the copy. Exit 1 so a script notices, and say which path and why.
+    """
+    destination = tmp_path / "no-such-directory" / "out.json"
+
+    with caplog.at_level(logging.ERROR, logger="buy_agent"):
+        assert main(["headphones", "--json", str(destination)]) == 1
+
+    assert str(destination) in caplog.text
+    assert not destination.exists()
+
+
 def test_writing_the_json_is_logged(fake_agent, tmp_path, caplog) -> None:
     destination = tmp_path / "out.json"
 

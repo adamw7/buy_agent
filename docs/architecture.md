@@ -168,13 +168,16 @@ Extraction and verification must be handed the *same* text, which is why
 passing it alongside.
 
 Grounding covers the quoted opinions too, and holds them to a stricter bar
-than a figure: a quote has to appear in the sources as running text -- overlapping
+than a figure, in two ways. A quote has to appear as running text -- overlapping
 runs of five consecutive words, most of which must be found -- rather than as
-words that each occur somewhere. A model paraphrasing out of the vocabulary it
-has just read would clear any looser bar, and what it produces is words in a
-reviewer's mouth (ADR-0024). The merge treats them as the exception they are:
-opinions come from *both* listings, since two reviewers, unlike two prices, are
-not in conflict.
+words that each occur somewhere, because a model paraphrasing out of the
+vocabulary it has just read would clear any looser bar, and what it produces is
+words in a reviewer's mouth (ADR-0024). And it has to appear on a *single page
+that mentions the product*, rather than anywhere in the ten pooled together,
+because a real verdict on the electric kettle three results down is not evidence
+about these headphones (ADR-0025). The merge treats opinions as the exception
+they are: they come from *both* listings, since two reviewers, unlike two prices,
+are not in conflict.
 
 Grounding also decides where a product *links*. The model is asked for a `url`
 but reliably leaves it empty, so `attribute_sources()` gives each product the

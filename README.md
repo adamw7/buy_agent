@@ -309,13 +309,15 @@ run that grades the suite itself every Saturday are in [Tests](docs/testing.md).
 
 ## Limitations
 
-- **A figure or a quote can be real but attached to the wrong product.**
-  Grounding checks that a number appears in the sources, not that it belongs to
-  the product it was filed under, and a quote is checked the same way. Small
-  models sometimes give two products the same review count, and the prompt's
-  instruction not to move a verdict between products is not enforced by
-  anything. Reading the top 3 as candidates worth clicking, rather than as a
-  price quote, is the right level of trust.
+- **A figure can be real but attached to the wrong product.** Grounding checks
+  that a number appears in the sources, not that it belongs to the product it
+  was filed under, and small models sometimes give two products the same review
+  count. Reading the top 3 as candidates worth clicking, rather than as a price
+  quote, is the right level of trust.
+- **A quote is tied to a page, not to a product on it.** A quoted opinion has to
+  appear on a page that names the product (ADR-0025), so a verdict cannot move
+  between pages about unrelated things -- but a review page covering eight
+  headphones names all eight, and nothing stops a verdict moving between them.
 - **Names are only as specific as the model makes them.** `lfm2.5` reported
   "Bose ANC" for a product the page named in full.
 - Some shops answer with JavaScript-rendered pages or a 403; those results fall

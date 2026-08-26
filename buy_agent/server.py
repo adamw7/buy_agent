@@ -451,6 +451,14 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         # Rejecting a body without reading it leaves it in the socket, where the
         # next request on a kept-alive connection would be parsed out of the
         # leftover bytes -- so those two paths end the connection instead.
+        # A body framed by Transfer-Encoding rather than by a length is the same
+        # desync through a different header: this handler does not decode chunks,
+        # so the body would be left in the socket for the next request on this
+        # connection to be parsed out of. Nothing here speaks chunked, and 411 is
+        # what says so.
+        if self.headers.get("Transfer-Encoding"):
+            self.close_connection = True
+            raise ApiError("Send a body with a Content-Length; chunked is not read here.", 411)
         try:
             length = int(self.headers.get("Content-Length") or 0)
             if length < 0:

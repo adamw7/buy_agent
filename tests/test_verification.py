@@ -63,6 +63,42 @@ def test_an_invented_review_count_is_dropped() -> None:
     assert verified.price == 129.0
 
 
+def test_a_rejected_rating_takes_its_review_count_with_it() -> None:
+    """ADR-0022's pairing, one stage earlier than the merge it was written for.
+
+    12,500 really is in the sources, so checked on its own it survives -- and
+    then qualifies a rating that has just been thrown out. The card reads
+    "unrated" beside nothing, and the ranking still scores the popularity of a
+    count that no longer has a rating to be the popularity of, which is the
+    invented 4.9 earning its place after all.
+    """
+    product = Product(name="Sony WH-CH720N", rating=4.9, review_count=12500)
+
+    verified = verify_numbers([product], HAYSTACK)[0]
+
+    assert verified.rating is None
+    assert verified.review_count is None
+
+
+def test_a_kept_rating_keeps_the_review_count_the_sources_back() -> None:
+    """Only unsupported pairings go; a pair the sources back is left whole."""
+    product = Product(name="Sony WH-CH720N", rating=4.3, review_count=12500)
+
+    verified = verify_numbers([product], HAYSTACK)[0]
+
+    assert (verified.rating, verified.review_count) == (4.3, 12500)
+
+
+def test_a_rejected_review_count_leaves_its_rating_alone() -> None:
+    """The qualifier follows the figure, never the figure the qualifier."""
+    product = Product(name="Sony WH-CH720N", rating=4.3, review_count=90000)
+
+    verified = verify_numbers([product], HAYSTACK)[0]
+
+    assert verified.rating == 4.3
+    assert verified.review_count is None
+
+
 def test_verification_never_drops_the_product_itself() -> None:
     products = [Product(name="Ghost Model", price=1.0, rating=1.0, review_count=1)]
 
@@ -74,6 +110,28 @@ def test_verification_never_drops_the_product_itself() -> None:
 
 def test_thousands_separators_are_normalised() -> None:
     assert build_haystack(SOURCES).count("12500") == 1
+
+
+def test_a_decimal_comma_is_not_a_thousands_separator() -> None:
+    """A euro-language page prices in "129,99", which is 129.99 and not 12999.
+
+    Stripping every comma between digits alike made every price on a German or
+    Polish page a hundred times too big, so a figure the model had read off it
+    correctly was no longer in the haystack and lost its grounding. ``--region
+    pl-pl`` and the currency codes in ``fetch`` are what put those pages in reach.
+    """
+    haystack = build_haystack([SearchResult(snippet="Cena: 129,99 PLN za sztuke")])
+
+    assert mentions_number(haystack, 129.99)
+    assert not mentions_number(haystack, 12999)
+
+
+def test_a_thousands_separator_is_still_one() -> None:
+    """Three digits behind the comma is the only shape that means thousands."""
+    haystack = build_haystack([SearchResult(snippet="Was $1,299 from 12,500 shoppers")])
+
+    assert mentions_number(haystack, 1299)
+    assert mentions_number(haystack, 12500)
 
 
 @pytest.mark.parametrize("value", [129, 129.0, 4.3])
@@ -235,8 +293,13 @@ def test_verification_copies_rather_than_editing_in_place() -> None:
     assert verified.price is None
 
 
-def test_a_free_extra_keeps_its_price() -> None:
-    """0 is a real price; blanking it would score a giveaway as unknown."""
+def test_a_bare_zero_is_matched_like_any_other_number() -> None:
+    """What ``mentions_number`` does with a zero, which is nothing special.
+
+    Nothing in the pipeline hands it one any more -- ``to_product`` reads a zero
+    price and a zero review count alike as unknown -- but the rule this function
+    applies should not quietly depend on that.
+    """
     haystack = build_haystack([SearchResult(snippet="Bundled adapter: $0 with purchase")])
 
     assert mentions_number(haystack, 0)
@@ -333,6 +396,28 @@ def test_a_lead_in_word_far_from_the_figure_does_not_vouch_for_it() -> None:
 
     assert mentions_rating(near, 4.6)
     assert not mentions_rating(far, 4.6)
+
+
+def test_a_counted_headline_does_not_vouch_for_a_rating() -> None:
+    """"rated the 5 best headphones" is an article's title, not a 5 out of 5.
+
+    The figure belongs to the noun after it. Any twelve non-digits used to count
+    as "one claim about one product", which handed a listing claiming a perfect
+    score the one page that could never support it. The tell sits on either side
+    of the figure, so both are ruled out.
+    """
+    after = build_haystack([SearchResult(snippet="We rated the 5 best headphones of 2026")])
+    before = build_haystack([SearchResult(snippet="We rated the top 3 headphones of 2026")])
+
+    assert not mentions_rating(after, 5)
+    assert not mentions_rating(before, 3)
+
+
+def test_a_superlative_beside_a_real_rating_does_not_cost_it() -> None:
+    """Only the counting sense is ruled out, not the word wherever it turns up."""
+    haystack = build_haystack([SearchResult(snippet="Rating 4.5 -- the best value on test")])
+
+    assert mentions_rating(haystack, 4.5)
 
 
 def test_a_rating_that_is_only_the_tail_of_a_longer_number_is_rejected() -> None:
@@ -545,13 +630,12 @@ OPINIONATED = [
         url="https://audiosite.example/q45",
     ),
 ]
-OPINIONATED_HAYSTACK = build_haystack(OPINIONATED)
 
 
-def opinions_after(*quotes: str) -> list[str]:
+def opinions_after(*quotes: str, name: str = "Sony WH-CH720N") -> list[str]:
     """What survives grounding, for a product the sources do mention."""
-    product = Product(name="Sony WH-CH720N", opinions=list(quotes))
-    return verify_opinions([product], OPINIONATED_HAYSTACK)[0].opinions
+    product = Product(name=name, opinions=list(quotes))
+    return verify_opinions([product], OPINIONATED)[0].opinions
 
 
 def test_a_quote_the_page_printed_survives() -> None:
@@ -577,7 +661,7 @@ def test_a_quote_assembled_out_of_scattered_words_is_dropped() -> None:
     small model paraphrasing out of the vocabulary it has just read would clear
     any bar that only asks whether the words occur.
     """
-    assert opinions_after("great sound and it ships in black for the money") == []
+    assert opinions_after("the case is uncanny for a coat pocket") == []
 
 
 def test_a_word_the_model_added_at_the_front_does_not_cost_the_quote() -> None:
@@ -591,8 +675,8 @@ def test_a_word_changed_in_the_middle_of_a_quote_fails() -> None:
 
 
 def test_a_quote_shorter_than_one_run_has_to_appear_whole() -> None:
-    assert opinions_after("ships in black") == ["ships in black"]
-    assert opinions_after("ships in silver") == []
+    assert opinions_after("too bulky") == ["too bulky"]
+    assert opinions_after("too heavy") == []
 
 
 def test_a_quote_of_nothing_is_not_a_quote() -> None:
@@ -602,9 +686,31 @@ def test_a_quote_of_nothing_is_not_a_quote() -> None:
 
 def test_the_real_quote_survives_the_invented_one_beside_it() -> None:
     """Per quote, not per product: one made-up verdict does not silence the page."""
-    kept = opinions_after("battery life is disappointing", "ships in black")
+    kept = opinions_after("battery life is disappointing", "too bulky")
 
-    assert kept == ["ships in black"]
+    assert kept == ["too bulky"]
+
+
+def test_a_verdict_on_another_product_does_not_transfer_to_this_one() -> None:
+    """The point of checking page by page: "great sound" is the Anker's, not the Sony's.
+
+    Every word of it is in the sources and it is running text of a real page, so
+    one pooled haystack passed it -- which is a genuine reviewer's sentence filed
+    under the wrong product, the failure ADR-0025 closes.
+    """
+    assert opinions_after("Great sound, and it ships in black") == []
+
+
+def test_the_product_the_verdict_is_about_still_keeps_it() -> None:
+    """The other half of the same rule: narrowing must not drop a real quote."""
+    assert opinions_after("Great sound, and it ships in black", name="Anker Q45") == [
+        "Great sound, and it ships in black"
+    ]
+
+
+def test_a_product_no_page_mentions_keeps_no_quotes() -> None:
+    """No page to be quoted from is no quote, the way it is no link."""
+    assert opinions_after("the noise cancelling uncanny for the money", name="Bose 700") == []
 
 
 def test_grounding_a_product_grounds_the_opinions_it_arrived_with() -> None:
@@ -624,12 +730,32 @@ def test_dropped_opinions_are_reported(caplog) -> None:
     product = Product(name="Sony WH-CH720N", opinions=["battery life is poor"])
 
     with caplog.at_level(logging.INFO, logger="buy_agent.verification"):
-        verify_opinions([product], OPINIONATED_HAYSTACK)
+        verify_opinions([product], OPINIONATED)
 
     assert "Dropped 1 opinion" in caplog.text
+
+
+def test_a_grouped_number_in_a_quote_matches_the_page_that_grouped_it() -> None:
+    """Both sides of a quote comparison go through the same normalisation.
+
+    The pages were normalised and the model's own words were not, so a quote of
+    "over 1,299 owners" could never match a haystack in which the page's own
+    "1,299" had already become "1299" -- three words against one.
+    """
+    results = [
+        SearchResult(
+            title="Sony WH-CH720N review",
+            snippet="Reviewers found over 1,299 owners said the same thing.",
+        )
+    ]
+    product = Product(name="Sony WH-CH720N", opinions=["found over 1,299 owners said"])
+
+    assert verify_opinions([product], results)[0].opinions == [
+        "found over 1,299 owners said"
+    ]
 
 
 def test_a_product_with_nothing_said_about_it_is_left_alone() -> None:
     product = Product(name="Sony WH-CH720N")
 
-    assert verify_opinions([product], OPINIONATED_HAYSTACK) == [product]
+    assert verify_opinions([product], OPINIONATED) == [product]

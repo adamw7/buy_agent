@@ -109,6 +109,41 @@ def test_a_failed_request_yields_no_content(monkeypatch) -> None:
         assert fetch_page(client, "https://slow.example", max_chars=1000) == ""
 
 
+def test_a_url_httpx_will_not_parse_yields_no_content(monkeypatch) -> None:
+    """``InvalidURL`` is not an ``HTTPError``, so it needs naming separately.
+
+    httpx raises it out of parsing rather than out of the transport, which puts
+    it under ``Exception`` and outside the tuple that catches everything else.
+    """
+
+    def explode(url: str):
+        raise httpx.InvalidURL("Invalid port: ':1'")
+
+    stub_client(monkeypatch, explode)
+    with httpx.Client() as client:
+        assert fetch_page(client, "http://[::1/", max_chars=1000) == ""
+
+
+def test_a_malformed_href_does_not_bring_the_run_down() -> None:
+    """The real client, on the real parse, with no stub in the way.
+
+    A DuckDuckGo href with a bad port, an unbracketed IPv6 literal or a hostname
+    IDNA refuses used to escape the pool and out of ``BuyAgent.run`` -- a
+    traceback on the CLI and a 500 in the browser, from a link the agent only
+    ever meant to skip. Nothing here reaches the network: httpx refuses these
+    while building the URL, before there is a socket to open.
+    """
+    results = [
+        SearchResult(title="bad port", url="http://[::1/", snippet="s"),
+        SearchResult(title="bad idna", url="http://\udcff.example/", snippet="s"),
+    ]
+
+    enriched = enrich(results, max_chars=1000, timeout=0.01)
+
+    assert [result.content for result in enriched] == ["", ""]
+    assert [result.title for result in enriched] == ["bad port", "bad idna"]
+
+
 def test_an_error_status_yields_no_content(monkeypatch) -> None:
     stub_client(monkeypatch, lambda url: make_response(url, PAGE, status=403))
     with httpx.Client() as client:

@@ -150,7 +150,7 @@ superseding it rather than an edit to the old one -- numbers are never reused,
 and accepted records are not rewritten. `tests/test_conventions.py` checks that
 the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0024 and every record is Accepted, so the next free number is 0025.
+to ADR-0025 and every record is Accepted, so the next free number is 0026.
 
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
 for the two steps it is reliable at, and ordinary Python does everything else,
@@ -206,7 +206,8 @@ Seven conventions matter when changing this code:
   blanked figure still shows as "price unknown", but a made-up link is one the
   shopper clicks. It runs inside `ground`, so `deduplicate` only ever merges
   links the sources back.
-- **A quote is checked as running text, not as words** (ADR-0024). `fetch.py`
+- **A quote is checked as running text, on the page it came from** (ADR-0024,
+  ADR-0025). `fetch.py`
   sweeps each page twice -- once for the lines quoting a figure, once for the
   lines passing judgement, each on a budget of its own (`page_chars` and
   `opinion_chars`), so neither kind crowds the other out -- and
@@ -220,12 +221,21 @@ Seven conventions matter when changing this code:
   in the middle breaks every run spanning it and fails. `_OPINION` is a
   vocabulary of judgement ("reviewers found", "the downside is",
   "disappointing"), never of subject matter: "wireless" or "battery" would take
-  every line on the page.
+  every line on the page. Unlike the figures, a quote is checked against one page
+  at a time and only a page `mentions_name` says is about the product, which is
+  why `verify_opinions()` takes the results and not the pooled haystack: pooled,
+  a real verdict on the electric kettle three results down was evidence about
+  these headphones. That makes `mentions_name` the decider of three things --
+  whether a product is real, where it links, and what may be quoted for it -- so
+  a word added to `GENERIC_WORDS` loosens all three.
 - **A currency belongs to its price, and a review count to its rating**
   (ADR-0022). Both are facts about the *listing* that printed them, not about the
   product, so `_MERGEABLE_FIELDS` pairs them up and `_fill_gaps` carries a
   qualifier over only where the figure it describes is carried over too, or where
-  both listings quote the same one. Field-by-field merging passes grounding --
+  both listings quote the same one. The same pairing binds one stage earlier, in
+  `verification._GROUNDED_FIGURES`: a figure the sources do not back takes its
+  qualifiers down with it, since a review count left standing over a rejected
+  rating describes nothing and still feeds the popularity half of the score. Field-by-field merging passes grounding --
   each half really is in the sources -- while reporting "129.00 EUR" for a page
   that said 129 and a page that said "249 EUR". A new field that only makes sense
   next to another belongs in that other's group rather than in one of its own.
@@ -255,7 +265,10 @@ Seven conventions matter when changing this code:
 
 `BuyAgent.run()` raises exactly three things -- `ValueError`,
 `OllamaUnavailableError`, `SearchError` -- and `__main__.main()` catches exactly
-those, logging them and returning 1 (130 on Ctrl-C). `api._STATUS` maps the same
+those around the run, logging them and returning 1 (130 on Ctrl-C). It has a
+second, unrelated `except` further down, for an `OSError` from writing the
+`--json` file, which is why `tests/test_conventions.py` reads the handlers of
+the `try` holding the `.run()` call rather than every handler in the function. `api._STATUS` maps the same
 three onto HTTP statuses (400, 503, 502). A new failure mode needs handling in
 all three places, or it reaches the user as a traceback and the browser as a 500.
 Within the agent only query refinement is recoverable: it falls back to the raw
@@ -401,16 +414,16 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 647 tests
+to EOF instead -- what it checks is that nothing follows the reply. 669 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 647 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 647 collect but 13 of the 15
-in `tests/test_start_script.py` skip, so the summary reads `634 passed, 13
+is reaching out. 669 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 669 collect but 13 of the 15
+in `tests/test_start_script.py` skip, so the summary reads `656 passed, 13
 skipped` -- nothing is missing, and the two that still run are the ones reading
 the script as text rather than through the probe. The UI's 64 tests
 run in about two seconds, most of which is building the app first.

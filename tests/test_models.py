@@ -81,9 +81,24 @@ def test_labels_format_known_data() -> None:
     assert full.rating_label() == "4.2/5 (9,000 reviews)"
 
 
-def test_a_zero_price_is_free_not_unknown() -> None:
-    """-1 is the sentinel; 0 is a real figure and must survive the conversion."""
-    assert ExtractedProduct(name="Freebie", price=0.0).to_product().price == 0.0
+def test_a_zero_price_is_unknown_not_free() -> None:
+    """Zero is what a model writes when it has forgotten the -1 sentinel.
+
+    Kept as a figure it is worse than a blank in both directions: grounding only
+    has to find a bare "0" somewhere in ten pages of "$0 shipping" and "0% APR",
+    and ranking then scores it the cheapest in the set and hands it the top spot.
+    Nothing this searches for is free, so it reads as unknown, exactly the way a
+    zero ``review_count`` already does.
+    """
+    assert ExtractedProduct(name="Freebie", price=0.0).to_product().price is None
+    assert ExtractedProduct(name="Freebie", price=0.0).to_product().price_label() == (
+        "price unknown"
+    )
+
+
+def test_the_smallest_real_price_still_survives() -> None:
+    """Unknown is zero and below, not "small": a cheap thing keeps its price."""
+    assert ExtractedProduct(name="Cable", price=0.01).to_product().price == 0.01
 
 
 def test_the_rating_scale_includes_its_own_endpoints() -> None:

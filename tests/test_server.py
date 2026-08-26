@@ -439,6 +439,49 @@ def test_the_stream_carries_the_security_headers_too(server: str) -> None:
     assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
 
 
+def test_a_chunked_body_does_not_desync_the_connection(server: str) -> None:
+    """The fourth way, and the one that needs no Content-Length at all.
+
+    ``BaseHTTPRequestHandler`` does not decode chunks, so a body framed by
+    ``Transfer-Encoding`` was read as no body: the request ran with default
+    options and the chunks stayed in the socket, to be parsed as whatever came
+    next on a connection this server had just said it would keep. 411 is what
+    says a length is required, and the connection ends rather than guessing.
+    """
+    parsed = urlparse(server)
+    with socket.create_connection((parsed.hostname, parsed.port), timeout=10) as sock:
+        sock.sendall(
+            b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n"
+            b"27\r\nGET /api/config HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n0\r\n\r\n"
+        )
+        reply = b""
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            reply += chunk
+
+    text = reply.decode("utf-8", "replace")
+    assert "411" in text.splitlines()[0]
+    assert "Connection: close" in text
+    assert text.count("HTTP/1.1 ") == 1, "the smuggled request was answered"
+
+
+def test_a_chunked_request_never_reaches_the_agent(server: str) -> None:
+    """Refused before the run, not after: the options in it were never read."""
+    StubAgent.captured.clear()
+
+    reply = raw(
+        server,
+        b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+        b"Transfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+    )
+
+    assert "411" in reply.splitlines()[0]
+    assert StubAgent.captured == {}
+
+
 def test_a_negative_content_length_does_not_desync_the_connection(server: str) -> None:
     """The third way to declare a body this loop will never read.
 

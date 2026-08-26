@@ -173,11 +173,20 @@ def reads_like_an_opinion(segment: str) -> bool:
 def fetch_page(
     client: httpx.Client, url: str, *, max_chars: int, opinion_chars: int = 400
 ) -> str:
-    """Fetch one URL and condense it. Returns "" for anything that goes wrong."""
+    """Fetch one URL and condense it. Returns "" for anything that goes wrong.
+
+    ``InvalidURL`` sits beside ``HTTPError`` because it is not one: httpx raises
+    it out of parsing rather than out of the transport, so it inherits from
+    ``Exception`` directly and the obvious ``except httpx.HTTPError`` misses it.
+    A search result whose href has a bad port, an unbracketed IPv6 literal or a
+    hostname IDNA refuses would then escape the pool and leave ``BuyAgent.run``
+    raising a fourth thing (ADR-0009). A link that cannot name a page is a page
+    that could not be fetched, which is what the empty string already means.
+    """
     try:
         response = client.get(url)
         response.raise_for_status()
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, httpx.InvalidURL) as exc:
         logger.debug("Could not fetch %s: %s", url, exc)
         return ""
 
