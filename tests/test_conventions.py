@@ -321,6 +321,42 @@ def test_the_image_installs_the_runtime_dependencies_only() -> None:
     assert re.search(r"^RUN pip install .* -r requirements\.txt$", dockerfile(), re.M)
 
 
+# -- the two runners -----------------------------------------------------------
+
+#: A runner label names its platform first: ``windows-latest``, ``ubuntu-latest``.
+_PLATFORMS = ("windows", "ubuntu")
+
+
+def ci_matrices() -> list[list[str]]:
+    """The runner labels each job in ci.yml spreads itself over."""
+    lists = re.findall(r"^\s+os: \[([^\]]+)\]$", _CI.read_text(encoding="utf-8"), re.M)
+    assert lists, "no job in ci.yml names the runners it uses"
+    return [[label.strip() for label in group.split(",")] for group in lists]
+
+
+def test_every_job_runs_on_windows_as_well_as_linux() -> None:
+    """This project is written on Windows and its jobs run on Linux, so either one
+    alone is a platform nobody checks against. The differences are not exotic --
+    a path separator, a default encoding, a socket that resets where the other
+    closes, a ``mimetypes`` lookup that reads the registry -- and every one of
+    them surfaces on exactly one of the two."""
+    for runners in ci_matrices():
+        platforms = {label.split("-")[0] for label in runners}
+
+        assert platforms.issuperset(_PLATFORMS), runners
+
+
+def test_ci_sets_up_one_python_and_one_node() -> None:
+    """The Dockerfile, `scripts/start.ps1` and README all pin themselves to the
+    version ci.yml sets up, and each reads it as the one this file names. A job
+    matrixed over two Pythons would leave those three agreeing with whichever
+    happened to be written first, and silently untested against the other."""
+    source = _CI.read_text(encoding="utf-8")
+
+    for key in ("python-version", "node-version"):
+        assert source.count(f"{key}: ") == 1, f"ci.yml sets up more than one {key}"
+
+
 # -- the startup script --------------------------------------------------------
 
 _START = _ROOT / "scripts" / "start.ps1"

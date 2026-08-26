@@ -347,7 +347,7 @@ cd ui; npm test               # the UI's own tests, in jsdom
 cd ui; npm run test:coverage  # the same, with a coverage floor
 ```
 
-595 Python tests and 61 UI tests. Nothing in either suite touches the network or
+600 Python tests and 61 UI tests. Nothing in either suite touches the network or
 Ollama: the model is faked through the `llm=` argument of `BuyAgent`, both the
 search backend and the page fetcher are monkeypatched, and the server tests
 inject a stub agent through `create_server(agent_factory=...)`. The only real
@@ -365,12 +365,22 @@ mirrors, the `Dockerfile` agreeing with CI and with the server's own defaults, a
 the decision log agreeing with its own index -- which no amount of per-module
 coverage can protect.
 
+Both suites run on Windows and on Linux. `.github/workflows/ci.yml` spreads its
+two jobs -- `coverage run -m pytest` on Python 3.13, `npm run test:coverage &&
+npm run build` on Node 22.22.3 -- over `ubuntu-latest` and `windows-latest`, four
+runs in all, with `fail-fast` off so a failure on one platform still reports the
+other. This project is written on Windows and its runners were Linux, which left
+each of them checking the half of the differences the other hides: a path
+separator, a default encoding, a socket that resets where the other closes, a
+`mimetypes` lookup that reads the registry (ADR-0020).
+
 `scripts/start.ps1` is the one file neither suite can import or run, so
 `tests/test_start_script.py` does everything short of running it: a PowerShell
 helper parses the script, lifts out the functions it declares and exercises them
 on a stubbed clock and a stubbed web request, and reports what it found as JSON.
-Those tests skip where there is no `pwsh` or `powershell` on PATH -- which is
-neither Windows nor the runner CI uses.
+Those tests skip where there is no `pwsh` or `powershell` on PATH, which is
+neither Windows nor either runner CI uses. The Windows job is the one that runs
+them on the platform the script is actually for.
 
 ### Mutation testing
 

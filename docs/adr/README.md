@@ -28,6 +28,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0017](0017-attribute-links-to-the-page-that-mentions-them.md) | Attribute a product's link to the searched page that mentions it | Accepted |
 | [0018](0018-guard-the-loopback-server-against-other-pages.md) | Guard the loopback server against the other pages in the browser | Accepted |
 | [0019](0019-default-to-a-thinking-model.md) | Default to a thinking model, and default the settings it needs to answer | Accepted |
+| [0020](0020-test-on-windows-as-well-as-linux.md) | Run both suites on Windows as well as Linux | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written
