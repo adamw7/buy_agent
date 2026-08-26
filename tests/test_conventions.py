@@ -347,8 +347,8 @@ def test_every_job_runs_on_windows_as_well_as_linux() -> None:
 
 
 def test_ci_sets_up_one_python_and_one_node() -> None:
-    """The Dockerfile, `scripts/start.ps1` and README all pin themselves to the
-    version ci.yml sets up, and each reads it as the one this file names. A job
+    """The Dockerfile, `scripts/start.ps1` and docs/testing.md all pin themselves
+    to the version ci.yml sets up, and each reads it as the one this file names. A job
     matrixed over two Pythons would leave those three agreeing with whichever
     happened to be written first, and silently untested against the other."""
     source = _CI.read_text(encoding="utf-8")
@@ -405,7 +405,7 @@ def test_the_startup_script_looks_for_the_build_the_server_serves() -> None:
 def test_the_startup_script_names_the_toolchains_ci_pins() -> None:
     """The two things it will not install, it says where to get -- and a version
     named there is a fourth copy of what ci.yml sets up, the Dockerfile pins and
-    README quotes. Sending someone to install a Python or a Node no job has run is
+    docs/testing.md quotes. Sending someone to install a Python or a Node no job has run is
     the one kind of stale that costs a download to find out about."""
     source = start_script()
 
@@ -441,7 +441,7 @@ def test_the_mutation_run_uses_the_python_the_tests_run_on() -> None:
 
 
 def test_the_mutation_run_is_scheduled_for_saturdays() -> None:
-    """Weekly and off the hour, as README.md and CLAUDE.md both say: cron counts
+    """Weekly and off the hour, as docs/testing.md and CLAUDE.md both say: cron counts
     days from Sunday, so Saturday is 6, and a run that quietly moved to another
     day would leave the two of them describing a schedule that is not this one."""
     match = re.search(r'^\s+- cron: "([^"]+)"$', _MUTATION.read_text(encoding="utf-8"), re.M)

@@ -8,7 +8,10 @@ A shopping agent: it takes a plain-language request ("wireless headphones under
 $200"), searches the web, extracts up to 10 products, ranks them, and logs the
 top 3. Built on LangChain with a local Ollama model. `ui/` is an Angular front
 end onto the same pipeline, served by `buy_agent.server`. See `README.md` for
-usage.
+usage -- it keeps the tour and links out to the longer technical sections, which
+live beside it: `docs/models.md` (keeping Ollama's models current),
+`docs/docker.md` (running the web tier as a container) and `docs/testing.md`
+(both suites, the coverage floors and the mutation run).
 
 ## Commands
 
@@ -100,8 +103,8 @@ and the runners were Linux, so either alone leaves half the platform differences
 unchecked (ADR-0020). `fail-fast` is off so one platform's failure still reports
 the other, every step runs under `bash` because PowerShell carries on past a
 failing command mid-step, and the matrix is over platforms only: one Python and
-one Node, since the `Dockerfile`, `scripts/start.ps1` and `README.md` each pin
-themselves to *the* version `ci.yml` names.
+one Node, since the `Dockerfile`, `scripts/start.ps1` and `docs/testing.md` each
+pin themselves to *the* version `ci.yml` names.
 `.github/workflows/mutation.yml` is the second workflow: mutmut against
 `buy_agent/` at 05:17 UTC on Saturdays (and on `workflow_dispatch`), never on a
 pull request. Its settings live in `setup.cfg` -- which exists for that and is not
@@ -362,8 +365,8 @@ as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plu
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
 is reaching out. The UI's 61 tests
-run in about two seconds, most of which is building the app first. `README.md`
-quotes both counts, so a new test file is two edits.
+run in about two seconds, most of which is building the app first.
+`docs/testing.md` quotes both counts, so a new test file is two edits.
 
 Both suites cover essentially every line, which means coverage no longer tells
 you where the next test should go. `tests/test_conventions.py` covers what it
