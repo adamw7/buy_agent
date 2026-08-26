@@ -55,6 +55,13 @@ and `CMD` is `-m buy_agent.server --host 0.0.0.0`, so the CLI is reachable from
 the same image and `--host` stays out of the server's own default (it binds
 loopback everywhere else). Nothing in CI builds it; `tests/test_conventions.py`
 is what keeps its version pins, its copy destination and its `EXPOSE` in step.
+`.dockerignore` narrows what the build even sees: `tests/`, `docs/`, `scripts/`,
+the dev and mutation requirements and every local build artefact (`.venv/`,
+`ui/node_modules/`, `ui/dist/`, `mutants/`) stay out of the context, so the Node
+stage builds `ui/` from source rather than copying a stale local `dist/`. Nothing
+tests that file -- the convention tests read the `Dockerfile` and not
+`.dockerignore` -- so a path added to one of those directories is only kept out
+of the image by keeping this list current.
 
 ```powershell
 docker build -t buy-agent .
@@ -116,11 +123,18 @@ dies at collection.
 
 `pytest.ini` sets `pythonpath = .`, which is why the package imports without
 being installed, plus `testpaths = tests` and `addopts = -q --strict-markers`.
-`.coveragerc` holds the Python floor (99%, against 100% actual);
+`.coveragerc` holds the Python floor (99%, against 100% actual) and sets
+`branch = true`, so that floor is over branches as well as lines; the one thing
+it excludes is the `if __name__ == "__main__"` guard, which runs only under
+`python -m buy_agent` and is covered by spawning a real interpreter instead.
 `ui/scripts/check-coverage.mjs` holds the UI's (98% of statements and lines) --
 the Angular unit-test builder reads a vitest config's coverage *reporters* but
 does not fail a run on its `thresholds`, so the floor has to be checked
-separately or it is not a floor.
+separately or it is not a floor. That floor is statements and lines *only* on
+purpose: v8 attributes the branches inside a compiled Angular template to
+positions no test can reach -- `search-form.html` reports every statement covered
+and about 30% of its branches -- so a branch floor there would be a number about
+the instrumentation rather than about the tests. Don't add one.
 
 ## Architecture
 
@@ -135,7 +149,8 @@ rejected. A change that contradicts an accepted record gets a new record
 superseding it rather than an edit to the old one -- numbers are never reused,
 and accepted records are not rewritten. `tests/test_conventions.py` checks that
 the index and the directory agree, so a new ADR is two edits: the file and its
-row in the index. `docs/adr/0000-template.md` is the starting point.
+row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
+to ADR-0020 and every record is Accepted, so the next free number is 0021.
 
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
 for the two steps it is reliable at, and ordinary Python does everything else,
@@ -235,7 +250,14 @@ The CLI and the API are two ways of filling in the same `AgentConfig`, and both
 set `search_results = max(results, top)` -- searching for fewer pages than the
 report intends to show would cap the report. A new option belongs in
 `__main__.build_parser`, `api.parse_options` and `api.defaults_payload`, which is
-what seeds the web form.
+what seeds the web form. `weights` is the one field neither of them fills in:
+`RankingWeights` is reachable only by constructing an `AgentConfig` in Python, so
+changing how the blended score is balanced is a code change and not a flag.
+
+`buy_agent/__init__.py` re-exports the small surface a Python caller needs --
+`BuyAgent`, `AgentConfig`, `Product`, `RankedProduct`, `RankingWeights` and
+`rank_products` -- which is what `import buy_agent` is expected to offer; anything
+else is reached by its module.
 
 ## The UI and its server
 
@@ -364,7 +386,11 @@ as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plu
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. The UI's 61 tests
+is reaching out. 602 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 602 collect but 13 of the 15
+in `tests/test_start_script.py` skip, so the summary reads `589 passed, 13
+skipped` -- nothing is missing, and the two that still run are the ones reading
+the script as text rather than through the probe. The UI's 61 tests
 run in about two seconds, most of which is building the app first.
 `docs/testing.md` quotes both counts, so a new test file is two edits.
 
