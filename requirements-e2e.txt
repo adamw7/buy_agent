@@ -1,0 +1,5 @@
+# The browser suite (e2e/), on top of the dev dependencies. It is not part of
+# `python -m pytest`: it needs a built UI and a Chromium, and asks for both by
+# name -- see docs/testing.md.
+-r requirements-dev.txt
+playwright==1.62.0

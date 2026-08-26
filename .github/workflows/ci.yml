@@ -77,3 +77,66 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  e2e:
+    # The two jobs above can each be right about their own half and leave the app
+    # broken between them: one knows api.py sends a price_label, the other knows a
+    # card renders whatever label it is handed, and neither can see that the built
+    # bundle, the CSP it is served under and the event stream a run arrives on all
+    # work together. This job is the only one that runs a browser (ADR-0026).
+    name: browser tests (Python 3.13, Node 22, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22.22.3"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-e2e.txt
+
+      # Nothing to serve without this: the server answers a 503 saying to build
+      # the UI, and the suite skips rather than pretending it checked anything.
+      - name: Build the UI
+        run: npm ci && npm run build
+        working-directory: ui
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-e2e.txt
+
+      - name: Install the browser
+        # --with-deps installs the system libraries a headless browser needs and
+        # is Linux-only; the Windows runner already has them.
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            python -m playwright install --with-deps chromium
+          else
+            python -m playwright install chromium
+          fi
+
+      - name: Run the browser tests
+        run: python -m pytest e2e
+
+      - name: Upload what the failing pages looked like
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-screenshots-${{ matrix.os }}
+          path: e2e-screenshots/
+          if-no-files-found: ignore

@@ -290,11 +290,18 @@ def base_image_tag(image: str) -> str:
     return match.group(1)
 
 
+def workflow_versions(workflow: Path, key: str) -> list[str]:
+    """Every version a workflow sets up under one key, e.g. ``node-version``."""
+    found = re.findall(rf'^\s+{key}: "([^"]+)"', workflow.read_text(encoding="utf-8"), re.M)
+    assert found, f"no {key} in {workflow.name}"
+    return found
+
+
 def workflow_version(workflow: Path, key: str) -> str:
-    """A version a workflow sets up, e.g. ``node-version: "22.22.3"``."""
-    match = re.search(rf'^\s+{key}: "([^"]+)"', workflow.read_text(encoding="utf-8"), re.M)
-    assert match, f"no {key} in {workflow.name}"
-    return match.group(1)
+    """The single version a workflow sets up, e.g. ``node-version: "22.22.3"``."""
+    versions = set(workflow_versions(workflow, key))
+    assert len(versions) == 1, f"{workflow.name} sets up more than one {key}: {sorted(versions)}"
+    return versions.pop()
 
 
 def ci_version(key: str) -> str:
@@ -365,11 +372,48 @@ def test_ci_sets_up_one_python_and_one_node() -> None:
     """The Dockerfile, `scripts/start.ps1` and docs/testing.md all pin themselves
     to the version ci.yml sets up, and each reads it as the one this file names. A job
     matrixed over two Pythons would leave those three agreeing with whichever
-    happened to be written first, and silently untested against the other."""
-    source = _CI.read_text(encoding="utf-8")
+    happened to be written first, and silently untested against the other.
 
+    Set up more than once is fine -- the browser job needs both toolchains, and
+    says so where the other two jobs each name one. Set up at two *versions* is
+    what nothing downstream can represent."""
     for key in ("python-version", "node-version"):
-        assert source.count(f"{key}: ") == 1, f"ci.yml sets up more than one {key}"
+        assert len(set(workflow_versions(_CI, key))) == 1, f"ci.yml sets up two {key}s"
+
+
+# -- the browser suite ---------------------------------------------------------
+
+_E2E = _ROOT / "e2e"
+_E2E_REQUIREMENTS = _ROOT / "requirements-e2e.txt"
+_PYTEST_INI = _ROOT / "pytest.ini"
+
+
+def ci_job(name: str) -> str:
+    """One job's block out of ci.yml, from its key to the next job's."""
+    source = _CI.read_text(encoding="utf-8")
+    match = re.search(rf"^  {name}:$.*?(?=^  \S+:$|\Z)", source, re.M | re.S)
+    assert match, f"no {name} job in ci.yml"
+    return match.group(0)
+
+
+def test_a_default_test_run_leaves_the_browser_suite_alone() -> None:
+    """The browser suite needs a built UI and a Chromium, which `python -m pytest`
+    must not: it lives outside ``testpaths`` so that a bare run never collects it,
+    and is asked for by name instead. Moved under tests/, it would be collected by
+    every run, by the mutation run, and by coverage -- none of which have a browser."""
+    assert ini_values(_PYTEST_INI, "pytest", "testpaths") == ["tests"]
+    assert _E2E.is_dir(), "the browser suite is not where ci.yml runs it from"
+    assert not _E2E.is_relative_to(_ROOT / "tests")
+
+
+def test_the_browser_job_builds_the_ui_before_it_drives_a_browser_at_it() -> None:
+    """Without a build the server answers the 503 that says to build it, and the
+    suite skips -- a green job that checked nothing, which is worse than a red one."""
+    job = ci_job("e2e")
+
+    assert job.index("npm run build") < job.index(f"pytest {_E2E.name}")
+    assert "playwright install" in job, "the job installs no browser"
+    assert _E2E_REQUIREMENTS.name in job, "the job installs the suite's dependencies"
 
 
 def action_versions(workflow: Path) -> dict[str, str]:

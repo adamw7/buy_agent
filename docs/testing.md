@@ -1,8 +1,9 @@
 # Tests
 
-Two suites, one per language, and the checks that watch them: coverage floors on
-both, cross-module conventions, a PowerShell script neither suite can run, and a
-weekly mutation run. Everything the [README](../README.md) leaves out.
+Two suites, one per language, a third that drives the built app in a browser, and
+the checks that watch them: coverage floors on both of the first two,
+cross-module conventions, a PowerShell script no suite can run, and a weekly
+mutation run. Everything the [README](../README.md) leaves out.
 
 ```powershell
 python -m pytest              # whole suite
@@ -12,14 +13,16 @@ python -m coverage run -m pytest ; python -m coverage report   # with coverage
 
 cd ui; npm test               # the UI's own tests, in jsdom
 cd ui; npm run test:coverage  # the same, with a coverage floor
+
+python -m pytest e2e          # the browser suite -- see below, it needs setting up
 ```
 
-669 Python tests and 64 UI tests. Nothing in either suite touches the network or
-Ollama: the model is faked through the `llm=` argument of `BuyAgent`, both the
-search backend and the page fetcher are monkeypatched, and the server tests
-inject a stub agent through `create_server(agent_factory=...)`. The only real
-sockets are the loopback ones the HTTP tests need in order to be about HTTP at
-all.
+674 Python tests and 64 UI tests, plus 28 in the browser. Nothing in any of them
+touches the network or Ollama: the model is faked through the `llm=` argument of
+`BuyAgent`, both the search backend and the page fetcher are monkeypatched, and
+the server tests -- like the browser suite -- inject a stub agent through
+`create_server(agent_factory=...)`. The only real sockets are the loopback ones
+the HTTP tests need in order to be about HTTP at all.
 
 Both suites are measured, and CI fails on a drop: the Python side covers every
 line and branch (`.coveragerc` sets the floor at 99%), and the UI's statements
@@ -33,11 +36,11 @@ the two workflows agreeing on the version of every action they share, and
 the decision log agreeing with its own index -- which no amount of per-module
 coverage can protect.
 
-Both suites run on Windows and on Linux. `.github/workflows/ci.yml` spreads its
-two jobs -- `coverage run -m pytest` on Python 3.13, `npm run test:coverage &&
-npm run build` on Node 22.22.3 -- over `ubuntu-latest` and `windows-latest`, four
-runs in all, with `fail-fast` off so a failure on one platform still reports the
-other. This project is written on Windows and its runners were Linux, which left
+Every suite runs on Windows and on Linux. `.github/workflows/ci.yml` spreads its
+three jobs -- `coverage run -m pytest` on Python 3.13, `npm run test:coverage &&
+npm run build` on Node 22.22.3, and the browser suite on both -- over
+`ubuntu-latest` and `windows-latest`, six runs in all, with `fail-fast` off so a
+failure on one platform still reports the other. This project is written on Windows and its runners were Linux, which left
 each of them checking the half of the differences the other hides: a path
 separator, a default encoding, a socket that resets where the other closes, a
 `mimetypes` lookup that reads the registry (ADR-0020).
@@ -49,6 +52,40 @@ on a stubbed clock and a stubbed web request, and reports what it found as JSON.
 Those tests skip where there is no `pwsh` or `powershell` on PATH, which is
 neither Windows nor either runner CI uses. The Windows job is the one that runs
 them on the platform the script is actually for.
+
+## The browser suite
+
+`e2e/` is the third suite, and the only one that runs the app the way a shopper
+does: headless Chromium, the built bundle, a real `create_server` behind it, and
+the agent as the only stub (ADR-0026). It needs a browser and a build, which the
+other two do not, so it lives outside `pytest.ini`'s `testpaths` -- a bare
+`python -m pytest` never collects it -- and is asked for by name:
+
+```powershell
+pip install -r requirements-e2e.txt
+python -m playwright install chromium
+cd ui; npm run build          # what the server serves; without it every test skips
+cd ..; python -m pytest e2e
+```
+
+Missing any of the three, the whole suite skips with the command that fixes it.
+`$BUY_AGENT_E2E_CHROMIUM` points at a Chromium that Playwright did not install
+itself.
+
+What it is for is the three things neither other suite can see. The seam between
+the languages, where a payload Python writes has to become text on the page. The
+policy the page is served under -- the Content-Security-Policy that keeps
+`inlineCritical` turned off in `ui/angular.json`, whose symptom is an unstyled
+page and a green CI. And layout, which jsdom does not have: `.pill` is
+`white-space: nowrap` so a rating never breaks in two, and the two pills that
+hold sentences rather than figures used to carry a 320px page sideways.
+`e2e/test_layout.py` is the regression test for that, at 320px, 390px and
+1280px, with the most awkward content a page can hand a card.
+
+A page that fails a test is photographed into `e2e-screenshots/` (git-ignored),
+and the CI job uploads them: a browser failure on a runner otherwise reports a
+selector and a timeout, which says where the test stopped looking and nothing
+about what the page was showing instead.
 
 ## Mutation testing
 

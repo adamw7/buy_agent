@@ -300,12 +300,15 @@ mix through `AgentConfig(weights=RankingWeights(rating=0.7, price=0.3, ...))`.
 ```powershell
 python -m pytest              # the Python suite
 cd ui; npm test               # the UI's own tests, in jsdom
+python -m pytest e2e          # the built app in a real browser (needs setting up)
 ```
 
-Neither suite touches the network or Ollama, both run on Windows and on Linux,
-and both are measured against a coverage floor CI enforces. What the counts are,
-what `tests/test_conventions.py` checks that coverage cannot, and the mutation
-run that grades the suite itself every Saturday are in [Tests](docs/testing.md).
+Nothing in any of them touches the network or Ollama, all of them run on Windows
+and on Linux, and the first two are measured against a coverage floor CI
+enforces. What the counts are, what `tests/test_conventions.py` checks that
+coverage cannot, what the browser suite needs before it will run, and the
+mutation run that grades the suite itself every Saturday are in
+[Tests](docs/testing.md).
 
 ## Limitations
 

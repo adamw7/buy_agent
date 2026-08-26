@@ -11,7 +11,7 @@ end onto the same pipeline, served by `buy_agent.server`. See `README.md` for
 usage -- it keeps the tour and links out to the longer technical sections, which
 live beside it: `docs/models.md` (keeping Ollama's models current),
 `docs/docker.md` (running the web tier as a container) and `docs/testing.md`
-(both suites, the coverage floors and the mutation run).
+(all three suites, the coverage floors and the mutation run).
 
 ## Commands
 
@@ -28,6 +28,10 @@ python -m pytest tests/test_ranking.py        # one file
 python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
 python -m pytest -k verification              # by name
 python -m coverage run -m pytest ; python -m coverage report   # with coverage
+
+pip install -r requirements-e2e.txt           # Playwright, on top of the dev deps
+python -m playwright install chromium         # ...and a browser; a built ui/ is the third thing
+python -m pytest e2e                          # the browser suite, once all three are there
 
 python -m buy_agent "gaming laptop under $1500"          # run the agent
 python -m buy_agent "espresso machine" --model lfm2.5 -v
@@ -102,16 +106,20 @@ npm start                                     # dev server on :4200, proxying /a
 ```
 
 There is no Python linter; the UI has Prettier (`npx prettier --write "src/**/*"`).
-CI (`.github/workflows/ci.yml`) runs two jobs for pushes to `main` and for every
-pull request: `coverage run -m pytest` plus `coverage report` on Python 3.13, and
-`npm run test:coverage && npm run build` in `ui/` on Node 22.22.3. Both are
-matrixed over `ubuntu-latest` and `windows-latest` -- this is written on Windows
+CI (`.github/workflows/ci.yml`) runs three jobs for pushes to `main` and for every
+pull request: `coverage run -m pytest` plus `coverage report` on Python 3.13,
+`npm run test:coverage && npm run build` in `ui/` on Node 22.22.3, and the
+browser suite in `e2e/`, which is the one job that needs both toolchains -- it
+builds the UI, installs Chromium and runs `python -m pytest e2e` (ADR-0026).
+All three are matrixed over `ubuntu-latest` and `windows-latest` -- this is written on Windows
 and the runners were Linux, so either alone leaves half the platform differences
 unchecked (ADR-0020). `fail-fast` is off so one platform's failure still reports
 the other, every step runs under `bash` because PowerShell carries on past a
 failing command mid-step, and the matrix is over platforms only: one Python and
 one Node, since the `Dockerfile`, `scripts/start.ps1` and `docs/testing.md` each
-pin themselves to *the* version `ci.yml` names.
+pin themselves to *the* version `ci.yml` names. Naming a version in more than one
+job is fine -- the browser job does -- naming a second version is not, which is
+what `tests/test_conventions.py` reads back.
 `.github/workflows/mutation.yml` is the second workflow: mutmut against
 `buy_agent/` at 05:17 UTC on Saturdays (and on `workflow_dispatch`), never on a
 pull request. Its settings live in `setup.cfg` -- which exists for that and is not
@@ -150,7 +158,7 @@ superseding it rather than an edit to the old one -- numbers are never reused,
 and accepted records are not rewritten. `tests/test_conventions.py` checks that
 the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0025 and every record is Accepted, so the next free number is 0026.
+to ADR-0026 and every record is Accepted, so the next free number is 0027.
 
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
 for the two steps it is reliable at, and ordinary Python does everything else,
@@ -414,20 +422,21 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 669 tests
+to EOF instead -- what it checks is that nothing follows the reply. 674 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 669 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 669 collect but 13 of the 15
-in `tests/test_start_script.py` skip, so the summary reads `656 passed, 13
+is reaching out. 674 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 674 collect but 13 of the 15
+in `tests/test_start_script.py` skip, so the summary reads `661 passed, 13
 skipped` -- nothing is missing, and the two that still run are the ones reading
 the script as text rather than through the probe. The UI's 64 tests
-run in about two seconds, most of which is building the app first.
-`docs/testing.md` quotes both counts, so a new test file is two edits.
+run in about two seconds, most of which is building the app first, and the
+browser suite's 28 take about fifty.
+`docs/testing.md` quotes all three counts, so a new test file is two edits.
 
 Both suites cover essentially every line, which means coverage no longer tells
 you where the next test should go. `tests/test_conventions.py` covers what it
@@ -451,6 +460,26 @@ Saturday mutation run mutates the package `.coveragerc` measures, on the Python
 `buy_agent` -- named in mutmut's `also_copy`. A field added on one side of the
 language boundary and forgotten on the other is otherwise invisible to both
 suites.
+
+`e2e/` is the third suite and the only one that runs the app the way a shopper
+does: headless Chromium, the built bundle, a real `create_server` behind it, and
+the agent as the only stub -- `agent_factory=` again, taking a scripted agent
+that logs its way through a run and answers with a fixed catalogue (ADR-0026).
+It is deliberately outside `pytest.ini`'s `testpaths`, so `python -m pytest`
+never collects it and neither the coverage floor nor the Saturday run is touched
+by a suite that needs a browser; it is asked for as `python -m pytest e2e`, and
+skips whole -- with the command that fixes it -- where Playwright, a Chromium or
+`ui/dist/ui/browser` is missing. What it is for is the three things neither other
+suite can see: the seam where a payload Python wrote has to become text on the
+page, the Content-Security-Policy the page is served under (whose symptom is an
+unstyled page and a green CI, and which is why `inlineCritical` is off), and
+layout, which jsdom does not have. The two bugs that prompted it were `.pill`'s
+`white-space: nowrap` on the two pills that hold sentences rather than figures,
+so `e2e/test_layout.py` asserts that nothing scrolls sideways at 320px, 390px or
+1280px. A page that fails a test is photographed into `e2e-screenshots/`
+(git-ignored) and the CI job uploads them. Nothing in it sleeps except
+`e2e/stub.py`'s 0.2s pacing, which is what lets two tests see a run in progress,
+and a console error fails whatever test provoked it.
 
 Both Python scripts in `scripts/` are tested like the rest, by the same rule as
 `clean_products`: whatever decides an answer belongs where it is testable rather

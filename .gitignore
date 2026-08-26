@@ -222,3 +222,8 @@ __marimo__/
 #   what .github/workflows/mutation.yml reports from and uploads.
 mutants/
 mutation-results.txt
+
+# The browser suite
+#   e2e/ photographs a page that failed a test; the CI job uploads whatever it
+#   finds here as an artifact, and nothing keeps them locally.
+e2e-screenshots/
