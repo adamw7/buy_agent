@@ -65,6 +65,12 @@ export class SearchForm {
     () => this.defaults()?.sort_options ?? ['score', 'price', 'rating'],
   );
 
+  /** Cleared, the field means "whatever the server defaults to" -- so name it. */
+  protected readonly numCtxHint = computed(() => {
+    const fallback = this.defaults()?.num_ctx;
+    return fallback ? `The default (${fallback})` : "Ollama's own (4096)";
+  });
+
   /**
    * What the model dropdown offers: everything `ollama list` reported, plus the
    * name currently chosen if that is not among them.
@@ -190,10 +196,11 @@ export class SearchForm {
     this.top.set(number('top') ?? this.top());
     this.sortBy.set((text('sortBy') as SortBy | null) ?? this.sortBy());
     this.temperature.set(number('temperature') ?? this.temperature());
-    // The one field a remembered `null` has to win on -- it means "leave Ollama's
-    // own window alone", which is a choice and not an absence -- so it cannot use
-    // `?? this.numCtx()` like the rest. Settings saved before the field existed
-    // carry no key at all, and those must leave the seeded default standing.
+    // The one field a remembered `null` has to win on. Cleared, this box means
+    // "whatever the server defaults to" -- what `numCtxHint` names -- which is a
+    // choice and not an absence, so it cannot fall back with `?? this.numCtx()`
+    // like the rest. Settings saved before the field existed carry no key at all,
+    // and those must leave the seeded default standing rather than blank it.
     this.numCtx.set('numCtx' in saved ? number('numCtx') : this.numCtx());
     this.thinking.set((text('thinking') as Thinking | null) ?? this.thinking());
     if (typeof saved['fetchPages'] === 'boolean') {

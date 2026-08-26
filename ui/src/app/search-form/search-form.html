@@ -112,11 +112,11 @@
           name="numCtx"
           type="number"
           min="1"
-          placeholder="Ollama's own (4096)"
+          [placeholder]="numCtxHint()"
           [(ngModel)]="numCtx"
           [disabled]="running()"
         />
-        <small>Thinking models need 8192 to leave room for an answer.</small>
+        <small>Thinking models need the room to answer; the default leaves it.</small>
       </label>
 
       <label class="field">

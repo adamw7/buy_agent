@@ -70,17 +70,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--num-ctx",
         type=int,
         default=_DEFAULTS.num_ctx,
-        help="Context window in tokens (default: Ollama's own, usually 4096). The "
+        help=f"Context window in tokens (default: {_DEFAULTS.num_ctx}). The "
         "extraction prompt runs to ~3.3k tokens, so a larger window leaves room for "
-        "more products; 8192 is a good starting point.",
+        "more products; a model that need not think is fine on Ollama's own 4096.",
     )
     parser.add_argument(
         "--think",
         action=argparse.BooleanOptionalAction,
         default=_DEFAULTS.reasoning,
-        help="Force the model's thinking mode on or off (default: leave it alone). "
+        help="Force the model's thinking mode on or off (default: --no-think). "
         "Thinking models need --no-think: they reason until the context runs out and "
-        "never answer.",
+        "never answer; a model that cannot think ignores either.",
     )
     parser.add_argument(
         "--no-fetch",

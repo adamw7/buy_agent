@@ -124,12 +124,12 @@ def test_thinking_can_be_forced_on(fake_agent) -> None:
     assert fake_agent["config"].reasoning is True
 
 
-def test_context_and_thinking_are_unset_by_default(fake_agent) -> None:
-    """Unset must stay unset, so the default model keeps behaving as it did."""
+def test_context_and_thinking_default_to_the_config(fake_agent) -> None:
+    """Every flag defaults to its AgentConfig field, thinking mode included."""
     main(["headphones"])
     config = fake_agent["config"]
-    assert config.num_ctx is None
-    assert config.reasoning is None
+    assert config.num_ctx == 8192
+    assert config.reasoning is False
 
 
 def test_a_ctrl_c_exits_with_130(fake_agent) -> None:

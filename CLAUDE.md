@@ -31,6 +31,7 @@ python -m buy_agent "espresso machine" --model lfm2.5 -v
 python -m buy_agent "running shoes" --sort-by price --json results.json
 
 python -m buy_agent.server                    # the UI and its API on :8000
+.\scripts\start.ps1                           # ...or all of it from cold, no arguments
 
 python -m scripts.update_ollama               # re-pull Ollama's models, report what moved
 
@@ -67,8 +68,12 @@ named the same on the way out: `AgentConfig.reasoning` is `--think`
 is Ollama's thinking mode, and `None` means "send nothing and leave the model
 alone" rather than "off". It pairs with `num_ctx`: the extraction prompt runs to
 ~3.3k tokens, so on Ollama's default 4096 window a thinking model reasons until
-the context is gone and never emits any JSON. A thinking model wants `--no-think`,
-a bigger `--num-ctx` (8192 is a good start), or both. `buy_agent.server` wants the
+the context is gone and never emits any JSON. `DEFAULT_MODEL` is `gemma4:12b`,
+which thinks, so the defaults that make it answer travel with it -- `reasoning`
+is `False` and `num_ctx` is `8192` rather than the `None` each used to be. A
+model that cannot think ignores both; one that wants its own behaviour back is
+given `num_ctx=None, reasoning=None`, which is the only way to send nothing and
+is reachable from neither front end (ADR-0019). `buy_agent.server` wants the
 UI built first: without `ui/dist/ui/browser` the API still answers and the page
 is a 503 saying how to build it (`--ui-dir` points at a build elsewhere).
 
@@ -335,13 +340,13 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 571 tests
+to EOF instead -- what it checks is that nothing follows the reply. 578 tests
 run in about three seconds: most of that is the one
 test that spawns an interpreter to check `python -m buy_agent` still runs as a
 script, plus 0.7s of deliberate `StubAgent.delay` in the two server tests that
 need a run to still be going -- the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. The UI's 60 tests
+is reaching out. The UI's 61 tests
 run in about two seconds, most of which is building the app first. `README.md`
 quotes both counts, so a new test file is two edits.
 
@@ -373,6 +378,16 @@ a digest that moved between the listing before the pulls and the one after, sinc
 thing in `scripts/` that imports from `buy_agent` (`config` for the `$OLLAMA_HOST`
 defaults), which is why it is run as `python -m scripts.update_ollama` from the
 repository root rather than by path.
+
+`scripts/start.ps1` is the exception: PowerShell, and no pytest reaches it. It is
+the README's "Starting it on localhost" as one command with no arguments --
+venv, Ollama, `ollama pull`, `ng build`, the server, the browser, each step
+skipped when it is already done. It decides nothing the rest of the project
+decides: the model and the Ollama server are read out of `buy_agent.config` with
+a `python -c`, so `$OLLAMA_MODEL` and `$OLLAMA_HOST` still reach it and no
+default is written down twice. `tests/test_conventions.py` holds both halves of
+that -- neither constant's value appears in the script, and the URL it opens a
+browser at is the one `server.build_parser` binds.
 
 ## Environment
 
