@@ -150,7 +150,7 @@ superseding it rather than an edit to the old one -- numbers are never reused,
 and accepted records are not rewritten. `tests/test_conventions.py` checks that
 the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0020 and every record is Accepted, so the next free number is 0021.
+to ADR-0021 and every record is Accepted, so the next free number is 0022.
 
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
 for the two steps it is reliable at, and ordinary Python does everything else,
@@ -178,7 +178,7 @@ a figure with whatever only qualifies it and `_fill_gaps` moves the group.
 | `verification.py` | Drops products and figures absent from the sources; links what is left |
 | `ranking.py` | Scoring and sorting; no LLM involved |
 | `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain) |
-| `search.py` | DuckDuckGo wrapper plus a LangChain `@tool` version |
+| `search.py` | DuckDuckGo wrapper -- and nothing else (ADR-0021) |
 | `config.py`, `logging_setup.py`, `__main__.py` | Config, the report, the CLI |
 | `api.py` | Request options in, ranked products out -- the web-facing half worth testing |
 | `server.py` | A stdlib HTTP server: the JSON API, the event stream, the built UI |
@@ -390,7 +390,7 @@ is reaching out. 602 is what a machine with PowerShell collects *and* runs; on
 one with neither `pwsh` nor `powershell` the same 602 collect but 13 of the 15
 in `tests/test_start_script.py` skip, so the summary reads `589 passed, 13
 skipped` -- nothing is missing, and the two that still run are the ones reading
-the script as text rather than through the probe. The UI's 61 tests
+the script as text rather than through the probe. The UI's 62 tests
 run in about two seconds, most of which is building the app first.
 `docs/testing.md` quotes both counts, so a new test file is two edits.
 

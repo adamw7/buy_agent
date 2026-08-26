@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, get_args
+from functools import partial
+from typing import TYPE_CHECKING, Any, TypeVar, get_args
 
 from buy_agent.agent import BuyAgent, OllamaUnavailableError, list_models
 from buy_agent.config import AgentConfig
@@ -26,6 +27,12 @@ if TYPE_CHECKING:
     from buy_agent.models import RankedProduct
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
+
+#: Constrained, so ``minimum <= number <= maximum`` in :func:`_as_number` is a
+#: comparison the type checker can see is valid for whichever kind it was given.
+_Number = TypeVar("_Number", int, float)
 
 #: Builds the agent :func:`run_search` uses -- ``BuyAgent`` itself, unless a test
 #: hands it a stub instead.
@@ -72,26 +79,26 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         ApiError: if a value is present but not usable.
     """
     defaults = AgentConfig()
-    num_products = _int(data, "results", defaults.num_products, minimum=1, maximum=50)
-    top_n = _int(data, "top", defaults.top_n, minimum=1, maximum=50)
-    sort_by = _text(data, "sort_by", "score")
+    num_products = _read(data, "results", defaults.num_products, _whole(1, 50))
+    top_n = _read(data, "top", defaults.top_n, _whole(1, 50))
+    sort_by = _read(data, "sort_by", "score", _as_text)
     if sort_by not in SORT_OPTIONS:
         msg = f"sort_by must be one of {', '.join(SORT_OPTIONS)}; got {sort_by!r}."
         raise ApiError(msg)
 
     config = AgentConfig(
-        model=_text(data, "model", defaults.model),
-        base_url=_text(data, "base_url", defaults.base_url),
-        temperature=_float(data, "temperature", defaults.temperature),
-        num_ctx=_optional_int(data, "num_ctx", defaults.num_ctx),
-        reasoning=_optional_bool(data, "think", defaults.reasoning),
+        model=_read(data, "model", defaults.model, _as_text),
+        base_url=_read(data, "base_url", defaults.base_url, _as_text),
+        temperature=_read(data, "temperature", defaults.temperature, _decimal(0, 2)),
+        num_ctx=_read(data, "num_ctx", defaults.num_ctx, _whole(1, 1_000_000)),
+        reasoning=_read(data, "think", defaults.reasoning, _as_bool),
         # Searching for fewer pages than we intend to report would cap the report,
         # so the search width follows whichever of the two is larger -- as in the CLI.
         search_results=max(num_products, top_n),
         num_products=num_products,
         top_n=top_n,
-        region=_text(data, "region", defaults.region),
-        fetch_pages=_bool(data, "fetch", defaults.fetch_pages),
+        region=_read(data, "region", defaults.region, _as_text),
+        fetch_pages=_read(data, "fetch", defaults.fetch_pages, _as_bool),
     )
     return config, sort_by
 
@@ -194,65 +201,75 @@ def _present(data: Mapping[str, Any], key: str) -> bool:
     return value is not None and not (isinstance(value, str) and not value.strip())
 
 
-def _text(data: Mapping[str, Any], key: str, default: str) -> str:
+def _read(
+    data: Mapping[str, Any],
+    key: str,
+    default: _T,
+    parse: Callable[[str, str], _T],
+) -> _T:
+    """The value of ``key``, parsed -- or ``default`` where it is not set at all.
+
+    Every option arrives either as its native JSON type or as the string a query
+    string always yields, and every one of those survives ``str`` intact: a JSON
+    ``true`` becomes "True", which :func:`_as_bool` reads straight back. So the
+    parsing starts from text, and the two carriers need one parser between them.
+
+    ``parse`` is given the key as well as the text, because what it has to say
+    when the text is unusable is which field it was.
+
+    Raises:
+        ApiError: if the value is present but ``parse`` cannot make sense of it.
+    """
     if not _present(data, key):
         return default
-    return str(data[key]).strip()
+    return parse(key, str(data[key]).strip())
 
 
-def _int(
-    data: Mapping[str, Any], key: str, default: int, *, minimum: int, maximum: int
-) -> int:
-    if not _present(data, key):
-        return default
+def _as_text(_key: str, text: str) -> str:
+    """Stripped text, which every string option already is."""
+    return text
+
+
+def _as_bool(key: str, text: str) -> bool:
+    """A checkbox, a query parameter or a JSON boolean, all read the same way."""
+    lowered = text.lower()
+    if lowered in _TRUE:
+        return True
+    if lowered in _FALSE:
+        return False
+    msg = f"{key} must be true or false; got {text!r}."
+    raise ApiError(msg)
+
+
+def _whole(minimum: int, maximum: int) -> Callable[[str, str], int]:
+    """A parser for a whole number within bounds."""
+    return partial(_as_number, int, "a whole number", minimum, maximum)
+
+
+def _decimal(minimum: float, maximum: float) -> Callable[[str, str], float]:
+    """A parser for a decimal number within bounds.
+
+    The bounds are written into the rejection as they are given, so whole ones
+    are passed as whole numbers: "between 0 and 2" is what a temperature is.
+    """
+    return partial(_as_number, float, "a number", minimum, maximum)
+
+
+def _as_number(
+    kind: Callable[[str], _Number],
+    description: str,
+    minimum: _Number,
+    maximum: _Number,
+    key: str,
+    text: str,
+) -> _Number:
+    """One number parser for both kinds: convert, then check the bounds."""
     try:
-        number = int(str(data[key]).strip())
-    except (TypeError, ValueError) as exc:
-        msg = f"{key} must be a whole number; got {data[key]!r}."
+        number = kind(text)
+    except ValueError as exc:
+        msg = f"{key} must be {description}; got {text!r}."
         raise ApiError(msg) from exc
     if not minimum <= number <= maximum:
         msg = f"{key} must be between {minimum} and {maximum}; got {number}."
         raise ApiError(msg)
     return number
-
-
-def _optional_int(data: Mapping[str, Any], key: str, default: int | None) -> int | None:
-    if not _present(data, key):
-        return default
-    return _int(data, key, 0, minimum=1, maximum=1_000_000)
-
-
-def _float(data: Mapping[str, Any], key: str, default: float) -> float:
-    if not _present(data, key):
-        return default
-    try:
-        number = float(str(data[key]).strip())
-    except (TypeError, ValueError) as exc:
-        msg = f"{key} must be a number; got {data[key]!r}."
-        raise ApiError(msg) from exc
-    if not 0.0 <= number <= 2.0:
-        msg = f"{key} must be between 0 and 2; got {number}."
-        raise ApiError(msg)
-    return number
-
-
-def _bool(data: Mapping[str, Any], key: str, default: bool) -> bool:
-    value = _optional_bool(data, key, None)
-    return default if value is None else value
-
-
-def _optional_bool(
-    data: Mapping[str, Any], key: str, default: bool | None
-) -> bool | None:
-    if not _present(data, key):
-        return default
-    value = data[key]
-    if isinstance(value, bool):
-        return value
-    text = str(value).strip().lower()
-    if text in _TRUE:
-        return True
-    if text in _FALSE:
-        return False
-    msg = f"{key} must be true or false; got {value!r}."
-    raise ApiError(msg)

@@ -82,10 +82,21 @@ def test_deduplicate_does_not_overwrite_a_figure_it_already_has() -> None:
 
 
 def test_deduplicate_preserves_first_seen_order() -> None:
+    """A later listing merging in does not move the first sighting down the list."""
     deduped = deduplicate(
         [Product(name="B"), Product(name="A"), Product(name="b", price=1.0)], limit=10
     )
-    assert [product.name for product in deduped] == ["b", "A"]
+    assert [product.name for product in deduped] == ["B", "A"]
+    assert deduped[0].price == 1.0, "the merged-in listing still contributed its price"
+
+
+def test_two_spellings_of_one_length_keep_the_one_seen_first() -> None:
+    """Names tie on length, so the tie-break decides -- and it is search order."""
+    deduped = deduplicate(
+        [Product(name="Sony WH-1000XM5"), Product(name="sony wh-1000xm5", price=328.0)],
+        limit=10,
+    )
+    assert [product.name for product in deduped] == ["Sony WH-1000XM5"]
 
 
 def test_deduplicate_enforces_the_limit() -> None:

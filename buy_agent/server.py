@@ -453,19 +453,18 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         # leftover bytes -- so those two paths end the connection instead.
         try:
             length = int(self.headers.get("Content-Length") or 0)
+            if length < 0:
+                # A negative length declares a body that is never read, leaving
+                # it in the socket to be parsed as the next request. That is the
+                # same desync as an unparseable one, reached through a number
+                # that is technically an integer, so it is answered the same way.
+                raise ValueError(length)
         except ValueError as exc:
             self.close_connection = True
             raise ApiError("Content-Length is not a number.") from exc
         if length > _MAX_BODY_BYTES:
             self.close_connection = True
             raise ApiError("Request body is too large.", 413)
-        if length < 0:
-            # A negative length declares a body this loop will never read, which
-            # leaves it in the socket to be parsed as the next request -- the same
-            # desync the two branches above close the connection to avoid, arrived
-            # at through a number that is technically an integer.
-            self.close_connection = True
-            raise ApiError("Content-Length is not a number.")
         if length == 0:
             return {}
         raw = self.rfile.read(length)

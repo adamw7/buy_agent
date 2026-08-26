@@ -226,6 +226,23 @@ describe('SearchForm', () => {
     expect(form.querySelector<HTMLInputElement>('input[name="region"]')!.value).toBe('us-en');
   });
 
+  it('ignores a remembered value of the wrong type, field by field', async () => {
+    /* Storage outlives any version of this form, so a key can hold what a much
+       older one wrote there. A value the field cannot take leaves the served
+       default standing, rather than putting a number in a text box. */
+    localStorage.setItem(
+      'buy_agent.settings',
+      JSON.stringify({ model: 42, results: 'ten', fetchPages: 'yes', region: 'pl-pl' }),
+    );
+
+    const form = await seeded();
+
+    expect(form.querySelector<HTMLInputElement>('input[name="model"]')!.value).toBe('llama3.2');
+    expect(form.querySelector<HTMLInputElement>('input[name="results"]')!.value).toBe('10');
+    expect(form.querySelector<HTMLInputElement>('input[name="fetch"]')!.checked).toBe(true);
+    expect(form.querySelector<HTMLInputElement>('input[name="region"]')!.value).toBe('pl-pl');
+  });
+
   it('keeps a served context window that nothing was remembered against', async () => {
     /* `null` is a real remembered value for this field -- "use whatever the
        server defaults to" -- so it cannot fall back the way the others do. That

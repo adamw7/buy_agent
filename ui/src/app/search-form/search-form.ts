@@ -1,4 +1,5 @@
 import { Component, computed, effect, input, output, signal, untracked } from '@angular/core';
+import type { WritableSignal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import type { AgentDefaults, ModelStatus, SearchOptions, SortBy } from '../agent.types';
@@ -61,6 +62,32 @@ export class SearchForm {
   protected readonly fetchPages = signal(true);
   protected readonly advanced = signal(false);
 
+  /**
+   * The settings that are seeded from the server, remembered, and restored.
+   *
+   * One row each, rather than the same ten names written out in `seed`, in
+   * `remember` and again in `restore` -- three lists that only ever drift apart.
+   * The key is the name the setting is stored under; `request` and `advanced`
+   * are absent because neither is remembered.
+   */
+  private readonly settings: Record<string, Setting> = {
+    model: setting(this.model, (d) => d.model, asText),
+    baseUrl: setting(this.baseUrl, (d) => d.base_url, asText),
+    region: setting(this.region, (d) => d.region, asText),
+    results: setting(this.results, (d) => d.results, asNumber),
+    top: setting(this.top, (d) => d.top, asNumber),
+    sortBy: setting(this.sortBy, (d) => d.sort_by, asText as Parser<SortBy>),
+    temperature: setting(this.temperature, (d) => d.temperature, asNumber),
+    // The one field a remembered `null` has to win on. Cleared, this box means
+    // "whatever the server defaults to" -- what `numCtxHint` names -- which is a
+    // choice and not an absence, so `null` is a value its parser accepts rather
+    // than rejects. Settings saved before the field existed carry no key at all,
+    // and `restore` leaves those to the seeded default.
+    numCtx: setting(this.numCtx, (d) => d.num_ctx, asNumberOrNull),
+    thinking: setting(this.thinking, (d) => toThinking(d.think), asText as Parser<Thinking>),
+    fetchPages: setting(this.fetchPages, (d) => d.fetch, asBoolean),
+  };
+
   protected readonly sortOptions = computed<SortBy[]>(
     () => this.defaults()?.sort_options ?? ['score', 'price', 'rating'],
   );
@@ -109,16 +136,9 @@ export class SearchForm {
 
   /** Fill the form from the server's defaults, then let anything remembered win. */
   private seed(defaults: AgentDefaults): void {
-    this.model.set(defaults.model);
-    this.baseUrl.set(defaults.base_url);
-    this.region.set(defaults.region);
-    this.results.set(defaults.results);
-    this.top.set(defaults.top);
-    this.sortBy.set(defaults.sort_by);
-    this.temperature.set(defaults.temperature);
-    this.numCtx.set(defaults.num_ctx);
-    this.thinking.set(toThinking(defaults.think));
-    this.fetchPages.set(defaults.fetch);
+    for (const field of Object.values(this.settings)) {
+      field.seed(defaults);
+    }
     this.restore();
   }
 
@@ -156,58 +176,73 @@ export class SearchForm {
 
   /** Advanced settings only: what to shop for is a new question every time. */
   private remember(): void {
-    const settings = {
-      model: this.model(),
-      baseUrl: this.baseUrl(),
-      region: this.region(),
-      results: this.results(),
-      top: this.top(),
-      sortBy: this.sortBy(),
-      temperature: this.temperature(),
-      numCtx: this.numCtx(),
-      thinking: this.thinking(),
-      fetchPages: this.fetchPages(),
-    };
+    const saved: Record<string, unknown> = {};
+    for (const [key, field] of Object.entries(this.settings)) {
+      saved[key] = field.value();
+    }
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(saved));
     } catch {
       // A browser that refuses storage still gets a working form.
     }
   }
 
+  /**
+   * Let anything this browser remembered win over the seeded defaults.
+   *
+   * A key that is absent was never remembered -- a settings blob written before
+   * the field existed -- and leaves the seeded default standing. A key that is
+   * there but holds something its parser will not take is ignored the same way.
+   */
   private restore(): void {
-    let saved: Partial<Record<string, unknown>>;
+    let saved: unknown;
     try {
       saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null') ?? {};
     } catch {
       return;
     }
-    if (typeof saved !== 'object') {
+    if (typeof saved !== 'object' || saved === null) {
       return;
     }
-    const text = (key: string) => (typeof saved[key] === 'string' ? (saved[key] as string) : null);
-    const number = (key: string) =>
-      typeof saved[key] === 'number' ? (saved[key] as number) : null;
-
-    this.model.set(text('model') ?? this.model());
-    this.baseUrl.set(text('baseUrl') ?? this.baseUrl());
-    this.region.set(text('region') ?? this.region());
-    this.results.set(number('results') ?? this.results());
-    this.top.set(number('top') ?? this.top());
-    this.sortBy.set((text('sortBy') as SortBy | null) ?? this.sortBy());
-    this.temperature.set(number('temperature') ?? this.temperature());
-    // The one field a remembered `null` has to win on. Cleared, this box means
-    // "whatever the server defaults to" -- what `numCtxHint` names -- which is a
-    // choice and not an absence, so it cannot fall back with `?? this.numCtx()`
-    // like the rest. Settings saved before the field existed carry no key at all,
-    // and those must leave the seeded default standing rather than blank it.
-    this.numCtx.set('numCtx' in saved ? number('numCtx') : this.numCtx());
-    this.thinking.set((text('thinking') as Thinking | null) ?? this.thinking());
-    if (typeof saved['fetchPages'] === 'boolean') {
-      this.fetchPages.set(saved['fetchPages']);
+    for (const [key, field] of Object.entries(this.settings)) {
+      if (key in saved) {
+        field.restore((saved as Record<string, unknown>)[key]);
+      }
     }
   }
 }
+
+/** Reads one remembered value, or undefined for anything it will not take. */
+type Parser<T> = (raw: unknown) => T | undefined;
+
+/** One remembered setting, with the signal's own type closed over. */
+interface Setting {
+  seed(defaults: AgentDefaults): void;
+  value(): unknown;
+  restore(raw: unknown): void;
+}
+
+function setting<T>(
+  target: WritableSignal<T>,
+  fromDefaults: (defaults: AgentDefaults) => T,
+  parse: Parser<T>,
+): Setting {
+  return {
+    seed: (defaults) => target.set(fromDefaults(defaults)),
+    value: () => target(),
+    restore: (raw) => {
+      const parsed = parse(raw);
+      if (parsed !== undefined) {
+        target.set(parsed);
+      }
+    },
+  };
+}
+
+const asText: Parser<string> = (raw) => (typeof raw === 'string' ? raw : undefined);
+const asNumber: Parser<number> = (raw) => (typeof raw === 'number' ? raw : undefined);
+const asBoolean: Parser<boolean> = (raw) => (typeof raw === 'boolean' ? raw : undefined);
+const asNumberOrNull: Parser<number | null> = (raw) => (raw === null ? null : asNumber(raw));
 
 function toThinking(value: boolean | null): Thinking {
   if (value === null) {
