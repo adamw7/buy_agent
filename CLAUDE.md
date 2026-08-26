@@ -150,7 +150,7 @@ superseding it rather than an edit to the old one -- numbers are never reused,
 and accepted records are not rewritten. `tests/test_conventions.py` checks that
 the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0021 and every record is Accepted, so the next free number is 0022.
+to ADR-0023 and every record is Accepted, so the next free number is 0024.
 
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
 for the two steps it is reliable at, and ordinary Python does everything else,
@@ -202,14 +202,14 @@ Six conventions matter when changing this code:
   blanked figure still shows as "price unknown", but a made-up link is one the
   shopper clicks. It runs inside `ground`, so `deduplicate` only ever merges
   links the sources back.
-- **A currency belongs to its price, and a review count to its rating.** Both are
-  facts about the *listing* that printed them, not about the product, so
-  `_MERGEABLE_FIELDS` pairs them up and `_fill_gaps` carries a qualifier over
-  only where the figure it describes is carried over too, or where both listings
-  quote the same one. Field-by-field merging passes grounding -- each half really
-  is in the sources -- while reporting "129.00 EUR" for a page that said 129 and
-  a page that said "249 EUR". A new field that only makes sense next to another
-  belongs in that other's group rather than in one of its own.
+- **A currency belongs to its price, and a review count to its rating**
+  (ADR-0022). Both are facts about the *listing* that printed them, not about the
+  product, so `_MERGEABLE_FIELDS` pairs them up and `_fill_gaps` carries a
+  qualifier over only where the figure it describes is carried over too, or where
+  both listings quote the same one. Field-by-field merging passes grounding --
+  each half really is in the sources -- while reporting "129.00 EUR" for a page
+  that said 129 and a page that said "249 EUR". A new field that only makes sense
+  next to another belongs in that other's group rather than in one of its own.
 - **`GENERIC_WORDS` is shared, and edits to it pull in two directions.**
   `verification.py` imports the set from `extraction.py` (along with
   `NAME_TOKENS`, so merging and grounding agree on what a name's words are).
@@ -379,16 +379,16 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 602 tests
+to EOF instead -- what it checks is that nothing follows the reply. 608 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 602 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 602 collect but 13 of the 15
-in `tests/test_start_script.py` skip, so the summary reads `589 passed, 13
+is reaching out. 608 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 608 collect but 13 of the 15
+in `tests/test_start_script.py` skip, so the summary reads `595 passed, 13
 skipped` -- nothing is missing, and the two that still run are the ones reading
 the script as text rather than through the probe. The UI's 62 tests
 run in about two seconds, most of which is building the app first.
@@ -429,8 +429,8 @@ defaults), which is why it is run as `python -m scripts.update_ollama` from the
 repository root rather than by path.
 
 `scripts/start.ps1` is the README's "Starting it on localhost" as one command
-with no arguments -- venv, Ollama, `ollama pull`, `ng build`, the server, the
-browser, each step skipped when it is already done. It decides nothing the rest
+with no arguments (ADR-0023) -- venv, Ollama, `ollama pull`, `ng build`, the
+server, the browser, each step skipped when it is already done. It decides nothing the rest
 of the project decides: the model and the Ollama server are read out of
 `buy_agent.config` with a `python -c`, so `$OLLAMA_MODEL` and `$OLLAMA_HOST`
 still reach it and no default is written down twice. Its four agreements with the

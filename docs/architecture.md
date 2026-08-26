@@ -157,6 +157,12 @@ number nobody wrote down:
 - `ground` runs **before** `deduplicate`, so merging only ever combines figures
   -- and links -- the sources back.
 
+Order alone is not enough for the merge, because a merge also *pairs* figures.
+`_MERGEABLE_FIELDS` groups each figure with whatever only qualifies it -- price
+with currency, rating with review count -- and `_fill_gaps` moves whole groups,
+so a listing that quoted 129 and one that quoted "249 EUR" are never reported
+together as "129.00 EUR" (ADR-0022).
+
 Extraction and verification must be handed the *same* text, which is why
 `fetch.enrich()` puts the condensed page content on `SearchResult` rather than
 passing it alongside.
