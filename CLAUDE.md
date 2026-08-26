@@ -11,7 +11,8 @@ end onto the same pipeline, served by `buy_agent.server`. See `README.md` for
 usage -- it keeps the tour and links out to the longer technical sections, which
 live beside it: `docs/models.md` (keeping Ollama's models current),
 `docs/docker.md` (running the web tier as a container) and `docs/testing.md`
-(both suites, the coverage floors and the mutation run).
+(both suites, the coverage floors, the nightly run against a real model and the
+mutation run).
 
 ## Commands
 
@@ -28,6 +29,8 @@ python -m pytest tests/test_ranking.py        # one file
 python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
 python -m pytest -k verification              # by name
 python -m coverage run -m pytest ; python -m coverage report   # with coverage
+
+ollama pull qwen3:0.6b ; python -m pytest integration   # against a real model
 
 python -m buy_agent "gaming laptop under $1500"          # run the agent
 python -m buy_agent "espresso machine" --model lfm2.5 -v
@@ -112,7 +115,16 @@ the other, every step runs under `bash` because PowerShell carries on past a
 failing command mid-step, and the matrix is over platforms only: one Python and
 one Node, since the `Dockerfile`, `scripts/start.ps1` and `docs/testing.md` each
 pin themselves to *the* version `ci.yml` names.
-`.github/workflows/mutation.yml` is the second workflow: mutmut against
+`.github/workflows/integration.yml` is the second workflow: `pytest integration`
+against a real Ollama at 03:41 UTC nightly (and on `workflow_dispatch`), never on
+a pull request, capped at `timeout-minutes: 5` -- which covers installing Ollama,
+pulling the model and the inference. Linux only, unlike `ci.yml`: what it asks is
+whether a real model still answers with the schema it was given, which is the
+same question on either platform. Ollama and the model tag are the one pair this
+project deliberately leaves unpinned, because noticing that a release changed
+`method="json_schema"` decoding is half of what the job is for (ADR-0026).
+
+`.github/workflows/mutation.yml` is the third workflow: mutmut against
 `buy_agent/` at 05:17 UTC on Saturdays (and on `workflow_dispatch`), never on a
 pull request. Its settings live in `setup.cfg` -- which exists for that and is not
 a packaging file -- and `scripts/mutation_report.py` turns a run into the job
@@ -150,7 +162,7 @@ superseding it rather than an edit to the old one -- numbers are never reused,
 and accepted records are not rewritten. `tests/test_conventions.py` checks that
 the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0025 and every record is Accepted, so the next free number is 0026.
+to ADR-0026 and every record is Accepted, so the next free number is 0027.
 
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
 for the two steps it is reliable at, and ordinary Python does everything else,
@@ -406,7 +418,9 @@ pipeline tests, and `buy_agent.search.DDGS` / `buy_agent.fetch.httpx.Client` for
 the wrappers' own tests. `ollama.Client` is patched too, for the one path that
 lists the installed models to name them in an error. Patching `DDGS.text` does
 *not* work -- the name `ddgs` exports is a wrapper that constructs a different
-class. No test touches the network or Ollama; keep it that way. The server tests are
+class. No test in `tests/` touches the network or Ollama; keep it that way --
+`integration/` is where a real model goes, and it is outside `testpaths` so that
+a bare `pytest` cannot reach it (see below). The server tests are
 the one exception to "no sockets": they bind loopback, because routing and status
 codes are what they are about. They pass `serve_forever(0.01)` -- the default 0.5s
 poll would otherwise cost half a second per test on shutdown. Four server tests
@@ -414,20 +428,21 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 669 tests
+to EOF instead -- what it checks is that nothing follows the reply. 680 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 669 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 669 collect but 13 of the 15
-in `tests/test_start_script.py` skip, so the summary reads `656 passed, 13
+is reaching out. 680 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 680 collect but 13 of the 15
+in `tests/test_start_script.py` skip, so the summary reads `667 passed, 13
 skipped` -- nothing is missing, and the two that still run are the ones reading
 the script as text rather than through the probe. The UI's 64 tests
-run in about two seconds, most of which is building the app first.
-`docs/testing.md` quotes both counts, so a new test file is two edits.
+run in about two seconds, most of which is building the app first. The 18 in
+`integration/` are counted separately and collected only by being named.
+`docs/testing.md` quotes all three counts, so a new test file is two edits.
 
 Both suites cover essentially every line, which means coverage no longer tells
 you where the next test should go. `tests/test_conventions.py` covers what it
@@ -441,9 +456,13 @@ and `run_search` field for field; that the `Dockerfile` pins the versions CI tes
 against, copies the built UI where the server looks, exposes the port it binds and
 installs the runtime dependencies only; that every job in `ci.yml` names both a
 Windows and a Linux runner, and that it sets up exactly one Python and one Node
-for the three files that pin themselves to those; that the two workflows pin the
-same version of every action they both use, since an update that reached only one
-of them leaves both files valid and the weekly run on the older action; that
+for the three files that pin themselves to those; that every workflow sets up
+that same Python and that the workflows pin the same version of every action they
+share, since an update that reached only one of them leaves every file valid and
+a scheduled run on the older action; that the nightly run pulls the tag
+`integration.TINY_MODEL` names, names the directory `testpaths` leaves out, sets
+`$BUY_AGENT_REQUIRE_OLLAMA` so an absent Ollama fails instead of skipping, and
+caps itself at the five minutes the docs quote; that
 every ADR is indexed, numbered to match its heading, carries the status, date and
 sections ADR-0001 asks for, and cites only records that exist; and that the
 Saturday mutation run mutates the package `.coveragerc` measures, on the Python
@@ -451,6 +470,31 @@ Saturday mutation run mutates the package `.coveragerc` measures, on the Python
 `buy_agent` -- named in mutmut's `also_copy`. A field added on one side of the
 language boundary and forgotten on the other is otherwise invisible to both
 suites.
+
+`integration/` is the second Python suite and the only place a real model is
+involved (ADR-0026). It is a directory rather than a marker because `pytest.ini`
+keeps `testpaths = tests`: "nothing in the suite touches Ollama" is then a
+property of where a file sits, not of anyone remembering an annotation. Four
+things there are load-bearing:
+
+- **The model is real; the web is not.** `search_web` and `enrich` are still
+  faked, over three fabricated pages `integration/conftest.py` owns. A nightly
+  failure caused by DuckDuckGo rate-limiting says nothing about this code.
+- **One run, many assertions.** A CPU model answers in seconds, so a
+  session-scoped `live_run` fixture runs the pipeline once and each test reads
+  something different off it. The extraction chain is *wrapped* rather than
+  replaced -- an appended `RunnableLambda` records the raw `ProductList` and
+  hands it on -- so what runs underneath is the run `BuyAgent` would have made.
+- **Almost nothing asserts the model was right.** The assertions are the
+  invariants: every name, figure and quote in the sources, every link a page
+  that was searched, no repeats, the ranking ordered. A 0.6B model is not held
+  to an answer. The one exception is a smoke test that something was extracted,
+  since every other assertion passes vacuously on an empty list.
+- **An absent Ollama skips locally and fails on the schedule.**
+  `$BUY_AGENT_REQUIRE_OLLAMA`, set by the workflow and nothing else, flips it --
+  a nightly job that skipped every test it has is a green job that checked
+  nothing. `$BUY_AGENT_TEST_MODEL` moves the tag; `$OLLAMA_MODEL` deliberately
+  does not, since that one moves the default the agent ships with.
 
 Both Python scripts in `scripts/` are tested like the rest, by the same rule as
 `clean_products`: whatever decides an answer belongs where it is testable rather

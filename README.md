@@ -300,12 +300,20 @@ mix through `AgentConfig(weights=RankingWeights(rating=0.7, price=0.3, ...))`.
 ```powershell
 python -m pytest              # the Python suite
 cd ui; npm test               # the UI's own tests, in jsdom
+python -m pytest integration  # ...and against a real model, if one is pulled
 ```
 
 Neither suite touches the network or Ollama, both run on Windows and on Linux,
-and both are measured against a coverage floor CI enforces. What the counts are,
-what `tests/test_conventions.py` checks that coverage cannot, and the mutation
-run that grades the suite itself every Saturday are in [Tests](docs/testing.md).
+and both are measured against a coverage floor CI enforces. The third, in
+`integration/`, is the deliberate exception: it runs the pipeline against a real
+Ollama on a model small enough for a CPU, which is the only place the claims
+about JSON-schema decoding and about Ollama's transport errors are actually put
+to Ollama. It lives outside `testpaths`, so `python -m pytest` cannot reach it,
+and a nightly job capped at five minutes is what runs it (ADR-0026).
+
+What the counts are, what `tests/test_conventions.py` checks that coverage
+cannot, and the mutation run that grades the suite itself every Saturday are in
+[Tests](docs/testing.md).
 
 ## Limitations
 
