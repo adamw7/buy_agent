@@ -30,6 +30,12 @@
   border: 1px solid var(--border);
   cursor: pointer;
   font-weight: 500;
+  /* A pill is nowrap so that a price or a rating never breaks in two; these
+     hold whole sentences, and on a narrow phone the longest of them is wider
+     than the screen. Let them fold instead of scrolling the page sideways. */
+  max-inline-size: 100%;
+  white-space: normal;
+  text-align: start;
 }
 
 .example:hover:not(:disabled) {

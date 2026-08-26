@@ -56,6 +56,15 @@ h3 a:hover {
   gap: 8px;
 }
 
+/* A pill is nowrap so that "4.7/5 (5,874 reviews)" never breaks in two, but a
+   seller and a host are whatever the page called itself -- long enough to carry
+   the card off a phone screen. Let those fold, and only where they have to. */
+.figures .pill {
+  max-inline-size: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .price {
   font-size: 17px;
   font-weight: 700;
