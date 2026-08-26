@@ -29,6 +29,14 @@
       <p class="notes">{{ product().notes }}</p>
     }
 
+    @if (product().opinions.length) {
+      <ul class="opinions">
+        @for (opinion of product().opinions; track opinion) {
+          <li>{{ opinion }}</li>
+        }
+      </ul>
+    }
+
     <div class="score" [attr.title]="'Score ' + product().score">
       <div class="track"><div class="fill" [style.inline-size.%]="percent()"></div></div>
       <span>{{ percent() }}</span>

@@ -107,8 +107,8 @@ graph TB
         config["<b>AgentConfig</b><br/><i>[Component: config.py]</i><br/>Model, search, fetch and ranking<br/>settings; the CLI's flag defaults"]
         extraction["<b>Extraction</b><br/><i>[Component: extraction.py]</i><br/>Both prompts and both chains,<br/>plus name cleaning and merging<br/>of variant names"]
         search["<b>Search</b><br/><i>[Component: search.py]</i><br/>DuckDuckGo wrapper; raises<br/>SearchError on a rate limit"]
-        fetch["<b>Fetch</b><br/><i>[Component: fetch.py]</i><br/>Fetches result pages in parallel and<br/>keeps only the lines quoting a price<br/>or a rating"]
-        verification["<b>Verification</b><br/><i>[Component: verification.py]</i><br/>Drops products the sources never<br/>named, blanks any figure the page<br/>text does not contain, and links<br/>each product to the page naming it"]
+        fetch["<b>Fetch</b><br/><i>[Component: fetch.py]</i><br/>Fetches result pages in parallel and<br/>keeps the lines quoting a figure and<br/>the lines passing judgement, each<br/>on a budget of its own"]
+        verification["<b>Verification</b><br/><i>[Component: verification.py]</i><br/>Drops products the sources never<br/>named, blanks any figure and any<br/>quote the page text does not<br/>contain, and links each product<br/>to the page naming it"]
         ranking["<b>Ranking</b><br/><i>[Component: ranking.py]</i><br/>Weighted score over rating,<br/>popularity and price. No LLM"]
         models["<b>Models</b><br/><i>[Component: models.py]</i><br/>ExtractedProduct (sentinels, for the<br/>LLM's schema) vs Product (None)"]
         logsetup["<b>Report and logging</b><br/><i>[Component: logging_setup.py]</i><br/>Log format, and the top-N report<br/>the browser also reads as events"]
@@ -166,6 +166,15 @@ together as "129.00 EUR" (ADR-0022).
 Extraction and verification must be handed the *same* text, which is why
 `fetch.enrich()` puts the condensed page content on `SearchResult` rather than
 passing it alongside.
+
+Grounding covers the quoted opinions too, and holds them to a stricter bar
+than a figure: a quote has to appear in the sources as running text -- overlapping
+runs of five consecutive words, most of which must be found -- rather than as
+words that each occur somewhere. A model paraphrasing out of the vocabulary it
+has just read would clear any looser bar, and what it produces is words in a
+reviewer's mouth (ADR-0024). The merge treats them as the exception they are:
+opinions come from *both* listings, since two reviewers, unlike two prices, are
+not in conflict.
 
 Grounding also decides where a product *links*. The model is asked for a `url`
 but reliably leaves it empty, so `attribute_sources()` gives each product the
@@ -261,7 +270,7 @@ sequenceDiagram
     A->>D: search
     D-->>A: up to 10 results
     A->>P: fetch pages in parallel
-    P-->>A: HTML, condensed to priced lines
+    P-->>A: HTML, condensed to figures and verdicts
     A->>O: extract products (JSON schema)
     O-->>A: candidates
     A->>A: clean → ground → deduplicate → rank

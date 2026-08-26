@@ -20,7 +20,7 @@ class AgentConfig:
         base_url: Where the Ollama server listens.
         temperature: Low by default; extraction is a copying task, not a creative one.
         num_ctx: Context window in tokens, or None to leave Ollama's default (4096)
-            alone. The extraction prompt runs to ~3.3k tokens, so on the default a
+            alone. The extraction prompt runs to ~4.3k tokens, so on the default a
             thinking model has no room left to answer -- see ``reasoning``. Defaults
             to 8192 because ``DEFAULT_MODEL`` is a thinking model.
         reasoning: Thinking mode. None sends nothing and leaves the model's own
@@ -34,7 +34,11 @@ class AgentConfig:
         region: DuckDuckGo region code, e.g. ``us-en``, ``pl-pl``.
         fetch_pages: Read the result pages themselves. Off means snippets only,
             which is faster but rarely yields a price.
-        page_chars: Per-page budget for condensed text in the prompt.
+        page_chars: Per-page budget for the lines quoting a price or a rating.
+        opinion_chars: Per-page budget for the lines saying what the product is
+            like to own, on top of ``page_chars``. A budget of its own so a page
+            listing forty prices still contributes a verdict, and a page of prose
+            still contributes its price; 0 leaves the opinions unread.
         fetch_timeout: Seconds to wait on any single page.
         weights: Relative importance of rating, popularity and price when ranking.
     """
@@ -50,5 +54,6 @@ class AgentConfig:
     region: str = "us-en"
     fetch_pages: bool = True
     page_chars: int = 1200
+    opinion_chars: int = 400
     fetch_timeout: float = 8.0
     weights: RankingWeights = field(default_factory=RankingWeights)

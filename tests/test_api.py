@@ -28,6 +28,7 @@ RANKED = [
             review_count=12000,
             seller="Amazon",
             url="https://example.com/sony",
+            opinions=["the noise cancelling is uncanny"],
         ),
         score=0.912345,
         rank=1,
@@ -252,6 +253,12 @@ def test_a_product_carries_both_the_figures_and_their_labels() -> None:
     assert payload["price_label"] == "328.00 USD"
     assert payload["rating_label"] == "4.7/5 (12,000 reviews)"
     assert payload["score"] == 0.9123  # rounded for display
+
+
+def test_a_product_carries_what_the_sources_said_about_it() -> None:
+    """Quoted, not summarised: the browser shows words Python already grounded."""
+    assert product_payload(RANKED[0])["opinions"] == ["the noise cancelling is uncanny"]
+    assert product_payload(RANKED[1])["opinions"] == []
 
 
 def test_an_unknown_figure_is_labelled_not_hidden() -> None:

@@ -538,3 +538,67 @@ def test_exact_duplicates_pair_their_figures_too() -> None:
 
     assert len(deduped) == 1
     assert (deduped[0].price, deduped[0].currency) == (129.0, None)
+
+
+# -- opinions across two listings ----------------------------------------------
+
+
+def test_merging_keeps_what_both_pages_said_about_the_product() -> None:
+    """The one field taken from both listings rather than from the fuller one.
+
+    Two pages quoting two prices are in conflict and one has to lose; two
+    reviewers are not, and the shopper asking whether the thing is any good is
+    the reason both pages were read.
+    """
+    merged = merge_variants(
+        [
+            Product(name="JBL Live 780NC", price=149.0, opinions=["the fit is snug"]),
+            Product(name="JBL Live 780NC Headphones", opinions=["the case is bulky"]),
+        ]
+    )
+
+    assert merged[0].opinions == ["the fit is snug", "the case is bulky"]
+
+
+def test_the_same_verdict_on_two_pages_is_quoted_once() -> None:
+    """Search results overlap, so the same review is syndicated twice as often
+    as not -- and a card repeating itself reads as two people agreeing."""
+    merged = merge_variants(
+        [
+            Product(name="JBL Live 780NC", opinions=["The fit is snug"]),
+            Product(name="JBL Live 780NC Headphones", opinions=["the FIT is snug", "cheap"]),
+        ]
+    )
+
+    assert merged[0].opinions == ["The fit is snug", "cheap"]
+
+
+def test_a_merge_reports_no_more_opinions_than_one_listing_could() -> None:
+    """Both listings' quotes, but still a product card and not a review page."""
+    merged = merge_variants(
+        [
+            Product(name="JBL Live 780NC", opinions=["one", "two"]),
+            Product(name="JBL Live 780NC Headphones", opinions=["three", "four"]),
+        ]
+    )
+
+    assert merged[0].opinions == ["one", "two", "three"]
+
+
+def test_the_loser_s_opinions_are_kept_even_when_it_loses_everything_else() -> None:
+    """The winner is decided on figures, which say nothing about who was read."""
+    merged = merge_variants(
+        [
+            Product(name="JBL Live 780NC Headphones", opinions=["the case is bulky"]),
+            Product(
+                name="JBL Live 780NC",
+                price=149.0,
+                rating=4.4,
+                review_count=800,
+                url="https://shop.example/jbl",
+            ),
+        ]
+    )
+
+    assert merged[0].opinions == ["the case is bulky"]
+    assert merged[0].price == 149.0

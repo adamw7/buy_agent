@@ -18,6 +18,7 @@ from buy_agent.verification import (
     mentions_rating,
     source_urls,
     verify_numbers,
+    verify_opinions,
 )
 
 SOURCES = [
@@ -527,3 +528,108 @@ def test_an_invented_product_is_dropped_rather_than_grounded_on_a_substring() ->
     )
 
     assert [product.name for product in kept] == ["Anker Soundcore Space Q45"]
+
+
+# -- quoted opinions -----------------------------------------------------------
+
+OPINIONATED = [
+    SearchResult(
+        title="Sony WH-CH720N review",
+        snippet="Reviewers found the noise cancelling uncanny for the money, "
+        "though the case is too bulky for a coat pocket.",
+        url="https://audiosite.example/ch720n",
+    ),
+    SearchResult(
+        title="Anker Q45 review",
+        snippet="Great sound, and it ships in black.",
+        url="https://audiosite.example/q45",
+    ),
+]
+OPINIONATED_HAYSTACK = build_haystack(OPINIONATED)
+
+
+def opinions_after(*quotes: str) -> list[str]:
+    """What survives grounding, for a product the sources do mention."""
+    product = Product(name="Sony WH-CH720N", opinions=list(quotes))
+    return verify_opinions([product], OPINIONATED_HAYSTACK)[0].opinions
+
+
+def test_a_quote_the_page_printed_survives() -> None:
+    assert opinions_after("the noise cancelling uncanny for the money") == [
+        "the noise cancelling uncanny for the money"
+    ]
+
+
+def test_punctuation_and_case_are_not_what_a_quote_is_checked_on() -> None:
+    """The page's commas are not the shopper's business, and the model drops them."""
+    assert opinions_after("Reviewers found, the NOISE cancelling uncanny!")
+
+
+def test_an_invented_opinion_is_dropped() -> None:
+    """The failure this exists for: a verdict nobody wrote, in quotation marks."""
+    assert opinions_after("battery life is disappointing") == []
+
+
+def test_a_quote_assembled_out_of_scattered_words_is_dropped() -> None:
+    """Every word here is in the sources; the sentence is in none of them.
+
+    This is why a quote is checked as runs of words rather than word by word: a
+    small model paraphrasing out of the vocabulary it has just read would clear
+    any bar that only asks whether the words occur.
+    """
+    assert opinions_after("great sound and it ships in black for the money") == []
+
+
+def test_a_word_the_model_added_at_the_front_does_not_cost_the_quote() -> None:
+    """Only the runs at that end break, and the rest still quote the page."""
+    assert opinions_after("But reviewers found the noise cancelling uncanny for the money")
+
+
+def test_a_word_changed_in_the_middle_of_a_quote_fails() -> None:
+    """The middle is where a paraphrase happens, so nothing there is forgiven."""
+    assert opinions_after("the noise cancelling is uncanny for the money") == []
+
+
+def test_a_quote_shorter_than_one_run_has_to_appear_whole() -> None:
+    assert opinions_after("ships in black") == ["ships in black"]
+    assert opinions_after("ships in silver") == []
+
+
+def test_a_quote_of_nothing_is_not_a_quote() -> None:
+    """``running_words`` empties a quote of punctuation alone, which grounds nothing."""
+    assert opinions_after("!!!") == []
+
+
+def test_the_real_quote_survives_the_invented_one_beside_it() -> None:
+    """Per quote, not per product: one made-up verdict does not silence the page."""
+    kept = opinions_after("battery life is disappointing", "ships in black")
+
+    assert kept == ["ships in black"]
+
+
+def test_grounding_a_product_grounds_the_opinions_it_arrived_with() -> None:
+    """``ground`` is the one door the pipeline goes through, so it does all four."""
+    product = Product(
+        name="Sony WH-CH720N",
+        opinions=["the noise cancelling uncanny for the money", "battery life is poor"],
+    )
+
+    grounded = ground([product], OPINIONATED)[0]
+
+    assert grounded.opinions == ["the noise cancelling uncanny for the money"]
+    assert grounded.url == "https://audiosite.example/ch720n"
+
+
+def test_dropped_opinions_are_reported(caplog) -> None:
+    product = Product(name="Sony WH-CH720N", opinions=["battery life is poor"])
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.verification"):
+        verify_opinions([product], OPINIONATED_HAYSTACK)
+
+    assert "Dropped 1 opinion" in caplog.text
+
+
+def test_a_product_with_nothing_said_about_it_is_left_alone() -> None:
+    product = Product(name="Sony WH-CH720N")
+
+    assert verify_opinions([product], OPINIONATED_HAYSTACK) == [product]

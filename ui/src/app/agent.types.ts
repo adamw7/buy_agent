@@ -18,6 +18,8 @@ export interface RankedProduct {
   review_count: number | null;
   seller: string | null;
   url: string | null;
+  /** What the source pages said about it, in their words -- each one grounded. */
+  opinions: string[];
   notes: string | null;
   price_label: string;
   rating_label: string;

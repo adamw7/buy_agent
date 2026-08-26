@@ -48,4 +48,8 @@ def log_top_products(ranked: Sequence[RankedProduct], top_n: int) -> None:
             logger.info("     url    : %s", product.url)
         if product.notes:
             logger.info("     note   : %s", product.notes)
+        # Quoted rather than summarised, and last: the figures say what it costs
+        # and the opinions say whether to want it, which is the longer read.
+        for opinion in product.opinions:
+            logger.info("     says   : %s", opinion)
     logger.info(separator)

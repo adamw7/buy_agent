@@ -1,8 +1,8 @@
 # buy_agent
 
 A shopping agent built on LangChain and a local [Ollama](https://ollama.com) model.
-Tell it what you want to buy; it searches the web, pulls out up to 10 products,
-ranks them, and logs the best 3.
+Tell it what you want to buy; it searches the web, pulls out up to 10 products
+along with what the pages say about them, ranks them, and logs the best 3.
 
 ```
 $ python -m buy_agent "wireless noise cancelling headphones under $200"
@@ -21,6 +21,8 @@ $ python -m buy_agent "wireless noise cancelling headphones under $200"
 18:13:24 INFO  buy_agent        |      price  : 152.00
 18:13:24 INFO  buy_agent        |      rating : 4.7/5 (5,874 reviews)
 18:13:24 INFO  buy_agent        |      url    : https://...
+18:13:24 INFO  buy_agent        |      says   : the noise cancelling is uncanny for the money
+18:13:24 INFO  buy_agent        |      says   : the case is too bulky for a coat pocket
 ```
 
 ## Setup
@@ -71,7 +73,7 @@ python -m buy_agent "running shoes" --sort-by price --json results.json
 
 The default is one, so the two settings a thinking model needs are the defaults
 too: thinking off, and an 8192-token window. Left to itself such a model fails.
-The extraction prompt runs to roughly 3.3k tokens, so inside Ollama's own
+The extraction prompt runs to roughly 4.3k tokens, so inside Ollama's own
 4096-token window the model spends what is left thinking, gets cut off before it
 writes any JSON, and the run ends with `Invalid json output:` and nothing after
 the colon. The wider window is also what gets you the full ten products rather
@@ -233,7 +235,7 @@ request ──▶ [LLM] refine into a search query
             DuckDuckGo text search (10 results)
                       │
                       ▼
-        fetch each page, keep the lines quoting a price or rating
+     fetch each page, keep the lines quoting a figure or an opinion
                       │
                       ▼
         [LLM] extract structured products from that text
@@ -247,7 +249,7 @@ LLM does the two things it is good at -- rewording a request and reading facts o
 of prose -- and ordinary Python does the rest. Small local models are unreliable
 at running a tool loop, but perfectly capable of these two steps.
 
-Four details make it work with a small model:
+Six details make it work with a small model:
 
 - **Structured output.** Both LLM calls use Ollama's `json_schema` mode, so the
   model's decoding is constrained to the schema and cannot drift into prose.
@@ -258,14 +260,26 @@ Four details make it work with a small model:
 - **Reading the pages, not the snippets.** A DuckDuckGo snippet for "headphones
   under $200" contains exactly one number: the $200 from the query. Extracting
   from snippets alone produced ten products with no prices at all. So each result
-  page is fetched and condensed to the lines that quote a price or a rating
-  (`buy_agent/fetch.py`), which keeps the prompt small and gives the model
-  something real to read. `--no-fetch` reverts to snippets only.
+  page is fetched and condensed (`buy_agent/fetch.py`), which keeps the prompt
+  small and gives the model something real to read. `--no-fetch` reverts to
+  snippets only.
+- **Reading the opinions too, not only the figures.** A page is swept twice: for
+  the lines quoting a price or a rating, and for the lines passing judgement --
+  "reviewers found", "the downside is", "disappointing". Each sweep has a budget
+  of its own, so a shop page listing forty prices still contributes a verdict and
+  a review page of prose still contributes its price. A price says what a thing
+  costs and only these lines say whether to want it (ADR-0024).
 - **Grounding.** Models fill gaps -- inventing a price, or lifting a product
   straight out of the prompt's own example. `buy_agent/verification.py` drops any
   product whose name is absent from the sources, and blanks any price, rating or
   review count that does not appear in the text the model was shown. A blanked
   figure scores neutral instead of winning.
+- **Quotes, checked as quotes.** The opinions in the report are the source
+  pages' words, not the model's summary of them, and each one is looked for in
+  the sources as running text -- overlapping runs of five consecutive words, most
+  of which have to be found. A paraphrase fails that and is dropped: an invented
+  price is a number nobody wrote, but an invented quote is words in a reviewer's
+  mouth.
 
 ### Ranking
 
@@ -295,11 +309,13 @@ run that grades the suite itself every Saturday are in [Tests](docs/testing.md).
 
 ## Limitations
 
-- **A figure can be real but attached to the wrong product.** Grounding checks
-  that a number appears in the sources, not that it belongs to the product it
-  was filed under. Small models sometimes give two products the same review
-  count. Reading the top 3 as candidates worth clicking, rather than as a price
-  quote, is the right level of trust.
+- **A figure or a quote can be real but attached to the wrong product.**
+  Grounding checks that a number appears in the sources, not that it belongs to
+  the product it was filed under, and a quote is checked the same way. Small
+  models sometimes give two products the same review count, and the prompt's
+  instruction not to move a verdict between products is not enforced by
+  anything. Reading the top 3 as candidates worth clicking, rather than as a
+  price quote, is the right level of trust.
 - **Names are only as specific as the model makes them.** `lfm2.5` reported
   "Bose ANC" for a product the page named in full.
 - Some shops answer with JavaScript-rendered pages or a 403; those results fall

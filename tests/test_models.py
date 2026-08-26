@@ -151,3 +151,43 @@ def test_dedup_key_of_a_punctuation_only_name_is_empty() -> None:
 
 def test_dedup_key_separates_genuinely_different_models() -> None:
     assert Product(name="Sony WH-1000XM4").dedup_key != Product(name="Sony WH-1000XM5").dedup_key
+
+
+def test_quoted_opinions_survive_conversion_tidied() -> None:
+    converted = ExtractedProduct(
+        name="Thing", opinions=["  the fit   is snug ", "", "the case is bulky"]
+    ).to_product()
+
+    assert converted.opinions == ["the fit is snug", "the case is bulky"]
+
+
+def test_no_opinions_is_an_empty_list_and_not_a_none() -> None:
+    """The one unknown that is not converted: "nobody said anything" and "no
+    quote survived grounding" are the same answer, spelled one way."""
+    assert ExtractedProduct(name="Thing").to_product().opinions == []
+    assert Product(name="Thing").opinions == []
+
+
+def test_the_same_opinion_twice_is_reported_once() -> None:
+    """A model listing a page's verdict once per paragraph it appeared in."""
+    converted = ExtractedProduct(
+        name="Thing", opinions=["The fit is snug", "the FIT is snug"]
+    ).to_product()
+
+    assert converted.opinions == ["The fit is snug"]
+
+
+def test_more_opinions_than_a_card_can_hold_are_cut_to_the_first_few() -> None:
+    converted = ExtractedProduct(
+        name="Thing", opinions=["one", "two", "three", "four"]
+    ).to_product()
+
+    assert converted.opinions == ["one", "two", "three"]
+
+
+def test_a_paragraph_is_not_a_quote() -> None:
+    """Dropped rather than cut short: half a sentence attributed to a reviewer
+    says something the reviewer did not, the way half a name is another product."""
+    retold = "The reviewers were impressed. " * 10
+
+    assert ExtractedProduct(name="Thing", opinions=[retold]).to_product().opinions == []

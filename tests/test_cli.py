@@ -243,6 +243,7 @@ def test_the_json_carries_every_product_field(fake_agent, tmp_path) -> None:
         "review_count",
         "seller",
         "url",
+        "opinions",
         "notes",
     }
 

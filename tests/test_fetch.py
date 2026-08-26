@@ -361,3 +361,116 @@ def test_the_fetch_defaults_are_the_ones_the_agent_relies_on(monkeypatch) -> Non
 
     assert captured["timeout"] == 8.0
     assert captured["max_workers"] == 8
+
+
+# -- the opinions ---------------------------------------------------------------
+
+REVIEW = """Sony WH-CH720N
+Now $129.00
+Reviewers found the noise cancelling uncanny for the money.
+Free returns within 30 days of delivery
+The downside is a case too bulky for a coat pocket.
+Copyright 2026 AudioSite. All rights reserved.
+"""
+
+
+def test_what_the_page_says_about_a_product_is_kept_too() -> None:
+    """A price says what it costs; only these lines say whether to want it."""
+    condensed = condense(REVIEW, max_chars=1000)
+
+    assert "noise cancelling uncanny" in condensed
+    assert "too bulky for a coat pocket" in condensed
+
+
+def test_a_line_that_is_neither_a_figure_nor_a_judgement_is_still_dropped() -> None:
+    """The vocabulary is one of judgement, not of shopping: a delivery promise
+    reads like a page about a product and says nothing about one."""
+    condensed = condense("Free returns within 30 days of delivery", max_chars=1000)
+
+    assert condensed == ""
+
+
+def test_a_bare_pros_heading_is_too_short_to_be_an_opinion() -> None:
+    """Its content is the lines below it, which no rule here brings along, so on
+    its own it is a word of budget spent on nothing."""
+    assert condense("Pros", max_chars=1000) == ""
+
+
+def test_lines_come_back_in_the_order_the_page_had_them() -> None:
+    """Two sweeps, one excerpt: read back the other way round it would suggest the
+    verdicts belong to whichever product was priced last."""
+    condensed = condense(REVIEW, max_chars=1000).splitlines()
+
+    assert condensed == [
+        "Sony WH-CH720N",
+        "Now $129.00",
+        "Reviewers found the noise cancelling uncanny for the money.",
+        "Free returns within 30 days of delivery",
+        "The downside is a case too bulky for a coat pocket.",
+    ]
+
+
+def test_the_line_above_a_verdict_is_kept_the_way_the_line_above_a_price_is() -> None:
+    """Review pages put the verdict under the heading that names the product."""
+    condensed = condense("Sony WH-CH720N\nWe loved the noise cancelling on these.", max_chars=100)
+
+    assert "Sony WH-CH720N" in condensed
+
+
+def test_a_page_of_prices_cannot_crowd_out_the_verdicts() -> None:
+    """Separate budgets, which is the whole reason there are two sweeps: a shop
+    page listing forty prices would otherwise spend the lot before the verdict."""
+    prices = "\n".join(f"Model {index} costs ${index}00.00" for index in range(40))
+    condensed = condense(f"{prices}\nWe found the fit uncomfortable after an hour.", max_chars=200)
+
+    assert "uncomfortable after an hour" in condensed
+    assert len(condensed) > 200
+
+
+def test_the_verdicts_cannot_crowd_out_the_price_either() -> None:
+    """The other direction, which is the reason the pages are fetched at all."""
+    verdicts = "\n".join(
+        f"Reviewers found version {index} disappointing to listen to." for index in range(40)
+    )
+    condensed = condense(f"{verdicts}\nSony WH-CH720N\nNow $129.00", max_chars=200)
+
+    assert "$129.00" in condensed
+
+
+def test_the_opinions_can_be_left_unread() -> None:
+    """``opinion_chars=0``: back to the figures alone, for a smaller prompt."""
+    condensed = condense(REVIEW, max_chars=1000, opinion_chars=0)
+
+    assert "$129.00" in condensed
+    assert "uncanny" not in condensed
+
+
+def test_the_opinion_budget_is_spent_and_then_the_sweep_stops() -> None:
+    verdicts = "\n".join(
+        f"Reviewers found version {index} disappointing to listen to." for index in range(10)
+    )
+
+    assert len(condense(verdicts, max_chars=0, opinion_chars=120)) <= 120
+
+
+def test_a_page_read_twice_is_not_quoted_twice() -> None:
+    """A line that is both a price and a verdict is taken by the first sweep and
+    paid for there; the second finds it already kept."""
+    text = "Sony WH-CH720N\nExcellent value for money at $129.00\n"
+
+    assert condense(text, max_chars=1000).count("$129.00") == 1
+
+
+def test_the_opinion_budget_reaches_the_pages(monkeypatch) -> None:
+    """``enrich`` hands each page both budgets, or the second sweep is off by default."""
+    stub_client(monkeypatch, lambda url: make_response(url, f"<p>{REVIEW}</p>"))
+
+    enriched = enrich([SearchResult(url="https://audiosite.example")], max_chars=1000)
+
+    assert "uncanny" in enriched[0].content
+
+
+def test_a_product_called_pro_is_not_mistaken_for_a_pros_list() -> None:
+    """Half the products on a headphone page are a "Pro" of something."""
+    assert condense("Apple AirPods Pro (2nd generation)", max_chars=1000) == ""
+    assert "Pros and cons" in condense("Pros and cons of the WH-CH720N", max_chars=1000)
