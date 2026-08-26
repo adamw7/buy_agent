@@ -357,7 +357,7 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 601 tests
+to EOF instead -- what it checks is that nothing follows the reply. 602 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
@@ -380,13 +380,16 @@ and `run_search` field for field; that the `Dockerfile` pins the versions CI tes
 against, copies the built UI where the server looks, exposes the port it binds and
 installs the runtime dependencies only; that every job in `ci.yml` names both a
 Windows and a Linux runner, and that it sets up exactly one Python and one Node
-for the three files that pin themselves to those; that every ADR is indexed,
-numbered to match its heading, carries the status, date and sections ADR-0001
-asks for, and cites only records that exist; and that the Saturday mutation run
-mutates the package `.coveragerc` measures, on the Python `ci.yml` pins, with
-every file these tests open -- or import from outside `buy_agent` -- named in
-mutmut's `also_copy`. A field added on one side of the language boundary and
-forgotten on the other is otherwise invisible to both suites.
+for the three files that pin themselves to those; that the two workflows pin the
+same version of every action they both use, since an update that reached only one
+of them leaves both files valid and the weekly run on the older action; that
+every ADR is indexed, numbered to match its heading, carries the status, date and
+sections ADR-0001 asks for, and cites only records that exist; and that the
+Saturday mutation run mutates the package `.coveragerc` measures, on the Python
+`ci.yml` pins, with every file these tests open -- or import from outside
+`buy_agent` -- named in mutmut's `also_copy`. A field added on one side of the
+language boundary and forgotten on the other is otherwise invisible to both
+suites.
 
 Both Python scripts in `scripts/` are tested like the rest, by the same rule as
 `clean_products`: whatever decides an answer belongs where it is testable rather

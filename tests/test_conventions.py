@@ -357,6 +357,30 @@ def test_ci_sets_up_one_python_and_one_node() -> None:
         assert source.count(f"{key}: ") == 1, f"ci.yml sets up more than one {key}"
 
 
+def action_versions(workflow: Path) -> dict[str, str]:
+    """The ref each ``uses: owner/action@ref`` step of a workflow pins."""
+    steps = re.findall(r"uses: (\S+?)@(\S+)$", workflow.read_text(encoding="utf-8"), re.M)
+    versions: dict[str, str] = {}
+
+    for action, ref in steps:
+        assert versions.setdefault(action, ref) == ref, f"{workflow.name} pins two {action}"
+    return versions
+
+
+def test_both_workflows_pin_the_same_actions() -> None:
+    """`actions/checkout` and `actions/setup-python` are used by both workflows, and
+    an update that reached only one of them is invisible: each file is valid on its
+    own and both jobs go green. What it costs is the Saturday run drifting onto an
+    older action than the one every pull request is checked with -- so a failure
+    that is the action's, not the code's, arrives once a week and reproduces nowhere."""
+    ci, mutation = action_versions(_CI), action_versions(_MUTATION)
+
+    shared = ci.keys() & mutation.keys()
+    assert shared, "the two workflows have no action in common; this test has outlived its rule"
+    for action in shared:
+        assert ci[action] == mutation[action], action
+
+
 # -- the startup script --------------------------------------------------------
 
 _START = _ROOT / "scripts" / "start.ps1"
