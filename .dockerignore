@@ -18,6 +18,7 @@ ui/.angular/
 
 # Tests, coverage, mutation testing and docs: none of them run in the image.
 tests/
+integration/
 docs/
 scripts/
 mutants/

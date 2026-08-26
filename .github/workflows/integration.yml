@@ -1,0 +1,96 @@
+name: Integration tests
+
+on:
+  schedule:
+    # 03:41 UTC, nightly. Off the hour for the reason mutation.yml is: scheduled
+    # runs queue behind everyone else's at :00 and can start an hour late. GitHub
+    # only schedules workflows that are on the default branch, so this fires once
+    # it is on main.
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: integration-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    # Linux only, unlike ci.yml. This job is not about platform differences --
+    # it is about whether a real model still answers with the schema it was
+    # given, which is the same question on either platform and twice the runner
+    # minutes to ask twice. What is platform-specific here is Ollama's own
+    # packaging, and that is Ollama's to test.
+    name: pytest integration (Python 3.13, qwen3:0.6b on CPU)
+    runs-on: ubuntu-latest
+    # Everything: installing Ollama, pulling half a gigabyte of model, and the
+    # inference itself on four cores with no GPU. A nightly job that cannot say
+    # what it found inside five minutes has stopped being a smoke test, and the
+    # cap is what turns "the model got slower" into a red run rather than into
+    # runner minutes nobody is watching.
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      # A missing Ollama is a skip on a developer's machine and a failure here:
+      # the one thing a nightly job is worst at reporting is having quietly run
+      # nothing. See integration/__init__.py.
+      BUY_AGENT_REQUIRE_OLLAMA: "1"
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      # Deliberately unpinned, and deliberately uncached, where the rest of this
+      # project pins everything. Half of what this job is for is noticing that a
+      # new Ollama or a re-tagged model has changed how `method="json_schema"`
+      # decodes -- which a pinned pair would hide until somebody upgraded.
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Start Ollama
+        run: |
+          # The install script starts a systemd service where there is one, so
+          # this only fills in for a runner where there is not -- starting a
+          # second server would just fail on the bound port.
+          if ! curl -fsS http://localhost:11434/api/version >/dev/null 2>&1; then
+            ollama serve > ollama.log 2>&1 &
+          fi
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:11434/api/version; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Ollama did not answer on :11434 within 30s" >&2
+          exit 1
+
+      # The tag integration/__init__.py names, which
+      # tests/test_conventions.py checks this line still agrees with.
+      - name: Pull the model
+        run: ollama pull qwen3:0.6b
+
+      - name: Run the integration tests
+        run: python -m pytest integration
+
+      - name: Upload the Ollama log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ollama-log
+          path: ollama.log
+          if-no-files-found: ignore

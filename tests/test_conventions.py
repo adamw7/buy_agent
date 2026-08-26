@@ -21,6 +21,11 @@ The decision log has the same shape: ``docs/adr/README.md`` indexes records that
 live in files beside it, so an unindexed decision -- or an index row still quoting
 a title the record has since changed -- is invisible to every other test here.
 
+The nightly integration run is the shape across a directory this suite cannot
+enter: ``integration/`` is deliberately outside ``testpaths``, so nothing in a
+``python -m pytest`` run collects it, names the model it wants, or notices that
+the workflow pulls a different one.
+
 The Saturday mutation run is the shape at its sharpest: mutmut tests a *copy* of
 the tree, so a file this suite reads or imports and ``setup.cfg`` does not list
 is missing only there. Every path resolves in a normal run, and the weekly one
@@ -57,6 +62,8 @@ from buy_agent.models import Product, RankedProduct
 from buy_agent.ranking import SortBy
 from buy_agent.server import DEFAULT_UI_DIR
 from buy_agent.server import build_parser as build_server_parser
+import integration
+from integration import REQUIRE_ENV_VAR, TINY_MODEL
 
 _ROOT = Path(__file__).resolve().parents[1]
 _TYPES_TS = _ROOT / "ui" / "src" / "app" / "agent.types.ts"
@@ -120,6 +127,21 @@ def ts_interface(name: str) -> list[str]:
     match = re.search(rf"export interface {name} \{{(.*?)\n\}}", source, re.DOTALL)
     assert match, f"no interface {name} in {_TYPES_TS.name}"
     return re.findall(r"^\s+(\w+)\??:", match.group(1), re.MULTILINE)
+
+
+def ini_values(path: Path, section: str, key: str) -> list[str]:
+    """One whitespace-separated setting, from an ini file neither tool exports."""
+    parser = ConfigParser()
+    parser.read(path, encoding="utf-8")
+    return parser.get(section, key).split()
+
+
+def cron(workflow: Path) -> tuple[str, str, str, str, str]:
+    """The five fields of a workflow's schedule: minute, hour, day, month, weekday."""
+    match = re.search(r'^\s+- cron: "([^"]+)"$', workflow.read_text(encoding="utf-8"), re.M)
+    assert match, f"no cron schedule in {workflow.name}"
+    minute, hour, day_of_month, month, day_of_week = match.group(1).split()
+    return minute, hour, day_of_month, month, day_of_week
 
 
 # -- the three failure modes ---------------------------------------------------
@@ -275,8 +297,10 @@ def test_every_record_a_record_points_at_exists(path: Path) -> None:
 _DOCKERFILE = _ROOT / "Dockerfile"
 _CI = _ROOT / ".github" / "workflows" / "ci.yml"
 _MUTATION = _ROOT / ".github" / "workflows" / "mutation.yml"
+_INTEGRATION = _ROOT / ".github" / "workflows" / "integration.yml"
 _MUTMUT = _ROOT / "setup.cfg"
 _COVERAGERC = _ROOT / ".coveragerc"
+_PYTEST_INI = _ROOT / "pytest.ini"
 
 
 def dockerfile() -> str:
@@ -372,6 +396,33 @@ def test_ci_sets_up_one_python_and_one_node() -> None:
         assert source.count(f"{key}: ") == 1, f"ci.yml sets up more than one {key}"
 
 
+def workflows() -> list[Path]:
+    """Every workflow in ``.github/workflows``, found rather than listed.
+
+    A fourth workflow is then covered by the rules below on the day it is added,
+    which is the only time anybody would think to check them.
+    """
+    found = sorted((_ROOT / ".github" / "workflows").glob("*.yml"))
+    assert found, "no workflows; this section has outlived its rule"
+    return found
+
+
+@pytest.mark.parametrize("workflow", workflows(), ids=lambda path: path.stem)
+def test_every_workflow_sets_up_the_python_the_tests_run_on(workflow: Path) -> None:
+    """One Python across the repository, checked per workflow rather than per rule.
+
+    Mutants are tested by the same suite CI runs, and the nightly integration run
+    puts that suite in front of a real model; on another interpreter either one is
+    a report about a Python nothing else in this project uses -- and a scheduled
+    job is the worst place to discover a version difference, because it reproduces
+    on nobody's machine and nobody is watching when it does not.
+    """
+    for version in re.findall(
+        r'^\s+python-version: "([^"]+)"', workflow.read_text(encoding="utf-8"), re.M
+    ):
+        assert version == ci_version("python-version"), workflow.name
+
+
 def action_versions(workflow: Path) -> dict[str, str]:
     """The ref each ``uses: owner/action@ref`` step of a workflow pins."""
     steps = re.findall(r"uses: (\S+?)@(\S+)$", workflow.read_text(encoding="utf-8"), re.M)
@@ -382,18 +433,21 @@ def action_versions(workflow: Path) -> dict[str, str]:
     return versions
 
 
-def test_both_workflows_pin_the_same_actions() -> None:
-    """`actions/checkout` and `actions/setup-python` are used by both workflows, and
-    an update that reached only one of them is invisible: each file is valid on its
-    own and both jobs go green. What it costs is the Saturday run drifting onto an
-    older action than the one every pull request is checked with -- so a failure
-    that is the action's, not the code's, arrives once a week and reproduces nowhere."""
-    ci, mutation = action_versions(_CI), action_versions(_MUTATION)
+def test_every_workflow_pins_the_same_version_of_a_shared_action() -> None:
+    """`actions/checkout` and `actions/setup-python` are used by all three workflows,
+    and an update that reached only one of them is invisible: each file is valid on
+    its own and every job goes green. What it costs is a scheduled run drifting onto
+    an older action than the one every pull request is checked with -- so a failure
+    that is the action's, not the code's, arrives overnight and reproduces nowhere."""
+    pinned: dict[str, dict[str, str]] = {}
+    for workflow in workflows():
+        for action, ref in action_versions(workflow).items():
+            pinned.setdefault(action, {})[workflow.name] = ref
 
-    shared = ci.keys() & mutation.keys()
-    assert shared, "the two workflows have no action in common; this test has outlived its rule"
-    for action in shared:
-        assert ci[action] == mutation[action], action
+    shared = {action: refs for action, refs in pinned.items() if len(refs) > 1}
+    assert shared, "no action is used twice; this test has outlived its rule"
+    for action, refs in shared.items():
+        assert len(set(refs.values())) == 1, (action, refs)
 
 
 # -- the startup script --------------------------------------------------------
@@ -452,18 +506,92 @@ def test_the_startup_script_names_the_toolchains_ci_pins() -> None:
     assert f"Node {ci_version('node-version')}" in source
 
 
+# -- the nightly integration run -----------------------------------------------
+
+#: The five minutes `.github/workflows/integration.yml` gives itself, which
+#: docs/testing.md, the README and CLAUDE.md all quote. Everything is inside it:
+#: installing Ollama, pulling the model, and inference on a runner with no GPU.
+_NIGHTLY_BUDGET_MINUTES = 5
+
+#: Where the live tests live. Read off the package rather than written down, so
+#: renaming the directory fails here rather than in a scheduled run.
+_LIVE_TESTS = Path(integration.__file__).resolve().parent
+
+
+def integration_workflow() -> str:
+    return _INTEGRATION.read_text(encoding="utf-8")
+
+
+def test_a_normal_run_cannot_collect_the_tests_that_need_ollama() -> None:
+    """The whole reason ``integration/`` is a directory and not a marker.
+
+    ``pytest.ini`` points ``testpaths`` at ``tests``, and everything under it is
+    promised to touch neither the network nor Ollama -- a promise the README,
+    docs/testing.md and CLAUDE.md all repeat. A marker would leave that resting
+    on ``addopts`` and on nobody forgetting to apply one; a directory outside
+    ``testpaths`` cannot be collected by accident at all.
+    """
+    testpaths = ini_values(_PYTEST_INI, "pytest", "testpaths")
+
+    assert testpaths, "pytest.ini names no testpaths, so a bare run collects everything"
+    for path in testpaths:
+        assert not _LIVE_TESTS.is_relative_to(_ROOT / path), path
+
+
+def test_the_nightly_run_runs_the_tests_a_normal_run_leaves_out() -> None:
+    """...which is the other half of it: outside ``testpaths``, they are collected
+    only by being named, so a workflow that ran a bare ``pytest`` would go green
+    having run the unit suite a second time and the live tests never."""
+    named = _LIVE_TESTS.relative_to(_ROOT).as_posix()
+
+    assert re.search(rf"^\s+run: python -m pytest {named}$", integration_workflow(), re.M)
+
+
+def test_the_nightly_run_pulls_the_model_the_live_tests_ask_for() -> None:
+    """Two names for one model, in a workflow and in a package that never import
+    each other. Pull a different tag and every test skips -- or, with
+    :data:`REQUIRE_ENV_VAR` set, every test fails on a machine that has Ollama
+    running perfectly well."""
+    assert re.search(
+        rf"^\s+run: ollama pull {re.escape(TINY_MODEL)}$", integration_workflow(), re.M
+    )
+
+
+def test_the_nightly_run_refuses_to_pass_by_skipping() -> None:
+    """A live test whose model is absent skips, which is right on a developer's
+    machine and worthless on a schedule: an Ollama that failed to install would
+    give a green nightly job that checked nothing at all. The workflow sets this,
+    and it is the only thing that does."""
+    assert re.search(rf'^\s+{REQUIRE_ENV_VAR}: "1"$', integration_workflow(), re.M)
+
+
+def test_the_nightly_run_is_nightly_and_capped() -> None:
+    """Every day, off the hour, and bounded. The cap is the load-bearing half: the
+    model is small enough to pull and answer inside it, and the day it is not, a
+    red run says so instead of the job spending runner minutes nobody reads."""
+    minute, _hour, day_of_month, month, day_of_week = cron(_INTEGRATION)
+
+    assert (day_of_week, day_of_month, month) == ("*", "*", "*")
+    assert minute != "0", "the top of the hour is where scheduled runs queue"
+    assert re.search(
+        rf"^\s+timeout-minutes: {_NIGHTLY_BUDGET_MINUTES}$", integration_workflow(), re.M
+    )
+
+
+def test_the_nightly_run_is_never_a_gate_on_a_pull_request() -> None:
+    """Like the mutation run and for the same reason: it takes minutes where the
+    suite takes seconds, and it depends on a third party's install script and a
+    model tag that can be re-pulled under it. Neither is something a merge should
+    wait on."""
+    for workflow in (_INTEGRATION, _MUTATION):
+        assert "pull_request" not in workflow.read_text(encoding="utf-8"), workflow.name
+
+
 # -- the Saturday mutation run -------------------------------------------------
 
 # mutmut copies these two into the tree it tests without being asked; everything
 # else the suite reaches for has to be named in ``also_copy``.
 _COPIED_ANYWAY = ("tests", "setup.cfg")
-
-
-def ini_values(path: Path, section: str, key: str) -> list[str]:
-    """One whitespace-separated setting, from an ini file neither tool exports."""
-    parser = ConfigParser()
-    parser.read(path, encoding="utf-8")
-    return parser.get(section, key).split()
 
 
 def test_the_mutation_run_mutates_what_coverage_measures() -> None:
@@ -473,20 +601,12 @@ def test_the_mutation_run_mutates_what_coverage_measures() -> None:
     assert ini_values(_MUTMUT, "mutmut", "source_paths") == ini_values(_COVERAGERC, "run", "source")
 
 
-def test_the_mutation_run_uses_the_python_the_tests_run_on() -> None:
-    """Mutants are tested by the same suite CI runs; on another Python they are a
-    report about an interpreter nothing else in this project uses."""
-    assert workflow_version(_MUTATION, "python-version") == ci_version("python-version")
-
-
 def test_the_mutation_run_is_scheduled_for_saturdays() -> None:
     """Weekly and off the hour, as docs/testing.md and CLAUDE.md both say: cron counts
     days from Sunday, so Saturday is 6, and a run that quietly moved to another
     day would leave the two of them describing a schedule that is not this one."""
-    match = re.search(r'^\s+- cron: "([^"]+)"$', _MUTATION.read_text(encoding="utf-8"), re.M)
-    assert match, "no cron schedule in mutation.yml"
+    minute, _hour, day_of_month, month, day_of_week = cron(_MUTATION)
 
-    minute, _hour, day_of_month, month, day_of_week = match.group(1).split()
     assert (day_of_week, day_of_month, month) == ("6", "*", "*")
     assert minute != "0", "the top of the hour is where scheduled runs queue"
 
