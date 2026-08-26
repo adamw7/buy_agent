@@ -12,8 +12,21 @@ concurrency:
 
 jobs:
   test:
-    name: pytest (Python 3.13)
-    runs-on: ubuntu-latest
+    # Development happens on Windows and the runners are Linux, so both are run:
+    # a platform difference either one hides is one nobody sees until it is the
+    # only machine left. fail-fast is off for the same reason -- a Windows-only
+    # failure that cancelled the Linux job would tell you half of what happened.
+    name: pytest (Python 3.13, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        # One shell on both runners. PowerShell is the default on Windows, and a
+        # step of several commands there carries on past a failing one.
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4
@@ -36,10 +49,15 @@ jobs:
         run: python -m coverage report
 
   ui:
-    name: ng test (Node 22)
-    runs-on: ubuntu-latest
+    name: ng test (Node 22, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     defaults:
       run:
+        shell: bash
         working-directory: ui
 
     steps:

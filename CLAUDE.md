@@ -94,7 +94,14 @@ npm start                                     # dev server on :4200, proxying /a
 There is no Python linter; the UI has Prettier (`npx prettier --write "src/**/*"`).
 CI (`.github/workflows/ci.yml`) runs two jobs for pushes to `main` and for every
 pull request: `coverage run -m pytest` plus `coverage report` on Python 3.13, and
-`npm run test:coverage && npm run build` in `ui/` on Node 22.22.3.
+`npm run test:coverage && npm run build` in `ui/` on Node 22.22.3. Both are
+matrixed over `ubuntu-latest` and `windows-latest` -- this is written on Windows
+and the runners were Linux, so either alone leaves half the platform differences
+unchecked (ADR-0020). `fail-fast` is off so one platform's failure still reports
+the other, every step runs under `bash` because PowerShell carries on past a
+failing command mid-step, and the matrix is over platforms only: one Python and
+one Node, since the `Dockerfile`, `scripts/start.ps1` and `README.md` each pin
+themselves to *the* version `ci.yml` names.
 `.github/workflows/mutation.yml` is the second workflow: mutmut against
 `buy_agent/` at 05:17 UTC on Saturdays (and on `workflow_dispatch`), never on a
 pull request. Its settings live in `setup.cfg` -- which exists for that and is not
@@ -280,7 +287,14 @@ Four things there are load-bearing:
 `server._CONTENT_TYPES` spells out the types `ng build` emits rather than leaving
 them to `mimetypes`, which reads the registry on Windows and can answer
 `text/plain` for `.js` -- which a browser refuses to run as a module, leaving a
-blank page and no error.
+blank page and no error. `_resolve` is the other place the platform shows
+through: it catches `OSError` and `ValueError` around `Path.resolve` because an
+exception there escapes to socketserver, which drops the socket without a reply.
+An encoded NUL raises there on POSIX and does not on Windows, where
+`ntpath.realpath` returns the path unchanged and `is_file()` swallows the error
+instead -- same answer, different line -- so the branch is tested by making
+`resolve()` refuse outright rather than by an input only one platform rejects
+(ADR-0020).
 
 `_SECURITY_HEADERS` goes out on every response, and its CSP is `'self'` throughout
 because the app is served whole from one origin -- `'unsafe-inline'` for styles
@@ -340,7 +354,7 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 595 tests
+to EOF instead -- what it checks is that nothing follows the reply. 601 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
@@ -361,9 +375,11 @@ the CLI's `--sort-by` choices and the TypeScript `SortBy` union offer the same
 criteria; that `agent.types.ts` mirrors `defaults_payload`, `product_payload`
 and `run_search` field for field; that the `Dockerfile` pins the versions CI tests
 against, copies the built UI where the server looks, exposes the port it binds and
-installs the runtime dependencies only; that every ADR is indexed, numbered to
-match its heading, carries the status, date and sections ADR-0001 asks for, and
-cites only records that exist; and that the Saturday mutation run
+installs the runtime dependencies only; that every job in `ci.yml` names both a
+Windows and a Linux runner, and that it sets up exactly one Python and one Node
+for the three files that pin themselves to those; that every ADR is indexed,
+numbered to match its heading, carries the status, date and sections ADR-0001
+asks for, and cites only records that exist; and that the Saturday mutation run
 mutates the package `.coveragerc` measures, on the Python `ci.yml` pins, with
 every file these tests open -- or import from outside `buy_agent` -- named in
 mutmut's `also_copy`. A field added on one side of the language boundary and
