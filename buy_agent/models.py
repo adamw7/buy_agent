@@ -75,7 +75,13 @@ class ExtractedProduct(BaseModel):
         """Convert sentinels back into ``None`` and tidy up whitespace."""
         return Product(
             name=_clean(self.name),
-            price=self.price if self.price >= 0 else None,
+            # ``> 0`` rather than ``>= 0``, matching ``review_count``: zero is not
+            # a price anyone pays, it is the other thing a model writes when it
+            # means "unknown" and has forgotten the sentinel. Kept as a figure it
+            # is worse than a blank, because grounding only has to find a bare "0"
+            # somewhere in ten pages of "$0 shipping" and "0% APR", and ranking
+            # then scores it the cheapest in the set and hands it the top spot.
+            price=self.price if self.price > 0 else None,
             currency=_clean(self.currency).upper() or None,
             rating=self.rating if 0 <= self.rating <= 5 else None,
             review_count=self.review_count if self.review_count > 0 else None,

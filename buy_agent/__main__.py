@@ -128,7 +128,15 @@ def main(argv: list[str] | None = None) -> int:
             {"rank": entry.rank, "score": round(entry.score, 4), **entry.product.model_dump()}
             for entry in ranked
         ]
-        args.json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        try:
+            args.json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        except OSError as exc:
+            # A missing directory or a read-only path is worth an exit code and
+            # not a traceback: the report is already on stderr by now, so what
+            # failed is the copy, and a run that took a minute should not end by
+            # looking like a crash.
+            logger.error("Could not write %s (%s)", args.json, exc)
+            return 1
         logger.info("Wrote %d products to %s", len(payload), args.json)
 
     return 0

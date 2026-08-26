@@ -72,6 +72,11 @@ def caught_by_main() -> set[str]:
     Read from the source rather than triggered one at a time: what matters is the
     membership of the tuple, and a behavioural test can only ever confirm the
     entries it already knows to try.
+
+    The handlers of the ``try`` that wraps ``BuyAgent(...).run(...)``, rather than
+    every handler in the function. ``main`` also guards writing the ``--json``
+    file, and an ``OSError`` from a path the user mistyped is not one of the
+    pipeline's failure modes -- the report has already been logged by then.
     """
     tree = ast.parse((_ROOT / "buy_agent" / "__main__.py").read_text(encoding="utf-8"))
     main = next(
@@ -79,8 +84,18 @@ def caught_by_main() -> set[str]:
         for node in ast.walk(tree)
         if isinstance(node, ast.FunctionDef) and node.name == "main"
     )
+    guarding_the_run = next(
+        node
+        for node in ast.walk(main)
+        if isinstance(node, ast.Try)
+        and any(
+            isinstance(call.func, ast.Attribute) and call.func.attr == "run"
+            for call in ast.walk(node)
+            if isinstance(call, ast.Call)
+        )
+    )
     caught: set[str] = set()
-    for handler in (n for n in ast.walk(main) if isinstance(n, ast.ExceptHandler)):
+    for handler in guarding_the_run.handlers:
         named = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
         caught.update(node.id for node in named if isinstance(node, ast.Name))
     return caught - {"KeyboardInterrupt"}

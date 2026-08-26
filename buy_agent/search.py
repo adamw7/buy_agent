@@ -11,6 +11,17 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
+#: What ddgs says when every engine answered and none of them had anything. Its
+#: search path ends in ``raise DDGSException(err or "No results found.")``, so a
+#: query that simply matched nothing arrives as an exception like any other -- and
+#: turning that into :class:`SearchError` would report "the search backend could
+#: not be reached" (a 502 in the browser) for a search that worked and came back
+#: empty. Every other ``DDGSException`` carries the failing engine's own text, so
+#: the message is the discriminator ddgs itself uses. Pinned to ``ddgs==9.15.0``:
+#: if a later version rewords it, the symptom is the old 502 rather than a wrong
+#: answer, and ``tests/test_search.py`` says which string to look at.
+_NO_RESULTS = "No results found."
+
 
 class SearchError(RuntimeError):
     """Raised when the search backend could not be reached."""
@@ -38,6 +49,9 @@ class SearchResult(BaseModel):
 def search_web(query: str, *, max_results: int = 10, region: str = "us-en") -> list[SearchResult]:
     """Run a DuckDuckGo text search and return the results.
 
+    A search that reached the backend and matched nothing returns ``[]``. That is
+    an answer and not a failure, however ddgs spells it -- see :data:`_NO_RESULTS`.
+
     Raises:
         SearchError: if DuckDuckGo is unreachable or rate-limits the request.
     """
@@ -47,6 +61,9 @@ def search_web(query: str, *, max_results: int = 10, region: str = "us-en") -> l
             query, max_results=max_results, region=region
         )
     except DDGSException as exc:  # rate limits and backend failures both land here
+        if str(exc) == _NO_RESULTS:
+            logger.info("Search matched nothing for %r", query)
+            return []
         msg = f"Web search failed for {query!r}: {exc}"
         raise SearchError(msg) from exc
 

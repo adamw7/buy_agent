@@ -12,7 +12,7 @@ import logging
 import pytest
 from ddgs.exceptions import DDGSException
 
-from buy_agent.search import SearchError, SearchResult, search_web
+from buy_agent.search import _NO_RESULTS, SearchError, SearchResult, search_web
 
 
 def stub_ddgs(monkeypatch, *, results=None, error: Exception | None = None) -> dict:
@@ -91,6 +91,29 @@ def test_finding_nothing_is_an_empty_list_not_a_failure(monkeypatch) -> None:
     stub_ddgs(monkeypatch, results=[])
 
     assert search_web("something nobody sells") == []
+
+
+def test_the_way_ddgs_itself_spells_finding_nothing_is_not_a_failure(monkeypatch) -> None:
+    """ddgs raises rather than returning [], and that is not a backend failure.
+
+    ``_search_sync`` ends in ``raise DDGSException(err or "No results found.")``,
+    so a query that reached every engine and matched nothing arrives as an
+    exception like any other. Read as one it became ``SearchError`` -- "the web
+    search backend could not be reached", a 502 in the browser -- for a search
+    that worked. The empty-list case above is the fake being kinder than the
+    real thing, which is why it could not catch this on its own.
+    """
+    stub_ddgs(monkeypatch, error=DDGSException(_NO_RESULTS))
+
+    assert search_web("something nobody sells") == []
+
+
+def test_a_real_backend_failure_is_still_a_failure(monkeypatch) -> None:
+    """The message is the discriminator, so anything else keeps raising."""
+    stub_ddgs(monkeypatch, error=DDGSException("No results found. (engine timed out)"))
+
+    with pytest.raises(SearchError):
+        search_web("headphones")
 
 
 def test_the_search_and_its_result_count_are_logged(monkeypatch, caplog) -> None:
