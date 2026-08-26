@@ -52,7 +52,7 @@ from buy_agent.api import (
     product_payload,
     run_search,
 )
-from buy_agent.config import AgentConfig
+from buy_agent.config import DEFAULT_BASE_URL, DEFAULT_MODEL, AgentConfig
 from buy_agent.models import Product, RankedProduct
 from buy_agent.ranking import SortBy
 from buy_agent.server import DEFAULT_UI_DIR
@@ -319,6 +319,37 @@ def test_the_image_installs_the_runtime_dependencies_only() -> None:
     """pytest and coverage in an image are weight, and a wider surface to patch."""
     assert "requirements-dev.txt" not in dockerfile()
     assert re.search(r"^RUN pip install .* -r requirements\.txt$", dockerfile(), re.M)
+
+
+# -- the startup script --------------------------------------------------------
+
+_START = _ROOT / "scripts" / "start.ps1"
+
+
+def start_script() -> str:
+    return _START.read_text(encoding="utf-8")
+
+
+def test_the_startup_script_opens_the_page_the_server_binds() -> None:
+    """It ends by launching a browser at a literal URL. Bound anywhere else, the
+    script's last act is a browser sitting on a dead page while the console beside
+    it fills with the log lines of a server that came up perfectly well."""
+    match = re.search(r"^\$url = '(\S+)'$", start_script(), re.M)
+    assert match, "the startup script names no URL to open"
+
+    assert match.group(1) == f"http://{server_default('host')}:{server_default('port')}"
+
+
+def test_the_startup_script_asks_python_for_the_model_and_the_ollama_server() -> None:
+    """``DEFAULT_MODEL`` and ``DEFAULT_BASE_URL`` already answer to $OLLAMA_MODEL and
+    $OLLAMA_HOST, so a tag or a URL copied into the script is a second default that
+    goes stale silently: the script would pull one model and the run would ask for
+    another, or it would wait on an Ollama nothing intends to use."""
+    source = start_script()
+
+    for name, value in (("DEFAULT_MODEL", DEFAULT_MODEL), ("DEFAULT_BASE_URL", DEFAULT_BASE_URL)):
+        assert f"from buy_agent.config import {name}" in source
+        assert value not in source, f"{value} is {name}'s to say"
 
 
 # -- the Saturday mutation run -------------------------------------------------

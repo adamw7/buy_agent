@@ -129,6 +129,32 @@ JSON API and the built Angular app in `ui/`.
 Two things run and one gets built: Ollama with a model pulled, the Angular
 build, and the server that serves that build alongside the API.
 
+`scripts/start.ps1` does all three and takes no arguments:
+
+```powershell
+.\scripts\start.ps1
+```
+
+It creates `.venv` and installs `requirements.txt` if they are not there, starts
+Ollama if nothing is answering on it, pulls the default model if it is not
+pulled, builds `ui/` if there is no build, then runs the server in the
+foreground and opens the page. Each step is skipped when it is already done, so
+a second run is a few seconds. Ctrl+C stops the server -- and the Ollama too, if
+the script was what started it. It has no options on purpose: the model and the
+Ollama server are `$env:OLLAMA_MODEL` and `$env:OLLAMA_HOST` like everywhere
+else, and anything past that is a flag on the server itself, which is what the
+manual route below is for.
+
+Node is the one thing it will not install: without `npm` on PATH it says so and
+serves the API anyway, so the page is the 503 until a build exists. A PowerShell
+that refuses to run an unsigned script takes the same file the long way round:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
+```
+
+By hand, the same three things:
+
 ```powershell
 # 1. Ollama, in its own terminal -- skip it if Ollama already runs as a service
 ollama serve
@@ -321,7 +347,7 @@ cd ui; npm test               # the UI's own tests, in jsdom
 cd ui; npm run test:coverage  # the same, with a coverage floor
 ```
 
-564 Python tests and 59 UI tests. Nothing in either suite touches the network or
+569 Python tests and 59 UI tests. Nothing in either suite touches the network or
 Ollama: the model is faked through the `llm=` argument of `BuyAgent`, both the
 search backend and the page fetcher are monkeypatched, and the server tests
 inject a stub agent through `create_server(agent_factory=...)`. The only real
