@@ -3,8 +3,8 @@
 Two shapes of "product" live here on purpose:
 
 ``ExtractedProduct`` is what the LLM is asked to produce. Every field has a
-concrete type and a sentinel for "unknown" (``-1``, ``""``) rather than being
-nullable, because Ollama turns the JSON schema into a decoding grammar: a
+concrete type and a sentinel for "unknown" (``-1``, ``""``, ``[]``) rather than
+being nullable, because Ollama turns the JSON schema into a decoding grammar: a
 required ``number`` makes it structurally impossible for a small model to answer
 ``"N/A"`` and blow up validation for the whole batch.
 
@@ -22,6 +22,16 @@ from pydantic import BaseModel, Field
 _UNKNOWN_NUMBER = -1.0
 _WHITESPACE = re.compile(r"\s+")
 _PUNCTUATION = re.compile(r"[^\w\s]")
+
+#: How many opinions a product is reported with. Three is what fits a card and a
+#: log block without turning either into a review page of its own -- and asking a
+#: small model for more only trades quotes it read for quotes it wrote.
+MAX_OPINIONS = 3
+
+#: Longer than this is not a quote any more; it is the model retelling the page.
+#: An over-long one is dropped rather than cut short, the way an over-long name
+#: is: half a sentence attributed to a reviewer says something they did not.
+_MAX_OPINION_LENGTH = 240
 
 
 class ExtractedProduct(BaseModel):
@@ -50,6 +60,16 @@ class ExtractedProduct(BaseModel):
     notes: Annotated[
         str, Field(description="One short sentence on what stands out about this product.")
     ] = ""
+    opinions: Annotated[
+        list[str],
+        Field(
+            description=(
+                "Up to 3 short quotes, copied word for word from the results, saying "
+                "what this product is like to own -- praise, complaints, a verdict. "
+                "Empty list if the results give no opinion about it."
+            )
+        ),
+    ] = []
 
     def to_product(self) -> Product:
         """Convert sentinels back into ``None`` and tidy up whitespace."""
@@ -62,6 +82,7 @@ class ExtractedProduct(BaseModel):
             seller=_clean(self.seller) or None,
             url=_clean(self.url) or None,
             notes=_clean(self.notes) or None,
+            opinions=_quotes(self.opinions),
         )
 
 
@@ -91,6 +112,11 @@ class Product(BaseModel):
     review_count: int | None = None
     seller: str | None = None
     url: str | None = None
+    #: What the sources say about it, in their words. A list rather than a
+    #: nullable field: "nobody said anything" and "no opinion survived
+    #: grounding" are the same empty answer, and a second way to spell it --
+    #: ``None`` beside ``[]`` -- would be one every caller had to handle.
+    opinions: list[str] = []
     notes: str | None = None
 
     @property
@@ -121,3 +147,16 @@ class RankedProduct(BaseModel):
 
 def _clean(value: str) -> str:
     return _WHITESPACE.sub(" ", value).strip()
+
+
+def _quotes(values: list[str]) -> list[str]:
+    """Tidy the quoted opinions, dropping blanks, repeats and whole paragraphs."""
+    quotes: list[str] = []
+    for value in values:
+        quote = _clean(value)
+        if not quote or len(quote) > _MAX_OPINION_LENGTH:
+            continue
+        if any(quote.casefold() == kept.casefold() for kept in quotes):
+            continue
+        quotes.append(quote)
+    return quotes[:MAX_OPINIONS]

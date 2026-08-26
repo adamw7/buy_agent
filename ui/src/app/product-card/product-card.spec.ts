@@ -14,6 +14,7 @@ const SONY: RankedProduct = {
   seller: 'Amazon',
   url: 'https://www.example.com/sony',
   notes: 'Best noise cancelling.',
+  opinions: ['the noise cancelling is uncanny', 'the case is bulky'],
   price_label: '328.00 USD',
   rating_label: '4.7/5 (12,000 reviews)',
 };
@@ -28,6 +29,7 @@ const UNKNOWN: RankedProduct = {
   seller: null,
   url: null,
   notes: null,
+  opinions: [],
   price_label: 'price unknown',
   rating_label: 'unrated',
 };
@@ -84,6 +86,23 @@ describe('ProductCard', () => {
     const card = await render(SONY);
     expect(card.querySelector('.score')!.textContent).toContain('91');
     expect(card.querySelector<HTMLElement>('.fill')!.style.inlineSize).toBe('91%');
+  });
+
+  it('quotes what the sources said about it, one line each', async () => {
+    /* Every quote here survived grounding, so it is somebody's actual words. */
+    const quotes = (await render(SONY)).querySelectorAll('.opinions li');
+
+    expect([...quotes].map((quote) => quote.textContent!.trim())).toEqual([
+      'the noise cancelling is uncanny',
+      'the case is bulky',
+    ]);
+  });
+
+  it('shows nothing at all where the sources gave no opinion', async () => {
+    /* An empty quote block would read as a page that said nothing good. */
+    const card = await render(UNKNOWN);
+
+    expect(card.querySelector('.opinions')).toBeNull();
   });
 
   it('marks the ones that made the top of the report', async () => {

@@ -68,6 +68,7 @@ def test_every_known_field_reaches_the_report(report) -> None:
                 seller="Amazon",
                 url="https://shop.example/sony",
                 notes="Best noise cancelling.",
+                opinions=["the noise cancelling is uncanny"],
             )
         ),
         1,
@@ -81,6 +82,7 @@ def test_every_known_field_reaches_the_report(report) -> None:
     assert "seller : Amazon" in text
     assert "url    : https://shop.example/sony" in text
     assert "note   : Best noise cancelling." in text
+    assert "says   : the noise cancelling is uncanny" in text
 
 
 def test_unknown_fields_are_left_out_rather_than_shown_blank(report) -> None:
@@ -92,6 +94,7 @@ def test_unknown_fields_are_left_out_rather_than_shown_blank(report) -> None:
     assert "seller" not in text
     assert "url" not in text
     assert "note" not in text
+    assert "says" not in text
 
 
 def test_each_product_gets_its_own_numbered_block(report) -> None:
@@ -144,3 +147,13 @@ def test_verbose_leaves_httpx_alone(basic_config) -> None:
     configure_logging(verbose=True)
 
     assert logging.getLogger("httpx").level == logging.NOTSET
+
+
+def test_every_opinion_gets_its_own_line(report) -> None:
+    """Two verdicts on one line would read as one reviewer's sentence."""
+    log_top_products(
+        ranked(Product(name="Sony WH-1000XM5", opinions=["the fit is snug", "the case is bulky"])),
+        1,
+    )
+
+    assert report.text.count("says   :") == 2

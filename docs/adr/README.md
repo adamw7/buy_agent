@@ -32,6 +32,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0021](0021-carry-no-exports-the-pipeline-does-not-use.md) | Carry no exports the pipeline does not use | Accepted |
 | [0022](0022-merge-figures-in-groups.md) | Merge a listing's figures in groups, never field by field | Accepted |
 | [0023](0023-one-script-starts-everything.md) | Start the whole stack from one script, and give it nothing to decide | Accepted |
+| [0024](0024-read-and-quote-what-the-sources-say.md) | Read what the sources say about a product, and quote it word for word | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

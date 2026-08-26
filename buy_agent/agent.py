@@ -103,6 +103,7 @@ class BuyAgent:
             results = enrich(
                 results,
                 max_chars=self.config.page_chars,
+                opinion_chars=self.config.opinion_chars,
                 timeout=self.config.fetch_timeout,
             )
 

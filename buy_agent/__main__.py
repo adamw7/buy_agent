@@ -71,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=_DEFAULTS.num_ctx,
         help=f"Context window in tokens (default: {_DEFAULTS.num_ctx}). The "
-        "extraction prompt runs to ~3.3k tokens, so a larger window leaves room for "
+        "extraction prompt runs to ~4.3k tokens, so a larger window leaves room for "
         "more products; a model that need not think is fine on Ollama's own 4096.",
     )
     parser.add_argument(

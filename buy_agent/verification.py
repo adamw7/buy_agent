@@ -10,6 +10,13 @@ blanked. A blank scores neutral, whereas an invented price wins the top spot.
 
 Links are grounded the same way, and worked out here rather than read off the
 model: a product is pointed at the searched page that actually mentions it.
+
+Quoted opinions are held to the strictest bar of the three, because a quote is
+the one field where the model is asked for words rather than for a figure, and
+where being *nearly* right is being wrong: a paraphrase attributed to a reviewer
+is something nobody said. So a quote counts as supported only where the sources
+contain it as running text, not merely as a bag of words that occur somewhere
+across ten pages.
 """
 
 from __future__ import annotations
@@ -32,6 +39,21 @@ _THOUSANDS_SEPARATOR = re.compile(r"(?<=\d),(?=\d)")
 
 #: Fraction of a name's distinctive words that must appear in the sources.
 _NAME_COVERAGE = 0.6
+
+#: How a quote is compared with the sources: as overlapping runs of this many
+#: consecutive words. A word-by-word check would pass any sentence assembled out
+#: of vocabulary the pages happen to share -- "great sound, very comfortable" is
+#: five words every headphone page contains and no page need have printed in that
+#: order -- which is the substring problem :func:`mentions_name` avoids, one
+#: level up. Five words is long enough that matching one is quoting.
+_QUOTE_WINDOW = 5
+
+#: Fraction of a quote's runs that must be found. Not all of them, so that a
+#: model which tops or tails a real quote with a word of its own -- a leading
+#: "The", a trailing "too" -- is still quoting the page: that damages only the
+#: runs at one end. A word changed in the *middle* breaks every run spanning it
+#: and fails, which is the point. The middle is where a paraphrase happens.
+_QUOTE_COVERAGE = 0.6
 
 #: A rating is a small number that occurs in text for a hundred other reasons, so
 #: it counts as supported only where it is written like a rating: "4.3/5",
@@ -138,9 +160,10 @@ def drop_ungrounded(products: Sequence[Product], haystack: str) -> list[Product]
 def ground(
     products: Sequence[Product], results: Sequence[SearchResult]
 ) -> list[Product]:
-    """Keep only what the sources support: real products, figures and links."""
+    """Keep only what the sources support: real products, figures, quotes and links."""
     haystack = build_haystack(results)
     kept = verify_numbers(drop_ungrounded(products, haystack), haystack)
+    kept = verify_opinions(kept, haystack)
     return attribute_sources(kept, results)
 
 
@@ -222,4 +245,66 @@ def verify_numbers(products: Sequence[Product], haystack: str) -> list[Product]:
 
     if dropped:
         logger.info("Dropped unsupported figures on %d product(s)", dropped)
+    return verified
+
+
+def running_words(text: str) -> str:
+    """``text`` as its words alone, lowercased and single-spaced.
+
+    Comparing quotes needs the words in order and nothing between them: a page
+    prints "great sound, but heavy" where the model reports "great sound but
+    heavy", and the difference is punctuation the shopper never sees.
+    """
+    return " ".join(NAME_TOKENS.findall(text.lower()))
+
+
+def quotes_sources(haystack_words: str, quote: str) -> bool:
+    """Whether ``quote`` reads as running text out of ``haystack_words``.
+
+    The quote is cut into every run of :data:`_QUOTE_WINDOW` consecutive words
+    and each run looked for in the sources as a phrase; most of them have to be
+    there. A quote shorter than one window is its own single run, so it has to
+    appear whole.
+
+    ``haystack_words`` is :func:`running_words` of the sources, computed once by
+    the caller rather than per quote: it is every page the model was shown.
+    """
+    words = running_words(quote).split()
+    if not words:
+        return False
+    padded = f" {haystack_words} "
+    runs = [
+        " ".join(words[start : start + _QUOTE_WINDOW])
+        for start in range(max(1, len(words) - _QUOTE_WINDOW + 1))
+    ]
+    found = sum(1 for run in runs if f" {run} " in padded)
+    return found / len(runs) >= _QUOTE_COVERAGE
+
+
+def verify_opinions(products: Sequence[Product], haystack: str) -> list[Product]:
+    """Drop every quoted opinion the sources do not actually contain.
+
+    Per quote rather than per product: a model that read one verdict off the page
+    and invented a second has still read one, and the real one is worth keeping.
+    A product left with none simply has nothing said about it, which is how it
+    started out.
+    """
+    haystack_words = running_words(haystack)
+    verified: list[Product] = []
+    dropped = 0
+
+    for product in products:
+        kept = [
+            opinion
+            for opinion in product.opinions
+            if quotes_sources(haystack_words, opinion)
+        ]
+        if len(kept) != len(product.opinions):
+            dropped += len(product.opinions) - len(kept)
+            logger.debug("Unsupported opinion(s) for %r", product.name)
+            product = product.model_copy(update={"opinions": kept})
+        verified.append(product)
+
+    if dropped:
+        logger.info("Dropped %d opinion(s) the sources never printed", dropped)
     return verified

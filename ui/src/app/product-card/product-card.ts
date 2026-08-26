@@ -9,6 +9,10 @@ import type { RankedProduct } from '../agent.types';
  * anything the source pages did not actually say -- so an unknown price is shown
  * as unknown rather than quietly left out. The link comes from there too: it is
  * the page the product was found on, never one the model named.
+ *
+ * The opinions are shown as quotes because that is what they are: words a source
+ * page printed, which `verification.verify_opinions()` checked are really there.
+ * Nothing here summarises or scores them -- the browser decides nothing.
  */
 @Component({
   selector: 'app-product-card',

@@ -1,13 +1,16 @@
-"""Fetch the pages behind the search results and keep the parts that mention money.
+"""Fetch the pages behind the search results and keep the parts worth reading.
 
 DuckDuckGo snippets almost never quote a per-product price -- a search for
 headphones under $200 returns ten snippets whose only number is "$200", from the
 query itself. Extracting from snippets alone therefore yields products with no
 comparable data, and a model asked to fill that gap invents figures instead.
 
-So each result page is fetched and condensed down to the lines that actually
-carry a price or a rating. That keeps the prompt small enough for a small local
-model while giving it something real to read.
+So each result page is fetched and condensed down to two kinds of line: the ones
+that carry a price or a rating, and the ones that carry an *opinion* -- what a
+reviewer, a tester or an owner thought of the thing. A shopper's question is
+rarely only "how much"; it is also "is it any good", and no price line answers
+that. Both kinds together keep the prompt small enough for a small local model
+while giving it something real to read.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ import httpx
 from lxml import html as lxml_html
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from buy_agent.search import SearchResult
 
@@ -47,6 +50,32 @@ _RATING = re.compile(
     r"|\b(?:rated|rating)\b[^\d]{0,12}\d",
     re.IGNORECASE,
 )
+
+#: Lines that judge a product rather than price it: a verdict, a complaint, a
+#: pro or a con. Deliberately a vocabulary of *judgement* -- who is speaking
+#: ("reviewers found"), what they concluded ("the downside is") and the words
+#: only an opinion uses ("disappointing") -- and not of subject matter, which
+#: every line on a headphone page shares with every other.
+_OPINION = re.compile(
+    r"""
+      # Plural only: a singular "pro" is half the products on the page
+      # ("AirPods Pro"), while "pros and cons" is nobody's model name.
+      \b(?:pros|cons|downsides?|drawbacks?|upsides?|complaints?|verdict)\b
+    | \b(?:we|i|reviewers?|testers?|owners?|users?|buyers?|critics?)\s+
+      (?:\w+\s+){0,2}?
+      (?:like[ds]?|love[ds]?|hate[ds]?|found|felt|prefer(?:red)?|praise[ds]?
+        |complain(?:ed|ing)?|noticed|report(?:ed)?|recommend(?:ed)?|wish(?:ed)?)\b
+    | \b(?:in\s+(?:our|my)\s+tests?|hands[-\s]on|bottom\s+line|tested\s+by)\b
+    | \b(?:comfortable|uncomfortable|impressive|disappointing|excellent|superb
+        |mediocre|flimsy|sturdy|durable|underwhelming|outstanding|punchy|muddy
+        |boomy|tinny|harsh|roomy|cramped)\b
+    | \bbest\s+(?:for|value|overall)\b
+    | \bworth\s+(?:it|the)\b
+    | \bvalue\s+for\s+money\b
+    | \b(?:highly\s+)?recommend(?:ed|s)?\b
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
 _SEGMENT_BREAK = re.compile(r"[\n\r]+")
 _WHITESPACE = re.compile(r"\s+")
 
@@ -54,6 +83,11 @@ _WHITESPACE = re.compile(r"\s+")
 #: floor only excludes stray characters. The ceiling excludes walls of boilerplate.
 _MIN_SEGMENT = 4
 _MAX_SEGMENT = 300
+
+#: An opinion is a sentence, not a figure, so it gets a floor of its own. It is
+#: what keeps a bare "Pros" heading -- whose actual content is the lines *below*
+#: it, which no rule here would bring along -- out of the prompt.
+_MIN_OPINION = 25
 
 
 def html_to_text(markup: str) -> str:
@@ -69,47 +103,76 @@ def html_to_text(markup: str) -> str:
     return "\n".join(document.itertext())
 
 
-def condense(text: str, *, max_chars: int) -> str:
-    """Keep only the lines that mention a price or a rating, up to ``max_chars``.
+def condense(text: str, *, max_chars: int, opinion_chars: int = 400) -> str:
+    """Keep the lines that quote a figure or pass judgement, and nothing else.
 
-    A product page is mostly navigation and legal text. What matters for ranking
-    is the handful of lines that name a figure, so everything else is discarded
-    before the prompt is built.
+    A product page is mostly navigation and legal text. What matters is the
+    handful of lines that name a price or a rating, and the handful that say what
+    the thing is like to own, so everything else is discarded before the prompt
+    is built.
+
+    The two kinds are swept for in turn, each spending a budget of its own:
+    ``max_chars`` for the figures and ``opinion_chars`` for the opinions. A page
+    listing forty prices therefore cannot crowd the verdicts out, and a page of
+    prose cannot crowd out the price -- which is the whole reason the pages are
+    fetched. ``opinion_chars=0`` leaves the opinions unread.
+
+    Lines come back in the order the page had them, whichever sweep took them:
+    the prompt reads as an excerpt of the page rather than as two lists.
     """
     segments = [_WHITESPACE.sub(" ", raw).strip() for raw in _SEGMENT_BREAK.split(text)]
     segments = [segment for segment in segments if segment]
 
-    kept: list[str] = []
+    taken: set[int] = set()
     seen: set[str] = set()
-    size = 0
 
-    def take(segment: str) -> bool:
-        """Add a segment; False once the budget is spent."""
-        nonlocal size
-        if segment in seen or len(segment) > _MAX_SEGMENT:
+    def sweep(matches: Callable[[str], bool], *, floor: int, budget: int) -> None:
+        """Take every line ``matches`` accepts, until this sweep's budget runs out."""
+        spent = 0
+
+        def take(index: int) -> bool:
+            """Add a segment; False once the budget is spent."""
+            nonlocal spent
+            segment = segments[index]
+            # Already taken by the other sweep: kept, and paid for over there.
+            if segment in seen or len(segment) > _MAX_SEGMENT:
+                return True
+            if spent + len(segment) > budget:
+                return False
+            seen.add(segment)
+            taken.add(index)
+            spent += len(segment) + 1
             return True
-        if size + len(segment) > max_chars:
-            return False
-        seen.add(segment)
-        kept.append(segment)
-        size += len(segment) + 1
-        return True
 
-    for index, segment in enumerate(segments):
-        if not (_MIN_SEGMENT <= len(segment) <= _MAX_SEGMENT):
-            continue
-        if not (_PRICE.search(segment) or _RATING.search(segment)):
-            continue
-        # The line above a price is usually the product name it belongs to.
-        if index and not take(segments[index - 1]):
-            break
-        if not take(segment):
-            break
+        for index, segment in enumerate(segments):
+            if not (floor <= len(segment) <= _MAX_SEGMENT) or not matches(segment):
+                continue
+            # The line above is usually the product the figure or the verdict is
+            # about: shop pages put the price under the name, review pages put
+            # the verdict under the heading.
+            if index and not take(index - 1):
+                break
+            if not take(index):
+                break
 
-    return "\n".join(kept)
+    sweep(quotes_a_figure, floor=_MIN_SEGMENT, budget=max_chars)
+    sweep(reads_like_an_opinion, floor=_MIN_OPINION, budget=opinion_chars)
+    return "\n".join(segments[index] for index in sorted(taken))
 
 
-def fetch_page(client: httpx.Client, url: str, *, max_chars: int) -> str:
+def quotes_a_figure(segment: str) -> bool:
+    """Whether a line names a price or a rating -- what the ranking is made of."""
+    return bool(_PRICE.search(segment) or _RATING.search(segment))
+
+
+def reads_like_an_opinion(segment: str) -> bool:
+    """Whether a line reports a judgement about a product rather than a fact."""
+    return bool(_OPINION.search(segment))
+
+
+def fetch_page(
+    client: httpx.Client, url: str, *, max_chars: int, opinion_chars: int = 400
+) -> str:
     """Fetch one URL and condense it. Returns "" for anything that goes wrong."""
     try:
         response = client.get(url)
@@ -120,13 +183,16 @@ def fetch_page(client: httpx.Client, url: str, *, max_chars: int) -> str:
 
     if "html" not in response.headers.get("content-type", "html"):
         return ""
-    return condense(html_to_text(response.text), max_chars=max_chars)
+    return condense(
+        html_to_text(response.text), max_chars=max_chars, opinion_chars=opinion_chars
+    )
 
 
 def enrich(
     results: Sequence[SearchResult],
     *,
     max_chars: int = 1200,
+    opinion_chars: int = 400,
     timeout: float = 8.0,
     workers: int = 8,
 ) -> list[SearchResult]:
@@ -145,7 +211,12 @@ def enrich(
     ) as client:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             contents = list(
-                pool.map(lambda url: fetch_page(client, url, max_chars=max_chars), urls)
+                pool.map(
+                    lambda url: fetch_page(
+                        client, url, max_chars=max_chars, opinion_chars=opinion_chars
+                    ),
+                    urls,
+                )
             )
 
     enriched = [

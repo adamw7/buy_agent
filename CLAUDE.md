@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A shopping agent: it takes a plain-language request ("wireless headphones under
-$200"), searches the web, extracts up to 10 products, ranks them, and logs the
-top 3. Built on LangChain with a local Ollama model. `ui/` is an Angular front
+$200"), searches the web, extracts up to 10 products along with what the pages
+say about them, ranks them, and logs the top 3. Built on LangChain with a local Ollama model. `ui/` is an Angular front
 end onto the same pipeline, served by `buy_agent.server`. See `README.md` for
 usage -- it keeps the tour and links out to the longer technical sections, which
 live beside it: `docs/models.md` (keeping Ollama's models current),
@@ -77,7 +77,7 @@ named the same on the way out: `AgentConfig.reasoning` is `--think`
 `think` in both the JSON payloads and `agent.types.ts` -- the tri-state it carries
 is Ollama's thinking mode, and `None` means "send nothing and leave the model
 alone" rather than "off". It pairs with `num_ctx`: the extraction prompt runs to
-~3.3k tokens, so on Ollama's default 4096 window a thinking model reasons until
+~4.3k tokens, so on Ollama's default 4096 window a thinking model reasons until
 the context is gone and never emits any JSON. `DEFAULT_MODEL` is `gemma4:12b`,
 which thinks, so the defaults that make it answer travel with it -- `reasoning`
 is `False` and `num_ctx` is `8192` rather than the `None` each used to be. A
@@ -150,7 +150,7 @@ superseding it rather than an edit to the old one -- numbers are never reused,
 and accepted records are not rewritten. `tests/test_conventions.py` checks that
 the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0023 and every record is Accepted, so the next free number is 0024.
+to ADR-0024 and every record is Accepted, so the next free number is 0025.
 
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
 for the two steps it is reliable at, and ordinary Python does everything else,
@@ -158,8 +158,8 @@ because Ollama is typically run with small models that drive tool loops badly.
 
 ```
 request -> refine query (LLM) -> DuckDuckGo -> fetch + condense pages
-        -> extract products (LLM) -> clean_products -> ground -> deduplicate
-        -> rank -> log top 3
+        -> extract products and their opinions (LLM) -> clean_products
+        -> ground -> deduplicate -> rank -> log top 3
 ```
 
 That order is load-bearing in both joints. `clean_products` runs before `ground`
@@ -174,8 +174,8 @@ a figure with whatever only qualifies it and `_fill_gaps` moves the group.
 | --- | --- |
 | `agent.py` | `BuyAgent.run()` -- orchestrates the pipeline, translates Ollama errors |
 | `extraction.py` | Both prompts, both chains, name cleaning, deduplication |
-| `fetch.py` | Fetches result pages, keeps the lines quoting a price or rating |
-| `verification.py` | Drops products and figures absent from the sources; links what is left |
+| `fetch.py` | Fetches result pages, keeps the lines quoting a figure or passing judgement |
+| `verification.py` | Drops products, figures and quotes absent from the sources; links what is left |
 | `ranking.py` | Scoring and sorting; no LLM involved |
 | `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain) |
 | `search.py` | DuckDuckGo wrapper -- and nothing else (ADR-0021) |
@@ -183,14 +183,18 @@ a figure with whatever only qualifies it and `_fill_gaps` moves the group.
 | `api.py` | Request options in, ranked products out -- the web-facing half worth testing |
 | `server.py` | A stdlib HTTP server: the JSON API, the event stream, the built UI |
 
-Six conventions matter when changing this code:
+Seven conventions matter when changing this code:
 
 - **`ExtractedProduct` uses sentinels, `Product` uses `None`.** The LLM-facing
   schema asks for `-1`/`""` rather than nullable fields: Ollama compiles the JSON
   schema into a decoding grammar, and a required `number` makes `"N/A"` -- which
   would fail validation for the entire batch -- structurally impossible. Keep new
   extraction fields non-nullable with a sentinel, and convert in `to_product()`.
-- **Never rank on an unverified number, and never link to an unverified page.**
+  `opinions` is the one field whose sentinel survives into `Product` as itself:
+  the empty list already spells "nothing was said", and a `None` beside it would
+  be a second spelling every caller had to handle.
+- **Never rank on an unverified number, never link to an unverified page, and
+  never quote what nobody said.**
   `verification.ground()` drops products whose name is absent from the sources
   and blanks any price, rating or review count that is. Ratings need context
   ("4.3/5", "rated 4.3") because a bare `5` matches the "5" in "out of 5".
@@ -202,6 +206,21 @@ Six conventions matter when changing this code:
   blanked figure still shows as "price unknown", but a made-up link is one the
   shopper clicks. It runs inside `ground`, so `deduplicate` only ever merges
   links the sources back.
+- **A quote is checked as running text, not as words** (ADR-0024). `fetch.py`
+  sweeps each page twice -- once for the lines quoting a figure, once for the
+  lines passing judgement, each on a budget of its own (`page_chars` and
+  `opinion_chars`), so neither kind crowds the other out -- and
+  `verify_opinions()` then drops every quote the sources do not contain as
+  overlapping runs of five consecutive words, most of which must be found. A
+  word-by-word check would pass any sentence assembled out of vocabulary the
+  pages share, which is what a small model paraphrasing produces: an invented
+  price is a number nobody wrote, an invented quote is words in a reviewer's
+  mouth. The tolerance is deliberately at the ends and not in the middle -- a
+  word the model added in front breaks only the runs at that end, a word changed
+  in the middle breaks every run spanning it and fails. `_OPINION` is a
+  vocabulary of judgement ("reviewers found", "the downside is",
+  "disappointing"), never of subject matter: "wireless" or "battery" would take
+  every line on the page.
 - **A currency belongs to its price, and a review count to its rating**
   (ADR-0022). Both are facts about the *listing* that printed them, not about the
   product, so `_MERGEABLE_FIELDS` pairs them up and `_fill_gaps` carries a
@@ -210,6 +229,9 @@ Six conventions matter when changing this code:
   each half really is in the sources -- while reporting "129.00 EUR" for a page
   that said 129 and a page that said "249 EUR". A new field that only makes sense
   next to another belongs in that other's group rather than in one of its own.
+  `opinions` is deliberately outside that scheme, in `_merge_opinions`: two
+  listings' quotes are both kept, because two reviewers -- unlike two prices --
+  are not in conflict, and each quote was grounded on its own before the merge.
 - **`GENERIC_WORDS` is shared, and edits to it pull in two directions.**
   `verification.py` imports the set from `extraction.py` (along with
   `NAME_TOKENS`, so merging and grounding agree on what a name's words are).
@@ -379,18 +401,18 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 608 tests
+to EOF instead -- what it checks is that nothing follows the reply. 647 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 608 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 608 collect but 13 of the 15
-in `tests/test_start_script.py` skip, so the summary reads `595 passed, 13
+is reaching out. 647 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 647 collect but 13 of the 15
+in `tests/test_start_script.py` skip, so the summary reads `634 passed, 13
 skipped` -- nothing is missing, and the two that still run are the ones reading
-the script as text rather than through the probe. The UI's 62 tests
+the script as text rather than through the probe. The UI's 64 tests
 run in about two seconds, most of which is building the app first.
 `docs/testing.md` quotes both counts, so a new test file is two edits.
 

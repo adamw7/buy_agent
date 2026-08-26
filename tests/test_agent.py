@@ -271,7 +271,12 @@ def test_result_pages_are_fetched_by_default(
 
     agent.run("headphones")
 
-    assert calls[1] == {"enriched": 3, "max_chars": 1200, "timeout": 8.0}
+    assert calls[1] == {
+        "enriched": 3,
+        "max_chars": 1200,
+        "opinion_chars": 400,
+        "timeout": 8.0,
+    }
 
 
 def test_the_page_budget_and_timeout_are_the_config_s_own(
@@ -279,19 +284,26 @@ def test_the_page_budget_and_timeout_are_the_config_s_own(
 ) -> None:
     """Deliberately not the defaults: asserting those would pin nothing.
 
-    ``page_chars`` and ``fetch_timeout`` exist to be changed, so the test has to
-    show the config's value arriving rather than a literal that happens to match.
+    ``page_chars``, ``opinion_chars`` and ``fetch_timeout`` exist to be changed, so
+    the test has to show the config's value arriving rather than a literal that
+    happens to match.
     """
     agent, calls = agent_factory(
         FakeLLM(products=extracted_products),
         search_results,
         page_chars=777,
+        opinion_chars=99,
         fetch_timeout=2.5,
     )
 
     agent.run("headphones")
 
-    assert calls[1] == {"enriched": 3, "max_chars": 777, "timeout": 2.5}
+    assert calls[1] == {
+        "enriched": 3,
+        "max_chars": 777,
+        "opinion_chars": 99,
+        "timeout": 2.5,
+    }
 
 
 def test_fetching_can_be_turned_off(
@@ -699,3 +711,35 @@ def test_an_invented_link_never_reaches_the_report(
 
     assert ranked[0].product.url == "https://example.com/anker"
     assert "phishing.example" not in caplog.text
+
+
+def test_what_the_pages_said_reaches_the_report(agent_factory, caplog) -> None:
+    """The whole point, end to end: a quote the sources printed is reported, and
+    one the model wrote itself is gone before anybody reads it."""
+    results = [
+        SearchResult(
+            title="Sony WH-1000XM5 review",
+            url="https://example.com/sony",
+            snippet="$328, rated 4.7 out of 5. Testers found the noise cancelling uncanny.",
+        )
+    ]
+    products = ProductList(
+        products=[
+            ExtractedProduct(
+                name="Sony WH-1000XM5",
+                price=328.0,
+                opinions=[
+                    "Testers found the noise cancelling uncanny",
+                    "battery life is disappointing",
+                ],
+            )
+        ]
+    )
+    agent, _ = agent_factory(FakeLLM(products=products), results)
+
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        ranked = agent.run("headphones")
+
+    assert ranked[0].product.opinions == ["Testers found the noise cancelling uncanny"]
+    assert "says   : Testers found the noise cancelling uncanny" in caplog.text
+    assert "battery life" not in caplog.text

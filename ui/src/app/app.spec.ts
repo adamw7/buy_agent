@@ -36,6 +36,7 @@ const product = (rank: number, name: string) => ({
   seller: null,
   url: null,
   notes: null,
+  opinions: [],
   price_label: `${100 * rank}.00 USD`,
   rating_label: '4.5/5 (10 reviews)',
 });

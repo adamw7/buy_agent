@@ -74,6 +74,33 @@ h3 a:hover {
   margin: 10px 0 0;
 }
 
+/* Quotes, so they read as somebody else's words rather than the agent's. */
+.opinions {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.opinions li {
+  border-inline-start: 2px solid var(--surface-2);
+  padding: 2px 0 2px 10px;
+  color: var(--text-dim);
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+
+.opinions li + li {
+  margin-top: 6px;
+}
+
+.opinions li::before {
+  content: '\201C';
+}
+
+.opinions li::after {
+  content: '\201D';
+}
+
 .score {
   display: flex;
   align-items: center;

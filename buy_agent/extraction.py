@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from buy_agent.models import ProductList, SearchQuery
+from buy_agent.models import MAX_OPINIONS, ProductList, SearchQuery
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -55,21 +55,29 @@ EXTRACTION_PROMPT = ChatPromptTemplate.from_messages(
             "- Extract at most {limit} distinct products that match the shopper's request.\n"
             "- Only use facts present in the results. Never invent a price or a rating.\n"
             "- Unknown price or rating is -1; unknown review count is 0; unknown text "
-            "is empty.\n"
+            "is empty; no opinions is an empty list.\n"
             "- Ratings go on a 0-5 scale. Convert a 0-10 or percentage score first.\n"
             "- A name is a specific model, such as 'Sony WH-1000XM5'. Never an article "
             "headline, a shop name, or a category.\n"
+            f"- opinions are up to {MAX_OPINIONS} short quotes saying what the product "
+            "is like to own: praise, a complaint, a verdict. Copy them word for word "
+            "from the results. Never write your own, and never give a product an "
+            "opinion the results gave to a different one.\n"
             "\n"
             "Example of the naming rule, on an unrelated product:\n"
             "  TITLE: 9 Best Electric Kettles of 2026 | KitchenSite\n"
             "  SNIPPET: The Fellow Stagg EKG is $165 (4.6/5 from 3,200 ratings). "
             "The Bonavita Gooseneck is $80.\n"
-            "Correct: 'Fellow Stagg EKG' (price 165, rating 4.6, review_count 3200) "
-            "and 'Bonavita Gooseneck' (price 80, rating -1).\n"
+            "  PAGE: We loved the Stagg's precise temperature control, but the "
+            "handle gets warm.\n"
+            "Correct: 'Fellow Stagg EKG' (price 165, rating 4.6, review_count 3200, "
+            "opinions [\"We loved the Stagg's precise temperature control\", "
+            "\"the handle gets warm\"]) and 'Bonavita Gooseneck' (price 80, "
+            "rating -1, opinions []).\n"
             "Wrong: '9 Best Electric Kettles of 2026' or 'KitchenSite' -- those are "
             "the article and the website, not products.\n"
-            "The example shows the format only. Every number you report must appear "
-            "in the search results below.",
+            "The example shows the format only. Every number and every quote you "
+            "report must appear in the search results below.",
         ),
         (
             "human",
@@ -238,6 +246,7 @@ def _same_product(left: str, right: str) -> bool:
 #: "4.4/5 (12,000 reviews)" out of a 4.4 with no count and a 4.9 with one.
 #: Grounding cannot catch that, because it runs before the merge and each half
 #: really is in the sources; only the pairing is invented.
+#: ``opinions`` is deliberately not here: see :func:`_merge_opinions`.
 _MERGEABLE_FIELDS = (
     ("price", "currency"),
     ("rating", "review_count"),
@@ -260,7 +269,29 @@ def _combine(first: Product, second: Product) -> Product:
     )
     updates = _fill_gaps(winner, loser)
     updates["name"] = min(first.name, second.name, key=len)
+    updates["opinions"] = _merge_opinions(winner, loser)
     return winner.model_copy(update=updates)
+
+
+def _merge_opinions(winner: Product, loser: Product) -> list[str]:
+    """Both listings' opinions, the winner's first, without repeats.
+
+    The only field taken from both rather than from one. A price is a single
+    fact, so two listings quoting different ones are in conflict and one has to
+    win; two reviewers are not in conflict, and the shopper asking whether the
+    thing is any good is better served by both of them. Nothing is invented by
+    keeping both: each quote was grounded on its own before the merge, and a
+    quote says who it is about by being about the product, not by sitting next
+    to a figure -- which is why this needs none of the pairing care
+    :data:`_MERGEABLE_FIELDS` takes.
+    """
+    merged = list(winner.opinions)
+    folded = {opinion.casefold() for opinion in merged}
+    for opinion in loser.opinions:
+        if opinion.casefold() not in folded:
+            folded.add(opinion.casefold())
+            merged.append(opinion)
+    return merged[:MAX_OPINIONS]
 
 
 def _fill_gaps(winner: Product, loser: Product) -> dict[str, object]:
