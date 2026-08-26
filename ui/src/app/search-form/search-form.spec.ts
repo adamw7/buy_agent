@@ -226,6 +226,48 @@ describe('SearchForm', () => {
     expect(form.querySelector<HTMLInputElement>('input[name="region"]')!.value).toBe('us-en');
   });
 
+  it('keeps a served context window that nothing was remembered against', async () => {
+    /* `null` is a real remembered value for this field -- "use whatever the
+       server defaults to" -- so it cannot fall back the way the others do. That
+       must not turn an absent key into a remembered null: a settings blob
+       written before the field existed has to leave the served default standing,
+       which since gemma4 (ADR-0019) is a window the run actually needs. */
+    const withCtx: AgentDefaults = { ...DEFAULTS, num_ctx: 8192 };
+    const render = async (): Promise<HTMLElement> => {
+      const next = TestBed.createComponent(SearchForm);
+      next.componentRef.setInput('defaults', withCtx);
+      await next.whenStable();
+      return next.nativeElement as HTMLElement;
+    };
+    const numCtx = (form: HTMLElement) =>
+      form.querySelector<HTMLInputElement>('input[name="numCtx"]')!.value;
+
+    // Nothing remembered at all: every first visit.
+    expect(numCtx(await render())).toBe('8192');
+
+    // Remembered, but from before the field was one: the rest still restores.
+    localStorage.setItem('buy_agent.settings', JSON.stringify({ region: 'pl-pl' }));
+    const form = await render();
+
+    expect(numCtx(form)).toBe('8192');
+    expect(form.querySelector<HTMLInputElement>('input[name="region"]')!.value).toBe('pl-pl');
+  });
+
+  it('remembers a context window that was deliberately cleared', async () => {
+    /* ...and the other half of the same rule: a stored null wins over the
+       served default, because clearing the box is a choice -- the one the
+       placeholder spells out. */
+    const withCtx: AgentDefaults = { ...DEFAULTS, num_ctx: 8192 };
+    localStorage.setItem('buy_agent.settings', JSON.stringify({ numCtx: null }));
+
+    const next = TestBed.createComponent(SearchForm);
+    next.componentRef.setInput('defaults', withCtx);
+    await next.whenStable();
+    const form = next.nativeElement as HTMLElement;
+
+    expect(form.querySelector<HTMLInputElement>('input[name="numCtx"]')!.value).toBe('');
+  });
+
   it('still searches in a browser that refuses to store anything', async () => {
     const setItem = Storage.prototype.setItem;
     Storage.prototype.setItem = () => {

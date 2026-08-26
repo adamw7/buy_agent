@@ -196,7 +196,12 @@ export class SearchForm {
     this.top.set(number('top') ?? this.top());
     this.sortBy.set((text('sortBy') as SortBy | null) ?? this.sortBy());
     this.temperature.set(number('temperature') ?? this.temperature());
-    this.numCtx.set(number('numCtx'));
+    // The one field a remembered `null` has to win on. Cleared, this box means
+    // "whatever the server defaults to" -- what `numCtxHint` names -- which is a
+    // choice and not an absence, so it cannot fall back with `?? this.numCtx()`
+    // like the rest. Settings saved before the field existed carry no key at all,
+    // and those must leave the seeded default standing rather than blank it.
+    this.numCtx.set('numCtx' in saved ? number('numCtx') : this.numCtx());
     this.thinking.set((text('thinking') as Thinking | null) ?? this.thinking());
     if (typeof saved['fetchPages'] === 'boolean') {
       this.fetchPages.set(saved['fetchPages']);

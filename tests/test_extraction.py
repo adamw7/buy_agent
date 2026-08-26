@@ -425,3 +425,105 @@ def test_a_listing_with_a_link_beats_one_without() -> None:
     assert len(merged) == 1
     assert merged[0].notes == "from the shop", "the linked listing is the more complete one"
     assert merged[0].url == "https://shop.example/jbl"
+
+
+def test_a_currency_never_moves_to_a_price_from_another_page() -> None:
+    """Two listings, two prices: the surviving figure keeps its own currency.
+
+    Both halves are grounded -- one page really did say 129, the other really
+    did say "249 EUR" -- so verification cannot catch the pairing, which is
+    invented by the merge itself and would be reported as "129.00 EUR".
+    """
+    merged = merge_variants(
+        [
+            Product(name="Sony WH-CH720N", price=129.0, review_count=800, url="https://us/a"),
+            Product(
+                name="Sony WH-CH720N Wireless Headphones",
+                price=249.0,
+                currency="EUR",
+                review_count=90,
+                url="https://eu/b",
+            ),
+        ]
+    )
+
+    assert len(merged) == 1
+    assert merged[0].price == 129.0
+    assert merged[0].currency is None
+    assert merged[0].price_label() == "129.00"
+
+
+def test_a_review_count_never_moves_to_a_rating_from_another_page() -> None:
+    """A count is what *its own* rating was averaged over, so it stays with it.
+
+    Carried over alone it both misreports the rating -- "4.4/5 (12,000
+    reviews)" -- and lifts the popularity half of the score off a figure that
+    belongs to the 4.9 next door.
+    """
+    merged = merge_variants(
+        [
+            Product(name="Acme X1", price=100.0, rating=4.4, url="https://a"),
+            Product(name="Acme X1 Wireless", rating=4.9, review_count=12_000),
+        ]
+    )
+
+    assert len(merged) == 1
+    assert merged[0].rating == 4.4
+    assert merged[0].review_count is None
+    assert merged[0].rating_label() == "4.4/5"
+
+
+def test_a_qualifier_moves_with_the_figure_it_describes() -> None:
+    """The whole group travels when the winner had no figure to hold it."""
+    merged = merge_variants(
+        [
+            Product(name="Acme X1", rating=4.5, url="https://a"),
+            Product(name="Acme X1 Wireless", price=199.0, currency="USD"),
+        ]
+    )
+
+    assert len(merged) == 1
+    assert (merged[0].price, merged[0].currency) == (199.0, "USD")
+
+
+def test_a_qualifier_moves_when_both_pages_quote_the_same_figure() -> None:
+    """Same rating on both pages: only one of them said what it averages."""
+    merged = merge_variants(
+        [
+            Product(name="Acme X1", price=199.0, rating=4.5, url="https://a"),
+            Product(name="Acme X1 Wireless", rating=4.5, review_count=800),
+        ]
+    )
+
+    assert len(merged) == 1
+    assert merged[0].rating_label() == "4.5/5 (800 reviews)"
+
+
+def test_an_orphaned_count_is_replaced_along_with_the_rating_it_lost() -> None:
+    """Grounding blanks a rating and its count separately, so a merge can meet
+    a listing holding a count for a rating that is no longer there. Adopting the
+    other listing's rating adopts its count too, rather than pairing the new
+    figure with the leftover."""
+    merged = merge_variants(
+        [
+            Product(name="Acme X1", price=199.0, review_count=800, url="https://a"),
+            Product(name="Acme X1 Wireless", rating=4.9, review_count=12_000),
+        ]
+    )
+
+    assert len(merged) == 1
+    assert (merged[0].rating, merged[0].review_count) == (4.9, 12_000)
+
+
+def test_exact_duplicates_pair_their_figures_too() -> None:
+    """``deduplicate`` merges same-name listings on the same rule as variants."""
+    deduped = deduplicate(
+        [
+            Product(name="Sony WH-CH720N", price=129.0, review_count=800, url="https://us/a"),
+            Product(name="Sony WH-CH720N", price=249.0, currency="EUR", url="https://eu/b"),
+        ],
+        10,
+    )
+
+    assert len(deduped) == 1
+    assert (deduped[0].price, deduped[0].currency) == (129.0, None)

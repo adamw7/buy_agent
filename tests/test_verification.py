@@ -481,3 +481,49 @@ def test_a_missing_link_is_not_reported_as_dropped(caplog) -> None:
 def test_the_searched_pages_are_the_ones_with_urls() -> None:
     assert source_urls(PAGES) == {"https://shop.example/sony", "https://review.example/anker"}
     assert source_urls(SOURCES) == set()
+
+
+def test_a_model_number_is_not_found_inside_a_longer_number() -> None:
+    """The name check matches words, not substrings.
+
+    ``mentions_number`` is careful that 129 is not read out of 1299; the name
+    check has to be as careful, or the digits of an invented model number are
+    "supported" by any longer number on the page -- one "$1700" vouching for a
+    Bose 700 and a Bose 170 alike.
+    """
+    sources = [
+        SearchResult(
+            title="Bose QuietComfort Ultra review",
+            snippet="Our pick is the Bose QuietComfort Ultra at $1700 after tax.",
+        )
+    ]
+    haystack = build_haystack(sources)
+
+    assert mentions_name(haystack, "Bose QuietComfort Ultra")
+    assert not mentions_name(haystack, "Bose 700")
+    assert not mentions_name(haystack, "Bose 170")
+
+
+def test_a_hyphenated_model_number_is_still_matched_a_word_at_a_time() -> None:
+    """What the 0.6 bar exists for: the page writes less of the name than the
+    model did, and the two are split into words by the same rule either side."""
+    sources = [SearchResult(title="WH-CH720N tested", snippet="The WH-CH720N is $99.")]
+
+    assert mentions_name(build_haystack(sources), "Sony WH-CH720N Wireless")
+
+
+def test_an_invented_product_is_dropped_rather_than_grounded_on_a_substring() -> None:
+    sources = [
+        SearchResult(
+            title="Anker Soundcore Space Q45",
+            snippet="The Anker Soundcore Space Q45 is $1499 in the sale.",
+            url="https://audiosite.example/q45",
+        )
+    ]
+
+    kept = ground(
+        [Product(name="Soundcore 149"), Product(name="Anker Soundcore Space Q45")],
+        sources,
+    )
+
+    assert [product.name for product in kept] == ["Anker Soundcore Space Q45"]

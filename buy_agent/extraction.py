@@ -232,8 +232,23 @@ def _same_product(left: str, right: str) -> bool:
     return (left_tokens ^ right_tokens) <= GENERIC_WORDS
 
 
-#: Fields worth carrying over from a weaker listing for the same product.
-_MERGEABLE_FIELDS = ("price", "currency", "rating", "review_count", "seller", "url", "notes")
+#: Fields worth carrying over from a weaker listing, grouped by the figure they
+#: belong to: a leading field, then whatever only describes it.
+#:
+#: A currency is not a fact about the product but about *that listing's* price,
+#: and a review count is what *that listing's* rating was averaged over. Carried
+#: over on its own, either one describes a figure it was never printed next to --
+#: "129.00 EUR" out of a page saying 129 and a page saying "249 EUR", or
+#: "4.4/5 (12,000 reviews)" out of a 4.4 with no count and a 4.9 with one.
+#: Grounding cannot catch that, because it runs before the merge and each half
+#: really is in the sources; only the pairing is invented.
+_MERGEABLE_FIELDS = (
+    ("price", "currency"),
+    ("rating", "review_count"),
+    ("seller",),
+    ("url",),
+    ("notes",),
+)
 
 
 def _combine(first: Product, second: Product) -> Product:
@@ -252,12 +267,32 @@ def _combine(first: Product, second: Product) -> Product:
 
 
 def _fill_gaps(winner: Product, loser: Product) -> dict[str, object]:
-    """The fields ``loser`` can contribute because ``winner`` left them blank."""
-    return {
-        field: getattr(loser, field)
-        for field in _MERGEABLE_FIELDS
-        if getattr(winner, field) is None and getattr(loser, field) is not None
-    }
+    """The fields ``loser`` can contribute because ``winner`` left them blank.
+
+    A figure travels with the words that qualify it. The loser's currency or
+    review count is taken only where its price or rating is taken too, or where
+    both listings quote the same one -- never grafted onto a figure the loser
+    never printed it against.
+    """
+    updates: dict[str, object] = {}
+    for figure, *qualifiers in _MERGEABLE_FIELDS:
+        ours, theirs = getattr(winner, figure), getattr(loser, figure)
+        if ours is None and theirs is not None:
+            # The loser's whole group moves across, and any qualifier the winner
+            # was left holding goes with the blank it used to describe.
+            updates[figure] = theirs
+            updates.update({name: getattr(loser, name) for name in qualifiers})
+        elif ours is not None and ours == theirs:
+            # Both listings printed this figure, so the loser's qualifier is
+            # describing the very one being kept.
+            updates.update(
+                {
+                    name: getattr(loser, name)
+                    for name in qualifiers
+                    if getattr(winner, name) is None and getattr(loser, name) is not None
+                }
+            )
+    return updates
 
 
 def _completeness(product: Product) -> int:

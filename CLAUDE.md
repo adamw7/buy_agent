@@ -141,7 +141,9 @@ That order is load-bearing in both joints. `clean_products` runs before `ground`
 so a name still wearing its publisher suffix ("... Review | AudioSite") is not
 failed by the coverage check for tokens the page never had to contain; `ground`
 runs before `deduplicate` so `_combine` only ever merges figures the sources
-back.
+back. That is necessary and not sufficient: a merge that took each field on its
+own would still report a pairing no page printed, so `_MERGEABLE_FIELDS` groups
+a figure with whatever only qualifies it and `_fill_gaps` moves the group.
 
 | Module | Responsibility |
 | --- | --- |
@@ -156,7 +158,7 @@ back.
 | `api.py` | Request options in, ranked products out -- the web-facing half worth testing |
 | `server.py` | A stdlib HTTP server: the JSON API, the event stream, the built UI |
 
-Five conventions matter when changing this code:
+Six conventions matter when changing this code:
 
 - **`ExtractedProduct` uses sentinels, `Product` uses `None`.** The LLM-facing
   schema asks for `-1`/`""` rather than nullable fields: Ollama compiles the JSON
@@ -175,12 +177,23 @@ Five conventions matter when changing this code:
   blanked figure still shows as "price unknown", but a made-up link is one the
   shopper clicks. It runs inside `ground`, so `deduplicate` only ever merges
   links the sources back.
+- **A currency belongs to its price, and a review count to its rating.** Both are
+  facts about the *listing* that printed them, not about the product, so
+  `_MERGEABLE_FIELDS` pairs them up and `_fill_gaps` carries a qualifier over
+  only where the figure it describes is carried over too, or where both listings
+  quote the same one. Field-by-field merging passes grounding -- each half really
+  is in the sources -- while reporting "129.00 EUR" for a page that said 129 and
+  a page that said "249 EUR". A new field that only makes sense next to another
+  belongs in that other's group rather than in one of its own.
 - **`GENERIC_WORDS` is shared, and edits to it pull in two directions.**
   `verification.py` imports the set from `extraction.py` (along with
   `NAME_TOKENS`, so merging and grounding agree on what a name's words are).
   Adding a word makes `merge_variants` fold *more* names into one product, and at
   the same time makes `mentions_name` stricter -- ignored words leave fewer
-  distinctive tokens to clear the 0.6 coverage bar. Only ever add words that
+  distinctive tokens to clear the 0.6 coverage bar. Both sides of that bar are
+  split into words by `NAME_TOKENS` and compared word to word: a substring test
+  would let "$1700" on the page vouch for an invented "Bose 700", the same way a
+  bare `mentions_number` would have. Only ever add words that
   identify nothing ("wireless", "black"); a brand or a model number there would
   let an invented product pass grounding.
 - **Missing data scores neutral, not zero.** `ranking.NEUTRAL` is 0.5, and an
@@ -327,13 +340,13 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 569 tests
+to EOF instead -- what it checks is that nothing follows the reply. 578 tests
 run in about three seconds: most of that is the one
 test that spawns an interpreter to check `python -m buy_agent` still runs as a
 script, plus 0.7s of deliberate `StubAgent.delay` in the two server tests that
 need a run to still be going -- the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. The UI's 59 tests
+is reaching out. The UI's 61 tests
 run in about two seconds, most of which is building the app first. `README.md`
 quotes both counts, so a new test file is two edits.
 
