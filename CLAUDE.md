@@ -71,7 +71,8 @@ the context is gone and never emits any JSON. `DEFAULT_MODEL` is `gemma4:12b`,
 which thinks, so the defaults that make it answer travel with it -- `reasoning`
 is `False` and `num_ctx` is `8192` rather than the `None` each used to be. A
 model that cannot think ignores both; one that wants its own behaviour back is
-given `num_ctx=None, reasoning=None`, which is the only way to send nothing. `buy_agent.server` wants the
+given `num_ctx=None, reasoning=None`, which is the only way to send nothing and
+is reachable from neither front end (ADR-0019). `buy_agent.server` wants the
 UI built first: without `ui/dist/ui/browser` the API still answers and the page
 is a 503 saying how to build it (`--ui-dir` points at a build elsewhere).
 
