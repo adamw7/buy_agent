@@ -466,15 +466,56 @@ def test_a_negative_content_length_does_not_desync_the_connection(server: str) -
 
 
 def test_a_path_that_cannot_name_a_file_is_answered_not_dropped(tmp_path: Path) -> None:
-    """An encoded NUL makes resolve() raise, and an exception here writes nothing.
+    """An encoded NUL cannot name a file, and it is answered rather than dropped.
 
     The browser cannot tell a dropped socket from a server that died, so the path
     that cannot name a file is answered the way every other one is.
+
+    The two platforms reach that answer down different lines. On POSIX
+    ``resolve()`` raises ValueError on the NUL and ``_resolve`` catches it; on
+    Windows ``ntpath.realpath`` hands a non-strict caller the path back
+    unchanged, and it is ``is_file()`` -- which swallows the same ValueError --
+    that sends it on to the app. Only the answer is common to both, so only the
+    answer is asserted here; the branch itself is
+    ``test_a_path_the_platform_refuses_to_resolve_is_answered_not_dropped``.
     """
     (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
 
     with serving(tmp_path) as base:
         reply = ask(base, "/main%00.js")
+
+    assert "200" in reply.splitlines()[0]
+    assert "<app-root>" in reply
+
+
+def test_a_path_the_platform_refuses_to_resolve_is_answered_not_dropped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same answer, with the failure provoked rather than hoped for.
+
+    ``_resolve`` catches OSError and ValueError because an exception there
+    escapes to socketserver, which drops the socket without a reply. Which
+    inputs actually raise is the platform's business -- the encoded NUL above
+    raises on POSIX and does not on Windows -- so the input that used to stand in
+    for "resolve() will not answer" left the branch unrun on the platform this
+    project is written on, and the test above passing said nothing about it.
+    Making resolve() refuse outright is the only way to ask both platforms the
+    same question.
+    """
+    (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
+    resolve = Path.resolve
+
+    def refuse(self: Path, *args: Any, **kwargs: Any) -> Path:
+        # The ui_dir resolve() on the line above the try has to keep working, or
+        # the exception is raised somewhere this branch does not cover.
+        if self.name == "main.js":
+            raise OSError("the platform will not resolve this")
+        return resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", refuse)
+
+    with serving(tmp_path) as base:
+        reply = ask(base, "/main.js")
 
     assert "200" in reply.splitlines()[0]
     assert "<app-root>" in reply

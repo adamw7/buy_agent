@@ -57,6 +57,23 @@ has to pass all four.
 The differences above are now checked rather than assumed, and `start.ps1` is
 finally exercised on the platform it was written for.
 
+The first run found one immediately, and it is the shape worth recording: the
+whole suite passed on Windows, and coverage came back at 99% rather than 100%.
+`server._resolve` catches `OSError` and `ValueError` around `Path.resolve`
+because an exception there escapes to socketserver, which drops the socket
+without a reply; the test for it asked for `/main%00.js`, an encoded NUL, and
+asserted the answer. On POSIX `resolve()` raises on the NUL and the branch runs.
+On Windows `ntpath.realpath` hands a non-strict caller the path back unchanged
+(gh-106242) and `is_file()` swallows the same `ValueError` further down, so the
+request reaches the identical answer without ever entering the `except`. A green
+test, the right answer, and a defensive branch that had never run on the machine
+this project is written on. The fix is a second test that makes `resolve()`
+refuse outright, so both platforms are asked the same question; the first test
+stays, because the answer is what a browser sees.
+
+That is the argument for the job in one example. No amount of testing on Linux
+finds it, because on Linux nothing is wrong.
+
 CI costs roughly twice what it did, and the Windows runs are the slower halves --
 Windows runners are slower to start and `npm ci` is slower on NTFS. This is the
 price of the coverage and it is paid on every push. If it ever needs trimming,

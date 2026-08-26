@@ -287,7 +287,14 @@ Four things there are load-bearing:
 `server._CONTENT_TYPES` spells out the types `ng build` emits rather than leaving
 them to `mimetypes`, which reads the registry on Windows and can answer
 `text/plain` for `.js` -- which a browser refuses to run as a module, leaving a
-blank page and no error.
+blank page and no error. `_resolve` is the other place the platform shows
+through: it catches `OSError` and `ValueError` around `Path.resolve` because an
+exception there escapes to socketserver, which drops the socket without a reply.
+An encoded NUL raises there on POSIX and does not on Windows, where
+`ntpath.realpath` returns the path unchanged and `is_file()` swallows the error
+instead -- same answer, different line -- so the branch is tested by making
+`resolve()` refuse outright rather than by an input only one platform rejects
+(ADR-0020).
 
 `_SECURITY_HEADERS` goes out on every response, and its CSP is `'self'` throughout
 because the app is served whole from one origin -- `'unsafe-inline'` for styles
@@ -347,7 +354,7 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 600 tests
+to EOF instead -- what it checks is that nothing follows the reply. 601 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
