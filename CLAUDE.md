@@ -340,11 +340,12 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 578 tests
-run in about three seconds: most of that is the one
-test that spawns an interpreter to check `python -m buy_agent` still runs as a
-script, plus 0.7s of deliberate `StubAgent.delay` in the two server tests that
-need a run to still be going -- the keepalive ping, and two streams overlapping.
+to EOF instead -- what it checks is that nothing follows the reply. 595 tests
+run in about three and a half seconds: most of that is the two
+tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
+as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
+0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
+still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
 is reaching out. The UI's 61 tests
 run in about two seconds, most of which is building the app first. `README.md`
@@ -368,7 +369,7 @@ every file these tests open -- or import from outside `buy_agent` -- named in
 mutmut's `also_copy`. A field added on one side of the language boundary and
 forgotten on the other is otherwise invisible to both suites.
 
-Both scripts in `scripts/` are tested like the rest, by the same rule as
+Both Python scripts in `scripts/` are tested like the rest, by the same rule as
 `clean_products`: whatever decides an answer belongs where it is testable rather
 than in a workflow's shell or a one-off run. `mutation_report.py`
 (`tests/test_mutation_report.py`) decides whether a mutation run passes;
@@ -379,15 +380,33 @@ thing in `scripts/` that imports from `buy_agent` (`config` for the `$OLLAMA_HOS
 defaults), which is why it is run as `python -m scripts.update_ollama` from the
 repository root rather than by path.
 
-`scripts/start.ps1` is the exception: PowerShell, and no pytest reaches it. It is
-the README's "Starting it on localhost" as one command with no arguments --
-venv, Ollama, `ollama pull`, `ng build`, the server, the browser, each step
-skipped when it is already done. It decides nothing the rest of the project
-decides: the model and the Ollama server are read out of `buy_agent.config` with
-a `python -c`, so `$OLLAMA_MODEL` and `$OLLAMA_HOST` still reach it and no
-default is written down twice. `tests/test_conventions.py` holds both halves of
-that -- neither constant's value appears in the script, and the URL it opens a
-browser at is the one `server.build_parser` binds.
+`scripts/start.ps1` is the README's "Starting it on localhost" as one command
+with no arguments -- venv, Ollama, `ollama pull`, `ng build`, the server, the
+browser, each step skipped when it is already done. It decides nothing the rest
+of the project decides: the model and the Ollama server are read out of
+`buy_agent.config` with a `python -c`, so `$OLLAMA_MODEL` and `$OLLAMA_HOST`
+still reach it and no default is written down twice. Its four agreements with the
+rest of the project are in `tests/test_conventions.py` with the other cross-file
+rules -- neither constant's value appears in the script, the URL it opens a
+browser at is the one `server.build_parser` binds, the build it probes for is the
+one `server.DEFAULT_UI_DIR` serves, and the Python and Node it sends you to
+install are the ones `ci.yml` pins.
+
+The script itself is tested by `tests/test_start_script.py`, which cannot run it
+-- it installs, downloads, starts two servers and opens a browser -- and so does
+everything short of that through `tests/start_script_probe.ps1`. The probe parses
+the script into an AST, lifts the function definitions out of that AST and
+dot-sources them on their own, leaving the body unrun, then writes what it found
+and what those functions did as one JSON document: `Run` is given this suite's own
+interpreter, so its `$LASTEXITCODE` check is exercised against a real process, and
+`Answers` is given a stubbed `Invoke-WebRequest` and a clock that only moves when
+it sleeps, so its polling loop is exercised without a network or a wait. The AST
+is also what enforces the rule the script's own error handling rests on: every
+program it runs goes through `Run`, since a native command that fails raises
+nothing whatever `$ErrorActionPreference` says. One PowerShell process for the
+whole module, because starting one costs about as long as the rest of the suite
+takes; `pwsh` or `powershell`, whichever is on PATH, and the module skips where
+there is neither -- which is not Windows and not the runner CI uses.
 
 ## Environment
 

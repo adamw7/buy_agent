@@ -37,7 +37,7 @@ import inspect
 import re
 import sys
 from configparser import ConfigParser
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import get_args
 
 import pytest
@@ -350,6 +350,31 @@ def test_the_startup_script_asks_python_for_the_model_and_the_ollama_server() ->
     for name, value in (("DEFAULT_MODEL", DEFAULT_MODEL), ("DEFAULT_BASE_URL", DEFAULT_BASE_URL)):
         assert f"from buy_agent.config import {name}" in source
         assert value not in source, f"{value} is {name}'s to say"
+
+
+def test_the_startup_script_looks_for_the_build_the_server_serves() -> None:
+    """It skips the Angular build when one is already there, and the server answers
+    with a 503 telling you to build the UI when ``DEFAULT_UI_DIR`` is empty. Two
+    paths, so two ways to disagree: probe a path the build no longer writes and
+    every run rebuilds it; probe one the server does not read and the script opens
+    a browser at that 503, with nothing on the console to say why."""
+    match = re.search(r"^\$built = Join-Path \$root '(\S+)'$", start_script(), re.M)
+    assert match, "the startup script probes nothing before rebuilding the UI"
+
+    probed = PurePosixPath(match.group(1).replace("\\", "/"))
+    assert probed.parent.as_posix() == DEFAULT_UI_DIR.relative_to(_ROOT).as_posix()
+    assert probed.name == "index.html", "a build is a directory; a page is what proves it"
+
+
+def test_the_startup_script_names_the_toolchains_ci_pins() -> None:
+    """The two things it will not install, it says where to get -- and a version
+    named there is a fourth copy of what ci.yml sets up, the Dockerfile pins and
+    README quotes. Sending someone to install a Python or a Node no job has run is
+    the one kind of stale that costs a download to find out about."""
+    source = start_script()
+
+    assert f"Python {ci_version('python-version')}" in source
+    assert f"Node {ci_version('node-version')}" in source
 
 
 # -- the Saturday mutation run -------------------------------------------------

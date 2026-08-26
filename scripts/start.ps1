@@ -85,8 +85,12 @@ try {
 
     # The defaults live in one place and read $OLLAMA_MODEL / $OLLAMA_HOST there;
     # a tag repeated here would be a second default, silently disagreeing.
-    $model = & $python -c 'from buy_agent.config import DEFAULT_MODEL; print(DEFAULT_MODEL)'
-    $ollama = (& $python -c 'from buy_agent.config import DEFAULT_BASE_URL; print(DEFAULT_BASE_URL)').TrimEnd('/')
+    $model = Run $python @(
+        '-c', 'from buy_agent.config import DEFAULT_MODEL; print(DEFAULT_MODEL)'
+    ) 'could not read DEFAULT_MODEL out of buy_agent.config'
+    $ollama = (Run $python @(
+        '-c', 'from buy_agent.config import DEFAULT_BASE_URL; print(DEFAULT_BASE_URL)'
+    ) 'could not read DEFAULT_BASE_URL out of buy_agent.config').TrimEnd('/')
 
     Step "Ollama at $ollama"
     if (Answers $ollama 1) {
