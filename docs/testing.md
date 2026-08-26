@@ -14,7 +14,7 @@ cd ui; npm test               # the UI's own tests, in jsdom
 cd ui; npm run test:coverage  # the same, with a coverage floor
 ```
 
-601 Python tests and 61 UI tests. Nothing in either suite touches the network or
+602 Python tests and 61 UI tests. Nothing in either suite touches the network or
 Ollama: the model is faked through the `llm=` argument of `BuyAgent`, both the
 search backend and the page fetcher are monkeypatched, and the server tests
 inject a stub agent through `create_server(agent_factory=...)`. The only real
@@ -28,7 +28,8 @@ coverage that high stops being a useful signal on its own, so
 `tests/test_conventions.py` asserts the rules that hold *between* modules --
 the three places a failure mode has to be listed, the four places a sort
 criterion has to be offered, the payloads `ui/src/app/agent.types.ts`
-mirrors, the `Dockerfile` agreeing with CI and with the server's own defaults, and
+mirrors, the `Dockerfile` agreeing with CI and with the server's own defaults,
+the two workflows agreeing on the version of every action they share, and
 the decision log agreeing with its own index -- which no amount of per-module
 coverage can protect.
 
