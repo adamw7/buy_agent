@@ -67,8 +67,11 @@ named the same on the way out: `AgentConfig.reasoning` is `--think`
 is Ollama's thinking mode, and `None` means "send nothing and leave the model
 alone" rather than "off". It pairs with `num_ctx`: the extraction prompt runs to
 ~3.3k tokens, so on Ollama's default 4096 window a thinking model reasons until
-the context is gone and never emits any JSON. A thinking model wants `--no-think`,
-a bigger `--num-ctx` (8192 is a good start), or both. `buy_agent.server` wants the
+the context is gone and never emits any JSON. `DEFAULT_MODEL` is `gemma4:12b`,
+which thinks, so the defaults that make it answer travel with it -- `reasoning`
+is `False` and `num_ctx` is `8192` rather than the `None` each used to be. A
+model that cannot think ignores both; one that wants its own behaviour back is
+given `num_ctx=None, reasoning=None`, which is the only way to send nothing. `buy_agent.server` wants the
 UI built first: without `ui/dist/ui/browser` the API still answers and the page
 is a 503 saying how to build it (`--ui-dir` points at a build elsewhere).
 
@@ -322,13 +325,13 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 559 tests
+to EOF instead -- what it checks is that nothing follows the reply. 564 tests
 run in about three seconds: most of that is the one
 test that spawns an interpreter to check `python -m buy_agent` still runs as a
 script, plus 0.7s of deliberate `StubAgent.delay` in the two server tests that
 need a run to still be going -- the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. The UI's 58 tests
+is reaching out. The UI's 59 tests
 run in about two seconds, most of which is building the app first. `README.md`
 quotes both counts, so a new test file is two edits.
 

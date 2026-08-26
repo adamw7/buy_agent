@@ -30,7 +30,7 @@ Everything runs locally; no API keys, no accounts.
 ```powershell
 # 1. Ollama, with a model pulled
 ollama serve
-ollama pull llama3.2
+ollama pull gemma4:12b
 
 # 2. Python environment
 python -m venv .venv
@@ -77,39 +77,44 @@ python -m buy_agent "running shoes" --sort-by price --json results.json
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--model` | `llama3.2` (or `$OLLAMA_MODEL`) | Ollama model tag |
+| `--model` | `gemma4:12b` (or `$OLLAMA_MODEL`) | Ollama model tag |
 | `--base-url` | `http://localhost:11434` (or `$OLLAMA_HOST`) | Ollama server |
 | `--results` | `10` | How many products to find |
 | `--top` | `3` | How many to log |
 | `--sort-by` | `score` | `score`, `price` or `rating` |
 | `--region` | `us-en` | Search region, e.g. `uk-en`, `pl-pl` |
-| `--num-ctx` | Ollama's own (usually 4096) | Context window in tokens |
-| `--think` / `--no-think` | leave the model alone | Force thinking mode on or off |
+| `--num-ctx` | `8192` | Context window in tokens |
+| `--think` / `--no-think` | `--no-think` | Force thinking mode on or off |
 | `--no-fetch` | off | Use search snippets only, without opening the result pages |
 | `--json` | -- | Also write every result to a JSON file |
 | `-v` | off | Debug logging |
 
 ### Thinking models
 
-A thinking model (`qwen3.5`, `gemma4`, `lfm2.5` -- anything listing the `thinking`
-capability) needs `--no-think`, and is worth giving `--num-ctx 8192` as well:
+The default is one, so the two settings a thinking model needs are the defaults
+too: thinking off, and an 8192-token window. Left to itself such a model fails.
+The extraction prompt runs to roughly 3.3k tokens, so inside Ollama's own
+4096-token window the model spends what is left thinking, gets cut off before it
+writes any JSON, and the run ends with `Invalid json output:` and nothing after
+the colon. The wider window is also what gets you the full ten products rather
+than five.
+
+That is why `--no-think` and `--num-ctx 8192` are no longer worth typing --
+`qwen3.5`, `gemma4`, `lfm2.5`, anything listing the `thinking` capability, is
+already covered. A model that cannot think ignores both, so switching to one
+costs nothing; only a model you specifically want to hear reasoning from wants
+the flags back:
 
 ```powershell
-python -m buy_agent "wireless headphones under $200" --model qwen3.5:9b --no-think --num-ctx 8192
+python -m buy_agent "wireless headphones under $200" --model qwen3.5:9b --think
 ```
-
-Left to itself it fails. The extraction prompt runs to roughly 3.3k tokens, so
-inside Ollama's default 4096-token window the model spends what is left thinking,
-gets cut off before it writes any JSON, and the run ends with `Invalid json
-output:` and nothing after the colon. The wider window is what gets you the full
-ten products rather than five.
 
 As a library:
 
 ```python
 from buy_agent import AgentConfig, BuyAgent
 
-agent = BuyAgent(AgentConfig(model="llama3.2", top_n=3))
+agent = BuyAgent(AgentConfig(model="gemma4:12b", top_n=3))
 ranked = agent.run("noise cancelling headphones under $200")   # logs the top 3
 print(ranked[0].product.name, ranked[0].score)                 # returns all of them
 ```
@@ -127,7 +132,7 @@ build, and the server that serves that build alongside the API.
 ```powershell
 # 1. Ollama, in its own terminal -- skip it if Ollama already runs as a service
 ollama serve
-ollama pull llama3.2               # once; pulled tags are what the Model dropdown lists
+ollama pull gemma4:12b             # once; pulled tags are what the Model dropdown lists
 
 # 2. The UI, built once -- and again after any change under ui/src
 cd ui
@@ -316,7 +321,7 @@ cd ui; npm test               # the UI's own tests, in jsdom
 cd ui; npm run test:coverage  # the same, with a coverage floor
 ```
 
-559 Python tests and 58 UI tests. Nothing in either suite touches the network or
+564 Python tests and 59 UI tests. Nothing in either suite touches the network or
 Ollama: the model is faked through the `llm=` argument of `BuyAgent`, both the
 search backend and the page fetcher are monkeypatched, and the server tests
 inject a stub agent through `create_server(agent_factory=...)`. The only real

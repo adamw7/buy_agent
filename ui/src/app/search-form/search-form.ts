@@ -65,6 +65,12 @@ export class SearchForm {
     () => this.defaults()?.sort_options ?? ['score', 'price', 'rating'],
   );
 
+  /** Cleared, the field means "whatever the server defaults to" -- so name it. */
+  protected readonly numCtxHint = computed(() => {
+    const fallback = this.defaults()?.num_ctx;
+    return fallback ? `The default (${fallback})` : "Ollama's own (4096)";
+  });
+
   /**
    * What the model dropdown offers: everything `ollama list` reported, plus the
    * name currently chosen if that is not among them.

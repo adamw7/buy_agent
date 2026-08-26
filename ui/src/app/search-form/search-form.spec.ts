@@ -76,6 +76,20 @@ describe('SearchForm', () => {
     expect(element<HTMLInputElement>('input[name="fetch"]').checked).toBe(true);
   });
 
+  it('names the default the context field falls back to when cleared', async () => {
+    const field = () => element<HTMLInputElement>('input[name="numCtx"]');
+    expect(field().placeholder).toBe("Ollama's own (4096)");
+
+    const wide = TestBed.createComponent(SearchForm);
+    wide.componentRef.setInput('defaults', { ...DEFAULTS, num_ctx: 8192 });
+    await wide.whenStable();
+
+    const placeholder = (wide.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+      'input[name="numCtx"]',
+    )!.placeholder;
+    expect(placeholder).toBe('The default (8192)');
+  });
+
   it('will not search for nothing', async () => {
     expect(element<HTMLButtonElement>('button[type="submit"]').disabled).toBe(true);
     await type('input[name="request"]', '  ');
