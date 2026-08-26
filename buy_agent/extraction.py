@@ -177,26 +177,20 @@ def deduplicate(products: Sequence[Product], limit: int) -> list[Product]:
 
     Search results overlap heavily -- the same headphones show up on three sites --
     so without this the top 3 can be one product listed three times.
-    """
-    # Insertion-ordered, so the first sighting of a product keeps its place in
-    # the search results' own ranking however many later listings merge into it.
-    best: dict[str, Product] = {}
-    for product in products:
-        key = product.dedup_key
-        if not key:
-            continue
-        if key not in best:
-            best[key] = product
-            continue
-        # Two listings of the same name are two pages describing one product, and
-        # each may be the only one that quoted a figure. Keep the fuller listing's
-        # name and wording, but take whatever it left blank from the other.
-        incumbent = best[key]
-        if _completeness(product) > _completeness(incumbent):
-            incumbent, product = product, incumbent
-        best[key] = incumbent.model_copy(update=_fill_gaps(incumbent, product))
 
-    deduped = merge_variants(list(best.values()))
+    One pass of :func:`merge_variants` does all of it. An exact repeat of a name
+    is only the easiest case of a name differing by descriptive words: two
+    spellings of one name have the same distinctive tokens, so their difference
+    is empty and vacuously generic. Matching exact names first, in a pass of
+    their own, would be the same merge decided by a second and subtly different
+    rule about whose name survives it.
+
+    A product whose name has nothing to identify it by -- punctuation, or
+    nothing at all -- is dropped rather than kept as its own entry: it can be
+    neither merged nor reported.
+    """
+    named = [product for product in products if product.dedup_key]
+    deduped = merge_variants(named)
     dropped = len(products) - len(deduped)
     if dropped:
         logger.info("Merged %d duplicate listing(s)", dropped)
@@ -204,11 +198,13 @@ def deduplicate(products: Sequence[Product], limit: int) -> list[Product]:
 
 
 def merge_variants(products: Sequence[Product]) -> list[Product]:
-    """Fold together names that differ only by descriptive words.
+    """Fold together names that identify the same thing.
 
-    Exact-name deduplication misses the common case where one page calls it
+    Matching names exactly would miss the common case where one page calls it
     "Sony WH-CH720N" and the next "Sony WH-CH720N Noise Canceling Wireless
     Headphones", which would otherwise take two of the three reported slots.
+    Names that differ by nothing at all are the same case with an empty
+    difference, so this is the only pass :func:`deduplicate` needs.
     """
     merged: list[Product] = []
     for product in products:
@@ -255,8 +251,9 @@ def _combine(first: Product, second: Product) -> Product:
     """Merge two listings for one product.
 
     The name and the data are decided separately: the shorter name reads better,
-    while the figures come from whichever listing filled in more of them, with a
-    tie going to the one that ranked higher in the search results.
+    while the figures come from whichever listing filled in more of them. Both
+    ties go to ``first``, which is the listing that ranked higher in the search
+    results -- so two spellings of one length keep the one seen first.
     """
     winner, loser = (
         (first, second) if _completeness(first) >= _completeness(second) else (second, first)

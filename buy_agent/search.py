@@ -1,14 +1,13 @@
-"""Web search, exposed as a LangChain tool over DuckDuckGo (no API key needed)."""
+"""Web search over DuckDuckGo (no API key needed)."""
 
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Any
+from typing import Any
 
 from ddgs import DDGS
 from ddgs.exceptions import DDGSException
-from langchain_core.tools import tool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -61,21 +60,3 @@ def search_web(query: str, *, max_results: int = 10, region: str = "us-en") -> l
     ]
     logger.info("Search returned %d results", len(results))
     return results
-
-
-@tool("search_products", parse_docstring=True)
-def search_products_tool(
-    query: Annotated[str, Field(description="A shopping-oriented web search query.")],
-    max_results: int = 10,
-) -> str:
-    """Search the web for products matching a query.
-
-    Args:
-        query: A shopping-oriented web search query.
-        max_results: How many results to return.
-
-    Returns:
-        The search results as newline-separated title/url/snippet blocks.
-    """
-    results = search_web(query, max_results=max_results)
-    return "\n\n".join(result.as_prompt_block() for result in results)
