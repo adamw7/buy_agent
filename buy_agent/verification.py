@@ -100,6 +100,14 @@ def mentions_name(haystack: str, name: str) -> bool:
     is really checked is the brand and model number. Most of them must be there,
     not all, because a page may write "WH-CH720N" where the model wrote
     "Sony WH-CH720N Wireless".
+
+    Both sides are broken into words by the same rule, and a word counts only
+    where the page has it as a word of its own. A plain substring test would let
+    the digits of an invented model number be "found" inside an unrelated one --
+    a page quoting "$1700" would vouch for a "Bose 700" and a "Bose 170" alike,
+    which is exactly the invention this module exists to catch. Splitting the
+    haystack still keeps the case the loose bar is here for: "WH-CH720N" is the
+    two words "wh" and "ch720n" on both sides of the comparison.
     """
     tokens = [
         token
@@ -108,8 +116,8 @@ def mentions_name(haystack: str, name: str) -> bool:
     ]
     if not tokens:
         return False
-    lowered = haystack.lower()
-    found = sum(1 for token in tokens if token in lowered)
+    words = frozenset(NAME_TOKENS.findall(haystack.lower()))
+    found = sum(1 for token in tokens if token in words)
     return found / len(tokens) >= _NAME_COVERAGE
 
 

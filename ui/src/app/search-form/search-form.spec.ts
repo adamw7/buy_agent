@@ -212,6 +212,37 @@ describe('SearchForm', () => {
     expect(form.querySelector<HTMLInputElement>('input[name="region"]')!.value).toBe('us-en');
   });
 
+  it('keeps a served context window that nothing was remembered against', async () => {
+    /* `null` is a real remembered value for this field -- "leave Ollama's own
+       window alone" -- so it cannot fall back the way the others do. That must
+       not turn an absent key into a remembered null: a settings blob written
+       before the field existed has to leave the served default standing. */
+    const withCtx: AgentDefaults = { ...DEFAULTS, num_ctx: 8192 };
+    localStorage.setItem('buy_agent.settings', JSON.stringify({ region: 'pl-pl' }));
+
+    const next = TestBed.createComponent(SearchForm);
+    next.componentRef.setInput('defaults', withCtx);
+    await next.whenStable();
+    const form = next.nativeElement as HTMLElement;
+
+    expect(form.querySelector<HTMLInputElement>('input[name="numCtx"]')!.value).toBe('8192');
+    expect(form.querySelector<HTMLInputElement>('input[name="region"]')!.value).toBe('pl-pl');
+  });
+
+  it('remembers a context window that was deliberately cleared', async () => {
+    /* ...and the other half of the same rule: a stored null wins over the
+       served default, because clearing the box is a choice. */
+    const withCtx: AgentDefaults = { ...DEFAULTS, num_ctx: 8192 };
+    localStorage.setItem('buy_agent.settings', JSON.stringify({ numCtx: null }));
+
+    const next = TestBed.createComponent(SearchForm);
+    next.componentRef.setInput('defaults', withCtx);
+    await next.whenStable();
+    const form = next.nativeElement as HTMLElement;
+
+    expect(form.querySelector<HTMLInputElement>('input[name="numCtx"]')!.value).toBe('');
+  });
+
   it('still searches in a browser that refuses to store anything', async () => {
     const setItem = Storage.prototype.setItem;
     Storage.prototype.setItem = () => {
