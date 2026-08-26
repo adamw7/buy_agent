@@ -31,6 +31,7 @@ python -m buy_agent "espresso machine" --model lfm2.5 -v
 python -m buy_agent "running shoes" --sort-by price --json results.json
 
 python -m buy_agent.server                    # the UI and its API on :8000
+.\scripts\start.ps1                           # ...or all of it from cold, no arguments
 
 python -m scripts.update_ollama               # re-pull Ollama's models, report what moved
 
@@ -326,7 +327,7 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 564 tests
+to EOF instead -- what it checks is that nothing follows the reply. 569 tests
 run in about three seconds: most of that is the one
 test that spawns an interpreter to check `python -m buy_agent` still runs as a
 script, plus 0.7s of deliberate `StubAgent.delay` in the two server tests that
@@ -364,6 +365,16 @@ a digest that moved between the listing before the pulls and the one after, sinc
 thing in `scripts/` that imports from `buy_agent` (`config` for the `$OLLAMA_HOST`
 defaults), which is why it is run as `python -m scripts.update_ollama` from the
 repository root rather than by path.
+
+`scripts/start.ps1` is the exception: PowerShell, and no pytest reaches it. It is
+the README's "Starting it on localhost" as one command with no arguments --
+venv, Ollama, `ollama pull`, `ng build`, the server, the browser, each step
+skipped when it is already done. It decides nothing the rest of the project
+decides: the model and the Ollama server are read out of `buy_agent.config` with
+a `python -c`, so `$OLLAMA_MODEL` and `$OLLAMA_HOST` still reach it and no
+default is written down twice. `tests/test_conventions.py` holds both halves of
+that -- neither constant's value appears in the script, and the URL it opens a
+browser at is the one `server.build_parser` binds.
 
 ## Environment
 
