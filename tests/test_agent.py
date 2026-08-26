@@ -336,9 +336,17 @@ def test_the_ollama_address_reaches_the_chat_model(recorded_chat_ollama) -> None
     assert recorded_chat_ollama["base_url"] == "http://ollama.internal:11434"
 
 
-def test_thinking_and_context_are_left_alone_by_default(recorded_chat_ollama) -> None:
-    """None means "send nothing": a model that cannot think must not be told to."""
+def test_the_defaults_reach_the_chat_model(recorded_chat_ollama) -> None:
+    """DEFAULT_MODEL thinks, so the defaults that make it usable have to arrive."""
     BuyAgent(AgentConfig())
+
+    assert recorded_chat_ollama["num_ctx"] == 8192
+    assert recorded_chat_ollama["reasoning"] is False
+
+
+def test_thinking_and_context_can_be_left_alone(recorded_chat_ollama) -> None:
+    """None means "send nothing": a model that cannot think must not be told to."""
+    BuyAgent(AgentConfig(num_ctx=None, reasoning=None))
 
     assert recorded_chat_ollama["num_ctx"] is None
     assert recorded_chat_ollama["reasoning"] is None

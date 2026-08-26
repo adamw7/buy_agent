@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 import pytest
 
 from buy_agent.agent import OllamaUnavailableError
+from buy_agent.config import DEFAULT_MODEL
 from buy_agent.models import Product, RankedProduct
 from buy_agent.search import SearchError
 from buy_agent.server import (
@@ -365,7 +366,7 @@ def test_the_dev_servers_proxy_is_not_a_foreign_site(server: str) -> None:
     reply = ask(server, Origin="http://localhost:4200", Sec_Fetch_Site="same-origin")
 
     assert "200" in reply.splitlines()[0]
-    assert "llama3.2" in reply
+    assert DEFAULT_MODEL in reply
     # Ports do not make a site, so a loopback page calling this one directly --
     # not through the proxy -- reports same-site. That is the developer, not a
     # stranger, and the loopback Origin is what says so.
@@ -389,7 +390,7 @@ def test_a_client_that_is_not_a_browser_is_answered(server: str) -> None:
     reply = ask(server)
 
     assert "200" in reply.splitlines()[0]
-    assert "llama3.2" in reply
+    assert DEFAULT_MODEL in reply
 
 
 def test_a_name_that_merely_resolves_here_is_not_answered(server: str) -> None:
@@ -402,7 +403,7 @@ def test_a_name_that_merely_resolves_here_is_not_answered(server: str) -> None:
     reply = ask(server, Host="evil.example")
 
     assert "403" in reply.splitlines()[0]
-    assert "llama3.2" not in reply, "the defaults leaked to a rebound name"
+    assert DEFAULT_MODEL not in reply, "the defaults leaked to a rebound name"
 
 
 def test_head_is_guarded_like_the_others(server: str) -> None:

@@ -34,9 +34,17 @@ def test_pages_are_fetched_by_default() -> None:
     assert config.fetch_timeout == 8.0
 
 
-def test_context_and_thinking_default_to_leaving_the_model_alone() -> None:
-    """None means "send nothing": a model that cannot think must not be told to."""
+def test_context_and_thinking_default_to_suiting_the_default_model() -> None:
+    """DEFAULT_MODEL thinks, so out of the box it is told not to, and given room."""
     config = AgentConfig()
+
+    assert config.num_ctx == 8192
+    assert config.reasoning is False
+
+
+def test_context_and_thinking_can_still_be_left_to_the_model() -> None:
+    """None means "send nothing", which is what another model may want."""
+    config = AgentConfig(num_ctx=None, reasoning=None)
 
     assert config.num_ctx is None
     assert config.reasoning is None
@@ -112,5 +120,5 @@ def test_the_environment_defaults_fall_back_to_a_local_ollama(reloaded_config, m
 
     reloaded = reloaded_config()
 
-    assert reloaded.AgentConfig().model == "llama3.2"
+    assert reloaded.AgentConfig().model == "gemma4:12b"
     assert reloaded.AgentConfig().base_url == "http://localhost:11434"
