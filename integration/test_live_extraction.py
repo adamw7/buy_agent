@@ -10,9 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from langchain_ollama import ChatOllama
-
-from buy_agent.extraction import build_query_chain
+from buy_agent.agent import BuyAgent
 from buy_agent.models import ExtractedProduct, ProductList, SearchQuery
 
 from integration.conftest import REQUEST
@@ -35,16 +33,15 @@ def test_query_refinement_answers_with_a_query_and_not_with_prose(
     The schema cannot enforce that on its own -- ``SearchQuery.query`` is a
     string, and a paragraph is a string -- so this is the one place the prompt's
     "answer with the query only" is put to a model that could ignore it.
-    """
-    llm = ChatOllama(
-        model=live_config.model,
-        base_url=live_config.base_url,
-        temperature=live_config.temperature,
-        num_ctx=live_config.num_ctx,
-        reasoning=live_config.reasoning,
-    )
 
-    answer = build_query_chain(llm).invoke({"request": REQUEST})
+    The chain is taken off a real ``BuyAgent`` rather than built here out of a
+    hand-rolled ``ChatOllama``. Constructing one by hand meant copying all five
+    of ``BuyAgent.__init__``'s arguments, and a sixth added there would have
+    left this quietly testing a configuration the agent no longer ships --
+    the same rule ``scripts/start.ps1`` follows by reading its defaults out of
+    ``buy_agent.config`` instead of writing them down twice.
+    """
+    answer = BuyAgent(live_config).query_chain.invoke({"request": REQUEST})
 
     assert isinstance(answer, SearchQuery)
     query = answer.query.strip()
