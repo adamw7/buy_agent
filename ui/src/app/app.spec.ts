@@ -14,6 +14,7 @@ const DEFAULTS: AgentDefaults = {
   results: 10,
   top: 2,
   region: 'us-en',
+  sources: '',
   fetch: true,
   sort_by: 'score',
   sort_options: ['score', 'price', 'rating'],

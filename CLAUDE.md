@@ -35,6 +35,7 @@ ollama pull qwen3:0.6b ; python -m pytest integration   # against a real model
 python -m buy_agent "gaming laptop under $1500"          # run the agent
 python -m buy_agent "espresso machine" --model lfm2.5 -v
 python -m buy_agent "running shoes" --sort-by price --json results.json
+python -m buy_agent "wireless earbuds" --source rtings.com --source @mkbhd
 
 python -m buy_agent.server                    # the UI and its API on :8000
 .\scripts\start.ps1                           # ...or all of it from cold, no arguments
@@ -162,14 +163,15 @@ superseding it rather than an edit to the old one -- numbers are never reused,
 and accepted records are not rewritten. `tests/test_conventions.py` checks that
 the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0026 and every record is Accepted, so the next free number is 0027.
+to ADR-0027 and every record is Accepted, so the next free number is 0028.
 
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
 for the two steps it is reliable at, and ordinary Python does everything else,
 because Ollama is typically run with small models that drive tool loops badly.
 
 ```
-request -> refine query (LLM) -> DuckDuckGo -> fetch + condense pages
+request -> refine query (LLM) -> DuckDuckGo (once, or once per named
+source) -> fetch + condense pages
         -> extract products and their opinions (LLM) -> clean_products
         -> ground -> deduplicate -> rank -> log top 3
 ```
@@ -191,12 +193,29 @@ which fields only qualify another and `_fill_gaps` moves the group.
 | `ranking.py` | Scoring and sorting; no LLM involved |
 | `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain) |
 | `search.py` | DuckDuckGo wrapper -- and nothing else (ADR-0021) |
+| `sources.py` | What a trusted source is: domain, term, `site:` query, `covers` |
 | `config.py`, `logging_setup.py`, `__main__.py` | Config, the report, the CLI |
 | `api.py` | Request options in, ranked products out -- the web-facing half worth testing |
 | `server.py` | A stdlib HTTP server: the JSON API, the event stream, the built UI |
 
-Seven conventions matter when changing this code:
+Eight conventions matter when changing this code:
 
+- **The sources are whatever was searched, and the shopper may narrow them.**
+  `AgentConfig.sources` is empty by default, which is the whole web. Given any,
+  `BuyAgent._search` runs one search per source (`site:` takes one domain), puts
+  every result through `Source.covers()` before keeping it, pools them
+  deduplicated by URL and cuts the pool back to `search_results` -- so the
+  fetching does not multiply with the sources even though the searching does.
+  Nothing downstream knows: the pool is what gets fetched, extracted from and
+  grounded against either way, which is how "every figure and every quote was
+  printed by a page the shopper named" holds by construction (ADR-0027). What is
+  enforced is the **domain**; a handle or a section only narrows the query,
+  because a URL cannot carry it -- a video's address says which video it is and
+  not who published it, so filtering on one would empty the pool instead of
+  narrowing it. There is no fall back to the wider web when the named sources
+  find nothing: that would report facts from pages the shopper refused.
+  `sources.py` does no I/O -- it decides what a source *is* and `agent.py` does
+  the searching, which is also what keeps `search.py` a DuckDuckGo wrapper.
 - **`ExtractedProduct` uses sentinels, `Product` uses `None`.** The LLM-facing
   schema asks for `-1`/`""` rather than nullable fields: Ollama compiles the JSON
   schema into a decoding grammar, and a required `number` makes `"N/A"` -- which
@@ -299,7 +318,15 @@ The CLI and the API are two ways of filling in the same `AgentConfig`, and both
 set `search_results = max(results, top)` -- searching for fewer pages than the
 report intends to show would cap the report. A new option belongs in
 `__main__.build_parser`, `api.parse_options` and `api.defaults_payload`, which is
-what seeds the web form. `weights` is the one field neither of them fills in:
+what seeds the web form. `sources` is the one option that is a list, and so the
+one that does not go through `api._read`: that renders every value with `str`
+first, which turns a JSON array into its Python repr, so `_read_sources` takes
+either an array or the separated string a query string can carry. On the CLI it
+is `--source`, repeatable, and its `type` checks the spec but hands back the
+text: checking there is what makes a bad source a usage error carrying the
+shapes that work (argparse throws a type function's `ValueError` away and prints
+"invalid value" instead), while parsing every flag together in `main` is what
+makes two flags naming one site one source. `weights` is the one field neither of them fills in:
 `RankingWeights` is reachable only by constructing an `AgentConfig` in Python, so
 changing how the blended score is balanced is a code change and not a flag.
 
@@ -417,7 +444,10 @@ fake `EventSource` rather than a live one.
 `FakeLLM` exposing only `with_structured_output`. The network is monkeypatched
 in three places: `buy_agent.agent.search_web` and `buy_agent.agent.enrich` for
 pipeline tests, and `buy_agent.search.DDGS` / `buy_agent.fetch.httpx.Client` for
-the wrappers' own tests. `ollama.Client` is patched too, for the one path that
+the wrappers' own tests. `search_web` is patched on `agent` and only there, which
+is why the fan-out over named sources lives in `agent.py` rather than beside the
+rest of `sources.py`: a second call site elsewhere would be a second thing to
+patch, and a test that forgot it would reach the real DuckDuckGo silently. `ollama.Client` is patched too, for the one path that
 lists the installed models to name them in an error. Patching `DDGS.text` does
 *not* work -- the name `ddgs` exports is a wrapper that constructs a different
 class. No test in `tests/` touches the network or Ollama; keep it that way --
@@ -430,18 +460,18 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 679 tests
+to EOF instead -- what it checks is that nothing follows the reply. 749 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 679 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 679 collect but 13 of the 15
-in `tests/test_start_script.py` skip, so the summary reads `666 passed, 13
+is reaching out. 749 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 749 collect but 13 of the 15
+in `tests/test_start_script.py` skip, so the summary reads `736 passed, 13
 skipped` -- nothing is missing, and the two that still run are the ones reading
-the script as text rather than through the probe. The UI's 64 tests
+the script as text rather than through the probe. The UI's 67 tests
 run in about two seconds, most of which is building the app first. The 19 in
 `integration/` are counted separately and collected only by being named.
 `docs/testing.md` quotes all three counts, so a new test file is two edits.

@@ -58,6 +58,12 @@ summary {
   padding-top: 16px;
 }
 
+/* A list of sites needs the room a one-word setting does not, so it takes the
+   whole row -- two columns where the grid has them, and one where it has one. */
+.wide {
+  grid-column: 1 / -1;
+}
+
 .hint {
   color: var(--text-dim);
   font-size: 12px;

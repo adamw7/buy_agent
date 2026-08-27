@@ -107,6 +107,7 @@ graph TB
         config["<b>AgentConfig</b><br/><i>[Component: config.py]</i><br/>Model, search, fetch and ranking<br/>settings; the CLI's flag defaults"]
         extraction["<b>Extraction</b><br/><i>[Component: extraction.py]</i><br/>Both prompts and both chains,<br/>plus name cleaning and merging<br/>of variant names"]
         search["<b>Search</b><br/><i>[Component: search.py]</i><br/>DuckDuckGo wrapper; raises<br/>SearchError on a rate limit"]
+        sources["<b>Sources</b><br/><i>[Component: sources.py]</i><br/>Reads a trusted source down to a<br/>domain and a term, narrows the<br/>query to it, and says whether a<br/>result came from it"]
         fetch["<b>Fetch</b><br/><i>[Component: fetch.py]</i><br/>Fetches result pages in parallel and<br/>keeps the lines quoting a figure and<br/>the lines passing judgement, each<br/>on a budget of its own"]
         verification["<b>Verification</b><br/><i>[Component: verification.py]</i><br/>Drops products the sources never<br/>named, blanks any figure and any<br/>quote the page text does not<br/>contain, and links each product<br/>to the page naming it"]
         ranking["<b>Ranking</b><br/><i>[Component: ranking.py]</i><br/>Weighted score over rating,<br/>popularity and price. No LLM"]
@@ -125,7 +126,8 @@ graph TB
     config -.->|"reads"| agent
 
     agent -->|"1. refine the query"| extraction
-    agent -->|"2. search"| search
+    agent -->|"2. search -- once, or once<br/>per named source"| search
+    agent -.->|"narrows the query,<br/>then holds the results to it"| sources
     agent -->|"3. enrich the results"| fetch
     agent -->|"4. extract products"| extraction
     agent -->|"5. clean, then ground<br/>against the same text"| verification
@@ -144,7 +146,7 @@ graph TB
     classDef component fill:#85bbf0,stroke:#5d82a8,color:#000
     classDef external fill:#999,stroke:#6b6b6b,color:#fff
     class cli,server container
-    class agent,config,extraction,search,fetch,verification,ranking,models,logsetup component
+    class agent,config,extraction,search,sources,fetch,verification,ranking,models,logsetup component
     class ollama,ddg,shops external
 ```
 
@@ -166,6 +168,16 @@ together as "129.00 EUR" (ADR-0022).
 Extraction and verification must be handed the *same* text, which is why
 `fetch.enrich()` puts the condensed page content on `SearchResult` rather than
 passing it alongside.
+
+Step 2 is one search, unless the shopper named the sources the facts should come
+from -- `site:` takes one domain at a time, so each source is searched for
+separately and the results pooled, deduplicated by URL and cut back to the width
+the run was configured for. `sources.py` decides only what a source *is*; the
+searching stays in `agent.py` and the DuckDuckGo call stays in `search.py`
+(ADR-0021). Nothing further down knows the feature exists: the pool is what gets
+fetched, extracted from and grounded against either way, which is what makes
+"every fact came from a page you named" true by construction rather than by
+promise (ADR-0027).
 
 Grounding covers the quoted opinions too, and holds them to a stricter bar
 than a figure, in two ways. A quote has to appear as running text -- overlapping
@@ -270,8 +282,8 @@ sequenceDiagram
     A->>O: refine the query
     O-->>A: search query
     A-->>UI: event: log
-    A->>D: search
-    D-->>A: up to 10 results
+    A->>D: search (once per named source, else once)
+    D-->>A: up to 10 results, from the named sources only
     A->>P: fetch pages in parallel
     P-->>A: HTML, condensed to figures and verdicts
     A->>O: extract products (JSON schema)

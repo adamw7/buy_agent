@@ -92,9 +92,7 @@ class BuyAgent:
 
         logger.info("Shopping for: %s", request)
         query = self._refine_query(request)
-        results = search_web(
-            query, max_results=self.config.search_results, region=self.config.region
-        )
+        results = self._search(query)
         if not results:
             logger.warning("Search returned nothing for %r", query)
             return []
@@ -115,6 +113,52 @@ class BuyAgent:
         ranked = rank_products(products, weights=self.config.weights, sort_by=sort_by)
         log_top_products(ranked, self.config.top_n)
         return ranked
+
+    def _search(self, query: str) -> list[SearchResult]:
+        """Search the web, or only the sources the shopper named.
+
+        Named none, this is one search and nothing else. Named some, it is one
+        search per source -- ``site:`` narrows a query to a single domain, so
+        several domains take several searches -- pooled back into one list in
+        the order the sources were given.
+
+        Two things are load-bearing about the pooling. Every result is put
+        through :meth:`~buy_agent.sources.Source.covers` before it is kept, so a
+        backend that ignored the operator cannot smuggle a page from elsewhere
+        into a run that asked for these sites only; and the same page found
+        under two sources is kept once, since it is one page and the second copy
+        would only crowd out a different one.
+
+        The width is shared out rather than multiplied: five sources at ten
+        results each would fetch fifty pages for a report of three. Each source
+        is asked for its share of ``search_results``, rounded up so the last one
+        is not left with nothing, and the pool is cut back to the width the run
+        was configured for.
+        """
+        sources = self.config.sources
+        width = self.config.search_results
+        if not sources:
+            return search_web(query, max_results=width, region=self.config.region)
+
+        logger.info(
+            "Searching %d named source(s): %s",
+            len(sources),
+            ", ".join(source.spec for source in sources),
+        )
+        share = -(-width // len(sources))  # ceiling: every source gets at least one
+        pooled: dict[str, SearchResult] = {}
+        for source in sources:
+            found = search_web(
+                source.site_query(query), max_results=share, region=self.config.region
+            )
+            kept = [result for result in found if source.covers(result.url)]
+            if len(kept) != len(found):
+                logger.info(
+                    "Ignored %d result(s) from outside %s", len(found) - len(kept), source.domain
+                )
+            for result in kept:
+                pooled.setdefault(result.url, result)
+        return list(pooled.values())[:width]
 
     def _refine_query(self, request: str) -> str:
         """Ask the LLM for a better search query, falling back to the raw request."""

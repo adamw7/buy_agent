@@ -14,6 +14,7 @@ from buy_agent.config import AgentConfig
 from buy_agent.models import ExtractedProduct, ProductList, SearchQuery
 from buy_agent.ranking import RankingWeights
 from buy_agent.search import SearchError, SearchResult
+from buy_agent.sources import parse_sources
 
 from tests.conftest import FakeLLM
 
@@ -743,3 +744,158 @@ def test_what_the_pages_said_reaches_the_report(agent_factory, caplog) -> None:
     assert ranked[0].product.opinions == ["Testers found the noise cancelling uncanny"]
     assert "says   : Testers found the noise cancelling uncanny" in caplog.text
     assert "battery life" not in caplog.text
+
+
+# -- searching only the sources the shopper named ------------------------------
+
+
+@pytest.fixture
+def source_search(monkeypatch):
+    """An agent whose search backend answers per query.
+
+    ``asked`` records the query and width every search was made with, and
+    ``reached`` the URLs that survived the pooling -- read off ``enrich``, which
+    is the next thing in the pipeline, so what is asserted is what the run went
+    on to read rather than the return of a private method.
+    """
+
+    def build(pages: dict[str, list[SearchResult]], llm: FakeLLM, **config_kwargs):
+        asked: list[tuple[str, int]] = []
+        reached: list[str] = []
+
+        def fake_search(query: str, *, max_results: int = 10, region: str = "us-en") -> list:
+            asked.append((query, max_results))
+            return pages.get(query, [])
+
+        def fake_enrich(found: list, **_: object) -> list:
+            reached.extend(result.url for result in found)
+            return found
+
+        monkeypatch.setattr("buy_agent.agent.search_web", fake_search)
+        monkeypatch.setattr("buy_agent.agent.enrich", fake_enrich)
+        return BuyAgent(AgentConfig(**config_kwargs), llm=llm), asked, reached
+
+    return build
+
+
+def _page(name: str, url: str) -> SearchResult:
+    return SearchResult(title=f"{name} review", url=url, snippet=f"The {name} is $99.")
+
+
+def test_naming_no_source_searches_the_web_once(source_search) -> None:
+    agent, asked, _ = source_search({}, FakeLLM(query=SearchQuery(query="headphones")))
+
+    agent.run("headphones")
+
+    assert asked == [("headphones", 10)]
+
+
+def test_each_named_source_is_searched_for_on_its_own(source_search) -> None:
+    """``site:`` takes one domain, so two sources are two searches."""
+    agent, asked, _ = source_search(
+        {}, FakeLLM(query=SearchQuery(query="headphones")), sources=parse_sources("a.com @mkbhd")
+    )
+
+    agent.run("headphones")
+
+    assert [query for query, _ in asked] == [
+        "headphones site:a.com",
+        'headphones site:youtube.com "@mkbhd"',
+    ]
+
+
+def test_the_search_width_is_shared_out_rather_than_multiplied(source_search) -> None:
+    """Four sources at the full width would fetch forty pages for a report of three."""
+    agent, asked, _ = source_search(
+        {},
+        FakeLLM(query=SearchQuery(query="headphones")),
+        search_results=10,
+        sources=parse_sources("a.com b.com c.com d.com"),
+    )
+
+    agent.run("headphones")
+
+    # Ten between four, rounded up: nobody is left asking for none.
+    assert [width for _, width in asked] == [3, 3, 3, 3]
+
+
+def test_a_result_from_outside_a_source_never_reaches_the_model(
+    source_search, caplog
+) -> None:
+    """The operator is the backend's promise; this is the check on it. Otherwise a
+    backend that ignored ``site:`` would quietly source the facts from anywhere."""
+    agent, _, _reached = source_search(
+        {
+            "headphones site:a.com": [
+                _page("Anker Q30", "https://a.com/anker"),
+                _page("Sony XM5", "https://elsewhere.example/sony"),
+            ]
+        },
+        FakeLLM(
+            query=SearchQuery(query="headphones"),
+            products=ProductList(
+                products=[
+                    ExtractedProduct(name="Anker Q30", price=99.0),
+                    ExtractedProduct(name="Sony XM5", price=99.0),
+                ]
+            ),
+        ),
+        sources=parse_sources("a.com"),
+    )
+
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        ranked = agent.run("headphones")
+
+    # Sony was on the discarded page, so grounding has nothing to back it.
+    assert [entry.product.name for entry in ranked] == ["Anker Q30"]
+    assert "Ignored 1 result(s) from outside a.com" in caplog.text
+
+
+def test_one_page_found_under_two_sources_is_read_once(source_search) -> None:
+    """It is one page. Fetching it twice would cost a slot the second source
+    could have filled with something the shopper has not already seen."""
+    shared = _page("Anker Q30", "https://shop.example/anker")
+    agent, _, reached = source_search(
+        {
+            "headphones site:shop.example": [shared],
+            "headphones site:m.shop.example": [shared],
+        },
+        FakeLLM(query=SearchQuery(query="headphones")),
+        sources=parse_sources("shop.example m.shop.example"),
+    )
+
+    agent.run("headphones")
+
+    assert reached == ["https://shop.example/anker"]
+
+
+def test_sources_that_between_them_found_nothing_end_the_run(source_search, caplog) -> None:
+    """No silent fall back to the whole web: the shopper said where the facts come
+    from, and a run that quietly went elsewhere would report facts they refused."""
+    agent, asked, _ = source_search(
+        {}, FakeLLM(query=SearchQuery(query="headphones")), sources=parse_sources("a.com")
+    )
+
+    with caplog.at_level(logging.WARNING, logger="buy_agent"):
+        assert agent.run("headphones") == []
+
+    assert [query for query, _ in asked] == ["headphones site:a.com"]
+    assert "Search returned nothing" in caplog.text
+
+
+def test_the_pool_is_cut_back_to_the_width_the_run_asked_for(source_search) -> None:
+    """Rounding the share up hands out one more page than was asked for; the cut
+    is what keeps a four-page run four pages."""
+    agent, _, reached = source_search(
+        {
+            "headphones site:a.com": [_page(f"A{n}", f"https://a.com/{n}") for n in range(3)],
+            "headphones site:b.com": [_page(f"B{n}", f"https://b.com/{n}") for n in range(3)],
+        },
+        FakeLLM(query=SearchQuery(query="headphones")),
+        search_results=4,
+        sources=parse_sources("a.com b.com"),
+    )
+
+    agent.run("headphones")
+
+    assert len(reached) == 4

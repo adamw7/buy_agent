@@ -12,6 +12,7 @@ const DEFAULTS: AgentDefaults = {
   results: 10,
   top: 3,
   region: 'us-en',
+  sources: '',
   fetch: true,
   sort_by: 'score',
   sort_options: ['score', 'price', 'rating'],
@@ -332,6 +333,37 @@ describe('SearchForm', () => {
     expect(element<HTMLInputElement>('input[name="model"]').disabled).toBe(true);
     expect(element<HTMLInputElement>('input[name="region"]').disabled).toBe(true);
     expect(element<HTMLButtonElement>('.pill.example').disabled).toBe(true);
+  });
+
+  it('leaves the trusted sources empty, which is the whole web', async () => {
+    expect(element<HTMLInputElement>('input[name="sources"]').value).toBe('');
+
+    await type('input[name="request"]', 'kettle');
+    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+
+    expect(submitted[0].sources).toBe('');
+  });
+
+  it('sends the trusted sources as typed, for Python to make sense of', async () => {
+    await type('input[name="request"]', 'kettle');
+    await type('input[name="sources"]', '  rtings.com @mkbhd  ');
+    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+
+    expect(submitted[0].sources).toBe('rtings.com @mkbhd');
+  });
+
+  it('remembers the trusted sources, which are a standing answer', async () => {
+    await type('input[name="request"]', 'kettle');
+    await type('input[name="sources"]', 'rtings.com');
+    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+
+    const fields = await seeded();
+    expect(fields.querySelector<HTMLInputElement>('input[name="sources"]')!.value).toBe(
+      'rtings.com',
+    );
   });
 
   it('remembers the settings but not the request', async () => {

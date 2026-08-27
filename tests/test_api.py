@@ -16,6 +16,7 @@ from buy_agent.api import (
 from buy_agent.config import AgentConfig
 from buy_agent.models import Product, RankedProduct
 from buy_agent.search import SearchError
+from buy_agent.sources import Source
 
 RANKED = [
     RankedProduct(
@@ -88,6 +89,45 @@ def test_options_reach_the_config() -> None:
     assert config.reasoning is False
     assert config.fetch_pages is False
     assert sort_by == "price"
+
+
+# -- the sources, which are the one option that is a list ----------------------
+
+
+def test_no_sources_asked_for_is_the_whole_web() -> None:
+    assert parse_options({})[0].sources == ()
+
+
+@pytest.mark.parametrize("blank", ["", "   ", []])
+def test_an_empty_sources_field_is_the_whole_web_too(blank) -> None:
+    """A cleared form field means "unset", the same as every other option."""
+    assert parse_options({"sources": blank})[0].sources == ()
+
+
+def test_several_sources_arrive_as_one_separated_string() -> None:
+    """Which is all a query string can carry, and what the form's field holds."""
+    config, _ = parse_options({"sources": "rtings.com, @mkbhd"})
+
+    assert config.sources == (
+        Source(spec="rtings.com", domain="rtings.com"),
+        Source(spec="@mkbhd", domain="youtube.com", term="@mkbhd"),
+    )
+
+
+def test_a_json_body_may_send_them_as_an_array_instead() -> None:
+    """The one option ``_read`` cannot handle: it renders every value with ``str``
+    first, which would turn a JSON array into its Python repr."""
+    config, _ = parse_options({"sources": ["rtings.com", "@mkbhd"]})
+
+    assert [source.domain for source in config.sources] == ["rtings.com", "youtube.com"]
+
+
+def test_a_source_that_names_no_site_is_a_400_saying_what_would_work() -> None:
+    with pytest.raises(ApiError) as failure:
+        parse_options({"sources": "Marques Brownlee"})
+
+    assert failure.value.status == 400
+    assert "@mkbhd" in str(failure.value)
 
 
 def test_query_string_values_are_coerced_from_text() -> None:
@@ -301,6 +341,8 @@ def test_defaults_payload_matches_the_config() -> None:
     assert payload["results"] == defaults.num_products
     assert payload["top"] == defaults.top_n
     assert payload["sort_options"] == ["score", "price", "rating"]
+    # One text field holding all of them, which is what the form sends back.
+    assert payload["sources"] == ""
 
 
 def test_installed_models_lists_what_ollama_has(monkeypatch) -> None:

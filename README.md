@@ -58,6 +58,7 @@ the models Ollama has and reports which builds actually moved -- see
 python -m buy_agent "gaming laptop under 5000 PLN" --region pl-pl
 python -m buy_agent "espresso machine" --model qwen2.5 --results 15 --top 5
 python -m buy_agent "running shoes" --sort-by price --json results.json
+python -m buy_agent "wireless earbuds" --source rtings.com --source @mkbhd
 ```
 
 | Flag | Default | Meaning |
@@ -68,6 +69,7 @@ python -m buy_agent "running shoes" --sort-by price --json results.json
 | `--top` | `3` | How many to log |
 | `--sort-by` | `score` | `score`, `price` or `rating` |
 | `--region` | `us-en` | Search region, e.g. `uk-en`, `pl-pl` |
+| `--source` | -- | Take the facts from this source only; repeatable |
 | `--num-ctx` | `8192` | Context window in tokens |
 | `--think` / `--no-think` | `--no-think` | Force thinking mode on or off |
 | `--no-fetch` | off | Use search snippets only, without opening the result pages |
@@ -103,6 +105,37 @@ agent = BuyAgent(AgentConfig(model="gemma4:12b", top_n=3))
 ranked = agent.run("noise cancelling headphones under $200")   # logs the top 3
 print(ranked[0].product.name, ranked[0].score)                 # returns all of them
 ```
+
+### Sources you trust
+
+By default the facts come from whatever ten pages the search returned, which for
+most shopping queries means affiliate roundups. `--source` says where they should
+come from instead -- a review site, a section of one, or a YouTube channel by its
+handle -- and the search then goes to those and nowhere else:
+
+```powershell
+python -m buy_agent "wireless earbuds under $150" --source rtings.com
+python -m buy_agent "gaming laptop" --source @mkbhd --source notebookcheck.net
+python -m buy_agent "espresso machine" --source https://www.seriouseats.com/coffee
+```
+
+Because the pages a run reads are the same pages every figure and every quote is
+checked against, narrowing them narrows the report: everything in it was printed
+by a page you named. Nothing falls back to the wider web, so naming sources that
+have nothing to say about the request is a run that finds nothing -- which is the
+answer, and the report says so rather than quietly going elsewhere.
+
+Each source is searched separately (`site:` takes one domain at a time), and the
+number of pages the run reads stays what `--results` asked for rather than
+multiplying by the number of sources. What is enforced is the **domain**: a
+result from another host is discarded before the model sees it. A handle or a
+section narrows the search but cannot be enforced, because a video's address
+says which video it is and not who published it -- see
+[ADR-0027](docs/adr/0027-let-the-shopper-name-the-sources.md) for why that is
+the strongest rule the URLs support.
+
+The web UI has the same setting, as **Trusted sources** under Settings: one
+field, separated by spaces or commas.
 
 ## The web UI
 
@@ -253,6 +286,7 @@ request ──▶ [LLM] refine into a search query
                       │
                       ▼
             DuckDuckGo text search (10 results)
+              -- or one search per trusted source, pooled
                       │
                       ▼
      fetch each page, keep the lines quoting a figure or an opinion
@@ -269,7 +303,7 @@ LLM does the two things it is good at -- rewording a request and reading facts o
 of prose -- and ordinary Python does the rest. Small local models are unreliable
 at running a tool loop, but perfectly capable of these two steps.
 
-Six details make it work with a small model:
+Seven details make it work with a small model:
 
 - **Structured output.** Both LLM calls use Ollama's `json_schema` mode, so the
   model's decoding is constrained to the schema and cannot drift into prose.
@@ -289,6 +323,12 @@ Six details make it work with a small model:
   of its own, so a shop page listing forty prices still contributes a verdict and
   a review page of prose still contributes its price. A price says what a thing
   costs and only these lines say whether to want it (ADR-0024).
+- **Sources you can name.** Left alone the agent searches the whole web and
+  the report is only as good as what ranked. `--source rtings.com --source
+  @mkbhd` searches those instead, and since the pages a run reads are the pages
+  every fact is checked against, that makes provenance a property of the
+  pipeline rather than a promise: nothing in the report was printed anywhere but
+  a page the shopper chose (ADR-0027).
 - **Grounding.** Models fill gaps -- inventing a price, or lifting a product
   straight out of the prompt's own example. `buy_agent/verification.py` drops any
   product whose name is absent from the sources, and blanks any price, rating or
@@ -346,6 +386,10 @@ cannot, and the mutation run that grades the suite itself every Saturday are in
   appear on a page that names the product (ADR-0025), so a verdict cannot move
   between pages about unrelated things -- but a review page covering eight
   headphones names all eight, and nothing stops a verdict moving between them.
+- **A named source is a domain, not an author.** `--source @mkbhd` searches
+  YouTube for that handle and keeps the YouTube pages that come back; a video by
+  somebody else that mentions the handle can get through. The report links to
+  the page, so whose it is can be seen.
 - **Names are only as specific as the model makes them.** `lfm2.5` reported
   "Bose ANC" for a product the page named in full.
 - Some shops answer with JavaScript-rendered pages or a 403; those results fall

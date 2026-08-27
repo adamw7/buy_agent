@@ -46,6 +46,8 @@ export interface AgentDefaults {
   results: number;
   top: number;
   region: string;
+  /** Sites to take the facts from, separated by spaces or commas. Empty is the whole web. */
+  sources: string;
   fetch: boolean;
   sort_by: SortBy;
   sort_options: SortBy[];
@@ -65,6 +67,7 @@ export interface SearchOptions {
   model?: string;
   base_url?: string;
   region?: string;
+  sources?: string;
   results?: number;
   top?: number;
   sort_by?: SortBy;
