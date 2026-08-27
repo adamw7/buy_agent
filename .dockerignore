@@ -16,7 +16,9 @@ ui/.angular/
 **/__pycache__/
 *.py[codz]
 
-# Tests, coverage, mutation testing and docs: none of them run in the image.
+# Tests, coverage, mutation testing, docs and the recorded demo: none of them
+# run in the image, and demo/ carries a video the size of the rest put together.
+demo/
 tests/
 integration/
 docs/
