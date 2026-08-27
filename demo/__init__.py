@@ -1,0 +1,14 @@
+"""A scripted run of the pipeline, for recording the UI without Ollama or the web.
+
+Everything between the search and the ranking is the *real* code: the fabricated
+pages go through :func:`buy_agent.fetch.condense`, and what the fake model says
+it read is then put through the real ``clean_products``, ``ground``,
+``deduplicate`` and ``rank_products``. Only the two slow, non-deterministic ends
+are stubbed -- DuckDuckGo and the LLM -- so the progress log in the recording is
+the log this project actually writes, and the figures on the cards are figures
+grounding accepted.
+
+The pages, the prices and the ratings are invented, on ``*.example`` hosts that
+cannot resolve. The book titles and authors are real; nothing else on those
+pages is, and none of it is a claim about a real shop.
+"""
