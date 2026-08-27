@@ -1,4 +1,4 @@
-"""The fabricated web the recorded demo searches, and what the fake model reads.
+"""The fabricated web the WWII books demo searches, and what the fake model reads.
 
 Shaped the way ``integration/conftest.py`` shapes its own fixtures: a title, the
 line under it carrying a figure, a few lines of verdict, and the navigation and
@@ -42,7 +42,11 @@ REQUEST = "wwii books about war in Europe 1944-45"
 #: What the fake model refines :data:`REQUEST` into.
 REFINED_QUERY = "best WWII history books Western Front Europe 1944 1945 buy"
 
-_PAGE_TEXT: dict[str, str] = {
+#: What each page in :data:`PAGES` says, before :func:`buy_agent.fetch.condense`
+#: gets to it. Read by ``demo/server.py`` in place of a fetch, and by
+#: ``demo/record.mjs`` to answer for a shop a ``--follow-link`` take clicks
+#: through to -- those hosts cannot resolve.
+PAGE_TEXT: dict[str, str] = {
     "https://warhistorydesk.example/guns-at-last-light": """\
 War History Desk
 Home  Reviews  Reading lists  About
