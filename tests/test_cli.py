@@ -15,6 +15,7 @@ from buy_agent.agent import OllamaUnavailableError
 from buy_agent.config import AgentConfig
 from buy_agent.models import Product, RankedProduct
 from buy_agent.search import SearchError
+from buy_agent.sources import Source
 
 RANKED = [
     RankedProduct(product=Product(name="Sony WH-1000XM5", price=328.0), score=0.9, rank=1),
@@ -168,6 +169,58 @@ def test_flag_defaults_are_the_config_s_own(fake_agent) -> None:
     assert config.temperature == defaults.temperature
 
 
+def test_no_source_flag_means_the_whole_web(fake_agent) -> None:
+    main(["headphones"])
+
+    assert fake_agent["config"].sources == ()
+
+
+def test_a_source_flag_reaches_the_config_read_down_to_its_domain(fake_agent) -> None:
+    main(["headphones", "--source", "https://www.rtings.com/headphones"])
+
+    assert fake_agent["config"].sources == (
+        Source(spec="https://www.rtings.com/headphones", domain="rtings.com", term="headphones"),
+    )
+
+
+def test_the_source_flag_repeats_to_name_several(fake_agent) -> None:
+    main(["headphones", "--source", "rtings.com", "--source", "@mkbhd"])
+
+    assert [source.domain for source in fake_agent["config"].sources] == [
+        "rtings.com",
+        "youtube.com",
+    ]
+
+
+def test_two_flags_naming_one_site_are_one_source(fake_agent) -> None:
+    """Which is why the flags are parsed together: a second identical search
+    would halve what the other sources are allowed to return."""
+    main(["headphones", "--source", "@mkbhd", "--source", "youtube.com/@mkbhd"])
+
+    assert fake_agent["config"].sources == (
+        Source(spec="@mkbhd", domain="youtube.com", term="@mkbhd"),
+    )
+
+
+def test_one_flag_may_hold_several_the_way_the_web_form_does(fake_agent) -> None:
+    main(["headphones", "--source", "rtings.com,notebookcheck.net"])
+
+    assert [source.domain for source in fake_agent["config"].sources] == [
+        "rtings.com",
+        "notebookcheck.net",
+    ]
+
+
+def test_a_source_that_names_no_site_is_a_usage_error_that_says_what_does(capsys) -> None:
+    """argparse throws a type function's ValueError away, so the reason is raised
+    as the error it prints -- without it the shopper is told only "invalid value"."""
+    with pytest.raises(SystemExit) as exit_info:
+        main(["headphones", "--source", "Marques Brownlee"])
+
+    assert exit_info.value.code == 2
+    assert "@mkbhd" in capsys.readouterr().err
+
+
 def test_the_base_url_flag_reaches_the_config(fake_agent) -> None:
     main(["headphones", "--base-url", "http://ollama.internal:11434"])
 
@@ -302,6 +355,7 @@ def test_every_flag_is_documented_in_the_help() -> None:
         "--top",
         "--sort-by",
         "--region",
+        "--source",
         "--temperature",
         "--num-ctx",
         "--think",

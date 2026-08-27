@@ -53,6 +53,7 @@ export class SearchForm {
   protected readonly model = signal('');
   protected readonly baseUrl = signal('');
   protected readonly region = signal('us-en');
+  protected readonly sources = signal('');
   protected readonly results = signal(10);
   protected readonly top = signal(3);
   protected readonly sortBy = signal<SortBy>('score');
@@ -74,6 +75,9 @@ export class SearchForm {
     model: setting(this.model, (d) => d.model, asText),
     baseUrl: setting(this.baseUrl, (d) => d.base_url, asText),
     region: setting(this.region, (d) => d.region, asText),
+    // Remembered like the rest: which sites a shopper trusts is a standing
+    // answer, not something they retype for every search.
+    sources: setting(this.sources, (d) => d.sources, asText),
     results: setting(this.results, (d) => d.results, asNumber),
     top: setting(this.top, (d) => d.top, asNumber),
     sortBy: setting(this.sortBy, (d) => d.sort_by, asText as Parser<SortBy>),
@@ -152,6 +156,7 @@ export class SearchForm {
       model: this.model().trim(),
       base_url: this.baseUrl().trim(),
       region: this.region().trim(),
+      sources: this.sources().trim(),
       results: this.results(),
       top: this.top(),
       sort_by: this.sortBy(),

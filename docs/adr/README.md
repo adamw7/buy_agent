@@ -35,6 +35,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0024](0024-read-and-quote-what-the-sources-say.md) | Read what the sources say about a product, and quote it word for word | Accepted |
 | [0025](0025-check-a-quote-against-the-page-it-came-from.md) | Check a quote against the page it came from, not against all of them | Accepted |
 | [0026](0026-integration-tests-against-a-tiny-cpu-model.md) | Test against a real model nightly, on one small enough to run on a CPU | Accepted |
+| [0027](0027-let-the-shopper-name-the-sources.md) | Let the shopper name the sources, and search nothing else | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

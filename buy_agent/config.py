@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass, field
 
 from buy_agent.ranking import RankingWeights
+from buy_agent.sources import Source
 
 DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:12b")
 DEFAULT_BASE_URL = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -32,6 +33,11 @@ class AgentConfig:
         num_products: How many products to keep after extraction.
         top_n: How many products to log at the end.
         region: DuckDuckGo region code, e.g. ``us-en``, ``pl-pl``.
+        sources: The sites the shopper is willing to take facts from, if any.
+            Empty -- the default -- searches the whole web. Given any, the
+            search runs once per source and keeps only what came from one of
+            them, so every figure and every quote in the report was printed by
+            a page the shopper named (ADR-0027).
         fetch_pages: Read the result pages themselves. Off means snippets only,
             which is faster but rarely yields a price.
         page_chars: Per-page budget for the lines quoting a price or a rating.
@@ -52,6 +58,7 @@ class AgentConfig:
     num_products: int = 10
     top_n: int = 3
     region: str = "us-en"
+    sources: tuple[Source, ...] = ()
     fetch_pages: bool = True
     page_chars: int = 1200
     opinion_chars: int = 400

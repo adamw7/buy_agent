@@ -20,6 +20,7 @@ from buy_agent.agent import BuyAgent, OllamaUnavailableError, list_models
 from buy_agent.config import AgentConfig
 from buy_agent.ranking import SortBy
 from buy_agent.search import SearchError
+from buy_agent.sources import Source, format_sources, parse_sources
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -98,6 +99,7 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         num_products=num_products,
         top_n=top_n,
         region=_read(data, "region", defaults.region, _as_text),
+        sources=_read_sources(data, defaults.sources),
         fetch_pages=_read(data, "fetch", defaults.fetch_pages, _as_bool),
     )
     return config, sort_by
@@ -171,6 +173,9 @@ def defaults_payload() -> dict[str, Any]:
         "results": defaults.num_products,
         "top": defaults.top_n,
         "region": defaults.region,
+        # One text field holding all of them, written the way the form would
+        # send them back. Empty -- the default -- is the whole web.
+        "sources": format_sources(defaults.sources),
         "fetch": defaults.fetch_pages,
         "sort_by": "score",
         "sort_options": list(SORT_OPTIONS),
@@ -189,6 +194,26 @@ def installed_models(base_url: str) -> dict[str, Any]:
         logger.debug("Could not list Ollama models at %s", base_url, exc_info=True)
         return {"base_url": base_url, "reachable": False, "models": [], "detail": str(exc)}
     return {"base_url": base_url, "reachable": True, "models": models}
+
+
+def _read_sources(
+    data: Mapping[str, Any], default: tuple[Source, ...]
+) -> tuple[Source, ...]:
+    """The sources the request named, if any -- the one option that is a list.
+
+    It does not go through :func:`_read` because that renders every value with
+    ``str`` first, which turns a JSON array into its Python repr. Both carriers
+    still land here: a query string can only spell several sources as one
+    separated string, while a JSON body may send either that or an array.
+    """
+    if not _present(data, "sources"):
+        return default
+    value = data["sources"]
+    specs = value if isinstance(value, (list, tuple)) else str(value)
+    try:
+        return parse_sources(specs)
+    except ValueError as exc:
+        raise ApiError(str(exc)) from exc
 
 
 def _present(data: Mapping[str, Any], key: str) -> bool:

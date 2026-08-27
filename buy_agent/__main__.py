@@ -14,11 +14,29 @@ from buy_agent.config import AgentConfig
 from buy_agent.logging_setup import configure_logging
 from buy_agent.ranking import SortBy
 from buy_agent.search import SearchError
+from buy_agent.sources import parse_sources
 
 logger = logging.getLogger("buy_agent")
 
 #: The flag defaults are the config's own, so the two cannot drift apart.
 _DEFAULTS = AgentConfig()
+
+
+def _source(spec: str) -> str:
+    """``--source`` as argparse takes it: checked here, kept as text.
+
+    Checked here so that an unusable source is a usage error carrying the shapes
+    that do work -- argparse turns a type function's ``ValueError`` into "invalid
+    _source value" and throws the reason away, which is the whole message.
+
+    Kept as text so that ``main`` can parse every flag together: two of them
+    naming one site are one source, and that can only be seen from all of them.
+    """
+    try:
+        parse_sources(spec)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+    return spec
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -59,6 +77,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--region", default=_DEFAULTS.region, help="Search region, e.g. us-en, uk-en, pl-pl."
+    )
+    parser.add_argument(
+        "--source",
+        action="append",
+        metavar="SITE",
+        type=_source,
+        help="Take the facts from this source only; repeat for several. A site "
+        "(rtings.com), a section of one (rtings.com/headphones) or a YouTube "
+        "handle (@mkbhd). Without it the whole web is searched.",
     )
     parser.add_argument(
         "--temperature",
@@ -108,6 +135,9 @@ def main(argv: list[str] | None = None) -> int:
         num_products=args.results,
         top_n=args.top,
         region=args.region,
+        # Repeated flags build a list, and no flag at all leaves None -- which is
+        # the config's own default and not an empty one written down again.
+        sources=parse_sources(args.source) if args.source else _DEFAULTS.sources,
         fetch_pages=args.fetch,
     )
 

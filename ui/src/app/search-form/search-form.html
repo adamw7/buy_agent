@@ -67,6 +67,17 @@
         <input name="region" placeholder="us-en" [(ngModel)]="region" [disabled]="running()" />
       </label>
 
+      <label class="field wide">
+        <span>Trusted sources</span>
+        <input
+          name="sources"
+          placeholder="rtings.com @mkbhd"
+          [(ngModel)]="sources"
+          [disabled]="running()"
+        />
+        <small>Leave empty to search the whole web.</small>
+      </label>
+
       <label class="field">
         <span>Products to find</span>
         <input
@@ -133,6 +144,11 @@
         <span>Read the result pages</span>
       </label>
     </div>
+
+    <p class="hint">
+      Naming trusted sources -- a site, a section of one, or a YouTube handle -- searches those and
+      nothing else, so every price, rating and quote comes from a page you chose.
+    </p>
 
     <p class="hint">
       Turning off page reading falls back to search snippets: much faster, but snippets rarely quote
