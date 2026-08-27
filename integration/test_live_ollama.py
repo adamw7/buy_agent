@@ -10,6 +10,16 @@ them, and nothing about whether they are what Ollama actually raises.
 
 That is what these tests are for. They need no inference and cost nothing: a
 refused connection and a model that is not pulled both answer immediately.
+
+Two of the four are covered here and two are not. A stopped server (raw
+``httpx``) and a live server answering 404 for an unknown model
+(``ResponseError``) are both reachable from outside the agent. The
+``httpx.TimeoutException`` branch of ``_ollama_hint`` -- the one that says to
+try a smaller model or a smaller ``--num-ctx`` -- is not: nothing in
+``AgentConfig`` sets a client timeout, so provoking it live would mean
+constructing the ``ChatOllama`` here by hand, which is the duplication
+``test_live_extraction`` just stopped doing. It stays a unit test raising the
+exception itself until there is a config field to turn it down.
 """
 
 from __future__ import annotations
@@ -66,7 +76,7 @@ def test_a_stopped_server_is_reported_as_something_to_start(
 
 
 def test_a_model_that_is_not_pulled_is_reported_with_a_pull_command(
-    live_config: AgentConfig
+    live_config: AgentConfig,
 ) -> None:
     """A live server answering 404 for an unknown model, which is a different
     failure from the server being absent and gets a different hint. The hint

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from buy_agent.extraction import looks_like_a_product
+from buy_agent.extraction import looks_like_a_product, merge_variants
 from buy_agent.verification import (
     build_haystack,
     mentions_name,
@@ -57,6 +57,29 @@ def test_the_model_reads_products_out_of_the_pages(live_run: LiveRun) -> None:
     """
     assert live_run.extracted.products, "the model extracted nothing at all"
     assert live_run.ranked, "everything the model extracted was thrown out"
+
+
+def test_the_model_quotes_the_pages_rather_than_only_pricing_them(
+    live_run: LiveRun,
+) -> None:
+    """The same smoke test, for the field ADR-0024 and ADR-0025 are about.
+
+    ``test_every_quote_was_printed_on_a_page_about_that_product`` passes
+    vacuously on a run that quoted nothing, exactly as the assertions above
+    would on a run that extracted nothing -- and a model that quotes nothing is
+    the likeliest way for the whole opinion path to go green having checked
+    none of itself.
+
+    Asserted on what the *model* returned, not on what survived grounding. A
+    0.6B model paraphrases, ``verify_opinions`` drops paraphrases, and holding
+    the nightly to a quote surviving that would be holding it to the model
+    being right -- which is the one thing this file refuses to do. What is
+    asserted here is only that the schema and the prompt still get quotes out
+    of it at all.
+    """
+    quoted = [item.name for item in live_run.extracted.products if item.opinions]
+
+    assert quoted, "the model reported no opinions for any product"
 
 
 def test_every_product_reported_is_named_in_the_sources(products, haystack) -> None:
@@ -115,11 +138,29 @@ def test_every_quote_was_printed_on_a_page_about_that_product(products, live_run
 
 
 def test_no_product_is_reported_twice(products) -> None:
-    """Three pages, two of which are about the Sony: without ``deduplicate`` one
-    product can take two of the three slots it is reported in."""
+    """Eight of the ten pages price the Sony: without ``deduplicate`` one product
+    takes every slot it is listed in.
+
+    Checked by the rule ``deduplicate`` actually merges on and not by
+    ``dedup_key``, which is strictly weaker -- it folds case, punctuation and
+    spacing, so "Sony WH-1000XM5" and "Sony WH-1000XM5 Wireless" are two keys
+    and one product. Dropping ``deduplicate`` from the pipeline left a
+    ``dedup_key`` check entirely green, which is the whole failure it is here
+    to see. Re-running the merge is the property instead: its output is
+    supposed to be a fixed point, so a second pass must find nothing left to
+    fold.
+
+    If this ever fails on names that look correctly merged, suspect the fixed
+    point rather than the run. ``merge_variants`` folds into the first match
+    and ``_combine`` then shortens the name, so three spellings arriving in the
+    wrong order -- "... Wireless", "... Black", then the bare name -- can leave
+    a pair a second pass would still merge. That is worth fixing in
+    ``deduplicate``; it is not worth weakening this back into a key comparison.
+    """
     keys = [product.dedup_key for product in products]
 
     assert len(keys) == len(set(keys)), keys
+    assert len(merge_variants(products)) == len(products), [p.name for p in products]
 
 
 def test_the_ranking_is_ordered_and_numbered(live_run: LiveRun) -> None:
@@ -132,4 +173,7 @@ def test_the_ranking_is_ordered_and_numbered(live_run: LiveRun) -> None:
 
 
 def test_no_more_products_are_reported_than_were_asked_for(live_run, live_config) -> None:
+    """``deduplicate``'s limit. The pages name seven distinct products against a
+    ``num_products`` of five, so this is a cap that has to bite -- with a limit
+    above what the pages can yield it passed however the pipeline behaved."""
     assert len(live_run.ranked) <= live_config.num_products

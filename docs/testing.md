@@ -22,7 +22,7 @@ Ollama: the model is faked through the `llm=` argument of `BuyAgent`, both the
 search backend and the page fetcher are monkeypatched, and the server tests
 inject a stub agent through `create_server(agent_factory=...)`. The only real
 sockets are the loopback ones the HTTP tests need in order to be about HTTP at
-all. The 18 tests in `integration/` are the exception that proves it, and they
+all. The 19 tests in `integration/` are the exception that proves it, and they
 live outside `testpaths` so that a bare `pytest` cannot reach them.
 
 Both suites are measured, and CI fails on a drop: the Python side covers every
@@ -74,11 +74,20 @@ python -m pytest integration
 ```
 
 The model is real and the web is not. `search_web` and `enrich` are still
-patched, over three fabricated pages `integration/conftest.py` owns -- a
-nightly failure caused by DuckDuckGo rate-limiting or a shop redesigning its
-listing would report nothing about this code. One session-scoped fixture runs
-the pipeline once, because a CPU model answers in seconds rather than
-milliseconds, and each test reads something different off the same answer.
+patched, over ten fabricated pages `integration/conftest.py` owns -- a nightly
+failure caused by DuckDuckGo rate-limiting or a shop redesigning its listing
+would report nothing about this code. One session-scoped fixture runs the
+pipeline once, because a CPU model answers in seconds rather than milliseconds,
+and each test reads something different off the same answer.
+
+The fake stops at the *transport*, though. `enrich` reads the fabricated page
+text instead of fetching a URL, and then condenses it with the real
+`fetch.condense` on the real `page_chars` and `opinion_chars` budgets -- so the
+prompt is shaped the way a production prompt is shaped, and a verdict worded
+outside `fetch._OPINION`'s vocabulary never reaches the model here either. Ten
+pages rather than three because the *width* of the prompt is under test too:
+ADR-0019's `num_ctx` is about a prompt that fills the window, and three pages of
+tidy prose came to ~675 tokens, where the question cannot arise.
 
 Almost nothing there asserts the model was *right*. What is asserted is what
 holds whatever came back: every name, price, rating and quote is in the sources,
@@ -86,7 +95,9 @@ every link is a page that was searched, a currency never outlives its price,
 nothing is listed twice, the ranking is ordered and numbered. Those are the
 guarantees the unit suite checks against an answer it dictated; here they meet
 one nobody wrote. The one exception is a smoke test that *something* was
-extracted, since every other assertion passes vacuously on an empty answer.
+extracted -- and a second that something was *quoted*, since the opinion
+assertions go vacuous the same way. Neither holds the model to an answer: both
+read what the extraction chain returned, before grounding judged it.
 
 Two knobs, and neither is `$OLLAMA_MODEL` -- that one moves the default the
 agent ships with, and must not be able to start a 12B pull on a runner:

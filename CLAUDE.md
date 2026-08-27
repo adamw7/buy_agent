@@ -440,7 +440,7 @@ one with neither `pwsh` nor `powershell` the same 680 collect but 13 of the 15
 in `tests/test_start_script.py` skip, so the summary reads `667 passed, 13
 skipped` -- nothing is missing, and the two that still run are the ones reading
 the script as text rather than through the probe. The UI's 64 tests
-run in about two seconds, most of which is building the app first. The 18 in
+run in about two seconds, most of which is building the app first. The 19 in
 `integration/` are counted separately and collected only by being named.
 `docs/testing.md` quotes all three counts, so a new test file is two edits.
 
@@ -478,8 +478,12 @@ property of where a file sits, not of anyone remembering an annotation. Four
 things there are load-bearing:
 
 - **The model is real; the web is not.** `search_web` and `enrich` are still
-  faked, over three fabricated pages `integration/conftest.py` owns. A nightly
-  failure caused by DuckDuckGo rate-limiting says nothing about this code.
+  faked, over ten fabricated pages `integration/conftest.py` owns. A nightly
+  failure caused by DuckDuckGo rate-limiting says nothing about this code. The
+  fake stops at the transport: `enrich` reads the fabricated text rather than a
+  URL and then runs the real `fetch.condense` over it, so the prompt is shaped
+  as a production prompt is and is wide enough for ADR-0019's `num_ctx` question
+  to arise.
 - **One run, many assertions.** A CPU model answers in seconds, so a
   session-scoped `live_run` fixture runs the pipeline once and each test reads
   something different off it. The extraction chain is *wrapped* rather than
@@ -489,7 +493,8 @@ things there are load-bearing:
   invariants: every name, figure and quote in the sources, every link a page
   that was searched, no repeats, the ranking ordered. A 0.6B model is not held
   to an answer. The one exception is a smoke test that something was extracted,
-  since every other assertion passes vacuously on an empty list.
+  since every other assertion passes vacuously on an empty list -- and a second
+  that something was quoted, for the same reason.
 - **An absent Ollama skips locally and fails on the schedule.**
   `$BUY_AGENT_REQUIRE_OLLAMA`, set by the workflow and nothing else, flips it --
   a nightly job that skipped every test it has is a green job that checked
