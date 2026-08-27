@@ -127,19 +127,18 @@ _CONTENT_TYPES = {
 class _LogRelay(logging.Handler):
     """Fans ``buy_agent`` log records out to the run that produced them.
 
-    Each streamed search runs in its own thread, so the thread id is enough to
-    tell whose log line a record is -- two searches at once do not see each
-    other's progress.
+    Each streamed search runs in its own thread and logs from it, so the thread
+    a record arrived on says whose it is -- which is what ``threading.local``
+    keeps, and why nothing here locks: a thread touches only its own slot. Two
+    searches at once do not see each other's progress.
     """
 
     def __init__(self) -> None:
         super().__init__()
-        self._queues: dict[int, queue.Queue[Any]] = {}
-        self._lock = threading.Lock()
+        self._local = threading.local()
 
     def emit(self, record: logging.LogRecord) -> None:
-        with self._lock:
-            sink = self._queues.get(threading.get_ident())
+        sink: queue.Queue[Any] | None = getattr(self._local, "sink", None)
         if sink is None:
             return
         try:
@@ -154,12 +153,10 @@ class _LogRelay(logging.Handler):
             self.handleError(record)
 
     def attach(self, sink: queue.Queue[Any]) -> None:
-        with self._lock:
-            self._queues[threading.get_ident()] = sink
+        self._local.sink = sink
 
     def detach(self) -> None:
-        with self._lock:
-            self._queues.pop(threading.get_ident(), None)
+        self._local.sink = None
 
 
 _relay = _LogRelay()

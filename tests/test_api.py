@@ -7,7 +7,6 @@ import pytest
 from buy_agent.agent import OllamaUnavailableError
 from buy_agent.api import (
     ApiError,
-    _status_for,
     defaults_payload,
     installed_models,
     parse_options,
@@ -293,11 +292,6 @@ def test_each_failure_gets_the_status_it_deserves(error: Exception, status: int)
 
 
 # -- the rest ------------------------------------------------------------------
-
-
-def test_an_unrecognised_failure_would_reach_the_client_as_a_server_error() -> None:
-    """The fallback exists so a failure mode nobody mapped is still answerable."""
-    assert _status_for(RuntimeError("something new")) == 500
 
 
 def test_defaults_payload_matches_the_config() -> None:

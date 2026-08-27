@@ -158,8 +158,8 @@ number nobody wrote down:
   -- and links -- the sources back.
 
 Order alone is not enough for the merge, because a merge also *pairs* figures.
-`_MERGEABLE_FIELDS` groups each figure with whatever only qualifies it -- price
-with currency, rating with review count -- and `_fill_gaps` moves whole groups,
+`models.QUALIFIERS` names what only qualifies another field -- price with
+currency, rating with review count -- and `_fill_gaps` moves whole groups,
 so a listing that quoted 129 and one that quoted "249 EUR" are never reported
 together as "129.00 EUR" (ADR-0022).
 

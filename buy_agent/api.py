@@ -79,8 +79,8 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         ApiError: if a value is present but not usable.
     """
     defaults = AgentConfig()
-    num_products = _read(data, "results", defaults.num_products, _whole(1, 50))
-    top_n = _read(data, "top", defaults.top_n, _whole(1, 50))
+    num_products = _read(data, "results", defaults.num_products, _bounded(int, 1, 50))
+    top_n = _read(data, "top", defaults.top_n, _bounded(int, 1, 50))
     sort_by = _read(data, "sort_by", "score", _as_text)
     if sort_by not in SORT_OPTIONS:
         msg = f"sort_by must be one of {', '.join(SORT_OPTIONS)}; got {sort_by!r}."
@@ -89,8 +89,8 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
     config = AgentConfig(
         model=_read(data, "model", defaults.model, _as_text),
         base_url=_read(data, "base_url", defaults.base_url, _as_text),
-        temperature=_read(data, "temperature", defaults.temperature, _decimal(0, 2)),
-        num_ctx=_read(data, "num_ctx", defaults.num_ctx, _whole(1, 1_000_000)),
+        temperature=_read(data, "temperature", defaults.temperature, _bounded(float, 0, 2)),
+        num_ctx=_read(data, "num_ctx", defaults.num_ctx, _bounded(int, 1, 1_000_000)),
         reasoning=_read(data, "think", defaults.reasoning, _as_bool),
         # Searching for fewer pages than we intend to report would cap the report,
         # so the search width follows whichever of the two is larger -- as in the CLI.
@@ -130,7 +130,10 @@ def run_search(
     try:
         ranked = agent_factory(config).run(request, sort_by=sort_by)  # type: ignore[arg-type]
     except tuple(_STATUS) as exc:
-        raise ApiError(str(exc), _status_for(exc)) from exc
+        # The mapping and the clause catching it are the same table, so this
+        # search cannot come up empty and needs no fallback status.
+        status = next(status for kind, status in _STATUS.items() if isinstance(exc, kind))
+        raise ApiError(str(exc), status) from exc
 
     return {
         "request": request.strip(),
@@ -188,13 +191,6 @@ def installed_models(base_url: str) -> dict[str, Any]:
     return {"base_url": base_url, "reachable": True, "models": models}
 
 
-def _status_for(exc: Exception) -> int:
-    for kind, status in _STATUS.items():
-        if isinstance(exc, kind):
-            return status
-    return 500
-
-
 def _present(data: Mapping[str, Any], key: str) -> bool:
     """Is the key set to something? An empty form field counts as unset."""
     value = data.get(key)
@@ -241,23 +237,19 @@ def _as_bool(key: str, text: str) -> bool:
     raise ApiError(msg)
 
 
-def _whole(minimum: int, maximum: int) -> Callable[[str, str], int]:
-    """A parser for a whole number within bounds."""
-    return partial(_as_number, int, "a whole number", minimum, maximum)
-
-
-def _decimal(minimum: float, maximum: float) -> Callable[[str, str], float]:
-    """A parser for a decimal number within bounds.
+def _bounded(
+    kind: Callable[[str], _Number], minimum: _Number, maximum: _Number
+) -> Callable[[str, str], _Number]:
+    """A parser for a number within bounds, whole or decimal as ``kind`` says.
 
     The bounds are written into the rejection as they are given, so whole ones
     are passed as whole numbers: "between 0 and 2" is what a temperature is.
     """
-    return partial(_as_number, float, "a number", minimum, maximum)
+    return partial(_as_number, kind, minimum, maximum)
 
 
 def _as_number(
     kind: Callable[[str], _Number],
-    description: str,
     minimum: _Number,
     maximum: _Number,
     key: str,
@@ -267,7 +259,9 @@ def _as_number(
     try:
         number = kind(text)
     except ValueError as exc:
-        msg = f"{key} must be {description}; got {text!r}."
+        # What to call the kind is the kind's own to say, not a second argument.
+        described = "a whole number" if kind is int else "a number"
+        msg = f"{key} must be {described}; got {text!r}."
         raise ApiError(msg) from exc
     if not minimum <= number <= maximum:
         msg = f"{key} must be between {minimum} and {maximum}; got {number}."
