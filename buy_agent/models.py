@@ -15,6 +15,7 @@ is ``None``.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from typing import Annotated
 
 from pydantic import BaseModel, Field
@@ -143,6 +144,25 @@ class Product(BaseModel):
         return f"{self.rating:.1f}/5{reviews}"
 
 
+#: Fields that describe another field rather than the product (ADR-0022). A
+#: currency is a fact about *that listing's* price and a review count is what
+#: *that listing's* rating was averaged over, so a figure carries its qualifiers
+#: wherever it moves and takes them down with it wherever it is rejected. Either
+#: one left standing alone describes a figure it was never printed against:
+#: "129.00 EUR" out of a page saying 129 and a page saying "249 EUR", or a count
+#: whose rating has just been thrown out, which reads "unrated" beside nothing
+#: and still feeds the popularity half of the score.
+#:
+#: Here, beside the fields it names, because both places that move a figure need
+#: it -- :func:`buy_agent.extraction._fill_gaps` and
+#: :func:`buy_agent.verification.verify_numbers`. Stated twice, the two could
+#: disagree about what a review count belongs to.
+QUALIFIERS: dict[str, tuple[str, ...]] = {
+    "price": ("currency",),
+    "rating": ("review_count",),
+}
+
+
 class RankedProduct(BaseModel):
     """A product plus the score it was sorted by."""
 
@@ -155,14 +175,22 @@ def _clean(value: str) -> str:
     return _WHITESPACE.sub(" ", value).strip()
 
 
+def distinct_quotes(values: Iterable[str]) -> list[str]:
+    """The first spelling of each quote, at most :data:`MAX_OPINIONS` of them.
+
+    Identity is the casefolded text, because two listings quoting one reviewer
+    differ by capitalisation and nothing else, and the spelling kept is the
+    earlier listing's -- the tie-break the merge makes everywhere else.
+    """
+    seen: dict[str, str] = {}
+    for quote in values:
+        seen.setdefault(quote.casefold(), quote)
+    return list(seen.values())[:MAX_OPINIONS]
+
+
 def _quotes(values: list[str]) -> list[str]:
     """Tidy the quoted opinions, dropping blanks, repeats and whole paragraphs."""
-    quotes: list[str] = []
-    for value in values:
-        quote = _clean(value)
-        if not quote or len(quote) > _MAX_OPINION_LENGTH:
-            continue
-        if any(quote.casefold() == kept.casefold() for kept in quotes):
-            continue
-        quotes.append(quote)
-    return quotes[:MAX_OPINIONS]
+    cleaned = (_clean(value) for value in values)
+    return distinct_quotes(
+        quote for quote in cleaned if quote and len(quote) <= _MAX_OPINION_LENGTH
+    )

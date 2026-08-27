@@ -18,7 +18,13 @@ from typing import TYPE_CHECKING
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from buy_agent.models import MAX_OPINIONS, ProductList, SearchQuery
+from buy_agent.models import (
+    MAX_OPINIONS,
+    QUALIFIERS,
+    ProductList,
+    SearchQuery,
+    distinct_quotes,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -236,24 +242,13 @@ def _same_product(left: str, right: str) -> bool:
     return (left_tokens ^ right_tokens) <= GENERIC_WORDS
 
 
-#: Fields worth carrying over from a weaker listing, grouped by the figure they
-#: belong to: a leading field, then whatever only describes it.
-#:
-#: A currency is not a fact about the product but about *that listing's* price,
-#: and a review count is what *that listing's* rating was averaged over. Carried
-#: over on its own, either one describes a figure it was never printed next to --
-#: "129.00 EUR" out of a page saying 129 and a page saying "249 EUR", or
-#: "4.4/5 (12,000 reviews)" out of a 4.4 with no count and a 4.9 with one.
-#: Grounding cannot catch that, because it runs before the merge and each half
-#: really is in the sources; only the pairing is invented.
+#: Fields worth carrying over from a weaker listing, and the list to edit when
+#: one is added to ``Product``. Each moves with whatever only qualifies it, by
+#: :data:`~buy_agent.models.QUALIFIERS`. Grounding cannot catch an invented
+#: pairing, because it runs before the merge and each half really is in the
+#: sources; only the pairing is new.
 #: ``opinions`` is deliberately not here: see :func:`_merge_opinions`.
-_MERGEABLE_FIELDS = (
-    ("price", "currency"),
-    ("rating", "review_count"),
-    ("seller",),
-    ("url",),
-    ("notes",),
-)
+_MERGEABLE_FIELDS = ("price", "rating", "seller", "url", "notes")
 
 
 def _combine(first: Product, second: Product) -> Product:
@@ -285,13 +280,7 @@ def _merge_opinions(winner: Product, loser: Product) -> list[str]:
     to a figure -- which is why this needs none of the pairing care
     :data:`_MERGEABLE_FIELDS` takes.
     """
-    merged = list(winner.opinions)
-    folded = {opinion.casefold() for opinion in merged}
-    for opinion in loser.opinions:
-        if opinion.casefold() not in folded:
-            folded.add(opinion.casefold())
-            merged.append(opinion)
-    return merged[:MAX_OPINIONS]
+    return distinct_quotes([*winner.opinions, *loser.opinions])
 
 
 def _fill_gaps(winner: Product, loser: Product) -> dict[str, object]:
@@ -303,7 +292,8 @@ def _fill_gaps(winner: Product, loser: Product) -> dict[str, object]:
     never printed it against.
     """
     updates: dict[str, object] = {}
-    for figure, *qualifiers in _MERGEABLE_FIELDS:
+    for figure in _MERGEABLE_FIELDS:
+        qualifiers = QUALIFIERS.get(figure, ())
         ours, theirs = getattr(winner, figure), getattr(loser, figure)
         if ours is None and theirs is not None:
             # The loser's whole group moves across, and any qualifier the winner

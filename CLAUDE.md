@@ -179,8 +179,8 @@ so a name still wearing its publisher suffix ("... Review | AudioSite") is not
 failed by the coverage check for tokens the page never had to contain; `ground`
 runs before `deduplicate` so `_combine` only ever merges figures the sources
 back. That is necessary and not sufficient: a merge that took each field on its
-own would still report a pairing no page printed, so `_MERGEABLE_FIELDS` groups
-a figure with whatever only qualifies it and `_fill_gaps` moves the group.
+own would still report a pairing no page printed, so `models.QUALIFIERS` says
+which fields only qualify another and `_fill_gaps` moves the group.
 
 | Module | Responsibility |
 | --- | --- |
@@ -242,12 +242,14 @@ Seven conventions matter when changing this code:
   a word added to `GENERIC_WORDS` loosens all three.
 - **A currency belongs to its price, and a review count to its rating**
   (ADR-0022). Both are facts about the *listing* that printed them, not about the
-  product, so `_MERGEABLE_FIELDS` pairs them up and `_fill_gaps` carries a
+  product, so `models.QUALIFIERS` pairs them up and `_fill_gaps` carries a
   qualifier over only where the figure it describes is carried over too, or where
-  both listings quote the same one. The same pairing binds one stage earlier, in
-  `verification._GROUNDED_FIGURES`: a figure the sources do not back takes its
+  both listings quote the same one. The same table binds one stage earlier, in
+  `verification.verify_numbers`: a figure the sources do not back takes its
   qualifiers down with it, since a review count left standing over a rejected
-  rating describes nothing and still feeds the popularity half of the score. Field-by-field merging passes grounding --
+  rating describes nothing and still feeds the popularity half of the score. That
+  is why the pairing is declared once beside the fields it names rather than
+  restated in the merge's table and the grounding's. Field-by-field merging passes grounding --
   each half really is in the sources -- while reporting "129.00 EUR" for a page
   that said 129 and a page that said "249 EUR". A new field that only makes sense
   next to another belongs in that other's group rather than in one of its own.
@@ -428,16 +430,16 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 680 tests
+to EOF instead -- what it checks is that nothing follows the reply. 679 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 680 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 680 collect but 13 of the 15
-in `tests/test_start_script.py` skip, so the summary reads `667 passed, 13
+is reaching out. 679 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 679 collect but 13 of the 15
+in `tests/test_start_script.py` skip, so the summary reads `666 passed, 13
 skipped` -- nothing is missing, and the two that still run are the ones reading
 the script as text rather than through the probe. The UI's 64 tests
 run in about two seconds, most of which is building the app first. The 19 in

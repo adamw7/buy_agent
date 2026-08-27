@@ -27,6 +27,7 @@ import re
 from typing import TYPE_CHECKING
 
 from buy_agent.extraction import GENERIC_WORDS, NAME_TOKENS
+from buy_agent.models import QUALIFIERS
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -259,23 +260,18 @@ def attribute_sources(
     return attributed
 
 
-#: Each figure that has to be found in the sources, how it is written when it is,
-#: and the fields that mean nothing without it.
-#:
-#: The third column is ADR-0022's grouping one stage earlier. A currency belongs
-#: to its price and a review count is what its rating was averaged over, so a
-#: figure the sources do not back takes its qualifiers down with it. Left behind,
-#: a review count whose rating was just rejected describes nothing -- the card
-#: reads "unrated" -- and still feeds the popularity half of the score, which is
-#: the invented rating earning its place in the ranking after all.
+#: Each figure that has to be found in the sources, and how it is written when
+#: it is. A rejected figure takes its :data:`~buy_agent.models.QUALIFIERS` down
+#: with it -- ADR-0022's grouping, one stage earlier than the merge it was
+#: written for.
 #:
 #: ``rating`` comes before ``review_count`` so that a rejected rating blanks the
 #: count before the count is judged on its own; blanking only ever adds, so the
 #: later check cannot bring it back.
-_GROUNDED_FIGURES: tuple[tuple[str, Callable[[str, float], bool], tuple[str, ...]], ...] = (
-    ("price", mentions_number, ("currency",)),
-    ("rating", mentions_rating, ("review_count",)),
-    ("review_count", mentions_number, ()),
+_GROUNDED_FIGURES: tuple[tuple[str, Callable[[str, float], bool]], ...] = (
+    ("price", mentions_number),
+    ("rating", mentions_rating),
+    ("review_count", mentions_number),
 )
 
 
@@ -290,11 +286,11 @@ def verify_numbers(products: Sequence[Product], haystack: str) -> list[Product]:
 
     for product in products:
         updates: dict[str, None] = {}
-        for figure, supported, qualifiers in _GROUNDED_FIGURES:
+        for figure, supported in _GROUNDED_FIGURES:
             value = getattr(product, figure)
             if value is not None and not supported(haystack, value):
                 updates[figure] = None
-                updates.update(dict.fromkeys(qualifiers))
+                updates.update(dict.fromkeys(QUALIFIERS.get(figure, ())))
 
         if updates:
             dropped += 1
