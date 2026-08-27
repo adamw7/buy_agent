@@ -25,6 +25,11 @@ $ python -m buy_agent "wireless noise cancelling headphones under $200"
 18:13:24 INFO  buy_agent        |      says   : the case is too bulky for a coat pocket
 ```
 
+[Architecture](docs/architecture.md) draws the whole of it as C4 diagrams --
+context, containers, the components inside the pipeline and inside the web tier,
+and one streamed run end to end. [How it works](#how-it-works) below is the same
+story in prose.
+
 ## Setup
 
 Everything runs locally; no API keys, no accounts.
@@ -219,13 +224,28 @@ python -m buy_agent.server         # in one terminal
 cd ui; npm start                   # in another -- http://localhost:4200
 ```
 
-See `ui/README.md` for how the app is put together.
+See `ui/README.md` for how the app is put together, and
+[the web tier's components](docs/architecture.md#level-3----components-of-the-web-tier)
+for how it sits behind the API.
 
 ## How it works
 
-For the same thing at three zoom levels -- context, containers, components --
-see the C4 diagrams in [docs/architecture.md](docs/architecture.md). For why it
-is this way, and what was tried and rejected, see the decision log in
+The C4 diagrams in [docs/architecture.md](docs/architecture.md) draw the same
+thing, a zoom level at a time -- Mermaid, so GitHub renders them in place:
+
+- [System context](docs/architecture.md#level-1----system-context) -- the
+  shopper, the agent as one box, and the three things outside it: Ollama,
+  DuckDuckGo and the shop pages.
+- [Containers](docs/architecture.md#level-2----containers) -- the CLI, the web
+  UI, the HTTP server, and the one pipeline both front ends drive.
+- [Components of the agent pipeline](docs/architecture.md#level-3----components-of-the-agent-pipeline)
+  -- the modules the pipeline below is made of, and what each of them decides.
+- [Components of the web tier](docs/architecture.md#level-3----components-of-the-web-tier)
+  -- the handler, the API and the Angular components in front of them.
+- [A streamed run, end to end](docs/architecture.md#a-streamed-run-end-to-end)
+  -- one search as a sequence diagram, from the request to the ranked cards.
+
+For why it is this way, and what was tried and rejected, see the decision log in
 [docs/adr/](docs/adr/README.md).
 
 ```
