@@ -1,9 +1,14 @@
-"""Serve the real UI against the scripted run in :mod:`demo.pages`.
+"""Serve the real UI against one of the scripted runs in :mod:`demo`.
 
 ``python -m demo.server`` is ``python -m buy_agent.server`` with two names
 replaced -- ``search_web`` and ``enrich`` -- and a fake chat model in place of
 ChatOllama, through the ``agent_factory=`` seam ``create_server`` already has for
 the tests. Everything else on the page is the shipped code path.
+
+``--script`` picks which fabricated web that run searches. A script is a module
+offering the five names the run needs -- ``REQUEST``, ``REFINED_QUERY``,
+``PAGES``, ``PAGE_TEXT`` and ``EXTRACTED`` -- so a third demo is a module beside
+:mod:`demo.books` and a row in :data:`SCRIPTS`.
 
 The waits are the point of the pacing flags. A real run spends most of a minute
 inside two model calls that log nothing, which is dead air in a recording, so
@@ -14,6 +19,7 @@ progress log fills in rather than appearing all at once, and 0 removes them.
 from __future__ import annotations
 
 import argparse
+import importlib
 import logging
 import sys
 import time
@@ -31,10 +37,10 @@ from buy_agent.logging_setup import configure_logging
 from buy_agent.models import SearchQuery
 from buy_agent import server as server_module
 from buy_agent.server import DEFAULT_UI_DIR, create_server
-from demo.pages import EXTRACTED, PAGES, REFINED_QUERY
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from types import ModuleType
 
     from buy_agent.search import SearchResult
 
@@ -54,26 +60,29 @@ EXTRACT_SECONDS = 2.6
 
 
 class ScriptedLLM:
-    """Stands in for ChatOllama, answering from :mod:`demo.pages` after a pause.
+    """Stands in for ChatOllama, answering from the script after a pause.
 
     ``with_structured_output`` is the entire surface the two chains use, and the
     schema it is asked for is what says which of the two is calling.
     """
 
-    def __init__(self, pace: float = 1.0) -> None:
+    def __init__(self, script: ModuleType, pace: float = 1.0) -> None:
+        self.script = script
         self.pace = pace
 
     def with_structured_output(self, schema: type, **_: Any) -> RunnableLambda:
         def respond(_value: Any) -> Any:
             refining = schema is SearchQuery
             time.sleep((REFINE_SECONDS if refining else EXTRACT_SECONDS) * self.pace)
-            return SearchQuery(query=REFINED_QUERY) if refining else EXTRACTED
+            if refining:
+                return SearchQuery(query=self.script.REFINED_QUERY)
+            return self.script.EXTRACTED
 
         return RunnableLambda(respond)
 
 
-def install_fake_web(pace: float = 1.0) -> None:
-    """Point the agent at :data:`demo.pages.PAGES` instead of at the web.
+def install_fake_web(script: ModuleType, pace: float = 1.0) -> None:
+    """Point the agent at the script's own pages instead of at the web.
 
     The fake stops at the transport, as ``integration/conftest.py``'s does: the
     text comes from the fixture rather than from a URL, and then goes through the
@@ -81,10 +90,9 @@ def install_fake_web(pace: float = 1.0) -> None:
     runs over that condensed text, so what the pipeline checks against here is
     the same kind of corpus it checks against in production.
     """
-    from demo.pages import _PAGE_TEXT  # noqa: PLC0415 -- private to the fixture
 
     def search(query: str, *, max_results: int = 10, region: str = "us-en") -> list:
-        return [result.model_copy() for result in PAGES[:max_results]]
+        return [result.model_copy() for result in script.PAGES[:max_results]]
 
     def enrich(
         results: Sequence[SearchResult],
@@ -99,7 +107,7 @@ def install_fake_web(pace: float = 1.0) -> None:
             result.model_copy(
                 update={
                     "content": condense(
-                        _PAGE_TEXT[result.url],
+                        script.PAGE_TEXT[result.url],
                         max_chars=max_chars,
                         opinion_chars=opinion_chars,
                     )
@@ -131,15 +139,30 @@ def install_fake_models() -> None:
     server_module.installed_models = models
 
 
-def demo_agent(config: AgentConfig, *, pace: float = 1.0) -> BuyAgent:
+#: The scripts ``--script`` offers, and the modules they name.
+SCRIPTS = {"books": "demo.books", "laptops": "demo.laptops"}
+
+
+def load_script(name: str) -> ModuleType:
+    """Import the fabricated web ``name`` stands for."""
+    return importlib.import_module(SCRIPTS[name])
+
+
+def demo_agent(config: AgentConfig, script: ModuleType, *, pace: float = 1.0) -> BuyAgent:
     """Build the agent the demo server runs: the real one, on a scripted model."""
-    return BuyAgent(config, llm=ScriptedLLM(pace))  # type: ignore[arg-type]
+    return BuyAgent(config, llm=ScriptedLLM(script, pace))  # type: ignore[arg-type]
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="demo.server",
         description="Serve the buy_agent UI against a scripted run, for recording.",
+    )
+    parser.add_argument(
+        "--script",
+        choices=sorted(SCRIPTS),
+        default="books",
+        help="Which fabricated web to search (default: books).",
     )
     parser.add_argument("--host", default="127.0.0.1", help="Interface to bind.")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind.")
@@ -167,16 +190,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         logger.error("No built UI at %s. Build it with: cd ui && npm run build", args.ui_dir)
         return 1
 
-    install_fake_web(args.pace)
+    script = load_script(args.script)
+    install_fake_web(script, args.pace)
     install_fake_models()
     server = create_server(
         args.host,
         args.port,
         ui_dir=args.ui_dir,
-        agent_factory=lambda config: demo_agent(config, pace=args.pace),
+        agent_factory=lambda config: demo_agent(config, script, pace=args.pace),
     )
     url = f"http://{args.host}:{server.server_address[1]}"
-    logger.info("buy_agent demo UI on %s (scripted run, no Ollama and no web)", url)
+    logger.info(
+        "buy_agent demo UI on %s -- the %s script, no Ollama and no web",
+        url,
+        args.script,
+    )
     if args.open:
         webbrowser.open(url)
     try:
