@@ -23,13 +23,13 @@ graph TB
 
     system["<b>buy_agent</b><br/><i>[Software System]</i><br/>Turns a plain-language request into<br/>a ranked shortlist of real products,<br/>each figure backed by a source page"]
 
-    ollama["<b>Ollama</b><br/><i>[External System]</i><br/>Local LLM server. Refines the query<br/>and extracts products, under a<br/>JSON schema that constrains decoding"]
+    ollama["<b>Model server</b><br/><i>[External System]</i><br/>A local Ollama, or a vLLM behind its<br/>OpenAI-compatible API. Refines the<br/>query and extracts products, under a<br/>JSON schema that constrains decoding"]
     ddg["<b>DuckDuckGo</b><br/><i>[External System]</i><br/>Web search, no API key"]
     shops["<b>Shop and review pages</b><br/><i>[External System]</i><br/>The pages the search returns;<br/>the only source of prices,<br/>ratings and review counts"]
 
     shopper -->|"asks for a product, in their own words<br/>[CLI or web browser]"| system
     system -->|"reports the ranked shortlist<br/>and its progress"| shopper
-    system -->|"prompts with a JSON schema<br/>[HTTP, localhost:11434]"| ollama
+    system -->|"prompts with a JSON schema<br/>[HTTP, :11434 or :8000/v1]"| ollama
     system -->|"searches<br/>[HTTPS]"| ddg
     system -->|"fetches and condenses<br/>[HTTPS]"| shops
 
@@ -41,9 +41,12 @@ graph TB
     class ollama,ddg,shops external
 ```
 
-Everything runs on the shopper's own machine: no accounts, no API keys, and
-nothing about a search leaves the laptop except the search itself and the page
-fetches.
+Everything runs on the shopper's own machine, or on one they control: no
+accounts, no hosted models, and nothing about a search leaves except the search
+itself and the page fetches. Which model server that is -- Ollama by default, or
+a vLLM already serving a model on a GPU box -- is `AgentConfig.provider`, and
+nothing downstream of `buy_agent/providers.py` knows the difference
+([ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md)).
 
 ## Level 2 -- Containers
 
@@ -58,7 +61,7 @@ graph TB
         pipeline["<b>Agent pipeline</b><br/><i>[Container: Python library]</i><br/>BuyAgent.run() -- search, extract,<br/>ground, deduplicate, rank.<br/>The one implementation both<br/>front ends drive"]
     end
 
-    ollama["<b>Ollama</b><br/><i>[External System]</i>"]
+    ollama["<b>Model server</b><br/><i>[External System]</i><br/>Ollama or vLLM"]
     ddg["<b>DuckDuckGo</b><br/><i>[External System]</i>"]
     shops["<b>Shop and review pages</b><br/><i>[External System]</i>"]
 
@@ -91,9 +94,11 @@ routed, so the API answers its own page and not the other tabs
 
 The three containers inside the box ship as one image when the `Dockerfile` is
 used: the UI is built in a Node stage and copied into the Python one, and the
-same image runs either front end. Ollama stays outside it, on the host, for the
-reasons in [ADR-0015](adr/0015-package-the-web-tier-as-a-container.md) -- the
-boundary drawn here is the one the image keeps.
+same image runs either front end. The model server stays outside it, on the host
+or on another machine, for the reasons in
+[ADR-0015](adr/0015-package-the-web-tier-as-a-container.md) -- the boundary drawn
+here is the one the image keeps, and it is the same boundary whichever of the two
+is answering.
 
 ## Level 3 -- Components of the agent pipeline
 
@@ -103,8 +108,9 @@ graph TB
     server["<b>HTTP server</b><br/><i>[Container]</i>"]
 
     subgraph pipeline["Agent pipeline"]
-        agent["<b>BuyAgent</b><br/><i>[Component: agent.py]</i><br/>Orchestrates the fixed pipeline and<br/>translates Ollama transport failures<br/>into an actionable message"]
-        config["<b>AgentConfig</b><br/><i>[Component: config.py]</i><br/>Model, search, fetch and ranking<br/>settings; the CLI's flag defaults"]
+        agent["<b>BuyAgent</b><br/><i>[Component: agent.py]</i><br/>Orchestrates the fixed pipeline and<br/>translates transport failures into<br/>an actionable message"]
+        config["<b>AgentConfig</b><br/><i>[Component: config.py]</i><br/>Provider, model, search, fetch and<br/>ranking settings; the CLI's flag<br/>defaults"]
+        providers["<b>Providers</b><br/><i>[Component: providers.py]</i><br/>Everything that differs between<br/>Ollama and vLLM: the chat model, the<br/>listing, the errors that mean<br/>&quot;not there&quot;, and what to say"]
         extraction["<b>Extraction</b><br/><i>[Component: extraction.py]</i><br/>Both prompts and both chains,<br/>plus name cleaning and merging<br/>of variant names"]
         search["<b>Search</b><br/><i>[Component: search.py]</i><br/>DuckDuckGo wrapper; raises<br/>SearchError on a rate limit"]
         sources["<b>Sources</b><br/><i>[Component: sources.py]</i><br/>Reads a trusted source down to a<br/>domain and a term, narrows the<br/>query to it, and says whether a<br/>result came from it"]
@@ -115,7 +121,7 @@ graph TB
         logsetup["<b>Report and logging</b><br/><i>[Component: logging_setup.py]</i><br/>Log format, and the top-N report<br/>the browser also reads as events"]
     end
 
-    ollama["<b>Ollama</b><br/><i>[External System]</i>"]
+    ollama["<b>Model server</b><br/><i>[External System]</i><br/>Ollama or vLLM"]
     ddg["<b>DuckDuckGo</b><br/><i>[External System]</i>"]
     shops["<b>Shop and review pages</b><br/><i>[External System]</i>"]
 
@@ -134,7 +140,10 @@ graph TB
     agent -->|"6. deduplicate"| extraction
     agent -->|"7. rank"| ranking
     agent -->|"8. log the top N"| logsetup
+    agent -.->|"builds the chat model,<br/>names the failure"| providers
+    config -.->|"resolves the model and<br/>the address per provider"| providers
 
+    providers -->|"[HTTP]"| ollama
     extraction -->|"invokes the chains<br/>[JSON schema]"| ollama
     search -->|"[HTTPS]"| ddg
     fetch -->|"[HTTPS]"| shops
@@ -146,7 +155,7 @@ graph TB
     classDef component fill:#85bbf0,stroke:#5d82a8,color:#000
     classDef external fill:#999,stroke:#6b6b6b,color:#fff
     class cli,server container
-    class agent,config,extraction,search,sources,fetch,verification,ranking,models,logsetup component
+    class agent,config,providers,extraction,search,sources,fetch,verification,ranking,models,logsetup component
     class ollama,ddg,shops external
 ```
 
@@ -270,7 +279,7 @@ sequenceDiagram
     participant H as BuyAgentHandler
     participant W as Worker thread
     participant A as BuyAgent
-    participant O as Ollama
+    participant O as Model server
     participant D as DuckDuckGo
     participant P as Shop pages
 
@@ -297,7 +306,9 @@ sequenceDiagram
 ```
 
 Only query refinement is recoverable: it falls back to the raw request, but lets
-`OllamaUnavailableError` through rather than searching with a model that is not
+`ModelUnavailableError` through rather than searching with a model that is not
 there. `BuyAgent.run()` raises exactly three things -- `ValueError`,
-`OllamaUnavailableError`, `SearchError` -- which `__main__.main()` logs and
-`api._STATUS` maps onto 400, 503 and 502.
+`ModelUnavailableError`, `SearchError` -- which `__main__.main()` logs and
+`api._STATUS` maps onto 400, 503 and 502. Which sentence that middle one carries
+-- `ollama pull` or `vllm serve` -- is the provider's to write, and is the whole
+value of the exception.

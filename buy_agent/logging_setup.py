@@ -12,6 +12,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("buy_agent")
 
+#: Libraries that log a line per HTTP call, one per model server (ADR-0028).
+_NOISY_LIBRARIES = ("httpx", "openai")
+
 
 def configure_logging(*, verbose: bool = False) -> None:
     """Send agent logs to stderr. ``verbose`` also turns on DEBUG from libraries."""
@@ -21,8 +24,12 @@ def configure_logging(*, verbose: bool = False) -> None:
         datefmt="%H:%M:%S",
     )
     if not verbose:
-        # httpx logs every Ollama call at INFO, which drowns out the report.
-        logging.getLogger("httpx").setLevel(logging.WARNING)
+        # Both clients narrate at INFO and drown out the report: httpx logs every
+        # request under ChatOllama, and the OpenAI client under ChatOpenAI logs a
+        # line per retry -- so a stopped vLLM prints its own retries above the one
+        # message that says what to do about it.
+        for chatty in _NOISY_LIBRARIES:
+            logging.getLogger(chatty).setLevel(logging.WARNING)
 
 
 def log_top_products(ranked: Sequence[RankedProduct], top_n: int) -> None:

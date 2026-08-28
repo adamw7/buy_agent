@@ -2,10 +2,17 @@ import { Component, computed, effect, input, output, signal, untracked } from '@
 import type { WritableSignal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
-import type { AgentDefaults, ModelStatus, SearchOptions, SortBy } from '../agent.types';
+import type {
+  AgentDefaults,
+  ModelSource,
+  ModelStatus,
+  ProviderOption,
+  SearchOptions,
+  SortBy,
+} from '../agent.types';
 
 /**
- * Ollama's thinking mode as a `<select>` can hold it.
+ * The model's thinking mode as a `<select>` can hold it.
  *
  * Two states, not the three `AgentConfig.reasoning` carries. The third --
  * `null`, "send nothing and leave the model's own behaviour alone" -- is a
@@ -16,8 +23,8 @@ import type { AgentDefaults, ModelStatus, SearchOptions, SortBy } from '../agent
  */
 type Thinking = 'on' | 'off';
 
-/** One entry in the model dropdown. `installed` is false for a name Ollama has
- *  not pulled -- kept in the list so a remembered setting is never silently
+/** One entry in the model dropdown. `installed` is false for a name the server
+ *  is not serving -- kept in the list so a remembered setting is never silently
  *  swapped for someone else's model. */
 export interface ModelOption {
   name: string;
@@ -53,12 +60,15 @@ export class SearchForm {
 
   readonly search = output<SearchOptions>();
   readonly stop = output<void>();
-  /** Ask for the model list of another Ollama, when the server field changes. */
-  readonly refresh = output<string>();
+  /** Ask what another server is serving, when the provider or the address changes.
+   *  Both, because the address alone is not the question: the same URL is asked
+   *  one way for Ollama and another for vLLM. */
+  readonly refresh = output<ModelSource>();
 
   protected readonly examples = EXAMPLES;
 
   protected readonly request = signal('');
+  protected readonly provider = signal('ollama');
   protected readonly model = signal('');
   protected readonly baseUrl = signal('');
   protected readonly region = signal('us-en');
@@ -81,6 +91,10 @@ export class SearchForm {
    * are absent because neither is remembered.
    */
   private readonly settings: Record<string, Setting> = {
+    // Remembered like the rest, and remembered *with* the two fields it decides:
+    // a browser that switched to vLLM saved that provider's model and address in
+    // the same blob, so restoring them together can never pair one with the other.
+    provider: setting(this.provider, (d) => d.provider, asText),
     model: setting(this.model, (d) => d.model, asText),
     baseUrl: setting(this.baseUrl, (d) => d.base_url, asText),
     region: setting(this.region, (d) => d.region, asText),
@@ -105,19 +119,44 @@ export class SearchForm {
     () => this.defaults()?.sort_options ?? ['score', 'price', 'rating'],
   );
 
+  protected readonly providerOptions = computed<ProviderOption[]>(
+    () => this.defaults()?.provider_options ?? [],
+  );
+
+  /** The row for the provider currently chosen, which carries its defaults and
+   *  what it can be told per request. Absent before the server's defaults land. */
+  protected readonly chosenProvider = computed<ProviderOption | undefined>(() =>
+    this.providerOptions().find((option) => option.name === this.provider()),
+  );
+
+  /** What to call this server on screen -- "Ollama", "vLLM". Falls back to the
+   *  bare name, which is what a provider the server knows and this build does not
+   *  would be. */
+  protected readonly providerLabel = computed(
+    () => this.chosenProvider()?.label ?? this.provider(),
+  );
+
+  /** Whether the context window is a per-run setting at all. It is not for vLLM,
+   *  which fixes it with `--max-model-len` when it starts, so the field is
+   *  disabled rather than left there to be filled in and ignored. */
+  protected readonly takesNumCtx = computed(() => this.chosenProvider()?.takes_num_ctx ?? true);
+
   /** Cleared, the field means "whatever the server defaults to" -- so name it. */
   protected readonly numCtxHint = computed(() => {
+    if (!this.takesNumCtx()) {
+      return `Fixed when ${this.providerLabel()} starts`;
+    }
     const fallback = this.defaults()?.num_ctx;
     return fallback ? `The default (${fallback})` : "Ollama's own (4096)";
   });
 
   /**
-   * What the model dropdown offers: everything `ollama list` reported, plus the
+   * What the model dropdown offers: everything the server reported, plus the
    * name currently chosen if that is not among them.
    *
-   * Empty means there is nothing to pick from -- Ollama was unreachable, or has
-   * pulled nothing -- and the field falls back to a text box, because a dropdown
-   * with one unusable entry would be worse than typing.
+   * Empty means there is nothing to pick from -- the server was unreachable, or
+   * has nothing loaded -- and the field falls back to a text box, because a
+   * dropdown with one unusable entry would be worse than typing.
    */
   protected readonly modelOptions = computed<ModelOption[]>(() => {
     const installed = this.status()?.models ?? [];
@@ -162,6 +201,7 @@ export class SearchForm {
     this.remember();
     this.search.emit({
       request: this.request().trim(),
+      provider: this.provider(),
       model: this.model().trim(),
       base_url: this.baseUrl().trim(),
       region: this.region().trim(),
@@ -180,11 +220,28 @@ export class SearchForm {
     this.request.set(example);
   }
 
-  /** The Ollama server field was left: whatever is pulled there is a new list. */
+  /**
+   * Another provider was picked: its model and its address come with it.
+   *
+   * Left alone, the two fields would still hold the last provider's pair -- an
+   * Ollama tag on port 11434 asked of a vLLM -- which is a run that fails for a
+   * reason nothing on the form explains. The server is then asked what it has,
+   * because the model list belongs to one server.
+   */
+  protected providerChanged(): void {
+    const option = this.chosenProvider();
+    if (option) {
+      this.model.set(option.model);
+      this.baseUrl.set(option.base_url);
+    }
+    this.serverChanged();
+  }
+
+  /** The server field was left: whatever that one is serving is a new list. */
   protected serverChanged(): void {
     const url = this.baseUrl().trim();
     if (url) {
-      this.refresh.emit(url);
+      this.refresh.emit({ provider: this.provider(), base_url: url });
     }
   }
 

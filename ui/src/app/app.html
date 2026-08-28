@@ -5,19 +5,21 @@
       <p>Say what you want to buy. It searches, reads the pages, and ranks what it finds.</p>
     </div>
 
-    @if (status(); as ollama) {
+    @if (status(); as server) {
       <button
         type="button"
-        class="pill ollama"
-        [class.up]="ollama.reachable"
-        [attr.title]="ollama.detail ?? ollama.base_url"
+        class="pill server"
+        [class.up]="server.reachable"
+        [attr.title]="server.detail ?? server.base_url"
         (click)="refreshModels()"
       >
         <span class="dot"></span>
-        @if (ollama.reachable) {
-          Ollama · {{ ollama.models.length }} model{{ ollama.models.length === 1 ? '' : 's' }}
+        @if (server.reachable) {
+          {{ server.label }} · {{ server.models.length }} model{{
+            server.models.length === 1 ? '' : 's'
+          }}
         } @else {
-          Ollama unreachable
+          {{ server.label }} unreachable
         }
       </button>
     }

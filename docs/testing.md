@@ -17,13 +17,14 @@ cd ui; npm run test:coverage  # the same, with a coverage floor
 python -m pytest integration  # against a real Ollama; see below
 ```
 
-766 Python tests and 69 UI tests. Nothing in either suite touches the network or
-Ollama: the model is faked through the `llm=` argument of `BuyAgent`, both the
-search backend and the page fetcher are monkeypatched, and the server tests
-inject a stub agent through `create_server(agent_factory=...)`. The only real
-sockets are the loopback ones the HTTP tests need in order to be about HTTP at
-all. The 19 tests in `integration/` are the exception that proves it, and they
-live outside `testpaths` so that a bare `pytest` cannot reach them.
+836 Python tests and 78 UI tests. Nothing in either suite touches the network or
+a model server: the model is faked through the `llm=` argument of `BuyAgent`,
+both the search backend and the page fetcher are monkeypatched, the two clients
+`buy_agent.providers` builds are patched where that module imported them, and the
+server tests inject a stub agent through `create_server(agent_factory=...)`. The
+only real sockets are the loopback ones the HTTP tests need in order to be about
+HTTP at all. The 19 tests in `integration/` are the exception that proves it, and
+they live outside `testpaths` so that a bare `pytest` cannot reach them.
 
 Both suites are measured, and CI fails on a drop: the Python side covers every
 line and branch (`.coveragerc` sets the floor at 99%), and the UI's statements
@@ -31,7 +32,8 @@ and lines sit just under 100% (`ui/scripts/check-coverage.mjs`, floor 98%). Line
 coverage that high stops being a useful signal on its own, so
 `tests/test_conventions.py` asserts the rules that hold *between* modules --
 the three places a failure mode has to be listed, the four places a sort
-criterion has to be offered, the payloads `ui/src/app/agent.types.ts`
+criterion has to be offered, the two halves of a provider agreeing about which
+providers exist, the payloads `ui/src/app/agent.types.ts`
 mirrors, the `Dockerfile` agreeing with CI and with the server's own defaults,
 the three workflows agreeing on the version of every action they share, the
 nightly run pulling the model the live tests ask for, and

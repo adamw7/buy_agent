@@ -41,9 +41,13 @@ COPY --from=ui /ui/dist/ui/browser/ ./ui/dist/ui/browser/
 RUN useradd --create-home --uid 1000 shopper
 USER shopper
 
-# Ollama runs on the host, not in here. Docker Desktop resolves this name on its
-# own; on Linux, `--add-host=host.docker.internal:host-gateway` supplies it.
-ENV OLLAMA_HOST=http://host.docker.internal:11434
+# The model server runs on the host, not in here -- either of them. Docker
+# Desktop resolves this name on its own; on Linux,
+# `--add-host=host.docker.internal:host-gateway` supplies it. Both addresses are
+# set because either provider can be chosen per run, from the form or from
+# `--provider`, and the one that is not being used costs nothing.
+ENV OLLAMA_HOST=http://host.docker.internal:11434 \
+    VLLM_HOST=http://host.docker.internal:8000/v1
 
 EXPOSE 8000
 

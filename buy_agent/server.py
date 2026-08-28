@@ -45,7 +45,7 @@ from buy_agent.api import (
     parse_options,
     run_search,
 )
-from buy_agent.config import DEFAULT_BASE_URL
+from buy_agent.config import DEFAULT_PROVIDER, PROVIDER_DEFAULTS
 from buy_agent.logging_setup import configure_logging
 
 if TYPE_CHECKING:
@@ -271,7 +271,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         if url.path == "/api/config":
             self._send_json(200, defaults_payload())
         elif url.path == "/api/models":
-            self._send_json(200, installed_models(params.get("base_url") or DEFAULT_BASE_URL))
+            self._send_json(200, self._models(params))
         elif url.path == "/api/search/stream":
             self._stream_search(params)
         elif url.path.startswith("/api/"):
@@ -313,6 +313,19 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
     # -- the agent -------------------------------------------------------------
 
+    def _models(self, params: dict[str, str]) -> dict[str, Any]:
+        """What the named server is serving, for the form's model picker.
+
+        The provider comes with the address because the two belong together: the
+        same URL is asked in two different ways, and a vLLM asked Ollama's
+        question answers 404. An unknown name is not refused here --
+        ``installed_models`` reports it as an unreachable server with the reason,
+        which is what the pill above the form is already built to show.
+        """
+        provider = params.get("provider") or DEFAULT_PROVIDER
+        base_url = params.get("base_url") or _default_base_url(provider)
+        return installed_models(provider, base_url)
+
     def _search(self, data: dict[str, Any]) -> dict[str, Any]:
         config, sort_by = parse_options(data)
         request = str(data.get("request") or "")
@@ -342,7 +355,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         for event, data in self._search_events(params):
             if not self._send_event(event, data):
                 # The run itself carries on to the end: it is blocked inside an
-                # HTTP call to Ollama, and there is nothing here to cancel it with.
+                # HTTP call to the model server, and there is nothing here to
+                # cancel it with.
                 logger.info("Client disconnected; abandoning the stream")
                 return
 
@@ -526,6 +540,17 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         logger.debug("%s - %s", self.address_string(), format % args)
 
 
+def _default_base_url(provider: str) -> str:
+    """Where that provider listens when the request named no address.
+
+    A provider nothing serves has no address either, and the empty string it gets
+    is what ``installed_models`` turns into the unreachable status carrying the
+    reason -- the same answer the browser gets for a server that is simply down.
+    """
+    _model, base_url = PROVIDER_DEFAULTS.get(provider, ("", ""))
+    return base_url
+
+
 def _hostname(netloc: str) -> str:
     """The host out of a ``Host`` header or an origin's netloc, lowercased.
 
@@ -566,7 +591,7 @@ def create_server(
 
     Args:
         host: Interface to bind. Loopback by default -- this serves an agent that
-            runs commands against a local Ollama, not something to expose.
+            runs prompts against a local model server, not something to expose.
         port: Port to bind, or 0 to let the OS choose (what the tests do).
         ui_dir: Directory holding the built Angular app.
         agent_factory: Builds the agent from a config; the tests' injection seam.

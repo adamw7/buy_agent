@@ -1,9 +1,27 @@
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 
 import { SearchForm } from './search-form';
-import type { AgentDefaults, SearchOptions } from '../agent.types';
+import type { AgentDefaults, ModelSource, SearchOptions } from '../agent.types';
+
+const OLLAMA = {
+  name: 'ollama',
+  label: 'Ollama',
+  model: 'llama3.2',
+  base_url: 'http://localhost:11434',
+  takes_num_ctx: true,
+};
+
+const VLLM = {
+  name: 'vllm',
+  label: 'vLLM',
+  model: 'Qwen/Qwen3-8B',
+  base_url: 'http://localhost:8000/v1',
+  takes_num_ctx: false,
+};
 
 const DEFAULTS: AgentDefaults = {
+  provider: 'ollama',
+  provider_options: [OLLAMA, VLLM],
   model: 'llama3.2',
   base_url: 'http://localhost:11434',
   temperature: 0,
@@ -47,9 +65,11 @@ describe('SearchForm', () => {
     await fixture.whenStable();
   };
 
-  /** Tell the form what `ollama list` reported, the way the page does. */
+  /** Tell the form what the server reported serving, the way the page does. */
   const pulled = async (models: string[]) => {
     fixture.componentRef.setInput('status', {
+      provider: 'ollama',
+      label: 'Ollama',
       base_url: 'http://localhost:11434',
       reachable: true,
       models,
@@ -141,7 +161,7 @@ describe('SearchForm', () => {
     expect(form.querySelector<HTMLSelectElement>('select[name="thinking"]')!.value).toBe('off');
   });
 
-  it('offers the models Ollama has pulled, as a dropdown', async () => {
+  it('offers the models the server reported, as a dropdown', async () => {
     await pulled(['llama3.2', 'lfm2.5']);
 
     expect(modelNames()).toEqual(['llama3.2', 'lfm2.5']);
@@ -159,18 +179,20 @@ describe('SearchForm', () => {
     expect(submitted[0].model).toBe('lfm2.5');
   });
 
-  it('keeps a chosen model Ollama has not pulled in the list', async () => {
+  it('keeps a chosen model the server is not serving in the list', async () => {
     /* Dropping it would silently run the search on somebody else's model. */
     await pulled(['lfm2.5']);
 
     expect(modelNames()).toEqual(['llama3.2', 'lfm2.5']);
     expect(element<HTMLSelectElement>('select[name="model"]').value).toBe('llama3.2');
-    expect(element('select[name="model"] option')!.textContent).toContain('not pulled');
+    expect(element('select[name="model"] option')!.textContent).toContain('not served');
   });
 
-  it('falls back to typing a name when Ollama listed nothing', async () => {
+  it('falls back to typing a name when the server listed nothing', async () => {
     /* A dropdown holding one unusable entry is worse than a text box. */
     fixture.componentRef.setInput('status', {
+      provider: 'ollama',
+      label: 'Ollama',
       base_url: 'http://localhost:11434',
       reachable: false,
       models: [],
@@ -179,11 +201,12 @@ describe('SearchForm', () => {
 
     expect(element('select[name="model"]')).toBeNull();
     expect(element<HTMLInputElement>('input[name="model"]').value).toBe('llama3.2');
+    expect(element('.field small')!.textContent).toContain('Ollama listed nothing');
   });
 
   it('asks for the model list of the server that was typed in', async () => {
-    const asked: string[] = [];
-    fixture.componentInstance.refresh.subscribe((url) => asked.push(url));
+    const asked: ModelSource[] = [];
+    fixture.componentInstance.refresh.subscribe((source) => asked.push(source));
 
     const server = element<HTMLInputElement>('input[name="baseUrl"]');
     server.value = ' http://10.0.0.5:11434 ';
@@ -191,12 +214,87 @@ describe('SearchForm', () => {
     server.dispatchEvent(new Event('change'));
     await fixture.whenStable();
 
-    expect(asked).toEqual(['http://10.0.0.5:11434']);
+    expect(asked).toEqual([{ provider: 'ollama', base_url: 'http://10.0.0.5:11434' }]);
+  });
+
+  it('offers every provider the server named', async () => {
+    const names = Array.from(
+      element<HTMLSelectElement>('select[name="provider"]').options,
+      (option) => option.value,
+    );
+
+    expect(names).toEqual(['ollama', 'vllm']);
+  });
+
+  it('brings the model and the address along when the provider changes', async () => {
+    /* Left alone, the two would still hold an Ollama tag on Ollama's port, asked
+       of a vLLM -- a run that fails for a reason nothing on the form explains. */
+    await choose('select[name="provider"]', 'vllm');
+
+    expect(element<HTMLInputElement>('input[name="model"]').value).toBe(VLLM.model);
+    expect(element<HTMLInputElement>('input[name="baseUrl"]').value).toBe(VLLM.base_url);
+  });
+
+  it('asks the newly chosen provider what it is serving', async () => {
+    const asked: ModelSource[] = [];
+    fixture.componentInstance.refresh.subscribe((source) => asked.push(source));
+
+    await choose('select[name="provider"]', 'vllm');
+
+    expect(asked).toEqual([{ provider: 'vllm', base_url: VLLM.base_url }]);
+  });
+
+  it('sends the provider along with the request', async () => {
+    await choose('select[name="provider"]', 'vllm');
+    await type('input[name="request"]', 'kettle');
+    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+
+    expect(submitted[0].provider).toBe('vllm');
+    expect(submitted[0].model).toBe(VLLM.model);
+  });
+
+  it('names the server the address field belongs to', async () => {
+    const label = () => element<HTMLInputElement>('input[name="baseUrl"]').closest('label')!;
+    expect(label().querySelector('span')!.textContent).toContain('Ollama address');
+
+    await choose('select[name="provider"]', 'vllm');
+
+    expect(label().querySelector('span')!.textContent).toContain('vLLM address');
+  });
+
+  it('closes the context field for a provider that does not take one', async () => {
+    /* vLLM fixes its window with --max-model-len when it starts, so a box to type
+       one into would be a setting that quietly does nothing. */
+    const field = () => element<HTMLInputElement>('input[name="numCtx"]');
+    expect(field().disabled).toBe(false);
+
+    await choose('select[name="provider"]', 'vllm');
+
+    expect(field().disabled).toBe(true);
+    expect(field().placeholder).toBe('Fixed when vLLM starts');
+  });
+
+  it('remembers the provider with the pair that belongs to it', async () => {
+    /* Saved together, so a restore can never put one provider's model against
+       the other one's address. */
+    await choose('select[name="provider"]', 'vllm');
+    await type('input[name="request"]', 'kettle');
+    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+
+    const form = await seeded();
+
+    expect(form.querySelector<HTMLSelectElement>('select[name="provider"]')!.value).toBe('vllm');
+    expect(form.querySelector<HTMLInputElement>('input[name="model"]')!.value).toBe(VLLM.model);
+    expect(form.querySelector<HTMLInputElement>('input[name="baseUrl"]')!.value).toBe(
+      VLLM.base_url,
+    );
   });
 
   it('does not go asking a server with no address', async () => {
-    const asked: string[] = [];
-    fixture.componentInstance.refresh.subscribe((url) => asked.push(url));
+    const asked: ModelSource[] = [];
+    fixture.componentInstance.refresh.subscribe((source) => asked.push(source));
 
     const server = element<HTMLInputElement>('input[name="baseUrl"]');
     server.value = '   ';

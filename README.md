@@ -1,8 +1,10 @@
 # buy_agent
 
-A shopping agent built on LangChain and a local [Ollama](https://ollama.com) model.
-Tell it what you want to buy; it searches the web, pulls out up to 10 products
-along with what the pages say about them, ranks them, and logs the best 3.
+A shopping agent built on LangChain and a local model -- served by
+[Ollama](https://ollama.com), or by a [vLLM](https://docs.vllm.ai) you already
+run. Tell it what you want to buy; it searches the web, pulls out up to 10
+products along with what the pages say about them, ranks them, and logs the
+best 3.
 
 ```
 $ python -m buy_agent "wireless noise cancelling headphones under $200"
@@ -45,8 +47,12 @@ python -m venv .venv
 pip install -r requirements-dev.txt
 ```
 
+Already running a vLLM? Skip step 1 and see
+[Running against vLLM](#running-against-vllm) -- `--provider vllm` is the whole
+difference.
+
 To run the web UI without setting up either toolchain, build the image instead --
-see [Running in Docker](docs/docker.md). Ollama still runs on the host.
+see [Running in Docker](docs/docker.md). The model server still runs on the host.
 
 A pulled tag follows the registry, and `python -m scripts.update_ollama` re-pulls
 the models Ollama has and reports which builds actually moved -- see
@@ -63,19 +69,65 @@ python -m buy_agent "wireless earbuds" --source rtings.com --source @mkbhd
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--model` | `gemma4:12b` (or `$OLLAMA_MODEL`) | Ollama model tag |
-| `--base-url` | `http://localhost:11434` (or `$OLLAMA_HOST`) | Ollama server |
+| `--provider` | `ollama` (or `$BUY_AGENT_PROVIDER`) | `ollama` or `vllm` |
+| `--model` | the provider's own | Ollama tag, or the name a vLLM was started with |
+| `--base-url` | the provider's own | Where that server listens |
 | `--results` | `10` | How many products to find |
 | `--top` | `3` | How many to log |
 | `--sort-by` | `score` | `score`, `price` or `rating` |
 | `--region` | `us-en` | Search region, e.g. `uk-en`, `pl-pl` |
 | `--source` | -- | Take the facts from this source only; repeatable |
 | `--temperature` | `0.0` | Model temperature; extraction is a copying task |
-| `--num-ctx` | `8192` | Context window in tokens |
+| `--num-ctx` | `8192` | Context window in tokens (Ollama only) |
 | `--think` / `--no-think` | `--no-think` | Force thinking mode on or off |
 | `--no-fetch` | off | Use search snippets only, without opening the result pages |
 | `--json` | -- | Also write every result to a JSON file |
 | `-v` | off | Debug logging |
+
+### Running against vLLM
+
+Ollama is the default because it is the one you install in a minute on a laptop.
+On a machine that already serves a model with [vLLM](https://docs.vllm.ai) --
+a shared GPU box, a lab server -- installing a second model server and pulling a
+second copy of the weights is pure waste, so point the agent at the one that is
+already running:
+
+```powershell
+python -m buy_agent "gaming laptop under $1500" --provider vllm
+python -m buy_agent "espresso machine" --provider vllm --base-url http://gpu.lan:8000/v1
+$env:BUY_AGENT_PROVIDER = 'vllm'      # ...or once, for every run in this shell
+```
+
+`--provider` on its own is a complete choice: `--model` and `--base-url` default
+to the pair that belongs to whichever provider was named, so nothing has to be
+retyped to switch. Those defaults are `$VLLM_MODEL` and `$VLLM_HOST` --
+`Qwen/Qwen3-8B` and `http://localhost:8000/v1`, the port and the `/v1` root
+`vllm serve` gives you with no arguments -- exactly as `$OLLAMA_MODEL` and
+`$OLLAMA_HOST` are Ollama's.
+
+Everything else is the same run. Both servers constrain decoding to the JSON
+schema, so extraction, grounding, quoting and ranking are unchanged, and
+`buy_agent/providers.py` is the only module that knows which one is answering.
+Three differences are real, and none of them is hidden:
+
+- **A vLLM serves one model, chosen when it started.** So the Model dropdown has
+  one entry, and asking for a name it does not have is answered with a message
+  saying what it *is* serving and how to restart it -- there is nothing to pull.
+- **`--num-ctx` is Ollama's.** vLLM fixes its window with `--max-model-len` when
+  it starts, so the flag is not sent there and the web form disables the field
+  rather than taking a number it would ignore. `--think` / `--no-think` works on
+  both: it becomes `enable_thinking`, which is what the chat templates of the
+  thinking models vLLM serves read.
+- **A key, if there is one.** A vLLM started with `--api-key` wants it back;
+  `$env:VLLM_API_KEY` is how, and deliberately the only how -- there is no flag
+  for it, so it stays out of your shell history, and it is not in what the web
+  API hands the browser.
+
+See [ADR-0028](docs/adr/0028-serve-the-model-from-ollama-or-vllm.md) for why this
+is one seam rather than two code paths, and why it does not reopen the
+no-accounts-no-keys decision in
+[ADR-0003](docs/adr/0003-local-ollama-no-api-keys.md): a vLLM on your own machine
+or your own network is inside that decision, not an exception to it.
 
 ### Thinking models
 
@@ -161,10 +213,16 @@ Ollama if nothing is answering on it, pulls the default model if it is not
 pulled, builds `ui/` if there is no build, then runs the server in the
 foreground and opens the page. Each step is skipped when it is already done, so
 a second run is a few seconds. Ctrl+C stops the server -- and the Ollama too, if
-the script was what started it. It has no options on purpose: the model and the
-Ollama server are `$env:OLLAMA_MODEL` and `$env:OLLAMA_HOST` like everywhere
+the script was what started it. It has no options on purpose: the provider, the
+model and the server address are `$env:BUY_AGENT_PROVIDER`, `$env:OLLAMA_MODEL`
+and `$env:OLLAMA_HOST` (or `$env:VLLM_MODEL` and `$env:VLLM_HOST`) like everywhere
 else, and anything past that is a flag on the server itself, which is what the
 manual route below is for.
+
+Ollama is the only model server it starts for you. With
+`$env:BUY_AGENT_PROVIDER` set to `vllm` it waits for one to be answering and says
+where instead of trying to launch it: a vLLM wants a GPU, a served model and
+flags this script has no business choosing.
 
 Node is the one thing it will not install: without `npm` on PATH it says so and
 serves the API anyway, so the page is the 503 until a build exists. A PowerShell
@@ -195,10 +253,11 @@ python -m buy_agent.server         # http://127.0.0.1:8000
 Then open <http://127.0.0.1:8000> and search. Skip step 2 and the API still
 answers, but the page is a 503 telling you to build it; `--ui-dir` points at a
 build kept somewhere else, and `--host` / `--port` move the binding, which is
-loopback on port 8000 by default. Ollama need not be local either --
-`$OLLAMA_HOST`, or the Ollama server field under Settings, points the run at
-another machine. To work on the UI itself, run the Angular dev server instead of
-building for every change -- see [The dev server](#the-dev-server) below.
+loopback on port 8000 by default. The model server need not be local either --
+`$OLLAMA_HOST` and `$VLLM_HOST`, or the address field under Settings, point the
+run at another machine. To work on the UI itself, run the Angular dev server
+instead of building for every change -- see [The dev server](#the-dev-server)
+below.
 
 ![The search form, with its settings open](docs/ui.png)
 
@@ -226,13 +285,16 @@ the server by some other name -- a container published on a LAN -- means naming
 that name, with `--allowed-host buy.lan`, or it is refused too. See
 [ADR-0018](docs/adr/0018-guard-the-loopback-server-against-other-pages.md).
 
-Under Settings, **Model** is a dropdown of what that Ollama has actually pulled --
-the same list `ollama list` prints, asked for over its API through
-`GET /api/models`. Point the Ollama server field somewhere else and the list is
-fetched again from there. A model that is configured but not pulled stays in the
-dropdown marked `not pulled`, so a stale setting is visible rather than silently
-swapped; a server that answered with nothing at all turns the field back into a
-text box, so a name can still be typed.
+Under Settings, **Model server** picks between Ollama and vLLM and brings that
+one's model and address along with it, and **Model** is a dropdown of what that
+server is actually serving -- the list `ollama list` prints, or the one entry a
+vLLM reports at `/v1/models`, asked for over `GET /api/models`. Point the address
+field somewhere else and the list is fetched again from there. A model that is
+configured but not served stays in the dropdown marked `not served`, so a stale
+setting is visible rather than silently swapped; a server that answered with
+nothing at all turns the field back into a text box, so a name can still be
+typed. The pill in the header names whichever server the list came from, so a
+page pointed at a vLLM never reports an Ollama being down.
 
 When a run ends badly, the Progress panel offers **Download log**: the lines it
 was showing, plus the error that ended the run, saved as
@@ -253,7 +315,7 @@ curl -X POST http://127.0.0.1:8000/api/search `
 | Endpoint | Answers with |
 | --- | --- |
 | `GET /api/config` | The form's defaults -- the same ones `--help` prints |
-| `GET /api/models` | Which models Ollama has pulled, or why it could not be asked |
+| `GET /api/models` | What a named server is serving, or why it could not be asked |
 | `POST /api/search` | One run, as JSON |
 | `GET /api/search/stream` | One run, as an event stream |
 
@@ -277,8 +339,8 @@ The C4 diagrams in [docs/architecture.md](docs/architecture.md) draw the same
 thing, a zoom level at a time -- Mermaid, so GitHub renders them in place:
 
 - [System context](docs/architecture.md#level-1----system-context) -- the
-  shopper, the agent as one box, and the three things outside it: Ollama,
-  DuckDuckGo and the shop pages.
+  shopper, the agent as one box, and the three things outside it: the model
+  server, DuckDuckGo and the shop pages.
 - [Containers](docs/architecture.md#level-2----containers) -- the CLI, the web
   UI, the HTTP server, and the one pipeline both front ends drive.
 - [Components of the agent pipeline](docs/architecture.md#level-3----components-of-the-agent-pipeline)
@@ -315,8 +377,9 @@ at running a tool loop, but perfectly capable of these two steps.
 
 Seven details make it work with a small model:
 
-- **Structured output.** Both LLM calls use Ollama's `json_schema` mode, so the
-  model's decoding is constrained to the schema and cannot drift into prose.
+- **Structured output.** Both LLM calls use `json_schema` mode -- Ollama's, or
+  vLLM's on the OpenAI-compatible side -- so the model's decoding is constrained
+  to the schema and cannot drift into prose.
 - **Sentinels instead of nulls.** The extraction schema asks for `-1` rather than
   `null` for an unknown price (`buy_agent/models.py`). A required `number` makes
   it structurally impossible to answer `"N/A"` and fail validation for the whole
@@ -373,13 +436,15 @@ cd ui; npm test               # the UI's own tests, in jsdom
 python -m pytest integration  # ...and against a real model, if one is pulled
 ```
 
-Neither suite touches the network or Ollama, both run on Windows and on Linux,
-and both are measured against a coverage floor CI enforces. The third, in
+Neither suite touches the network or a model server, both run on Windows and on
+Linux, and both are measured against a coverage floor CI enforces. The third, in
 `integration/`, is the deliberate exception: it runs the pipeline against a real
 Ollama on a model small enough for a CPU, which is the only place the claims
 about JSON-schema decoding and about Ollama's transport errors are actually put
 to Ollama. It lives outside `testpaths`, so `python -m pytest` cannot reach it,
-and a nightly job capped at five minutes is what runs it (ADR-0026).
+and a nightly job capped at five minutes is what runs it (ADR-0026). vLLM is not
+in that job -- it needs a GPU, and a CPU runner cannot host one honestly -- so its
+half is asserted in `tests/test_providers.py` and named as a gap in ADR-0028.
 
 What the counts are, what `tests/test_conventions.py` checks that coverage
 cannot, and the mutation run that grades the suite itself every Saturday are in

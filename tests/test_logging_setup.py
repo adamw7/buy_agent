@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from buy_agent.logging_setup import configure_logging, log_top_products
+from buy_agent.logging_setup import _NOISY_LIBRARIES, configure_logging, log_top_products
 from buy_agent.models import Product, RankedProduct
 
 
@@ -131,22 +131,29 @@ def test_the_format_names_the_logger_and_the_message(basic_config) -> None:
     assert "%(message)s" in basic_config["format"]
 
 
-def test_httpx_is_quietened_so_it_cannot_drown_out_the_report(basic_config) -> None:
-    """httpx logs every single Ollama call at INFO."""
-    logging.getLogger("httpx").setLevel(logging.NOTSET)
+@pytest.mark.parametrize("library", _NOISY_LIBRARIES)
+def test_the_http_clients_are_quietened_so_they_cannot_drown_out_the_report(
+    basic_config, library: str
+) -> None:
+    """httpx logs every single Ollama call at INFO, and the OpenAI client logs a
+    line per retry -- so a stopped vLLM prints its own retries above the one
+    message that says what to do about it. One per model server; parametrized off
+    the list, so a third arrives here with the provider that needs it."""
+    logging.getLogger(library).setLevel(logging.NOTSET)
 
     configure_logging()
 
-    assert logging.getLogger("httpx").level == logging.WARNING
+    assert logging.getLogger(library).level == logging.WARNING
 
 
-def test_verbose_leaves_httpx_alone(basic_config) -> None:
+@pytest.mark.parametrize("library", _NOISY_LIBRARIES)
+def test_verbose_leaves_them_alone(basic_config, library: str) -> None:
     """Debugging is exactly when those calls are worth seeing."""
-    logging.getLogger("httpx").setLevel(logging.NOTSET)
+    logging.getLogger(library).setLevel(logging.NOTSET)
 
     configure_logging(verbose=True)
 
-    assert logging.getLogger("httpx").level == logging.NOTSET
+    assert logging.getLogger(library).level == logging.NOTSET
 
 
 def test_every_opinion_gets_its_own_line(report) -> None:

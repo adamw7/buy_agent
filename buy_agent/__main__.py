@@ -9,8 +9,8 @@ import sys
 from pathlib import Path
 from typing import get_args
 
-from buy_agent.agent import BuyAgent, OllamaUnavailableError
-from buy_agent.config import AgentConfig
+from buy_agent.agent import BuyAgent, ModelUnavailableError
+from buy_agent.config import PROVIDER_DEFAULTS, AgentConfig
 from buy_agent.logging_setup import configure_logging
 from buy_agent.ranking import SortBy
 from buy_agent.search import SearchError
@@ -20,6 +20,19 @@ logger = logging.getLogger("buy_agent")
 
 #: The flag defaults are the config's own, so the two cannot drift apart.
 _DEFAULTS = AgentConfig()
+
+
+def _provider_defaults(index: int) -> str:
+    """One column of :data:`PROVIDER_DEFAULTS`, as ``--help`` prints it.
+
+    ``--model`` and ``--base-url`` each have a default per provider rather than
+    one, so the help names all of them: "gemma4:12b for ollama, Qwen/Qwen3-8B for
+    vllm". Read off the table so a third provider appears here by being added
+    there.
+    """
+    return ", ".join(
+        f"{pair[index]} for {name}" for name, pair in PROVIDER_DEFAULTS.items()
+    )
 
 
 def _source(spec: str) -> str:
@@ -46,14 +59,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("request", help="What you want to buy, in plain words.")
     parser.add_argument(
+        "--provider",
+        choices=tuple(PROVIDER_DEFAULTS),
+        default=_DEFAULTS.provider,
+        help=f"Which model server to talk to (default: {_DEFAULTS.provider}, override "
+        "with $BUY_AGENT_PROVIDER). It decides what --model and --base-url mean.",
+    )
+    # Both default to the empty string rather than to a value, because which
+    # value is right depends on --provider, which argparse has not read yet. The
+    # config resolves an empty one per provider, so the help quotes the pair for
+    # each rather than one pair that would be wrong half the time.
+    parser.add_argument(
         "--model",
-        default=_DEFAULTS.model,
-        help=f"Ollama model tag (default: {_DEFAULTS.model}, override with $OLLAMA_MODEL).",
+        default="",
+        help="Model to use, empty for the provider's own default "
+        f"({_provider_defaults(0)}). Override with $OLLAMA_MODEL or $VLLM_MODEL.",
     )
     parser.add_argument(
         "--base-url",
-        default=_DEFAULTS.base_url,
-        help=f"Ollama server URL (default: {_DEFAULTS.base_url}, override with $OLLAMA_HOST).",
+        default="",
+        help="Model server URL, empty for the provider's own default "
+        f"({_provider_defaults(1)}). Override with $OLLAMA_HOST or $VLLM_HOST.",
     )
     parser.add_argument(
         "--results",
@@ -99,7 +125,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=_DEFAULTS.num_ctx,
         help=f"Context window in tokens (default: {_DEFAULTS.num_ctx}). The "
         "extraction prompt runs to ~4.3k tokens, so a larger window leaves room for "
-        "more products; a model that need not think is fine on Ollama's own 4096.",
+        "more products; a model that need not think is fine on Ollama's own 4096. "
+        "Ollama only -- vLLM fixes its window with --max-model-len when it starts.",
     )
     parser.add_argument(
         "--think",
@@ -126,6 +153,7 @@ def main(argv: list[str] | None = None) -> int:
     configure_logging(verbose=args.verbose)
 
     config = AgentConfig(
+        provider=args.provider,
         model=args.model,
         base_url=args.base_url,
         temperature=args.temperature,
@@ -143,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         ranked = BuyAgent(config).run(args.request, sort_by=args.sort_by)
-    except (OllamaUnavailableError, SearchError, ValueError) as exc:
+    except (ModelUnavailableError, SearchError, ValueError) as exc:
         logger.error("%s", exc)
         return 1
     except KeyboardInterrupt:

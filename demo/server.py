@@ -131,10 +131,16 @@ DEMO_MODELS = ("gemma4:12b", "qwen3:8b", "llama4:8b", "lfm2.5")
 
 
 def install_fake_models() -> None:
-    """Answer the UI's model picker without asking Ollama."""
+    """Answer the UI's model picker without asking a model server."""
 
-    def models(base_url: str) -> dict[str, Any]:
-        return {"base_url": base_url, "reachable": True, "models": list(DEMO_MODELS)}
+    def models(provider: str, base_url: str) -> dict[str, Any]:
+        return {
+            "provider": provider,
+            "label": "Ollama",
+            "base_url": base_url,
+            "reachable": True,
+            "models": list(DEMO_MODELS),
+        }
 
     server_module.installed_models = models
 

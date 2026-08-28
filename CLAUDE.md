@@ -6,7 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A shopping agent: it takes a plain-language request ("wireless headphones under
 $200"), searches the web, extracts up to 10 products along with what the pages
-say about them, ranks them, and logs the top 3. Built on LangChain with a local Ollama model. `ui/` is an Angular front
+say about them, ranks them, and logs the top 3. Built on LangChain with a local
+model, served by Ollama or by a vLLM behind its OpenAI-compatible API --
+`AgentConfig.provider` chooses, and `buy_agent/providers.py` is the only module
+that knows the difference (ADR-0028). `ui/` is an Angular front
 end onto the same pipeline, served by `buy_agent.server`. See `README.md` for
 usage -- it keeps the tour and links out to the longer technical sections, which
 live beside it: `docs/models.md` (keeping Ollama's models current),
@@ -36,6 +39,7 @@ ollama pull qwen3:0.6b ; python -m pytest integration   # against a real model
 
 python -m buy_agent "gaming laptop under $1500"          # run the agent
 python -m buy_agent "espresso machine" --model lfm2.5 -v
+python -m buy_agent "gaming laptop" --provider vllm      # the other model server
 python -m buy_agent "running shoes" --sort-by price --json results.json
 python -m buy_agent "wireless earbuds" --source rtings.com --source @mkbhd
 
@@ -54,8 +58,10 @@ The `Dockerfile` is a third way to run that server, for someone who wants the pa
 rather than the source: a `node:22.22.3-bookworm-slim` stage builds `ui/`, a
 `python:3.13-slim` stage installs `requirements.txt` and gets the build copied to
 `ui/dist/ui/browser` beside the package -- where `server.DEFAULT_UI_DIR` looks, so
-no `--ui-dir`. Ollama is not in the image and not started by it (ADR-0015): the
-container talks to the host's through `host.docker.internal`, which needs
+no `--ui-dir`. Neither model server is in the image or started by it (ADR-0015):
+the container talks to the host's through `host.docker.internal` -- both
+`$OLLAMA_HOST` and `$VLLM_HOST` are set to it, since either provider can be
+chosen per run -- which needs
 `--add-host=host.docker.internal:host-gateway` on Linux. `ENTRYPOINT` is `python`
 and `CMD` is `-m buy_agent.server --host 0.0.0.0`, so the CLI is reachable from
 the same image and `--host` stays out of the server's own default (it binds
@@ -78,8 +84,18 @@ docker run --rm -p 8000:8000 buy-agent
 docker run --rm buy-agent -m buy_agent "espresso machine"
 ```
 
-`$OLLAMA_MODEL` and `$OLLAMA_HOST` move the model and server defaults, and every
-CLI flag defaults to the matching `AgentConfig` field, so a new setting is added
+`$BUY_AGENT_PROVIDER` moves which model server a run talks to, and each provider
+has its own pair of variables behind it -- `$OLLAMA_MODEL`/`$OLLAMA_HOST` and
+`$VLLM_MODEL`/`$VLLM_HOST`, in `config.PROVIDER_DEFAULTS`. `AgentConfig.model`
+and `AgentConfig.base_url` therefore default to the *empty string* and are
+resolved per provider in `__post_init__`: which value is right depends on a
+sibling field, so a plain field default could only ever be right for one of the
+two, and "unset" is spelled the same way a blank form field is (ADR-0012). That
+is why `--model` and `--base-url` default to `""` on the CLI and interpolate
+every provider's pair into their help rather than one. `$VLLM_API_KEY` is the one
+setting with no flag and no form field -- it is a secret, so it stays out of a
+shell history and out of `defaults_payload`. Every other CLI flag defaults to the
+matching `AgentConfig` field, so a new setting is added
 in `config.py` and picked up rather than repeated. One field is deliberately not
 named the same on the way out: `AgentConfig.reasoning` is `--think`
 (`BooleanOptionalAction`, so `--no-think` is the off switch) on the CLI and
@@ -92,7 +108,12 @@ which thinks, so the defaults that make it answer travel with it -- `reasoning`
 is `False` and `num_ctx` is `8192` rather than the `None` each used to be. A
 model that cannot think ignores both; one that wants its own behaviour back is
 given `num_ctx=None, reasoning=None`, which is the only way to send nothing and
-is reachable from neither front end (ADR-0019). `buy_agent.server` wants the
+is reachable from neither front end (ADR-0019). `num_ctx` is also the one setting the two providers do not share: vLLM fixes its
+window with `--max-model-len` when it starts, so `Provider.takes_num_ctx` is
+false there, the value is not sent, and the CLI's help and the form's field both
+say so rather than accepting a number nothing reads. `reasoning` *is* shared --
+Ollama's own `think` option, vLLM's `chat_template_kwargs.enable_thinking`.
+`buy_agent.server` wants the
 UI built first: without `ui/dist/ui/browser` the API still answers and the page
 is a 503 saying how to build it (`--ui-dir` points at a build elsewhere).
 
@@ -168,11 +189,12 @@ superseding it rather than an edit to the old one -- numbers are never reused,
 and accepted records are not rewritten. `tests/test_conventions.py` checks that
 the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0027 and every record is Accepted, so the next free number is 0028.
+to ADR-0028 and every record is Accepted, so the next free number is 0029.
 
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
 for the two steps it is reliable at, and ordinary Python does everything else,
-because Ollama is typically run with small models that drive tool loops badly.
+because these servers are typically run with small models that drive tool loops
+badly.
 
 ```
 request -> refine query (LLM) -> DuckDuckGo (once, or once per named
@@ -191,7 +213,7 @@ which fields only qualify another and `_fill_gaps` moves the group.
 
 | Module | Responsibility |
 | --- | --- |
-| `agent.py` | `BuyAgent.run()` -- orchestrates the pipeline, translates Ollama errors |
+| `agent.py` | `BuyAgent.run()` -- orchestrates the pipeline, translates model-server errors |
 | `extraction.py` | Both prompts, both chains, name cleaning, deduplication |
 | `fetch.py` | Fetches result pages, keeps the lines quoting a figure or passing judgement |
 | `verification.py` | Drops products, figures and quotes absent from the sources; links what is left |
@@ -199,11 +221,27 @@ which fields only qualify another and `_fill_gaps` moves the group.
 | `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain) |
 | `search.py` | DuckDuckGo wrapper -- and nothing else (ADR-0021) |
 | `sources.py` | What a trusted source is: domain, term, `site:` query, `covers` |
+| `providers.py` | Everything that differs between Ollama and vLLM, and nothing else |
 | `config.py`, `logging_setup.py`, `__main__.py` | Config, the report, the CLI |
 | `api.py` | Request options in, ranked products out -- the web-facing half worth testing |
 | `server.py` | A stdlib HTTP server: the JSON API, the event stream, the built UI |
 
-Eight conventions matter when changing this code:
+Nine conventions matter when changing this code:
+
+- **A provider is two halves in two modules, and both have to be written.**
+  `config.PROVIDER_DEFAULTS` holds each server's model and address and is the
+  half that reads the environment; `providers.PROVIDERS` holds the behaviour and
+  imports nothing from `config`, because it acts on a config rather than deciding
+  what an unset field means. Neither can import the other's half, so the name is
+  written twice and `tests/test_conventions.py` checks the two tables agree --
+  behaviour with no defaults cannot be configured, defaults with no behaviour are
+  a `KeyError` on the first run. A `Provider` answers exactly four questions (the
+  chat model, the listing, the transport errors that mean "not there", the
+  sentence that failure carries) plus `takes_num_ctx`; a setting one server takes
+  and the other does not gets a declaration beside that one rather than an
+  `if provider == ...` in the CLI, the API and the form. `agent.py` never
+  branches on which server is answering, and neither does anything above it
+  (ADR-0028).
 
 - **The sources are whatever was searched, and the shopper may narrow them.**
   `AgentConfig.sources` is empty by default, which is the whole web. Given any,
@@ -304,7 +342,7 @@ Eight conventions matter when changing this code:
   answer -- filtering, scoring, ordering -- belongs in Python, where it is testable.
 
 `BuyAgent.run()` raises exactly three things -- `ValueError`,
-`OllamaUnavailableError`, `SearchError` -- and `__main__.main()` catches exactly
+`ModelUnavailableError`, `SearchError` -- and `__main__.main()` catches exactly
 those around the run, logging them and returning 1 (130 on Ctrl-C). It has a
 second, unrelated `except` further down, for an `OSError` from writing the
 `--json` file, which is why `tests/test_conventions.py` reads the handlers of
@@ -312,20 +350,30 @@ the `try` holding the `.run()` call rather than every handler in the function. `
 three onto HTTP statuses (400, 503, 502). A new failure mode needs handling in
 all three places, or it reaches the user as a traceback and the browser as a 500.
 Within the agent only query refinement is recoverable: it falls back to the raw
-request, but lets `OllamaUnavailableError` through rather than searching with a
-model that is not there. What `BuyAgent._invoke` has to catch to produce that
-error is wider than it looks: the ollama client turns a refused connection into a
+request, but lets `ModelUnavailableError` through rather than searching with a
+model that is not there. What has to be caught to produce that error is the
+provider's to say -- `BuyAgent._invoke` catches `transport_errors(self.config)`
+and nothing written down locally -- and for Ollama the tuple is wider than it
+looks: the ollama client turns a refused connection into a
 builtin `ConnectionError` only on its *non*-streaming path, and `ChatOllama`
 always chats over the streaming one, so a stopped server, a model too slow to
 answer and a killed stream all arrive as raw `httpx` errors -- none of which is an
-`OSError`. Hence `httpx.HTTPError` in the `except`, next to ollama's own
+`OSError`. Hence `httpx.HTTPError` in the tuple, next to ollama's own
 `RequestError`, which is a different class from httpx's identically named one.
+vLLM's is `openai.OpenAIError`, the root of that client's hierarchy, plus the two
+above for the listing, which goes over `httpx` directly.
 
 The CLI and the API are two ways of filling in the same `AgentConfig`, and both
 set `search_results = max(results, top)` -- searching for fewer pages than the
 report intends to show would cap the report. A new option belongs in
 `__main__.build_parser`, `api.parse_options` and `api.defaults_payload`, which is
-what seeds the web form. `sources` is the one option that is a list, and so the
+what seeds the web form. `provider` is the one option that is offered in *four*
+places -- those three plus the `ProviderOption` rows `defaults_payload` sends the
+picker -- and every one of them reads `providers.PROVIDERS` rather than listing
+the names again. It is also the one option that changes what two others mean, so
+both front ends pass `model` and `base_url` through as `""` when they were not
+given: the config resolves the pair, and the form fills both fields in when the
+picker changes so neither is left holding the other server's answer. `sources` is the one option that is a list, and so the
 one that does not go through `api._read`: that renders every value with `str`
 first, which turns a JSON array into its Python repr, so `_read_sources` takes
 either an array or the separated string a query string can carry. On the CLI it
@@ -353,7 +401,7 @@ everything else to the built Angular app, with unknown paths falling back to
 | Endpoint | Answers with |
 | --- | --- |
 | `GET /api/config` | The form's defaults -- the same ones `--help` prints |
-| `GET /api/models` | Which models Ollama has pulled, or why it could not be asked |
+| `GET /api/models` | What a named server is serving, or why it could not be asked |
 | `POST /api/search` | One run, as JSON |
 | `GET /api/search/stream` | One run, as SSE: `log` lines, then `result` or `failure` |
 
@@ -373,8 +421,10 @@ Four things there are load-bearing:
   `HEAD /api/search/stream` answers 405 rather than starting a run nobody reads.
 - **The browser decides nothing.** Ranking, grounding and even the wording of an
   unknown price stay in Python: `product_payload` sends `price_label` and
-  `rating_label` next to the raw figures, and `sort_by` is a request parameter
-  rather than a client-side re-sort. The same rule as `clean_products` -- whatever
+  `rating_label` next to the raw figures, `sort_by` is a request parameter
+  rather than a client-side re-sort, and `installed_models` sends the provider's
+  `label` next to the models so the header pill never has to decide what to call
+  the server it is reporting on. The same rule as `clean_products` -- whatever
   decides the answer belongs where it is testable. `ui/src/app/agent.types.ts`
   mirrors those payloads for TypeScript, so a field added to `api.py` is added
   there too.
@@ -429,14 +479,21 @@ and write of it is wrapped, so a browser that refuses storage still gets a worki
 form.
 
 Its model field is a `<select>` over `GET /api/models` -- what `ollama list`
-prints -- and its two edge cases are the point. A name that is chosen but *not* in
+prints, or the one model a vLLM reports -- and its two edge cases are the point. A
+name that is chosen but *not* in
 that list (a remembered setting, or a default for a model nobody pulled) is kept
-in the dropdown marked "not pulled" rather than dropped, because dropping it would
+in the dropdown marked "not served" rather than dropped, because dropping it would
 silently run the search on whichever model happened to sort first. A list that
-came back empty -- Ollama unreachable, or nothing pulled -- falls back to the text
-box it used to be, since a dropdown holding one unusable entry is worse than
-typing. Because the list belongs to one server, editing the Ollama server field
-emits `refresh` and `App.refreshModels` asks that one instead.
+came back empty -- the server unreachable, or nothing loaded -- falls back to the
+text box it used to be, since a dropdown holding one unusable entry is worse than
+typing. Because the list belongs to one server, editing the address field
+emits `refresh` and `App.refreshModels` asks that one instead. `refresh` carries
+a `ModelSource` -- the provider *and* the address -- because the address alone is
+not the question: a vLLM asked Ollama's question answers 404. Changing the
+provider picker emits the same event, after filling the model and address fields
+from that provider's row, since leaving them would ask a vLLM for an Ollama tag on
+Ollama's port. `takes_num_ctx` on that row is what disables the context field and
+replaces its note, rather than the form testing the provider's name.
 
 `create_server(agent_factory=...)` is the seam the server tests inject a stub
 agent through, the way `BuyAgent(config, llm=...)` is for the pipeline; its
@@ -476,10 +533,16 @@ pipeline tests, and `buy_agent.search.DDGS` / `buy_agent.fetch.httpx.Client` for
 the wrappers' own tests. `search_web` is patched on `agent` and only there, which
 is why the fan-out over named sources lives in `agent.py` rather than beside the
 rest of `sources.py`: a second call site elsewhere would be a second thing to
-patch, and a test that forgot it would reach the real DuckDuckGo silently. `ollama.Client` is patched too, for the one path that
-lists the installed models to name them in an error. Patching `DDGS.text` does
+patch, and a test that forgot it would reach the real DuckDuckGo silently. Both model clients are patched
+where `buy_agent.providers` imported them -- `buy_agent.providers.ChatOllama` for
+the kwargs a real `ChatOllama` would be built with, `buy_agent.providers.Client`
+for the listing that names the installed models in an error, and
+`buy_agent.providers.httpx.get` for vLLM's `/v1/models`. Patching `ollama.Client`
+no longer works: `providers.py` imports the name at module level, which is also
+the only place either client is named. Patching `DDGS.text` does
 *not* work -- the name `ddgs` exports is a wrapper that constructs a different
-class. No test in `tests/` touches the network or Ollama; keep it that way --
+class. No test in `tests/` touches the network or a model server; keep it that
+way --
 `integration/` is where a real model goes, and it is outside `testpaths` so that
 a bare `pytest` cannot reach it (see below). The server tests are
 the one exception to "no sockets": they bind loopback, because routing and status
@@ -489,18 +552,18 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 766 tests
+to EOF instead -- what it checks is that nothing follows the reply. 836 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 766 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 766 collect but 13 of the 15
-in `tests/test_start_script.py` skip, so the summary reads `753 passed, 13
-skipped` -- nothing is missing, and the two that still run are the ones reading
-the script as text rather than through the probe. The UI's 69 tests
+is reaching out. 836 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 836 collect but 13 of the 17
+in `tests/test_start_script.py` skip, so the summary reads `823 passed, 13
+skipped` -- nothing is missing, and the four that still run are the ones reading
+the script as text rather than through the probe. The UI's 78 tests
 run in about two seconds, most of which is building the app first. The 19 in
 `integration/` are counted separately and collected only by being named.
 `docs/testing.md` quotes all three counts, so a new test file is two edits.
@@ -512,7 +575,10 @@ themselves rather than exercised. It asserts that `api._STATUS`, the `except`
 tuple in `__main__.main` (parsed with `ast`) and `BuyAgent.run`'s documented
 `Raises` name the same three failures; that `ranking.SortBy`, `api.SORT_OPTIONS`,
 the CLI's `--sort-by` choices and the TypeScript `SortBy` union offer the same
-criteria; that `agent.types.ts` mirrors `defaults_payload`, `product_payload`
+criteria; that `config.PROVIDER_DEFAULTS` and `providers.PROVIDERS` name the same
+servers, that every one of them is offered by `--provider`, by
+`api.PROVIDER_OPTIONS` and in the rows the form's picker is built from, and that
+`ProviderOption` is mirrored in TypeScript; that `agent.types.ts` mirrors `defaults_payload`, `product_payload`
 and `run_search` field for field; that the `Dockerfile` pins the versions CI tests
 against, copies the built UI where the server looks, exposes the port it binds and
 installs the runtime dependencies only; that every job in `ci.yml` names both a
@@ -533,7 +599,9 @@ language boundary and forgotten on the other is otherwise invisible to both
 suites.
 
 `integration/` is the second Python suite and the only place a real model is
-involved (ADR-0026). It is a directory rather than a marker because `pytest.ini`
+involved (ADR-0026), and it is Ollama's alone: vLLM needs a GPU and a CPU runner
+cannot host one honestly, so that provider's half is asserted in
+`tests/test_providers.py` and named as a gap in ADR-0028. It is a directory rather than a marker because `pytest.ini`
 keeps `testpaths = tests`: "nothing in the suite touches Ollama" is then a
 property of where a file sits, not of anyone remembering an annotation. Four
 things there are load-bearing:
@@ -576,11 +644,18 @@ repository root rather than by path.
 `scripts/start.ps1` is the README's "Starting it on localhost" as one command
 with no arguments (ADR-0023) -- venv, Ollama, `ollama pull`, `ng build`, the
 server, the browser, each step skipped when it is already done. It decides nothing the rest
-of the project decides: the model and the Ollama server are read out of
-`buy_agent.config` with a `python -c`, so `$OLLAMA_MODEL` and `$OLLAMA_HOST`
-still reach it and no default is written down twice. Its four agreements with the
+of the project decides: the provider, the model and the server address are read
+off one `AgentConfig()` with a `python -c`, so `$BUY_AGENT_PROVIDER`,
+`$OLLAMA_MODEL`/`$OLLAMA_HOST` and `$VLLM_MODEL`/`$VLLM_HOST`
+still reach it and no default is written down twice. Off one config rather
+than out of three constants, because the pair belongs to the provider: a model
+read from one variable and an address from another is how the two come to
+disagree. Ollama is the only server it starts -- the install-and-pull half is
+behind a provider check, and anything else is waited for at `/models` and named
+rather than launched, because a vLLM needs a GPU, a served model and flags this
+script has no business choosing. Its four agreements with the
 rest of the project are in `tests/test_conventions.py` with the other cross-file
-rules -- neither constant's value appears in the script, the URL it opens a
+rules -- no default's value appears in the script, the URL it opens a
 browser at is the one `server.build_parser` binds, the build it probes for is the
 one `server.DEFAULT_UI_DIR` serves, and the Python and Node it sends you to
 install are the ones `ci.yml` pins.

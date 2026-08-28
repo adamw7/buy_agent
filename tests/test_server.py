@@ -18,8 +18,8 @@ from urllib.parse import urlparse
 
 import pytest
 
-from buy_agent.agent import OllamaUnavailableError
-from buy_agent.config import DEFAULT_MODEL
+from buy_agent.agent import ModelUnavailableError
+from buy_agent.config import DEFAULT_MODEL, VLLM_BASE_URL
 from buy_agent.models import Product, RankedProduct
 from buy_agent.search import SearchError
 from buy_agent.server import (
@@ -225,7 +225,7 @@ def test_an_empty_request_is_the_clients_mistake(server: str) -> None:
 
 
 def test_a_missing_ollama_is_reported_as_unavailable(server: str) -> None:
-    StubAgent.result = OllamaUnavailableError("Start it with:  ollama serve")
+    StubAgent.result = ModelUnavailableError("Start it with:  ollama serve")
     status, payload = post(f"{server}/api/search", {"request": "headphones"})
     assert status == 503
     assert "ollama serve" in payload["error"]
@@ -276,6 +276,36 @@ def test_models_reports_an_unreachable_ollama(server: str, monkeypatch) -> None:
     status, payload = get(f"{server}/api/models?base_url=http://127.0.0.1:1")
     assert status == 200
     assert payload["reachable"] is False
+    assert payload["provider"] == "ollama", "the provider is what the address was asked as"
+
+
+def test_models_asks_the_provider_the_request_named(server: str) -> None:
+    """The address alone is not the question: the same URL is asked one way for
+    Ollama and another for vLLM, and a vLLM asked Ollama's question answers 404."""
+    status, payload = get(f"{server}/api/models?provider=vllm&base_url=http://127.0.0.1:1")
+
+    assert status == 200
+    assert (payload["provider"], payload["label"]) == ("vllm", "vLLM")
+    assert payload["reachable"] is False
+
+
+def test_models_falls_back_to_the_address_that_provider_serves_on(server: str) -> None:
+    """A page that named a provider and no address wants that provider's own, not
+    the other one's port -- 11434 answered by nothing is not "vLLM is down"."""
+    status, payload = get(f"{server}/api/models?provider=vllm")
+
+    assert status == 200
+    assert payload["base_url"] == VLLM_BASE_URL
+
+
+def test_models_reports_a_provider_nothing_can_serve(server: str) -> None:
+    """Rather than a 500: the pill above the form is already where a server that
+    cannot be asked is explained, and this is one more reason it cannot be."""
+    status, payload = get(f"{server}/api/models?provider=llama.cpp")
+
+    assert status == 200
+    assert payload["reachable"] is False
+    assert "llama.cpp" in payload["detail"]
 
 
 def test_a_head_request_answers_like_a_get_without_the_body(server: str) -> None:
@@ -650,7 +680,7 @@ def test_the_stream_passes_options_through_the_query_string(server: str) -> None
 
 def test_a_failure_ends_the_stream_with_a_failure_event(server: str) -> None:
     """Named 'failure', not 'error': EventSource reserves 'error' for the transport."""
-    StubAgent.result = OllamaUnavailableError("Start it with:  ollama serve")
+    StubAgent.result = ModelUnavailableError("Start it with:  ollama serve")
     name, data = events(f"{server}/api/search/stream?request=headphones")[-1]
     assert name == "failure"
     assert data["status"] == 503

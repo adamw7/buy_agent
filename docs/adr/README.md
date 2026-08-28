@@ -36,6 +36,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0025](0025-check-a-quote-against-the-page-it-came-from.md) | Check a quote against the page it came from, not against all of them | Accepted |
 | [0026](0026-integration-tests-against-a-tiny-cpu-model.md) | Test against a real model nightly, on one small enough to run on a CPU | Accepted |
 | [0027](0027-let-the-shopper-name-the-sources.md) | Let the shopper name the sources, and search nothing else | Accepted |
+| [0028](0028-serve-the-model-from-ollama-or-vllm.md) | Serve the model from Ollama or from vLLM, behind one provider seam | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written
