@@ -12,7 +12,8 @@ usage -- it keeps the tour and links out to the longer technical sections, which
 live beside it: `docs/models.md` (keeping Ollama's models current),
 `docs/docker.md` (running the web tier as a container) and `docs/testing.md`
 (both suites, the coverage floors, the nightly run against a real model and the
-mutation run).
+mutation run). `demo/` is the fourth, and documents itself in `demo/README.md`:
+two recorded runs of the UI and the harness that recorded them.
 
 ## Commands
 
@@ -59,11 +60,14 @@ and `CMD` is `-m buy_agent.server --host 0.0.0.0`, so the CLI is reachable from
 the same image and `--host` stays out of the server's own default (it binds
 loopback everywhere else). Nothing in CI builds it; `tests/test_conventions.py`
 is what keeps its version pins, its copy destination and its `EXPOSE` in step.
-`.dockerignore` narrows what the build even sees: `tests/`, `docs/`, `scripts/`,
-the dev and mutation requirements and every local build artefact (`.venv/`,
-`ui/node_modules/`, `ui/dist/`, `mutants/`) stay out of the context, so the Node
-stage builds `ui/` from source rather than copying a stale local `dist/`. Nothing
-tests that file -- the convention tests read the `Dockerfile` and not
+`.dockerignore` narrows what the build even sees: `tests/`, `integration/`,
+`docs/`, `scripts/`, `demo/`, `.github/`, every Markdown file, the dev and
+mutation requirements with `setup.cfg` beside them, and every local build
+artefact (`.venv/`, `ui/node_modules/`, `ui/dist/`, `ui/.angular/`, `mutants/`,
+`__pycache__/`) stay out of the context, so the Node stage builds `ui/` from
+source rather than copying a stale local `dist/` -- and `demo/`, which carries a
+video the size of the rest put together, is not uploaded to the daemon at all.
+Nothing tests that file -- the convention tests read the `Dockerfile` and not
 `.dockerignore` -- so a path added to one of those directories is only kept out
 of the image by keeping this list current.
 
@@ -437,6 +441,22 @@ agent through, the way `BuyAgent(config, llm=...)` is for the pipeline; its
 and is what a public bind gets. Angular
 components are tested in jsdom with `TestBed`; `AgentService` is tested against a
 fake `EventSource` rather than a live one.
+
+`demo/` records that page running, as the two `.mpg` files `demo/README.md`
+describes. It is the same seams again from the other side: `demo/server.py`
+starts the real `buy_agent.server` with `search_web`, `enrich` and the chat model
+replaced by one of the scripts beside it (`books.py`, `laptops.py`, chosen with
+`--script`, and a third is a module offering the same five names plus a row in
+`server.SCRIPTS`), so everything between the search and the ranking is the real
+pipeline and neither Ollama nor the network is needed to reproduce a recording.
+The scripts make the fake model wrong in the six ways a small model is wrong, so
+the progress panel shows `clean_products`, `ground`, `verify_opinions`,
+`attribute_sources` and `deduplicate` each catching one. `demo/record.mjs` drives
+Chromium through Playwright and encodes with ffmpeg; `--pace` scales the
+scripted delays, since a real run's two silent model calls are dead air on tape.
+Nothing here is imported by `buy_agent/` or by either suite -- `testpaths` never
+reaches it -- so it is not covered, not mutated and, per `.dockerignore`, not in
+the image.
 
 ## Tests
 

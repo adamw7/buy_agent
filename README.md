@@ -70,6 +70,7 @@ python -m buy_agent "wireless earbuds" --source rtings.com --source @mkbhd
 | `--sort-by` | `score` | `score`, `price` or `rating` |
 | `--region` | `us-en` | Search region, e.g. `uk-en`, `pl-pl` |
 | `--source` | -- | Take the facts from this source only; repeatable |
+| `--temperature` | `0.0` | Model temperature; extraction is a copying task |
 | `--num-ctx` | `8192` | Context window in tokens |
 | `--think` / `--no-think` | `--no-think` | Force thinking mode on or off |
 | `--no-fetch` | off | Use search snippets only, without opening the result pages |
@@ -200,6 +201,14 @@ another machine. To work on the UI itself, run the Angular dev server instead of
 building for every change -- see [The dev server](#the-dev-server) below.
 
 ![The search form, with its settings open](docs/ui.png)
+
+Two runs of it are recorded in `demo/`, fifteen seconds and twenty-two:
+`wwii-books-1944-45.mpg` and `laptops-under-1000.mpg`, the second ending on the
+shop page behind the top product's link. Everything between the search and the
+ranking is the real pipeline -- only DuckDuckGo, the page fetches and the model
+are scripted stand-ins -- so the progress panel is showing grounding actually
+throwing figures, quotes and links away. [demo/README.md](demo/README.md) says
+what is real in them, what is not, and how to record them again.
 
 The page takes the same settings the CLI takes as flags, shows the agent's log
 lines as the run happens, and lists the ranked products with a link to the page
