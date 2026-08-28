@@ -49,10 +49,13 @@ _SCHEME = re.compile(r"^(?:[a-z][a-z0-9+.-]*:)?//", re.IGNORECASE)
 #: they do from the web form. No spec contains either, so both are safe.
 _SEPARATORS = re.compile(r"[,\s]+")
 
-#: Path segments that route to a channel rather than name one. YouTube writes a
+#: Path segments that route to a place rather than name one. YouTube writes a
 #: channel three ways -- ``/@mkbhd``, ``/c/mkbhd`` and ``/channel/UC...`` -- and
-#: only the last segment of any of them is worth searching for.
-_ROUTING = frozenset({"c", "user", "channel"})
+#: Reddit writes a subreddit ``/r/headphones`` and an author ``/u/name``; in
+#: every one of them the segment that identifies anything is the one after.
+#: Left in, ``reddit.com/r/headphones`` narrowed the search on the phrase "r"
+#: and dropped the only word the shopper actually typed.
+_ROUTING = frozenset({"c", "user", "channel", "r", "u"})
 
 #: Where a bare ``@handle`` lives. A handle is how people name the one kind of
 #: source that is a person rather than a site, and there is only one site it

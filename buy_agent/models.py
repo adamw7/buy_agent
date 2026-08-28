@@ -74,6 +74,12 @@ class ExtractedProduct(BaseModel):
 
     def to_product(self) -> Product:
         """Convert sentinels back into ``None`` and tidy up whitespace."""
+        # A rating is what a review count counts, so the count is only a fact
+        # about the product while the rating stands -- :data:`QUALIFIERS` one
+        # stage earlier than ``verify_numbers``, which applies the same rule to
+        # a rating the sources reject. Read out here rather than inline because
+        # the count below has to be judged against it.
+        rating = self.rating if 0 <= self.rating <= 5 else None
         return Product(
             name=_clean(self.name),
             # ``> 0`` rather than ``>= 0``, matching ``review_count``: zero is not
@@ -84,8 +90,12 @@ class ExtractedProduct(BaseModel):
             # then scores it the cheapest in the set and hands it the top spot.
             price=self.price if self.price > 0 else None,
             currency=_clean(self.currency).upper() or None,
-            rating=self.rating if 0 <= self.rating <= 5 else None,
-            review_count=self.review_count if self.review_count > 0 else None,
+            rating=rating,
+            # Left standing on its own it would read as "unrated" beside nothing
+            # and still feed the popularity half of the score (ADR-0022).
+            review_count=(
+                self.review_count if rating is not None and self.review_count > 0 else None
+            ),
             seller=_clean(self.seller) or None,
             url=_clean(self.url) or None,
             notes=_clean(self.notes) or None,

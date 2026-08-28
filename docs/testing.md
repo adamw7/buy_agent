@@ -17,7 +17,7 @@ cd ui; npm run test:coverage  # the same, with a coverage floor
 python -m pytest integration  # against a real Ollama; see below
 ```
 
-749 Python tests and 67 UI tests. Nothing in either suite touches the network or
+766 Python tests and 69 UI tests. Nothing in either suite touches the network or
 Ollama: the model is faked through the `llm=` argument of `BuyAgent`, both the
 search backend and the page fetcher are monkeypatched, and the server tests
 inject a stub agent through `create_server(agent_factory=...)`. The only real

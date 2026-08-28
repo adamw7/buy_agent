@@ -52,6 +52,31 @@ def test_an_influencer_is_a_handle_on_the_one_site_handles_live_on(spec, term) -
     assert (source.domain, source.term) == ("youtube.com", term)
 
 
+@pytest.mark.parametrize(
+    ("spec", "term"),
+    [
+        ("reddit.com/r/headphones", "headphones"),
+        ("https://www.reddit.com/r/BuyItForLife/top", "BuyItForLife"),
+        ("reddit.com/u/someone", "someone"),
+    ],
+)
+def test_a_subreddit_is_named_by_the_segment_after_the_route(spec, term) -> None:
+    """``/r/`` routes to a subreddit the way ``/c/`` routes to a channel.
+
+    Read as the term itself it narrowed every search on the phrase "r" and threw
+    away the only word the shopper actually typed.
+    """
+    source = parse_source(spec)
+
+    assert (source.domain, source.term) == ("reddit.com", term)
+
+
+def test_a_subreddit_search_asks_for_the_subreddit() -> None:
+    assert parse_source("reddit.com/r/headphones").site_query("anc") == (
+        'anc site:reddit.com "headphones"'
+    )
+
+
 def test_a_query_string_names_a_page_and_is_not_part_of_the_source() -> None:
     assert parse_source("youtube.com/channel/UC123?tab=videos#top").term == "UC123"
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from buy_agent import verification
@@ -108,6 +110,46 @@ def test_deduplicate_drops_nameless_entries() -> None:
     assert deduplicate([Product(name="   "), Product(name="Real")], limit=10) == [
         Product(name="Real")
     ]
+
+
+def test_deduplicate_counts_merges_and_nameless_drops_apart(caplog) -> None:
+    """Two different things happen here, and one number reported them as merges."""
+    products = [
+        Product(name="Sony WH-1000XM5"),
+        Product(name="Sony WH-1000XM5 Wireless"),
+        Product(name="   "),
+    ]
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.extraction"):
+        deduplicate(products, limit=10)
+
+    assert "Merged 1 duplicate listing(s)" in caplog.text
+    assert "Dropped 1 result(s) whose name identifies nothing" in caplog.text
+
+
+def test_a_product_named_after_a_superlative_is_kept() -> None:
+    """A brand may open on the word a headline opens on.
+
+    "Best Buy Essentials" is a house brand and "Top Rated" is a shelf label; what
+    says these name one product rather than a category is the model number that
+    follows the brand.
+    """
+    for name in (
+        "Best Buy Essentials BE-HAPB02",
+        "Top Rated Sony WH-1000XM5",
+    ):
+        assert looks_like_a_product(name), name
+
+
+def test_a_headline_qualified_by_a_model_number_is_still_a_headline() -> None:
+    """The qualifier sits between the superlative and the category, and nothing
+    names a single model after it -- which is what tells these from a brand."""
+    for headline in (
+        "Best PS5 Headsets",
+        "Cheapest 4K TVs",
+        "Best 1080p Monitors",
+    ):
+        assert not looks_like_a_product(headline), headline
 
 
 def test_article_headlines_are_not_products() -> None:

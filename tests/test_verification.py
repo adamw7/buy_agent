@@ -178,6 +178,51 @@ def test_a_rounded_rating_is_not_treated_as_supported() -> None:
     assert not mentions_rating(haystack, 4.0)
 
 
+@pytest.mark.parametrize(
+    ("snippet", "rating"),
+    [
+        ("Rated 4.0 out of 5", 4.0),
+        ("Scores 4.0/5 overall", 4.0),
+        ("A solid 4.0 stars", 4.0),
+        ("Rating: 4.0", 4.0),
+        ("Rated 5.0 out of 5", 5.0),
+        ("Scores 4.50/5", 4.5),
+    ],
+)
+def test_a_whole_rating_is_supported_by_the_zero_the_page_printed(snippet, rating) -> None:
+    """A page writing "4.0" states the 4 that was claimed, precisely.
+
+    Ratings are printed to one decimal place whether or not they have one, so
+    this is how a whole rating usually arrives. Refusing it blanked the rating
+    *and* the review count qualifying it, leaving the product neutral on both
+    halves of the score for the page having been exact.
+    """
+    assert mentions_rating(build_haystack([SearchResult(snippet=snippet)]), rating)
+
+
+def test_trailing_zeros_do_not_let_a_neighbouring_rating_vouch() -> None:
+    """Consuming the zeros must not also consume a different figure's decimals."""
+    assert not mentions_rating(build_haystack([SearchResult(snippet="Rated 4.65/5")]), 4.6)
+    assert not mentions_rating(build_haystack([SearchResult(snippet="Rated 4.03/5")]), 4.0)
+
+
+def test_a_whole_rating_survives_grounding_with_its_review_count() -> None:
+    """End to end: the figures the page stated exactly are the ones kept."""
+    results = [
+        SearchResult(
+            title="Sony WH-1000XM5 review",
+            url="https://audio.example/xm5",
+            content="The Sony WH-1000XM5 scores 4.0 out of 5 from 1200 reviews.",
+        )
+    ]
+    product = Product(name="Sony WH-1000XM5", rating=4.0, review_count=1200)
+
+    grounded = ground([product], results)
+
+    assert grounded[0].rating == 4.0
+    assert grounded[0].review_count == 1200
+
+
 def test_a_rounded_price_is_still_accepted() -> None:
     """Prices are quoted loosely ('about $180'), so rounding stays acceptable."""
     assert mentions_number(build_haystack([SearchResult(snippet="$179.99")]), 179.0)
