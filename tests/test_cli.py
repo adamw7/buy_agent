@@ -12,8 +12,9 @@ import pytest
 
 from buy_agent.__main__ import build_parser, main
 from buy_agent.agent import ModelUnavailableError
-from buy_agent.config import PROVIDER_DEFAULTS, VLLM_BASE_URL, VLLM_MODEL, AgentConfig
+from buy_agent.config import AgentConfig
 from buy_agent.models import Product, RankedProduct
+from buy_agent.providers import PROVIDERS, VLLM
 from buy_agent.search import SearchError
 from buy_agent.sources import Source
 
@@ -240,7 +241,7 @@ def test_choosing_a_provider_brings_its_model_and_its_server_with_it(fake_agent)
     main(["headphones", "--provider", "vllm"])
     config = fake_agent["config"]
 
-    assert (config.model, config.base_url) == (VLLM_MODEL, VLLM_BASE_URL)
+    assert (config.model, config.base_url) == (VLLM.model, VLLM.base_url)
 
 
 def test_a_named_model_still_wins_over_the_provider_default(fake_agent) -> None:
@@ -274,9 +275,9 @@ def test_the_help_names_every_provider_default_rather_than_one(capsys) -> None:
         main(["--help"])
 
     printed = capsys.readouterr().out
-    for model, base_url in PROVIDER_DEFAULTS.values():
-        assert model in printed
-        assert base_url in printed
+    for server in PROVIDERS.values():
+        assert server.model in printed
+        assert server.base_url in printed
 
 
 def test_fetching_is_on_unless_no_fetch_is_passed(fake_agent) -> None:

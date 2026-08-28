@@ -58,14 +58,8 @@ from buy_agent.api import (
     product_payload,
     run_search,
 )
-from buy_agent.config import (
-    DEFAULT_BASE_URL,
-    DEFAULT_MODEL,
-    PROVIDER_DEFAULTS,
-    AgentConfig,
-    provider_options,
-)
-from buy_agent.providers import PROVIDERS
+from buy_agent.config import AgentConfig
+from buy_agent.providers import PROVIDERS, provider_options
 from buy_agent.models import Product, RankedProduct
 from buy_agent.ranking import SortBy
 from buy_agent.server import DEFAULT_UI_DIR
@@ -187,15 +181,6 @@ def test_run_search_gives_each_failure_mode_its_own_status(kind: type) -> None:
 
 
 # -- the model servers ---------------------------------------------------------
-
-
-def test_every_provider_has_both_a_default_pair_and_a_way_to_be_reached() -> None:
-    """The two halves of a provider live in two modules on purpose: ``config`` reads
-    the environment and ``providers`` acts on a config, so neither can import the
-    other's half. What that costs is a name written twice. A provider with
-    behaviour and no defaults cannot be configured at all; one with defaults and
-    no behaviour is a ``KeyError`` the first time somebody chooses it."""
-    assert set(PROVIDER_DEFAULTS) == set(PROVIDERS)
 
 
 def test_every_provider_is_offered_everywhere_it_can_be_asked_for() -> None:
@@ -518,8 +503,9 @@ def test_the_startup_script_asks_python_for_the_model_and_the_server() -> None:
     source = start_script()
 
     assert "from buy_agent.config import AgentConfig" in source
-    for value in (DEFAULT_MODEL, DEFAULT_BASE_URL, *sum(PROVIDER_DEFAULTS.values(), ())):
-        assert value not in source, f"{value} is buy_agent.config's to say"
+    for server in PROVIDERS.values():
+        for value in (server.model, server.base_url):
+            assert value not in source, f"{value} is the provider table's to say"
 
 
 def test_the_startup_script_looks_for_the_build_the_server_serves() -> None:

@@ -17,8 +17,8 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, TypeVar, get_args
 
 from buy_agent.agent import BuyAgent, ModelUnavailableError
-from buy_agent.config import AgentConfig, provider_options
-from buy_agent.providers import PROVIDERS, list_models
+from buy_agent.config import AgentConfig
+from buy_agent.providers import PROVIDERS, provider_options
 from buy_agent.ranking import SortBy
 from buy_agent.search import SearchError
 from buy_agent.sources import Source, format_sources, parse_sources
@@ -218,7 +218,8 @@ def installed_models(provider: str, base_url: str) -> dict[str, Any]:
     label = PROVIDERS[provider].label if provider in PROVIDERS else provider
     status = {"provider": provider, "label": label, "base_url": base_url}
     try:
-        models = list_models(AgentConfig(provider=provider, base_url=base_url))
+        config = AgentConfig(provider=provider, base_url=base_url)
+        models = config.model_server.installed(config)
     except Exception as exc:  # noqa: BLE001 -- any transport failure means "not there"
         logger.debug("Could not list %s models at %s", label, base_url, exc_info=True)
         return {**status, "reachable": False, "models": [], "detail": str(exc)}

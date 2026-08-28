@@ -85,16 +85,19 @@ docker run --rm buy-agent -m buy_agent "espresso machine"
 ```
 
 `$BUY_AGENT_PROVIDER` moves which model server a run talks to, and each provider
-has its own pair of variables behind it -- `$OLLAMA_MODEL`/`$OLLAMA_HOST` and
-`$VLLM_MODEL`/`$VLLM_HOST`, in `config.PROVIDER_DEFAULTS`. `AgentConfig.model`
-and `AgentConfig.base_url` therefore default to the *empty string* and are
-resolved per provider in `__post_init__`: which value is right depends on a
+has its own variables behind it -- `$OLLAMA_MODEL`/`$OLLAMA_HOST` and
+`$VLLM_MODEL`/`$VLLM_HOST`/`$VLLM_API_KEY` -- read on that server's own row in
+`providers.PROVIDERS` (ADR-0029). `AgentConfig.model`, `AgentConfig.base_url` and
+`AgentConfig.api_key` therefore default to the *empty string* and are
+resolved per provider in `__post_init__`, through `AgentConfig.model_server`:
+which value is right depends on a
 sibling field, so a plain field default could only ever be right for one of the
 two, and "unset" is spelled the same way a blank form field is (ADR-0012). That
 is why `--model` and `--base-url` default to `""` on the CLI and interpolate
 every provider's pair into their help rather than one. `$VLLM_API_KEY` is the one
 setting with no flag and no form field -- it is a secret, so it stays out of a
-shell history and out of `defaults_payload`. Every other CLI flag defaults to the
+shell history, out of `defaults_payload` and out of `provider_options()`, and an
+Ollama run never carries it at all. Every other CLI flag defaults to the
 matching `AgentConfig` field, so a new setting is added
 in `config.py` and picked up rather than repeated. One field is deliberately not
 named the same on the way out: `AgentConfig.reasoning` is `--think`
@@ -103,8 +106,8 @@ named the same on the way out: `AgentConfig.reasoning` is `--think`
 is Ollama's thinking mode, and `None` means "send nothing and leave the model
 alone" rather than "off". It pairs with `num_ctx`: the extraction prompt runs to
 ~4.3k tokens, so on Ollama's default 4096 window a thinking model reasons until
-the context is gone and never emits any JSON. `DEFAULT_MODEL` is `gemma4:12b`,
-which thinks, so the defaults that make it answer travel with it -- `reasoning`
+the context is gone and never emits any JSON. Ollama's default model is
+`gemma4:12b`, which thinks, so the defaults that make it answer travel with it -- `reasoning`
 is `False` and `num_ctx` is `8192` rather than the `None` each used to be. A
 model that cannot think ignores both; one that wants its own behaviour back is
 given `num_ctx=None, reasoning=None`, which is the only way to send nothing and
@@ -189,7 +192,7 @@ superseding it rather than an edit to the old one -- numbers are never reused,
 and accepted records are not rewritten. `tests/test_conventions.py` checks that
 the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0028 and every record is Accepted, so the next free number is 0029.
+to ADR-0029 and every record is Accepted, so the next free number is 0030.
 
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
 for the two steps it is reliable at, and ordinary Python does everything else,
@@ -228,20 +231,23 @@ which fields only qualify another and `_fill_gaps` moves the group.
 
 Nine conventions matter when changing this code:
 
-- **A provider is two halves in two modules, and both have to be written.**
-  `config.PROVIDER_DEFAULTS` holds each server's model and address and is the
-  half that reads the environment; `providers.PROVIDERS` holds the behaviour and
-  imports nothing from `config`, because it acts on a config rather than deciding
-  what an unset field means. Neither can import the other's half, so the name is
-  written twice and `tests/test_conventions.py` checks the two tables agree --
-  behaviour with no defaults cannot be configured, defaults with no behaviour are
-  a `KeyError` on the first run. A `Provider` answers exactly four questions (the
-  chat model, the listing, the transport errors that mean "not there", the
-  sentence that failure carries) plus `takes_num_ctx`; a setting one server takes
-  and the other does not gets a declaration beside that one rather than an
-  `if provider == ...` in the CLI, the API and the form. `agent.py` never
-  branches on which server is answering, and neither does anything above it
-  (ADR-0028).
+- **A model server is one row in one table, reached one way.**
+  `providers.PROVIDERS` holds each server whole -- what it defaults to
+  (`model`, `base_url`, `api_key`, read from its own environment variables) next
+  to how it is talked to (the chat model, the listing, the transport errors that
+  mean "not there", the sentence that failure carries) plus `takes_num_ctx`
+  (ADR-0029). It still imports nothing from `config`; the dependency runs the
+  other way, and `AgentConfig.model_server` is the *only* place a provider name
+  becomes behaviour. So `agent.py` reads
+  `config.model_server.chat_model(config)`, catches
+  `config.model_server.transport_errors` and raises with
+  `config.model_server.hint(config, exc)`, and `api.installed_models` asks
+  `config.model_server.installed(config)` -- there are no module-level wrappers
+  to go through and no `if provider == ...` anywhere above the table. A setting
+  one server takes and the other does not gets a declaration on the row rather
+  than a branch in the CLI, the API and the form; a hint sentence both servers
+  would write goes in `_too_slow_hint` or `_unreachable_hint` rather than in each
+  provider's own (ADR-0028, ADR-0029).
 
 - **The sources are whatever was searched, and the shopper may narrow them.**
   `AgentConfig.sources` is empty by default, which is the whole web. Given any,
@@ -352,8 +358,8 @@ all three places, or it reaches the user as a traceback and the browser as a 500
 Within the agent only query refinement is recoverable: it falls back to the raw
 request, but lets `ModelUnavailableError` through rather than searching with a
 model that is not there. What has to be caught to produce that error is the
-provider's to say -- `BuyAgent._invoke` catches `transport_errors(self.config)`
-and nothing written down locally -- and for Ollama the tuple is wider than it
+provider's to say -- `BuyAgent._invoke` catches
+`self.config.model_server.transport_errors` and nothing written down locally -- and for Ollama the tuple is wider than it
 looks: the ollama client turns a refused connection into a
 builtin `ConnectionError` only on its *non*-streaming path, and `ChatOllama`
 always chats over the streaming one, so a stopped server, a model too slow to
@@ -552,16 +558,16 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 836 tests
+to EOF instead -- what it checks is that nothing follows the reply. 839 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 836 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 836 collect but 13 of the 17
-in `tests/test_start_script.py` skip, so the summary reads `823 passed, 13
+is reaching out. 839 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 839 collect but 13 of the 17
+in `tests/test_start_script.py` skip, so the summary reads `826 passed, 13
 skipped` -- nothing is missing, and the four that still run are the ones reading
 the script as text rather than through the probe. The UI's 78 tests
 run in about two seconds, most of which is building the app first. The 19 in
@@ -575,10 +581,9 @@ themselves rather than exercised. It asserts that `api._STATUS`, the `except`
 tuple in `__main__.main` (parsed with `ast`) and `BuyAgent.run`'s documented
 `Raises` name the same three failures; that `ranking.SortBy`, `api.SORT_OPTIONS`,
 the CLI's `--sort-by` choices and the TypeScript `SortBy` union offer the same
-criteria; that `config.PROVIDER_DEFAULTS` and `providers.PROVIDERS` name the same
-servers, that every one of them is offered by `--provider`, by
-`api.PROVIDER_OPTIONS` and in the rows the form's picker is built from, and that
-`ProviderOption` is mirrored in TypeScript; that `agent.types.ts` mirrors `defaults_payload`, `product_payload`
+criteria; that every provider in `providers.PROVIDERS` is offered by
+`--provider`, by `api.PROVIDER_OPTIONS` and in the rows the form's picker is
+built from, and that `ProviderOption` is mirrored in TypeScript; that `agent.types.ts` mirrors `defaults_payload`, `product_payload`
 and `run_search` field for field; that the `Dockerfile` pins the versions CI tests
 against, copies the built UI where the server looks, exposes the port it binds and
 installs the runtime dependencies only; that every job in `ci.yml` names both a
@@ -637,8 +642,8 @@ than in a workflow's shell or a one-off run. `mutation_report.py`
 `update_ollama.py` (`tests/test_update_ollama.py`) decides what "updated" means --
 a digest that moved between the listing before the pulls and the one after, since
 `ollama pull` reports `success` whether it replaced anything or not. It is the one
-thing in `scripts/` that imports from `buy_agent` (`config` for the `$OLLAMA_HOST`
-defaults), which is why it is run as `python -m scripts.update_ollama` from the
+thing in `scripts/` that imports from `buy_agent` (`providers.OLLAMA` for the
+`$OLLAMA_HOST` defaults), which is why it is run as `python -m scripts.update_ollama` from the
 repository root rather than by path.
 
 `scripts/start.ps1` is the README's "Starting it on localhost" as one command

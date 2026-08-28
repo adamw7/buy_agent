@@ -31,7 +31,7 @@ from typing import Any
 import httpx
 from ollama import Client, RequestError, ResponseError
 
-from buy_agent.config import DEFAULT_BASE_URL, DEFAULT_MODEL
+from buy_agent.providers import OLLAMA
 
 #: Transport failures that mean "the server is not there" -- the tuple
 #: ``BuyAgent._invoke`` catches, for the reasons documented there: ollama's
@@ -181,8 +181,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--base-url",
-        default=DEFAULT_BASE_URL,
-        help=f"Ollama server (default: {DEFAULT_BASE_URL})",
+        default=OLLAMA.base_url,
+        help=f"Ollama server (default: {OLLAMA.base_url})",
     )
     return parser
 
@@ -198,7 +198,7 @@ def main(argv: Sequence[str], client_factory: Callable[[str], Any] = Client) -> 
     if not outcomes:
         print(
             f"Ollama at {args.base_url} has no models pulled, so there is nothing to "
-            f"update. Pull one with:  ollama pull {DEFAULT_MODEL}"
+            f"update. Pull one with:  ollama pull {OLLAMA.model}"
         )
         return 0
 

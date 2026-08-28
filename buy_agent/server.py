@@ -45,8 +45,9 @@ from buy_agent.api import (
     parse_options,
     run_search,
 )
-from buy_agent.config import DEFAULT_PROVIDER, PROVIDER_DEFAULTS
+from buy_agent.config import DEFAULT_PROVIDER
 from buy_agent.logging_setup import configure_logging
+from buy_agent.providers import PROVIDERS
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -547,8 +548,8 @@ def _default_base_url(provider: str) -> str:
     is what ``installed_models`` turns into the unreachable status carrying the
     reason -- the same answer the browser gets for a server that is simply down.
     """
-    _model, base_url = PROVIDER_DEFAULTS.get(provider, ("", ""))
-    return base_url
+    server = PROVIDERS.get(provider)
+    return server.base_url if server else ""
 
 
 def _hostname(netloc: str) -> str:

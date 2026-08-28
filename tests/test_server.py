@@ -19,8 +19,8 @@ from urllib.parse import urlparse
 import pytest
 
 from buy_agent.agent import ModelUnavailableError
-from buy_agent.config import DEFAULT_MODEL, VLLM_BASE_URL
 from buy_agent.models import Product, RankedProduct
+from buy_agent.providers import OLLAMA, VLLM
 from buy_agent.search import SearchError
 from buy_agent.server import (
     _CROSS_SITE,
@@ -295,7 +295,7 @@ def test_models_falls_back_to_the_address_that_provider_serves_on(server: str) -
     status, payload = get(f"{server}/api/models?provider=vllm")
 
     assert status == 200
-    assert payload["base_url"] == VLLM_BASE_URL
+    assert payload["base_url"] == VLLM.base_url
 
 
 def test_models_reports_a_provider_nothing_can_serve(server: str) -> None:
@@ -396,7 +396,7 @@ def test_the_dev_servers_proxy_is_not_a_foreign_site(server: str) -> None:
     reply = ask(server, Origin="http://localhost:4200", Sec_Fetch_Site="same-origin")
 
     assert "200" in reply.splitlines()[0]
-    assert DEFAULT_MODEL in reply
+    assert OLLAMA.model in reply
     # Ports do not make a site, so a loopback page calling this one directly --
     # not through the proxy -- reports same-site. That is the developer, not a
     # stranger, and the loopback Origin is what says so.
@@ -420,7 +420,7 @@ def test_a_client_that_is_not_a_browser_is_answered(server: str) -> None:
     reply = ask(server)
 
     assert "200" in reply.splitlines()[0]
-    assert DEFAULT_MODEL in reply
+    assert OLLAMA.model in reply
 
 
 def test_a_name_that_merely_resolves_here_is_not_answered(server: str) -> None:
@@ -433,7 +433,7 @@ def test_a_name_that_merely_resolves_here_is_not_answered(server: str) -> None:
     reply = ask(server, Host="evil.example")
 
     assert "403" in reply.splitlines()[0]
-    assert DEFAULT_MODEL not in reply, "the defaults leaked to a rebound name"
+    assert OLLAMA.model not in reply, "the defaults leaked to a rebound name"
 
 
 def test_head_is_guarded_like_the_others(server: str) -> None:
