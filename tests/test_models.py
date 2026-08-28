@@ -50,7 +50,29 @@ def test_a_rating_just_over_the_scale_is_discarded() -> None:
 
 def test_a_single_review_is_still_a_review_count() -> None:
     """0 is the sentinel for unknown; 1 is a product with one review."""
-    assert ExtractedProduct(name="Thing", review_count=1).to_product().review_count == 1
+    converted = ExtractedProduct(name="Thing", rating=4.2, review_count=1).to_product()
+
+    assert converted.review_count == 1
+
+
+def test_a_review_count_without_a_rating_is_dropped() -> None:
+    """ADR-0022: a count is what its rating was averaged over, and nothing alone.
+
+    Left standing it reads "unrated" on the card -- ``rating_label`` never prints
+    a count without its rating -- while still feeding the popularity half of the
+    score, which is the pairing the merge and the grounding both refuse.
+    """
+    converted = ExtractedProduct(name="Thing", rating=-1, review_count=3200).to_product()
+
+    assert converted.rating is None
+    assert converted.review_count is None
+
+
+def test_a_rejected_rating_takes_its_review_count_with_it() -> None:
+    """The same rule where the rating was reported but off the scale."""
+    converted = ExtractedProduct(name="Thing", rating=9.2, review_count=800).to_product()
+
+    assert converted.review_count is None
 
 
 def test_the_seller_and_the_notes_survive_conversion() -> None:

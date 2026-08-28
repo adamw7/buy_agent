@@ -73,7 +73,8 @@ export interface SearchOptions {
   sort_by?: SortBy;
   temperature?: number;
   num_ctx?: number | null;
-  think?: boolean | null;
+  /** Two-valued: the tri-state's `null` cannot be sent -- see `Thinking`. */
+  think?: boolean;
   fetch?: boolean;
 }
 

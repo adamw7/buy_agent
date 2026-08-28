@@ -4,8 +4,17 @@ import { FormsModule } from '@angular/forms';
 
 import type { AgentDefaults, ModelStatus, SearchOptions, SortBy } from '../agent.types';
 
-/** The three states of Ollama's thinking mode, as a `<select>` can hold them. */
-type Thinking = 'default' | 'on' | 'off';
+/**
+ * Ollama's thinking mode as a `<select>` can hold it.
+ *
+ * Two states, not the three `AgentConfig.reasoning` carries. The third --
+ * `null`, "send nothing and leave the model's own behaviour alone" -- is a
+ * library-level escape hatch that no front end can spell: a blank field means
+ * "use the default" (ADR-0012), so there is no way to ask for it over the wire,
+ * and the server would answer with the default `false` regardless. Offering it
+ * here made a third option that silently did what `off` does (ADR-0019).
+ */
+type Thinking = 'on' | 'off';
 
 /** One entry in the model dropdown. `installed` is false for a name Ollama has
  *  not pulled -- kept in the list so a remembered setting is never silently
@@ -59,7 +68,7 @@ export class SearchForm {
   protected readonly sortBy = signal<SortBy>('score');
   protected readonly temperature = signal(0);
   protected readonly numCtx = signal<number | null>(null);
-  protected readonly thinking = signal<Thinking>('default');
+  protected readonly thinking = signal<Thinking>('off');
   protected readonly fetchPages = signal(true);
   protected readonly advanced = signal(false);
 
@@ -88,7 +97,7 @@ export class SearchForm {
     // than rejects. Settings saved before the field existed carry no key at all,
     // and `restore` leaves those to the seeded default.
     numCtx: setting(this.numCtx, (d) => d.num_ctx, asNumberOrNull),
-    thinking: setting(this.thinking, (d) => toThinking(d.think), asText as Parser<Thinking>),
+    thinking: setting(this.thinking, (d) => toThinking(d.think), asThinking),
     fetchPages: setting(this.fetchPages, (d) => d.fetch, asBoolean),
   };
 
@@ -249,16 +258,16 @@ const asNumber: Parser<number> = (raw) => (typeof raw === 'number' ? raw : undef
 const asBoolean: Parser<boolean> = (raw) => (typeof raw === 'boolean' ? raw : undefined);
 const asNumberOrNull: Parser<number | null> = (raw) => (raw === null ? null : asNumber(raw));
 
+/** Validated rather than taken as text, so a `'default'` remembered by a browser
+ *  from when the form offered three states is ignored and the seed stands. */
+const asThinking: Parser<Thinking> = (raw) => (raw === 'on' || raw === 'off' ? raw : undefined);
+
+/** A server default of `null` seeds `off`, which is what the server does with an
+ *  unset `think` anyway -- so the form shows the state the run will actually use. */
 function toThinking(value: boolean | null): Thinking {
-  if (value === null) {
-    return 'default';
-  }
   return value ? 'on' : 'off';
 }
 
-function fromThinking(value: Thinking): boolean | null {
-  if (value === 'default') {
-    return null;
-  }
+function fromThinking(value: Thinking): boolean {
   return value === 'on';
 }

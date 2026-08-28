@@ -142,13 +142,31 @@ def _as_literal(value: float) -> str:
     return f"{value:.0f}" if float(value).is_integer() else f"{value:.10g}"
 
 
+def _same_figure(literal: str) -> str:
+    """What may follow ``literal`` and still be the same figure: trailing zeros.
+
+    A rating is written to one decimal place whether or not it has one, so the
+    page that prints a whole 4 prints "4.0" -- and :func:`_as_literal` renders it
+    "4", which is also the "4" in a printed 4.3. Both have to be told apart, so
+    the zeros are consumed and *then* a further digit is refused: "4.0" and
+    "4.00" are the 4 that was claimed, "4.3" and "4.65" are not.
+
+    Without the first half a rating the page stated exactly failed grounding, and
+    took its review count down with it (:data:`_GROUNDED_FIGURES`) -- the product
+    scoring neutral on both halves for the page having been precise.
+    """
+    zeros = r"0*" if "." in literal else r"(?:\.0+)?"
+    return rf"{zeros}(?!\.?\d)"
+
+
 def mentions_rating(haystack: str, value: float) -> bool:
     """Whether ``value`` appears in ``haystack`` written as a rating."""
-    literal = re.escape(_as_literal(value))
-    # (?!\.?\d) so a claimed 4.0 is not "verified" by the 4 in a printed 4.3.
-    after = rf"(?<![\d.]){literal}(?!\.?\d){_RATING_AFTER}"
+    literal = _as_literal(value)
+    tail = _same_figure(literal)
+    literal = re.escape(literal)
+    after = rf"(?<![\d.]){literal}{tail}{_RATING_AFTER}"
     before = (
-        rf"{_RATING_BEFORE}{literal}(?!\.?\d)"
+        rf"{_RATING_BEFORE}{literal}{tail}"
         rf"(?!{_RATING_OUT_OF_TEN})(?!\s*{_COUNTING}\b)"
     )
     return bool(

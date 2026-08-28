@@ -92,11 +92,19 @@ EXTRACTION_PROMPT = ChatPromptTemplate.from_messages(
     ]
 )
 
+#: A name opening on a superlative: "12 Best ...", "The 5 Best ...", "Top ...".
+#: Named on its own because :func:`looks_like_a_product` has to ask a second
+#: question of the names it matches -- it is the one tell in
+#: :data:`_NOT_A_PRODUCT` that a real product also trips.
+_SUPERLATIVE = re.compile(
+    r"^\s*(the\s+)?(\d+\s+)?(best|top|cheapest|worst|greatest)\b", re.IGNORECASE
+)
+
 #: Article headlines the model mistakes for products. A real listing is named after
 #: a model ("Sony WH-1000XM5"), never after the page it was found on.
 _NOT_A_PRODUCT = re.compile(
-    r"""
-      ^\s*(the\s+)?(\d+\s+)?(best|top|cheapest|worst|greatest)\b   # "12 Best ...", "Best ..."
+    rf"""
+      {_SUPERLATIVE.pattern}
     | \bbuy(ing)?\s+guide\b
     | ^\s*(how|why|what|which|where)\b                            # "How to choose ..."
     | \b(deals|coupons?)\b
@@ -112,6 +120,12 @@ _TRAILING_NOISE = re.compile(
     r"\s*[-|:,]?\s*\b(reviews?|price|deal|on sale|tested|hands[- ]on)\b\s*$",
     re.IGNORECASE,
 )
+
+#: A token carrying both letters and digits, which is what a model number looks
+#: like: "WH-1000XM5" has "1000xm5", "BE-HAPB02" has "hapb02". A year or a price
+#: is digits alone and does not count, which is what keeps "Best Headphones 2026"
+#: and "12 Best Headphones Under $200" headlines.
+_MODEL_NUMBER = re.compile(r"\b(?=[a-z0-9]*[a-z])(?=[a-z0-9]*\d)[a-z0-9]+\b", re.IGNORECASE)
 
 #: Longer than any real model name. Article titles run long.
 _MAX_NAME_LENGTH = 80
@@ -166,23 +180,52 @@ def clean_name(name: str) -> str:
 
 
 def looks_like_a_product(name: str) -> bool:
-    """Whether ``name`` reads like a product rather than the page it came from."""
+    """Whether ``name`` reads like a product rather than the page it came from.
+
+    A leading superlative is the strongest tell a name is a headline, and it is
+    the one a real product also trips: "Best Buy Essentials BE-HAPB02" is a house
+    brand and "Top Gun Sunglasses" is a licence. What tells the two apart is
+    *where* the model number sits. A headline puts its qualifier between the
+    superlative and the category -- "Best PS5 Headsets", "Cheapest 4K TVs" -- and
+    names no single model after that, because the page is about several products.
+    A product puts its brand there and its model number later on. So a
+    superlative name is kept only where a model number follows something else.
+
+    The cost that remains is a product named after a superlative and nothing
+    else: "Top Gun Sunglasses" has no model number anywhere and is still dropped,
+    which is why :func:`clean_products` logs the names it took.
+    """
     name = name.strip()
     if not name or len(name) > _MAX_NAME_LENGTH or "?" in name:
         return False
-    return not _NOT_A_PRODUCT.search(name)
+    if not _NOT_A_PRODUCT.search(name):
+        return True
+    if not _SUPERLATIVE.match(name):
+        return False
+    # Past the superlative and past the word after it -- the category qualifier a
+    # headline puts there, the brand a product does.
+    tail = _SUPERLATIVE.sub("", name, count=1).split(maxsplit=1)
+    return len(tail) > 1 and bool(_MODEL_NUMBER.search(tail[1]))
 
 
 def clean_products(products: Sequence[Product]) -> list[Product]:
     """Tidy up names and drop entries that are articles or shops, not products."""
     kept: list[Product] = []
+    discarded: list[str] = []
     for product in products:
         name = clean_name(product.name)
         if looks_like_a_product(name):
             kept.append(product.model_copy(update={"name": name}))
-    dropped = len(products) - len(kept)
-    if dropped:
-        logger.info("Discarded %d result(s) that were pages, not products", dropped)
+        else:
+            discarded.append(name or product.name)
+    if discarded:
+        # The count at INFO, the names at DEBUG: a heuristic that drops a real
+        # product should be diagnosable rather than silent, and which names it
+        # took is the only thing that says which of the two just happened.
+        logger.info("Discarded %d result(s) that were pages, not products", len(discarded))
+        logger.debug(
+            "Discarded as pages, not products: %s", ", ".join(repr(n) for n in discarded)
+        )
     return kept
 
 
@@ -204,10 +247,14 @@ def deduplicate(products: Sequence[Product], limit: int) -> list[Product]:
     neither merged nor reported.
     """
     named = [product for product in products if product.dedup_key]
+    if len(named) != len(products):
+        logger.info(
+            "Dropped %d result(s) whose name identifies nothing", len(products) - len(named)
+        )
     deduped = merge_variants(named)
-    dropped = len(products) - len(deduped)
-    if dropped:
-        logger.info("Merged %d duplicate listing(s)", dropped)
+    merged = len(named) - len(deduped)
+    if merged:
+        logger.info("Merged %d duplicate listing(s)", merged)
     return deduped[:limit]
 
 

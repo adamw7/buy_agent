@@ -107,19 +107,38 @@ describe('SearchForm', () => {
     expect(submitted[0].request).toBe('kettle');
     expect(submitted[0].model).toBe('qwen2.5');
     expect(submitted[0].sort_by).toBe('score');
-    expect(submitted[0].think).toBeNull();
+    expect(submitted[0].think).toBe(false);
   });
 
-  it('turns the thinking selector back into the tri-state the config takes', async () => {
+  it('turns the thinking selector back into the boolean the config takes', async () => {
     await type('input[name="request"]', 'kettle');
     const select = element<HTMLSelectElement>('select[name="thinking"]');
-    select.value = 'off';
+    select.value = 'on';
     select.dispatchEvent(new Event('change'));
     await fixture.whenStable();
 
     element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
     await fixture.whenStable();
-    expect(submitted[0].think).toBe(false);
+    expect(submitted[0].think).toBe(true);
+  });
+
+  it('offers only the states the server can be told about', async () => {
+    const options = Array.from(
+      element<HTMLSelectElement>('select[name="thinking"]').options,
+      (option) => option.value,
+    );
+
+    // 'default' would send nothing, which the server reads as its own default --
+    // an option that silently did what 'off' does (ADR-0019).
+    expect(options).toEqual(['off', 'on']);
+  });
+
+  it('ignores a thinking mode remembered from when the form offered three', async () => {
+    localStorage.setItem('buy_agent.settings', JSON.stringify({ thinking: 'default' }));
+
+    const form = await seeded();
+
+    expect(form.querySelector<HTMLSelectElement>('select[name="thinking"]')!.value).toBe('off');
   });
 
   it('offers the models Ollama has pulled, as a dropdown', async () => {
