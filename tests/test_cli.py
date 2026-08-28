@@ -11,8 +11,8 @@ from pathlib import Path
 import pytest
 
 from buy_agent.__main__ import build_parser, main
-from buy_agent.agent import OllamaUnavailableError
-from buy_agent.config import AgentConfig
+from buy_agent.agent import ModelUnavailableError
+from buy_agent.config import PROVIDER_DEFAULTS, VLLM_BASE_URL, VLLM_MODEL, AgentConfig
 from buy_agent.models import Product, RankedProduct
 from buy_agent.search import SearchError
 from buy_agent.sources import Source
@@ -101,7 +101,7 @@ def test_empty_result_exits_nonzero(fake_agent) -> None:
 @pytest.mark.parametrize(
     "error",
     [
-        OllamaUnavailableError("no model"),
+        ModelUnavailableError("no model"),
         SearchError("rate limited"),
         ValueError("empty request"),
     ],
@@ -225,6 +225,58 @@ def test_the_base_url_flag_reaches_the_config(fake_agent) -> None:
     main(["headphones", "--base-url", "http://ollama.internal:11434"])
 
     assert fake_agent["config"].base_url == "http://ollama.internal:11434"
+
+
+def test_the_provider_flag_reaches_the_config(fake_agent) -> None:
+    main(["headphones", "--provider", "vllm"])
+
+    assert fake_agent["config"].provider == "vllm"
+
+
+def test_choosing_a_provider_brings_its_model_and_its_server_with_it(fake_agent) -> None:
+    """--provider on its own is the whole command for someone running a vLLM: the
+    two flags that would otherwise have to follow it default to that provider's
+    own, because neither has one right answer until the provider is known."""
+    main(["headphones", "--provider", "vllm"])
+    config = fake_agent["config"]
+
+    assert (config.model, config.base_url) == (VLLM_MODEL, VLLM_BASE_URL)
+
+
+def test_a_named_model_still_wins_over_the_provider_default(fake_agent) -> None:
+    main(["headphones", "--provider", "vllm", "--model", "meta-llama/Llama-3.1-8B"])
+
+    assert fake_agent["config"].model == "meta-llama/Llama-3.1-8B"
+
+
+def test_a_provider_nothing_can_serve_is_a_usage_error(capsys) -> None:
+    """argparse chooses from the same table the config validates against, so the
+    two cannot disagree about what is on offer."""
+    with pytest.raises(SystemExit) as exit_info:
+        main(["headphones", "--provider", "llama.cpp"])
+
+    assert exit_info.value.code == 2
+    assert "vllm" in capsys.readouterr().err
+
+
+def test_there_is_no_flag_for_the_api_key() -> None:
+    """A secret typed on a command line lands in a shell history. $VLLM_API_KEY is
+    the only way in, which is what keeps it out of one."""
+    flags = {option for action in build_parser()._actions for option in action.option_strings}
+
+    assert not [flag for flag in flags if "key" in flag]
+
+
+def test_the_help_names_every_provider_default_rather_than_one(capsys) -> None:
+    """--model and --base-url have a default per provider, so quoting only the
+    one the server started on would be wrong for whoever passes --provider."""
+    with pytest.raises(SystemExit):
+        main(["--help"])
+
+    printed = capsys.readouterr().out
+    for model, base_url in PROVIDER_DEFAULTS.values():
+        assert model in printed
+        assert base_url in printed
 
 
 def test_fetching_is_on_unless_no_fetch_is_passed(fake_agent) -> None:

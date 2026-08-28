@@ -4,17 +4,23 @@
 
 .DESCRIPTION
     The three things README's "Starting it on localhost" walks through by hand:
-    an Ollama serving the default model, the Angular build, and the server that
-    serves that build alongside the API -- each one skipped if it is already
+    a model server serving the default model, the Angular build, and the server
+    that serves that build alongside the API -- each one skipped if it is already
     there, so a second run costs the seconds pip needs to say it has nothing to
     do. Ends by opening the page and staying in the foreground with the server's
     log lines; Ctrl+C stops the server, and the Ollama too if this script was
     what started it.
 
+    Only Ollama is started for you. It installs nothing anyway (see Have), and a
+    vLLM needs a GPU, a served model and flags this script has no business
+    choosing -- so with $env:BUY_AGENT_PROVIDER set to vllm this waits for one to
+    be answering and says where, rather than trying to launch it.
+
     Deliberately without parameters: everything it could ask is already a
-    setting somewhere the rest of the project reads it from. The model and the
-    Ollama server come from buy_agent.config -- which is to say from
-    $env:OLLAMA_MODEL and $env:OLLAMA_HOST -- and anything past that is what
+    setting somewhere the rest of the project reads it from. The provider, the
+    model and the server address come from buy_agent.config -- which is to say
+    from $env:BUY_AGENT_PROVIDER, $env:OLLAMA_MODEL and $env:OLLAMA_HOST, or
+    $env:VLLM_MODEL and $env:VLLM_HOST -- and anything past that is what
     `python -m buy_agent.server --help` takes.
 
 .EXAMPLE
@@ -83,38 +89,59 @@ try {
         '-r', 'requirements.txt'
     ) 'could not install requirements.txt'
 
-    # The defaults live in one place and read $OLLAMA_MODEL / $OLLAMA_HOST there;
-    # a tag repeated here would be a second default, silently disagreeing.
+    # The defaults live in one place and are read whole, off an AgentConfig, so
+    # that $BUY_AGENT_PROVIDER picks the pair it decides -- $OLLAMA_MODEL and
+    # $OLLAMA_HOST, or $VLLM_MODEL and $VLLM_HOST. A tag repeated here would be a
+    # second default, silently disagreeing.
+    $provider = Run $python @(
+        '-c', 'from buy_agent.config import AgentConfig; print(AgentConfig().provider)'
+    ) 'could not read the provider out of buy_agent.config'
     $model = Run $python @(
-        '-c', 'from buy_agent.config import DEFAULT_MODEL; print(DEFAULT_MODEL)'
-    ) 'could not read DEFAULT_MODEL out of buy_agent.config'
-    $ollama = (Run $python @(
-        '-c', 'from buy_agent.config import DEFAULT_BASE_URL; print(DEFAULT_BASE_URL)'
-    ) 'could not read DEFAULT_BASE_URL out of buy_agent.config').TrimEnd('/')
+        '-c', 'from buy_agent.config import AgentConfig; print(AgentConfig().model)'
+    ) 'could not read the model out of buy_agent.config'
+    $llm = (Run $python @(
+        '-c', 'from buy_agent.config import AgentConfig; print(AgentConfig().base_url)'
+    ) 'could not read the model server out of buy_agent.config').TrimEnd('/')
 
-    Step "Ollama at $ollama"
-    if (Answers $ollama 1) {
-        Note 'already running'
-    } elseif (([uri]$ollama).Host -in @('localhost', '127.0.0.1', '::1', '[::1]')) {
-        if (-not (Have 'ollama')) {
-            throw "nothing is serving $ollama -- install Ollama from https://ollama.com/download"
+    if ($provider -eq 'ollama') {
+        $ollama = $llm
+
+        Step "Ollama at $ollama"
+        if (Answers $ollama 1) {
+            Note 'already running'
+        } elseif (([uri]$ollama).Host -in @('localhost', '127.0.0.1', '::1', '[::1]')) {
+            if (-not (Have 'ollama')) {
+                throw "nothing is serving $ollama -- install Ollama from https://ollama.com/download"
+            }
+            $ollamaProcess = Start-Process 'ollama' -ArgumentList 'serve' -PassThru -WindowStyle Minimized
+            if (-not (Answers $ollama 30)) { throw "ollama serve did not come up on $ollama" }
+            Note 'started, and stopped again when this script ends'
+        } else {
+            throw "nothing is answering at $ollama -- start it there, or unset `$env:OLLAMA_HOST"
         }
-        $ollamaProcess = Start-Process 'ollama' -ArgumentList 'serve' -PassThru -WindowStyle Minimized
-        if (-not (Answers $ollama 30)) { throw "ollama serve did not come up on $ollama" }
-        Note 'started, and stopped again when this script ends'
-    } else {
-        throw "nothing is answering at $ollama -- start it there, or unset `$env:OLLAMA_HOST"
-    }
 
-    Step "Model $model"
-    $env:OLLAMA_HOST = $ollama
-    $wanted = if ($model -like '*:*') { $model } else { "${model}:latest" }
-    $pulled = @((Invoke-RestMethod "$ollama/api/tags").models | ForEach-Object { $_.name })
-    if ($pulled -contains $wanted) {
-        Note 'already pulled'
+        Step "Model $model"
+        $env:OLLAMA_HOST = $ollama
+        $wanted = if ($model -like '*:*') { $model } else { "${model}:latest" }
+        $pulled = @((Invoke-RestMethod "$ollama/api/tags").models | ForEach-Object { $_.name })
+        if ($pulled -contains $wanted) {
+            Note 'already pulled'
+        } else {
+            Note 'not pulled yet -- this one is a several-gigabyte download'
+            Run 'ollama' @('pull', $model) "could not pull $model"
+        }
     } else {
-        Note 'not pulled yet -- this one is a several-gigabyte download'
-        Run 'ollama' @('pull', $model) "could not pull $model"
+        # Waited for rather than started: a vLLM needs a GPU, a served model and
+        # flags this script has no business choosing. The probe is /models, which
+        # is the OpenAI-compatible listing the form's model picker calls anyway --
+        # the API root itself answers 404 on a server that is working perfectly.
+        Step "$provider at $llm"
+        if (Answers "$llm/models" 1) {
+            Note "already running -- this run will ask it for $model"
+        } else {
+            throw "nothing is answering at $llm -- start it there (vllm serve $model), " +
+                "or unset `$env:BUY_AGENT_PROVIDER to go back to Ollama"
+        }
     }
 
     Step 'Angular build'

@@ -2,7 +2,13 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
-import type { AgentDefaults, ModelStatus, SearchEvent, SearchOptions } from './agent.types';
+import type {
+  AgentDefaults,
+  ModelSource,
+  ModelStatus,
+  SearchEvent,
+  SearchOptions,
+} from './agent.types';
 
 /**
  * The browser's half of the agent: the JSON endpoints, and the event stream a
@@ -17,9 +23,9 @@ export class AgentService {
     return this.http.get<AgentDefaults>('/api/config');
   }
 
-  /** Which models Ollama has pulled, or why it could not be asked. */
-  models(baseUrl: string): Observable<ModelStatus> {
-    return this.http.get<ModelStatus>('/api/models', { params: { base_url: baseUrl } });
+  /** What that model server is serving, or why it could not be asked. */
+  models(source: ModelSource): Observable<ModelStatus> {
+    return this.http.get<ModelStatus>('/api/models', { params: { ...source } });
   }
 
   /**

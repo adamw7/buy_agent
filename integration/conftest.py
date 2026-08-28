@@ -33,7 +33,8 @@ import pytest
 from langchain_core.runnables import RunnableLambda
 
 from buy_agent import agent as agent_module
-from buy_agent.agent import BuyAgent, list_models
+from buy_agent.agent import BuyAgent
+from buy_agent.providers import list_models
 from buy_agent.config import DEFAULT_BASE_URL, AgentConfig
 from buy_agent.fetch import condense
 from buy_agent.search import SearchResult
@@ -390,7 +391,7 @@ def tiny_model(base_url: str) -> str:
     """
     tag = os.getenv(MODEL_ENV_VAR, TINY_MODEL)
     try:
-        installed = list_models(base_url)
+        installed = list_models(AgentConfig(base_url=base_url))
     except Exception as exc:  # noqa: BLE001 -- any transport failure means "not there"
         _absent(f"No Ollama at {base_url} ({exc}). Start it with: ollama serve")
     if tag not in installed:
@@ -446,7 +447,7 @@ def fake_web() -> Iterator[list[SearchResult]]:
     ``autouse``, so that "nothing here reaches DuckDuckGo" is a property of the
     package rather than of each test remembering to ask for it. The tests that
     point an agent at a stopped Ollama call ``run()`` too, and today they are
-    safe only because ``_refine_query`` re-raises ``OllamaUnavailableError``
+    safe only because ``_refine_query`` re-raises ``ModelUnavailableError``
     before the search -- one change to that and an unrelated failure would start
     going out over the network.
 

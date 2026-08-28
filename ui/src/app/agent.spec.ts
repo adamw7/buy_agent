@@ -69,17 +69,27 @@ describe('AgentService', () => {
     http.verify();
   });
 
-  it('asks which models are pulled, naming the server to ask', () => {
-    /* The picker is per-server: the form can point at an Ollama elsewhere. */
+  it('asks what a server is serving, naming both the provider and the address', () => {
+    /* The picker is per-server, and the address alone is not the question: the
+       same URL is asked one way for Ollama and another for vLLM. */
     let answered: ModelStatus | null = null;
-    service.models('http://elsewhere:11434').subscribe((status) => (answered = status));
+    service
+      .models({ provider: 'vllm', base_url: 'http://elsewhere:8000/v1' })
+      .subscribe((status) => (answered = status));
 
     const http = TestBed.inject(HttpTestingController);
     const asked = http.expectOne((request) => request.url === '/api/models');
-    expect(asked.request.params.get('base_url')).toBe('http://elsewhere:11434');
+    expect(asked.request.params.get('provider')).toBe('vllm');
+    expect(asked.request.params.get('base_url')).toBe('http://elsewhere:8000/v1');
 
-    asked.flush({ base_url: 'http://elsewhere:11434', reachable: true, models: ['lfm2.5'] });
-    expect(answered!.models).toEqual(['lfm2.5']);
+    asked.flush({
+      provider: 'vllm',
+      label: 'vLLM',
+      base_url: 'http://elsewhere:8000/v1',
+      reachable: true,
+      models: ['Qwen/Qwen3-8B'],
+    });
+    expect(answered!.models).toEqual(['Qwen/Qwen3-8B']);
     http.verify();
   });
 

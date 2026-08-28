@@ -277,6 +277,28 @@ def test_it_stops_at_the_first_failure() -> None:
     assert re.search(r"^#Requires -Version 5\.1$", source, re.M), "no floor under the syntax"
 
 
+def test_it_only_starts_the_server_it_can_install() -> None:
+    """Ollama is installed with one command and started with another; a vLLM needs
+    a GPU, a served model and flags this script has no business choosing. So the
+    whole install-and-pull half is behind the provider check, and anything else is
+    waited for and named rather than launched -- a script that tried to
+    ``vllm serve`` on a laptop would fail in a way that read as this script's bug."""
+    source = start_script()
+    guard = re.search(r"^\s+if \(\$provider -eq 'ollama'\) \{$", source, re.M)
+    assert guard, "the Ollama steps are not behind a check of which provider is configured"
+
+    for line in ("Start-Process 'ollama'", "Run 'ollama' @('pull', $model)"):
+        assert line in source
+        assert source.index(line) > guard.start(), f"{line} runs whatever the provider is"
+
+
+def test_it_probes_the_endpoint_the_other_provider_actually_answers() -> None:
+    """vLLM's API root is a 404 on a server that is working perfectly; ``/models``
+    is the listing the form's model picker calls anyway. Probing the root would
+    make every run stop on a server that was up the whole time."""
+    assert '(Answers "$llm/models" 1)' in start_script()
+
+
 def test_it_takes_no_arguments() -> None:
     """README, CLAUDE.md and the script's own synopsis all say so, and the reason is
     that everything it could ask is already a setting the rest of the project reads

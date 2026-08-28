@@ -9,7 +9,7 @@ import pytest
 import httpx
 from ollama import RequestError, ResponseError
 
-from buy_agent.agent import BuyAgent, OllamaUnavailableError
+from buy_agent.agent import BuyAgent, ModelUnavailableError
 from buy_agent.config import AgentConfig
 from buy_agent.models import ExtractedProduct, ProductList, SearchQuery
 from buy_agent.ranking import RankingWeights
@@ -160,13 +160,13 @@ def test_empty_request_is_rejected(agent_factory, search_results) -> None:
 
 
 def test_missing_model_produces_an_actionable_error(
-    agent_factory, search_results, monkeypatch
+    agent_factory, search_results, installed_models
 ) -> None:
+    installed_models(["lfm2.5:latest"])
     llm = FakeLLM(raises=ResponseError("model 'llama3.2' not found", 404))
     agent, _ = agent_factory(llm, search_results, model="llama3.2")
-    monkeypatch.setattr(BuyAgent, "_installed_models", lambda self: "lfm2.5:latest")
 
-    with pytest.raises(OllamaUnavailableError, match="ollama pull llama3.2"):
+    with pytest.raises(ModelUnavailableError, match="ollama pull llama3.2"):
         agent.run("headphones")
 
 
@@ -176,7 +176,7 @@ def test_unreachable_server_produces_an_actionable_error(
     llm = FakeLLM(raises=ConnectionError("connection refused"))
     agent, _ = agent_factory(llm, search_results, base_url="http://localhost:9999")
 
-    with pytest.raises(OllamaUnavailableError, match="ollama serve"):
+    with pytest.raises(ModelUnavailableError, match="ollama serve"):
         agent.run("headphones")
 
 
@@ -321,7 +321,12 @@ def test_fetching_can_be_turned_off(
 
 @pytest.fixture
 def recorded_chat_ollama(monkeypatch):
-    """Capture the kwargs BuyAgent builds its real ChatOllama with."""
+    """Capture the kwargs the Ollama provider builds its real ChatOllama with.
+
+    Patched where the provider imported it rather than on ``langchain_ollama``:
+    building the chat model moved out of ``BuyAgent`` and into
+    ``buy_agent.providers``, which is now the one place that names the class.
+    """
     captured: dict = {}
 
     class Recorder(FakeLLM):
@@ -329,7 +334,7 @@ def recorded_chat_ollama(monkeypatch):
             super().__init__()
             captured.update(kwargs)
 
-    monkeypatch.setattr("buy_agent.agent.ChatOllama", Recorder)
+    monkeypatch.setattr("buy_agent.providers.ChatOllama", Recorder)
     return captured
 
 
@@ -375,7 +380,7 @@ def test_an_injected_model_bypasses_chat_ollama(recorded_chat_ollama) -> None:
 
 @pytest.fixture
 def installed_models(monkeypatch):
-    """Stand in for ollama.Client, so listing models never opens a socket."""
+    """Stand in for ollama's Client, so listing models never opens a socket."""
 
     def install(models: list[str] | None, *, error: Exception | None = None) -> None:
         class FakeClient:
@@ -388,7 +393,7 @@ def installed_models(monkeypatch):
                     models=[SimpleNamespace(model=name) for name in models or []]
                 )
 
-        monkeypatch.setattr("ollama.Client", FakeClient)
+        monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
 
     return install
 
@@ -401,7 +406,7 @@ def test_the_missing_model_error_names_what_is_installed(
     llm = FakeLLM(raises=ResponseError("model 'llama3.2' not found", 404))
     agent, _ = agent_factory(llm, search_results, model="llama3.2")
 
-    with pytest.raises(OllamaUnavailableError, match="lfm2.5:latest, qwen3:8b"):
+    with pytest.raises(ModelUnavailableError, match="lfm2.5:latest, qwen3:8b"):
         agent.run("headphones")
 
 
@@ -412,7 +417,7 @@ def test_an_ollama_with_nothing_pulled_reports_none(
     llm = FakeLLM(raises=ResponseError("model 'llama3.2' not found", 404))
     agent, _ = agent_factory(llm, search_results, model="llama3.2")
 
-    with pytest.raises(OllamaUnavailableError, match="installed: none"):
+    with pytest.raises(ModelUnavailableError, match="installed: none"):
         agent.run("headphones")
 
 
@@ -424,7 +429,7 @@ def test_an_unlistable_server_still_gives_the_pull_command(
     llm = FakeLLM(raises=ResponseError("model 'llama3.2' not found", 404))
     agent, _ = agent_factory(llm, search_results, model="llama3.2")
 
-    with pytest.raises(OllamaUnavailableError, match="installed: unknown"):
+    with pytest.raises(ModelUnavailableError, match="installed: unknown"):
         agent.run("headphones")
 
 
@@ -447,7 +452,7 @@ def test_transport_failures_all_become_one_actionable_error(
 ) -> None:
     agent, _ = agent_factory(FakeLLM(raises=error), search_results)
 
-    with pytest.raises(OllamaUnavailableError, match="ollama serve"):
+    with pytest.raises(ModelUnavailableError, match="ollama serve"):
         agent.run("headphones")
 
 
@@ -460,7 +465,7 @@ def test_a_model_too_slow_to_answer_says_so_rather_than_ollama_serve(
     """A timeout is a running server, so telling the user to start one misleads."""
     agent, _ = agent_factory(FakeLLM(raises=error), search_results, model="qwen3.5:9b")
 
-    with pytest.raises(OllamaUnavailableError, match="did not answer in time") as caught:
+    with pytest.raises(ModelUnavailableError, match="did not answer in time") as caught:
         agent.run("headphones")
 
     assert "ollama serve" not in str(caught.value)
@@ -473,7 +478,7 @@ def test_a_missing_ollama_is_not_papered_over_by_the_query_fallback(
     """Refinement is recoverable; searching with a model that is not there is not."""
     agent, calls = agent_factory(FakeLLM(raises=ConnectionError("refused")), search_results)
 
-    with pytest.raises(OllamaUnavailableError):
+    with pytest.raises(ModelUnavailableError):
         agent.run("headphones")
 
     assert calls == [], "the search must not run without a working model"

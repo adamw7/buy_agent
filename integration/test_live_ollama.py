@@ -29,8 +29,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from buy_agent.agent import BuyAgent, OllamaUnavailableError, list_models
+from buy_agent.agent import BuyAgent, ModelUnavailableError
 from buy_agent.api import ApiError, installed_models, run_search
+from buy_agent.providers import list_models
 
 if TYPE_CHECKING:
     from buy_agent.config import AgentConfig
@@ -40,11 +41,11 @@ _MISSING_MODEL = "buy-agent-no-such-model:0b"
 
 
 def test_ollama_lists_the_model_the_tests_are_running_on(
-    tiny_model: str, base_url: str
+    live_config: AgentConfig,
 ) -> None:
     """``list_models`` is what names the installed models in the CLI's hint and
     fills the UI's model picker; both go through this one call."""
-    assert tiny_model in list_models(base_url)
+    assert live_config.model in list_models(live_config)
 
 
 def test_the_model_picker_reports_a_reachable_server(
@@ -53,7 +54,7 @@ def test_the_model_picker_reports_a_reachable_server(
     """``installed_models`` swallows every transport failure into ``reachable:
     False``, so on a broken client it answers exactly as it does on a stopped
     server -- and a unit test with a faked client cannot tell the two apart."""
-    payload = installed_models(base_url)
+    payload = installed_models("ollama", base_url)
 
     assert payload["reachable"] is True
     assert tiny_model in payload["models"]
@@ -69,7 +70,7 @@ def test_a_stopped_server_is_reported_as_something_to_start(
     instead of falling back to the raw request."""
     agent = BuyAgent(replace(live_config, base_url=unreachable_base_url))
 
-    with pytest.raises(OllamaUnavailableError) as excinfo:
+    with pytest.raises(ModelUnavailableError) as excinfo:
         agent.run("noise cancelling headphones")
 
     assert "ollama serve" in str(excinfo.value)
@@ -84,7 +85,7 @@ def test_a_model_that_is_not_pulled_is_reported_with_a_pull_command(
     printing."""
     agent = BuyAgent(replace(live_config, model=_MISSING_MODEL))
 
-    with pytest.raises(OllamaUnavailableError) as excinfo:
+    with pytest.raises(ModelUnavailableError) as excinfo:
         agent.run("noise cancelling headphones")
 
     message = str(excinfo.value)

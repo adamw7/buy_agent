@@ -29,17 +29,17 @@ h1 {
   margin: 6px 0 0;
 }
 
-.ollama {
+.server {
   border: 1px solid var(--border);
   cursor: pointer;
   color: var(--text-dim);
 }
 
-.ollama .dot {
+.server .dot {
   color: var(--bad);
 }
 
-.ollama.up .dot {
+.server.up .dot {
   color: var(--good);
 }
 

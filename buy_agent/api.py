@@ -16,8 +16,9 @@ from collections.abc import Callable
 from functools import partial
 from typing import TYPE_CHECKING, Any, TypeVar, get_args
 
-from buy_agent.agent import BuyAgent, OllamaUnavailableError, list_models
-from buy_agent.config import AgentConfig
+from buy_agent.agent import BuyAgent, ModelUnavailableError
+from buy_agent.config import AgentConfig, provider_options
+from buy_agent.providers import PROVIDERS, list_models
 from buy_agent.ranking import SortBy
 from buy_agent.search import SearchError
 from buy_agent.sources import Source, format_sources, parse_sources
@@ -41,6 +42,10 @@ AgentFactory = Callable[[AgentConfig], BuyAgent]
 
 SORT_OPTIONS: tuple[str, ...] = get_args(SortBy)
 
+#: The model servers a request may name, read off the registry rather than
+#: written down again -- a provider added there is offered here on the same day.
+PROVIDER_OPTIONS: tuple[str, ...] = tuple(PROVIDERS)
+
 _TRUE = frozenset({"true", "1", "yes", "on"})
 _FALSE = frozenset({"false", "0", "no", "off"})
 
@@ -49,7 +54,7 @@ _FALSE = frozenset({"false", "0", "no", "off"})
 #: added here as well as to ``__main__.main`` or it reaches the client as a 500.
 _STATUS: dict[type[Exception], int] = {
     ValueError: 400,
-    OllamaUnavailableError: 503,
+    ModelUnavailableError: 503,
     SearchError: 502,
 }
 
@@ -87,9 +92,20 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         msg = f"sort_by must be one of {', '.join(SORT_OPTIONS)}; got {sort_by!r}."
         raise ApiError(msg)
 
+    provider = _read(data, "provider", defaults.provider, _as_text)
+    if provider not in PROVIDER_OPTIONS:
+        msg = f"provider must be one of {', '.join(PROVIDER_OPTIONS)}; got {provider!r}."
+        raise ApiError(msg)
+
     config = AgentConfig(
-        model=_read(data, "model", defaults.model, _as_text),
-        base_url=_read(data, "base_url", defaults.base_url, _as_text),
+        provider=provider,
+        # Blank rather than the default config's own: which model and which
+        # server are right depends on the provider just chosen, and ``defaults``
+        # was built for whichever one the server starts on. An empty string is
+        # what ``AgentConfig`` resolves per provider, so a form that sent a
+        # provider and left these alone gets that provider's pair.
+        model=_read(data, "model", "", _as_text),
+        base_url=_read(data, "base_url", "", _as_text),
         temperature=_read(data, "temperature", defaults.temperature, _bounded(float, 0, 2)),
         num_ctx=_read(data, "num_ctx", defaults.num_ctx, _bounded(int, 1, 1_000_000)),
         reasoning=_read(data, "think", defaults.reasoning, _as_bool),
@@ -165,6 +181,11 @@ def defaults_payload() -> dict[str, Any]:
     """The form's starting values: the same defaults the CLI shows in ``--help``."""
     defaults = AgentConfig()
     return {
+        "provider": defaults.provider,
+        # Each provider's own model and server travel with it, so choosing one in
+        # the form can fill in the pair that goes with it rather than leaving an
+        # Ollama tag in a field a vLLM would refuse.
+        "provider_options": provider_options(),
         "model": defaults.model,
         "base_url": defaults.base_url,
         "temperature": defaults.temperature,
@@ -182,18 +203,26 @@ def defaults_payload() -> dict[str, Any]:
     }
 
 
-def installed_models(base_url: str) -> dict[str, Any]:
-    """Ask Ollama which models are pulled, for the UI's model picker.
+def installed_models(provider: str, base_url: str) -> dict[str, Any]:
+    """Ask a model server what it is serving, for the UI's model picker.
 
     An unreachable server is an answer, not an error: the UI shows it as a
-    status rather than refusing to render a form.
+    status rather than refusing to render a form. A provider name nothing can
+    serve is the same kind of answer -- ``AgentConfig`` refuses it below, and the
+    refusal is what the browser is told.
+
+    ``label`` travels with the answer because the pill above the form names the
+    server, and "Ollama unreachable" over a vLLM address would be a lie the
+    browser had no way to catch.
     """
+    label = PROVIDERS[provider].label if provider in PROVIDERS else provider
+    status = {"provider": provider, "label": label, "base_url": base_url}
     try:
-        models = list_models(base_url)
+        models = list_models(AgentConfig(provider=provider, base_url=base_url))
     except Exception as exc:  # noqa: BLE001 -- any transport failure means "not there"
-        logger.debug("Could not list Ollama models at %s", base_url, exc_info=True)
-        return {"base_url": base_url, "reachable": False, "models": [], "detail": str(exc)}
-    return {"base_url": base_url, "reachable": True, "models": models}
+        logger.debug("Could not list %s models at %s", label, base_url, exc_info=True)
+        return {**status, "reachable": False, "models": [], "detail": str(exc)}
+    return {**status, "reachable": True, "models": models}
 
 
 def _read_sources(

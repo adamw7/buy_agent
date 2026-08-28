@@ -5,6 +5,7 @@ import { AgentService } from './agent';
 import type {
   AgentDefaults,
   LogLine,
+  ModelSource,
   ModelStatus,
   SearchOptions,
   SearchResult,
@@ -56,21 +57,50 @@ export class App {
     this.agent.defaults().subscribe({
       next: (defaults) => {
         this.defaults.set(defaults);
-        this.refreshModels(defaults.base_url);
+        this.refreshModels({ provider: defaults.provider, base_url: defaults.base_url });
       },
       error: () => this.failure.set('Could not reach the agent server. Is it still running?'),
     });
   }
 
-  protected refreshModels(baseUrl?: string): void {
-    const target = baseUrl ?? this.status()?.base_url ?? this.defaults()?.base_url;
+  /**
+   * Ask what a model server is serving: the one named, or the one already shown.
+   *
+   * The provider travels with the address because the two are one question --
+   * the same URL is asked one way for Ollama and another for vLLM, and half an
+   * answer would list the wrong server's models.
+   */
+  protected refreshModels(source?: ModelSource): void {
+    const target = source ?? this.current();
     if (!target) {
       return;
     }
     this.agent.models(target).subscribe({
       next: (status) => this.status.set(status),
-      error: () => this.status.set({ base_url: target, reachable: false, models: [] }),
+      // The agent server itself did not answer, so nothing came back to name the
+      // provider with -- the defaults it served earlier are where that name is.
+      error: () =>
+        this.status.set({
+          ...target,
+          label: this.labelFor(target.provider),
+          reachable: false,
+          models: [],
+        }),
     });
+  }
+
+  /** The server the pill is currently reporting on, for a re-ask with no argument.
+   *  `ModelStatus` and `AgentDefaults` both name a provider and an address, so
+   *  whichever of the two has arrived answers the same question. */
+  private current(): ModelSource | null {
+    const shown = this.status() ?? this.defaults();
+    return shown ? { provider: shown.provider, base_url: shown.base_url } : null;
+  }
+
+  /** What to call a provider, out of the rows the server sent with the defaults. */
+  private labelFor(provider: string): string {
+    const option = this.defaults()?.provider_options.find((row) => row.name === provider);
+    return option?.label ?? provider;
   }
 
   protected start(options: SearchOptions): void {

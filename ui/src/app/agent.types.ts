@@ -36,8 +36,21 @@ export interface SearchResult {
 
 export type SortBy = 'score' | 'price' | 'rating';
 
+/** One model server the run can be pointed at, with the pair that goes with it.
+ *  `takes_num_ctx` is false for vLLM, which fixes its context window when it
+ *  starts (`--max-model-len`) rather than taking one per request. */
+export interface ProviderOption {
+  name: string;
+  label: string;
+  model: string;
+  base_url: string;
+  takes_num_ctx: boolean;
+}
+
 /** The form's starting values, served from the agent's own config defaults. */
 export interface AgentDefaults {
+  provider: string;
+  provider_options: ProviderOption[];
   model: string;
   base_url: string;
   temperature: number;
@@ -53,8 +66,20 @@ export interface AgentDefaults {
   sort_options: SortBy[];
 }
 
-/** Whether Ollama answered, and which models it has pulled. */
+/** Which model server to ask about, and how to ask it. The provider travels with
+ *  the address because the same URL is asked one way for Ollama and another for
+ *  vLLM -- a vLLM asked Ollama's question answers 404. */
+export interface ModelSource {
+  provider: string;
+  base_url: string;
+}
+
+/** Whether the model server answered, and what it is serving. `label` is how
+ *  the pill above the form names it -- "Ollama", "vLLM" -- so a page pointed at
+ *  one never reports the other being down. */
 export interface ModelStatus {
+  provider: string;
+  label: string;
   base_url: string;
   reachable: boolean;
   models: string[];
@@ -64,6 +89,7 @@ export interface ModelStatus {
 /** What the form sends. Everything but `request` is optional; blanks mean "default". */
 export interface SearchOptions {
   request: string;
+  provider?: string;
   model?: string;
   base_url?: string;
   region?: string;

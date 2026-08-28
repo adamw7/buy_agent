@@ -5,6 +5,11 @@ current only when it is told to. This is the script that tells it, and how to
 read what it says. Setting the model up in the first place is in the
 [README](../README.md).
 
+This is Ollama's alone. A vLLM (`--provider vllm`) is started with the model it
+serves and updated by restarting it against a newer revision, so there is no tag
+to re-pull and nothing here to run -- see
+[ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md).
+
 A model tag follows the registry, so re-pulling it is how a model is updated --
 but `ollama pull` prints `success` whether it replaced anything or not.
 `scripts/update_ollama.py` pulls the models Ollama has and compares the digests

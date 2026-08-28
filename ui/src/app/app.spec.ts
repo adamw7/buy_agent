@@ -3,9 +3,32 @@ import { Observable, Subject, of, throwError } from 'rxjs';
 
 import { App } from './app';
 import { AgentService } from './agent';
-import type { AgentDefaults, ModelStatus, SearchEvent, SearchResult } from './agent.types';
+import type {
+  AgentDefaults,
+  ModelSource,
+  ModelStatus,
+  SearchEvent,
+  SearchResult,
+} from './agent.types';
 
 const DEFAULTS: AgentDefaults = {
+  provider: 'ollama',
+  provider_options: [
+    {
+      name: 'ollama',
+      label: 'Ollama',
+      model: 'llama3.2',
+      base_url: 'http://localhost:11434',
+      takes_num_ctx: true,
+    },
+    {
+      name: 'vllm',
+      label: 'vLLM',
+      model: 'Qwen/Qwen3-8B',
+      base_url: 'http://localhost:8000/v1',
+      takes_num_ctx: false,
+    },
+  ],
   model: 'llama3.2',
   base_url: 'http://localhost:11434',
   temperature: 0,
@@ -21,6 +44,8 @@ const DEFAULTS: AgentDefaults = {
 };
 
 const STATUS: ModelStatus = {
+  provider: 'ollama',
+  label: 'Ollama',
   base_url: 'http://localhost:11434',
   reachable: true,
   models: ['llama3.2'],
@@ -56,15 +81,15 @@ class FakeAgent {
   defaultsResponse = of(DEFAULTS);
   modelsResponse: Observable<ModelStatus> = of(STATUS);
   searched: unknown[] = [];
-  modelsAsked: string[] = [];
+  modelsAsked: ModelSource[] = [];
   unsubscribed = false;
 
   defaults() {
     return this.defaultsResponse;
   }
 
-  models(baseUrl: string) {
-    this.modelsAsked.push(baseUrl);
+  models(source: ModelSource) {
+    this.modelsAsked.push(source);
     return this.modelsResponse;
   }
 
@@ -108,13 +133,13 @@ describe('App', () => {
     TestBed.configureTestingModule({ providers: [{ provide: AgentService, useValue: agent }] });
   });
 
-  it('seeds the form from the agent defaults and shows the Ollama status', async () => {
+  it('seeds the form from the agent defaults and shows the model server status', async () => {
     const page = (await render()).nativeElement as HTMLElement;
     expect(page.querySelector<HTMLSelectElement>('select[name="model"]')!.value).toBe('llama3.2');
-    expect(page.querySelector('.ollama')!.textContent).toContain('1 model');
+    expect(page.querySelector('.server')!.textContent).toContain('Ollama · 1 model');
   });
 
-  it('fills the model dropdown with what that Ollama has pulled', async () => {
+  it('fills the model dropdown with what that server is serving', async () => {
     agent.modelsResponse = of({ ...STATUS, models: ['llama3.2', 'lfm2.5', 'qwen2.5'] });
 
     const page = (await render()).nativeElement as HTMLElement;
@@ -123,7 +148,7 @@ describe('App', () => {
     expect([...options].map((option) => option.value)).toEqual(['llama3.2', 'lfm2.5', 'qwen2.5']);
   });
 
-  it('re-asks when the form is pointed at another Ollama', async () => {
+  it('re-asks when the form is pointed at another server', async () => {
     /* The dropdown lists one server's models; a different server has its own. */
     const fixture = await render();
     const page = fixture.nativeElement as HTMLElement;
@@ -134,27 +159,61 @@ describe('App', () => {
     server.dispatchEvent(new Event('change'));
     await fixture.whenStable();
 
-    expect(agent.modelsAsked).toEqual([DEFAULTS.base_url, 'http://10.0.0.5:11434']);
+    expect(agent.modelsAsked).toEqual([
+      { provider: 'ollama', base_url: DEFAULTS.base_url },
+      { provider: 'ollama', base_url: 'http://10.0.0.5:11434' },
+    ]);
   });
 
-  it('says Ollama is unreachable rather than pretending it has no models', async () => {
-    /* An empty model list and a server that never answered are different things. */
+  it('asks the other provider when the form switches to it', async () => {
+    /* Both halves change together: a vLLM asked Ollama's question answers 404,
+       and Ollama's port is not where the vLLM is. */
+    const fixture = await render();
+    const page = fixture.nativeElement as HTMLElement;
+
+    const picker = page.querySelector<HTMLSelectElement>('select[name="provider"]')!;
+    picker.value = 'vllm';
+    picker.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    expect(agent.modelsAsked.at(-1)).toEqual({
+      provider: 'vllm',
+      base_url: 'http://localhost:8000/v1',
+    });
+  });
+
+  it('names the server it could not reach, rather than always naming Ollama', async () => {
+    /* The pill is over a form that may be pointed at either, so a vLLM that is
+       down must not be reported as an Ollama that is. */
+    agent.modelsResponse = of({ ...STATUS, provider: 'vllm', label: 'vLLM', reachable: false });
+
+    const page = (await render()).nativeElement as HTMLElement;
+
+    expect(page.querySelector('.server')!.textContent).toContain('vLLM unreachable');
+  });
+
+  it('says the server is unreachable rather than pretending it has no models', async () => {
+    /* An empty model list and a server that never answered are different things.
+       The pill still names it, out of the defaults the agent server sent. */
     agent.modelsResponse = throwError(() => new Error('connection refused'));
 
     const page = (await render()).nativeElement as HTMLElement;
 
-    expect(page.querySelector('.ollama')!.textContent).toContain('Ollama unreachable');
-    expect(page.querySelector('.ollama')!.classList).not.toContain('up');
+    expect(page.querySelector('.server')!.textContent).toContain('Ollama unreachable');
+    expect(page.querySelector('.server')!.classList).not.toContain('up');
   });
 
-  it('re-asks the same server when the Ollama pill is clicked', async () => {
+  it('re-asks the same server when the status pill is clicked', async () => {
     const fixture = await render();
     const page = fixture.nativeElement as HTMLElement;
 
-    page.querySelector<HTMLButtonElement>('.ollama')!.click();
+    page.querySelector<HTMLButtonElement>('.server')!.click();
     await fixture.whenStable();
 
-    expect(agent.modelsAsked).toEqual([DEFAULTS.base_url, STATUS.base_url]);
+    expect(agent.modelsAsked).toEqual([
+      { provider: 'ollama', base_url: DEFAULTS.base_url },
+      { provider: STATUS.provider, base_url: STATUS.base_url },
+    ]);
   });
 
   it('says so when the agent server itself cannot be reached', async () => {

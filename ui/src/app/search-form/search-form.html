@@ -36,24 +36,40 @@
     <summary>Settings</summary>
 
     <div class="grid">
+      @if (providerOptions().length > 1) {
+        <label class="field">
+          <span>Model server</span>
+          <select
+            name="provider"
+            [(ngModel)]="provider"
+            [disabled]="running()"
+            (change)="providerChanged()"
+          >
+            @for (option of providerOptions(); track option.name) {
+              <option [value]="option.name">{{ option.label }}</option>
+            }
+          </select>
+        </label>
+      }
+
       <label class="field">
         <span>Model</span>
         @if (modelOptions().length) {
           <select name="model" [(ngModel)]="model" [disabled]="running()">
             @for (option of modelOptions(); track option.name) {
               <option [value]="option.name">
-                {{ option.name }}{{ option.installed ? '' : ' — not pulled' }}
+                {{ option.name }}{{ option.installed ? '' : ' — not served' }}
               </option>
             }
           </select>
         } @else {
           <input name="model" [(ngModel)]="model" [disabled]="running()" />
-          <small>Ollama listed nothing to choose from, so type a name.</small>
+          <small>{{ providerLabel() }} listed nothing to choose from, so type a name.</small>
         }
       </label>
 
       <label class="field">
-        <span>Ollama server</span>
+        <span>{{ providerLabel() }} address</span>
         <input
           name="baseUrl"
           [(ngModel)]="baseUrl"
@@ -125,9 +141,16 @@
           min="1"
           [placeholder]="numCtxHint()"
           [(ngModel)]="numCtx"
-          [disabled]="running()"
+          [disabled]="running() || !takesNumCtx()"
         />
-        <small>Thinking models need the room to answer; the default leaves it.</small>
+        @if (takesNumCtx()) {
+          <small>Thinking models need the room to answer; the default leaves it.</small>
+        } @else {
+          <small
+            >{{ providerLabel() }} is started with the window it serves, so this is not a per-run
+            setting there.</small
+          >
+        }
       </label>
 
       <label class="field">
