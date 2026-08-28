@@ -208,7 +208,8 @@ shop page behind the top product's link. Everything between the search and the
 ranking is the real pipeline -- only DuckDuckGo, the page fetches and the model
 are scripted stand-ins -- so the progress panel is showing grounding actually
 throwing figures, quotes and links away. [demo/README.md](demo/README.md) says
-what is real in them, what is not, and how to record them again.
+what is real in them, what is not, and how to record them -- and the picture
+above -- again.
 
 The page takes the same settings the CLI takes as flags, shows the agent's log
 lines as the run happens, and lists the ranked products with a link to the page

@@ -13,7 +13,8 @@ live beside it: `docs/models.md` (keeping Ollama's models current),
 `docs/docker.md` (running the web tier as a container) and `docs/testing.md`
 (both suites, the coverage floors, the nightly run against a real model and the
 mutation run). `demo/` is the fourth, and documents itself in `demo/README.md`:
-two recorded runs of the UI and the harness that recorded them.
+two recorded runs of the UI, the still the README shows above them, and the
+harness that took all three.
 
 ## Commands
 
@@ -456,6 +457,12 @@ the progress panel shows `clean_products`, `ground`, `verify_opinions`,
 `attribute_sources` and `deduplicate` each catching one. `demo/record.mjs` drives
 Chromium through Playwright and encodes with ffmpeg; `--pace` scales the
 scripted delays, since a real run's two silent model calls are dead air on tape.
+`demo/screenshot.mjs` is the same drive for one frame -- it takes `docs/ui.png`,
+the form the README shows, off this server rather than off `buy_agent.server`
+because the model dropdown and the header pill are answers from an Ollama, and a
+picture taken without one says "Ollama unreachable" over a text box. It is
+clipped to the form card, so a field added to the settings makes it taller
+rather than falling off the bottom.
 Nothing here is imported by `buy_agent/` or by either suite -- `testpaths` never
 reaches it -- so it is not covered, not mutated and, per `.dockerignore`, not in
 the image.

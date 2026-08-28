@@ -98,6 +98,30 @@ the `mpeg1video` encoder. The build Playwright ships beside its browsers has
 neither of the last two, so a system ffmpeg is preferred; `--ffmpeg` names a
 third.
 
+## The README's picture
+
+`docs/ui.png` -- the search form with its settings open, above the videos in the
+main README -- is taken from this same server, by `screenshot.mjs` beside the
+recorder:
+
+```powershell
+python -m demo.server --pace 0 --port 8000        # in one terminal
+node demo/screenshot.mjs --out docs/ui.png        # in the other
+```
+
+`--pace 0` because nothing is waited on: the picture is of the form before
+anyone presses the button, so the script never starts a run and the fabricated
+web behind it is never searched. What it does need from `demo.server` is the
+model dropdown and the header pill, both of which are answers from an Ollama --
+taken against a plain `buy_agent.server` with none running, the picture shows
+"Ollama unreachable" over a text box, which is what the old one showed for as
+long as it went untaken.
+
+It is clipped to the form card rather than to the viewport, so a field added to
+the settings makes the picture taller instead of falling off the bottom of it,
+and rendered at twice the CSS width, since GitHub scales a README image down to
+its column. `--url`, `--width`, `--scale` and `--request` move the rest.
+
 Nothing here is imported by `buy_agent/` or by either test suite: `pytest.ini`
 keeps `testpaths = tests`, so this directory is never collected, and
 `.dockerignore` keeps it out of the image.
