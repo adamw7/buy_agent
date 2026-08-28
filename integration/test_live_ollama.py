@@ -31,7 +31,6 @@ import pytest
 
 from buy_agent.agent import BuyAgent, ModelUnavailableError
 from buy_agent.api import ApiError, installed_models, run_search
-from buy_agent.providers import list_models
 
 if TYPE_CHECKING:
     from buy_agent.config import AgentConfig
@@ -43,9 +42,9 @@ _MISSING_MODEL = "buy-agent-no-such-model:0b"
 def test_ollama_lists_the_model_the_tests_are_running_on(
     live_config: AgentConfig,
 ) -> None:
-    """``list_models`` is what names the installed models in the CLI's hint and
-    fills the UI's model picker; both go through this one call."""
-    assert live_config.model in list_models(live_config)
+    """The provider's own listing is what names the installed models in the
+    CLI's hint and fills the UI's model picker; both go through this one call."""
+    assert live_config.model in live_config.model_server.installed(live_config)
 
 
 def test_the_model_picker_reports_a_reachable_server(

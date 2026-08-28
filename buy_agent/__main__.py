@@ -10,8 +10,9 @@ from pathlib import Path
 from typing import get_args
 
 from buy_agent.agent import BuyAgent, ModelUnavailableError
-from buy_agent.config import PROVIDER_DEFAULTS, AgentConfig
+from buy_agent.config import AgentConfig
 from buy_agent.logging_setup import configure_logging
+from buy_agent.providers import PROVIDERS
 from buy_agent.ranking import SortBy
 from buy_agent.search import SearchError
 from buy_agent.sources import parse_sources
@@ -22,8 +23,8 @@ logger = logging.getLogger("buy_agent")
 _DEFAULTS = AgentConfig()
 
 
-def _provider_defaults(index: int) -> str:
-    """One column of :data:`PROVIDER_DEFAULTS`, as ``--help`` prints it.
+def _provider_defaults(setting: str) -> str:
+    """One column of :data:`buy_agent.providers.PROVIDERS`, as ``--help`` prints it.
 
     ``--model`` and ``--base-url`` each have a default per provider rather than
     one, so the help names all of them: "gemma4:12b for ollama, Qwen/Qwen3-8B for
@@ -31,7 +32,7 @@ def _provider_defaults(index: int) -> str:
     there.
     """
     return ", ".join(
-        f"{pair[index]} for {name}" for name, pair in PROVIDER_DEFAULTS.items()
+        f"{getattr(server, setting)} for {name}" for name, server in PROVIDERS.items()
     )
 
 
@@ -60,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("request", help="What you want to buy, in plain words.")
     parser.add_argument(
         "--provider",
-        choices=tuple(PROVIDER_DEFAULTS),
+        choices=tuple(PROVIDERS),
         default=_DEFAULTS.provider,
         help=f"Which model server to talk to (default: {_DEFAULTS.provider}, override "
         "with $BUY_AGENT_PROVIDER). It decides what --model and --base-url mean.",
@@ -73,13 +74,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--model",
         default="",
         help="Model to use, empty for the provider's own default "
-        f"({_provider_defaults(0)}). Override with $OLLAMA_MODEL or $VLLM_MODEL.",
+        f"({_provider_defaults('model')}). Override with $OLLAMA_MODEL or $VLLM_MODEL.",
     )
     parser.add_argument(
         "--base-url",
         default="",
         help="Model server URL, empty for the provider's own default "
-        f"({_provider_defaults(1)}). Override with $OLLAMA_HOST or $VLLM_HOST.",
+        f"({_provider_defaults('base_url')}). Override with $OLLAMA_HOST or $VLLM_HOST.",
     )
     parser.add_argument(
         "--results",

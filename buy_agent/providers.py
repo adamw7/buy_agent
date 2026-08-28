@@ -1,8 +1,13 @@
 """Which model server the agent talks to: Ollama, or vLLM's OpenAI-compatible API.
 
-Everything that differs between the two lives here, so nothing above this module
-has to know which one is running. A provider answers four questions:
+Everything that differs between the two lives here, in one row per server, so
+nothing above this module has to know which one is running. A :class:`Provider`
+answers what the config could not:
 
+* **What does this server default to?** -- the model, the address and the API
+  key it uses when the config names none, read from that server's own
+  environment variables. One row per server rather than a second table beside
+  :class:`~buy_agent.config.AgentConfig`, so a name is written once (ADR-0029).
 * **What chat model does this config build?** -- a ``ChatOllama`` or a
   ``ChatOpenAI`` pointed at vLLM's ``/v1``. Both are ``BaseChatModel``, so
   :mod:`buy_agent.extraction` builds the same two chains over either (ADR-0028).
@@ -23,13 +28,15 @@ thinking switch, through ``chat_template_kwargs``. :data:`Provider.takes_num_ctx
 is that difference declared once, so the CLI, the API and the form can all say so
 rather than each offering a setting that quietly does nothing.
 
-This module deliberately imports nothing from :mod:`buy_agent.config`: the
-defaults are that module's to read out of the environment, and this one's job is
-only to act on a config it is handed.
+This module deliberately imports nothing from :mod:`buy_agent.config`: a config
+is what it is handed, and everything it needs to *resolve* one is in the row
+above. The dependency goes the other way -- ``AgentConfig.model_server`` is the
+one place a run turns a provider name into the behaviour behind it.
 """
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -56,11 +63,19 @@ _LIST_TIMEOUT = 5.0
 
 @dataclass(frozen=True, slots=True)
 class Provider:
-    """One model server, and the four things only it can answer.
+    """One model server: what it defaults to, and how it is talked to.
 
     Attributes:
         name: What the CLI, the API and ``$BUY_AGENT_PROVIDER`` call it.
         label: What a person reads -- "Ollama", "vLLM".
+        model: The model a config that names none runs on this server.
+        base_url: Where this server listens when a config names no address.
+            vLLM's includes the ``/v1`` its OpenAI API is served under.
+        api_key: Sent to this server when a config carries none of its own.
+            Ollama has no notion of one; vLLM only wants one when it was started
+            with ``--api-key``, which is why it is read from the environment and
+            from nowhere else -- a secret does not belong in a shell history or
+            in what the API hands a browser.
         takes_num_ctx: Whether the context window is a per-request setting. False
             for vLLM, where it is fixed by ``--max-model-len`` when the server
             starts, and where ``AgentConfig.num_ctx`` is therefore ignored rather
@@ -75,6 +90,9 @@ class Provider:
 
     name: str
     label: str
+    model: str
+    base_url: str
+    api_key: str
     takes_num_ctx: bool
     chat_model: Callable[[AgentConfig], BaseChatModel]
     installed: Callable[[AgentConfig], list[str]]
@@ -99,25 +117,21 @@ def _ollama_installed(config: AgentConfig) -> list[str]:
 
 
 def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
-    """Turn an Ollama failure into something the user can act on."""
-    detail = str(exc)
+    """Turn an Ollama failure into something the user can act on.
+
+    Only the missing-model case is Ollama's own: it holds many tags, so a name it
+    does not know is one to pull. The other two are the same sentence either
+    server would write, and are written once below.
+    """
     if isinstance(exc, httpx.TimeoutException):
-        return (
-            f"Ollama at {config.base_url} did not answer in time "
-            f"({detail or type(exc).__name__}). "
-            f"The model {config.model!r} may be too slow for this prompt -- "
-            "try a smaller model, or a smaller --num-ctx."
-        )
-    if "not found" in detail.lower():
+        return _too_slow_hint(config, exc)
+    if "not found" in str(exc).lower():
         return (
             f"Ollama has no model named {config.model!r}. "
             f"Pull it with:  ollama pull {config.model}  "
             f"(installed: {_listed(config)})"
         )
-    return (
-        f"Could not reach Ollama at {config.base_url} ({detail}). "
-        "Start it with:  ollama serve"
-    )
+    return _unreachable_hint(config, exc, "ollama serve")
 
 
 def _vllm_chat_model(config: AgentConfig) -> BaseChatModel:
@@ -164,19 +178,16 @@ def _vllm_installed(config: AgentConfig) -> list[str]:
 def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
     """Turn a vLLM failure into something the user can act on.
 
-    The model case is the one that differs most from Ollama's. A vLLM process
-    serves the single model it was started with, so a name it does not know is
-    not something to pull -- it is a server to restart, or a name to correct to
-    the one already being served, which is why the message names both.
+    Two cases are vLLM's own. A refused key is a server started with
+    ``--api-key``, which Ollama has no notion of. And the model case differs most
+    from Ollama's: a vLLM process serves the single model it was started with, so
+    a name it does not know is not something to pull -- it is a server to
+    restart, or a name to correct to the one already being served, which is why
+    the message names both.
     """
     detail = str(exc)
     if isinstance(exc, (httpx.TimeoutException, openai.APITimeoutError)):
-        return (
-            f"vLLM at {config.base_url} did not answer in time "
-            f"({detail or type(exc).__name__}). "
-            f"The model {config.model!r} may be too slow for this prompt -- "
-            "try a smaller model, or a shorter prompt."
-        )
+        return _too_slow_hint(config, exc)
     if isinstance(exc, openai.AuthenticationError):
         return (
             f"vLLM at {config.base_url} refused the API key ({detail}). "
@@ -191,9 +202,34 @@ def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
             f"ask for what it has (serving: {_listed(config)}) or restart it "
             f"with:  vllm serve {config.model}"
         )
+    return _unreachable_hint(config, exc, f"vllm serve {config.model}")
+
+
+def _too_slow_hint(config: AgentConfig, exc: Exception) -> str:
+    """A server that took the prompt and never came back.
+
+    The remedy is the one thing that differs, and it differs for a reason already
+    declared: where the window is a per-request setting there is a smaller one to
+    ask for, and where the server fixed it at startup there is only a shorter
+    prompt to send.
+    """
+    server = config.model_server
+    smaller = "a smaller --num-ctx" if server.takes_num_ctx else "a shorter prompt"
+    # A timeout often stringifies to nothing at all, and "()" says less than the
+    # class name does.
+    detail = str(exc) or type(exc).__name__
     return (
-        f"Could not reach vLLM at {config.base_url} ({detail}). "
-        f"Start it with:  vllm serve {config.model}"
+        f"{server.label} at {config.base_url} did not answer in time ({detail}). "
+        f"The model {config.model!r} may be too slow for this prompt -- "
+        f"try a smaller model, or {smaller}."
+    )
+
+
+def _unreachable_hint(config: AgentConfig, exc: Exception, start: str) -> str:
+    """Nothing answered at all, so the server itself is what is missing."""
+    return (
+        f"Could not reach {config.model_server.label} at {config.base_url} ({exc}). "
+        f"Start it with:  {start}"
     )
 
 
@@ -204,7 +240,7 @@ def _listed(config: AgentConfig) -> str:
     here must not replace it with a traceback about the first.
     """
     try:
-        models = list_models(config)
+        models = config.model_server.installed(config)
     except Exception:  # noqa: BLE001 -- any transport failure means "cannot say"
         return "unknown"
     return ", ".join(models) or "none"
@@ -213,6 +249,9 @@ def _listed(config: AgentConfig) -> str:
 OLLAMA = Provider(
     name="ollama",
     label="Ollama",
+    model=os.getenv("OLLAMA_MODEL", "gemma4:12b"),
+    base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
+    api_key="",
     takes_num_ctx=True,
     chat_model=_ollama_chat_model,
     installed=_ollama_installed,
@@ -232,6 +271,13 @@ OLLAMA = Provider(
 VLLM = Provider(
     name="vllm",
     label="vLLM",
+    # A repository id rather than a tag, because that is what ``vllm serve`` is
+    # given and what ``/v1/models`` reports back. The address is the API root and
+    # not the host: vLLM serves the OpenAI API under ``/v1``, and the OpenAI
+    # client appends its paths to whatever it is given.
+    model=os.getenv("VLLM_MODEL", "Qwen/Qwen3-8B"),
+    base_url=os.getenv("VLLM_HOST", "http://localhost:8000/v1"),
+    api_key=os.getenv("VLLM_API_KEY", ""),
     takes_num_ctx=False,
     chat_model=_vllm_chat_model,
     installed=_vllm_installed,
@@ -243,10 +289,9 @@ VLLM = Provider(
 )
 
 #: Every provider, by the name the CLI, the API and ``$BUY_AGENT_PROVIDER`` use.
-#: :data:`buy_agent.config.PROVIDER_DEFAULTS` names the same ones, and
-#: ``tests/test_conventions.py`` checks that the two agree -- a provider with
-#: behaviour and no defaults is one that cannot be configured, and a provider
-#: with defaults and no behaviour is a ``KeyError`` on the first run.
+#: The one table: its rows carry both what a server defaults to and how it is
+#: talked to, so adding a third is adding a row here and nothing anywhere else
+#: (ADR-0029).
 PROVIDERS: dict[str, Provider] = {provider.name: provider for provider in (OLLAMA, VLLM)}
 
 
@@ -264,26 +309,21 @@ def provider_for(name: str) -> Provider:
         raise ValueError(msg) from None
 
 
-def build_chat_model(config: AgentConfig) -> BaseChatModel:
-    """The chat model this config asks for -- the one seam ``llm=`` bypasses."""
-    return provider_for(config.provider).chat_model(config)
+def provider_options() -> list[dict[str, object]]:
+    """Every provider a run can be pointed at, as the form's picker needs it.
 
-
-def list_models(config: AgentConfig) -> list[str]:
-    """What the configured server is serving. Raises whatever the transport raises.
-
-    Both callers need it -- the CLI names them in a failure message, the browser
-    shows them in a picker -- and each phrases a failure its own way, so the
-    shared part is only the call.
+    Carries each one's defaults, so choosing a provider in the browser can fill
+    in the model and the server that go with it rather than leaving an Ollama tag
+    in a field a vLLM will refuse. ``api_key`` is deliberately not among them:
+    this payload goes to a browser, and that one is a secret.
     """
-    return provider_for(config.provider).installed(config)
-
-
-def unavailable_hint(config: AgentConfig, exc: Exception) -> str:
-    """Why the model server could not be used, and what to do about it."""
-    return provider_for(config.provider).hint(config, exc)
-
-
-def transport_errors(config: AgentConfig) -> tuple[type[BaseException], ...]:
-    """The exceptions that mean this provider's server is not answering."""
-    return provider_for(config.provider).transport_errors
+    return [
+        {
+            "name": server.name,
+            "label": server.label,
+            "model": server.model,
+            "base_url": server.base_url,
+            "takes_num_ctx": server.takes_num_ctx,
+        }
+        for server in PROVIDERS.values()
+    ]

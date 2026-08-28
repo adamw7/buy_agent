@@ -13,8 +13,9 @@ from buy_agent.api import (
     product_payload,
     run_search,
 )
-from buy_agent.config import VLLM_BASE_URL, VLLM_MODEL, AgentConfig
+from buy_agent.config import AgentConfig
 from buy_agent.models import Product, RankedProduct
+from buy_agent.providers import VLLM
 from buy_agent.search import SearchError
 from buy_agent.sources import Source
 
@@ -348,8 +349,8 @@ def test_choosing_a_provider_brings_its_model_and_its_server_with_it() -> None:
     one the server happened to start on"."""
     config, _ = parse_options({"provider": "vllm"})
 
-    assert config.model == VLLM_MODEL
-    assert config.base_url == VLLM_BASE_URL
+    assert config.model == VLLM.model
+    assert config.base_url == VLLM.base_url
 
 
 def test_a_named_model_still_wins_over_the_provider_default() -> None:
@@ -376,8 +377,8 @@ def test_the_defaults_carry_every_provider_with_its_own_pair() -> None:
     options = {option["name"]: option for option in defaults_payload()["provider_options"]}
 
     assert set(options) == {"ollama", "vllm"}
-    assert options["vllm"]["model"] == VLLM_MODEL
-    assert options["vllm"]["base_url"] == VLLM_BASE_URL
+    assert options["vllm"]["model"] == VLLM.model
+    assert options["vllm"]["base_url"] == VLLM.base_url
     assert options["ollama"]["label"] == "Ollama"
 
 

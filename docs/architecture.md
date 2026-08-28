@@ -45,8 +45,11 @@ Everything runs on the shopper's own machine, or on one they control: no
 accounts, no hosted models, and nothing about a search leaves except the search
 itself and the page fetches. Which model server that is -- Ollama by default, or
 a vLLM already serving a model on a GPU box -- is `AgentConfig.provider`, and
-nothing downstream of `buy_agent/providers.py` knows the difference
-([ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md)).
+nothing downstream of `buy_agent/providers.py` knows the difference: one table
+row holds a server whole, and `AgentConfig.model_server` is the only place a
+provider name becomes behaviour
+([ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md),
+[ADR-0029](adr/0029-one-table-per-model-server.md)).
 
 ## Level 2 -- Containers
 
@@ -110,7 +113,7 @@ graph TB
     subgraph pipeline["Agent pipeline"]
         agent["<b>BuyAgent</b><br/><i>[Component: agent.py]</i><br/>Orchestrates the fixed pipeline and<br/>translates transport failures into<br/>an actionable message"]
         config["<b>AgentConfig</b><br/><i>[Component: config.py]</i><br/>Provider, model, search, fetch and<br/>ranking settings; the CLI's flag<br/>defaults"]
-        providers["<b>Providers</b><br/><i>[Component: providers.py]</i><br/>Everything that differs between<br/>Ollama and vLLM: the chat model, the<br/>listing, the errors that mean<br/>&quot;not there&quot;, and what to say"]
+        providers["<b>Providers</b><br/><i>[Component: providers.py]</i><br/>Everything that differs between<br/>Ollama and vLLM, one row each: the<br/>model, address and key it defaults<br/>to, the chat model, the listing, the<br/>errors that mean &quot;not there&quot;,<br/>and what to say"]
         extraction["<b>Extraction</b><br/><i>[Component: extraction.py]</i><br/>Both prompts and both chains,<br/>plus name cleaning and merging<br/>of variant names"]
         search["<b>Search</b><br/><i>[Component: search.py]</i><br/>DuckDuckGo wrapper; raises<br/>SearchError on a rate limit"]
         sources["<b>Sources</b><br/><i>[Component: sources.py]</i><br/>Reads a trusted source down to a<br/>domain and a term, narrows the<br/>query to it, and says whether a<br/>result came from it"]
@@ -141,7 +144,7 @@ graph TB
     agent -->|"7. rank"| ranking
     agent -->|"8. log the top N"| logsetup
     agent -.->|"builds the chat model,<br/>names the failure"| providers
-    config -.->|"resolves the model and<br/>the address per provider"| providers
+    config -.->|"model_server: the model, the<br/>address and the key per provider"| providers
 
     providers -->|"[HTTP]"| ollama
     extraction -->|"invokes the chains<br/>[JSON schema]"| ollama

@@ -34,9 +34,9 @@ from langchain_core.runnables import RunnableLambda
 
 from buy_agent import agent as agent_module
 from buy_agent.agent import BuyAgent
-from buy_agent.providers import list_models
-from buy_agent.config import DEFAULT_BASE_URL, AgentConfig
+from buy_agent.config import AgentConfig
 from buy_agent.fetch import condense
+from buy_agent.providers import OLLAMA
 from buy_agent.search import SearchResult
 from integration import MODEL_ENV_VAR, REQUIRE_ENV_VAR, TINY_MODEL
 
@@ -377,7 +377,7 @@ def _unreachable_base_url() -> str:
 @pytest.fixture(scope="session")
 def base_url() -> str:
     """Where Ollama is, honouring ``$OLLAMA_HOST`` as the rest of the project does."""
-    return DEFAULT_BASE_URL
+    return OLLAMA.base_url
 
 
 @pytest.fixture(scope="session")
@@ -391,7 +391,8 @@ def tiny_model(base_url: str) -> str:
     """
     tag = os.getenv(MODEL_ENV_VAR, TINY_MODEL)
     try:
-        installed = list_models(AgentConfig(base_url=base_url))
+        probe = AgentConfig(base_url=base_url)
+        installed = probe.model_server.installed(probe)
     except Exception as exc:  # noqa: BLE001 -- any transport failure means "not there"
         _absent(f"No Ollama at {base_url} ({exc}). Start it with: ollama serve")
     if tag not in installed:

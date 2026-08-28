@@ -5,38 +5,16 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
-from buy_agent.providers import PROVIDERS, provider_for
+from buy_agent.providers import Provider, provider_for
 from buy_agent.ranking import RankingWeights
 from buy_agent.sources import Source
 
 #: Which model server a run talks to when nothing says otherwise. Ollama, because
 #: that is what ADR-0003 chose and what the README's first run uses; vLLM is the
-#: same pipeline over a server someone already runs (ADR-0028).
+#: same pipeline over a server someone already runs (ADR-0028). It is the only
+#: default here that is not one server's own -- what each of them defaults to is
+#: its row in :data:`buy_agent.providers.PROVIDERS` (ADR-0029).
 DEFAULT_PROVIDER = os.getenv("BUY_AGENT_PROVIDER", "ollama")
-
-DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:12b")
-DEFAULT_BASE_URL = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-
-#: vLLM's half of the same pair. A repository id rather than a tag, because that
-#: is what ``vllm serve`` is given and what ``/v1/models`` reports back.
-VLLM_MODEL = os.getenv("VLLM_MODEL", "Qwen/Qwen3-8B")
-#: The API root and not the host: vLLM serves the OpenAI API under ``/v1``, and
-#: the OpenAI client appends its paths to whatever it is given.
-VLLM_BASE_URL = os.getenv("VLLM_HOST", "http://localhost:8000/v1")
-#: Only needed by a vLLM started with ``--api-key``. Read from the environment
-#: and from nowhere else: it is a secret, so it is not a CLI flag that lands in a
-#: shell history and not a field the API sends to a browser.
-VLLM_API_KEY = os.getenv("VLLM_API_KEY", "")
-
-#: The model and the server each provider falls back to, by provider name. This
-#: is the one table that reads the environment, which is why it lives here and
-#: not in :mod:`buy_agent.providers` -- that module acts on a config, it does not
-#: decide what an unset field means. ``tests/test_conventions.py`` checks these
-#: keys against :data:`buy_agent.providers.PROVIDERS`.
-PROVIDER_DEFAULTS: dict[str, tuple[str, str]] = {
-    "ollama": (DEFAULT_MODEL, DEFAULT_BASE_URL),
-    "vllm": (VLLM_MODEL, VLLM_BASE_URL),
-}
 
 
 @dataclass(slots=True)
@@ -54,17 +32,18 @@ class AgentConfig:
             (``Qwen/Qwen3-8B``).
         base_url: Where that server listens, empty for the provider's own
             default. vLLM's includes the ``/v1`` its OpenAI API is served under.
-        api_key: Sent to vLLM when it was started with ``--api-key``; Ollama
-            ignores it. Blank -- the default unless ``$VLLM_API_KEY`` is set --
-            sends a placeholder, which is what a vLLM checking no key expects.
+        api_key: Sent to vLLM when it was started with ``--api-key``; Ollama has
+            no notion of one. Empty takes the provider's own -- ``$VLLM_API_KEY``
+            for vLLM, nothing for Ollama -- and a vLLM given no key at all is
+            sent a placeholder, which is what a vLLM checking none expects.
         temperature: Low by default; extraction is a copying task, not a creative one.
         num_ctx: Context window in tokens, or None to leave the server's own
             default alone. The extraction prompt runs to ~4.3k tokens, so on
             Ollama's default 4096 a thinking model has no room left to answer --
-            see ``reasoning``. Defaults to 8192 because ``DEFAULT_MODEL`` is a
-            thinking model. **Ollama only**: vLLM fixes its window when it starts
-            (``--max-model-len``), so this is not sent there -- which is what
-            ``Provider.takes_num_ctx`` declares.
+            see ``reasoning``. Defaults to 8192 because Ollama's default model is
+            a thinking model. **Ollama only**: vLLM fixes its window when it
+            starts (``--max-model-len``), so this is not sent there -- which is
+            what ``Provider.takes_num_ctx`` declares.
         reasoning: Thinking mode. None sends nothing and leaves the model's own
             behaviour alone; False (the default) turns thinking off; True turns it
             on. Thinking models need False here: they spend the whole remaining
@@ -98,7 +77,7 @@ class AgentConfig:
     provider: str = DEFAULT_PROVIDER
     model: str = ""
     base_url: str = ""
-    api_key: str = VLLM_API_KEY
+    api_key: str = ""
     temperature: float = 0.0
     num_ctx: int | None = 8192
     reasoning: bool | None = False
@@ -113,36 +92,29 @@ class AgentConfig:
     fetch_timeout: float = 8.0
     weights: RankingWeights = field(default_factory=RankingWeights)
 
-    def __post_init__(self) -> None:
-        """Fill in whichever of the model and the server the provider decides.
+    @property
+    def model_server(self) -> Provider:
+        """The server this config names, and everything that differs about it.
 
-        The two cannot be plain field defaults, because which value is right
-        depends on a *sibling* field: ``gemma4:12b`` on port 11434 is nonsense
-        for a vLLM, and ``Qwen/Qwen3-8B`` on port 8000 is nonsense for an Ollama.
-        So an unset one is the empty string -- the same "unset" a blank form
-        field means (ADR-0012) -- and is resolved here, once, where both front
-        ends and every Python caller go through it.
+        The one place a provider name becomes behaviour: the chat model to build,
+        the failures that mean "not there", the sentence one of those carries and
+        the listing behind the model picker all hang off this (ADR-0029). Nothing
+        above it branches on which server is answering.
         """
-        provider_for(self.provider)  # raises for a name nothing can serve
-        model, base_url = PROVIDER_DEFAULTS[self.provider]
-        self.model = self.model or model
-        self.base_url = self.base_url or base_url
+        return provider_for(self.provider)
 
+    def __post_init__(self) -> None:
+        """Fill in whichever of the three the provider decides.
 
-def provider_options() -> list[dict[str, object]]:
-    """Every provider a run can be pointed at, as the form's picker needs it.
-
-    Carries each one's defaults, so choosing a provider in the browser can fill
-    in the model and the server that go with it rather than leaving an Ollama tag
-    in a field a vLLM will refuse.
-    """
-    return [
-        {
-            "name": name,
-            "label": PROVIDERS[name].label,
-            "model": model,
-            "base_url": base_url,
-            "takes_num_ctx": PROVIDERS[name].takes_num_ctx,
-        }
-        for name, (model, base_url) in PROVIDER_DEFAULTS.items()
-    ]
+        The model, the address and the key cannot be plain field defaults,
+        because which value is right depends on a *sibling* field:
+        ``gemma4:12b`` on port 11434 is nonsense for a vLLM, and ``Qwen/Qwen3-8B``
+        on port 8000 is nonsense for an Ollama. So an unset one is the empty
+        string -- the same "unset" a blank form field means (ADR-0012) -- and is
+        resolved here, once, where both front ends and every Python caller go
+        through it.
+        """
+        server = self.model_server  # raises for a name nothing can serve
+        self.model = self.model or server.model
+        self.base_url = self.base_url or server.base_url
+        self.api_key = self.api_key or server.api_key

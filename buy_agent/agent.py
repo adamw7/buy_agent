@@ -15,7 +15,6 @@ from buy_agent.extraction import (
 )
 from buy_agent.fetch import enrich
 from buy_agent.logging_setup import log_top_products
-from buy_agent.providers import build_chat_model, transport_errors, unavailable_hint
 from buy_agent.ranking import rank_products
 from buy_agent.search import search_web
 from buy_agent.verification import ground
@@ -38,8 +37,8 @@ class ModelUnavailableError(RuntimeError):
 
     One exception for both providers, because it is one thing to the shopper:
     the model could not be used. What differs is only the sentence it carries --
-    ``ollama pull`` or ``vllm serve`` -- which is
-    :func:`buy_agent.providers.unavailable_hint`'s to write (ADR-0028).
+    ``ollama pull`` or ``vllm serve`` -- which is the provider's own to write
+    (ADR-0028).
     """
 
 
@@ -68,7 +67,7 @@ class BuyAgent:
                 ``config`` -- the seam the tests inject a fake model through.
         """
         self.config = config or AgentConfig()
-        self.llm = llm or build_chat_model(self.config)
+        self.llm = llm or self.config.model_server.chat_model(self.config)
         self.query_chain = build_query_chain(self.llm)
         self.extraction_chain = build_extraction_chain(self.llm)
 
@@ -206,7 +205,8 @@ class BuyAgent:
         ``ModelUnavailableError``, because to everything above this line they are
         one failure -- the model could not be used (ADR-0009).
         """
+        server = self.config.model_server
         try:
             return chain.invoke(payload)
-        except transport_errors(self.config) as exc:
-            raise ModelUnavailableError(unavailable_hint(self.config, exc)) from exc
+        except server.transport_errors as exc:
+            raise ModelUnavailableError(server.hint(self.config, exc)) from exc
