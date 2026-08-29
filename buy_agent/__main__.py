@@ -26,10 +26,9 @@ _DEFAULTS = AgentConfig()
 def _provider_defaults(setting: str) -> str:
     """One column of :data:`buy_agent.providers.PROVIDERS`, as ``--help`` prints it.
 
-    ``--model`` and ``--base-url`` each have a default per provider rather than
-    one, so the help names all of them: "gemma4:12b for ollama, Qwen/Qwen3-8B for
-    vllm". Read off the table so a third provider appears here by being added
-    there.
+    ``--model`` and ``--base-url`` have a default per provider, so the help names
+    them all: "gemma4:12b for ollama, Qwen/Qwen3-8B for vllm". Read off the table,
+    so a third provider appears here by being added there.
     """
     return ", ".join(
         f"{getattr(server, setting)} for {name}" for name, server in PROVIDERS.items()
@@ -39,12 +38,11 @@ def _provider_defaults(setting: str) -> str:
 def _source(spec: str) -> str:
     """``--source`` as argparse takes it: checked here, kept as text.
 
-    Checked here so that an unusable source is a usage error carrying the shapes
-    that do work -- argparse turns a type function's ``ValueError`` into "invalid
-    _source value" and throws the reason away, which is the whole message.
-
-    Kept as text so that ``main`` can parse every flag together: two of them
-    naming one site are one source, and that can only be seen from all of them.
+    Checked here so an unusable source is a usage error carrying the shapes that
+    work -- argparse turns a type function's ``ValueError`` into "invalid _source
+    value" and throws away the reason, which is the whole message. Kept as text so
+    ``main`` parses every flag together: two naming one site are one source, and
+    that can only be seen from all of them.
     """
     try:
         parse_sources(spec)
@@ -66,10 +64,10 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Which model server to talk to (default: {_DEFAULTS.provider}, override "
         "with $BUY_AGENT_PROVIDER). It decides what --model and --base-url mean.",
     )
-    # Both default to the empty string rather than to a value, because which
-    # value is right depends on --provider, which argparse has not read yet. The
-    # config resolves an empty one per provider, so the help quotes the pair for
-    # each rather than one pair that would be wrong half the time.
+    # Both default to "" rather than a value, because which value is right depends
+    # on --provider, which argparse has not read yet. The config resolves an empty
+    # one per provider, so the help quotes every pair rather than one that would be
+    # wrong half the time.
     parser.add_argument(
         "--model",
         default="",
@@ -96,8 +94,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--sort-by",
-        # Read off the type rather than repeated: rank_products has a branch per
-        # criterion, and a fourth one must not be offered here without one there.
+        # Read off the type: rank_products has a branch per criterion, and a
+        # fourth must not be offered here without one there.
         choices=get_args(SortBy),
         default="score",
         help="Ranking criterion (default: score, a blend of rating, reviews and price).",
@@ -164,8 +162,8 @@ def main(argv: list[str] | None = None) -> int:
         num_products=args.results,
         top_n=args.top,
         region=args.region,
-        # Repeated flags build a list, and no flag at all leaves None -- which is
-        # the config's own default and not an empty one written down again.
+        # Repeated flags build a list; no flag leaves None, and the fallback is
+        # the config's own default rather than an empty one written down again.
         sources=parse_sources(args.source) if args.source else _DEFAULTS.sources,
         fetch_pages=args.fetch,
     )
@@ -190,10 +188,9 @@ def main(argv: list[str] | None = None) -> int:
         try:
             args.json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         except OSError as exc:
-            # A missing directory or a read-only path is worth an exit code and
-            # not a traceback: the report is already on stderr by now, so what
-            # failed is the copy, and a run that took a minute should not end by
-            # looking like a crash.
+            # Worth an exit code and not a traceback: the report is already on
+            # stderr, so what failed is the copy, and a run that took a minute
+            # should not end by looking like a crash.
             logger.error("Could not write %s (%s)", args.json, exc)
             return 1
         logger.info("Wrote %d products to %s", len(payload), args.json)

@@ -24,10 +24,9 @@ def configure_logging(*, verbose: bool = False) -> None:
         datefmt="%H:%M:%S",
     )
     if not verbose:
-        # Both clients narrate at INFO and drown out the report: httpx logs every
-        # request under ChatOllama, and the OpenAI client under ChatOpenAI logs a
-        # line per retry -- so a stopped vLLM prints its own retries above the one
-        # message that says what to do about it.
+        # Both narrate at INFO and drown out the report: httpx logs every request
+        # under ChatOllama, and the OpenAI client a line per retry -- so a stopped
+        # vLLM prints its retries above the message saying what to do about it.
         for chatty in _NOISY_LIBRARIES:
             logging.getLogger(chatty).setLevel(logging.WARNING)
 
@@ -55,8 +54,7 @@ def log_top_products(ranked: Sequence[RankedProduct], top_n: int) -> None:
             logger.info("     url    : %s", product.url)
         if product.notes:
             logger.info("     note   : %s", product.notes)
-        # Quoted rather than summarised, and last: the figures say what it costs
-        # and the opinions say whether to want it, which is the longer read.
+        # Quoted rather than summarised, and last: the longer read.
         for opinion in product.opinions:
             logger.info("     says   : %s", opinion)
     logger.info(separator)

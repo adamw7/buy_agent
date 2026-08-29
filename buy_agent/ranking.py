@@ -46,9 +46,8 @@ def score_product(
 ) -> float:
     """Score one product in ``[0, 1]`` relative to the rest of the candidate set.
 
-    Price is scored relative to the other candidates rather than on an absolute
-    scale: the cheapest option in the set gets 1.0, the most expensive 0.0. With
-    one distinct price everything ties at ``NEUTRAL``.
+    Price is relative rather than absolute: the cheapest in the set gets 1.0, the
+    most expensive 0.0, and with one distinct price everything ties at ``NEUTRAL``.
     """
     rating = product.rating / 5 if product.rating is not None else NEUTRAL
 
@@ -79,9 +78,8 @@ def rank_products(
 ) -> list[RankedProduct]:
     """Sort products best-first and attach the score and 1-based rank.
 
-    ``sort_by="price"`` sorts cheapest first and ``"rating"`` highest first; in
-    both cases products missing that field sink to the bottom instead of being
-    dropped.
+    ``sort_by="price"`` sorts cheapest first and ``"rating"`` highest first; either
+    way products missing that field sink to the bottom rather than being dropped.
     """
     weights = weights or RankingWeights()
     prices = [p.price for p in products if p.price is not None]
@@ -101,7 +99,7 @@ def rank_products(
     elif sort_by == "rating":
         scored.sort(key=lambda item: (item[0].rating is None, -(item[0].rating or 0.0)))
     else:
-        # Name is the tiebreaker so equal scores come out in a stable, reproducible order.
+        # Name breaks ties, so equal scores come out in a reproducible order.
         scored.sort(key=lambda item: (-item[1], item[0].name.lower()))
 
     return [
