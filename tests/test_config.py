@@ -8,9 +8,18 @@ import importlib
 import pytest
 
 import buy_agent.config as config_module
+import buy_agent.providers as providers_module
 from buy_agent.config import AgentConfig
-from buy_agent.providers import OLLAMA, VLLM
 from buy_agent.ranking import RankingWeights
+
+# The rows are reached through the module rather than imported by name, because
+# tests/test_providers.py reloads it: a reload re-runs the module over its own
+# globals, so ``provider_for`` goes on answering with whatever is in the table
+# *now* while a name imported here would still hold the row from before. Bound
+# at import time, the identity assertion below then passes or fails on which
+# file pytest happened to run first -- which is how it survived every ordinary
+# run and broke the Saturday mutation job, whose clean-test pass orders the
+# suite its own way.
 
 
 def test_defaults_are_ten_results_ten_products_and_a_top_three() -> None:
@@ -32,15 +41,17 @@ def test_an_unset_model_and_server_come_from_the_provider() -> None:
     a sibling field, so the empty string is the "unset" that gets resolved."""
     ollama, vllm = AgentConfig(), AgentConfig(provider="vllm")
 
-    assert (ollama.model, ollama.base_url) == (OLLAMA.model, OLLAMA.base_url)
-    assert (vllm.model, vllm.base_url) == (VLLM.model, VLLM.base_url)
+    ollama_row, vllm_row = providers_module.OLLAMA, providers_module.VLLM
+
+    assert (ollama.model, ollama.base_url) == (ollama_row.model, ollama_row.base_url)
+    assert (vllm.model, vllm.base_url) == (vllm_row.model, vllm_row.base_url)
 
 
 def test_the_provider_name_resolves_to_the_behaviour_behind_it() -> None:
     """``model_server`` is the one way anything reaches a provider, which is what
     keeps the agent, the API and the CLI from branching on a name (ADR-0029)."""
-    assert AgentConfig().model_server is OLLAMA
-    assert AgentConfig(provider="vllm").model_server is VLLM
+    assert AgentConfig().model_server is providers_module.OLLAMA
+    assert AgentConfig(provider="vllm").model_server is providers_module.VLLM
 
 
 def test_a_named_model_and_server_are_left_alone() -> None:
@@ -150,4 +161,4 @@ def test_the_provider_itself_can_be_set_from_the_environment(reloaded_config) ->
     reloaded = reloaded_config(BUY_AGENT_PROVIDER="vllm")
 
     assert reloaded.AgentConfig().provider == "vllm"
-    assert reloaded.AgentConfig().base_url == VLLM.base_url
+    assert reloaded.AgentConfig().base_url == providers_module.VLLM.base_url

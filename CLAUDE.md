@@ -545,29 +545,37 @@ the kwargs a real `ChatOllama` would be built with, `buy_agent.providers.Client`
 for the listing that names the installed models in an error, and
 `buy_agent.providers.httpx.get` for vLLM's `/v1/models`. Patching `ollama.Client`
 no longer works: `providers.py` imports the name at module level, which is also
-the only place either client is named. Patching `DDGS.text` does
-*not* work -- the name `ddgs` exports is a wrapper that constructs a different
-class. No test in `tests/` touches the network or a model server; keep it that
-way --
-`integration/` is where a real model goes, and it is outside `testpaths` so that
-a bare `pytest` cannot reach it (see below). The server tests are
-the one exception to "no sockets": they bind loopback, because routing and status
+the only place either client is named. A row of `providers.PROVIDERS` is
+compared by identity only through the module -- `providers_module.OLLAMA`, never
+a name imported from it -- because `tests/test_providers.py` reloads that module
+to re-read its environment-derived defaults: a reload re-runs it over its own
+globals, so `provider_for` answers with the new rows while a name bound at import
+time still holds the old ones. The teardown puts the *values* back, which is why
+comparing those is safe anywhere; the objects are new either way, so an `is`
+against an imported name passes or fails on which file pytest ran first -- every
+ordinary run one way, the Saturday mutation job's clean-test pass the other.
+Patching `DDGS.text` does *not* work -- the name `ddgs` exports is a wrapper that
+constructs a different class. No test in `tests/` touches the network or a model
+server; keep it that way -- `integration/` is where a real model goes, and it is
+outside `testpaths` so that a bare `pytest` cannot reach it (see below). The
+server tests are the one exception to "no sockets": they bind loopback, because
+routing and status
 codes are what they are about. They pass `serve_forever(0.01)` -- the default 0.5s
 poll would otherwise cost half a second per test on shutdown. Four server tests
 speak the protocol over a raw socket, because urllib will not build a request with
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 839 tests
+to EOF instead -- what it checks is that nothing follows the reply. 842 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 839 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 839 collect but 13 of the 17
-in `tests/test_start_script.py` skip, so the summary reads `826 passed, 13
+is reaching out. 842 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 842 collect but 13 of the 17
+in `tests/test_start_script.py` skip, so the summary reads `829 passed, 13
 skipped` -- nothing is missing, and the four that still run are the ones reading
 the script as text rather than through the probe. The UI's 78 tests
 run in about two seconds, most of which is building the app first. The 19 in
