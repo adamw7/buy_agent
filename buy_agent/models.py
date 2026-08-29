@@ -1,15 +1,11 @@
 """Data models.
 
-Two shapes of "product" live here on purpose:
-
-``ExtractedProduct`` is what the LLM is asked to produce. Every field has a
-concrete type and a sentinel for "unknown" (``-1``, ``""``, ``[]``) rather than
-being nullable, because Ollama turns the JSON schema into a decoding grammar: a
+Two shapes of "product" on purpose. ``ExtractedProduct`` is what the LLM is asked
+for: every field concrete, with a sentinel for "unknown" (``-1``, ``""``, ``[]``)
+rather than nullable, because the JSON schema becomes a decoding grammar and a
 required ``number`` makes it structurally impossible for a small model to answer
-``"N/A"`` and blow up validation for the whole batch.
-
-``Product`` is the domain model the rest of the code uses, where unknown really
-is ``None``.
+``"N/A"`` and blow up validation for the whole batch. ``Product`` is the domain
+model the rest of the code uses, where unknown really is ``None``.
 """
 
 from __future__ import annotations
@@ -24,9 +20,9 @@ _UNKNOWN_NUMBER = -1.0
 _WHITESPACE = re.compile(r"\s+")
 _PUNCTUATION = re.compile(r"[^\w\s]")
 
-#: How many opinions a product is reported with. Three is what fits a card and a
-#: log block without turning either into a review page of its own -- and asking a
-#: small model for more only trades quotes it read for quotes it wrote.
+#: How many opinions a product is reported with. Three fits a card and a log block
+#: without turning either into a review page -- and asking a small model for more
+#: only trades quotes it read for quotes it wrote.
 MAX_OPINIONS = 3
 
 #: Longer than this is not a quote any more; it is the model retelling the page.
@@ -74,20 +70,17 @@ class ExtractedProduct(BaseModel):
 
     def to_product(self) -> Product:
         """Convert sentinels back into ``None`` and tidy up whitespace."""
-        # A rating is what a review count counts, so the count is only a fact
-        # about the product while the rating stands -- :data:`QUALIFIERS` one
-        # stage earlier than ``verify_numbers``, which applies the same rule to
-        # a rating the sources reject. Read out here rather than inline because
-        # the count below has to be judged against it.
+        # A count is only a fact about the product while the rating it counts
+        # stands -- :data:`QUALIFIERS` one stage earlier than ``verify_numbers``.
+        # Read out here because the count below is judged against it.
         rating = self.rating if 0 <= self.rating <= 5 else None
         return Product(
             name=_clean(self.name),
             # ``> 0`` rather than ``>= 0``, matching ``review_count``: zero is not
-            # a price anyone pays, it is the other thing a model writes when it
-            # means "unknown" and has forgotten the sentinel. Kept as a figure it
-            # is worse than a blank, because grounding only has to find a bare "0"
-            # somewhere in ten pages of "$0 shipping" and "0% APR", and ranking
-            # then scores it the cheapest in the set and hands it the top spot.
+            # a price anyone pays but the other thing a model writes for "unknown".
+            # Kept, it is worse than a blank -- grounding need only find a bare "0"
+            # in ten pages of "$0 shipping", and ranking then calls it the cheapest
+            # in the set and hands it the top spot.
             price=self.price if self.price > 0 else None,
             currency=_clean(self.currency).upper() or None,
             rating=rating,
@@ -157,15 +150,15 @@ class Product(BaseModel):
 #: Fields that describe another field rather than the product (ADR-0022). A
 #: currency is a fact about *that listing's* price and a review count is what
 #: *that listing's* rating was averaged over, so a figure carries its qualifiers
-#: wherever it moves and takes them down with it wherever it is rejected. Either
-#: one left standing alone describes a figure it was never printed against:
-#: "129.00 EUR" out of a page saying 129 and a page saying "249 EUR", or a count
-#: whose rating has just been thrown out, which reads "unrated" beside nothing
-#: and still feeds the popularity half of the score.
+#: wherever it moves and takes them down wherever it is rejected. Left standing
+#: alone either describes a figure it was never printed against: "129.00 EUR" out
+#: of a page saying 129 and a page saying "249 EUR", or a count whose rating has
+#: just been thrown out, reading "unrated" beside nothing while still feeding the
+#: popularity half of the score.
 #:
-#: Here, beside the fields it names, because both places that move a figure need
-#: it -- :func:`buy_agent.extraction._fill_gaps` and
-#: :func:`buy_agent.verification.verify_numbers`. Stated twice, the two could
+#: Beside the fields it names, because both places that move a figure need it
+#: (:func:`buy_agent.extraction._fill_gaps`,
+#: :func:`buy_agent.verification.verify_numbers`); stated twice, the two could
 #: disagree about what a review count belongs to.
 QUALIFIERS: dict[str, tuple[str, ...]] = {
     "price": ("currency",),
@@ -188,9 +181,9 @@ def _clean(value: str) -> str:
 def distinct_quotes(values: Iterable[str]) -> list[str]:
     """The first spelling of each quote, at most :data:`MAX_OPINIONS` of them.
 
-    Identity is the casefolded text, because two listings quoting one reviewer
-    differ by capitalisation and nothing else, and the spelling kept is the
-    earlier listing's -- the tie-break the merge makes everywhere else.
+    Identity is the casefolded text -- two listings quoting one reviewer differ by
+    capitalisation and nothing else -- and the spelling kept is the earlier
+    listing's, the tie-break the merge makes everywhere else.
     """
     seen: dict[str, str] = {}
     for quote in values:

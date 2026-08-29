@@ -35,10 +35,9 @@ logger = logging.getLogger(__name__)
 class ModelUnavailableError(RuntimeError):
     """Raised when the model server is unreachable, or is not serving the model.
 
-    One exception for both providers, because it is one thing to the shopper:
-    the model could not be used. What differs is only the sentence it carries --
-    ``ollama pull`` or ``vllm serve`` -- which is the provider's own to write
-    (ADR-0028).
+    One exception for both providers, because it is one thing to the shopper: the
+    model could not be used. Only the sentence differs -- ``ollama pull`` or
+    ``vllm serve`` -- which is the provider's own to write (ADR-0028).
     """
 
 
@@ -48,12 +47,9 @@ class BuyAgent:
     The control flow is fixed rather than left to the model: the LLM refines the
     query and reads products out of the results, while searching, ranking and
     reporting are ordinary code. That keeps the agent usable with the small local
-    models these servers are typically run with, which are unreliable at driving
-    a tool loop.
-
-    Which server that is -- Ollama, or a vLLM behind its OpenAI-compatible API --
-    is ``config.provider``'s to say, and nothing in this class asks: everything
-    that differs between them is in :mod:`buy_agent.providers` (ADR-0028).
+    models these servers are typically run with, which drive a tool loop badly.
+    Which server it is, ``config.provider`` says and nothing here asks -- the
+    difference is all in :mod:`buy_agent.providers` (ADR-0028).
     """
 
     def __init__(
@@ -62,9 +58,9 @@ class BuyAgent:
         """Build an agent.
 
         Args:
-            config: Model, search and ranking settings. The defaults are sensible.
-            llm: Chat model to use instead of building the provider's own from
-                ``config`` -- the seam the tests inject a fake model through.
+            config: Model, search and ranking settings; the defaults are sensible.
+            llm: Chat model to use instead of the provider's own -- the seam the
+                tests inject a fake model through.
         """
         self.config = config or AgentConfig()
         self.llm = llm or self.config.model_server.chat_model(self.config)
@@ -88,8 +84,7 @@ class BuyAgent:
         """
         request = request.strip()
         if not request:
-            msg = "Nothing to shop for: the request is empty."
-            raise ValueError(msg)
+            raise ValueError("Nothing to shop for: the request is empty.")
 
         logger.info("Shopping for: %s", request)
         query = self._refine_query(request)
@@ -118,23 +113,16 @@ class BuyAgent:
     def _search(self, query: str) -> list[SearchResult]:
         """Search the web, or only the sources the shopper named.
 
-        Named none, this is one search and nothing else. Named some, it is one
-        search per source -- ``site:`` narrows a query to a single domain, so
-        several domains take several searches -- pooled back into one list in
-        the order the sources were given.
+        Named none, this is one search. Named some, it is one search per source --
+        ``site:`` narrows to a single domain -- pooled in the order given
+        (ADR-0027). Two things about the pooling are load-bearing: every result
+        goes through :meth:`~buy_agent.sources.Source.covers` first, so a backend
+        ignoring the operator cannot smuggle in a page from elsewhere, and a page
+        found twice is kept once rather than crowding out another.
 
-        Two things are load-bearing about the pooling. Every result is put
-        through :meth:`~buy_agent.sources.Source.covers` before it is kept, so a
-        backend that ignored the operator cannot smuggle a page from elsewhere
-        into a run that asked for these sites only; and the same page found
-        under two sources is kept once, since it is one page and the second copy
-        would only crowd out a different one.
-
-        The width is shared out rather than multiplied: five sources at ten
-        results each would fetch fifty pages for a report of three. Each source
-        is asked for its share of ``search_results``, rounded up so the last one
-        is not left with nothing, and the pool is cut back to the width the run
-        was configured for.
+        The width is shared out rather than multiplied -- five sources at ten
+        results each would fetch fifty pages for a report of three -- so each gets
+        its share of ``search_results``, rounded up, and the pool is cut back.
         """
         sources = self.config.sources
         width = self.config.search_results
@@ -200,10 +188,10 @@ class BuyAgent:
         """Invoke a chain, turning transport errors into an actionable message.
 
         Which errors those are, and what the message says, is the provider's to
-        answer: a stopped Ollama and a stopped vLLM raise different classes and
-        are restarted with different commands. Both arrive here as the same
-        ``ModelUnavailableError``, because to everything above this line they are
-        one failure -- the model could not be used (ADR-0009).
+        answer: a stopped Ollama and a stopped vLLM raise different classes and are
+        restarted with different commands. Both arrive as one
+        ``ModelUnavailableError``, because above this line they are one failure --
+        the model could not be used (ADR-0009).
         """
         server = self.config.model_server
         try:

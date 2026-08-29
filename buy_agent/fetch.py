@@ -1,16 +1,15 @@
 """Fetch the pages behind the search results and keep the parts worth reading.
 
 DuckDuckGo snippets almost never quote a per-product price -- a search for
-headphones under $200 returns ten snippets whose only number is "$200", from the
-query itself. Extracting from snippets alone therefore yields products with no
-comparable data, and a model asked to fill that gap invents figures instead.
+headphones under $200 returns ten snippets whose only number is the "$200" from
+the query -- so extracting from them alone yields products with no comparable
+data, and a model asked to fill that gap invents figures.
 
-So each result page is fetched and condensed down to two kinds of line: the ones
-that carry a price or a rating, and the ones that carry an *opinion* -- what a
-reviewer, a tester or an owner thought of the thing. A shopper's question is
-rarely only "how much"; it is also "is it any good", and no price line answers
-that. Both kinds together keep the prompt small enough for a small local model
-while giving it something real to read.
+So each page is fetched and condensed to two kinds of line: the ones carrying a
+price or a rating, and the ones carrying an *opinion* -- what a reviewer or an
+owner thought of the thing, since a shopper's question is rarely only "how much".
+Both together keep the prompt small enough for a small local model while giving
+it something real to read.
 """
 
 from __future__ import annotations
@@ -51,11 +50,10 @@ _RATING = re.compile(
     re.IGNORECASE,
 )
 
-#: Lines that judge a product rather than price it: a verdict, a complaint, a
-#: pro or a con. Deliberately a vocabulary of *judgement* -- who is speaking
-#: ("reviewers found"), what they concluded ("the downside is") and the words
-#: only an opinion uses ("disappointing") -- and not of subject matter, which
-#: every line on a headphone page shares with every other.
+#: Lines that judge a product rather than price it. Deliberately a vocabulary of
+#: *judgement* -- who is speaking ("reviewers found"), what they concluded ("the
+#: downside is"), the words only an opinion uses ("disappointing") -- and never of
+#: subject matter, which every line on a headphone page shares with every other.
 _OPINION = re.compile(
     r"""
       # Plural only: a singular "pro" is half the products on the page
@@ -79,14 +77,14 @@ _OPINION = re.compile(
 _SEGMENT_BREAK = re.compile(r"[\n\r]+")
 _WHITESPACE = re.compile(r"\s+")
 
-#: A bare "$129" line is short but is exactly what shop pages contain, so the
-#: floor only excludes stray characters. The ceiling excludes walls of boilerplate.
+#: A bare "$129" line is short but is what shop pages contain, so the floor only
+#: excludes stray characters; the ceiling excludes walls of boilerplate.
 _MIN_SEGMENT = 4
 _MAX_SEGMENT = 300
 
-#: An opinion is a sentence, not a figure, so it gets a floor of its own. It is
-#: what keeps a bare "Pros" heading -- whose actual content is the lines *below*
-#: it, which no rule here would bring along -- out of the prompt.
+#: An opinion is a sentence, not a figure, so it gets a floor of its own -- which
+#: is what keeps a bare "Pros" heading, whose content is the lines below it, out
+#: of the prompt.
 _MIN_OPINION = 25
 
 
@@ -106,19 +104,15 @@ def html_to_text(markup: str) -> str:
 def condense(text: str, *, max_chars: int, opinion_chars: int = 400) -> str:
     """Keep the lines that quote a figure or pass judgement, and nothing else.
 
-    A product page is mostly navigation and legal text. What matters is the
-    handful of lines that name a price or a rating, and the handful that say what
-    the thing is like to own, so everything else is discarded before the prompt
-    is built.
+    A product page is mostly navigation and legal text; what matters is the
+    handful of lines naming a price or a rating and the handful saying what the
+    thing is like to own. The two kinds are swept for in turn, each on a budget of
+    its own (``max_chars`` and ``opinion_chars``), so a page listing forty prices
+    cannot crowd the verdicts out and a page of prose cannot crowd out the price.
+    ``opinion_chars=0`` leaves the opinions unread.
 
-    The two kinds are swept for in turn, each spending a budget of its own:
-    ``max_chars`` for the figures and ``opinion_chars`` for the opinions. A page
-    listing forty prices therefore cannot crowd the verdicts out, and a page of
-    prose cannot crowd out the price -- which is the whole reason the pages are
-    fetched. ``opinion_chars=0`` leaves the opinions unread.
-
-    Lines come back in the order the page had them, whichever sweep took them:
-    the prompt reads as an excerpt of the page rather than as two lists.
+    Lines come back in the page's own order whichever sweep took them, so the
+    prompt reads as an excerpt rather than as two lists.
     """
     segments = [_WHITESPACE.sub(" ", raw).strip() for raw in _SEGMENT_BREAK.split(text)]
     segments = [segment for segment in segments if segment]
@@ -147,9 +141,8 @@ def condense(text: str, *, max_chars: int, opinion_chars: int = 400) -> str:
         for index, segment in enumerate(segments):
             if not (floor <= len(segment) <= _MAX_SEGMENT) or not matches(segment):
                 continue
-            # The line above is usually the product the figure or the verdict is
-            # about: shop pages put the price under the name, review pages put
-            # the verdict under the heading.
+            # The line above is usually the product this is about: shop pages put
+            # the price under the name, review pages the verdict under a heading.
             if index and not take(index - 1):
                 break
             if not take(index):
@@ -175,13 +168,12 @@ def fetch_page(
 ) -> str:
     """Fetch one URL and condense it. Returns "" for anything that goes wrong.
 
-    ``InvalidURL`` sits beside ``HTTPError`` because it is not one: httpx raises
-    it out of parsing rather than out of the transport, so it inherits from
-    ``Exception`` directly and the obvious ``except httpx.HTTPError`` misses it.
-    A search result whose href has a bad port, an unbracketed IPv6 literal or a
-    hostname IDNA refuses would then escape the pool and leave ``BuyAgent.run``
-    raising a fourth thing (ADR-0009). A link that cannot name a page is a page
-    that could not be fetched, which is what the empty string already means.
+    ``InvalidURL`` sits beside ``HTTPError`` because it is not one: httpx raises it
+    out of parsing rather than the transport, so it inherits from ``Exception``
+    directly and the obvious ``except httpx.HTTPError`` misses it -- leaving a
+    result whose href has a bad port or an unbracketed IPv6 literal to escape the
+    pool and make ``BuyAgent.run`` raise a fourth thing (ADR-0009). A link that
+    cannot name a page is a page that could not be fetched.
     """
     try:
         response = client.get(url)
@@ -207,8 +199,8 @@ def enrich(
 ) -> list[SearchResult]:
     """Attach condensed page content to each result, in parallel.
 
-    Results whose page could not be fetched keep their snippet and are still
-    used; a slow shop should cost the run a few seconds, not the product.
+    A result whose page could not be fetched keeps its snippet and is still used:
+    a slow shop should cost the run a few seconds, not the product.
     """
     urls = [result.url for result in results]
     logger.info("Fetching %d result page(s)", len(urls))

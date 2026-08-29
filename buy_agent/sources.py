@@ -1,28 +1,24 @@
 """The sources a shopper trusts, and what "trusted" is allowed to mean.
 
-Left to itself the agent searches the whole web, and the facts it reports are
-whatever the first ten results happened to print. A shopper who already knows
-where the good information is -- a review site they read, a channel they watch --
-can name those instead, and then every price, rating and quote in the report
-comes from one of them: the pages are what grounding checks against, so
-narrowing the pages narrows the facts (ADR-0027).
+Left to itself the agent searches the whole web and reports whatever the first
+ten results printed. A shopper who knows where the good information is can name
+those sites instead, and then every price, rating and quote comes from one of
+them: the pages are what grounding checks against, so narrowing the pages
+narrows the facts (ADR-0027).
 
-A source is written the way people say it: a site (``rtings.com``), a section of
-one (``rtings.com/headphones``), a URL pasted out of the address bar, or a
-YouTube channel by its handle (``@mkbhd``). Each is read down to two parts:
+A source is written the way people say it -- a site (``rtings.com``), a section
+of one (``rtings.com/headphones``), a pasted URL, or a YouTube handle
+(``@mkbhd``) -- and is read down to two parts. The **domain** is enforced: a
+result from anywhere else is discarded before the model sees it. The **term** (a
+handle, a section) narrows the *search* only, because a URL cannot carry it -- a
+video's address says which video it is and nothing about who published it, so
+enforcing a handle would throw away every video the channel ever posted and keep
+the channel page alone.
 
-* the **domain**, which is enforced -- a result from anywhere else is discarded
-  before the model ever sees it;
-* the **term** -- a channel handle, a section -- which narrows the *search* and
-  is not enforced, because a URL cannot carry it. A video's address says which
-  video it is and nothing about who published it, so a handle checked against
-  the URL would throw away every video the channel ever posted and keep only the
-  channel page itself.
-
-Nothing here does any I/O: this module decides what a source *is*, and
-:class:`~buy_agent.agent.BuyAgent` does the searching. That keeps the whole of
-it testable without a network, and keeps :mod:`buy_agent.search` a DuckDuckGo
-wrapper and nothing else (ADR-0021).
+Nothing here does any I/O: this module decides what a source *is* and
+:class:`~buy_agent.agent.BuyAgent` does the searching, which keeps it testable
+without a network and keeps :mod:`buy_agent.search` a DuckDuckGo wrapper and
+nothing else (ADR-0021).
 """
 
 from __future__ import annotations
@@ -49,17 +45,15 @@ _SCHEME = re.compile(r"^(?:[a-z][a-z0-9+.-]*:)?//", re.IGNORECASE)
 #: they do from the web form. No spec contains either, so both are safe.
 _SEPARATORS = re.compile(r"[,\s]+")
 
-#: Path segments that route to a place rather than name one. YouTube writes a
-#: channel three ways -- ``/@mkbhd``, ``/c/mkbhd`` and ``/channel/UC...`` -- and
-#: Reddit writes a subreddit ``/r/headphones`` and an author ``/u/name``; in
-#: every one of them the segment that identifies anything is the one after.
-#: Left in, ``reddit.com/r/headphones`` narrowed the search on the phrase "r"
-#: and dropped the only word the shopper actually typed.
+#: Path segments that route to a place rather than name one: YouTube writes a
+#: channel ``/@mkbhd``, ``/c/mkbhd`` or ``/channel/UC...`` and Reddit writes
+#: ``/r/headphones``, and in every one the segment that identifies anything is the
+#: next. Left in, ``reddit.com/r/headphones`` narrowed the search on the phrase
+#: "r" and dropped the only word the shopper typed.
 _ROUTING = frozenset({"c", "user", "channel", "r", "u"})
 
-#: Where a bare ``@handle`` lives. A handle is how people name the one kind of
-#: source that is a person rather than a site, and there is only one site it
-#: could mean.
+#: Where a bare ``@handle`` lives -- how people name the one kind of source that
+#: is a person rather than a site, and there is only one site it could mean.
 _HANDLE_HOST = "youtube.com"
 
 #: Stripped off a host before it is compared: ``www.rtings.com`` and
@@ -95,16 +89,15 @@ class Source:
     def covers(self, url: str) -> bool:
         """Whether ``url`` is a page on this source's domain, subdomains included.
 
-        Subdomains count because a site's own pages live on them -- a shop puts
-        reviews on ``reviews.example.com`` -- and the shopper named the site.
-        The comparison is between whole labels, so ``notrtings.com`` is not
+        Subdomains count because a site's own pages live on them and the shopper
+        named the site. Whole labels are compared, so ``notrtings.com`` is not
         ``rtings.com`` the way a substring test would have it.
         """
         try:
             host = urlsplit(url).hostname
         except ValueError:
-            # An unbracketed IPv6 literal raises out of parsing rather than
-            # naming a host, and a page whose address cannot be read is nobody's.
+            # An unbracketed IPv6 literal raises rather than naming a host, and a
+            # page whose address cannot be read is nobody's.
             return False
         if not host:
             return False
@@ -129,8 +122,7 @@ def parse_source(spec: str) -> Source:
     """
     spec = spec.strip()
     if not spec:
-        msg = "A source cannot be blank."
-        raise ValueError(msg)
+        raise ValueError("A source cannot be blank.")
 
     if spec.startswith("@"):
         return Source(spec=spec, domain=_HANDLE_HOST, term=spec.split("/")[0])
@@ -140,11 +132,10 @@ def parse_source(spec: str) -> Source:
     host, _, path = _SCHEME.sub("", spec).partition("/")
     host = host.split("@")[-1].split(":")[0].lower().removeprefix(_WWW)
     if not _HOSTNAME.fullmatch(host):
-        msg = (
-            f"{spec!r} does not name a source. Give a site (rtings.com), a "
-            "section of one (rtings.com/headphones) or a YouTube handle (@mkbhd)."
+        raise ValueError(
+            f"{spec!r} does not name a source. Give a site (rtings.com), a section "
+            "of one (rtings.com/headphones) or a YouTube handle (@mkbhd)."
         )
-        raise ValueError(msg)
 
     return Source(spec=spec, domain=host, term=_term(path))
 
@@ -152,17 +143,15 @@ def parse_source(spec: str) -> Source:
 def parse_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:
     """Every source in ``specs``, in the order given and without repeats.
 
-    Takes one string holding several -- which is how the web form sends them --
-    or the list of strings a repeated command line flag builds up, in which
-    *each* entry may again hold several. Both are separated the same way, so a
-    shopper who commas two sites into one ``--source`` gets what the form would
-    have given them rather than an error about a hostname with a comma in it.
+    Takes one string holding several -- how the web form sends them -- or the list
+    a repeated flag builds up, in which each entry may again hold several. Both
+    separate the same way, so a shopper who commas two sites into one ``--source``
+    gets what the form would have given them rather than an error about a hostname
+    with a comma in it.
 
-    Two specs naming the same domain and the same term are one source: they
-    would otherwise cost the run a second identical search, and halve how many
-    results the other sources are allowed. That holds across the separators and
-    across the flags alike, which is why the specs are parsed together rather
-    than one at a time.
+    Two specs naming the same domain and term are one source: a second identical
+    search would halve what the other sources are allowed. That holds across
+    separators and flags alike, which is why they are parsed together.
 
     Raises:
         ValueError: if any of them names no site.
@@ -180,9 +169,8 @@ def parse_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:
 def format_sources(sources: Iterable[Source]) -> str:
     """Sources written back the way they were given, as one field's worth of text.
 
-    The inverse of :func:`parse_sources` over what the shopper typed, so the web
-    form is handed back what it would have sent. A space is the separator
-    because no spec contains one.
+    The inverse of :func:`parse_sources` over what the shopper typed, so the form
+    is handed back what it would have sent. A space separates: no spec has one.
     """
     return " ".join(source.spec for source in sources)
 
@@ -190,9 +178,8 @@ def format_sources(sources: Iterable[Source]) -> str:
 def _term(path: str) -> str:
     """The part of a path worth searching for: a channel handle, or a section.
 
-    A query string and a fragment are dropped -- they identify a page, and what
-    is wanted here is what the pages have in common -- and so are the segments
-    that only route to a channel rather than name one.
+    A query string and a fragment identify a page, where what is wanted is what
+    the pages have in common, so they go -- as do the routing segments.
     """
     segments = [segment for segment in path.split("?")[0].split("#")[0].split("/") if segment]
     while segments and segments[0].lower() in _ROUTING:

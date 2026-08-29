@@ -1,12 +1,11 @@
 """Turning a web request into an :class:`~buy_agent.agent.BuyAgent` run.
 
-This module is the whole HTTP-facing half of the agent that is worth testing:
-reading options off a request, running the pipeline, and shaping the answer as
-JSON. :mod:`buy_agent.server` is only the socket around it.
-
-Options arrive either as a JSON body (``POST /api/search``) or as query
-parameters (``GET /api/search/stream``), so every value is coerced from either
-its native JSON type or the string a query string always yields.
+The whole HTTP-facing half of the agent that is worth testing: reading options
+off a request, running the pipeline, shaping the answer as JSON.
+:mod:`buy_agent.server` is only the socket around it. Options arrive as a JSON
+body (``POST /api/search``) or as query parameters (``GET
+/api/search/stream``), so every value is coerced from either its native JSON
+type or the string a query string yields.
 """
 
 from __future__ import annotations
@@ -49,9 +48,9 @@ PROVIDER_OPTIONS: tuple[str, ...] = tuple(PROVIDERS)
 _TRUE = frozenset({"true", "1", "yes", "on"})
 _FALSE = frozenset({"false", "0", "no", "off"})
 
-#: Which HTTP status each of the agent's three failure modes deserves. The agent
-#: raises exactly these (see ``BuyAgent.run``), so a new failure mode has to be
-#: added here as well as to ``__main__.main`` or it reaches the client as a 500.
+#: Which HTTP status each of the agent's three failure modes deserves. It raises
+#: exactly these (see ``BuyAgent.run``), so a new one has to be added here and to
+#: ``__main__.main`` or it reaches the client as a 500.
 _STATUS: dict[type[Exception], int] = {
     ValueError: 400,
     ModelUnavailableError: 503,
@@ -74,9 +73,9 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
     """Read an :class:`AgentConfig` and a sort criterion out of request data.
 
     Args:
-        data: Decoded JSON body or query parameters. Missing keys, and keys whose
-            value is an empty string, fall back to the ``AgentConfig`` default --
-            an empty form field means "unset", not "zero".
+        data: Decoded JSON body or query parameters. A missing key and an empty
+            string alike fall back to the ``AgentConfig`` default -- a blank form
+            field means "unset", not "zero".
 
     Returns:
         The config to run with, and the ``sort_by`` criterion.
@@ -89,28 +88,25 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
     top_n = _read(data, "top", defaults.top_n, _bounded(int, 1, 50))
     sort_by = _read(data, "sort_by", "score", _as_text)
     if sort_by not in SORT_OPTIONS:
-        msg = f"sort_by must be one of {', '.join(SORT_OPTIONS)}; got {sort_by!r}."
-        raise ApiError(msg)
+        raise ApiError(f"sort_by must be one of {', '.join(SORT_OPTIONS)}; got {sort_by!r}.")
 
     provider = _read(data, "provider", defaults.provider, _as_text)
     if provider not in PROVIDER_OPTIONS:
-        msg = f"provider must be one of {', '.join(PROVIDER_OPTIONS)}; got {provider!r}."
-        raise ApiError(msg)
+        raise ApiError(
+            f"provider must be one of {', '.join(PROVIDER_OPTIONS)}; got {provider!r}."
+        )
 
     config = AgentConfig(
         provider=provider,
-        # Blank rather than the default config's own: which model and which
-        # server are right depends on the provider just chosen, and ``defaults``
-        # was built for whichever one the server starts on. An empty string is
-        # what ``AgentConfig`` resolves per provider, so a form that sent a
-        # provider and left these alone gets that provider's pair.
+        # Blank rather than ``defaults``, which was built for whichever provider
+        # the server starts on: an empty string is what ``AgentConfig`` resolves
+        # per provider, so a form that chose one and left these alone gets its pair.
         model=_read(data, "model", "", _as_text),
         base_url=_read(data, "base_url", "", _as_text),
         temperature=_read(data, "temperature", defaults.temperature, _bounded(float, 0, 2)),
         num_ctx=_read(data, "num_ctx", defaults.num_ctx, _bounded(int, 1, 1_000_000)),
         reasoning=_read(data, "think", defaults.reasoning, _as_bool),
-        # Searching for fewer pages than we intend to report would cap the report,
-        # so the search width follows whichever of the two is larger -- as in the CLI.
+        # Searching fewer pages than we report would cap the report -- as in the CLI.
         search_results=max(num_products, top_n),
         num_products=num_products,
         top_n=top_n,
@@ -134,22 +130,20 @@ def run_search(
         request: What the user wants to buy, in their own words.
         config: Model, search and ranking settings.
         sort_by: ``"score"``, ``"price"`` or ``"rating"``.
-        agent_factory: Builds the agent from the config -- the seam tests inject
-            a stub agent through, mirroring ``BuyAgent(config, llm=...)``.
+        agent_factory: Builds the agent from the config -- the seam tests inject a
+            stub through, mirroring ``BuyAgent(config, llm=...)``.
 
     Returns:
-        ``{"request", "count", "top_n", "sort_by", "products"}``, where products
-        are best first and each carries its rank and score.
+        ``{"request", "count", "top_n", "sort_by", "products"}``, best first, each
+        product carrying its rank and score.
 
     Raises:
-        ApiError: for every failure the agent raises, carrying the HTTP status
-            that failure deserves.
+        ApiError: for every failure the agent raises, with the status it deserves.
     """
     try:
         ranked = agent_factory(config).run(request, sort_by=sort_by)  # type: ignore[arg-type]
     except tuple(_STATUS) as exc:
-        # The mapping and the clause catching it are the same table, so this
-        # search cannot come up empty and needs no fallback status.
+        # The clause and the mapping are one table, so this cannot come up empty.
         status = next(status for kind, status in _STATUS.items() if isinstance(exc, kind))
         raise ApiError(str(exc), status) from exc
 
@@ -165,8 +159,8 @@ def run_search(
 def product_payload(entry: RankedProduct) -> dict[str, Any]:
     """One ranked product as JSON.
 
-    Carries the raw fields *and* the labels ``Product`` already knows how to
-    write, so the browser never has to reinvent how an unknown price reads.
+    The raw fields *and* the labels ``Product`` already knows how to write, so the
+    browser never reinvents how a blank price reads.
     """
     return {
         "rank": entry.rank,
@@ -182,9 +176,8 @@ def defaults_payload() -> dict[str, Any]:
     defaults = AgentConfig()
     return {
         "provider": defaults.provider,
-        # Each provider's own model and server travel with it, so choosing one in
-        # the form can fill in the pair that goes with it rather than leaving an
-        # Ollama tag in a field a vLLM would refuse.
+        # Each provider's model and server travel with it, so choosing one in the
+        # form fills in its pair rather than leaving an Ollama tag for a vLLM.
         "provider_options": provider_options(),
         "model": defaults.model,
         "base_url": defaults.base_url,
@@ -194,8 +187,8 @@ def defaults_payload() -> dict[str, Any]:
         "results": defaults.num_products,
         "top": defaults.top_n,
         "region": defaults.region,
-        # One text field holding all of them, written the way the form would
-        # send them back. Empty -- the default -- is the whole web.
+        # One text field's worth, written the way the form sends it back.
+        # Empty -- the default -- is the whole web.
         "sources": format_sources(defaults.sources),
         "fetch": defaults.fetch_pages,
         "sort_by": "score",
@@ -206,14 +199,12 @@ def defaults_payload() -> dict[str, Any]:
 def installed_models(provider: str, base_url: str) -> dict[str, Any]:
     """Ask a model server what it is serving, for the UI's model picker.
 
-    An unreachable server is an answer, not an error: the UI shows it as a
-    status rather than refusing to render a form. A provider name nothing can
-    serve is the same kind of answer -- ``AgentConfig`` refuses it below, and the
-    refusal is what the browser is told.
-
-    ``label`` travels with the answer because the pill above the form names the
-    server, and "Ollama unreachable" over a vLLM address would be a lie the
-    browser had no way to catch.
+    An unreachable server is an answer and not an error: the UI shows it as a
+    status rather than refusing to render a form, and a provider name nothing can
+    serve is the same kind of answer -- ``AgentConfig`` refuses it below and the
+    refusal is what the browser is told. ``label`` travels with it because the
+    pill above the form names the server, and "Ollama unreachable" over a vLLM
+    address would be a lie the browser could not catch.
     """
     label = PROVIDERS[provider].label if provider in PROVIDERS else provider
     status = {"provider": provider, "label": label, "base_url": base_url}
@@ -231,10 +222,9 @@ def _read_sources(
 ) -> tuple[Source, ...]:
     """The sources the request named, if any -- the one option that is a list.
 
-    It does not go through :func:`_read` because that renders every value with
-    ``str`` first, which turns a JSON array into its Python repr. Both carriers
-    still land here: a query string can only spell several sources as one
-    separated string, while a JSON body may send either that or an array.
+    Not through :func:`_read`, which renders every value with ``str`` first and
+    would turn a JSON array into its Python repr. A query string can only spell
+    several as one separated string; a JSON body may send either.
     """
     if not _present(data, "sources"):
         return default
@@ -260,13 +250,10 @@ def _read(
 ) -> _T:
     """The value of ``key``, parsed -- or ``default`` where it is not set at all.
 
-    Every option arrives either as its native JSON type or as the string a query
-    string always yields, and every one of those survives ``str`` intact: a JSON
-    ``true`` becomes "True", which :func:`_as_bool` reads straight back. So the
-    parsing starts from text, and the two carriers need one parser between them.
-
-    ``parse`` is given the key as well as the text, because what it has to say
-    when the text is unusable is which field it was.
+    Every option survives ``str`` intact -- a JSON ``true`` becomes "True", which
+    :func:`_as_bool` reads straight back -- so parsing starts from text and the
+    two carriers need one parser between them. ``parse`` is given the key too,
+    because what it says when the text is unusable is which field it was.
 
     Raises:
         ApiError: if the value is present but ``parse`` cannot make sense of it.
@@ -288,8 +275,7 @@ def _as_bool(key: str, text: str) -> bool:
         return True
     if lowered in _FALSE:
         return False
-    msg = f"{key} must be true or false; got {text!r}."
-    raise ApiError(msg)
+    raise ApiError(f"{key} must be true or false; got {text!r}.")
 
 
 def _bounded(
@@ -297,8 +283,8 @@ def _bounded(
 ) -> Callable[[str, str], _Number]:
     """A parser for a number within bounds, whole or decimal as ``kind`` says.
 
-    The bounds are written into the rejection as they are given, so whole ones
-    are passed as whole numbers: "between 0 and 2" is what a temperature is.
+    The bounds go into the rejection as they were given, so whole ones are passed
+    whole: "between 0 and 2" is what a temperature is.
     """
     return partial(_as_number, kind, minimum, maximum)
 
@@ -316,9 +302,7 @@ def _as_number(
     except ValueError as exc:
         # What to call the kind is the kind's own to say, not a second argument.
         described = "a whole number" if kind is int else "a number"
-        msg = f"{key} must be {described}; got {text!r}."
-        raise ApiError(msg) from exc
+        raise ApiError(f"{key} must be {described}; got {text!r}.") from exc
     if not minimum <= number <= maximum:
-        msg = f"{key} must be between {minimum} and {maximum}; got {number}."
-        raise ApiError(msg)
+        raise ApiError(f"{key} must be between {minimum} and {maximum}; got {number}.")
     return number

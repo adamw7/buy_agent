@@ -1,12 +1,10 @@
 """The two LLM steps -- rewrite the request as a search query, then read products
 out of the search results -- plus the deterministic clean-up that follows.
 
-Both chains use Ollama's structured-output API (``method="json_schema"``), which
-constrains decoding to the schema. That is what makes this workable with small
-local models: they cannot answer with prose or a half-closed JSON object.
-
-What the model still gets wrong is judgement, not syntax -- it will happily
-report "12 Best Headphones Under $200" as a product. That is what
+Both chains use structured output (``method="json_schema"``), which constrains
+decoding to the schema: a small local model cannot answer with prose or a
+half-closed object. What it still gets wrong is judgement, not syntax -- it will
+happily report "12 Best Headphones Under $200" as a product, which is what
 ``clean_products`` and ``deduplicate`` are for.
 """
 
@@ -93,9 +91,9 @@ EXTRACTION_PROMPT = ChatPromptTemplate.from_messages(
 )
 
 #: A name opening on a superlative: "12 Best ...", "The 5 Best ...", "Top ...".
-#: Named on its own because :func:`looks_like_a_product` has to ask a second
-#: question of the names it matches -- it is the one tell in
-#: :data:`_NOT_A_PRODUCT` that a real product also trips.
+#: Named on its own because it is the one tell in :data:`_NOT_A_PRODUCT` that a
+#: real product also trips, so :func:`looks_like_a_product` asks a second question
+#: of the names it matches.
 _SUPERLATIVE = re.compile(
     r"^\s*(the\s+)?(\d+\s+)?(best|top|cheapest|worst|greatest)\b", re.IGNORECASE
 )
@@ -122,9 +120,8 @@ _TRAILING_NOISE = re.compile(
 )
 
 #: A token carrying both letters and digits, which is what a model number looks
-#: like: "WH-1000XM5" has "1000xm5", "BE-HAPB02" has "hapb02". A year or a price
-#: is digits alone and does not count, which is what keeps "Best Headphones 2026"
-#: and "12 Best Headphones Under $200" headlines.
+#: like: "WH-1000XM5" has "1000xm5". A year or a price is digits alone and does
+#: not count, which keeps "Best Headphones 2026" a headline.
 _MODEL_NUMBER = re.compile(r"\b(?=[a-z0-9]*[a-z])(?=[a-z0-9]*\d)[a-z0-9]+\b", re.IGNORECASE)
 
 #: Longer than any real model name. Article titles run long.
@@ -132,7 +129,7 @@ _MAX_NAME_LENGTH = 80
 
 #: Words that describe a product without identifying it. Two names differing only
 #: by these are one product ("Sony WH-CH720N" / "Sony WH-CH720N Wireless
-#: Headphones"); a difference of anything else is not ("AirPods" / "AirPods Pro").
+#: Headphones"); any other difference is not ("AirPods" / "AirPods Pro").
 GENERIC_WORDS = frozenset(
     """
     a an and the with for
@@ -182,18 +179,16 @@ def clean_name(name: str) -> str:
 def looks_like_a_product(name: str) -> bool:
     """Whether ``name`` reads like a product rather than the page it came from.
 
-    A leading superlative is the strongest tell a name is a headline, and it is
-    the one a real product also trips: "Best Buy Essentials BE-HAPB02" is a house
-    brand and "Top Gun Sunglasses" is a licence. What tells the two apart is
-    *where* the model number sits. A headline puts its qualifier between the
-    superlative and the category -- "Best PS5 Headsets", "Cheapest 4K TVs" -- and
-    names no single model after that, because the page is about several products.
-    A product puts its brand there and its model number later on. So a
-    superlative name is kept only where a model number follows something else.
+    A leading superlative is the strongest tell of a headline and the one a real
+    product also trips ("Best Buy Essentials BE-HAPB02"). What tells them apart is
+    *where* the model number sits: a headline puts a category qualifier after the
+    superlative and names no single model ("Best PS5 Headsets"), a product puts
+    its brand there and its model number later. So a superlative name is kept only
+    where a model number follows something else.
 
-    The cost that remains is a product named after a superlative and nothing
-    else: "Top Gun Sunglasses" has no model number anywhere and is still dropped,
-    which is why :func:`clean_products` logs the names it took.
+    The cost is a product named after a superlative and nothing else -- "Top Gun
+    Sunglasses" is still dropped, which is why :func:`clean_products` logs what it
+    took.
     """
     name = name.strip()
     if not name or len(name) > _MAX_NAME_LENGTH or "?" in name:
@@ -220,8 +215,8 @@ def clean_products(products: Sequence[Product]) -> list[Product]:
             discarded.append(name or product.name)
     if discarded:
         # The count at INFO, the names at DEBUG: a heuristic that drops a real
-        # product should be diagnosable rather than silent, and which names it
-        # took is the only thing that says which of the two just happened.
+        # product should be diagnosable, and the names are what say which of the
+        # two just happened.
         logger.info("Discarded %d result(s) that were pages, not products", len(discarded))
         logger.debug(
             "Discarded as pages, not products: %s", ", ".join(repr(n) for n in discarded)
@@ -232,18 +227,14 @@ def clean_products(products: Sequence[Product]) -> list[Product]:
 def deduplicate(products: Sequence[Product], limit: int) -> list[Product]:
     """Drop repeats of the same product, keeping the most complete entry.
 
-    Search results overlap heavily -- the same headphones show up on three sites --
-    so without this the top 3 can be one product listed three times.
+    Search results overlap heavily, so without this the top 3 can be one product
+    listed three times. One pass of :func:`merge_variants` does all of it: an
+    exact repeat is the easiest case of a name differing by descriptive words --
+    its difference is empty and vacuously generic -- and a pass of its own for
+    exact names would be the same merge under a second, subtly different rule
+    about whose name survives.
 
-    One pass of :func:`merge_variants` does all of it. An exact repeat of a name
-    is only the easiest case of a name differing by descriptive words: two
-    spellings of one name have the same distinctive tokens, so their difference
-    is empty and vacuously generic. Matching exact names first, in a pass of
-    their own, would be the same merge decided by a second and subtly different
-    rule about whose name survives it.
-
-    A product whose name has nothing to identify it by -- punctuation, or
-    nothing at all -- is dropped rather than kept as its own entry: it can be
+    A name with nothing to identify it by is dropped rather than kept: it can be
     neither merged nor reported.
     """
     named = [product for product in products if product.dedup_key]
@@ -261,11 +252,10 @@ def deduplicate(products: Sequence[Product], limit: int) -> list[Product]:
 def merge_variants(products: Sequence[Product]) -> list[Product]:
     """Fold together names that identify the same thing.
 
-    Matching names exactly would miss the common case where one page calls it
-    "Sony WH-CH720N" and the next "Sony WH-CH720N Noise Canceling Wireless
-    Headphones", which would otherwise take two of the three reported slots.
-    Names that differ by nothing at all are the same case with an empty
-    difference, so this is the only pass :func:`deduplicate` needs.
+    Exact matching would miss the common case where one page says "Sony WH-CH720N"
+    and the next "Sony WH-CH720N Noise Canceling Wireless Headphones", taking two
+    of the three reported slots. Names differing by nothing are the same case with
+    an empty difference, so this is the only pass :func:`deduplicate` needs.
     """
     merged: list[Product] = []
     for product in products:
@@ -289,22 +279,20 @@ def _same_product(left: str, right: str) -> bool:
     return (left_tokens ^ right_tokens) <= GENERIC_WORDS
 
 
-#: Fields worth carrying over from a weaker listing, and the list to edit when
-#: one is added to ``Product``. Each moves with whatever only qualifies it, by
-#: :data:`~buy_agent.models.QUALIFIERS`. Grounding cannot catch an invented
-#: pairing, because it runs before the merge and each half really is in the
-#: sources; only the pairing is new.
-#: ``opinions`` is deliberately not here: see :func:`_merge_opinions`.
+#: Fields worth carrying over from a weaker listing, and the list to edit when one
+#: is added to ``Product``. Each moves with whatever only qualifies it
+#: (:data:`~buy_agent.models.QUALIFIERS`): grounding runs before the merge and
+#: each half really is in the sources, so only an invented *pairing* is left to
+#: catch. ``opinions`` is deliberately not here -- see :func:`_merge_opinions`.
 _MERGEABLE_FIELDS = ("price", "rating", "seller", "url", "notes")
 
 
 def _combine(first: Product, second: Product) -> Product:
     """Merge two listings for one product.
 
-    The name and the data are decided separately: the shorter name reads better,
-    while the figures come from whichever listing filled in more of them. Both
-    ties go to ``first``, which is the listing that ranked higher in the search
-    results -- so two spellings of one length keep the one seen first.
+    Name and data are decided separately: the shorter name reads better, the
+    figures come from whichever listing filled in more of them. Both ties go to
+    ``first``, the listing that ranked higher in the search results.
     """
     winner, loser = (
         (first, second) if _completeness(first) >= _completeness(second) else (second, first)
@@ -318,14 +306,12 @@ def _combine(first: Product, second: Product) -> Product:
 def _merge_opinions(winner: Product, loser: Product) -> list[str]:
     """Both listings' opinions, the winner's first, without repeats.
 
-    The only field taken from both rather than from one. A price is a single
-    fact, so two listings quoting different ones are in conflict and one has to
-    win; two reviewers are not in conflict, and the shopper asking whether the
-    thing is any good is better served by both of them. Nothing is invented by
-    keeping both: each quote was grounded on its own before the merge, and a
-    quote says who it is about by being about the product, not by sitting next
-    to a figure -- which is why this needs none of the pairing care
-    :data:`_MERGEABLE_FIELDS` takes.
+    The only field taken from both. Two listings quoting different prices are in
+    conflict and one has to win; two reviewers are not, and the shopper asking
+    whether the thing is any good is better served by both. Nothing is invented:
+    each quote was grounded on its own, and a quote says who it is about by being
+    about the product rather than by sitting next to a figure -- which is why it
+    needs none of the pairing care :data:`_MERGEABLE_FIELDS` takes.
     """
     return distinct_quotes([*winner.opinions, *loser.opinions])
 
@@ -333,10 +319,9 @@ def _merge_opinions(winner: Product, loser: Product) -> list[str]:
 def _fill_gaps(winner: Product, loser: Product) -> dict[str, object]:
     """The fields ``loser`` can contribute because ``winner`` left them blank.
 
-    A figure travels with the words that qualify it. The loser's currency or
+    A figure travels with the words that qualify it: the loser's currency or
     review count is taken only where its price or rating is taken too, or where
-    both listings quote the same one -- never grafted onto a figure the loser
-    never printed it against.
+    both quote the same one -- never grafted onto a figure it never printed.
     """
     updates: dict[str, object] = {}
     for figure in _MERGEABLE_FIELDS:
