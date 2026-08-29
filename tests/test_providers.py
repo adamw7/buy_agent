@@ -25,7 +25,15 @@ from ollama import ResponseError
 
 import buy_agent.providers as providers_module
 from buy_agent.config import AgentConfig
-from buy_agent.providers import OLLAMA, PROVIDERS, VLLM, provider_for, provider_options
+from buy_agent.providers import provider_for, provider_options
+
+# The table and its rows are read off the module rather than imported by name,
+# because ``reloaded_providers`` below re-imports it: a reload re-runs the module
+# over its own globals, so ``provider_for`` and ``provider_options`` go on
+# answering with whatever the table holds *now* while a name bound at import time
+# would still hold the rows from before. Which of the two a test compared then
+# decided nothing until pytest ran the reloading tests first -- which is what the
+# Saturday mutation run's clean-test pass does, and every ordinary run does not.
 
 OLLAMA_CONFIG = AgentConfig(provider="ollama", model="gemma4:12b")
 VLLM_CONFIG = AgentConfig(provider="vllm", model="Qwen/Qwen3-8B")
@@ -109,8 +117,8 @@ def pulled(monkeypatch):
 
 
 def test_a_provider_is_found_by_the_name_the_config_carries() -> None:
-    assert provider_for("ollama") is OLLAMA
-    assert provider_for("vllm") is VLLM
+    assert provider_for("ollama") is providers_module.OLLAMA
+    assert provider_for("vllm") is providers_module.VLLM
 
 
 def test_an_unknown_provider_names_the_ones_that_exist() -> None:
@@ -119,14 +127,14 @@ def test_an_unknown_provider_names_the_ones_that_exist() -> None:
     with pytest.raises(ValueError, match="Unknown provider 'llama.cpp'") as caught:
         provider_for("llama.cpp")
 
-    for name in PROVIDERS:
+    for name in providers_module.PROVIDERS:
         assert name in str(caught.value)
 
 
 def test_a_row_carries_both_what_a_server_defaults_to_and_how_it_is_reached() -> None:
     """One table rather than two: a name written twice is a name that can drift,
     and a provider is not configurable without both halves (ADR-0029)."""
-    for server in PROVIDERS.values():
+    for server in providers_module.PROVIDERS.values():
         assert server.model and server.base_url, f"{server.name} cannot be reached"
         assert server.label, "a provider with no label is one nobody can read"
         assert callable(server.chat_model) and callable(server.installed)
@@ -136,8 +144,8 @@ def test_every_provider_offers_its_defaults_to_the_form() -> None:
     """One row per provider, each carrying the pair to fill the fields in with."""
     options = {option["name"]: option for option in provider_options()}
 
-    assert set(options) == set(PROVIDERS)
-    for name, server in PROVIDERS.items():
+    assert set(options) == set(providers_module.PROVIDERS)
+    for name, server in providers_module.PROVIDERS.items():
         assert options[name]["model"] == server.model
         assert options[name]["base_url"] == server.base_url
         assert options[name]["takes_num_ctx"] == server.takes_num_ctx
@@ -151,8 +159,8 @@ def test_the_key_is_the_one_default_the_form_is_never_told() -> None:
 def test_only_one_of_them_takes_the_context_window_per_request() -> None:
     """vLLM fixes it with --max-model-len when it starts, so offering a per-run
     setting for it would be a field that quietly does nothing."""
-    assert OLLAMA.takes_num_ctx is True
-    assert VLLM.takes_num_ctx is False
+    assert providers_module.OLLAMA.takes_num_ctx is True
+    assert providers_module.VLLM.takes_num_ctx is False
 
 
 # -- building the chat model ---------------------------------------------------
@@ -396,7 +404,10 @@ def reloaded_providers(monkeypatch):
     Only this module is reloaded: ``AgentConfig`` resolves through
     ``provider_for``, which reads the table out of these module globals, so a
     config built afterwards sees the new rows without ``config`` being reloaded
-    too.
+    too. The rows the teardown puts back hold the same values but are new
+    objects, and a name another test module imported before the reload still
+    holds the old ones -- so anything comparing rows by identity has to reach
+    them through the module, the way ``tests/test_config.py`` does.
     """
 
     def reload(**environment: str):
