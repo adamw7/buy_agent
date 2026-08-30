@@ -14,9 +14,10 @@
     </div>
   </header>
 
-  <div class="scroller" #scroller role="log" aria-live="polite">
+  <div class="scroller" #scroller role="log" aria-live="polite" (scroll)="follow($event)">
     @for (line of lines(); track $index) {
       <p class="line" [class.warn]="line.level === 'WARNING'" [class.bad]="line.level === 'ERROR'">
+        <span class="at">{{ line.time }}</span>
         <span class="source">{{ shortName(line.logger) }}</span>
         <span class="message">{{ line.message }}</span>
       </p>

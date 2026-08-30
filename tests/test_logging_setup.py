@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 
 import pytest
 
@@ -154,6 +155,113 @@ def test_verbose_leaves_them_alone(basic_config, library: str) -> None:
     configure_logging(verbose=True)
 
     assert logging.getLogger(library).level == logging.NOTSET
+
+
+@pytest.fixture
+def split_streams(monkeypatch, capsys):
+    """Set the split up over real streams, and put the loggers back afterwards.
+
+    What it makes is a split between *streams*, so it can only be checked against
+    real ones -- and they have to be taken inside the test rather than here:
+    pytest replaces them once per phase, so a handler built while this fixture was
+    setting up would be writing to a file already closed by the time the test
+    runs. It reaches into the root logger and the package logger to make the
+    split, and neither is this test's to leave changed.
+    """
+    package = logging.getLogger("buy_agent")
+    root = logging.getLogger()
+    kept = (package.handlers[:], root.handlers[:], root.level)
+    monkeypatch.setattr(logging, "basicConfig", lambda **kwargs: None)
+
+    def configure():
+        root.handlers = [logging.StreamHandler(sys.stderr)]
+        root.setLevel(logging.INFO)  # what the stubbed basicConfig would have set
+        package.handlers = []
+        configure_logging()
+        return capsys
+
+    yield configure
+
+    package.handlers, root.handlers, root.level = kept
+
+
+def test_the_report_goes_to_stdout(split_streams) -> None:
+    """`python -m buy_agent ... > top.txt` is asking for the answer, and until the
+    report was split off it caught an empty file: all of it went to stderr."""
+    streams = split_streams()
+
+    log_top_products(ranked(Product(name="Sony WH-1000XM5")), 1)
+
+    captured = streams.readouterr()
+    assert "TOP 1 OF 1 PRODUCTS" in captured.out
+    assert "Sony WH-1000XM5" in captured.out
+    assert captured.err == ""
+
+
+def test_the_progress_goes_to_stderr(split_streams) -> None:
+    """The narration is not the answer, and must not land in the redirect."""
+    streams = split_streams()
+
+    logging.getLogger("buy_agent.agent").info("Fetching 10 result page(s)")
+
+    captured = streams.readouterr()
+    assert "Fetching 10 result page(s)" in captured.err
+    assert captured.out == ""
+
+
+def test_neither_stream_gets_the_other_s_lines(split_streams) -> None:
+    streams = split_streams()
+
+    logging.getLogger("buy_agent.agent").info("Shopping for: headphones")
+    log_top_products(ranked(Product(name="Sony WH-1000XM5")), 1)
+
+    captured = streams.readouterr()
+    assert captured.out.count("Sony WH-1000XM5") == 1
+    assert "Shopping for: headphones" not in captured.out
+    assert captured.err.count("Shopping for: headphones") == 1
+    assert "Sony WH-1000XM5" not in captured.err
+
+
+def test_configuring_twice_does_not_print_the_report_twice(split_streams) -> None:
+    """The server configures logging as well as the CLI, and one is importable
+    from the other: a second call must replace the first's handler, not add one."""
+    streams = split_streams()
+
+    configure_logging()
+    log_top_products(ranked(Product(name="Sony WH-1000XM5")), 1)
+
+    assert streams.readouterr().out.count("Sony WH-1000XM5") == 1
+
+
+def test_a_handler_that_is_not_the_console_still_sees_the_whole_run(split_streams) -> None:
+    """The relay behind the browser's progress panel is one of these.
+
+    Only the console handler is told to skip the report -- a handler collecting
+    the run, for a transcript or for a test, is nobody's stream to take lines out
+    of, and taking them would hide the report from a caller who asked for all of it.
+    """
+    collected: list[str] = []
+    relay = logging.Handler()
+    relay.emit = lambda record: collected.append(record.getMessage())  # type: ignore[method-assign]
+    split_streams()
+    logging.getLogger("buy_agent").addHandler(relay)
+
+    logging.getLogger("buy_agent.agent").info("Shopping for: headphones")
+    log_top_products(ranked(Product(name="Sony WH-1000XM5")), 1)
+
+    assert "Shopping for: headphones" in collected
+    assert any("Sony WH-1000XM5" in message for message in collected)
+
+
+def test_nothing_found_is_not_reported_on_stdout(split_streams) -> None:
+    """There is no report, so the line saying so is the run talking: stderr."""
+    streams = split_streams()
+
+    log_top_products([], 3)
+
+    captured = streams.readouterr()
+    assert "No products to report." in captured.err
+    assert captured.out == ""
 
 
 def test_every_opinion_gets_its_own_line(report) -> None:

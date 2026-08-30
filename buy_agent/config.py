@@ -15,6 +15,20 @@ from buy_agent.sources import Source
 #: them defaults to is its row in :data:`buy_agent.providers.PROVIDERS`.
 DEFAULT_PROVIDER = os.getenv("BUY_AGENT_PROVIDER", "ollama")
 
+#: The range each numeric setting is held to, by the name of the field it bounds.
+#: Declared here, beside the fields, because both front ends enforce it and a
+#: bound written down twice is a CLI that accepts what the API refuses: a
+#: ``--results 0`` that searches the web, reads ten pages and then asks the model
+#: for no products at all is a minute spent on an answer the browser rejects
+#: before starting. Whole even where the field is decimal, because the rejection
+#: quotes them back and "between 0 and 2" is what a temperature is.
+LIMITS: dict[str, tuple[int, int]] = {
+    "num_products": (1, 50),
+    "top_n": (1, 50),
+    "temperature": (0, 2),
+    "num_ctx": (1, 1_000_000),
+}
+
 
 @dataclass(slots=True)
 class AgentConfig:

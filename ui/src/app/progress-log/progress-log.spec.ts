@@ -5,8 +5,18 @@ import { ProgressLog, logFilename, transcript } from './progress-log';
 import type { LogLine } from '../agent.types';
 
 const LINES: LogLine[] = [
-  { level: 'INFO', logger: 'buy_agent.agent', message: 'Refined search query: kettle price' },
-  { level: 'WARNING', logger: 'buy_agent.fetch', message: 'Got usable page text from 8 of 10' },
+  {
+    time: '18:12:17',
+    level: 'INFO',
+    logger: 'buy_agent.agent',
+    message: 'Refined search query: kettle price',
+  },
+  {
+    time: '18:12:20',
+    level: 'WARNING',
+    logger: 'buy_agent.fetch',
+    message: 'Got usable page text from 8 of 10',
+  },
 ];
 
 async function render(
@@ -80,6 +90,87 @@ describe('ProgressLog', () => {
   it('counts the lines once the run is over', async () => {
     expect((await render(LINES)).querySelector('.pill')!.textContent).toContain('2 lines');
   });
+
+  it('shows the time Python logged each line at', async () => {
+    const rows = (await render(LINES)).querySelectorAll('.line');
+    expect(rows[0].querySelector('.at')!.textContent!.trim()).toBe('18:12:17');
+    expect(rows[1].querySelector('.at')!.textContent!.trim()).toBe('18:12:20');
+  });
+});
+
+describe('ProgressLog scrolling', () => {
+  /**
+   * Give the panel a real overflow, which jsdom lays nothing out to produce.
+   *
+   * The three numbers are all the component reads, and they are what a browser
+   * would have measured: a scroller a third the height of its contents.
+   */
+  function measure(element: HTMLElement, scrollTop: number): void {
+    for (const [name, value] of Object.entries({
+      scrollHeight: 900,
+      clientHeight: 300,
+    })) {
+      Object.defineProperty(element, name, { value, configurable: true });
+    }
+    let position = scrollTop;
+    Object.defineProperty(element, 'scrollTop', {
+      configurable: true,
+      get: () => position,
+      set: (value: number) => void (position = value),
+    });
+  }
+
+  async function panel(): Promise<{ scroller: HTMLElement; add: () => Promise<void> }> {
+    const fixture = TestBed.createComponent(ProgressLog);
+    fixture.componentRef.setInput('lines', LINES);
+    fixture.componentRef.setInput('running', true);
+    await fixture.whenStable();
+    const scroller = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '.scroller',
+    )!;
+    return {
+      scroller,
+      add: async () => {
+        fixture.componentRef.setInput('lines', [
+          ...LINES,
+          { time: '18:12:24', level: 'INFO', logger: 'buy_agent', message: 'Extracting' },
+        ]);
+        await fixture.whenStable();
+      },
+    };
+  }
+
+  it('follows the tail while the reader is at the bottom', async () => {
+    const { scroller, add } = await panel();
+    measure(scroller, 600); // 900 - 300: the end
+    scroller.dispatchEvent(new Event('scroll'));
+
+    await add();
+
+    expect(scroller.scrollTop).toBe(900);
+  });
+
+  it('leaves the view alone once the reader has scrolled up', async () => {
+    const { scroller, add } = await panel();
+    measure(scroller, 120); // reading something further back
+    scroller.dispatchEvent(new Event('scroll'));
+
+    await add();
+
+    expect(scroller.scrollTop).toBe(120);
+  });
+
+  it('picks the tail back up when the reader returns to the bottom', async () => {
+    const { scroller, add } = await panel();
+    measure(scroller, 120);
+    scroller.dispatchEvent(new Event('scroll'));
+    scroller.scrollTop = 600;
+    scroller.dispatchEvent(new Event('scroll'));
+
+    await add();
+
+    expect(scroller.scrollTop).toBe(900);
+  });
 });
 
 describe('ProgressLog download', () => {
@@ -110,6 +201,12 @@ describe('ProgressLog download', () => {
     expect(written).toContain('buy_agent run — 2026-08-25T14:03:11.000Z');
     expect(written).toContain('WARNING  buy_agent.fetch');
     expect(written).not.toContain('FAILED');
+  });
+
+  it('times every line, which is what says where a slow run went', () => {
+    const written = transcript(LINES, null, new Date('2026-08-25T14:03:11Z'));
+    expect(written).toContain('18:12:17 INFO');
+    expect(written).toContain('18:12:20 WARNING');
   });
 
   it('says so rather than writing an empty file when a run failed before logging', () => {

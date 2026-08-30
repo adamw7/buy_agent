@@ -362,13 +362,25 @@ Nine conventions matter when changing this code:
   extractor's misses rather than for anything about the product. For the same
   reason `sort_by="price"` and `"rating"` sink products missing that field to the
   bottom instead of dropping them.
+- **The report is output; the progress is narration.** `logging_setup` splits
+  them by handler rather than by logger: `log_top_products` marks its records and
+  they go to stdout, everything else goes to the stderr handler `basicConfig`
+  installed, and both still reach every other handler -- which is what keeps the
+  browser's progress panel showing one stream and a `caplog` seeing the whole
+  run. Only the *console* handler is told to skip the report; a handler writing
+  anywhere else is nobody's stream to take lines out of. Without the split
+  `python -m buy_agent ... > top.txt` wrote an empty file, all of it having gone
+  to stderr.
 - **Model output is never trusted as judgement.** The model reports article
   headlines as products; `clean_products` filters them. Anything that decides the
   answer -- filtering, scoring, ordering -- belongs in Python, where it is testable.
 
 `BuyAgent.run()` raises exactly three things -- `ValueError`,
 `ModelUnavailableError`, `SearchError` -- and `__main__.main()` catches exactly
-those around the run, logging them and returning 1 (130 on Ctrl-C). It has a
+those around the run, logging them and returning 1 (130 on Ctrl-C, and
+`NOTHING_FOUND` -- 3 -- for a run that worked and found nothing, which a shell
+told 1 could not tell from a stopped model server; 2 is argparse's own, so the
+codes a script branches on are the five `--help` now ends by listing). It has a
 second, unrelated `except` further down, for an `OSError` from writing the
 `--json` file, which is why `tests/test_conventions.py` reads the handlers of
 the `try` holding the `.run()` call rather than every handler in the function. `api._STATUS` maps the same
@@ -392,7 +404,13 @@ The CLI and the API are two ways of filling in the same `AgentConfig`, and both
 set `search_results = max(results, top)` -- searching for fewer pages than the
 report intends to show would cap the report. A new option belongs in
 `__main__.build_parser`, `api.parse_options` and `api.defaults_payload`, which is
-what seeds the web form. `provider` is the one option that is offered in *four*
+what seeds the web form. A numeric one belongs in `config.LIMITS` as well, which
+is where the range it is held to is declared once and read by both doors:
+written down on each of them, the CLI comes to accept what the API refuses, and
+`--results 0` then searches the web, reads ten pages and asks the model for no
+products at all. On the CLI the check is a `type` function, so an out-of-range
+number is a usage error rather than a minute wasted; `tests/test_conventions.py`
+asserts the two doors refuse the same numbers. `provider` is the one option that is offered in *four*
 places -- those three plus the `ProviderOption` rows `defaults_payload` sends the
 picker -- and every one of them reads `providers.PROVIDERS` rather than listing
 the names again. It is also the one option that changes what two others mean, so
@@ -438,7 +456,10 @@ Four things there are load-bearing:
   thread that produced them, which is what keeps two concurrent runs from seeing
   each other's progress. Extraction is slow and logs nothing while it runs, so a
   `ping` event goes out every 15s to keep browsers and proxies from timing the
-  stream out. `POST /api/search` is the same run in one response.
+  stream out -- and every relayed line carries the `time` Python logged it at, in
+  the CLI's own `%H:%M:%S`, since the gap between two lines is the only thing
+  that tells a four-minute extraction from a four-second one. `POST /api/search`
+  is the same run in one response.
 - **The stream's failure event is called `failure`, not `error`.** A browser's
   `EventSource` delivers transport errors under `error` and then reconnects; a
   named `error` event would be indistinguishable from a dropped connection, and
@@ -489,7 +510,11 @@ leaving the sheet at `media="print"` and the page unstyled. Neither suite can se
 that; it takes a browser. Anything else that adds an inline handler, an inline
 `<script>` or a request to another origin has the same shape of symptom.
 
-`progress-log` offers a **Download log** button once a run has failed, and only
+`progress-log` follows the tail the way a terminal does, but only while the
+reader is at it: the scroll handler sets `sticking` from how far the panel is
+from the bottom, and a reader who has scrolled up to re-read a finished step is
+left where they are rather than dragged back down by the next line. It offers a
+**Download log** button once a run has failed, and only
 then -- a successful run is on the page in front of you, a failed one is a bug
 report. `transcript()` writes what the panel was showing plus the failure
 message, which the panel itself never has: a failure arrives as its own SSE
@@ -585,18 +610,18 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 852 tests
+to EOF instead -- what it checks is that nothing follows the reply. 890 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 852 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 852 collect but 13 of the 17
-in `tests/test_start_script.py` skip, so the summary reads `839 passed, 13
+is reaching out. 890 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 890 collect but 13 of the 17
+in `tests/test_start_script.py` skip, so the summary reads `877 passed, 13
 skipped` -- nothing is missing, and the four that still run are the ones reading
-the script as text rather than through the probe. The UI's 78 tests
+the script as text rather than through the probe. The UI's 83 tests
 run in about two seconds, most of which is building the app first. The 19 in
 `integration/` are counted separately and collected only by being named.
 `docs/testing.md` quotes all three counts, so a new test file is two edits.

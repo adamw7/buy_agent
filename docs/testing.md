@@ -17,7 +17,7 @@ cd ui; npm run test:coverage  # the same, with a coverage floor
 python -m pytest integration  # against a real Ollama; see below
 ```
 
-852 Python tests and 78 UI tests. Nothing in either suite touches the network or
+890 Python tests and 83 UI tests. Nothing in either suite touches the network or
 a model server: the model is faked through the `llm=` argument of `BuyAgent`,
 both the search backend and the page fetcher are monkeypatched, the two clients
 `buy_agent.providers` builds are patched where that module imported them, and the
@@ -32,7 +32,7 @@ and lines sit just under 100% (`ui/scripts/check-coverage.mjs`, floor 98%). Line
 coverage that high stops being a useful signal on its own, so
 `tests/test_conventions.py` asserts the rules that hold *between* modules --
 the three places a failure mode has to be listed, the four places a sort
-criterion has to be offered, the two halves of a provider agreeing about which
+criterion has to be offered, the ranges both front ends hold a number to, the two halves of a provider agreeing about which
 providers exist, the payloads `ui/src/app/agent.types.ts`
 mirrors, the `Dockerfile` agreeing with CI and with the server's own defaults,
 the four workflows agreeing on the version of every action they share and on

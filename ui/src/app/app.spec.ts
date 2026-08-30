@@ -233,7 +233,12 @@ describe('App', () => {
 
     agent.stream.next({
       kind: 'log',
-      line: { level: 'INFO', logger: 'buy_agent.search', message: 'Search returned 10 results' },
+      line: {
+        time: '18:12:19',
+        level: 'INFO',
+        logger: 'buy_agent.search',
+        message: 'Search returned 10 results',
+      },
     });
     await fixture.whenStable();
     expect(page.textContent).toContain('Search returned 10 results');

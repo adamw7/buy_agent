@@ -104,7 +104,12 @@ describe('AgentService', () => {
     const source = FakeEventSource.last!;
     expect(source.url).toBe('/api/search/stream?request=kettle');
 
-    source.send('log', { level: 'INFO', logger: 'buy_agent.search', message: 'Searching' });
+    source.send('log', {
+      time: '18:12:19',
+      level: 'INFO',
+      logger: 'buy_agent.search',
+      message: 'Searching',
+    });
     source.send('result', {
       request: 'kettle',
       count: 0,
@@ -115,7 +120,12 @@ describe('AgentService', () => {
 
     expect(seen[0]).toEqual({
       kind: 'log',
-      line: { level: 'INFO', logger: 'buy_agent.search', message: 'Searching' },
+      line: {
+        time: '18:12:19',
+        level: 'INFO',
+        logger: 'buy_agent.search',
+        message: 'Searching',
+      },
     });
     expect(seen[1].kind).toBe('result');
     expect(completed).toBe(true);

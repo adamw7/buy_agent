@@ -77,17 +77,30 @@ python -m buy_agent "wireless earbuds" --source rtings.com --source @mkbhd
 | `--provider` | `ollama` (or `$BUY_AGENT_PROVIDER`) | `ollama` or `vllm` |
 | `--model` | the provider's own | Ollama tag, or the name a vLLM was started with |
 | `--base-url` | the provider's own | Where that server listens |
-| `--results` | `10` | How many products to find |
-| `--top` | `3` | How many to log |
+| `--results` | `10` | How many products to find (1-50) |
+| `--top` | `3` | How many to log (1-50) |
 | `--sort-by` | `score` | `score`, `price` or `rating` |
 | `--region` | `us-en` | Search region, e.g. `uk-en`, `pl-pl` |
 | `--source` | -- | Take the facts from this source only; repeatable |
-| `--temperature` | `0.0` | Model temperature; extraction is a copying task |
+| `--temperature` | `0.0` | Model temperature, 0-2; extraction is a copying task |
 | `--num-ctx` | `8192` | Context window in tokens (Ollama only) |
 | `--think` / `--no-think` | `--no-think` | Force thinking mode on or off |
 | `--no-fetch` | off | Use search snippets only, without opening the result pages |
 | `--json` | -- | Also write every result to a JSON file |
 | `-v` | off | Debug logging |
+
+The report goes to **stdout** and the progress to **stderr**, so a redirect keeps
+the answer and leaves the narration on screen:
+
+```powershell
+python -m buy_agent "gaming laptop under $1500" > top.txt
+```
+
+The exit code says which kind of ending it was -- `0` found products, `1` failed
+(the reason is the last line on stderr), `2` is a usage error, `3` is a run that
+worked and found nothing, and `130` is Ctrl-C. Only the first is an answer, and
+only the second is a bug worth chasing. `--json` is written either way, so a
+script waiting on that file gets `[]` rather than yesterday's results.
 
 ### Running against vLLM
 
@@ -258,7 +271,10 @@ python -m buy_agent.server         # http://127.0.0.1:8000
 Then open <http://127.0.0.1:8000> and search. Skip step 2 and the API still
 answers, but the page is a 503 telling you to build it; `--ui-dir` points at a
 build kept somewhere else, and `--host` / `--port` move the binding, which is
-loopback on port 8000 by default. The model server need not be local either --
+loopback on port 8000 by default. Port 8000 is also where a vLLM started with no
+arguments listens, so on a machine serving one, give the UI another port
+(`--port 8001`) -- otherwise the bind fails, and the server says so and names the
+clash. The model server need not be local either --
 `$OLLAMA_HOST` and `$VLLM_HOST`, or the address field under Settings, point the
 run at another machine. To work on the UI itself, run the Angular dev server
 instead of building for every change -- see [The dev server](#the-dev-server)

@@ -68,6 +68,15 @@ h2 {
   word-break: break-word;
 }
 
+.at {
+  /* The slow steps say nothing while they run, so the gap between two lines is
+     what tells a four-minute extraction from a four-second one. Dimmer than the
+     message: it is read when a run felt slow and ignored the rest of the time. */
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
 .source {
   /* A fixed column keeps the messages aligned; a long module name is clipped
      rather than allowed to wrap and push the line it belongs to out of shape. */
