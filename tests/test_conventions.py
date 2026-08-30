@@ -446,6 +446,19 @@ def test_every_workflow_sets_up_the_python_the_tests_run_on(workflow: Path) -> N
         assert version == ci_version("python-version"), workflow.name
 
 
+@pytest.mark.parametrize("workflow", workflows(), ids=lambda path: path.stem)
+def test_every_workflow_builds_the_ui_with_the_node_ci_builds_it_with(workflow: Path) -> None:
+    """And the same rule for the other toolchain, which a second workflow now
+    builds with: `.github/workflows/release.yml` packages the build it ships, so
+    on another Node it would publish an app assembled by a compiler nothing has
+    tested against -- and the Angular CLI refuses an older one outright, which is
+    a red release rather than a quiet difference only after somebody notices."""
+    for version in re.findall(
+        r'^\s+node-version: "([^"]+)"', workflow.read_text(encoding="utf-8"), re.M
+    ):
+        assert version == ci_version("node-version"), workflow.name
+
+
 def action_versions(workflow: Path) -> dict[str, str]:
     """The ref each ``uses: owner/action@ref`` step of a workflow pins."""
     steps = re.findall(r"uses: (\S+?)@(\S+)$", workflow.read_text(encoding="utf-8"), re.M)
@@ -612,6 +625,41 @@ def test_the_nightly_run_is_never_a_gate_on_a_pull_request() -> None:
     wait on."""
     for workflow in (_INTEGRATION, _MUTATION):
         assert "pull_request" not in workflow.read_text(encoding="utf-8"), workflow.name
+
+
+# -- the release ---------------------------------------------------------------
+
+_RELEASE = _ROOT / ".github" / "workflows" / "release.yml"
+
+
+def release_workflow() -> str:
+    return _RELEASE.read_text(encoding="utf-8")
+
+
+def test_the_release_archive_carries_the_built_ui_where_the_server_looks() -> None:
+    """The `Dockerfile`'s agreement again, in a third place and with a slower
+    failure: an archive whose UI landed anywhere else unpacks perfectly, installs
+    perfectly, and serves the 503 that says to build a UI its downloader has no
+    Node to build. The workflow's own smoke test asks the packaged server for the
+    page, so the two of them fail together rather than either alone going quiet."""
+    match = re.search(r"^\s+UI_DIST: (\S+)$", release_workflow(), re.M)
+    assert match, "the release workflow names no destination for the UI build"
+
+    assert match.group(1) == DEFAULT_UI_DIR.relative_to(_ROOT).as_posix()
+
+
+def test_the_release_packages_the_tag_it_uploads_to() -> None:
+    """Both jobs check out ``$TAG`` -- the release's own tag, or the one a manual
+    re-run names -- and not the branch the workflow file happens to sit on. A
+    checkout left at the default packages whatever main has moved on to since and
+    attaches it to an older release, which is the one packaging mistake nothing
+    downstream can detect: the assets are internally consistent, they install,
+    they serve, and they are not the code the tag names."""
+    source = release_workflow()
+    checkouts = len(re.findall(r"^\s+- uses: actions/checkout@", source, re.M))
+
+    assert checkouts, "the release workflow checks nothing out"
+    assert source.count("ref: ${{ env.TAG }}") == checkouts
 
 
 # -- the Saturday mutation run -------------------------------------------------

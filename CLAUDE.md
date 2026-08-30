@@ -13,7 +13,7 @@ that knows the difference (ADR-0028). `ui/` is an Angular front
 end onto the same pipeline, served by `buy_agent.server`. See `README.md` for
 usage -- it keeps the tour and links out to the longer technical sections, which
 live beside it: `docs/models.md` (keeping Ollama's models current),
-`docs/docker.md` (running the web tier as a container) and `docs/testing.md`
+`docs/docker.md` (running the web tier as a container, and what a release publishes) and `docs/testing.md`
 (both suites, the coverage floors, the nightly run against a real model and the
 mutation run). `demo/` is the fourth, and documents itself in `demo/README.md`:
 two recorded runs of the UI, the still the README shows above them, and the
@@ -65,8 +65,10 @@ chosen per run -- which needs
 `--add-host=host.docker.internal:host-gateway` on Linux. `ENTRYPOINT` is `python`
 and `CMD` is `-m buy_agent.server --host 0.0.0.0`, so the CLI is reachable from
 the same image and `--host` stays out of the server's own default (it binds
-loopback everywhere else). Nothing in CI builds it; `tests/test_conventions.py`
-is what keeps its version pins, its copy destination and its `EXPOSE` in step.
+loopback everywhere else). No pull request builds it -- `release.yml` does, once
+per release, and publishes it to `ghcr.io` (ADR-0030); `tests/test_conventions.py`
+is what keeps its version pins, its copy destination and its `EXPOSE` in step
+the rest of the time.
 `.dockerignore` narrows what the build even sees: `tests/`, `integration/`,
 `docs/`, `scripts/`, `demo/`, `.github/`, every Markdown file, the dev and
 mutation requirements with `setup.cfg` beside them, and every local build
@@ -163,6 +165,23 @@ tree to `mutants/` and tests the copy, so anything the suite reads off disk or
 imports from outside `buy_agent` has to be named in `also_copy`, or the whole run
 dies at collection.
 
+`.github/workflows/release.yml` is the fourth: it runs when a release is
+*published* (and on `workflow_dispatch` with a tag, so a failed upload can be
+retried without re-cutting the release) and puts two packages on GitHub --
+`buy-agent-<version>.tar.gz`/`.zip` with a `SHA256SUMS.txt`, attached to the
+release by `gh`, and `ghcr.io/<owner>/<repo>:<version>` built from the
+`Dockerfile`, with `latest` following full releases only (ADR-0030). The archive
+holds `buy_agent/`, the built UI at `ui/dist/ui/browser`, `requirements.txt`,
+`README.md` and `docs/`: there is no wheel and no sdist, because the project is
+still run from a directory. Both jobs check out `$TAG` rather than the branch the
+workflow sits on -- assets built from `main` and attached to an older tag install
+and serve perfectly and are the wrong code -- and neither package is published
+unattended: the archive is unpacked, installed and started, the image is run as a
+container, and both are asked for `/api/config` and for `/`, which is the Python
+half answering and the UI being served from where the server looks. Linux only,
+like the other two schedules: what is packaged is a Python package and static
+files, identical whichever runner assembled them.
+
 `pytest.ini` sets `pythonpath = .`, which is why the package imports without
 being installed, plus `testpaths = tests` and `addopts = -q --strict-markers`.
 `.coveragerc` holds the Python floor (99%, against 100% actual) and sets
@@ -192,7 +211,7 @@ superseding it rather than an edit to the old one -- numbers are never reused,
 and accepted records are not rewritten. `tests/test_conventions.py` checks that
 the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0029 and every record is Accepted, so the next free number is 0030.
+to ADR-0030 and every record is Accepted, so the next free number is 0031.
 
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
 for the two steps it is reliable at, and ordinary Python does everything else,
@@ -566,16 +585,16 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 842 tests
+to EOF instead -- what it checks is that nothing follows the reply. 852 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 842 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 842 collect but 13 of the 17
-in `tests/test_start_script.py` skip, so the summary reads `829 passed, 13
+is reaching out. 852 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 852 collect but 13 of the 17
+in `tests/test_start_script.py` skip, so the summary reads `839 passed, 13
 skipped` -- nothing is missing, and the four that still run are the ones reading
 the script as text rather than through the probe. The UI's 78 tests
 run in about two seconds, most of which is building the app first. The 19 in
@@ -597,9 +616,12 @@ against, copies the built UI where the server looks, exposes the port it binds a
 installs the runtime dependencies only; that every job in `ci.yml` names both a
 Windows and a Linux runner, and that it sets up exactly one Python and one Node
 for the three files that pin themselves to those; that every workflow sets up
-that same Python and that the workflows pin the same version of every action they
+that same Python and builds with that same Node, and that the workflows pin the
+same version of every action they
 share, since an update that reached only one of them leaves every file valid and
-a scheduled run on the older action; that the nightly run pulls the tag
+a scheduled run on the older action; that the release archive puts the built UI
+where `server.DEFAULT_UI_DIR` looks and that both of its jobs check out the tag
+being released rather than a branch; that the nightly run pulls the tag
 `integration.TINY_MODEL` names, names the directory `testpaths` leaves out, sets
 `$BUY_AGENT_REQUIRE_OLLAMA` so an absent Ollama fails instead of skipping, and
 caps itself at the five minutes the docs quote; that

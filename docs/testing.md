@@ -17,7 +17,7 @@ cd ui; npm run test:coverage  # the same, with a coverage floor
 python -m pytest integration  # against a real Ollama; see below
 ```
 
-842 Python tests and 78 UI tests. Nothing in either suite touches the network or
+852 Python tests and 78 UI tests. Nothing in either suite touches the network or
 a model server: the model is faked through the `llm=` argument of `BuyAgent`,
 both the search backend and the page fetcher are monkeypatched, the two clients
 `buy_agent.providers` builds are patched where that module imported them, and the
@@ -35,7 +35,9 @@ the three places a failure mode has to be listed, the four places a sort
 criterion has to be offered, the two halves of a provider agreeing about which
 providers exist, the payloads `ui/src/app/agent.types.ts`
 mirrors, the `Dockerfile` agreeing with CI and with the server's own defaults,
-the three workflows agreeing on the version of every action they share, the
+the four workflows agreeing on the version of every action they share and on
+the Python and the Node they run, the release archive carrying the UI build
+where the server looks for it, the
 nightly run pulling the model the live tests ask for, and
 the decision log agreeing with its own index -- which no amount of per-module
 coverage can protect.

@@ -43,5 +43,38 @@ docker run --rm -e VLLM_HOST=http://10.0.0.5:8000/v1 buy-agent `
 ```
 
 The container runs as a non-root user and writes nothing, so `--json` needs a
-mounted directory to write into, as above. Nothing in CI builds the image; the
-[tests](testing.md) still run on the host.
+mounted directory to write into, as above. No pull request builds the image; the
+[tests](testing.md) run on the host, and the build happens once per release
+(below).
+
+## The published image
+
+`.github/workflows/release.yml` builds this `Dockerfile` when a release is
+published and pushes it to the registry that comes with the repository, so a
+version can be run without a checkout at all
+([ADR-0030](adr/0030-publish-a-release-as-an-archive-and-an-image.md)):
+
+```powershell
+docker run --rm -p 8000:8000 ghcr.io/adamw7/buy_agent:latest
+docker run --rm -p 8000:8000 ghcr.io/adamw7/buy_agent:1.2.0    # or a version
+```
+
+`latest` follows full releases only; a pre-release is published under its own
+version and moves nothing. Everything above -- `host.docker.internal`, the
+environment variables, the CLI behind the same entrypoint -- is the same image
+and behaves the same way.
+
+The other half of a release is an archive with the same two halves in it -- the
+package and the built UI -- for running the server straight from a Python
+environment:
+
+```powershell
+tar -xzf buy-agent-1.2.0.tar.gz ; cd buy-agent-1.2.0
+pip install -r requirements.txt
+python -m buy_agent.server                       # http://127.0.0.1:8000
+```
+
+Both are checked before they are published: the workflow starts each one and
+asks it for `/api/config` and for the page, so an archive whose UI landed in the
+wrong place, or an image that no longer boots, fails the release rather than the
+download.
