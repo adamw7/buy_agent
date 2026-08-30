@@ -53,6 +53,11 @@ difference.
 
 To run the web UI without setting up either toolchain, build the image instead --
 see [Running in Docker](docs/docker.md). The model server still runs on the host.
+A published release needs no build at all: it carries an archive with the UI
+already built -- unpack it, `pip install -r requirements.txt`, run the server --
+and the same pair as a container image on `ghcr.io`. Both are in the same page,
+and why is in
+[ADR-0030](docs/adr/0030-publish-a-release-as-an-archive-and-an-image.md).
 
 A pulled tag follows the registry, and `python -m scripts.update_ollama` re-pulls
 the models Ollama has and reports which builds actually moved -- see

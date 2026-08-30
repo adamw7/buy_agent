@@ -1,0 +1,222 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  # A re-run for a release that already exists: the upload is what fails most
+  # often here (a token, a rate limit, an asset name already taken), and it is
+  # not worth deleting and re-publishing a release to retry one.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag of an existing release to package, e.g. v1.2.0
+        required: true
+
+concurrency:
+  # Per tag, and *not* cancel-in-progress, unlike the other three workflows: a
+  # run cancelled halfway has attached some of the assets and none of the rest,
+  # which is a release that looks finished and is not. Two runs for one tag
+  # queue instead, and the second overwrites what the first uploaded.
+  group: release-${{ github.workflow }}-${{ github.event.release.tag_name || github.event.inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # The release being packaged: the event's own tag, or the one a manual re-run
+  # names. Every job checks that out rather than whatever main has moved on to
+  # since -- an asset attached to v1.2.0 has to *be* v1.2.0.
+  TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+
+jobs:
+  archive:
+    # Linux only, unlike ci.yml and for the reason integration.yml is: what goes
+    # in the archive is a Python package and a directory of static files, both
+    # byte-for-byte the same whichever runner assembled them. The platform
+    # differences this project does care about are in running the code, and
+    # ci.yml is where both platforms run it.
+    name: Archive (Node 22.22.3, Python 3.13)
+    runs-on: ubuntu-latest
+    permissions:
+      # To attach the assets to the release. Nothing here pushes a commit.
+      contents: write
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      # Where `server.DEFAULT_UI_DIR` looks, so the archive needs no --ui-dir --
+      # the same agreement the Dockerfile's COPY carries, and checked by
+      # tests/test_conventions.py for the same reason.
+      UI_DIST: ui/dist/ui/browser
+      # Local to this job: the smoke test below starts the packaged server and
+      # asks it two questions, and the number only has to agree with itself.
+      PORT: "8123"
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22.22.3"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Build the UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Assemble the archive
+        run: |
+          # A version without the tag's leading v, so the directory inside the
+          # archive and the archive itself read as one name.
+          name="buy-agent-${TAG#v}"
+          echo "NAME=$name" >> "$GITHUB_ENV"
+
+          mkdir -p "dist/$name/$UI_DIST"
+          cp -r buy_agent "dist/$name/"
+          cp -r "$UI_DIST/." "dist/$name/$UI_DIST/"
+          cp -r docs "dist/$name/"
+          cp requirements.txt README.md "dist/$name/"
+          # Bytecode from the checkout would otherwise ship compiled for
+          # whatever interpreter happened to import the package here.
+          find "dist/$name" -name __pycache__ -type d -prune -exec rm -rf {} +
+
+          test -f "dist/$name/$UI_DIST/index.html" || {
+            echo "the UI build did not land in the archive" >&2
+            exit 1
+          }
+
+      # The archive is the thing being published, so it is what gets started --
+      # not the checkout it was cut from. Two questions: /api/config is the
+      # Python half answering, and / is the built UI being served from where the
+      # server looks rather than the 503 that says to build it. A tree missing
+      # either is exactly what nobody notices until someone unpacks it.
+      - name: Check the archive serves
+        working-directory: dist/${{ env.NAME }}
+        run: |
+          pip install --disable-pip-version-check -r requirements.txt
+          PYTHONPATH=. python -m buy_agent.server --port "$PORT" > server.log 2>&1 &
+          server=$!
+
+          for _ in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:$PORT/api/config" > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          status=0
+          curl -fsS "http://127.0.0.1:$PORT/api/config" > /dev/null || status=1
+          curl -fsS "http://127.0.0.1:$PORT/" > /dev/null || status=1
+          kill "$server" 2>/dev/null || true
+
+          if [ "$status" -ne 0 ]; then
+            echo "the packaged server did not answer:" >&2
+            cat server.log >&2
+          fi
+          rm -f server.log
+          exit "$status"
+
+      - name: Pack it
+        working-directory: dist
+        run: |
+          tar -czf "$NAME.tar.gz" "$NAME"
+          zip -qr "$NAME.zip" "$NAME"
+          # Both formats carry the same tree; the checksums are what a download
+          # can be checked against without trusting the page it came from.
+          sha256sum "$NAME.tar.gz" "$NAME.zip" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      # gh is on the runner, so this needs no third-party action and no token
+      # beyond the job's own. --clobber is what makes a re-run for the same tag
+      # replace the assets rather than fail on their names.
+      - name: Upload the assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$TAG" \
+            "dist/$NAME.tar.gz" "dist/$NAME.zip" dist/SHA256SUMS.txt \
+            --clobber --repo "$GITHUB_REPOSITORY"
+
+  image:
+    # The other package, and the one ADR-0015 already describes: the web tier
+    # whole, with neither toolchain to install. Nothing else in CI builds the
+    # Dockerfile, so this is also where a build that has quietly stopped working
+    # is found -- once per release rather than never.
+    name: Container image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # ghcr.io, which is where a package published from this repository lands.
+      packages: write
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Log in to ghcr.io
+        run: echo "${{ github.token }}" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build the image
+        run: |
+          # A registry path is lowercase; a GitHub owner need not be.
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+          docker build -t "ghcr.io/${GITHUB_REPOSITORY,,}:${TAG#v}" .
+
+      # Built, started and asked a question before it is published: an image
+      # that cannot serve its own page is worth catching here rather than in a
+      # `docker run` by whoever pulls it next. The model server stays outside
+      # the image (ADR-0015), so /api/config -- the form's defaults -- is the
+      # most that can be asked without one.
+      - name: Check the image serves
+        run: |
+          docker run --rm -d -p 8000:8000 --name buy-agent-smoke "$IMAGE:$VERSION"
+
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/api/config > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          status=0
+          curl -fsS http://127.0.0.1:8000/api/config > /dev/null || status=1
+          curl -fsS http://127.0.0.1:8000/ > /dev/null || status=1
+          if [ "$status" -ne 0 ]; then
+            echo "the image did not serve:" >&2
+            docker logs buy-agent-smoke >&2
+          fi
+          docker rm -f buy-agent-smoke > /dev/null
+          exit "$status"
+
+      # `latest` follows full releases only, and a manual re-run moves nothing:
+      # the tag people pull without thinking should not land on a pre-release,
+      # and re-packaging an old tag by hand is not a statement about what the
+      # newest release is.
+      - name: Push it
+        env:
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          docker push "$IMAGE:$VERSION"
+
+          if [ "$PRERELEASE" = "false" ]; then
+            docker tag "$IMAGE:$VERSION" "$IMAGE:latest"
+            docker push "$IMAGE:latest"
+          fi
