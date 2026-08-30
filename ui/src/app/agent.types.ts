@@ -2,6 +2,8 @@
 
 /** One log line the agent produced during a run, as it appears in the CLI too. */
 export interface LogLine {
+  /** When Python logged it, on Python's clock and in the CLI's own format. */
+  time: string;
   level: string;
   logger: string;
   message: string;

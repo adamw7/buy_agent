@@ -135,7 +135,15 @@ export class App {
     this.running.set(false);
     this.logs.update((lines) => [
       ...lines,
-      { level: 'WARNING', logger: 'buy_agent', message: 'Stopped.' },
+      // The only line the browser writes itself, so it is the only one timed off
+      // the browser's clock -- in the format Python sends the rest in, since the
+      // panel shows them in one column.
+      { time: now(), level: 'WARNING', logger: 'buy_agent', message: 'Stopped.' },
     ]);
   }
+}
+
+/** The wall clock as Python's `%H:%M:%S` writes it, for the one line above. */
+function now(): string {
+  return new Date().toTimeString().slice(0, 8);
 }

@@ -48,6 +48,7 @@ from typing import get_args
 import pytest
 
 from buy_agent.__main__ import build_parser
+from buy_agent.__main__ import main as cli_main
 from buy_agent.agent import BuyAgent
 from buy_agent.api import (
     PROVIDER_OPTIONS,
@@ -55,10 +56,11 @@ from buy_agent.api import (
     _STATUS,
     ApiError,
     defaults_payload,
+    parse_options,
     product_payload,
     run_search,
 )
-from buy_agent.config import AgentConfig
+from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.providers import PROVIDERS, provider_options
 from buy_agent.models import Product, RankedProduct
 from buy_agent.ranking import SortBy
@@ -220,6 +222,44 @@ def _typescript_sort_union() -> str:
     match = re.search(r"export type SortBy = ([^;]+);", source)
     assert match, "no SortBy union in agent.types.ts"
     return match.group(1)
+
+
+# -- the ranges a request is held to -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("field", "flag", "key"),
+    [
+        ("num_products", "--results", "results"),
+        ("top_n", "--top", "top"),
+        ("temperature", "--temperature", "temperature"),
+        ("num_ctx", "--num-ctx", "num_ctx"),
+    ],
+)
+def test_both_front_doors_hold_a_number_to_the_same_range(
+    field: str, flag: str, key: str
+) -> None:
+    """A bound written down twice is a CLI that accepts what the API refuses.
+
+    Read off ``config.LIMITS`` on both sides, so the pair moves together: the
+    range is a fact about the field, not about the door it arrived through.
+    """
+    minimum, maximum = LIMITS[field]
+
+    for outside in (minimum - 1, maximum + 1):
+        with pytest.raises(ApiError):
+            parse_options({key: outside})
+        with pytest.raises(SystemExit):
+            cli_main(["headphones", flag, str(outside)])
+
+
+def test_a_run_of_the_defaults_is_inside_every_range() -> None:
+    """A default the front ends would refuse is one nobody can accept either."""
+    defaults = AgentConfig()
+
+    for field, (minimum, maximum) in LIMITS.items():
+        value = getattr(defaults, field)
+        assert value is None or minimum <= value <= maximum, field
 
 
 # -- the payloads the browser is typed against ---------------------------------

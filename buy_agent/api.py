@@ -16,7 +16,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, TypeVar, get_args
 
 from buy_agent.agent import BuyAgent, ModelUnavailableError
-from buy_agent.config import AgentConfig
+from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.providers import PROVIDERS, provider_options
 from buy_agent.ranking import SortBy
 from buy_agent.search import SearchError
@@ -84,8 +84,8 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         ApiError: if a value is present but not usable.
     """
     defaults = AgentConfig()
-    num_products = _read(data, "results", defaults.num_products, _bounded(int, 1, 50))
-    top_n = _read(data, "top", defaults.top_n, _bounded(int, 1, 50))
+    num_products = _read(data, "results", defaults.num_products, _bounded(int, "num_products"))
+    top_n = _read(data, "top", defaults.top_n, _bounded(int, "top_n"))
     sort_by = _read(data, "sort_by", "score", _as_text)
     if sort_by not in SORT_OPTIONS:
         raise ApiError(f"sort_by must be one of {', '.join(SORT_OPTIONS)}; got {sort_by!r}.")
@@ -103,8 +103,10 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         # per provider, so a form that chose one and left these alone gets its pair.
         model=_read(data, "model", "", _as_text),
         base_url=_read(data, "base_url", "", _as_text),
-        temperature=_read(data, "temperature", defaults.temperature, _bounded(float, 0, 2)),
-        num_ctx=_read(data, "num_ctx", defaults.num_ctx, _bounded(int, 1, 1_000_000)),
+        temperature=_read(
+            data, "temperature", defaults.temperature, _bounded(float, "temperature")
+        ),
+        num_ctx=_read(data, "num_ctx", defaults.num_ctx, _bounded(int, "num_ctx")),
         reasoning=_read(data, "think", defaults.reasoning, _as_bool),
         # Searching fewer pages than we report would cap the report -- as in the CLI.
         search_results=max(num_products, top_n),
@@ -278,14 +280,15 @@ def _as_bool(key: str, text: str) -> bool:
     raise ApiError(f"{key} must be true or false; got {text!r}.")
 
 
-def _bounded(
-    kind: Callable[[str], _Number], minimum: _Number, maximum: _Number
-) -> Callable[[str, str], _Number]:
-    """A parser for a number within bounds, whole or decimal as ``kind`` says.
+def _bounded(kind: Callable[[str], _Number], field: str) -> Callable[[str, str], _Number]:
+    """A parser for a number within the bounds ``field`` is held to.
 
-    The bounds go into the rejection as they were given, so whole ones are passed
+    Read off :data:`buy_agent.config.LIMITS` rather than written down here, so the
+    CLI and this cannot come to disagree about what a request may ask for. The
+    bounds go into the rejection as they were declared, so whole ones are quoted
     whole: "between 0 and 2" is what a temperature is.
     """
+    minimum, maximum = LIMITS[field]
     return partial(_as_number, kind, minimum, maximum)
 
 

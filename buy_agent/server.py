@@ -25,6 +25,7 @@ import mimetypes
 import queue
 import sys
 import threading
+import time
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -134,6 +135,12 @@ class _LogRelay(logging.Handler):
         try:
             sink.put(
                 {
+                    # The same clock and the same format the CLI prints, because
+                    # the panel is showing the CLI's own lines: without it a run
+                    # that spent four minutes in extraction and one in fetching
+                    # looks exactly like a run that spent one in each, on screen
+                    # and in the transcript a bug report is built out of.
+                    "time": time.strftime("%H:%M:%S", time.localtime(record.created)),
                     "level": record.levelname,
                     "logger": record.name,
                     "message": record.getMessage(),
@@ -394,7 +401,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
                 {
                     "error": (
                         f"The UI is not built. Run 'npm install && npm run build' in "
-                        f"{self.ui_dir.parent.parent} , or point --ui-dir at the build."
+                        f"{_workspace_for(self.ui_dir)}, or point --ui-dir at a build "
+                        f"elsewhere."
                     )
                 },
             )
@@ -512,6 +520,52 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         logger.debug("%s - %s", self.address_string(), format % args)
 
 
+def _workspace_for(ui_dir: Path) -> Path:
+    """The Angular workspace whose build lands in ``ui_dir`` -- where npm is run.
+
+    ``ng build`` writes ``<workspace>/dist/<project>/browser``, so the workspace is
+    three levels up, and it is named only when it is really there: a ``--ui-dir``
+    pointing somewhere else has no workspace above it in any knowable place, and
+    inventing one sends the reader to a directory the build would have created.
+    Which is what naming ``ui_dir.parent.parent`` did -- "run npm install in
+    ui/dist", a directory that exists only once the build has already succeeded.
+    """
+    workspace = ui_dir.parent.parent.parent
+    return workspace if (workspace / "package.json").is_file() else ui_dir
+
+
+def _browsable_url(host: str, port: int) -> str:
+    """The address to type into a browser for a server bound to ``host``.
+
+    A wildcard bind is an address to listen on rather than one to visit, so the
+    URL names loopback instead; an IPv6 literal is bracketed, which is what an
+    address bar needs and what ``http://::1:8000`` is missing.
+    """
+    shown = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)
+    if ":" in shown:
+        shown = f"[{shown}]"
+    return f"http://{shown}:{port}"
+
+
+def _clashing_provider(port: int) -> str:
+    """The sentence naming the model server whose own default address is ``port``.
+
+    vLLM's default is ``http://localhost:8000/v1`` and this server's default port
+    is 8000, so the two collide on the machine most likely to run both -- and
+    "Could not listen on 127.0.0.1:8000" says nothing about a model server. Empty
+    for a port nothing else claims, which is every port but that one.
+    """
+    for server in PROVIDERS.values():
+        listens = urlparse(server.base_url)
+        if listens.port == port and _hostname(listens.netloc) in _LOOPBACK_HOSTS:
+            return (
+                f" That is also {server.label}'s own default address "
+                f"({server.base_url}), so serve the UI somewhere else: "
+                f"--port {port + 1}"
+            )
+    return ""
+
+
 def _default_base_url(provider: str) -> str:
     """Where that provider listens when the request named no address.
 
@@ -626,11 +680,17 @@ def main(argv: list[str] | None = None) -> int:
             args.host, args.port, ui_dir=args.ui_dir, allowed_hosts=allowed
         )
     except OSError as exc:
-        logger.error("Could not listen on %s:%s (%s)", args.host, args.port, exc)
+        logger.error(
+            "Could not listen on %s:%s (%s).%s",
+            args.host,
+            args.port,
+            exc,
+            _clashing_provider(args.port),
+        )
         return 1
 
     host, port = httpd.server_address[:2]
-    logger.info("buy_agent UI on http://%s:%s", host, port)
+    logger.info("buy_agent UI on %s", _browsable_url(str(host), port))
     if not (args.ui_dir / "index.html").is_file():
         logger.warning(
             "No built UI at %s -- the API works, but the page will not. "

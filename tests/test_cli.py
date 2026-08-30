@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from buy_agent.__main__ import build_parser, main
+from buy_agent.__main__ import NOTHING_FOUND, build_parser, main
 from buy_agent.agent import ModelUnavailableError
-from buy_agent.config import AgentConfig
+from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.models import Product, RankedProduct
 from buy_agent.providers import PROVIDERS, VLLM
 from buy_agent.search import SearchError
@@ -94,9 +94,25 @@ def test_no_json_file_is_written_by_default(fake_agent, tmp_path) -> None:
     assert list(tmp_path.iterdir()) == []
 
 
-def test_empty_result_exits_nonzero(fake_agent) -> None:
+def test_finding_nothing_has_an_exit_code_of_its_own(fake_agent) -> None:
+    """A run that worked and found nothing is not a run that failed.
+
+    Both are non-zero, but a shell told they are the same 1 cannot tell "nobody
+    sells this" from "the model server is down", and the two want different
+    things done about them.
+    """
     fake_agent["result"] = []
-    assert main(["nonexistent gadget"]) == 1
+
+    assert main(["nonexistent gadget"]) == NOTHING_FOUND
+    assert NOTHING_FOUND not in (0, 1, 2, 130), "the codes that already mean something"
+
+
+def test_the_help_names_every_exit_code(fake_agent) -> None:
+    """--help is the only documentation the CLI has, and these are branched on."""
+    help_text = build_parser().format_help()
+
+    for code in ("0", "1", "2", str(NOTHING_FOUND), "130"):
+        assert f"  {code}  " in help_text, code
 
 
 @pytest.mark.parametrize(
@@ -371,6 +387,29 @@ def test_no_json_is_written_when_the_run_fails(fake_agent, tmp_path) -> None:
     assert not destination.exists()
 
 
+def test_an_empty_run_still_writes_the_json_it_was_asked_for(fake_agent, tmp_path) -> None:
+    """A script waiting on this file wants an answer, not the absence of one.
+
+    Skipped, the run leaves no file and no reason -- and leaves the *last* run's
+    results sitting there looking current, which is worse than either.
+    """
+    fake_agent["result"] = []
+    destination = tmp_path / "out.json"
+
+    assert main(["nonexistent gadget", "--json", str(destination)]) == NOTHING_FOUND
+    assert json.loads(destination.read_text(encoding="utf-8")) == []
+
+
+def test_a_stale_json_file_is_overwritten_by_an_empty_run(fake_agent, tmp_path) -> None:
+    destination = tmp_path / "out.json"
+    destination.write_text('[{"name": "yesterday\'s answer"}]', encoding="utf-8")
+    fake_agent["result"] = []
+
+    main(["nonexistent gadget", "--json", str(destination)])
+
+    assert "yesterday" not in destination.read_text(encoding="utf-8")
+
+
 def test_an_unwritable_json_path_is_an_exit_code_not_a_traceback(
     fake_agent, tmp_path, caplog
 ) -> None:
@@ -395,6 +434,65 @@ def test_writing_the_json_is_logged(fake_agent, tmp_path, caplog) -> None:
         main(["headphones", "--json", str(destination)])
 
     assert "Wrote 2 products" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("flag", "value"),
+    [
+        ("--results", "0"),
+        ("--results", "51"),
+        ("--top", "0"),
+        ("--temperature", "2.5"),
+        ("--temperature", "-1"),
+        ("--num-ctx", "0"),
+    ],
+)
+def test_a_number_outside_its_range_is_a_usage_error(flag: str, value: str) -> None:
+    """The same range the API holds a request to, refused before the run rather
+    than after: --results 0 otherwise searches the web, reads ten pages and then
+    asks the model for no products at all."""
+    with pytest.raises(SystemExit) as exit_info:
+        main(["headphones", flag, value])
+
+    assert exit_info.value.code == 2
+
+
+@pytest.mark.parametrize("field", ["num_products", "top_n", "temperature", "num_ctx"])
+def test_the_bounds_are_the_config_s_own(field: str) -> None:
+    """Written down here as well, the CLI would come to accept what the API refuses."""
+    assert field in LIMITS
+
+
+@pytest.mark.parametrize(("flag", "value"), [("--results", "50"), ("--temperature", "2")])
+def test_the_edge_of_the_range_is_inside_it(fake_agent, flag: str, value: str) -> None:
+    assert main(["headphones", flag, value]) == 0
+
+
+def test_a_context_window_the_provider_ignores_is_called_out(fake_agent, caplog) -> None:
+    """vLLM fixes its window with --max-model-len when it starts.
+
+    The form disables the field and says so; the CLI has no field to disable, so
+    it says it rather than dropping the number without a word.
+    """
+    with caplog.at_level(logging.WARNING):
+        main(["headphones", "--provider", "vllm", "--num-ctx", "4096"])
+
+    assert "--num-ctx 4096 is ignored" in caplog.text
+
+
+def test_the_default_context_window_is_not_called_out(fake_agent, caplog) -> None:
+    """Only a number the shopper actually typed is worth a warning."""
+    with caplog.at_level(logging.WARNING):
+        main(["headphones", "--provider", "vllm"])
+
+    assert "ignored" not in caplog.text
+
+
+def test_a_context_window_the_provider_takes_is_not_called_out(fake_agent, caplog) -> None:
+    with caplog.at_level(logging.WARNING):
+        main(["headphones", "--num-ctx", "4096"])
+
+    assert "ignored" not in caplog.text
 
 
 def test_every_flag_is_documented_in_the_help() -> None:

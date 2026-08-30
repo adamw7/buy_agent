@@ -24,12 +24,14 @@ from buy_agent.providers import OLLAMA, VLLM
 from buy_agent.search import SearchError
 from buy_agent.server import (
     _CROSS_SITE,
+    DEFAULT_UI_DIR,
     _KEEPALIVE_SECONDS,
     _LOOPBACK_HOSTS,
     _SECURITY_HEADERS,
     BuyAgentHandler,
     _hostname,
     _relay,
+    _workspace_for,
     allowed_hosts_for,
     build_parser,
     create_server,
@@ -665,7 +667,22 @@ def test_the_stream_relays_progress_then_the_result(server: str) -> None:
 
     logs = [data for name, data in stream if name == "log"]
     assert any("Searching for headphones" in entry["message"] for entry in logs)
-    assert {"level", "logger", "message"} == set(logs[0])
+    assert {"time", "level", "logger", "message"} == set(logs[0])
+
+
+def test_every_relayed_line_is_timed(server: str) -> None:
+    """The panel is showing the CLI's own lines, and the CLI times them.
+
+    Extraction is slow and says nothing while it runs, so without the time a run
+    that spent four minutes there looks exactly like one that spent four seconds
+    -- on screen, and in the transcript a bug report is built out of.
+    """
+    stream = events(f"{server}/api/search/stream?request=headphones")
+
+    logs = [data for name, data in stream if name == "log"]
+    assert logs
+    for entry in logs:
+        assert re.fullmatch(r"\d{2}:\d{2}:\d{2}", entry["time"]), entry
 
     _, result = stream[-1]
     assert result["count"] == 2
@@ -839,6 +856,33 @@ def test_an_unbuilt_ui_says_how_to_build_it(server: str) -> None:
     assert "npm run build" in payload["error"]
 
 
+def test_the_directory_to_run_npm_in_is_the_workspace() -> None:
+    """Not the build's own parent, which is where this message used to send people.
+
+    ``ng build`` writes ``<workspace>/dist/<project>/browser``, so two levels up is
+    ``ui/dist`` -- a directory that exists only once the build being asked for has
+    already succeeded. The one npm install is run in is ``ui``, and it is named
+    only because it really is there.
+    """
+    workspace = _workspace_for(DEFAULT_UI_DIR)
+
+    assert (workspace / "package.json").is_file(), "the directory npm install needs"
+    assert (workspace / "angular.json").is_file(), "...and npm run build"
+
+
+def test_a_ui_dir_with_no_workspace_above_it_names_itself(tmp_path: Path) -> None:
+    """A --ui-dir pointing elsewhere has no workspace above it in any knowable
+    place, and inventing one sends the reader to a directory that does not exist."""
+    assert _workspace_for(tmp_path) == tmp_path
+
+    with serving(tmp_path) as server:
+        status, payload = get(f"{server}/")
+
+    assert status == 503
+    assert str(tmp_path) in payload["error"]
+    assert "--ui-dir" in payload["error"]
+
+
 def test_the_app_is_served_and_owns_its_own_routes(tmp_path: Path) -> None:
     """Including the content types: a .js served as text/plain is a blank page."""
     (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
@@ -904,6 +948,37 @@ def test_a_port_that_cannot_be_bound_is_reported_not_raised(monkeypatch) -> None
 
     monkeypatch.setattr("buy_agent.server.create_server", refuse)
     assert main(["--port", "8000"]) == 1
+
+
+def test_the_port_a_model_server_also_wants_is_named_in_the_refusal(
+    monkeypatch, caplog
+) -> None:
+    """vLLM's own default is http://localhost:8000/v1 and this server's default
+    port is 8000, so the two collide on exactly the machine that runs both --
+    and "Address already in use" says nothing about a model server."""
+
+    def refuse(*args, **kwargs):
+        raise OSError("Address already in use")
+
+    monkeypatch.setattr("buy_agent.server.create_server", refuse)
+
+    with caplog.at_level(logging.ERROR, logger="buy_agent.server"):
+        main(["--port", "8000"])
+
+    assert "vLLM" in caplog.text
+    assert "--port 8001" in caplog.text
+
+
+def test_a_port_nobody_else_claims_is_refused_without_the_aside(monkeypatch, caplog) -> None:
+    def refuse(*args, **kwargs):
+        raise OSError("Address already in use")
+
+    monkeypatch.setattr("buy_agent.server.create_server", refuse)
+
+    with caplog.at_level(logging.ERROR, logger="buy_agent.server"):
+        main(["--port", "8123"])
+
+    assert "vLLM" not in caplog.text
 
 
 class FakeHttpd:
@@ -976,6 +1051,31 @@ def test_naming_the_host_turns_the_check_back_on(monkeypatch, tmp_path: Path, ca
 
     assert captured["allowed_hosts"] == frozenset({"buy.lan"})
     assert "--allowed-host" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("bind", "expected"),
+    [
+        ("127.0.0.1", "http://127.0.0.1:8000"),
+        # An address to listen on rather than one to visit, and a browser given it
+        # has nowhere to go; ::1 needs the brackets an address bar reads it by.
+        ("0.0.0.0", "http://127.0.0.1:8000"),  # noqa: S104
+        ("::", "http://[::1]:8000"),
+        ("::1", "http://[::1]:8000"),
+    ],
+)
+def test_the_url_it_prints_is_one_a_browser_can_open(
+    monkeypatch, tmp_path: Path, caplog, bind: str, expected: str
+) -> None:
+    class Bound(FakeHttpd):
+        server_address = (bind, 8000)
+
+    monkeypatch.setattr("buy_agent.server.create_server", lambda *a, **k: Bound())
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.server"):
+        main(["--host", bind, "--ui-dir", str(tmp_path)])
+
+    assert expected in caplog.text
 
 
 def test_a_built_ui_is_not_warned_about(monkeypatch, tmp_path: Path, caplog) -> None:

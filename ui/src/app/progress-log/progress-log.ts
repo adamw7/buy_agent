@@ -22,15 +22,38 @@ export class ProgressLog {
 
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
 
+  /** Whether new lines should pull the panel down with them. A plain field and
+   *  not a signal: it is read by the effect that scrolls, and as a signal it
+   *  would be a dependency of its own writes. */
+  private sticking = true;
+
   constructor() {
-    // Follow the tail, the way a terminal does.
+    // Follow the tail, the way a terminal does -- but only while the reader is
+    // still at the tail. A run logs for a minute, so scrolling up to re-read the
+    // refined query used to last until the next line arrived and yanked the panel
+    // back down; there is no reading a finished step out of a live run that way.
     effect(() => {
       this.lines();
       const element = this.scroller()?.nativeElement;
-      if (element) {
+      if (element && this.sticking) {
         element.scrollTop = element.scrollHeight;
       }
     });
+  }
+
+  /**
+   * Take the reader's position as the answer to "keep following?".
+   *
+   * Scrolled back up, they are reading something and new lines must not move it;
+   * scrolled to the bottom -- including by this component's own scrolling, which
+   * fires this too -- they are watching the run and the tail should follow.
+   */
+  protected follow(event: Event): void {
+    // The element that scrolled, rather than the view query: it is the panel
+    // either way, and an event has one where a query may not have resolved yet.
+    const element = event.target as HTMLElement;
+    const fromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+    this.sticking = fromBottom <= STICK_MARGIN;
   }
 
   protected shortName(logger: string): string {
@@ -57,6 +80,11 @@ export class ProgressLog {
   }
 }
 
+/** How near the bottom still counts as being at it: a line's height, so a panel
+ *  a pixel or two off the end -- which a fractional scroll position leaves it --
+ *  is not read as someone having deliberately scrolled away. */
+const STICK_MARGIN = 24;
+
 /**
  * The run as a file: the lines the panel shows, and the error that ended it.
  *
@@ -65,11 +93,14 @@ export class ProgressLog {
  * the file will want, so it is written where the run stopped.
  *
  * Logger names are kept whole here, unlike on screen: the fixed column is worth
- * trimming a prefix for, a bug report is not.
+ * trimming a prefix for, a bug report is not. Each line keeps the time Python
+ * logged it at, which is what says where a slow run spent its minutes.
  */
 export function transcript(lines: LogLine[], failure: string | null, when: Date): string {
   const body = lines.length
-    ? lines.map((line) => `${line.level.padEnd(8)} ${line.logger.padEnd(22)} ${line.message}`)
+    ? lines.map(
+        (line) => `${line.time} ${line.level.padEnd(8)} ${line.logger.padEnd(22)} ${line.message}`,
+      )
     : ['(the run produced no log lines)'];
   return [
     `buy_agent run — ${when.toISOString()}`,
