@@ -237,7 +237,7 @@ which fields only qualify another and `_fill_gaps` moves the group.
 | --- | --- |
 | `agent.py` | `BuyAgent.run()` -- orchestrates the pipeline, translates model-server errors |
 | `extraction.py` | Both prompts, both chains, name cleaning, deduplication |
-| `fetch.py` | Fetches result pages, keeps the lines quoting a figure or passing judgement |
+| `fetch.py` | Fetches result pages, keeps the lines quoting a figure or passing judgement, and tallies how the rest failed |
 | `verification.py` | Drops products, figures and quotes absent from the sources; links what is left |
 | `ranking.py` | Scoring and sorting; no LLM involved |
 | `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain) |
@@ -610,16 +610,16 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 890 tests
+to EOF instead -- what it checks is that nothing follows the reply. 915 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 890 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 890 collect but 13 of the 17
-in `tests/test_start_script.py` skip, so the summary reads `877 passed, 13
+is reaching out. 915 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 915 collect but 13 of the 17
+in `tests/test_start_script.py` skip, so the summary reads `902 passed, 13
 skipped` -- nothing is missing, and the four that still run are the ones reading
 the script as text rather than through the probe. The UI's 83 tests
 run in about two seconds, most of which is building the app first. The 19 in

@@ -117,7 +117,7 @@ graph TB
         extraction["<b>Extraction</b><br/><i>[Component: extraction.py]</i><br/>Both prompts and both chains,<br/>plus name cleaning and merging<br/>of variant names"]
         search["<b>Search</b><br/><i>[Component: search.py]</i><br/>DuckDuckGo wrapper; raises<br/>SearchError on a rate limit"]
         sources["<b>Sources</b><br/><i>[Component: sources.py]</i><br/>Reads a trusted source down to a<br/>domain and a term, narrows the<br/>query to it, and says whether a<br/>result came from it"]
-        fetch["<b>Fetch</b><br/><i>[Component: fetch.py]</i><br/>Fetches result pages in parallel and<br/>keeps the lines quoting a figure and<br/>the lines passing judgement, each<br/>on a budget of its own"]
+        fetch["<b>Fetch</b><br/><i>[Component: fetch.py]</i><br/>Fetches result pages in parallel and<br/>keeps the lines quoting a figure and<br/>the lines passing judgement, each<br/>on a budget of its own; tallies how<br/>the pages that yielded nothing failed"]
         verification["<b>Verification</b><br/><i>[Component: verification.py]</i><br/>Drops products the sources never<br/>named, blanks any figure and any<br/>quote the page text does not<br/>contain, and links each product<br/>to the page naming it"]
         ranking["<b>Ranking</b><br/><i>[Component: ranking.py]</i><br/>Weighted score over rating,<br/>popularity and price. No LLM"]
         models["<b>Models</b><br/><i>[Component: models.py]</i><br/>ExtractedProduct (sentinels, for the<br/>LLM's schema) vs Product (None)"]
@@ -180,6 +180,15 @@ together as "129.00 EUR" (ADR-0022).
 Extraction and verification must be handed the *same* text, which is why
 `fetch.enrich()` puts the condensed page content on `SearchResult` rather than
 passing it alongside.
+
+Step 3 also says how it went, because grounding downstream blanks every figure
+the pages did not back: a run whose fetches all failed reports "price unknown"
+for everything, which reads as a bad model rather than as nothing having been
+read. So the tally names the *kinds* of failure and counts them -- "Got usable
+page text from 0 of 10 result(s): 7 refused (403), 2 timed out, 1 quoted no
+prices and no verdicts" -- one line at INFO, which is what the browser's progress
+panel relays, with the per-URL reasons left at DEBUG where they were. Nothing
+read at all is a warning rather than another step of the narration.
 
 Step 2 is one search, unless the shopper named the sources the facts should come
 from -- `site:` takes one domain at a time, so each source is searched for
