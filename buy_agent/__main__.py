@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, get_args
 
 from buy_agent.agent import BuyAgent, ModelUnavailableError
-from buy_agent.config import LIMITS, AgentConfig
+from buy_agent.config import LIMITS, AgentConfig, parse_region
 from buy_agent.logging_setup import configure_logging
 from buy_agent.providers import PROVIDERS
 from buy_agent.ranking import SortBy
@@ -88,6 +88,21 @@ def _source(spec: str) -> str:
     return spec
 
 
+def _region(spec: str) -> str:
+    """``--region`` as argparse takes it: checked here, and lower-cased.
+
+    Checked here for the reason :func:`_source` is -- a usage error naming the
+    shape is what argparse throws away otherwise, and the shape is the whole
+    message. Checked *at all* because this is the one search setting that fails
+    quietly: a region no engine knows returns nothing, which reads on screen as
+    the web having nothing to say about what you want to buy (ADR-0031).
+    """
+    try:
+        return parse_region(spec)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="buy_agent",
@@ -153,7 +168,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Ranking criterion (default: score, a blend of rating, reviews and price).",
     )
     parser.add_argument(
-        "--region", default=_DEFAULTS.region, help="Search region, e.g. us-en, uk-en, pl-pl."
+        "--region",
+        type=_region,
+        default=_DEFAULTS.region,
+        help="Search region: a country and then a language, hyphenated (default: "
+        f"{_DEFAULTS.region}; also uk-en, pl-pl). Anything else is a usage error, "
+        "since a region no search engine knows returns nothing at all.",
     )
     parser.add_argument(
         "--source",

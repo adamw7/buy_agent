@@ -142,6 +142,33 @@ def test_no_search_results_yields_no_products(
     assert "Search returned nothing" in caplog.text
 
 
+def test_a_search_that_found_nothing_names_a_region_worth_suspecting(
+    agent_factory, extracted_products, caplog
+) -> None:
+    """``en-us`` is the right shape the wrong way round, so it survives both front
+    doors and comes back empty. The warning is the only place left to say so."""
+    agent, _ = agent_factory(FakeLLM(products=extracted_products), [], region="en-us")
+
+    with caplog.at_level(logging.WARNING):
+        assert agent.run("obscure thing") == []
+
+    assert "region en-us" in caplog.text
+    assert "us-en" in caplog.text, "the shape is no use without a code that has it"
+
+
+def test_the_default_region_is_not_blamed_for_an_empty_search(
+    agent_factory, extracted_products, caplog
+) -> None:
+    """It is the one value known to work; naming it would send a shopper off to
+    correct a setting that is correct."""
+    agent, _ = agent_factory(FakeLLM(products=extracted_products), [])
+
+    with caplog.at_level(logging.WARNING):
+        agent.run("obscure thing")
+
+    assert "region" not in caplog.text
+
+
 def test_no_extractable_products_yields_no_products(
     agent_factory, search_results, caplog
 ) -> None:

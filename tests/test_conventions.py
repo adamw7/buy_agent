@@ -60,7 +60,7 @@ from buy_agent.api import (
     product_payload,
     run_search,
 )
-from buy_agent.config import LIMITS, AgentConfig
+from buy_agent.config import LIMITS, AgentConfig, parse_region
 from buy_agent.providers import PROVIDERS, provider_options
 from buy_agent.models import Product, RankedProduct
 from buy_agent.ranking import SortBy
@@ -260,6 +260,29 @@ def test_a_run_of_the_defaults_is_inside_every_range() -> None:
     for field, (minimum, maximum) in LIMITS.items():
         value = getattr(defaults, field)
         assert value is None or minimum <= value <= maximum, field
+
+
+# -- the shape a region is held to ---------------------------------------------
+
+
+@pytest.mark.parametrize("typo", ["us_en", "en", "us-en-x", "united states"])
+def test_both_front_doors_refuse_the_same_regions(typo: str) -> None:
+    """The other half of the rule ``LIMITS`` carries for the numbers: a shape
+    checked on one door only is a CLI that searches on what the API refuses --
+    and this one fails by returning nothing, so it would look like the web.
+    """
+    with pytest.raises(ApiError):
+        parse_options({"region": typo})
+    with pytest.raises(SystemExit):
+        cli_main(["headphones", "--region", typo])
+
+
+def test_the_default_region_is_one_both_front_doors_take() -> None:
+    """A default the doors refuse is one nobody could ask for either."""
+    region = AgentConfig().region
+
+    assert parse_region(region) == region
+    assert parse_options({"region": region})[0].region == region
 
 
 # -- the payloads the browser is typed against ---------------------------------

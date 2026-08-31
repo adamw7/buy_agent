@@ -16,7 +16,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, TypeVar, get_args
 
 from buy_agent.agent import BuyAgent, ModelUnavailableError
-from buy_agent.config import LIMITS, AgentConfig
+from buy_agent.config import LIMITS, AgentConfig, parse_region
 from buy_agent.providers import PROVIDERS, provider_options
 from buy_agent.ranking import SortBy
 from buy_agent.search import SearchError
@@ -112,7 +112,7 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         search_results=max(num_products, top_n),
         num_products=num_products,
         top_n=top_n,
-        region=_read(data, "region", defaults.region, _as_text),
+        region=_read(data, "region", defaults.region, _as_region),
         sources=_read_sources(data, defaults.sources),
         fetch_pages=_read(data, "fetch", defaults.fetch_pages, _as_bool),
     )
@@ -268,6 +268,20 @@ def _read(
 def _as_text(_key: str, text: str) -> str:
     """Stripped text, which every string option already is."""
     return text
+
+
+def _as_region(_key: str, text: str) -> str:
+    """A region code, checked for shape the way a source is checked for a site.
+
+    A 400 naming the shape, rather than a run that searches on it and reports
+    that the web had nothing to say: this is the one setting a typo makes look
+    like an empty web (ADR-0031). The message quotes the value and the shapes
+    that work, so the field it came from needs no naming.
+    """
+    try:
+        return parse_region(text)
+    except ValueError as exc:
+        raise ApiError(str(exc)) from exc
 
 
 def _as_bool(key: str, text: str) -> bool:

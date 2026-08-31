@@ -92,6 +92,29 @@ def test_options_reach_the_config() -> None:
     assert sort_by == "price"
 
 
+# -- the region, which is the one option a typo makes look like an empty web ---
+
+
+def test_a_region_that_is_not_a_region_is_a_400_saying_what_is() -> None:
+    """A form field with no closed set behind it, so the refusal carries the shape
+    -- otherwise the run comes back "search returned nothing" (ADR-0031)."""
+    with pytest.raises(ApiError) as failure:
+        parse_options({"region": "en_us"})
+
+    assert failure.value.status == 400
+    assert "us-en" in str(failure.value)
+
+
+def test_a_region_is_lower_cased_the_way_the_CLI_lower_cases_it() -> None:
+    assert parse_options({"region": "PL-PL"})[0].region == "pl-pl"
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_region_field_is_the_default_region(blank: str) -> None:
+    """A cleared field means "unset", not "search nowhere"."""
+    assert parse_options({"region": blank})[0].region == AgentConfig().region
+
+
 # -- the sources, which are the one option that is a list ----------------------
 
 
