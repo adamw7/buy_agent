@@ -10,6 +10,10 @@ answers in one JSON response -- the shape scripts want. ``GET
 ``result`` or ``failure``), which is what the UI uses, since a run takes tens of
 seconds and the browser should show the progress the CLI prints.
 
+``GET /api/sources`` is the one endpoint that runs nothing: it reads a Trusted
+sources field the way a run would and says what is wrong with it, so the form can
+refuse ``Marques Brownlee`` before opening a stream (ADR-0033).
+
 Everything outside ``/api`` is the built Angular app, with unknown paths falling
 back to ``index.html`` so the single-page app keeps its own routing. Both are
 guarded by :meth:`BuyAgentHandler._admits`, because a server on loopback is
@@ -39,6 +43,7 @@ from buy_agent.api import (
     installed_models,
     parse_options,
     run_search,
+    sources_payload,
 )
 from buy_agent.config import DEFAULT_PROVIDER
 from buy_agent.logging_setup import configure_logging
@@ -261,6 +266,10 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             self._send_json(200, defaults_payload())
         elif url.path == "/api/models":
             self._send_json(200, self._models(params))
+        elif url.path == "/api/sources":
+            # 200 whatever it holds: what was asked is whether this parses, and
+            # that question was answered (ADR-0033).
+            self._send_json(200, sources_payload(params.get("sources", "")))
         elif url.path == "/api/search/stream":
             self._stream_search(params)
         elif url.path.startswith("/api/"):

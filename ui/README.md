@@ -36,13 +36,13 @@ npm test                              # vitest, in jsdom -- no browser needed
 | File | Responsibility |
 | --- | --- |
 | `src/app/app.ts` | The page: holds the run's state and stitches the three components together |
-| `src/app/agent.ts` | The API: `/api/config`, `/api/models`, and the event stream |
+| `src/app/agent.ts` | The API: `/api/config`, `/api/models`, `/api/sources`, and the event stream |
 | `src/app/agent.types.ts` | The shapes the Python API answers with |
 | `src/app/search-form/` | What to buy, plus the settings the CLI takes as flags |
 | `src/app/progress-log/` | The agent's own log lines, as they arrive |
 | `src/app/product-card/` | One ranked product |
 
-Two things are worth knowing before changing it:
+Three things are worth knowing before changing it:
 
 - **A run is streamed, not requested.** A search takes tens of seconds, so
   `AgentService.search()` opens an `EventSource` against `/api/search/stream`
@@ -56,3 +56,11 @@ Two things are worth knowing before changing it:
   `rating_label` alongside the raw numbers so this app never has to reinvent
   them. Sorting is a request parameter, not a client-side re-sort, for the same
   reason.
+- **The form refuses a bad setting before the run, on the server's rules**
+  ([ADR-0033](../docs/adr/0033-let-the-form-refuse-what-the-server-would.md)).
+  The ranges arrive with `/api/config` and are bound into the number fields, so
+  there is no second copy of `config.LIMITS` here; a trusted source is not a
+  range, so the field asks `/api/sources` when it is left and shows the sentence
+  that comes back. Anything the page cannot judge -- a region's shape -- is still
+  refused by the server, and the `failure` event names the field so the box gets
+  marked rather than just the banner.

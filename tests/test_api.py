@@ -12,11 +12,13 @@ from buy_agent.api import (
     ApiError,
     defaults_payload,
     installed_models,
+    limits_payload,
     parse_options,
     product_payload,
     run_search,
+    sources_payload,
 )
-from buy_agent.config import AgentConfig
+from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.models import Product, RankedProduct
 from buy_agent.providers import VLLM
 from buy_agent.search import SearchError
@@ -295,6 +297,87 @@ def test_the_rejection_names_the_field() -> None:
         parse_options({"num_ctx": "wide"})
 
 
+@pytest.mark.parametrize(
+    ("data", "field"),
+    [
+        ({"results": 51}, "results"),
+        ({"top": 0}, "top"),
+        ({"temperature": 9}, "temperature"),
+        ({"num_ctx": "wide"}, "num_ctx"),
+        ({"think": "maybe"}, "think"),
+        ({"fetch": "sometimes"}, "fetch"),
+        ({"sort_by": "cheapness"}, "sort_by"),
+        ({"provider": "llama.cpp"}, "provider"),
+        ({"region": "en_US"}, "region"),
+        ({"sources": "Marques Brownlee"}, "sources"),
+    ],
+)
+def test_a_refusal_carries_the_field_it_was_about(data: dict, field: str) -> None:
+    """Which box the sentence belongs under is answered here rather than read
+    back out of the message: the browser marks that input instead of leaving a
+    banner to be read against ten settings (ADR-0033)."""
+    with pytest.raises(ApiError) as excinfo:
+        parse_options(data)
+
+    assert excinfo.value.field == field
+    assert excinfo.value.payload() == {"error": str(excinfo.value), "field": field}
+
+
+# -- the ranges the form is shipped --------------------------------------------
+
+
+def test_the_limits_are_the_ones_both_doors_hold_a_request_to() -> None:
+    """Shipped off ``config.LIMITS``, so the form cannot come to offer a number
+    the API refuses -- which is the whole reason it is sent rather than written
+    into the template."""
+    limits = limits_payload()
+
+    assert limits["results"] == {"min": LIMITS["num_products"][0], "max": LIMITS["num_products"][1]}
+    assert limits["top"] == {"min": LIMITS["top_n"][0], "max": LIMITS["top_n"][1]}
+    assert limits["temperature"] == {"min": 0, "max": 2}
+    assert set(limits) == {"results", "top", "temperature", "num_ctx"}
+
+
+def test_every_shipped_range_is_one_a_request_is_actually_held_to() -> None:
+    """A range on the form that nothing enforced would be a promise, not a rule."""
+    for key, limit in limits_payload().items():
+        for outside in (limit["min"] - 1, limit["max"] + 1):
+            with pytest.raises(ApiError) as excinfo:
+                parse_options({key: outside})
+            assert excinfo.value.field == key
+
+
+def test_the_form_defaults_carry_the_ranges() -> None:
+    assert defaults_payload()["limits"] == limits_payload()
+
+
+# -- the sources check, which is the one rule the form cannot apply itself ------
+
+
+def test_a_field_naming_sources_has_nothing_wrong_with_it() -> None:
+    assert sources_payload("rtings.com @mkbhd") == {"sources": "rtings.com @mkbhd", "error": ""}
+
+
+def test_an_empty_field_is_the_whole_web_and_fine() -> None:
+    assert sources_payload("") == {"sources": "", "error": ""}
+
+
+def test_a_field_naming_a_person_is_answered_with_the_sentence_the_CLI_prints() -> None:
+    """The same `parse_sources` a run would have used, so the page never grows a
+    second idea of what a source is."""
+    answer = sources_payload("Marques Brownlee")
+
+    assert answer["sources"] == "Marques Brownlee"
+    assert "does not name a source" in answer["error"]
+    assert "@mkbhd" in answer["error"]
+
+
+def test_the_answer_names_the_spec_it_was_about() -> None:
+    """The field is typed into while the answer is in flight, and an answer about
+    text since typed over must not be shown against what replaced it."""
+    assert sources_payload("  rtings.com  ")["sources"] == "  rtings.com  "
+
+
 # -- run_search ----------------------------------------------------------------
 
 
@@ -357,7 +440,9 @@ def test_each_failure_gets_the_status_it_deserves(error: Exception, status: int)
     with pytest.raises(ApiError) as excinfo:
         run_search("headphones", AgentConfig(), agent_factory=captured["factory"])
     assert excinfo.value.status == status
-    assert excinfo.value.payload() == {"error": str(error)}
+    # No field: a model server that did not answer is nothing a form could have
+    # refused, so there is no box for the page to mark.
+    assert excinfo.value.payload() == {"error": str(error), "field": None}
 
 
 # -- the rest ------------------------------------------------------------------

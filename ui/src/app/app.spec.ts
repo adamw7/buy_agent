@@ -9,6 +9,7 @@ import type {
   ModelStatus,
   SearchEvent,
   SearchResult,
+  SourcesCheck,
 } from './agent.types';
 
 const DEFAULTS: AgentDefaults = {
@@ -41,6 +42,12 @@ const DEFAULTS: AgentDefaults = {
   fetch: true,
   sort_by: 'score',
   sort_options: ['score', 'price', 'rating'],
+  limits: {
+    results: { min: 1, max: 50 },
+    top: { min: 1, max: 50 },
+    temperature: { min: 0, max: 2 },
+    num_ctx: { min: 1, max: 1_000_000 },
+  },
 };
 
 const STATUS: ModelStatus = {
@@ -82,6 +89,8 @@ class FakeAgent {
   modelsResponse: Observable<ModelStatus> = of(STATUS);
   searched: unknown[] = [];
   modelsAsked: ModelSource[] = [];
+  sourcesAsked: string[] = [];
+  sourcesResponse = (sources: string): Observable<SourcesCheck> => of({ sources, error: '' });
   unsubscribed = false;
 
   defaults() {
@@ -91,6 +100,11 @@ class FakeAgent {
   models(source: ModelSource) {
     this.modelsAsked.push(source);
     return this.modelsResponse;
+  }
+
+  checkSources(sources: string) {
+    this.sourcesAsked.push(sources);
+    return this.sourcesResponse(sources);
   }
 
   search(options: unknown): Observable<SearchEvent> {
@@ -294,7 +308,12 @@ describe('App', () => {
     const fixture = await render();
     const page = fixture.nativeElement as HTMLElement;
     await searchFor(fixture, 'kettle');
-    agent.stream.next({ kind: 'failure', message: 'Start it with: ollama serve', status: 503 });
+    agent.stream.next({
+      kind: 'failure',
+      message: 'Start it with: ollama serve',
+      status: 503,
+      field: null,
+    });
     agent.stream.complete();
     await fixture.whenStable();
 
@@ -331,6 +350,80 @@ describe('App', () => {
 
     expect(page.querySelector('.banner')!.textContent).toContain('Lost the connection');
     expect(page.querySelector('button[type="submit"]')).not.toBeNull();
+  });
+
+  it('marks the field a refused run names, rather than only the banner', async () => {
+    /* A value the page has no rule of its own for -- a region of the wrong shape
+       -- still comes back named, and the box it came out of is where the sentence
+       means something. */
+    const fixture = await render();
+    const page = fixture.nativeElement as HTMLElement;
+    await searchFor(fixture, 'kettle');
+
+    agent.stream.next({
+      kind: 'failure',
+      message: "'en-US' is not a search region.",
+      status: 400,
+      field: 'region',
+    });
+    agent.stream.complete();
+    await fixture.whenStable();
+
+    expect(page.querySelector('input[name="region"]')!.classList).toContain('invalid');
+    expect(page.querySelector('.field .problem')!.textContent).toContain('not a search region');
+    expect(page.querySelector('.banner')!.textContent).toContain('not a search region');
+  });
+
+  it('drops the mark when the next run starts', async () => {
+    /* The field was refused for what was sent, not for what is in it now. */
+    const fixture = await render();
+    const page = fixture.nativeElement as HTMLElement;
+    await searchFor(fixture, 'kettle');
+    agent.stream.next({
+      kind: 'failure',
+      message: "'en-US' is not a search region.",
+      status: 400,
+      field: 'region',
+    });
+    agent.stream.complete();
+    await fixture.whenStable();
+
+    await searchFor(fixture, 'kettle again');
+
+    expect(page.querySelector('.problem')).toBeNull();
+  });
+
+  it('asks the server what a trusted source is, and shows what it said', async () => {
+    /* The parse is Python's, so the page asks rather than keeping a copy of it. */
+    agent.sourcesResponse = (sources) =>
+      of({ sources, error: "'Marques' does not name a source." });
+    const fixture = await render();
+    const page = fixture.nativeElement as HTMLElement;
+
+    const field = page.querySelector<HTMLInputElement>('input[name="sources"]')!;
+    field.value = 'Marques Brownlee';
+    field.dispatchEvent(new Event('input'));
+    field.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    expect(agent.sourcesAsked).toContain('Marques Brownlee');
+    expect(page.querySelector('.problem')!.textContent).toContain('does not name a source');
+    expect(page.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
+  });
+
+  it('leaves the field alone when the agent server is the one that did not answer', async () => {
+    /* Nothing came back to judge it with, and the banner already says why. */
+    agent.sourcesResponse = () => throwError(() => new Error('down'));
+    const fixture = await render();
+    const page = fixture.nativeElement as HTMLElement;
+
+    const field = page.querySelector<HTMLInputElement>('input[name="sources"]')!;
+    field.value = 'rtings.com';
+    field.dispatchEvent(new Event('input'));
+    field.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    expect(page.querySelector('.problem')).toBeNull();
   });
 
   it('stops a run by closing the stream', async () => {

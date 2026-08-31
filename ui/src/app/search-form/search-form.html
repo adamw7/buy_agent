@@ -78,8 +78,19 @@
 
       <label class="field">
         <span>Region</span>
-        <input name="region" placeholder="us-en" [(ngModel)]="region" [disabled]="running()" />
-        <small>A country, then a language: us-en, uk-en, pl-pl.</small>
+        <input
+          name="region"
+          placeholder="us-en"
+          [(ngModel)]="region"
+          [disabled]="running()"
+          [class.invalid]="notes()['region']"
+          [attr.aria-invalid]="notes()['region'] ? true : null"
+        />
+        @if (notes()['region']; as problem) {
+          <small class="problem" role="alert">{{ problem }}</small>
+        } @else {
+          <small>A country, then a language: us-en, uk-en, pl-pl.</small>
+        }
       </label>
 
       <label class="field wide">
@@ -89,8 +100,15 @@
           placeholder="rtings.com @mkbhd"
           [(ngModel)]="sources"
           [disabled]="running()"
+          [class.invalid]="notes()['sources']"
+          [attr.aria-invalid]="notes()['sources'] ? true : null"
+          (change)="sourcesChanged()"
         />
-        <small>Leave empty to search the whole web.</small>
+        @if (notes()['sources']; as problem) {
+          <small class="problem" role="alert">{{ problem }}</small>
+        } @else {
+          <small>Leave empty to search the whole web.</small>
+        }
       </label>
 
       <label class="field">
@@ -98,16 +116,33 @@
         <input
           name="results"
           type="number"
-          min="1"
-          max="50"
+          [min]="limits()['results']?.min"
+          [max]="limits()['results']?.max"
           [(ngModel)]="results"
           [disabled]="running()"
+          [class.invalid]="notes()['results']"
+          [attr.aria-invalid]="notes()['results'] ? true : null"
         />
+        @if (notes()['results']; as problem) {
+          <small class="problem" role="alert">{{ problem }}</small>
+        }
       </label>
 
       <label class="field">
         <span>Products to highlight</span>
-        <input name="top" type="number" min="1" max="50" [(ngModel)]="top" [disabled]="running()" />
+        <input
+          name="top"
+          type="number"
+          [min]="limits()['top']?.min"
+          [max]="limits()['top']?.max"
+          [(ngModel)]="top"
+          [disabled]="running()"
+          [class.invalid]="notes()['top']"
+          [attr.aria-invalid]="notes()['top'] ? true : null"
+        />
+        @if (notes()['top']; as problem) {
+          <small class="problem" role="alert">{{ problem }}</small>
+        }
       </label>
 
       <label class="field">
@@ -124,12 +159,17 @@
         <input
           name="temperature"
           type="number"
-          min="0"
-          max="2"
+          [min]="limits()['temperature']?.min"
+          [max]="limits()['temperature']?.max"
           step="0.1"
           [(ngModel)]="temperature"
           [disabled]="running()"
+          [class.invalid]="notes()['temperature']"
+          [attr.aria-invalid]="notes()['temperature'] ? true : null"
         />
+        @if (notes()['temperature']; as problem) {
+          <small class="problem" role="alert">{{ problem }}</small>
+        }
       </label>
 
       <label class="field">
@@ -137,12 +177,17 @@
         <input
           name="numCtx"
           type="number"
-          min="1"
+          [min]="limits()['num_ctx']?.min"
+          [max]="limits()['num_ctx']?.max"
           [placeholder]="numCtxHint()"
           [(ngModel)]="numCtx"
           [disabled]="running() || !takesNumCtx()"
+          [class.invalid]="notes()['num_ctx']"
+          [attr.aria-invalid]="notes()['num_ctx'] ? true : null"
         />
-        @if (takesNumCtx()) {
+        @if (notes()['num_ctx']; as problem) {
+          <small class="problem" role="alert">{{ problem }}</small>
+        } @else if (takesNumCtx()) {
           <small>Thinking models need the room to answer; the default leaves it.</small>
         } @else {
           <small

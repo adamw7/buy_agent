@@ -71,7 +71,7 @@ graph TB
     shopper -->|"types a request<br/>[terminal]"| cli
     shopper -->|"visits localhost:8000<br/>[HTTPS/HTTP]"| spa
 
-    spa -->|"GET /api/config, /api/models<br/>POST /api/search<br/>GET /api/search/stream (SSE)<br/>[JSON over HTTP]"| server
+    spa -->|"GET /api/config, /api/models, /api/sources<br/>POST /api/search<br/>GET /api/search/stream (SSE)<br/>[JSON over HTTP]"| server
     server -->|"serves index.html and assets<br/>[HTTP]"| spa
     cli -->|"calls run()"| pipeline
     server -->|"runs a search in a worker thread,<br/>relays its log records"| pipeline
@@ -225,7 +225,7 @@ graph TB
 
     subgraph spa["Web UI [Angular]"]
         app["<b>App</b><br/><i>[Component: app.ts]</i><br/>Holds the run's state in signals;<br/>splits the answer into the top N<br/>and the rest"]
-        form["<b>SearchForm</b><br/><i>[Component: search-form]</i><br/>The request and every option,<br/>seeded from /api/config"]
+        form["<b>SearchForm</b><br/><i>[Component: search-form]</i><br/>The request and every option,<br/>seeded from /api/config,<br/>and refused here first"]
         log["<b>ProgressLog</b><br/><i>[Component: progress-log]</i><br/>The agent's own log lines,<br/>as they arrive"]
         card["<b>ProductCard</b><br/><i>[Component: product-card]</i><br/>One ranked product, rendered<br/>from the labels the API sent"]
         agentsvc["<b>AgentService</b><br/><i>[Component: agent.ts]</i><br/>HttpClient for the JSON endpoints;<br/>wraps EventSource as an Observable,<br/>so unsubscribing is the Stop button"]
@@ -246,7 +246,7 @@ graph TB
     app --> card
     app -->|"search(options)"| agentsvc
     agentsvc -->|"GET /api/search/stream<br/>[SSE: log, result, failure, ping]"| handler
-    agentsvc -->|"GET /api/config, /api/models<br/>POST /api/search<br/>[JSON]"| handler
+    agentsvc -->|"GET /api/config, /api/models, /api/sources<br/>POST /api/search<br/>[JSON]"| handler
 
     handler -->|"before any routing"| guard
     handler -->|"parse_options, run_search"| api

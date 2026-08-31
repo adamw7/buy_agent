@@ -140,10 +140,40 @@ describe('AgentService', () => {
       error: (error) => (failed = error),
     });
 
-    FakeEventSource.last!.send('failure', { error: 'ollama serve', status: 503 });
+    FakeEventSource.last!.send('failure', { error: 'ollama serve', status: 503, field: null });
 
-    expect(seen).toEqual([{ kind: 'failure', message: 'ollama serve', status: 503 }]);
+    expect(seen).toEqual([{ kind: 'failure', message: 'ollama serve', status: 503, field: null }]);
     expect(failed).toBeNull();
+  });
+
+  it('carries the field a refused value came out of, where Python named one', () => {
+    /* Which box the sentence belongs under is Python's answer, not one read back
+       out of the message (ADR-0033). */
+    const seen: SearchEvent[] = [];
+    service.search({ request: 'kettle' }).subscribe((event) => seen.push(event));
+
+    FakeEventSource.last!.send('failure', {
+      error: 'results must be between 1 and 50; got 51.',
+      status: 400,
+      field: 'results',
+    });
+
+    expect(seen[0]).toMatchObject({ kind: 'failure', field: 'results' });
+  });
+
+  it('asks the server what a trusted sources field holds', () => {
+    /* Rather than parsing a source in TypeScript, which is the drift ADR-0031
+       refused for the region. */
+    let answered = '';
+    service.checkSources('Marques Brownlee').subscribe((check) => (answered = check.error));
+
+    const http = TestBed.inject(HttpTestingController);
+    const asked = http.expectOne((request) => request.url === '/api/sources');
+    expect(asked.request.params.get('sources')).toBe('Marques Brownlee');
+
+    asked.flush({ sources: 'Marques Brownlee', error: "'Marques' does not name a source." });
+    expect(answered).toContain('does not name a source');
+    http.verify();
   });
 
   it('turns a dropped connection into an error instead of silently restarting', () => {

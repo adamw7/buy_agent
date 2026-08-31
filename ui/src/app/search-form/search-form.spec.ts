@@ -34,6 +34,12 @@ const DEFAULTS: AgentDefaults = {
   fetch: true,
   sort_by: 'score',
   sort_options: ['score', 'price', 'rating'],
+  limits: {
+    results: { min: 1, max: 50 },
+    top: { min: 1, max: 50 },
+    temperature: { min: 0, max: 2 },
+    num_ctx: { min: 1, max: 1_000_000 },
+  },
 };
 
 describe('SearchForm', () => {
@@ -92,6 +98,19 @@ describe('SearchForm', () => {
       (option) => (option as HTMLOptionElement).textContent ?? '',
     );
 
+  /** The submit button, which is where a field the server would refuse shows up. */
+  const submit = () => element<HTMLButtonElement>('button[type="submit"]');
+
+  /** What is said under the field with this name, if anything is. */
+  const problem = (name: string): string =>
+    element(`input[name="${name}"]`).closest('label')!.querySelector('.problem')?.textContent ?? '';
+
+  /** Tell the form what the server made of the sources it was asked about. */
+  const checked = async (sources: string, error: string) => {
+    fixture.componentRef.setInput('checked', { sources, error });
+    await fixture.whenStable();
+  };
+
   beforeEach(async () => {
     localStorage.clear();
     submitted = [];
@@ -125,6 +144,129 @@ describe('SearchForm', () => {
     expect(element<HTMLButtonElement>('button[type="submit"]').disabled).toBe(true);
     await type('input[name="request"]', '  ');
     expect(element<HTMLButtonElement>('button[type="submit"]').disabled).toBe(true);
+  });
+
+  it('holds a number to the range the server shipped, before a run starts', async () => {
+    /* The server refuses 51 products; finding that out costs a stream, a
+       progress panel and an error banner, and the range was on the page all
+       along (ADR-0033). */
+    await type('input[name="request"]', 'kettle');
+    await type('input[name="results"]', '51');
+
+    expect(problem('results')).toContain('Between 1 and 50');
+    expect(submit().disabled).toBe(true);
+
+    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+    expect(submitted).toHaveLength(0);
+  });
+
+  it('marks every number field out of range, not only the first', async () => {
+    await type('input[name="request"]', 'kettle');
+    await type('input[name="top"]', '0');
+    await type('input[name="temperature"]', '3');
+    await type('input[name="numCtx"]', '0');
+
+    expect(problem('top')).toContain('Between 1 and 50');
+    expect(problem('temperature')).toContain('Between 0 and 2');
+    expect(problem('numCtx')).toContain('Between 1 and 1000000');
+    expect(submit().disabled).toBe(true);
+  });
+
+  it('takes the bounds from the server rather than from the markup', async () => {
+    /* A range written into the template is a second copy of `config.LIMITS`, and
+       the one nobody would notice going stale. */
+    const bounds = (name: string) => {
+      const field = element<HTMLInputElement>(`input[name="${name}"]`);
+      return [field.getAttribute('min'), field.getAttribute('max')];
+    };
+
+    expect(bounds('results')).toEqual(['1', '50']);
+    expect(bounds('temperature')).toEqual(['0', '2']);
+    expect(bounds('numCtx')).toEqual(['1', '1000000']);
+  });
+
+  it('lets a cleared number field mean the default, not a number out of range', async () => {
+    /* A blank field is "unset" (ADR-0012), which is how the context window asks
+       for the server's own -- and is nothing to hold to a range. */
+    await type('input[name="request"]', 'kettle');
+    await type('input[name="numCtx"]', '');
+
+    expect(problem('numCtx')).toBe('');
+    expect(submit().disabled).toBe(false);
+  });
+
+  it('asks the server what the sources field holds, when it is left', async () => {
+    const asked: string[] = [];
+    fixture.componentInstance.check.subscribe((spec) => asked.push(spec));
+
+    const field = element<HTMLInputElement>('input[name="sources"]');
+    field.value = '  Marques Brownlee  ';
+    field.dispatchEvent(new Event('input'));
+    field.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    expect(asked).toEqual(['Marques Brownlee']);
+  });
+
+  it('asks about a remembered source too, which nobody is about to type', async () => {
+    /* Left unasked, a browser holding a bad one finds out a run later. */
+    localStorage.setItem('buy_agent.settings', JSON.stringify({ sources: 'Marques Brownlee' }));
+    const next = TestBed.createComponent(SearchForm);
+    const asked: string[] = [];
+    next.componentInstance.check.subscribe((spec) => asked.push(spec));
+    next.componentRef.setInput('defaults', DEFAULTS);
+    await next.whenStable();
+
+    expect(asked).toEqual(['Marques Brownlee']);
+  });
+
+  it('refuses a source the server said names no site', async () => {
+    await type('input[name="request"]', 'kettle');
+    await type('input[name="sources"]', 'Marques Brownlee');
+    await checked('Marques Brownlee', "'Marques' does not name a source.");
+
+    expect(problem('sources')).toContain('does not name a source');
+    expect(submit().disabled).toBe(true);
+  });
+
+  it('drops an answer about text the field no longer holds', async () => {
+    /* The answer arrives after the request, and the shopper has kept typing. */
+    await type('input[name="request"]', 'kettle');
+    await type('input[name="sources"]', 'rtings.com');
+    await checked('Marques', "'Marques' does not name a source.");
+
+    expect(problem('sources')).toBe('');
+    expect(submit().disabled).toBe(false);
+  });
+
+  it('marks the field a refused run named, without deciding it itself', async () => {
+    /* The region has no rule the page could apply -- ADR-0031 keeps that shape
+       in Python -- so the mark is the server's own sentence, and it does not
+       gate the button: what is in the box now may well be right. */
+    await type('input[name="request"]', 'kettle');
+    fixture.componentRef.setInput('rejected', {
+      field: 'region',
+      message: "'en-US' is not a search region.",
+    });
+    await fixture.whenStable();
+
+    expect(problem('region')).toContain('not a search region');
+    expect(element('input[name="region"]').classList).toContain('invalid');
+    expect(submit().disabled).toBe(false);
+  });
+
+  it('says what the field holds now rather than what a run was refused for', async () => {
+    await type('input[name="request"]', 'kettle');
+    await type('input[name="results"]', '51');
+    fixture.componentRef.setInput('rejected', {
+      field: 'results',
+      message: 'results must be between 1 and 50; got 99.',
+    });
+    await fixture.whenStable();
+
+    expect(problem('results')).toContain('Between 1 and 50');
+    expect(problem('results')).not.toContain('99');
   });
 
   it('sends what was typed, trimmed, along with the settings', async () => {

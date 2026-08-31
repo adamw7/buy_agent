@@ -49,6 +49,14 @@ export interface ProviderOption {
   takes_num_ctx: boolean;
 }
 
+/** What one number field may hold, as `config.LIMITS` declares it.
+ *  Shipped rather than written into the form: the browser applies the range and
+ *  does not choose it, so there is no second copy to drift (ADR-0033). */
+export interface Limit {
+  min: number;
+  max: number;
+}
+
 /** The form's starting values, served from the agent's own config defaults. */
 export interface AgentDefaults {
   provider: string;
@@ -66,6 +74,18 @@ export interface AgentDefaults {
   fetch: boolean;
   sort_by: SortBy;
   sort_options: SortBy[];
+  /** Keyed by the name the value is sent under -- `results`, `top`,
+   *  `temperature`, `num_ctx`. A field with no entry here is one nothing bounds. */
+  limits: Record<string, Limit>;
+}
+
+/** What the server made of a Trusted sources field, asked before a run rather
+ *  than during one. `error` is empty when the field names sources; `sources` is
+ *  the spec that was checked, so an answer about text the shopper has since
+ *  typed over can be told from one about what is in the box now. */
+export interface SourcesCheck {
+  sources: string;
+  error: string;
 }
 
 /** Which model server to ask about, and how to ask it. The provider travels with
@@ -123,4 +143,4 @@ export interface SearchOptions {
 export type SearchEvent =
   | { kind: 'log'; line: LogLine }
   | { kind: 'result'; result: SearchResult }
-  | { kind: 'failure'; message: string; status: number };
+  | { kind: 'failure'; message: string; status: number; field: string | null };

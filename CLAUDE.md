@@ -461,10 +461,11 @@ everything else to the built Angular app, with unknown paths falling back to
 | --- | --- |
 | `GET /api/config` | The form's defaults -- the same ones `--help` prints |
 | `GET /api/models` | What a named server is serving, or why it could not be asked and what to do about it |
+| `GET /api/sources` | Whether a Trusted sources field names sites -- the one endpoint that runs nothing |
 | `POST /api/search` | One run, as JSON |
 | `GET /api/search/stream` | One run, as SSE: `log` lines, then `result` or `failure` |
 
-Four things there are load-bearing:
+Five things there are load-bearing:
 
 - **A run is streamed, not requested.** A search takes tens of seconds, so
   `GET /api/search/stream` runs the agent in a worker thread and relays its log
@@ -498,6 +499,23 @@ Four things there are load-bearing:
   key and an empty string alike, because an empty form field means "unset", not
   "zero" -- and the UI's `toQuery` drops blanks for the same reason. Values that
   are present but unusable raise `ApiError` with the status the client deserves.
+- **The form refuses first, and never on a rule of its own** (ADR-0033). Every
+  setting the page holds is one the server can judge without a model, a network
+  or a minute of waiting, so it is judged before a run is opened -- but the rule
+  is always Python's. `defaults_payload` ships `limits` (`limits_payload`, off
+  `config.LIMITS` through `api._BOUNDED`, which is the one table saying which
+  config field bounds each request key), and the form binds `[min]`/`[max]` from
+  it and holds each number to it; a source is not a range, so the form asks
+  `GET /api/sources`, which reads the field with the same `parse_sources` a run
+  would and answers `{"sources", "error"}` -- 200 either way, and naming the spec
+  it was about so an answer for text since typed over is dropped rather than
+  shown against what replaced it. What the page cannot judge is still marked
+  where it belongs: `ApiError` carries `field`, the request key the value arrived
+  under, `payload()` sends it, and the `failure` event carries it to the box.
+  `parse_options` is untouched -- this is the earlier line, not the only one, and
+  a CLI-shaped client that never sees a form is refused exactly as before. A
+  region is deliberately *not* checked here: its shape stays in Python
+  (ADR-0031), and what it gains is the mark.
 - **Loopback is not a boundary a browser respects, so every request is admitted
   first.** `BuyAgentHandler._admits()` runs at the top of `do_GET`, `do_POST` and
   `do_HEAD` -- a new method added without it is unguarded and nothing fails --
@@ -558,6 +576,22 @@ Python wrote, the way `shortName` already does.
 deliberately not -- what to shop for is a new question every time -- and every read
 and write of it is wrapped, so a browser that refuses storage still gets a working
 form.
+
+It also refuses what the server would, before the run rather than a minute into
+it (ADR-0033). `problems()` is what the page worked out -- each number against
+the range that came down with the defaults, and the sources field against
+whatever `GET /api/sources` last said about the text it currently holds -- and it
+is what gates `canSubmit`, since none of it costs anything to know. `notes()` is
+what is shown under each field: `problems()`, plus the `rejected` input for a
+field the page has no rule for, which is the `field` a `failure` event named. The
+server's mark does not gate the button -- it is about what was sent, and what is
+in the box now may well be right -- and it clears when the next run starts. The
+sources check goes out on `change` rather than on every keystroke (half a spec is
+not a mistake, and clicking Find products leaves the field first) and once more
+after `restore`, since a remembered bad source is one nobody is about to retype.
+The `numbers` table, keyed by the name each field is sent under, is the one place
+that mapping lives, and `tests/test_conventions.py` holds it against
+`limits_payload`.
 
 Its model field is a `<select>` over `GET /api/models` -- what `ollama list`
 prints, or the one model a vLLM reports -- and its three edge cases are the point. A
@@ -647,18 +681,18 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 962 tests
+to EOF instead -- what it checks is that nothing follows the reply. 991 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 962 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 962 collect but 13 of the 17
-in `tests/test_start_script.py` skip, so the summary reads `949 passed, 13
+is reaching out. 991 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 991 collect but 13 of the 17
+in `tests/test_start_script.py` skip, so the summary reads `978 passed, 13
 skipped` -- nothing is missing, and the four that still run are the ones reading
-the script as text rather than through the probe. The UI's 88 tests
+the script as text rather than through the probe. The UI's 103 tests
 run in about two seconds, most of which is building the app first. The 20 in
 `integration/` are counted separately and collected only by being named.
 `docs/testing.md` quotes all three counts, so a new test file is two edits.
@@ -673,7 +707,11 @@ the CLI's `--sort-by` choices and the TypeScript `SortBy` union offer the same
 criteria; that every provider in `providers.PROVIDERS` is offered by
 `--provider`, by `api.PROVIDER_OPTIONS` and in the rows the form's picker is
 built from, and that `ProviderOption` is mirrored in TypeScript; that `agent.types.ts` mirrors `defaults_payload`, `product_payload`
-and `run_search` field for field; that the `Dockerfile` pins the versions CI tests
+and `run_search` field for field; that the form holds a number to a range for
+every range `limits_payload` ships and writes no `min` or `max` of its own into
+its template, and that every key `parse_options` reads is one `SearchOptions`
+sends -- a key it reads and the form never sends is a refusal marking a box that
+is not there (ADR-0033); that the `Dockerfile` pins the versions CI tests
 against, copies the built UI where the server looks, exposes the port it binds and
 installs the runtime dependencies only; that every job in `ci.yml` names both a
 Windows and a Linux runner, and that it sets up exactly one Python and one Node

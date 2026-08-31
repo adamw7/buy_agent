@@ -321,6 +321,16 @@ that answered with nothing at all turns the field back into a text box, so a
 name can still be typed. The pill in the header names whichever server the list
 came from, so a page pointed at a vLLM never reports an Ollama being down.
 
+A setting the server would refuse is refused on the page instead, before a run
+starts: the ranges come down with the defaults, so **Products to find** of 51
+marks the field and greys out the button rather than opening a stream to be told
+a minute later, and a Trusted sources field is read by the same `parse_sources`
+the CLI uses -- `Marques Brownlee` is marked as naming no site while the form is
+still being filled in. What the page cannot judge for itself, it still shows in
+the right place: a run refused for one value comes back naming the field, and
+that box is marked along with the banner
+([ADR-0033](docs/adr/0033-let-the-form-refuse-what-the-server-would.md)).
+
 When a run ends badly, the Progress panel offers **Download log**: the lines it
 was showing, plus the error that ended the run, saved as
 `buy-agent-log-20260825-140311.txt`. The panel scrolls and the next search clears
@@ -341,6 +351,7 @@ curl -X POST http://127.0.0.1:8000/api/search `
 | --- | --- |
 | `GET /api/config` | The form's defaults -- the same ones `--help` prints |
 | `GET /api/models` | What a named server is serving, or why it could not be asked |
+| `GET /api/sources` | Whether a Trusted sources field names sites, and what is wrong if not |
 | `POST /api/search` | One run, as JSON |
 | `GET /api/search/stream` | One run, as an event stream |
 

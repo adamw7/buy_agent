@@ -56,10 +56,12 @@ from buy_agent.api import (
     _STATUS,
     ApiError,
     defaults_payload,
+    limits_payload,
     model_payload,
     parse_options,
     product_payload,
     run_search,
+    sources_payload,
 )
 from buy_agent.config import LIMITS, AgentConfig, parse_region
 from buy_agent.providers import PROVIDERS, InstalledModel, provider_options
@@ -72,6 +74,8 @@ from integration import REQUIRE_ENV_VAR, TINY_MODEL
 
 _ROOT = Path(__file__).resolve().parents[1]
 _TYPES_TS = _ROOT / "ui" / "src" / "app" / "agent.types.ts"
+_FORM_TS = _ROOT / "ui" / "src" / "app" / "search-form" / "search-form.ts"
+_FORM_HTML = _ROOT / "ui" / "src" / "app" / "search-form" / "search-form.html"
 
 RANKED = RankedProduct(
     product=Product(name="Sony WH-1000XM5", price=328.0, rating=4.7), score=0.9, rank=1
@@ -263,6 +267,61 @@ def test_a_run_of_the_defaults_is_inside_every_range() -> None:
         assert value is None or minimum <= value <= maximum, field
 
 
+def test_the_form_is_shipped_a_range_for_every_number_it_holds_to_one() -> None:
+    """The other half of the rule above, across the language boundary. The form
+    checks a number before opening a run, and can only check what it was sent: a
+    field left out of the shipped table is one nothing on the page bounds, and a
+    range sent for a field the form does not know is a bound nobody applies
+    (ADR-0033).
+    """
+    source = _FORM_TS.read_text(encoding="utf-8")
+    match = re.search(r"private readonly numbers[^{]*\{(.*?)\n  \};", source, re.DOTALL)
+    assert match, "no table of number fields in search-form.ts"
+
+    assert set(re.findall(r"^\s+(\w+):", match.group(1), re.M)) == set(limits_payload())
+
+
+def test_the_form_takes_its_bounds_from_the_server_rather_than_the_markup() -> None:
+    """A `min="1" max="50"` written into the template is a second copy of
+    ``config.LIMITS`` -- one no test of either suite would see go stale, since
+    both ends stay perfectly valid while they disagree."""
+    written = re.findall(r'\b(?:min|max)="[^"]*"', _FORM_HTML.read_text(encoding="utf-8"))
+
+    assert written == [], "bind these from the limits the server ships"
+
+
+def test_every_key_a_refusal_can_name_is_one_the_form_sends() -> None:
+    """A refusal names the request key its value arrived under, and the page marks
+    the box that key came from. A key ``parse_options`` reads and the form never
+    sends is a mark that lands nowhere; one the form sends and nothing reads is a
+    setting that quietly does nothing (ADR-0033).
+    """
+    keys = _keys_parse_options_reads()
+
+    # ``request`` is the one thing that is not an option, and ``sources`` is the
+    # one option that does not go through ``_read`` -- it is a list, which that
+    # helper would render as a Python repr.
+    assert keys | {"request", "sources"} == set(ts_interface("SearchOptions"))
+
+
+def _keys_parse_options_reads() -> set[str]:
+    """The request keys ``parse_options`` names, read off the call sites.
+
+    From the source rather than by trying names at it: what matters is which keys
+    it reads at all, and a behavioural test can only confirm the ones it already
+    knows to send.
+    """
+    parse = ast.parse(inspect.getsource(parse_options))
+    return {
+        call.args[1].value
+        for call in ast.walk(parse)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id == "_read"
+        and isinstance(call.args[1], ast.Constant)
+    }
+
+
 # -- the shape a region is held to ---------------------------------------------
 
 
@@ -292,6 +351,19 @@ def test_the_default_region_is_one_both_front_doors_take() -> None:
 def test_the_form_defaults_are_mirrored_field_for_field_in_typescript() -> None:
     """A default added in api.py and forgotten here is an undefined in the form."""
     assert set(ts_interface("AgentDefaults")) == set(defaults_payload())
+
+
+def test_a_shipped_range_is_mirrored_field_for_field_in_typescript() -> None:
+    """The form holds its number fields to these, so a half-read range is a field
+    with one end and no other."""
+    assert set(ts_interface("Limit")) == set(limits_payload()["results"])
+
+
+def test_the_sources_check_is_mirrored_field_for_field_in_typescript() -> None:
+    """The answer names the spec it was about as well as what is wrong with it,
+    and a form that read only the second would mark a field for text it no longer
+    holds."""
+    assert set(ts_interface("SourcesCheck")) == set(sources_payload(""))
 
 
 def test_a_ranked_product_is_mirrored_field_for_field_in_typescript() -> None:

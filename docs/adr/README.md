@@ -41,6 +41,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0030](0030-publish-a-release-as-an-archive-and-an-image.md) | Publish a release as a runnable archive and a container image | Accepted |
 | [0031](0031-check-the-shape-of-a-region.md) | Check a region's shape, and name it when a search finds nothing | Accepted |
 | [0032](0032-say-which-models-can-answer-a-prompt.md) | Ask Ollama what each model can do, and mark the ones that cannot answer | Accepted |
+| [0033](0033-let-the-form-refuse-what-the-server-would.md) | Let the form refuse a value the server would, and mark the field | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written
