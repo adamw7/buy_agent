@@ -8,7 +8,15 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 import pytest
 
-from buy_agent.fetch import condense, enrich, fetch_page, html_to_text
+from buy_agent.fetch import (
+    PageText,
+    condense,
+    describe_failure,
+    enrich,
+    fetch_page,
+    html_to_text,
+    summarise_failures,
+)
 from buy_agent.search import SearchResult
 
 PAGE = """<html><body>
@@ -97,7 +105,10 @@ def make_response(url: str, body: str, *, status: int = 200, content_type: str =
 def test_fetch_page_condenses_a_live_page(monkeypatch) -> None:
     stub_client(monkeypatch, lambda url: make_response(url, PAGE))
     with httpx.Client() as client:
-        assert "$129.99" in fetch_page(client, "https://shop.example", max_chars=1000)
+        page = fetch_page(client, "https://shop.example", max_chars=1000)
+
+    assert "$129.99" in page.text
+    assert page.problem is None, "a page that was read has nothing wrong with it"
 
 
 def test_a_failed_request_yields_no_content(monkeypatch) -> None:
@@ -106,7 +117,9 @@ def test_a_failed_request_yields_no_content(monkeypatch) -> None:
 
     stub_client(monkeypatch, explode)
     with httpx.Client() as client:
-        assert fetch_page(client, "https://slow.example", max_chars=1000) == ""
+        page = fetch_page(client, "https://slow.example", max_chars=1000)
+
+    assert page == PageText("", "timed out")
 
 
 def test_a_url_httpx_will_not_parse_yields_no_content(monkeypatch) -> None:
@@ -121,7 +134,9 @@ def test_a_url_httpx_will_not_parse_yields_no_content(monkeypatch) -> None:
 
     stub_client(monkeypatch, explode)
     with httpx.Client() as client:
-        assert fetch_page(client, "http://[::1/", max_chars=1000) == ""
+        page = fetch_page(client, "http://[::1/", max_chars=1000)
+
+    assert page == PageText("", "had an address that cannot be fetched")
 
 
 def test_a_malformed_href_does_not_bring_the_run_down() -> None:
@@ -147,7 +162,9 @@ def test_a_malformed_href_does_not_bring_the_run_down() -> None:
 def test_an_error_status_yields_no_content(monkeypatch) -> None:
     stub_client(monkeypatch, lambda url: make_response(url, PAGE, status=403))
     with httpx.Client() as client:
-        assert fetch_page(client, "https://blocked.example", max_chars=1000) == ""
+        page = fetch_page(client, "https://blocked.example", max_chars=1000)
+
+    assert page == PageText("", "refused (403)")
 
 
 def test_non_html_responses_are_ignored(monkeypatch) -> None:
@@ -155,7 +172,9 @@ def test_non_html_responses_are_ignored(monkeypatch) -> None:
         monkeypatch, lambda url: make_response(url, "%PDF-1.4", content_type="application/pdf")
     )
     with httpx.Client() as client:
-        assert fetch_page(client, "https://manual.example/x.pdf", max_chars=1000) == ""
+        page = fetch_page(client, "https://manual.example/x.pdf", max_chars=1000)
+
+    assert page == PageText("", "did not answer with HTML")
 
 
 def test_enrich_attaches_content_to_each_result(monkeypatch) -> None:
@@ -254,14 +273,16 @@ def test_a_response_without_a_content_type_is_read_as_html(monkeypatch) -> None:
     )
 
     with httpx.Client() as client:
-        assert "$129.99" in fetch_page(client, "https://shop.example", max_chars=1000)
+        assert "$129.99" in fetch_page(client, "https://shop.example", max_chars=1000).text
 
 
 def test_a_page_with_no_figures_yields_no_content(monkeypatch) -> None:
     stub_client(monkeypatch, lambda url: make_response(url, "<html><p>About us</p></html>"))
 
     with httpx.Client() as client:
-        assert fetch_page(client, "https://about.example", max_chars=1000) == ""
+        page = fetch_page(client, "https://about.example", max_chars=1000)
+
+    assert page == PageText("", "quoted no prices and no verdicts")
 
 
 def test_enriching_nothing_fetches_nothing(monkeypatch) -> None:
@@ -289,6 +310,156 @@ def test_enrich_reports_how_many_pages_were_usable(monkeypatch, caplog) -> None:
         enrich(results, max_chars=1000)
 
     assert "Got usable page text from 1 of 2 result(s)" in caplog.text
+    assert "1 could not be reached" in caplog.text
+
+
+# -- why the pages that yielded nothing yielded nothing --------------------------
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        (httpx.ConnectTimeout("slow"), "timed out"),
+        (httpx.ReadTimeout("slow"), "timed out"),
+        (httpx.TooManyRedirects("round and round"), "redirected in a loop"),
+        (httpx.InvalidURL("bad port"), "had an address that cannot be fetched"),
+        (httpx.UnsupportedProtocol("gopher://"), "had an address that cannot be fetched"),
+        (httpx.ConnectError("refused"), "could not be reached"),
+        (httpx.ReadError("reset"), "could not be reached"),
+        (httpx.ProxyError("no proxy"), "could not be reached"),
+        (httpx.RemoteProtocolError("garbage"), "failed mid-transfer"),
+        (httpx.DecodingError("bad gzip"), "failed mid-transfer"),
+    ],
+)
+def test_each_kind_of_failure_gets_its_own_words(exc: Exception, expected: str) -> None:
+    """Grouped by what it means, not by httpx's class tree.
+
+    A ``ConnectTimeout`` is a ``TimeoutException`` and not a ``ConnectError``,
+    and a ``ProxyError`` is not a ``NetworkError`` -- but a shopper reading the
+    tally has one question about each, so they are counted as one thing.
+    """
+    assert describe_failure(exc) == expected
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (401, "refused (401)"),
+        (403, "refused (403)"),
+        (404, "not found (404)"),
+        (410, "gone (410)"),
+        (429, "rate-limited (429)"),
+        (402, "rejected (402)"),
+        (500, "failed (500)"),
+        (503, "failed (503)"),
+    ],
+)
+def test_a_status_code_is_named_and_quoted(status: int, expected: str) -> None:
+    """The word says what it means; the number is there for the codes it does not."""
+    response = make_response("https://shop.example", "", status=status)
+    exc = httpx.HTTPStatusError("nope", request=response.request, response=response)
+
+    assert describe_failure(exc) == expected
+
+
+def test_the_kinds_of_failure_are_counted_commonest_first() -> None:
+    problems = ["timed out", "refused (403)", "refused (403)", "timed out", "refused (403)"]
+
+    assert summarise_failures(problems) == "3 refused (403), 2 timed out"
+
+
+def test_nothing_going_wrong_summarises_to_nothing() -> None:
+    """Empty, so the caller appends it or does not -- rather than a dangling colon."""
+    assert summarise_failures([]) == ""
+
+
+def test_the_tally_names_the_kinds_of_failure_and_not_the_urls(monkeypatch, caplog) -> None:
+    """The diagnosis the run already had and used to throw away.
+
+    Three refusals, a timeout and a page that simply said nothing are five
+    different things to do next, and without this they were all "0 of 5".
+    """
+
+    def handler(url: str):
+        if "slow" in url:
+            raise httpx.ConnectTimeout("too slow")
+        if "quiet" in url:
+            return make_response(url, "<html><p>About us</p></html>")
+        return make_response(url, PAGE, status=403)
+
+    stub_client(monkeypatch, handler)
+    results = [
+        SearchResult(url=f"https://shop{index}.example") for index in range(3)
+    ] + [SearchResult(url="https://slow.example"), SearchResult(url="https://quiet.example")]
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
+        enrich(results, max_chars=1000)
+
+    assert (
+        "Got usable page text from 0 of 5 result(s): 3 refused (403), 1 timed out, "
+        "1 quoted no prices and no verdicts"
+    ) in caplog.text
+    assert "shop0.example" not in caplog.text, "one line, not one line per result"
+
+
+def test_reading_nothing_at_all_is_a_warning(monkeypatch, caplog) -> None:
+    """Every figure in the report ahead is about to be blanked by grounding, so
+    this is the run saying why -- not another step of its narration."""
+
+    def explode(url: str):
+        raise httpx.ConnectError("refused")
+
+    stub_client(monkeypatch, explode)
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
+        enrich([SearchResult(url="https://bad.example")], max_chars=1000)
+
+    tally = [record for record in caplog.records if "Got usable page text" in record.message]
+    assert [record.levelno for record in tally] == [logging.WARNING]
+
+
+def test_reading_some_of_the_pages_is_only_narration(monkeypatch, caplog) -> None:
+    def handler(url: str):
+        if "bad" in url:
+            raise httpx.ConnectError("refused")
+        return make_response(url, PAGE)
+
+    stub_client(monkeypatch, handler)
+    results = [
+        SearchResult(url="https://good.example"),
+        SearchResult(url="https://bad.example"),
+    ]
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
+        enrich(results, max_chars=1000)
+
+    tally = [record for record in caplog.records if "Got usable page text" in record.message]
+    assert [record.levelno for record in tally] == [logging.INFO]
+
+
+def test_fetching_nothing_is_not_a_failure_to_fetch(monkeypatch, caplog) -> None:
+    """No results is the search's news to report, not the fetcher's."""
+    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
+        enrich([], max_chars=1000)
+
+    tally = [record for record in caplog.records if "Got usable page text" in record.message]
+    assert [record.levelno for record in tally] == [logging.INFO]
+
+
+def test_a_url_that_could_not_be_fetched_is_still_named_at_debug(monkeypatch, caplog) -> None:
+    """The tally is the summary; which page it was stays where it was."""
+
+    def explode(url: str):
+        raise httpx.ConnectError("refused")
+
+    stub_client(monkeypatch, explode)
+
+    with caplog.at_level(logging.DEBUG, logger="buy_agent.fetch"):
+        enrich([SearchResult(url="https://bad.example")], max_chars=1000)
+
+    assert "Could not fetch https://bad.example: refused" in caplog.text
 
 
 def test_pages_are_requested_as_a_browser_would(monkeypatch) -> None:

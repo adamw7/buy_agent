@@ -489,7 +489,12 @@ cannot, and the mutation run that grades the suite itself every Saturday are in
 - **Names are only as specific as the model makes them.** `lfm2.5` reported
   "Bose ANC" for a product the page named in full.
 - Some shops answer with JavaScript-rendered pages or a 403; those results fall
-  back to their snippet rather than failing the run.
+  back to their snippet rather than failing the run. Which is why the run says
+  how the fetching went -- "Got usable page text from 0 of 10 result(s): 7
+  refused (403), 2 timed out" -- on the CLI and in the browser's progress panel
+  alike: grounding blanks every figure the pages did not back, so a report of
+  "price unknown" throughout is either a bad model or nothing having been read,
+  and that line is which.
 - DuckDuckGo rate-limits heavy use; the agent reports this as a `SearchError`.
 - Only `lfm2.5` (1.2B) has been measured: it works, takes ~75s end to end, and
   most of that is extraction. The failure modes above are the ones a small model
