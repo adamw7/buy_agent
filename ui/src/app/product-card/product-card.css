@@ -111,6 +111,13 @@ h3 a:hover {
   font-variant-numeric: tabular-nums;
 }
 
+/* Named on both sides of the bar: a bare number said nothing about what it is. */
+.score .label,
+.score .value {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .track {
   flex: 1;
   height: 5px;

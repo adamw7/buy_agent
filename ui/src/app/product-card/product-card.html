@@ -38,8 +38,19 @@
     }
 
     <div class="score" [attr.title]="'Score ' + product().score">
-      <div class="track"><div class="fill" [style.inline-size.%]="percent()"></div></div>
-      <span>{{ percent() }}</span>
+      <span class="label">Score</span>
+      <div
+        class="track"
+        role="meter"
+        aria-label="Score"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        [attr.aria-valuenow]="percent()"
+        [attr.aria-valuetext]="scoreLabel()"
+      >
+        <div class="fill" [style.inline-size.%]="percent()"></div>
+      </div>
+      <span class="value">{{ scoreLabel() }}</span>
     </div>
   </div>
 </article>
