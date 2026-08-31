@@ -43,6 +43,19 @@ h1 {
   color: var(--good);
 }
 
+/* The provider's own remedy, under the pill it belongs to. `pre-wrap` keeps the
+   run of spaces Python puts before the command, which is what sets it apart from
+   the sentence in front of it. */
+.server-reason {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 0 20px 16px;
+  color: var(--bad);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 main {
   display: flex;
   flex-direction: column;

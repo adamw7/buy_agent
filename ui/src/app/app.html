@@ -24,6 +24,12 @@
       </button>
     }
   </div>
+
+  <!-- Under the pill rather than inside its title: a hover is no help on a
+       touch screen, and this is the one failure whose fix is one command. -->
+  @if (unreachable(); as reason) {
+    <p class="server-reason" role="status">{{ reason }}</p>
+  }
 </header>
 
 <main>

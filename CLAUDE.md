@@ -455,7 +455,7 @@ everything else to the built Angular app, with unknown paths falling back to
 | Endpoint | Answers with |
 | --- | --- |
 | `GET /api/config` | The form's defaults -- the same ones `--help` prints |
-| `GET /api/models` | What a named server is serving, or why it could not be asked |
+| `GET /api/models` | What a named server is serving, or why it could not be asked and what to do about it |
 | `POST /api/search` | One run, as JSON |
 | `GET /api/search/stream` | One run, as SSE: `log` lines, then `result` or `failure` |
 
@@ -481,10 +481,12 @@ Four things there are load-bearing:
   `rating_label` next to the raw figures, `sort_by` is a request parameter
   rather than a client-side re-sort, and `installed_models` sends the provider's
   `label` next to the models so the header pill never has to decide what to call
-  the server it is reporting on. The same rule as `clean_products` -- whatever
-  decides the answer belongs where it is testable. `ui/src/app/agent.types.ts`
-  mirrors those payloads for TypeScript, so a field added to `api.py` is added
-  there too.
+  the server it is reporting on -- and, where it could not be reached, the `hint`
+  that provider's own row would have raised a run with, so the page says
+  "Start it with:  ollama serve" without a second wording in TypeScript. The same
+  rule as `clean_products` -- whatever decides the answer belongs where it is
+  testable. `ui/src/app/agent.types.ts` mirrors those payloads for TypeScript, so
+  a field added to `api.py` is added there too.
 - **A blank value means "use the default".** `api.parse_options` treats a missing
   key and an empty string alike, because an empty form field means "unset", not
   "zero" -- and the UI's `toQuery` drops blanks for the same reason. Values that
@@ -520,6 +522,17 @@ stylesheet with an inline `onload`, and `script-src 'self'` refuses to run it --
 leaving the sheet at `media="print"` and the page unstyled. Neither suite can see
 that; it takes a browser. Anything else that adds an inline handler, an inline
 `<script>` or a request to another origin has the same shape of symptom.
+
+The header pill says whether the model server answered; `App.unreachable` is
+what says why and what to type. It reads the `hint` `installed_models` sent and
+shows it as a line under the pill, because a `title` is hover-only -- unavailable
+on a touch screen, easy to miss with a mouse, and inconsistently announced by
+screen readers -- and this is the one failure a shopper meets before anything
+else whose fix is a single command. It is `null` for a server that answered, and
+also when the *agent* server is the one that did not: nothing came back to ask,
+and a sentence written here rather than in `providers.py` would be a second
+wording to keep true. The line is `white-space: pre-wrap`, which keeps the run of
+spaces Python puts in front of the command.
 
 `progress-log` follows the tail the way a terminal does, but only while the
 reader is at it: the scroll handler sets `sticking` from how far the panel is
@@ -621,18 +634,18 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 946 tests
+to EOF instead -- what it checks is that nothing follows the reply. 948 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 946 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 946 collect but 13 of the 17
-in `tests/test_start_script.py` skip, so the summary reads `933 passed, 13
+is reaching out. 948 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 948 collect but 13 of the 17
+in `tests/test_start_script.py` skip, so the summary reads `935 passed, 13
 skipped` -- nothing is missing, and the four that still run are the ones reading
-the script as text rather than through the probe. The UI's 84 tests
+the script as text rather than through the probe. The UI's 87 tests
 run in about two seconds, most of which is building the app first. The 19 in
 `integration/` are counted separately and collected only by being named.
 `docs/testing.md` quotes all three counts, so a new test file is two edits.

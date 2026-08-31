@@ -49,6 +49,20 @@ export class App {
     return result ? result.products.slice(result.top_n) : [];
   });
 
+  /**
+   * What to do about a model server that did not answer, shown under the pill.
+   *
+   * Python's sentence, not one written here: the provider already knows what to
+   * start, what key to set and what tag to pull, and a second wording in
+   * TypeScript would be a second thing to keep true. Null whenever the server is
+   * reachable -- and when nothing came back to ask, which is the agent server
+   * itself being down and a failure the pill cannot explain.
+   */
+  protected readonly unreachable = computed(() => {
+    const server = this.status();
+    return server && !server.reachable ? (server.hint ?? null) : null;
+  });
+
   private run: Subscription | null = null;
 
   constructor() {

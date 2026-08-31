@@ -203,6 +203,41 @@ describe('App', () => {
     expect(page.querySelector('.server')!.classList).not.toContain('up');
   });
 
+  it('shows what to start, as visible text rather than a hover', async () => {
+    /* The pill alone says only that nothing answered. The remedy is Python's
+       sentence, and a title attribute is no use on a touch screen. */
+    agent.modelsResponse = of({
+      ...STATUS,
+      reachable: false,
+      models: [],
+      detail: 'connection refused',
+      hint:
+        'Could not reach Ollama at http://localhost:11434 (connection refused). ' +
+        'Start it with:  ollama serve',
+    });
+
+    const page = (await render()).nativeElement as HTMLElement;
+
+    expect(page.querySelector('.server-reason')!.textContent).toContain('ollama serve');
+  });
+
+  it('keeps quiet about a server that answered', async () => {
+    const page = (await render()).nativeElement as HTMLElement;
+
+    expect(page.querySelector('.server-reason')).toBeNull();
+  });
+
+  it('says nothing it was not told when the agent server is the one that is down', async () => {
+    /* Nothing came back, so there is no hint to show -- and inventing one here
+       would be the browser deciding what Python could not. */
+    agent.modelsResponse = throwError(() => new Error('offline'));
+
+    const page = (await render()).nativeElement as HTMLElement;
+
+    expect(page.querySelector('.server')!.textContent).toContain('Ollama unreachable');
+    expect(page.querySelector('.server-reason')).toBeNull();
+  });
+
   it('re-asks the same server when the status pill is clicked', async () => {
     const fixture = await render();
     const page = fixture.nativeElement as HTMLElement;
