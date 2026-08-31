@@ -211,7 +211,16 @@ superseding it rather than an edit to the old one -- numbers are never reused,
 and accepted records are not rewritten. `tests/test_conventions.py` checks that
 the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0032 and every record is Accepted, so the next free number is 0033.
+to ADR-0033 and every record is Accepted, so the next free number is 0034.
+
+`.claude/skills/` holds the chores that span those files, one directory each:
+`add-option` walks a new setting through `config.py`, both front doors,
+`agent.types.ts` and the form; `add-adr` takes the next number off the directory
+rather than off the sentence above, which has gone stale before; `preflight` is
+the gate `ci.yml` applies, both suites and both coverage floors. They are
+checklists over the rules written down here, not new rules -- a rule belongs in
+this file or in a convention test, where it holds whether or not anybody invoked
+a skill.
 
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
 for the two steps it is reliable at, and ordinary Python does everything else,
