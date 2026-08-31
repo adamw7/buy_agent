@@ -56,12 +56,13 @@ from buy_agent.api import (
     _STATUS,
     ApiError,
     defaults_payload,
+    model_payload,
     parse_options,
     product_payload,
     run_search,
 )
 from buy_agent.config import LIMITS, AgentConfig, parse_region
-from buy_agent.providers import PROVIDERS, provider_options
+from buy_agent.providers import PROVIDERS, InstalledModel, provider_options
 from buy_agent.models import Product, RankedProduct
 from buy_agent.ranking import SortBy
 from buy_agent.server import DEFAULT_UI_DIR
@@ -295,6 +296,14 @@ def test_the_form_defaults_are_mirrored_field_for_field_in_typescript() -> None:
 
 def test_a_ranked_product_is_mirrored_field_for_field_in_typescript() -> None:
     assert set(ts_interface("RankedProduct")) == set(product_payload(RANKED))
+
+
+def test_an_installed_model_is_mirrored_field_for_field_in_typescript() -> None:
+    """The picker reads these to decide what to mark, so a field added on the
+    Python side and forgotten here is an undefined deciding a dropdown entry."""
+    assert set(ts_interface("InstalledModel")) == set(
+        model_payload(InstalledModel("gemma4:12b", completion=True))
+    )
 
 
 def test_a_finished_run_is_mirrored_field_for_field_in_typescript() -> None:

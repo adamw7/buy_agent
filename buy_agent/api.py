@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from buy_agent.models import RankedProduct
+    from buy_agent.providers import InstalledModel
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +174,17 @@ def product_payload(entry: RankedProduct) -> dict[str, Any]:
     }
 
 
+def model_payload(model: InstalledModel) -> dict[str, Any]:
+    """One model a server is holding, as the picker needs it.
+
+    A name would have been enough until Ollama's listing started answering what
+    each tag can do. ``completion`` is that answer, and it is sent rather than
+    acted on here: the form marks a model that cannot answer a prompt instead of
+    hiding it, so a tag pulled by mistake stays visible (ADR-0032).
+    """
+    return {"name": model.name, "completion": model.completion}
+
+
 def defaults_payload() -> dict[str, Any]:
     """The form's starting values: the same defaults the CLI shows in ``--help``."""
     defaults = AgentConfig()
@@ -208,6 +220,10 @@ def installed_models(provider: str, base_url: str) -> dict[str, Any]:
     pill above the form names the server, and "Ollama unreachable" over a vLLM
     address would be a lie the browser could not catch.
 
+    Each model carries what it can do beside its name, because Ollama holds
+    embedding-only tags that a run cannot use and a listing of bare names offers
+    them as if it could (ADR-0032).
+
     A failure carries two fields, not one: ``detail`` is the transport's own
     reason, and ``hint`` is the sentence the provider would have raised had a run
     hit the same failure -- the command to start the server, the key to set, the
@@ -229,7 +245,11 @@ def installed_models(provider: str, base_url: str) -> dict[str, Any]:
         if config is not None:
             failed["hint"] = config.model_server.hint(config, exc)
         return failed
-    return {**status, "reachable": True, "models": models}
+    return {
+        **status,
+        "reachable": True,
+        "models": [model_payload(model) for model in models],
+    }
 
 
 def _read_sources(

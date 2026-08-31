@@ -312,10 +312,14 @@ server is actually serving -- the list `ollama list` prints, or the one entry a
 vLLM reports at `/v1/models`, asked for over `GET /api/models`. Point the address
 field somewhere else and the list is fetched again from there. A model that is
 configured but not served stays in the dropdown marked `not served`, so a stale
-setting is visible rather than silently swapped; a server that answered with
-nothing at all turns the field back into a text box, so a name can still be
-typed. The pill in the header names whichever server the list came from, so a
-page pointed at a vLLM never reports an Ollama being down.
+setting is visible rather than silently swapped; one that *is* pulled but cannot
+answer a prompt -- `nomic-embed-text` and the other embedding models, which
+`ollama list` prints exactly like a chat model -- is marked `embedding only`
+rather than offered as a choice that costs a whole run to find out about
+([ADR-0032](docs/adr/0032-say-which-models-can-answer-a-prompt.md)); a server
+that answered with nothing at all turns the field back into a text box, so a
+name can still be typed. The pill in the header names whichever server the list
+came from, so a page pointed at a vLLM never reports an Ollama being down.
 
 When a run ends badly, the Progress panel offers **Download log**: the lines it
 was showing, plus the error that ended the run, saved as

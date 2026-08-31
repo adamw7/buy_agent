@@ -25,7 +25,7 @@ from ollama import ResponseError
 
 import buy_agent.providers as providers_module
 from buy_agent.config import AgentConfig
-from buy_agent.providers import provider_for, provider_options
+from buy_agent.providers import InstalledModel, provider_for, provider_options
 
 # The table and its rows are read off the module rather than imported by name,
 # because ``reloaded_providers`` below re-imports it: a reload re-runs the module
@@ -36,6 +36,12 @@ from buy_agent.providers import provider_for, provider_options
 # Saturday mutation run's clean-test pass does, and every ordinary run does not.
 
 OLLAMA_CONFIG = AgentConfig(provider="ollama", model="gemma4:12b")
+
+#: What ``ollama show`` reports for a model that can be prompted at all. Written
+#: out here rather than imported, so a rename of the private constant does not
+#: quietly rename what these tests claim Ollama answers with.
+_COMPLETION = "completion"
+_EMBEDDING = "embedding"
 VLLM_CONFIG = AgentConfig(provider="vllm", model="Qwen/Qwen3-8B")
 
 #: The OpenAI client's errors all carry the request that failed, so building one
@@ -52,8 +58,13 @@ def chat_model(config: AgentConfig):
     return config.model_server.chat_model(config)
 
 
-def listed(config: AgentConfig) -> list[str]:
+def listed(config: AgentConfig) -> list[InstalledModel]:
     return config.model_server.installed(config)
+
+
+def names(config: AgentConfig) -> list[str]:
+    """Just the tags, for the tests that are not about what each one can do."""
+    return [model.name for model in listed(config)]
 
 
 def hint(config: AgentConfig, exc: Exception) -> str:
@@ -95,20 +106,42 @@ def serving(monkeypatch):
 
 @pytest.fixture
 def pulled(monkeypatch):
-    """Stand in for ollama's ``Client``, so a listing never opens a socket."""
+    """Stand in for ollama's ``Client``, so a listing never opens a socket.
 
-    def install(models: list[str], *, error: Exception | None = None) -> None:
+    Both of the calls a listing makes: ``list`` for the tags, and ``show`` per
+    tag for what it can do. ``capabilities`` maps a tag to what ``ollama show``
+    would report -- a tag missing from it is one the probe fails on, which is the
+    third answer that call can give and the one nothing can be concluded from.
+    """
+
+    def install(
+        models: list[str],
+        *,
+        capabilities: dict[str, list[str] | None] | None = None,
+        error: Exception | None = None,
+    ) -> dict:
+        asked: dict = {"shown": [], "opened": {}}
+        reported = {} if capabilities is None else capabilities
+
         class FakeClient:
-            def __init__(self, base_url: str) -> None:
+            def __init__(self, base_url: str, **kwargs) -> None:
                 if error is not None:
                     raise error
+                asked["opened"] = {"base_url": base_url, **kwargs}
 
             def list(self):
                 return SimpleNamespace(
                     models=[SimpleNamespace(model=name) for name in models]
                 )
 
+            def show(self, name: str):
+                asked["shown"].append(name)
+                if capabilities is not None and name not in reported:
+                    raise ResponseError(f"model {name!r} not found", 404)
+                return SimpleNamespace(capabilities=reported.get(name, [_COMPLETION]))
+
         monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
+        return asked
 
     return install
 
@@ -243,13 +276,87 @@ def test_a_configured_key_reaches_the_client() -> None:
 def test_ollama_lists_every_tag_it_has_pulled(pulled) -> None:
     pulled(["gemma4:12b", "qwen3:8b", ""])
 
-    assert listed(OLLAMA_CONFIG) == ["gemma4:12b", "qwen3:8b"]
+    assert names(OLLAMA_CONFIG) == ["gemma4:12b", "qwen3:8b"]
+
+
+def test_a_tag_with_no_completion_to_give_is_listed_as_one(pulled) -> None:
+    """The whole point of asking twice: an embedding model is pulled the same way
+    a chat model is, sits in the same listing, and cannot answer a prompt. Hidden,
+    the picker would silently drop a pull someone made on purpose; unmarked, it is
+    a run that fails a minute in (ADR-0032)."""
+    pulled(
+        ["gemma4:12b", "nomic-embed-text"],
+        capabilities={
+            "gemma4:12b": [_COMPLETION, "tools"],
+            "nomic-embed-text": [_EMBEDDING],
+        },
+    )
+
+    assert listed(OLLAMA_CONFIG) == [
+        InstalledModel("gemma4:12b", completion=True),
+        InstalledModel("nomic-embed-text", completion=False),
+    ]
+
+
+def test_every_tag_is_asked_what_it_can_do(pulled) -> None:
+    """``ollama list`` says nothing about capabilities, so the second call is per
+    tag -- and a tag left unasked is one the picker cannot mark."""
+    asked = pulled(["gemma4:12b", "qwen3:8b", ""])
+
+    listed(OLLAMA_CONFIG)
+
+    assert sorted(asked["shown"]) == ["gemma4:12b", "qwen3:8b"]
+
+
+def test_the_whole_listing_is_held_to_the_one_short_timeout(pulled) -> None:
+    """It is asked for while a form renders, and it is now several calls rather
+    than one -- a client with no timeout would hang the picker on a slow server."""
+    asked = pulled(["gemma4:12b"])
+
+    listed(OLLAMA_CONFIG)
+
+    assert asked["opened"]["timeout"] == providers_module._LIST_TIMEOUT
+
+
+def test_a_tag_that_will_not_say_what_it_can_do_is_still_offered(pulled) -> None:
+    """The probe failed; nothing was learnt. Marking the model unusable on that
+    would hide a working one, which is the worse of the two mistakes."""
+    pulled(["gemma4:12b", "qwen3:8b"], capabilities={"gemma4:12b": [_COMPLETION]})
+
+    assert listed(OLLAMA_CONFIG) == [
+        InstalledModel("gemma4:12b", completion=True),
+        InstalledModel("qwen3:8b", completion=True),
+    ]
+
+
+def test_an_ollama_too_old_to_report_capabilities_offers_everything(pulled) -> None:
+    """``capabilities`` is absent rather than empty there, which says nothing
+    about the tag -- and the same rule applies: it is taken at its word."""
+    pulled(["gemma4:12b"], capabilities={"gemma4:12b": None})
+
+    assert listed(OLLAMA_CONFIG) == [InstalledModel("gemma4:12b", completion=True)]
+
+
+def test_an_ollama_with_nothing_pulled_is_asked_nothing_further(pulled) -> None:
+    """No tags is an answer, and the branch that skips the second round of calls."""
+    asked = pulled([])
+
+    assert listed(OLLAMA_CONFIG) == []
+    assert asked["shown"] == []
 
 
 def test_vllm_lists_the_one_model_it_was_started_with(serving) -> None:
     serving(["Qwen/Qwen3-8B"])
 
-    assert listed(VLLM_CONFIG) == ["Qwen/Qwen3-8B"]
+    assert listed(VLLM_CONFIG) == [InstalledModel("Qwen/Qwen3-8B", completion=True)]
+
+
+def test_everything_a_vllm_serves_can_answer_a_prompt(serving) -> None:
+    """There is no second question to ask: a vLLM process serves the model it was
+    started for, so a listing there is by construction a listing of usable models."""
+    serving(["Qwen/Qwen3-8B"])
+
+    assert all(model.completion for model in listed(VLLM_CONFIG))
 
 
 def test_the_listing_is_asked_of_the_api_root_the_config_names(serving) -> None:
@@ -367,6 +474,52 @@ def test_a_missing_ollama_tag_is_told_to_pull_it(pulled) -> None:
 
     assert "ollama pull gemma4:12b" in message
     assert "installed: qwen3:8b" in message
+
+
+def test_a_model_that_cannot_answer_a_prompt_is_named_as_one(pulled) -> None:
+    """Ollama answered, and the run still failed: the tag is there and has no
+    completion to give. Without this the message falls through to "start the
+    server", which is wrong and unactionable -- it is running (ADR-0032)."""
+    pulled(
+        ["gemma4:12b", "nomic-embed-text"],
+        capabilities={
+            "gemma4:12b": [_COMPLETION],
+            "nomic-embed-text": [_EMBEDDING],
+        },
+    )
+    config = AgentConfig(provider="ollama", model="nomic-embed-text")
+    message = hint(config, ResponseError('"nomic-embed-text" does not support chat', 400))
+
+    assert "cannot answer a prompt" in message
+    assert "ollama serve" not in message, "the server answered; starting one is no help"
+    assert "installed: gemma4:12b" in message
+
+
+def test_the_models_offered_instead_are_only_the_ones_that_can_answer(pulled) -> None:
+    """Listing the embedding model back to someone whose run just failed on one
+    would be the same mistake in the sentence written to explain it."""
+    pulled(
+        ["nomic-embed-text", "mxbai-embed-large", "qwen3:8b"],
+        capabilities={
+            "nomic-embed-text": [_EMBEDDING],
+            "mxbai-embed-large": [_EMBEDDING],
+            "qwen3:8b": [_COMPLETION],
+        },
+    )
+    config = AgentConfig(provider="ollama", model="nomic-embed-text")
+    message = hint(config, ResponseError('"nomic-embed-text" does not support chat', 400))
+
+    assert "installed: qwen3:8b" in message
+    assert "mxbai-embed-large" not in message
+
+
+def test_an_ollama_serving_nothing_that_answers_reports_none(pulled) -> None:
+    """The empty case of that narrowing: tags are pulled, none of them can chat."""
+    pulled(["nomic-embed-text"], capabilities={"nomic-embed-text": [_EMBEDDING]})
+    config = AgentConfig(provider="ollama", model="nomic-embed-text")
+    message = hint(config, ResponseError('"nomic-embed-text" does not support chat', 400))
+
+    assert "installed: none" in message
 
 
 # -- what counts as "the server is not there" ----------------------------------

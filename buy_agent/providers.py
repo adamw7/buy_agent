@@ -9,15 +9,17 @@ model** a config builds on it (both are ``BaseChatModel``, so
 :mod:`buy_agent.extraction` builds the same two chains over either -- ADR-0028);
 which **transport failures** mean "not there", and **how one is phrased**, since
 ``ollama pull`` and ``vllm serve`` are different things to type and the message
-is the whole value of the exception; and **what it is serving**, which fills the
-UI's model picker.
+is the whole value of the exception; and **what it is serving** -- each model
+with whether it can answer a prompt at all -- which fills the UI's model picker.
 
 The two are not symmetric, and pretending otherwise would lie to the shopper.
 Ollama holds many pulled tags and switches per request, taking the context window
-and the thinking switch with it; a vLLM process serves one model chosen when it
-started, fixes the window with ``--max-model-len`` and takes only the thinking
-switch. :data:`Provider.takes_num_ctx` declares that difference once, so the CLI,
-the API and the form say so rather than each offering a setting that does nothing.
+and the thinking switch with it -- and some of those tags are embedding models
+that no run can use, which is why a listing there costs a second question per tag
+(ADR-0032); a vLLM process serves one model chosen when it started, fixes the
+window with ``--max-model-len`` and takes only the thinking switch.
+:data:`Provider.takes_num_ctx` declares that difference once, so the CLI, the API
+and the form say so rather than each offering a setting that does nothing.
 
 This module deliberately imports nothing from :mod:`buy_agent.config`: a config
 is what it is handed. The dependency runs the other way --
@@ -27,7 +29,9 @@ is what it is handed. The dependency runs the other way --
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Any, Callable
 
 import httpx
@@ -50,6 +54,38 @@ _NO_KEY = "EMPTY"
 #: form is rendering, and "unreachable" is an answer worth giving quickly.
 _LIST_TIMEOUT = 5.0
 
+#: What an Ollama model's capabilities must include for it to answer a prompt at
+#: all. ``ollama show`` reports them; ``ollama list`` does not, which is why the
+#: listing below asks twice (ADR-0032).
+_COMPLETION = "completion"
+
+#: How many of those second questions to have in flight at once. They go out
+#: together because the whole listing is on one short budget, and they are capped
+#: because a machine with fifty pulled tags should not get fifty threads to save
+#: a few milliseconds on a local call.
+_PROBES = 8
+
+
+@dataclass(frozen=True, slots=True)
+class InstalledModel:
+    """One model a server is holding, and whether it can answer a chat prompt.
+
+    The second half is not decoration. Ollama holds whatever has been pulled,
+    which routinely includes embedding-only models -- ``nomic-embed-text`` and
+    its kind, pulled alongside a chat model by anything doing RAG locally -- and
+    a listing of bare names offers those as if a run could use one. It cannot:
+    the run fails partway through, on a message nothing the shopper saw
+    predicted. vLLM serves the one model it was started with, and that one was
+    chosen to be served, so ``completion`` is true there by construction.
+
+    Attributes:
+        name: The tag, or the repository id -- what a config's ``model`` names.
+        completion: Whether asking it for one is a run that can finish.
+    """
+
+    name: str
+    completion: bool
+
 
 @dataclass(frozen=True, slots=True)
 class Provider:
@@ -69,8 +105,9 @@ class Provider:
             for vLLM, which fixes it at startup, so ``AgentConfig.num_ctx`` is
             ignored there rather than quietly failing to apply.
         chat_model: Builds the LangChain chat model this config asks for.
-        installed: Lists what the server is serving, raising whatever the transport
-            raises -- both callers phrase that failure their own way.
+        installed: Lists what the server is serving, and what each of those can
+            do, raising whatever the transport raises -- both callers phrase that
+            failure their own way.
         transport_errors: The exceptions meaning the server could not be reached,
             or refused rather than completed.
         hint: Turns one of those into something the user can act on.
@@ -83,7 +120,7 @@ class Provider:
     api_key: str
     takes_num_ctx: bool
     chat_model: Callable[[AgentConfig], BaseChatModel]
-    installed: Callable[[AgentConfig], list[str]]
+    installed: Callable[[AgentConfig], list[InstalledModel]]
     transport_errors: tuple[type[BaseException], ...]
     hint: Callable[[AgentConfig, Exception], str]
 
@@ -99,25 +136,69 @@ def _ollama_chat_model(config: AgentConfig) -> BaseChatModel:
     )
 
 
-def _ollama_installed(config: AgentConfig) -> list[str]:
-    """Every model tag Ollama has pulled."""
-    return [model.model for model in Client(config.base_url).list().models if model.model]
+def _ollama_installed(config: AgentConfig) -> list[InstalledModel]:
+    """Every model tag Ollama has pulled, and whether each one can be run.
+
+    Two questions, because Ollama answers them in two places: ``list`` gives the
+    tags and nothing about what they do, and ``show`` gives one tag's
+    capabilities. So the second is asked once per tag -- together rather than one
+    after another, since :data:`_LIST_TIMEOUT` is the budget for the whole
+    listing and a form is waiting on it (ADR-0032).
+
+    A tag that will not say what it can do counts as able to answer. The point of
+    asking is to keep a model that cannot possibly work out of the shopper's way;
+    hiding a working one on the strength of a probe that failed would be the
+    worse mistake, and this is the call that fills the picker.
+    """
+    client = Client(config.base_url, timeout=_LIST_TIMEOUT)
+    names = [model.model for model in client.list().models if model.model]
+    if not names:
+        return []
+    with ThreadPoolExecutor(max_workers=min(len(names), _PROBES)) as pool:
+        return list(pool.map(partial(_ollama_capability, client), names))
+
+
+def _ollama_capability(client: Client, name: str) -> InstalledModel:
+    """Ask one pulled tag whether it has a completion to give.
+
+    ``capabilities`` is absent on an Ollama too old to report it, which is the
+    same answer as a probe that failed: nothing here knows better than the tag,
+    so it is taken at its word.
+    """
+    try:
+        capabilities = client.show(name).capabilities
+    except Exception:  # noqa: BLE001 -- any failure means "cannot say", not "cannot run"
+        return InstalledModel(name, completion=True)
+    return InstalledModel(
+        name, completion=capabilities is None or _COMPLETION in capabilities
+    )
 
 
 def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
     """Turn an Ollama failure into something the user can act on.
 
-    Only the missing-model case is Ollama's own -- it holds many tags, so a name
-    it does not know is one to pull. The other two are the sentence either server
-    would write, and are written once below.
+    Two cases are Ollama's own, and both come of it holding many tags rather than
+    serving one. A name it does not know is one to pull. And a name it does know
+    that has no completion to give is an embedding model: a run cannot use it,
+    and without this it would fall through to "start the server", which is both
+    wrong and unactionable -- the server answered (ADR-0032). The other two cases
+    are the sentence either server would write, and are written once below.
     """
     if isinstance(exc, httpx.TimeoutException):
         return _too_slow_hint(config, exc)
-    if "not found" in str(exc).lower():
+    lowered = str(exc).lower()
+    if "not found" in lowered:
         return (
             f"Ollama has no model named {config.model!r}. "
             f"Pull it with:  ollama pull {config.model}  "
             f"(installed: {_listed(config)})"
+        )
+    if "does not support" in lowered:
+        return (
+            f"Ollama has {config.model!r}, but it cannot answer a prompt ({exc}). "
+            f"An embedding model is pulled the same way a chat model is and looks "
+            f"the same in a listing. Ask for one that answers "
+            f"(installed: {_listed(config, completing=True)})"
         )
     return _unreachable_hint(config, exc, "ollama serve")
 
@@ -144,19 +225,27 @@ def _vllm_chat_model(config: AgentConfig) -> BaseChatModel:
     )
 
 
-def _vllm_installed(config: AgentConfig) -> list[str]:
+def _vllm_installed(config: AgentConfig) -> list[InstalledModel]:
     """What vLLM is serving -- one model, in the list shape the picker wants.
 
     Over ``httpx`` rather than the OpenAI client, because that is the whole
     request: a ``GET`` of ``/v1/models``. ``base_url`` already ends in the API
     root, so the path is appended rather than assembled from a host.
+
+    There is no second question to ask here, and no ``show`` to ask it of: a vLLM
+    process serves the model it was started for, so everything it lists is
+    something a run can use.
     """
     headers = {"Authorization": f"Bearer {config.api_key}"} if config.api_key else {}
     response = httpx.get(
         f"{config.base_url.rstrip('/')}/models", headers=headers, timeout=_LIST_TIMEOUT
     )
     response.raise_for_status()
-    return [entry["id"] for entry in response.json().get("data", []) if entry.get("id")]
+    return [
+        InstalledModel(entry["id"], completion=True)
+        for entry in response.json().get("data", [])
+        if entry.get("id")
+    ]
 
 
 def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
@@ -213,17 +302,24 @@ def _unreachable_hint(config: AgentConfig, exc: Exception, start: str) -> str:
     )
 
 
-def _listed(config: AgentConfig) -> str:
+def _listed(config: AgentConfig, *, completing: bool = False) -> str:
     """What the server has, for a message -- or "unknown" if it cannot be asked.
 
     A hint is already being written because something failed, so a second failure
     must not replace it with a traceback about the first.
+
+    ``completing`` narrows the answer to the models that can answer a prompt,
+    which is what to offer someone whose run just failed because the one they
+    chose cannot. Everywhere else the whole listing is the useful answer: a tag
+    that is missing and a tag that cannot chat are different mistakes.
     """
     try:
         models = config.model_server.installed(config)
     except Exception:  # noqa: BLE001 -- any transport failure means "cannot say"
         return "unknown"
-    return ", ".join(models) or "none"
+    if completing:
+        models = [model for model in models if model.completion]
+    return ", ".join(model.name for model in models) or "none"
 
 
 OLLAMA = Provider(

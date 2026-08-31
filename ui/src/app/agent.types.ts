@@ -76,6 +76,14 @@ export interface ModelSource {
   base_url: string;
 }
 
+/** One model a server is holding. `completion` is false for a model that cannot
+ *  answer a prompt at all -- an embedding model, which Ollama holds alongside the
+ *  chat ones and lists exactly the same way. Python decides it; the form marks it. */
+export interface InstalledModel {
+  name: string;
+  completion: boolean;
+}
+
 /** Whether the model server answered, and what it is serving. `label` is how
  *  the pill above the form names it -- "Ollama", "vLLM" -- so a page pointed at
  *  one never reports the other being down. */
@@ -84,7 +92,7 @@ export interface ModelStatus {
   label: string;
   base_url: string;
   reachable: boolean;
-  models: string[];
+  models: InstalledModel[];
   /** The transport's own reason, when it could not be reached. */
   detail?: string;
   /** What to do about it, in the provider's own words -- the same sentence a

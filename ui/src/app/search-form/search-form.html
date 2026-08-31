@@ -57,9 +57,7 @@
         @if (modelOptions().length) {
           <select name="model" [(ngModel)]="model" [disabled]="running()">
             @for (option of modelOptions(); track option.name) {
-              <option [value]="option.name">
-                {{ option.name }}{{ option.installed ? '' : ' — not served' }}
-              </option>
+              <option [value]="option.name">{{ option.name }}{{ option.note }}</option>
             }
           </select>
         } @else {

@@ -139,7 +139,9 @@ def install_fake_models() -> None:
             "label": "Ollama",
             "base_url": base_url,
             "reachable": True,
-            "models": list(DEMO_MODELS),
+            # Shaped as ``api.model_payload`` shapes it: every scripted model
+            # can answer a prompt, which is what a demo needs them all to do.
+            "models": [{"name": name, "completion": True} for name in DEMO_MODELS],
         }
 
     server_module.installed_models = models
