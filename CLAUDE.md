@@ -632,7 +632,7 @@ is reaching out. 946 is what a machine with PowerShell collects *and* runs; on
 one with neither `pwsh` nor `powershell` the same 946 collect but 13 of the 17
 in `tests/test_start_script.py` skip, so the summary reads `933 passed, 13
 skipped` -- nothing is missing, and the four that still run are the ones reading
-the script as text rather than through the probe. The UI's 83 tests
+the script as text rather than through the probe. The UI's 84 tests
 run in about two seconds, most of which is building the app first. The 19 in
 `integration/` are counted separately and collected only by being named.
 `docs/testing.md` quotes all three counts, so a new test file is two edits.

@@ -82,10 +82,25 @@ describe('ProductCard', () => {
     expect(card.querySelector('h3')!.textContent).toContain('Anker Q30');
   });
 
-  it('draws the score as a share of one', async () => {
+  it('draws the score as a share of one, and says what the share is of', async () => {
+    /* A bare `91` beside a bar is the one figure on the card with no unit. */
     const card = await render(SONY);
-    expect(card.querySelector('.score')!.textContent).toContain('91');
+    const score = card.querySelector('.score')!;
+
+    expect(score.textContent).toContain('Score');
+    expect(score.querySelector('.value')!.textContent).toContain('91%');
     expect(card.querySelector<HTMLElement>('.fill')!.style.inlineSize).toBe('91%');
+  });
+
+  it('gives the bar a name and a value a screen reader can read', async () => {
+    /* Without these the bar is a nameless div and the number is all there is. */
+    const meter = (await render(SONY)).querySelector('[role="meter"]')!;
+
+    expect(meter.getAttribute('aria-label')).toBe('Score');
+    expect(meter.getAttribute('aria-valuenow')).toBe('91');
+    expect(meter.getAttribute('aria-valuetext')).toBe('91%');
+    expect(meter.getAttribute('aria-valuemin')).toBe('0');
+    expect(meter.getAttribute('aria-valuemax')).toBe('100');
   });
 
   it('quotes what the sources said about it, one line each', async () => {

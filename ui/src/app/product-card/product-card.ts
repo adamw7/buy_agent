@@ -27,6 +27,16 @@ export class ProductCard {
   readonly highlighted = input(false);
 
   protected readonly percent = computed(() => Math.round(this.product().score * 100));
+
+  /**
+   * The score with its unit on it. The bar alone reads as a bare number, and the
+   * score is the one figure on the card that does not say what it is -- a price
+   * carries its currency and a rating carries its `/5`. Wording is presentation,
+   * so it is written here rather than sent from Python, the same way `shortName`
+   * trims a logger name; the raw `score` is on the payload either way.
+   */
+  protected readonly scoreLabel = computed(() => `${this.percent()}%`);
+
   protected readonly host = computed(() => {
     const url = this.product().url;
     if (!url) {
