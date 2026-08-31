@@ -64,6 +64,18 @@ summary {
   grid-column: 1 / -1;
 }
 
+/* What is wrong with the field above it: a range the server shipped, or the
+   sentence it refused a run with. The box is marked too -- a colour on the text
+   alone says nothing to a reader who cannot see it, and nothing at all to one
+   who has scrolled the message off. */
+.problem {
+  color: var(--bad);
+}
+
+.invalid {
+  border-color: var(--bad);
+}
+
 .hint {
   color: var(--text-dim);
   font-size: 12px;

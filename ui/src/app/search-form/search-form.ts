@@ -4,11 +4,13 @@ import { FormsModule } from '@angular/forms';
 
 import type {
   AgentDefaults,
+  Limit,
   ModelSource,
   ModelStatus,
   ProviderOption,
   SearchOptions,
   SortBy,
+  SourcesCheck,
 } from '../agent.types';
 
 /**
@@ -38,6 +40,19 @@ export interface ModelOption {
   note: string;
 }
 
+/**
+ * A value the server refused, and the box it came out of.
+ *
+ * The second line rather than the first: it is what a run that started anyway
+ * comes back with -- a region of the wrong shape, a source typed and submitted
+ * before the check for it answered. `field` is the key Python named in its
+ * `ApiError`, which is the key the form sends that setting under (ADR-0033).
+ */
+export interface Rejection {
+  field: string;
+  message: string;
+}
+
 const SETTINGS_KEY = 'buy_agent.settings';
 
 const EXAMPLES = [
@@ -64,6 +79,10 @@ export class SearchForm {
   readonly defaults = input<AgentDefaults | null>(null);
   readonly status = input<ModelStatus | null>(null);
   readonly running = input(false);
+  /** What the server made of the sources field, last time it was asked. */
+  readonly checked = input<SourcesCheck | null>(null);
+  /** A value a run was refused for, to mark beside the field it came from. */
+  readonly rejected = input<Rejection | null>(null);
 
   readonly search = output<SearchOptions>();
   readonly stop = output<void>();
@@ -71,6 +90,9 @@ export class SearchForm {
    *  Both, because the address alone is not the question: the same URL is asked
    *  one way for Ollama and another for vLLM. */
   readonly refresh = output<ModelSource>();
+  /** Ask whether the sources field names sources. The parse is Python's, so the
+   *  page asks rather than keeping a second copy of it (ADR-0033). */
+  readonly check = output<string>();
 
   protected readonly examples = EXAMPLES;
 
@@ -182,7 +204,88 @@ export class SearchForm {
     return options;
   });
 
-  protected readonly canSubmit = computed(() => this.request().trim().length > 0);
+  /**
+   * The number fields, by the key each is sent under.
+   *
+   * That key is the one the server ships its ranges under and the one its
+   * refusals name, so this one table answers both "what may this box hold" and
+   * "which box was the run refused for".
+   */
+  private readonly numbers: Record<string, () => number | null> = {
+    results: this.results,
+    top: this.top,
+    temperature: this.temperature,
+    num_ctx: this.numCtx,
+  };
+
+  /** The ranges the server declared, by the key each field is sent under. Empty
+   *  until the defaults land, which is a form that holds nothing to anything yet. */
+  protected readonly limits = computed<Record<string, Limit>>(() => this.defaults()?.limits ?? {});
+
+  /**
+   * What the page itself can say is wrong with a field, by the key it is sent
+   * under. Empty is a form that can be submitted.
+   *
+   * Every one of these is a rule the server declared and this only applies: the
+   * numbers against the ranges `config.LIMITS` shipped, the sources against the
+   * sentence `GET /api/sources` answered with. Nothing here decides anything the
+   * server would not, and the server still checks all of it -- this is the
+   * earlier line, not the only one (ADR-0033).
+   */
+  protected readonly problems = computed<Record<string, string>>(() => {
+    const problems: Record<string, string> = {};
+    const limits = this.limits();
+    for (const [key, held] of Object.entries(this.numbers)) {
+      const limit = limits[key];
+      const value = held();
+      // A cleared box means "use the default" (ADR-0012) rather than a number to
+      // hold to a range -- and it is the only way to ask for the server's own.
+      if (limit && value !== null && (value < limit.min || value > limit.max)) {
+        problems[key] = `Between ${limit.min} and ${limit.max}.`;
+      }
+    }
+    const sources = this.sourcesProblem();
+    if (sources) {
+      problems['sources'] = sources;
+    }
+    return problems;
+  });
+
+  /**
+   * What the server said about the sources field, while it is still about what
+   * the field holds.
+   *
+   * An answer names the spec it was about, so one that arrived for text since
+   * typed over is dropped rather than shown against the new value -- which would
+   * be a field marked for a mistake it no longer has.
+   */
+  private readonly sourcesProblem = computed(() => {
+    const checked = this.checked();
+    return checked && checked.sources === this.sources().trim() ? checked.error : '';
+  });
+
+  /**
+   * What to show under each field: what the page worked out, and -- for a field
+   * it has no rule of its own for -- what the server said when it refused the run.
+   *
+   * The page's own wins where both have something to say, because it is about
+   * what the box holds now and the server's is about what was sent.
+   */
+  protected readonly notes = computed<Record<string, string>>(() => {
+    const problems = this.problems();
+    const rejected = this.rejected();
+    if (!rejected || problems[rejected.field]) {
+      return problems;
+    }
+    return { ...problems, [rejected.field]: rejected.message };
+  });
+
+  /** Nothing to shop for, or a field the page already knows the server would
+   *  refuse. The second is the point: the ranges and the sources check cost no
+   *  model, no network and no minute of waiting, so they are not worth a run. */
+  protected readonly canSubmit = computed(
+    () => this.request().trim().length > 0 && Object.keys(this.problems()).length === 0,
+  );
 
   constructor() {
     // The server's defaults arrive after the form has already rendered, so seed
@@ -203,6 +306,10 @@ export class SearchForm {
       field.seed(defaults);
     }
     this.restore();
+    // A remembered value is one nobody is about to type, so nothing else would
+    // ever ask about it: a browser holding a bad source would find out a run
+    // later, which is the whole complaint.
+    this.sourcesChanged();
   }
 
   protected submit(): void {
@@ -246,6 +353,18 @@ export class SearchForm {
       this.baseUrl.set(option.base_url);
     }
     this.serverChanged();
+  }
+
+  /**
+   * The sources field was left: ask the server what it makes of what it holds.
+   *
+   * On leaving rather than on every keystroke. Half a spec is not a mistake --
+   * `rtings.co` is a site on the way to `rtings.com` -- and a request per
+   * character would mark the field for every one of them. Clicking Find products
+   * leaves the field first, so the check still happens before the run.
+   */
+  protected sourcesChanged(): void {
+    this.check.emit(this.sources().trim());
   }
 
   /** The server field was left: whatever that one is serving is a new list. */

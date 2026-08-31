@@ -200,6 +200,42 @@ def test_config_serves_the_form_its_defaults(server: str) -> None:
     assert payload["sort_options"] == ["score", "price", "rating"]
 
 
+def test_config_ships_the_ranges_the_form_holds_its_numbers_to(server: str) -> None:
+    """So a field can refuse 51 products without a second copy of the bounds."""
+    status, payload = get(f"{server}/api/config")
+
+    assert status == 200
+    assert payload["limits"]["results"] == {"min": 1, "max": 50}
+
+
+def test_sources_says_what_is_wrong_with_a_field_without_running_anything(
+    server: str,
+) -> None:
+    """The one endpoint that starts nothing: it reads the field the way a run
+    would and answers, so the page never opens a stream to be told (ADR-0033)."""
+    status, payload = get(f"{server}/api/sources?sources=Marques+Brownlee")
+
+    assert status == 200
+    assert payload["sources"] == "Marques Brownlee"
+    assert "does not name a source" in payload["error"]
+    assert "request" not in StubAgent.captured
+
+
+def test_sources_answers_200_for_a_field_that_names_sources(server: str) -> None:
+    """Asking whether this parses is a question that was answered either way."""
+    status, payload = get(f"{server}/api/sources?sources=rtings.com+@mkbhd")
+
+    assert status == 200
+    assert payload == {"sources": "rtings.com @mkbhd", "error": ""}
+
+
+def test_sources_with_nothing_to_check_is_the_whole_web(server: str) -> None:
+    status, payload = get(f"{server}/api/sources")
+
+    assert status == 200
+    assert payload == {"sources": "", "error": ""}
+
+
 def test_a_search_answers_with_ranked_products(server: str) -> None:
     status, payload = post(f"{server}/api/search", {"request": "headphones"})
     assert status == 200

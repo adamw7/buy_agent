@@ -8,6 +8,7 @@ import type {
   ModelStatus,
   SearchEvent,
   SearchOptions,
+  SourcesCheck,
 } from './agent.types';
 
 /**
@@ -26,6 +27,17 @@ export class AgentService {
   /** What that model server is serving, or why it could not be asked. */
   models(source: ModelSource): Observable<ModelStatus> {
     return this.http.get<ModelStatus>('/api/models', { params: { ...source } });
+  }
+
+  /**
+   * What the server makes of a Trusted sources field, before a run is started.
+   *
+   * The parse is Python's -- a hostname, a handle, the routing segments a
+   * channel URL carries -- so the browser asks rather than re-implementing it,
+   * and shows the sentence that comes back (ADR-0033).
+   */
+  checkSources(sources: string): Observable<SourcesCheck> {
+    return this.http.get<SourcesCheck>('/api/sources', { params: { sources } });
   }
 
   /**
@@ -58,7 +70,15 @@ export class AgentService {
 
       source.addEventListener('failure', (event) => {
         const payload = JSON.parse(event.data);
-        finish({ kind: 'failure', message: payload.error, status: payload.status });
+        // `field` names the box the bad value came out of, where the failure was
+        // about one -- Python's judgement, which the page shows beside that input
+        // rather than only in the banner (ADR-0033).
+        finish({
+          kind: 'failure',
+          message: payload.error,
+          status: payload.status,
+          field: payload.field ?? null,
+        });
       });
 
       // EventSource reports transport trouble here, and would then reconnect and

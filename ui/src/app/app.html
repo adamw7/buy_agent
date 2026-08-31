@@ -37,9 +37,12 @@
     [defaults]="defaults()"
     [status]="status()"
     [running]="running()"
+    [checked]="sourcesCheck()"
+    [rejected]="rejected()"
     (search)="start($event)"
     (stop)="stop()"
     (refresh)="refreshModels($event)"
+    (check)="checkSources($event)"
   />
 
   @if (failure(); as message) {

@@ -49,6 +49,19 @@ PROVIDER_OPTIONS: tuple[str, ...] = tuple(PROVIDERS)
 _TRUE = frozenset({"true", "1", "yes", "on"})
 _FALSE = frozenset({"false", "0", "no", "off"})
 
+#: The config field whose range holds each number a request may carry, by the key
+#: it arrives under -- ``results`` is what a request calls ``num_products``. One
+#: table read twice: :func:`_bounded` holds an incoming value to the range, and
+#: :func:`limits_payload` ships the same ranges to the form, so a field can refuse
+#: 100 products before a run starts without a second copy of the bounds in
+#: TypeScript (ADR-0033).
+_BOUNDED: dict[str, str] = {
+    "results": "num_products",
+    "top": "top_n",
+    "temperature": "temperature",
+    "num_ctx": "num_ctx",
+}
+
 #: Which HTTP status each of the agent's three failure modes deserves. It raises
 #: exactly these (see ``BuyAgent.run``), so a new one has to be added here and to
 #: ``__main__.main`` or it reaches the client as a 500.
@@ -60,14 +73,24 @@ _STATUS: dict[type[Exception], int] = {
 
 
 class ApiError(Exception):
-    """A failure with the HTTP status the client should be told about."""
+    """A failure with the HTTP status the client should be told about.
 
-    def __init__(self, message: str, status: int = 400) -> None:
+    ``field`` is the request key the unusable value arrived under, where the
+    failure is about one: the browser marks that input rather than only writing
+    the sentence into a banner beside a progress panel that has already drawn
+    itself. Which field a message is about is Python's to say, the same way the
+    wording of an unknown price is (ADR-0033). It is ``None`` for a failure that
+    is about the run rather than about a value -- a model server that did not
+    answer is nothing the form could have refused.
+    """
+
+    def __init__(self, message: str, status: int = 400, field: str | None = None) -> None:
         super().__init__(message)
         self.status = status
+        self.field = field
 
     def payload(self) -> dict[str, Any]:
-        return {"error": str(self)}
+        return {"error": str(self), "field": self.field}
 
 
 def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
@@ -85,16 +108,20 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         ApiError: if a value is present but not usable.
     """
     defaults = AgentConfig()
-    num_products = _read(data, "results", defaults.num_products, _bounded(int, "num_products"))
-    top_n = _read(data, "top", defaults.top_n, _bounded(int, "top_n"))
+    num_products = _read(data, "results", defaults.num_products, _bounded(int, "results"))
+    top_n = _read(data, "top", defaults.top_n, _bounded(int, "top"))
     sort_by = _read(data, "sort_by", "score", _as_text)
     if sort_by not in SORT_OPTIONS:
-        raise ApiError(f"sort_by must be one of {', '.join(SORT_OPTIONS)}; got {sort_by!r}.")
+        raise ApiError(
+            f"sort_by must be one of {', '.join(SORT_OPTIONS)}; got {sort_by!r}.",
+            field="sort_by",
+        )
 
     provider = _read(data, "provider", defaults.provider, _as_text)
     if provider not in PROVIDER_OPTIONS:
         raise ApiError(
-            f"provider must be one of {', '.join(PROVIDER_OPTIONS)}; got {provider!r}."
+            f"provider must be one of {', '.join(PROVIDER_OPTIONS)}; got {provider!r}.",
+            field="provider",
         )
 
     config = AgentConfig(
@@ -207,7 +234,53 @@ def defaults_payload() -> dict[str, Any]:
         "fetch": defaults.fetch_pages,
         "sort_by": "score",
         "sort_options": list(SORT_OPTIONS),
+        # What each number field may hold, so the form can refuse 51 products
+        # itself rather than opening a stream to be told (ADR-0033).
+        "limits": limits_payload(),
     }
+
+
+def limits_payload() -> dict[str, dict[str, int]]:
+    """The range each number a request carries is held to, by the key it uses.
+
+    Shipped rather than written into the form, for the reason every bound is read
+    off :data:`buy_agent.config.LIMITS` on both front doors: a range written down
+    twice is a form that accepts what the API refuses. The browser applies it and
+    does not choose it -- which is the line ADR-0033 draws between judging a value
+    early and judging it in a second place.
+    """
+    limits: dict[str, dict[str, int]] = {}
+    for key, field in _BOUNDED.items():
+        minimum, maximum = LIMITS[field]
+        limits[key] = {"min": minimum, "max": maximum}
+    return limits
+
+
+def sources_payload(spec: str) -> dict[str, Any]:
+    """Whether a Trusted-sources field names sources, and what is wrong if not.
+
+    The one option the form cannot judge for itself. A number is held to a range,
+    and a range is two numbers the server ships; a source is read by
+    :func:`~buy_agent.sources.parse_sources` -- a scheme taken off the front, a
+    hostname matched, routing segments dropped -- and writing that again in
+    TypeScript is the drift ADR-0031 refused for the region. So the browser asks
+    instead, and what comes back is the sentence the CLI prints (ADR-0033).
+
+    Args:
+        spec: What the field holds -- one string, which may name several sources
+            the way the form sends them. Empty is the whole web, and fine.
+
+    Returns:
+        ``{"sources", "error"}``. ``error`` is empty for a field with nothing
+        wrong with it, and ``sources`` is the spec as it was given, so a form that
+        has been typed into since can tell an answer about what the field holds
+        now from one about what it held a keystroke ago.
+    """
+    try:
+        parse_sources(spec)
+    except ValueError as exc:
+        return {"sources": spec, "error": str(exc)}
+    return {"sources": spec, "error": ""}
 
 
 def installed_models(provider: str, base_url: str) -> dict[str, Any]:
@@ -268,7 +341,7 @@ def _read_sources(
     try:
         return parse_sources(specs)
     except ValueError as exc:
-        raise ApiError(str(exc)) from exc
+        raise ApiError(str(exc), field="sources") from exc
 
 
 def _present(data: Mapping[str, Any], key: str) -> bool:
@@ -303,18 +376,19 @@ def _as_text(_key: str, text: str) -> str:
     return text
 
 
-def _as_region(_key: str, text: str) -> str:
+def _as_region(key: str, text: str) -> str:
     """A region code, checked for shape the way a source is checked for a site.
 
     A 400 naming the shape, rather than a run that searches on it and reports
     that the web had nothing to say: this is the one setting a typo makes look
     like an empty web (ADR-0031). The message quotes the value and the shapes
-    that work, so the field it came from needs no naming.
+    that work, so it reads on its own; the key travels beside it anyway, because
+    the form marks the box the value came out of (ADR-0033).
     """
     try:
         return parse_region(text)
     except ValueError as exc:
-        raise ApiError(str(exc)) from exc
+        raise ApiError(str(exc), field=key) from exc
 
 
 def _as_bool(key: str, text: str) -> bool:
@@ -324,18 +398,20 @@ def _as_bool(key: str, text: str) -> bool:
         return True
     if lowered in _FALSE:
         return False
-    raise ApiError(f"{key} must be true or false; got {text!r}.")
+    raise ApiError(f"{key} must be true or false; got {text!r}.", field=key)
 
 
-def _bounded(kind: Callable[[str], _Number], field: str) -> Callable[[str, str], _Number]:
-    """A parser for a number within the bounds ``field`` is held to.
+def _bounded(kind: Callable[[str], _Number], key: str) -> Callable[[str, str], _Number]:
+    """A parser for a number within the bounds the value arriving as ``key`` has.
 
-    Read off :data:`buy_agent.config.LIMITS` rather than written down here, so the
-    CLI and this cannot come to disagree about what a request may ask for. The
-    bounds go into the rejection as they were declared, so whole ones are quoted
-    whole: "between 0 and 2" is what a temperature is.
+    Read off :data:`buy_agent.config.LIMITS`, through :data:`_BOUNDED` for the
+    field that key is the request's name for, rather than written down here: the
+    CLI and this cannot then come to disagree about what a request may ask for,
+    and neither can the form, which is shipped the same table. The bounds go into
+    the rejection as they were declared, so whole ones are quoted whole:
+    "between 0 and 2" is what a temperature is.
     """
-    minimum, maximum = LIMITS[field]
+    minimum, maximum = LIMITS[_BOUNDED[key]]
     return partial(_as_number, kind, minimum, maximum)
 
 
@@ -352,7 +428,9 @@ def _as_number(
     except ValueError as exc:
         # What to call the kind is the kind's own to say, not a second argument.
         described = "a whole number" if kind is int else "a number"
-        raise ApiError(f"{key} must be {described}; got {text!r}.") from exc
+        raise ApiError(f"{key} must be {described}; got {text!r}.", field=key) from exc
     if not minimum <= number <= maximum:
-        raise ApiError(f"{key} must be between {minimum} and {maximum}; got {number}.")
+        raise ApiError(
+            f"{key} must be between {minimum} and {maximum}; got {number}.", field=key
+        )
     return number

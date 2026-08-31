@@ -9,10 +9,12 @@ import type {
   ModelStatus,
   SearchOptions,
   SearchResult,
+  SourcesCheck,
 } from './agent.types';
 import { ProductCard } from './product-card/product-card';
 import { ProgressLog } from './progress-log/progress-log';
 import { SearchForm } from './search-form/search-form';
+import type { Rejection } from './search-form/search-form';
 
 /**
  * The page: ask for something, watch the agent work, read the ranked answer.
@@ -34,6 +36,12 @@ export class App {
   protected readonly logs = signal<LogLine[]>([]);
   protected readonly result = signal<SearchResult | null>(null);
   protected readonly failure = signal<string | null>(null);
+  /** The failure again, where it was about one setting: the form marks that box.
+   *  Kept beside `failure` rather than derived from it, because which field a
+   *  message is about is Python's answer and not a sentence to read (ADR-0033). */
+  protected readonly rejected = signal<Rejection | null>(null);
+  /** What the server made of the sources field, for the form to show. */
+  protected readonly sourcesCheck = signal<SourcesCheck | null>(null);
   protected readonly running = signal(false);
   protected readonly started = signal(false);
 
@@ -117,11 +125,31 @@ export class App {
     return option?.label ?? provider;
   }
 
+  /**
+   * Ask what the sources field holds, before a run is worth starting.
+   *
+   * The form has no rule of its own for a source, so the answer comes from the
+   * same `parse_sources` a run would have used (ADR-0033). An empty field is the
+   * whole web, which is nothing to ask about; a server that did not answer
+   * leaves the field unmarked, since the banner already says the agent is down.
+   */
+  protected checkSources(sources: string): void {
+    if (!sources) {
+      this.sourcesCheck.set(null);
+      return;
+    }
+    this.agent.checkSources(sources).subscribe({
+      next: (check) => this.sourcesCheck.set(check),
+      error: () => this.sourcesCheck.set(null),
+    });
+  }
+
   protected start(options: SearchOptions): void {
     this.run?.unsubscribe();
     this.logs.set([]);
     this.result.set(null);
     this.failure.set(null);
+    this.rejected.set(null);
     this.running.set(true);
     this.started.set(true);
 
@@ -133,6 +161,9 @@ export class App {
           this.result.set(event.result);
         } else {
           this.failure.set(event.message);
+          // Named a field, so the form can mark the box it came out of rather
+          // than leaving the banner to be read against ten settings.
+          this.rejected.set(event.field ? { field: event.field, message: event.message } : null);
         }
       },
       error: (error: Error) => {
