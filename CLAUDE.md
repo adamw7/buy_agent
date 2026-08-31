@@ -211,7 +211,7 @@ superseding it rather than an edit to the old one -- numbers are never reused,
 and accepted records are not rewritten. `tests/test_conventions.py` checks that
 the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0030 and every record is Accepted, so the next free number is 0031.
+to ADR-0031 and every record is Accepted, so the next free number is 0032.
 
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
 for the two steps it is reliable at, and ordinary Python does everything else,
@@ -410,7 +410,18 @@ written down on each of them, the CLI comes to accept what the API refuses, and
 `--results 0` then searches the web, reads ten pages and asks the model for no
 products at all. On the CLI the check is a `type` function, so an out-of-range
 number is a usage error rather than a minute wasted; `tests/test_conventions.py`
-asserts the two doors refuse the same numbers. `provider` is the one option that is offered in *four*
+asserts the two doors refuse the same numbers. `region` is the same rule for a
+shape rather than a range: `config.REGION` is a country and then a language
+(`us-en`, `pl-pl`, and the three-letter `hk-tzh`), `config.parse_region` is the
+only place it is checked, and both doors go through it -- the CLI as a `type`
+function, the API as `_as_region` -- with `AgentConfig.__post_init__` behind them
+for a Python caller. A shape and not the list of codes that exist, because `ddgs`
+asks several engines and each reads the two halves its own way, so DuckDuckGo's
+own list would refuse `de-de` which Google takes (ADR-0031). The shape is not the
+whole story -- `en-us` is the right shape the wrong way round -- so
+`BuyAgent._region_note` also names the region in the "Search returned nothing"
+warning, unless it is `config.DEFAULT_REGION`: that one is known to work, and
+naming it would send a shopper to correct a setting that is correct. `provider` is the one option that is offered in *four*
 places -- those three plus the `ProviderOption` rows `defaults_payload` sends the
 picker -- and every one of them reads `providers.PROVIDERS` rather than listing
 the names again. It is also the one option that changes what two others mean, so
@@ -610,16 +621,16 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 915 tests
+to EOF instead -- what it checks is that nothing follows the reply. 946 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 915 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 915 collect but 13 of the 17
-in `tests/test_start_script.py` skip, so the summary reads `902 passed, 13
+is reaching out. 946 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 946 collect but 13 of the 17
+in `tests/test_start_script.py` skip, so the summary reads `933 passed, 13
 skipped` -- nothing is missing, and the four that still run are the ones reading
 the script as text rather than through the probe. The UI's 83 tests
 run in about two seconds, most of which is building the app first. The 19 in

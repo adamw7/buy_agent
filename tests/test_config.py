@@ -9,7 +9,7 @@ import pytest
 
 import buy_agent.config as config_module
 import buy_agent.providers as providers_module
-from buy_agent.config import AgentConfig
+from buy_agent.config import DEFAULT_REGION, AgentConfig, parse_region
 from buy_agent.ranking import RankingWeights
 
 # The rows are reached through the module rather than imported by name, because
@@ -65,6 +65,61 @@ def test_a_provider_nothing_can_serve_is_refused_where_it_is_set() -> None:
     the config is built, not a minute into a run that has already searched."""
     with pytest.raises(ValueError, match="Unknown provider 'llama.cpp'"):
         AgentConfig(provider="llama.cpp")
+
+
+# -- the region, the one search setting a typo makes look like an empty web ----
+
+
+@pytest.mark.parametrize("region", ["us-en", "uk-en", "pl-pl", "wt-wt", "hk-tzh"])
+def test_a_country_and_a_language_is_a_region(region: str) -> None:
+    """Three letters on the language half included: ``hk-tzh`` is a real code, and
+    a shape that refused it would be a rule about this project rather than about
+    the search backend (ADR-0031)."""
+    assert parse_region(region) == region
+
+
+@pytest.mark.parametrize(
+    "typo",
+    [
+        "us_en",  # the separator people reach for first
+        "pl",  # a language, or a country -- either way, half of one
+        "us-en-x",  # an engine splits on the hyphen and gets three halves
+        "united states",
+        "us-",
+        "",
+    ],
+)
+def test_anything_else_is_refused_where_it_is_set(typo: str) -> None:
+    """Not a minute into a run that has already searched: a region no engine knows
+    comes back empty, which reads as the web having nothing to say."""
+    with pytest.raises(ValueError, match="is not a search region"):
+        parse_region(typo)
+
+
+def test_the_refusal_names_the_shape_and_codes_that_have_it() -> None:
+    """The codes are not guessable -- it is ``us-en`` and not ``en-us`` -- so the
+    message is the whole value of refusing rather than searching."""
+    with pytest.raises(ValueError) as failure:
+        parse_region("en_US")
+
+    message = str(failure.value)
+    assert "'en_US'" in message
+    assert DEFAULT_REGION in message and "pl-pl" in message
+
+
+@pytest.mark.parametrize("typed", [" US-EN ", "Us-En"])
+def test_a_region_is_lower_cased_rather_than_sent_as_typed(typed: str) -> None:
+    """Google is handed the halves as they were written, so ``US-EN`` asks it for
+    a language called ``lang_EN`` -- another quiet way to be sent nothing."""
+    assert parse_region(typed) == "us-en"
+
+
+def test_a_config_holds_the_region_to_the_same_shape() -> None:
+    """One dataclass every door builds, so a Python caller gets the same answer."""
+    assert AgentConfig(region="PL-PL").region == "pl-pl"
+
+    with pytest.raises(ValueError, match="is not a search region"):
+        AgentConfig(region="en_us")
 
 
 def test_extraction_is_a_copying_task_not_a_creative_one() -> None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from buy_agent.config import AgentConfig
+from buy_agent.config import DEFAULT_REGION, AgentConfig
 from buy_agent.extraction import (
     build_extraction_chain,
     build_query_chain,
@@ -90,7 +90,7 @@ class BuyAgent:
         query = self._refine_query(request)
         results = self._search(query)
         if not results:
-            logger.warning("Search returned nothing for %r", query)
+            logger.warning("Search returned nothing for %r%s", query, self._region_note())
             return []
 
         if self.config.fetch_pages:
@@ -148,6 +148,27 @@ class BuyAgent:
             for result in kept:
                 pooled.setdefault(result.url, result)
         return list(pooled.values())[:width]
+
+    def _region_note(self) -> str:
+        """The region, when it is one worth suspecting of an empty search.
+
+        A region is checked for shape at both front doors, but the shapes outnumber
+        the codes: ``en-us`` is the right shape, the wrong way round, and a search
+        engine given it answers with nothing rather than complaining (ADR-0031).
+        Nothing else here can say so afterwards, so the one warning a shopper reads
+        does.
+
+        The default is left unnamed on purpose: it is the one value known to work,
+        and pointing at it would send someone to correct a setting that is correct.
+        """
+        region = self.config.region
+        if region == DEFAULT_REGION:
+            return ""
+        return (
+            f" in region {region}. A region a search engine does not know returns "
+            f"nothing rather than failing -- the codes are a country and then a "
+            f"language, like {DEFAULT_REGION} or pl-pl."
+        )
 
     def _refine_query(self, request: str) -> str:
         """Ask the LLM for a better search query, falling back to the raw request."""

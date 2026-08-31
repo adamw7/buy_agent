@@ -112,7 +112,7 @@ graph TB
 
     subgraph pipeline["Agent pipeline"]
         agent["<b>BuyAgent</b><br/><i>[Component: agent.py]</i><br/>Orchestrates the fixed pipeline and<br/>translates transport failures into<br/>an actionable message"]
-        config["<b>AgentConfig</b><br/><i>[Component: config.py]</i><br/>Provider, model, search, fetch and<br/>ranking settings; the CLI's flag<br/>defaults"]
+        config["<b>AgentConfig</b><br/><i>[Component: config.py]</i><br/>Provider, model, search, fetch and<br/>ranking settings; the CLI's flag<br/>defaults, and the ranges and the<br/>region shape both front doors<br/>hold a request to"]
         providers["<b>Providers</b><br/><i>[Component: providers.py]</i><br/>Everything that differs between<br/>Ollama and vLLM, one row each: the<br/>model, address and key it defaults<br/>to, the chat model, the listing, the<br/>errors that mean &quot;not there&quot;,<br/>and what to say"]
         extraction["<b>Extraction</b><br/><i>[Component: extraction.py]</i><br/>Both prompts and both chains,<br/>plus name cleaning and merging<br/>of variant names"]
         search["<b>Search</b><br/><i>[Component: search.py]</i><br/>DuckDuckGo wrapper; raises<br/>SearchError on a rate limit"]

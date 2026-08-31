@@ -80,7 +80,7 @@ python -m buy_agent "wireless earbuds" --source rtings.com --source @mkbhd
 | `--results` | `10` | How many products to find (1-50) |
 | `--top` | `3` | How many to log (1-50) |
 | `--sort-by` | `score` | `score`, `price` or `rating` |
-| `--region` | `us-en` | Search region, e.g. `uk-en`, `pl-pl` |
+| `--region` | `us-en` | Search region: a country, then a language -- `uk-en`, `pl-pl` |
 | `--source` | -- | Take the facts from this source only; repeatable |
 | `--temperature` | `0.0` | Model temperature, 0-2; extraction is a copying task |
 | `--num-ctx` | `8192` | Context window in tokens (Ollama only) |

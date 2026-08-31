@@ -238,6 +238,23 @@ def test_a_source_that_names_no_site_is_a_usage_error_that_says_what_does(capsys
     assert "@mkbhd" in capsys.readouterr().err
 
 
+def test_a_region_that_is_not_a_region_is_a_usage_error_that_says_what_is(capsys) -> None:
+    """The one search setting that otherwise fails by returning nothing, so it is
+    refused before the run rather than blamed on the web afterwards (ADR-0031)."""
+    with pytest.raises(SystemExit) as exit_info:
+        main(["headphones", "--region", "us_en"])
+
+    assert exit_info.value.code == 2
+    assert "us-en" in capsys.readouterr().err
+
+
+def test_a_region_reaches_the_config_lower_cased(fake_agent) -> None:
+    """An engine is handed the halves as they were typed, so the case matters."""
+    main(["headphones", "--region", "PL-PL"])
+
+    assert fake_agent["config"].region == "pl-pl"
+
+
 def test_the_base_url_flag_reaches_the_config(fake_agent) -> None:
     main(["headphones", "--base-url", "http://ollama.internal:11434"])
 
