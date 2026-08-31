@@ -1,7 +1,7 @@
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 
 import { SearchForm } from './search-form';
-import type { AgentDefaults, ModelSource, SearchOptions } from '../agent.types';
+import type { AgentDefaults, InstalledModel, ModelSource, SearchOptions } from '../agent.types';
 
 const OLLAMA = {
   name: 'ollama',
@@ -65,14 +65,18 @@ describe('SearchForm', () => {
     await fixture.whenStable();
   };
 
-  /** Tell the form what the server reported serving, the way the page does. */
-  const pulled = async (models: string[]) => {
+  /** Tell the form what the server reported serving, the way the page does.
+   *  A name alone is a model that can answer a prompt; the ones that cannot are
+   *  given as objects, since that is the half the picker has to mark. */
+  const pulled = async (models: (string | InstalledModel)[]) => {
     fixture.componentRef.setInput('status', {
       provider: 'ollama',
       label: 'Ollama',
       base_url: 'http://localhost:11434',
       reachable: true,
-      models,
+      models: models.map((model) =>
+        typeof model === 'string' ? { name: model, completion: true } : model,
+      ),
     });
     await fixture.whenStable();
   };
@@ -80,6 +84,12 @@ describe('SearchForm', () => {
   const modelNames = (): string[] =>
     [...fixture.nativeElement.querySelectorAll('select[name="model"] option')].map(
       (option) => (option as HTMLOptionElement).value,
+    );
+
+  /** What each entry reads as, which is where anything wrong with it is said. */
+  const modelLabels = (): string[] =>
+    [...fixture.nativeElement.querySelectorAll('select[name="model"] option')].map(
+      (option) => (option as HTMLOptionElement).textContent ?? '',
     );
 
   beforeEach(async () => {
@@ -177,6 +187,17 @@ describe('SearchForm', () => {
     await fixture.whenStable();
 
     expect(submitted[0].model).toBe('lfm2.5');
+  });
+
+  it('marks a model that cannot answer a prompt rather than hiding it', async () => {
+    /* An embedding model is pulled the same way a chat one is and lists the
+       same. Dropped, a pull made on purpose would silently vanish; offered
+       unmarked, it is a run that fails a minute in. */
+    await pulled(['llama3.2', { name: 'nomic-embed-text', completion: false }]);
+
+    expect(modelNames()).toEqual(['llama3.2', 'nomic-embed-text']);
+    expect(modelLabels()[1]).toContain('embedding only');
+    expect(modelLabels()[0]).not.toContain('embedding only');
   });
 
   it('keeps a chosen model the server is not serving in the list', async () => {

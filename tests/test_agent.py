@@ -407,11 +407,16 @@ def test_an_injected_model_bypasses_chat_ollama(recorded_chat_ollama) -> None:
 
 @pytest.fixture
 def installed_models(monkeypatch):
-    """Stand in for ollama's Client, so listing models never opens a socket."""
+    """Stand in for ollama's Client, so listing models never opens a socket.
+
+    Both calls it makes: the tags, and what each of them can do. Everything here
+    can answer a prompt -- which of them cannot is ``tests/test_providers.py``'s
+    question, not this module's.
+    """
 
     def install(models: list[str] | None, *, error: Exception | None = None) -> None:
         class FakeClient:
-            def __init__(self, base_url: str) -> None:
+            def __init__(self, base_url: str, **_kwargs) -> None:
                 if error is not None:
                     raise error
 
@@ -419,6 +424,10 @@ def installed_models(monkeypatch):
                 return SimpleNamespace(
                     models=[SimpleNamespace(model=name) for name in models or []]
                 )
+
+            @staticmethod
+            def show(_name: str):
+                return SimpleNamespace(capabilities=["completion"])
 
         monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
 

@@ -211,7 +211,7 @@ superseding it rather than an edit to the old one -- numbers are never reused,
 and accepted records are not rewritten. `tests/test_conventions.py` checks that
 the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0031 and every record is Accepted, so the next free number is 0032.
+to ADR-0032 and every record is Accepted, so the next free number is 0033.
 
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
 for the two steps it is reliable at, and ordinary Python does everything else,
@@ -255,7 +255,12 @@ Nine conventions matter when changing this code:
   (`model`, `base_url`, `api_key`, read from its own environment variables) next
   to how it is talked to (the chat model, the listing, the transport errors that
   mean "not there", the sentence that failure carries) plus `takes_num_ctx`
-  (ADR-0029). It still imports nothing from `config`; the dependency runs the
+  (ADR-0029). The listing answers `InstalledModel`s rather than names, because
+  what a server holds and what a run can use are the same question only on vLLM:
+  Ollama's `installed` asks `ollama show` per tag for its `capabilities`, so an
+  embedding-only pull is marked in the picker rather than offered (ADR-0032), and
+  a probe that fails leaves the tag usable -- hiding a working model on a failed
+  probe is the worse mistake. It still imports nothing from `config`; the dependency runs the
   other way, and `AgentConfig.model_server` is the *only* place a provider name
   becomes behaviour. So `agent.py` reads
   `config.model_server.chat_model(config)`, catches
@@ -479,7 +484,9 @@ Four things there are load-bearing:
 - **The browser decides nothing.** Ranking, grounding and even the wording of an
   unknown price stay in Python: `product_payload` sends `price_label` and
   `rating_label` next to the raw figures, `sort_by` is a request parameter
-  rather than a client-side re-sort, and `installed_models` sends the provider's
+  rather than a client-side re-sort, `installed_models` sends each model's
+  `completion` beside its name so the dropdown marks what it could not have
+  worked out, and it sends the provider's
   `label` next to the models so the header pill never has to decide what to call
   the server it is reporting on -- and, where it could not be reached, the `hint`
   that provider's own row would have raised a run with, so the page says
@@ -553,11 +560,16 @@ and write of it is wrapped, so a browser that refuses storage still gets a worki
 form.
 
 Its model field is a `<select>` over `GET /api/models` -- what `ollama list`
-prints, or the one model a vLLM reports -- and its two edge cases are the point. A
+prints, or the one model a vLLM reports -- and its three edge cases are the point. A
 name that is chosen but *not* in
 that list (a remembered setting, or a default for a model nobody pulled) is kept
 in the dropdown marked "not served" rather than dropped, because dropping it would
-silently run the search on whichever model happened to sort first. A list that
+silently run the search on whichever model happened to sort first. A model that
+*is* there and reports no `completion` capability is marked "embedding only" for
+the same reason turned around: it is a pull someone made on purpose, and hiding
+it would leave nothing to explain why the tag they remember is gone (ADR-0032).
+Which of the two an entry gets is `ModelOption.note`, filled from the
+`completion` Python sent -- the browser writes the suffix, not the judgement. A list that
 came back empty -- the server unreachable, or nothing loaded -- falls back to the
 text box it used to be, since a dropdown holding one unusable entry is worse than
 typing. Because the list belongs to one server, editing the address field
@@ -610,7 +622,8 @@ rest of `sources.py`: a second call site elsewhere would be a second thing to
 patch, and a test that forgot it would reach the real DuckDuckGo silently. Both model clients are patched
 where `buy_agent.providers` imported them -- `buy_agent.providers.ChatOllama` for
 the kwargs a real `ChatOllama` would be built with, `buy_agent.providers.Client`
-for the listing that names the installed models in an error, and
+for the listing that names the installed models in an error -- that fake answers
+both `list` and `show`, since an Ollama listing is now a call per tag -- and
 `buy_agent.providers.httpx.get` for vLLM's `/v1/models`. Patching `ollama.Client`
 no longer works: `providers.py` imports the name at module level, which is also
 the only place either client is named. A row of `providers.PROVIDERS` is
@@ -634,19 +647,19 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 948 tests
+to EOF instead -- what it checks is that nothing follows the reply. 962 tests
 run in about three and a half seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
 0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
 still be going: the keepalive ping, and two streams overlapping.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 948 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 948 collect but 13 of the 17
-in `tests/test_start_script.py` skip, so the summary reads `935 passed, 13
+is reaching out. 962 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 962 collect but 13 of the 17
+in `tests/test_start_script.py` skip, so the summary reads `949 passed, 13
 skipped` -- nothing is missing, and the four that still run are the ones reading
-the script as text rather than through the probe. The UI's 87 tests
-run in about two seconds, most of which is building the app first. The 19 in
+the script as text rather than through the probe. The UI's 88 tests
+run in about two seconds, most of which is building the app first. The 20 in
 `integration/` are counted separately and collected only by being named.
 `docs/testing.md` quotes all three counts, so a new test file is two edits.
 

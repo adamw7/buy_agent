@@ -40,6 +40,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0029](0029-one-table-per-model-server.md) | Keep everything about a model server in one table row | Accepted |
 | [0030](0030-publish-a-release-as-an-archive-and-an-image.md) | Publish a release as a runnable archive and a container image | Accepted |
 | [0031](0031-check-the-shape-of-a-region.md) | Check a region's shape, and name it when a search finds nothing | Accepted |
+| [0032](0032-say-which-models-can-answer-a-prompt.md) | Ask Ollama what each model can do, and mark the ones that cannot answer | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

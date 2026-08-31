@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import httpx
 import pytest
 
@@ -423,19 +425,27 @@ def test_the_defaults_say_which_providers_take_a_context_window() -> None:
 
 
 def test_installed_models_lists_what_ollama_has(monkeypatch) -> None:
+    """Each model with what it can do beside it: Ollama holds embedding-only tags
+    and a listing of bare names offers them as if a run could use one (ADR-0032)."""
+
     class FakeModel:
         def __init__(self, model):
             self.model = model
 
     class FakeList:
-        models = [FakeModel("llama3.2"), FakeModel("lfm2.5"), FakeModel("")]
+        models = [FakeModel("llama3.2"), FakeModel("nomic-embed-text"), FakeModel("")]
 
     class FakeClient:
-        def __init__(self, base_url):
+        def __init__(self, base_url, **_kwargs):
             self.base_url = base_url
 
         def list(self):
             return FakeList()
+
+        @staticmethod
+        def show(name):
+            capability = "embedding" if "embed" in name else "completion"
+            return SimpleNamespace(capabilities=[capability])
 
     monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
     assert installed_models("ollama", "http://localhost:11434") == {
@@ -443,7 +453,10 @@ def test_installed_models_lists_what_ollama_has(monkeypatch) -> None:
         "label": "Ollama",
         "base_url": "http://localhost:11434",
         "reachable": True,
-        "models": ["llama3.2", "lfm2.5"],
+        "models": [
+            {"name": "llama3.2", "completion": True},
+            {"name": "nomic-embed-text", "completion": False},
+        ],
     }
 
 
@@ -458,7 +471,7 @@ def test_installed_models_asks_vllm_what_it_is_serving(monkeypatch) -> None:
         "label": "vLLM",
         "base_url": "http://localhost:8000/v1",
         "reachable": True,
-        "models": ["Qwen/Qwen3-8B"],
+        "models": [{"name": "Qwen/Qwen3-8B", "completion": True}],
     }
 
 
@@ -495,7 +508,7 @@ def _serving(models: list[str]):
 def test_an_unreachable_ollama_is_a_status_not_an_error(monkeypatch) -> None:
     """The form still renders when Ollama is down; it just says so."""
 
-    def explode(base_url):
+    def explode(base_url, **_kwargs):
         raise ConnectionError("connection refused")
 
     monkeypatch.setattr("buy_agent.providers.Client", explode)
@@ -510,7 +523,7 @@ def test_an_unreachable_server_says_how_to_start_it(monkeypatch) -> None:
     moment where the fix is a single command, and the provider already writes it.
     The sentence is Python's so the browser keeps deciding nothing."""
 
-    def explode(base_url):
+    def explode(base_url, **_kwargs):
         raise ConnectionError("connection refused")
 
     monkeypatch.setattr("buy_agent.providers.Client", explode)

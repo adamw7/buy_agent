@@ -392,7 +392,7 @@ def tiny_model(base_url: str) -> str:
     tag = os.getenv(MODEL_ENV_VAR, TINY_MODEL)
     try:
         probe = AgentConfig(base_url=base_url)
-        installed = probe.model_server.installed(probe)
+        installed = [model.name for model in probe.model_server.installed(probe)]
     except Exception as exc:  # noqa: BLE001 -- any transport failure means "not there"
         _absent(f"No Ollama at {base_url} ({exc}). Start it with: ollama serve")
     if tag not in installed:

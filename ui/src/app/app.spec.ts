@@ -48,7 +48,7 @@ const STATUS: ModelStatus = {
   label: 'Ollama',
   base_url: 'http://localhost:11434',
   reachable: true,
-  models: ['llama3.2'],
+  models: [{ name: 'llama3.2', completion: true }],
 };
 
 const product = (rank: number, name: string) => ({
@@ -140,7 +140,10 @@ describe('App', () => {
   });
 
   it('fills the model dropdown with what that server is serving', async () => {
-    agent.modelsResponse = of({ ...STATUS, models: ['llama3.2', 'lfm2.5', 'qwen2.5'] });
+    agent.modelsResponse = of({
+      ...STATUS,
+      models: ['llama3.2', 'lfm2.5', 'qwen2.5'].map((name) => ({ name, completion: true })),
+    });
 
     const page = (await render()).nativeElement as HTMLElement;
     const options = page.querySelectorAll<HTMLOptionElement>('select[name="model"] option');

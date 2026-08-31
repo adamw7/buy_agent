@@ -23,12 +23,19 @@ import type {
  */
 type Thinking = 'on' | 'off';
 
-/** One entry in the model dropdown. `installed` is false for a name the server
- *  is not serving -- kept in the list so a remembered setting is never silently
- *  swapped for someone else's model. */
+/**
+ * One entry in the model dropdown, and what is wrong with picking it.
+ *
+ * Two things can be, and neither is a reason to leave the entry out. A name the
+ * server is not serving is kept so a remembered setting is never silently
+ * swapped for someone else's model; a model that cannot answer a prompt -- an
+ * embedding model, which Ollama lists exactly like a chat one -- is kept so a
+ * pull made by mistake is visible rather than absent (ADR-0032). `note` is the
+ * empty string for an entry that is simply a choice.
+ */
 export interface ModelOption {
   name: string;
-  installed: boolean;
+  note: string;
 }
 
 const SETTINGS_KEY = 'buy_agent.settings';
@@ -152,7 +159,8 @@ export class SearchForm {
 
   /**
    * What the model dropdown offers: everything the server reported, plus the
-   * name currently chosen if that is not among them.
+   * name currently chosen if that is not among them, each marked with whatever
+   * is wrong with it.
    *
    * Empty means there is nothing to pick from -- the server was unreachable, or
    * has nothing loaded -- and the field falls back to a text box, because a
@@ -163,10 +171,13 @@ export class SearchForm {
     if (!installed.length) {
       return [];
     }
-    const options = installed.map((name) => ({ name, installed: true }));
+    const options = installed.map((model) => ({
+      name: model.name,
+      note: model.completion ? '' : ' — embedding only',
+    }));
     const chosen = this.model().trim();
-    if (chosen && !installed.includes(chosen)) {
-      options.unshift({ name: chosen, installed: false });
+    if (chosen && !installed.some((model) => model.name === chosen)) {
+      options.unshift({ name: chosen, note: ' — not served' });
     }
     return options;
   });

@@ -87,9 +87,9 @@ describe('AgentService', () => {
       label: 'vLLM',
       base_url: 'http://elsewhere:8000/v1',
       reachable: true,
-      models: ['Qwen/Qwen3-8B'],
+      models: [{ name: 'Qwen/Qwen3-8B', completion: true }],
     });
-    expect(answered!.models).toEqual(['Qwen/Qwen3-8B']);
+    expect(answered!.models).toEqual([{ name: 'Qwen/Qwen3-8B', completion: true }]);
     http.verify();
   });
 

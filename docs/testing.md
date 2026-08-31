@@ -17,13 +17,13 @@ cd ui; npm run test:coverage  # the same, with a coverage floor
 python -m pytest integration  # against a real Ollama; see below
 ```
 
-948 Python tests and 87 UI tests. Nothing in either suite touches the network or
+962 Python tests and 88 UI tests. Nothing in either suite touches the network or
 a model server: the model is faked through the `llm=` argument of `BuyAgent`,
 both the search backend and the page fetcher are monkeypatched, the two clients
 `buy_agent.providers` builds are patched where that module imported them, and the
 server tests inject a stub agent through `create_server(agent_factory=...)`. The
 only real sockets are the loopback ones the HTTP tests need in order to be about
-HTTP at all. The 19 tests in `integration/` are the exception that proves it, and
+HTTP at all. The 20 tests in `integration/` are the exception that proves it, and
 they live outside `testpaths` so that a bare `pytest` cannot reach them.
 
 Both suites are measured, and CI fails on a drop: the Python side covers every
