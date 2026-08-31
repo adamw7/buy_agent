@@ -85,7 +85,12 @@ export interface ModelStatus {
   base_url: string;
   reachable: boolean;
   models: string[];
+  /** The transport's own reason, when it could not be reached. */
   detail?: string;
+  /** What to do about it, in the provider's own words -- the same sentence a
+   *  run would have failed with. Present only when the server did not answer,
+   *  and absent when there was no provider to ask. */
+  hint?: string;
 }
 
 /** What the form sends. Everything but `request` is optional; blanks mean "default". */

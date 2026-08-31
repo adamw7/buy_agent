@@ -207,15 +207,28 @@ def installed_models(provider: str, base_url: str) -> dict[str, Any]:
     refusal is what the browser is told. ``label`` travels with it because the
     pill above the form names the server, and "Ollama unreachable" over a vLLM
     address would be a lie the browser could not catch.
+
+    A failure carries two fields, not one: ``detail`` is the transport's own
+    reason, and ``hint`` is the sentence the provider would have raised had a run
+    hit the same failure -- the command to start the server, the key to set, the
+    tag to pull. It is written here rather than in TypeScript for the reason
+    everything else is: the browser decides nothing, and the sentence that names
+    the remedy already exists and is tested.
     """
     label = PROVIDERS[provider].label if provider in PROVIDERS else provider
     status = {"provider": provider, "label": label, "base_url": base_url}
+    config: AgentConfig | None = None
     try:
         config = AgentConfig(provider=provider, base_url=base_url)
         models = config.model_server.installed(config)
     except Exception as exc:  # noqa: BLE001 -- any transport failure means "not there"
         logger.debug("Could not list %s models at %s", label, base_url, exc_info=True)
-        return {**status, "reachable": False, "models": [], "detail": str(exc)}
+        failed = {**status, "reachable": False, "models": [], "detail": str(exc)}
+        # A config that never got built named a provider nothing can serve, so
+        # there is no row to ask for a remedy -- and its own refusal is one.
+        if config is not None:
+            failed["hint"] = config.model_server.hint(config, exc)
+        return failed
     return {**status, "reachable": True, "models": models}
 
 

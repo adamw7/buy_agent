@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from buy_agent.agent import ModelUnavailableError
@@ -469,6 +470,7 @@ def test_a_provider_nothing_can_serve_is_a_status_too(monkeypatch) -> None:
     assert payload["reachable"] is False
     assert payload["label"] == "llama.cpp", "an unknown name is its own label"
     assert "llama.cpp" in payload["detail"]
+    assert "hint" not in payload, "there is no provider to ask what to start"
 
 
 def _serving(models: list[str]):
@@ -501,3 +503,33 @@ def test_an_unreachable_ollama_is_a_status_not_an_error(monkeypatch) -> None:
     assert payload["reachable"] is False
     assert payload["models"] == []
     assert "refused" in payload["detail"]
+
+
+def test_an_unreachable_server_says_how_to_start_it(monkeypatch) -> None:
+    """The reason alone leaves the shopper where they were: the pill is the one
+    moment where the fix is a single command, and the provider already writes it.
+    The sentence is Python's so the browser keeps deciding nothing."""
+
+    def explode(base_url):
+        raise ConnectionError("connection refused")
+
+    monkeypatch.setattr("buy_agent.providers.Client", explode)
+    hint = installed_models("ollama", "http://localhost:11434")["hint"]
+
+    assert "http://localhost:11434" in hint, "the address it could not reach"
+    assert "connection refused" in hint, "and the transport's own reason with it"
+    assert "ollama serve" in hint
+
+
+def test_an_unreachable_vllm_is_told_to_start_a_vllm(monkeypatch) -> None:
+    """The other provider's remedy is its own -- ``vllm serve``, not ``ollama
+    serve`` -- which is the whole reason the sentence is asked of the row."""
+
+    def explode(url, **_kwargs):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr("buy_agent.providers.httpx.get", explode)
+    payload = installed_models("vllm", "http://localhost:8000/v1")
+
+    assert "vllm serve" in payload["hint"]
+    assert "ollama" not in payload["hint"].lower()
