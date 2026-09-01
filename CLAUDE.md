@@ -597,8 +597,11 @@ screen readers -- and this is the one failure a shopper meets before anything
 else whose fix is a single command. It is `null` for a server that answered, and
 also when the *agent* server is the one that did not: nothing came back to ask,
 and a sentence written here rather than in `providers.py` would be a second
-wording to keep true. The line is `white-space: pre-wrap`, which keeps the run of
-spaces Python puts in front of the command.
+wording to keep true. The sentence is `white-space: pre-wrap`, which keeps the
+run of spaces Python puts in front of the command, and a **Check again** button
+sits beside it: the pill re-asks when it is clicked, but nothing about a status
+pill says so, and the moment someone has just run that command is the moment they
+need to say they have -- without it the only way back is reloading the page.
 
 `progress-log` follows the tail the way a terminal does, but only while the
 reader is at it: the scroll handler sets `sticking` from how far the panel is
@@ -612,6 +615,16 @@ event rather than as a log line. It keeps whole logger names where the panel
 trims them, since the fixed column on screen is worth a prefix and a bug report
 is not. This is presentation, not judgement -- the browser is formatting lines
 Python wrote, the way `shortName` already does.
+
+It also counts the wait out, beside the working pill and then as the total in
+place of it. Extraction is the slow step and it logs nothing at all while it
+runs, so the panel is otherwise a frozen list of lines under a pulsing dot, with
+no way to tell a model still thinking from one that has stopped answering -- the
+timestamps say that afterwards, and `elapsed()` says it while it is happening.
+The clock starts and stops on the `running` input, redraws once a second and is
+cleared on destroy; `duration()` writes it in seconds and minutes (`8s`,
+`2m 14s`) rather than as a `0:08` clock, since this is how long something took
+and not what time it is.
 
 `search-form` remembers the advanced settings in `localStorage` and the request
 deliberately not -- what to shop for is a new question every time -- and every read
@@ -633,6 +646,19 @@ after `restore`, since a remembered bad source is one nobody is about to retype.
 The `numbers` table, keyed by the name each field is sent under, is the one place
 that mapping lives, and `tests/test_conventions.py` holds it against
 `limits_payload`.
+
+Every one of those marks is on a field inside the Settings panel, which is shut
+until somebody opens it -- so the form opens it itself the first time `flagged()`
+is not zero, and the summary carries the count for a reader who has shut it
+again. Left alone, a marked box says nothing and a run refused for a setting
+leaves a greyed-out Find products button with no visible reason anywhere on the
+page; the case that needs no keystroke at all is a remembered source or a
+remembered number the server would refuse, restored, checked and marked before
+the form is first drawn. The effect fires on the marks changing and not on the
+panel's state, so closing it again stays the reader's to do. `placeholders()` is
+the smaller half of the same idea: a cleared number box means "use the default"
+(ADR-0012), which is an answer rather than a mistake, so each box names the
+number it falls back to the way the context field already named its own.
 
 Its model field is a `<select>` over `GET /api/models` -- what `ollama list`
 prints, or the one model a vLLM reports -- and its three edge cases are the point. A
@@ -734,7 +760,7 @@ is reaching out. 1026 is what a machine with PowerShell collects *and* runs; on
 one with neither `pwsh` nor `powershell` the same 1026 collect but 13 of the 17
 in `tests/test_start_script.py` skip, so the summary reads `1013 passed, 13
 skipped` -- nothing is missing, and the four that still run are the ones reading
-the script as text rather than through the probe. The UI's 112 tests
+the script as text rather than through the probe. The UI's 121 tests
 run in about two seconds, most of which is building the app first. The 20 in
 `integration/` are counted separately and collected only by being named.
 `docs/testing.md` quotes all three counts, so a new test file is two edits.

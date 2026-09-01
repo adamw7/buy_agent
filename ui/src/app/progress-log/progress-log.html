@@ -3,9 +3,9 @@
     <h2>Progress</h2>
     <div class="state">
       @if (running()) {
-        <span class="pill working"><span class="dot"></span>working</span>
+        <span class="pill working"><span class="dot"></span>working · {{ elapsed() }}</span>
       } @else {
-        <span class="pill">{{ lines().length }} lines</span>
+        <span class="pill">{{ summary() }}</span>
       }
 
       @if (failure()) {

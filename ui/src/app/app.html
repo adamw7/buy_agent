@@ -28,7 +28,13 @@
   <!-- Under the pill rather than inside its title: a hover is no help on a
        touch screen, and this is the one failure whose fix is one command. -->
   @if (unreachable(); as reason) {
-    <p class="server-reason" role="status">{{ reason }}</p>
+    <div class="server-reason" role="status">
+      <p>{{ reason }}</p>
+      <!-- Clicking the pill re-asks, but nothing about a status pill says so,
+           and this is the moment somebody has just run that command and wants to
+           say they have. Without it the only way back is reloading the page. -->
+      <button type="button" class="secondary recheck" (click)="refreshModels()">Check again</button>
+    </div>
   }
 </header>
 

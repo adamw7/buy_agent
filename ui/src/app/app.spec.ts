@@ -276,6 +276,22 @@ describe('App', () => {
     expect(page.querySelector('.server-reason')).toBeNull();
   });
 
+  it('offers a way back once the server that was down has been started', async () => {
+    /* The remedy is one command, and the moment after running it there is
+       nothing on the page that says "ask again" -- the pill re-asks when it is
+       clicked, but nothing about a status pill says so. */
+    agent.modelsResponse = of({ ...STATUS, reachable: false, models: [], hint: 'ollama serve' });
+    const fixture = await render();
+    const page = fixture.nativeElement as HTMLElement;
+
+    agent.modelsResponse = of(STATUS);
+    page.querySelector<HTMLButtonElement>('.server-reason .recheck')!.click();
+    await fixture.whenStable();
+
+    expect(page.querySelector('.server-reason')).toBeNull();
+    expect(page.querySelector('.server')!.textContent).toContain('1 model');
+  });
+
   it('re-asks the same server when the status pill is clicked', async () => {
     const fixture = await render();
     const page = fixture.nativeElement as HTMLElement;

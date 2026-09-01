@@ -33,7 +33,16 @@
   </div>
 
   <details class="advanced" [open]="advanced()" (toggle)="advanced.set($any($event.target).open)">
-    <summary>Settings</summary>
+    <!-- The count rather than a bare word: shut, this panel is the only place
+         a marked field could be, so the summary is what says there is one. -->
+    <summary>
+      Settings
+      @if (flagged(); as count) {
+        <span class="flagged" role="status"
+          >— {{ count }} setting{{ count === 1 ? '' : 's' }} to look at</span
+        >
+      }
+    </summary>
 
     <div class="grid">
       @if (providerOptions().length > 1) {
@@ -118,6 +127,7 @@
           type="number"
           [min]="limits()['results']?.min"
           [max]="limits()['results']?.max"
+          [placeholder]="placeholders()['results'] ?? ''"
           [(ngModel)]="results"
           [disabled]="running()"
           [class.invalid]="notes()['results']"
@@ -135,6 +145,7 @@
           type="number"
           [min]="limits()['top']?.min"
           [max]="limits()['top']?.max"
+          [placeholder]="placeholders()['top'] ?? ''"
           [(ngModel)]="top"
           [disabled]="running()"
           [class.invalid]="notes()['top']"
@@ -161,6 +172,7 @@
           type="number"
           [min]="limits()['temperature']?.min"
           [max]="limits()['temperature']?.max"
+          [placeholder]="placeholders()['temperature'] ?? ''"
           step="0.1"
           [(ngModel)]="temperature"
           [disabled]="running()"

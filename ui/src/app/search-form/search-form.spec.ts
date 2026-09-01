@@ -606,6 +606,58 @@ describe('SearchForm', () => {
     expect(element<HTMLDetailsElement>('details.advanced').open).toBe(true);
   });
 
+  it('opens the settings on a setting it has marked', async () => {
+    /* Every mark this form makes is on a field inside that panel, and the panel
+       is shut until somebody opens it -- so the whole of what is on screen is a
+       Find products button that will not press. */
+    expect(element<HTMLDetailsElement>('details.advanced').open).toBe(false);
+
+    await type('input[name="request"]', 'kettle');
+    await type('input[name="results"]', '51');
+
+    expect(element<HTMLDetailsElement>('details.advanced').open).toBe(true);
+    expect(element('summary .flagged').textContent).toContain('1 setting to look at');
+    expect(submit().disabled).toBe(true);
+
+    await type('input[name="top"]', '0');
+    expect(element('summary .flagged').textContent).toContain('2 settings to look at');
+  });
+
+  it('opens them for a remembered value nobody is about to retype', async () => {
+    /* The one that arrives without a keystroke: a value stored by an older
+       build, or by a server whose ranges have since moved, is restored and
+       marked before the form is first drawn. */
+    localStorage.setItem('buy_agent.settings', JSON.stringify({ results: 99 }));
+    const form = await seeded();
+
+    expect(form.querySelector<HTMLDetailsElement>('details.advanced')!.open).toBe(true);
+    expect(form.querySelector('summary .flagged')!.textContent).toContain('1 setting');
+  });
+
+  it('opens them for the field a refused run named', async () => {
+    /* Marking the box a refusal came out of is the whole of what ADR-0033 asks
+       the form to do with one, and a mark inside a closed panel is no mark. */
+    fixture.componentRef.setInput('rejected', {
+      field: 'region',
+      message: "'en-us' is not a search region.",
+    });
+    await fixture.whenStable();
+
+    expect(element<HTMLDetailsElement>('details.advanced').open).toBe(true);
+    expect(problem('region')).toContain('not a search region');
+  });
+
+  it('names the default each cleared number box falls back to', async () => {
+    /* A cleared box means "use the default" (ADR-0012) -- an answer, and not a
+       mistake -- but an empty box says nothing about which number that is. */
+    const placeholder = (name: string) =>
+      element<HTMLInputElement>(`input[name="${name}"]`).placeholder;
+
+    expect(placeholder('results')).toBe('10');
+    expect(placeholder('top')).toBe('3');
+    expect(placeholder('temperature')).toBe('0');
+  });
+
   it('locks the settings too while a search is running', async () => {
     fixture.componentRef.setInput('running', true);
     await fixture.whenStable();

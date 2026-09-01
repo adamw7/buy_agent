@@ -43,17 +43,33 @@ h1 {
   color: var(--good);
 }
 
-/* The provider's own remedy, under the pill it belongs to. `pre-wrap` keeps the
-   run of spaces Python puts before the command, which is what sets it apart from
-   the sentence in front of it. */
+/* The provider's own remedy, under the pill it belongs to, with the way back
+   beside it. */
 .server-reason {
   max-width: 860px;
   margin: 0 auto;
   padding: 0 20px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
   color: var(--bad);
   font-size: 13px;
   line-height: 1.5;
+}
+
+/* `pre-wrap` keeps the run of spaces Python puts before the command, which is
+   what sets it apart from the sentence in front of it. On the sentence alone --
+   the button beside it is markup, and would otherwise wear the newlines the
+   template is indented with. */
+.server-reason p {
+  margin: 0;
   white-space: pre-wrap;
+}
+
+.recheck {
+  padding: 5px 12px;
+  font-size: 12px;
 }
 
 main {
