@@ -262,11 +262,16 @@ graph TB
     class app,form,log,card,agentsvc,handler,guard,relay,api component
 ```
 
-Four details there are easy to get wrong and are deliberate:
+Five details there are easy to get wrong and are deliberate:
 
 - **A run is streamed, not requested.** A search takes tens of seconds, so the
   UI uses `GET /api/search/stream` and watches the same progress the CLI prints.
   `POST /api/search` is the same run in one response, for scripts.
+- **Closing the stream stops the run, at its next step.** `BuyAgent.run` calls a
+  `checkpoint` before each step, and the first frame the handler cannot write
+  sets the flag that makes it raise. A chat call already in flight still
+  finishes, so the page's Stop line says as much rather than promising the run
+  is over (ADR-0034).
 - **The stream's failure event is called `failure`, not `error`.** A browser's
   `EventSource` delivers transport errors under `error` and then reconnects; a
   named `error` event would be indistinguishable from a dropped connection, and
@@ -299,7 +304,7 @@ sequenceDiagram
     UI->>H: GET /api/search/stream?... (EventSource)
     H-->>UI: 200 text/event-stream
     H->>W: start the run, attach the log relay
-    W->>A: run(request, sort_by)
+    W->>A: run(request, sort_by, checkpoint)
     A->>O: refine the query
     O-->>A: search query
     A-->>UI: event: log
@@ -314,7 +319,7 @@ sequenceDiagram
     W-->>H: ranked products
     H-->>UI: event: result
     UI-->>S: the shortlist, best first
-    Note over H,UI: A quiet stretch sends a ping event every 15s.<br/>A failed run sends a failure event carrying its HTTP status.
+    Note over H,UI: A quiet stretch sends a ping event every 15s.<br/>A failed run sends a failure event carrying its HTTP status.<br/>A frame that cannot be written stops the run at its next checkpoint.
 ```
 
 Only query refinement is recoverable: it falls back to the raw request, but lets

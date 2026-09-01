@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from buy_agent.agent import ModelUnavailableError
+from buy_agent.agent import ModelUnavailableError, every_step_passes
 from buy_agent.api import (
     ApiError,
     defaults_payload,
@@ -51,9 +51,10 @@ def agent_returning(result):
         def __init__(self, config):
             captured["config"] = config
 
-        def run(self, request, *, sort_by="score"):
+        def run(self, request, *, sort_by="score", checkpoint=every_step_passes):
             captured["request"] = request
             captured["sort_by"] = sort_by
+            captured["checkpoint"] = checkpoint
             if isinstance(result, BaseException):
                 raise result
             return result
@@ -443,6 +444,38 @@ def test_each_failure_gets_the_status_it_deserves(error: Exception, status: int)
     # No field: a model server that did not answer is nothing a form could have
     # refused, so there is no box for the page to mark.
     assert excinfo.value.payload() == {"error": str(error), "field": None}
+
+
+def test_the_checkpoint_reaches_the_agent() -> None:
+    """Handed through rather than acted on here: the boundaries belong to the pipeline."""
+    captured = agent_returning(RANKED)
+    checkpoint = lambda _step: None  # noqa: E731 -- an identity to compare, not a behaviour
+
+    run_search(
+        "headphones", AgentConfig(), agent_factory=captured["factory"], checkpoint=checkpoint
+    )
+
+    assert captured["checkpoint"] is checkpoint
+
+
+def test_a_run_nobody_asked_to_stop_gets_a_checkpoint_that_passes() -> None:
+    """The default is a function and not ``None``, so the pipeline calls it either
+    way rather than testing for one at every boundary."""
+    captured = agent_returning(RANKED)
+
+    run_search("headphones", AgentConfig(), agent_factory=captured["factory"])
+
+    assert captured["checkpoint"] is every_step_passes
+    assert every_step_passes("extract") is None
+
+
+def test_what_a_checkpoint_raises_is_not_turned_into_an_api_error() -> None:
+    """It is the caller's own way of ending a run it is no longer reading, so there
+    is nobody left to answer with a status (ADR-0034)."""
+    captured = agent_returning(KeyboardInterrupt("extract"))
+
+    with pytest.raises(KeyboardInterrupt):
+        run_search("headphones", AgentConfig(), agent_factory=captured["factory"])
 
 
 # -- the rest ------------------------------------------------------------------

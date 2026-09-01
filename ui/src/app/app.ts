@@ -174,6 +174,17 @@ export class App {
     });
   }
 
+  /**
+   * Stop the run: close the stream, and say what that does and does not reach.
+   *
+   * Closing the stream is what stops the run -- the server notices the reader has
+   * gone and ends the pipeline at its next step (ADR-0034) -- but "at its next
+   * step" is the part a shopper has to be told. A call already in flight to the
+   * model server finishes first, so someone who hits Stop and starts another
+   * search straight away has two runs on one model server and both are slower
+   * than either would have been alone. The line says so, because nothing else on
+   * the page can.
+   */
   protected stop(): void {
     this.run?.unsubscribe();
     this.run = null;
@@ -183,7 +194,15 @@ export class App {
       // The only line the browser writes itself, so it is the only one timed off
       // the browser's clock -- in the format Python sends the rest in, since the
       // panel shows them in one column.
-      { time: now(), level: 'WARNING', logger: 'buy_agent', message: 'Stopped.' },
+      {
+        time: now(),
+        level: 'WARNING',
+        logger: 'buy_agent',
+        message:
+          'Stopped watching. The run ends on the server at its next step — a call ' +
+          'already under way to the model server finishes first, so give it a ' +
+          'moment before starting another search.',
+      },
     ]);
   }
 }

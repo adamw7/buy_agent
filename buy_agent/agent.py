@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from buy_agent.config import DEFAULT_REGION, AgentConfig
 from buy_agent.extraction import (
@@ -20,7 +20,7 @@ from buy_agent.search import search_web
 from buy_agent.verification import ground
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from langchain_core.language_models import BaseChatModel
     from langchain_core.runnables import Runnable
@@ -30,6 +30,15 @@ if TYPE_CHECKING:
     from buy_agent.search import SearchResult
 
 logger = logging.getLogger(__name__)
+
+#: Called at each of a run's step boundaries with the name of the step about to
+#: start. Raising from it ends the run there, which is how a caller whose client
+#: has gone stops one (ADR-0034).
+Checkpoint: TypeAlias = "Callable[[str], None]"
+
+
+def every_step_passes(_step: str) -> None:
+    """The default checkpoint: nobody is watching, so every boundary passes."""
 
 
 class ModelUnavailableError(RuntimeError):
@@ -67,12 +76,30 @@ class BuyAgent:
         self.query_chain = build_query_chain(self.llm)
         self.extraction_chain = build_extraction_chain(self.llm)
 
-    def run(self, request: str, *, sort_by: SortBy = "score") -> list[RankedProduct]:
+    def run(
+        self,
+        request: str,
+        *,
+        sort_by: SortBy = "score",
+        checkpoint: Checkpoint = every_step_passes,
+    ) -> list[RankedProduct]:
         """Search for what the shopper asked for and log the top products.
+
+        Three failures come out of here and no more (ADR-0009). What
+        ``checkpoint`` raises comes out too, but that is the caller's own
+        exception travelling back to the caller rather than a fourth thing this
+        pipeline can fail with, which is why it is not in ``Raises`` below.
 
         Args:
             request: What the user wants to buy, in their own words.
             sort_by: ``"score"`` (default), ``"price"`` or ``"rating"``.
+            checkpoint: Called with the name of each step as it is about to start
+                -- ``"search"``, ``"fetch"``, ``"extract"``, ``"rank"`` -- so a
+                caller can end a run it no longer wants. Nothing here catches what
+                it raises, which is how it ends one (ADR-0034). The granularity is
+                a step boundary and no finer: a call already in flight to the
+                model server finishes first, since there is nothing to cancel one
+                with.
 
         Returns:
             Every product found, best first -- not only the ones logged.
@@ -88,12 +115,14 @@ class BuyAgent:
 
         logger.info("Shopping for: %s", request)
         query = self._refine_query(request)
+        checkpoint("search")
         results = self._search(query)
         if not results:
             logger.warning("Search returned nothing for %r%s", query, self._region_note())
             return []
 
         if self.config.fetch_pages:
+            checkpoint("fetch")
             results = enrich(
                 results,
                 max_chars=self.config.page_chars,
@@ -101,11 +130,16 @@ class BuyAgent:
                 timeout=self.config.fetch_timeout,
             )
 
+        checkpoint("extract")
         products = self._extract_products(request, results)
         if not products:
             logger.warning("No products could be extracted from the search results.")
             return []
 
+        # Before ranking rather than only before the slow steps: ranking is cheap,
+        # but it ends in ``log_top_products``, and a report is worth not writing
+        # for a run nobody is reading any more.
+        checkpoint("rank")
         ranked = rank_products(products, weights=self.config.weights, sort_by=sort_by)
         log_top_products(ranked, self.config.top_n)
         return ranked

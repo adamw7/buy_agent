@@ -8,7 +8,9 @@ Two ways to ask for the same thing. ``POST /api/search`` runs the pipeline and
 answers in one JSON response -- the shape scripts want. ``GET
 /api/search/stream`` is the same run as Server-Sent Events (``log`` lines, then
 ``result`` or ``failure``), which is what the UI uses, since a run takes tens of
-seconds and the browser should show the progress the CLI prints.
+seconds and the browser should show the progress the CLI prints. Closing that
+stream ends the run: the first frame that cannot be written says the reader has
+gone, and the pipeline stops at its next step boundary (ADR-0034).
 
 ``GET /api/sources`` is the one endpoint that runs nothing: it reads a Trusted
 sources field the way a run would and says what is wrong with it, so the form can
@@ -36,7 +38,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, unquote, urlparse
 
-from buy_agent.agent import BuyAgent
+from buy_agent.agent import BuyAgent, Checkpoint, every_step_passes
 from buy_agent.api import (
     ApiError,
     defaults_payload,
@@ -119,6 +121,31 @@ _CONTENT_TYPES = {
     ".woff": "font/woff",
     ".woff2": "font/woff2",
 }
+
+
+class _Stopped(Exception):
+    """Raised inside a run whose reader has gone, to end it at a step boundary.
+
+    Deliberately not one of the agent's three failure modes (ADR-0009): nothing
+    failed, and there is nobody left to answer with a status. It is caught by the
+    worker that raised it and goes no further -- which is why it is defined here,
+    beside the stream that is the only thing able to want one (ADR-0034).
+    """
+
+
+def _stop_when(stopped: threading.Event) -> Checkpoint:
+    """A checkpoint that ends a run at the first step boundary after ``stopped``.
+
+    The step it was about to start is what the exception carries, since "stopped
+    before extract" and "stopped before rank" are the difference between saving a
+    minute and saving nothing.
+    """
+
+    def checkpoint(step: str) -> None:
+        if stopped.is_set():
+            raise _Stopped(step)
+
+    return checkpoint
 
 
 class _LogRelay(logging.Handler):
@@ -322,11 +349,17 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         base_url = params.get("base_url") or _default_base_url(provider)
         return installed_models(provider, base_url)
 
-    def _search(self, data: dict[str, Any]) -> dict[str, Any]:
+    def _search(
+        self, data: dict[str, Any], *, checkpoint: Checkpoint = every_step_passes
+    ) -> dict[str, Any]:
         config, sort_by = parse_options(data)
         request = str(data.get("request") or "")
         return run_search(
-            request, config, sort_by=sort_by, agent_factory=self.agent_factory
+            request,
+            config,
+            sort_by=sort_by,
+            agent_factory=self.agent_factory,
+            checkpoint=checkpoint,
         )
 
     def _stream_search(self, params: dict[str, str]) -> None:
@@ -334,6 +367,12 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
         The work cannot happen on this thread: the response is written while the
         run is still going, which is the whole point of the stream.
+
+        A reader who goes away takes the run with them (ADR-0034): the first frame
+        that cannot be written -- a log line, or the keepalive ping at worst 15
+        seconds later -- sets ``stopped``, and the run ends at its next step
+        boundary rather than reading ten more pages and asking the model for
+        products nobody will see.
         """
         try:
             self.send_response(200)
@@ -348,19 +387,27 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         # No keep-alive on a stream whose length nobody knows in advance.
         self.close_connection = True
 
-        for event, data in self._search_events(params):
+        stopped = threading.Event()
+        for event, data in self._search_events(params, stopped):
             if not self._send_event(event, data):
-                # The run itself carries on to the end: it is blocked inside an
-                # HTTP call to the model server, and there is nothing here to
-                # cancel it with.
-                logger.info("Client disconnected; abandoning the stream")
+                # Coarse and not instant: a call already in flight to the model
+                # server finishes first, because there is nothing here to cancel
+                # one with. What it saves is every step after that one.
+                stopped.set()
+                logger.info("Client disconnected; stopping the run at its next step")
                 return
 
-    def _search_events(self, params: dict[str, str]) -> Iterator[tuple[str, Any]]:
+    def _search_events(
+        self, params: dict[str, str], stopped: threading.Event
+    ) -> Iterator[tuple[str, Any]]:
         """Yield ``log`` events for the run's progress, then ``result`` or ``failure``.
 
         Not ``error``: a browser's EventSource delivers its own transport errors
         under that name and then reconnects, which would silently restart the run.
+
+        ``stopped`` is the caller's way of ending the run: set it and the worker
+        raises :class:`_Stopped` out of the pipeline's next step boundary. Nothing
+        is yielded for that -- whoever set it is the reader who has already gone.
         """
         _install_relay()
         sink: queue.Queue[Any] = queue.Queue()
@@ -370,7 +417,9 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         def work() -> None:
             _relay.attach(sink)
             try:
-                outcome["result"] = self._search(params)
+                outcome["result"] = self._search(params, checkpoint=_stop_when(stopped))
+            except _Stopped as where:
+                logger.info("Run stopped before %s: nobody is reading it", where)
             except ApiError as exc:
                 outcome["error"] = (exc.status, exc.payload())
             except Exception as exc:  # noqa: BLE001 -- the stream reports, never crashes

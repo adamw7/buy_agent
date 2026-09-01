@@ -176,7 +176,7 @@ def test_run_search_gives_each_failure_mode_its_own_status(kind: type) -> None:
 
     def failing_agent(_config):
         class Agent:
-            def run(self, request, *, sort_by="score"):
+            def run(self, request, *, sort_by="score", checkpoint=None):
                 raise kind("no")
 
         return Agent()
@@ -389,7 +389,7 @@ def test_a_finished_run_is_mirrored_field_for_field_in_typescript() -> None:
 class _StubAgent:
     """Answers with one ranked product, so run_search's own keys can be read off."""
 
-    def run(self, request, *, sort_by="score"):
+    def run(self, request, *, sort_by="score", checkpoint=None):
         return [RANKED]
 
 

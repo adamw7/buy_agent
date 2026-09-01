@@ -940,3 +940,72 @@ def test_the_pool_is_cut_back_to_the_width_the_run_asked_for(source_search) -> N
     agent.run("headphones")
 
     assert len(reached) == 4
+
+
+# -- ending a run nobody is reading any more -----------------------------------
+
+
+def test_every_step_is_announced_to_the_checkpoint_before_it_starts(
+    agent_factory, search_results, extracted_products
+) -> None:
+    """The boundaries a caller can end a run at, in the order the pipeline reaches
+    them. Only these four: a step not announced is one a stopped run still pays for."""
+    agent, _ = agent_factory(FakeLLM(products=extracted_products), search_results)
+    steps: list[str] = []
+
+    agent.run("headphones", checkpoint=steps.append)
+
+    assert steps == ["search", "fetch", "extract", "rank"]
+
+
+def test_a_run_that_fetches_nothing_never_announces_the_fetch(
+    agent_factory, search_results, extracted_products
+) -> None:
+    """The boundary belongs to the step: announcing a fetch that is not going to
+    happen would offer a stop that saves nothing."""
+    agent, _ = agent_factory(
+        FakeLLM(products=extracted_products), search_results, fetch_pages=False
+    )
+    steps: list[str] = []
+
+    agent.run("headphones", checkpoint=steps.append)
+
+    assert steps == ["search", "extract", "rank"]
+
+
+def test_a_checkpoint_that_raises_ends_the_run_before_that_step(
+    agent_factory, search_results, extracted_products
+) -> None:
+    """How a stream whose reader has gone stops a run (ADR-0034): the exception is
+    the caller's own, nothing here catches it, and the step never runs."""
+    llm = FakeLLM(products=extracted_products)
+    agent, calls = agent_factory(llm, search_results)
+
+    def stop_before_extraction(step: str) -> None:
+        if step == "extract":
+            raise KeyboardInterrupt(step)
+
+    with pytest.raises(KeyboardInterrupt):
+        agent.run("headphones", checkpoint=stop_before_extraction)
+
+    # The query was refined and the pages were fetched; the extraction -- the
+    # second and slower of the two model calls -- never happened.
+    assert len(llm.calls) == 1
+    assert any("enriched" in call for call in calls)
+
+
+def test_a_run_stopped_before_ranking_reports_nothing(
+    agent_factory, search_results, extracted_products, caplog
+) -> None:
+    """The last boundary earns its place: ranking is cheap, but it ends in the
+    report, and a report for a run nobody is reading is a report nobody asked for."""
+    agent, _ = agent_factory(FakeLLM(products=extracted_products), search_results)
+
+    def stop_before_ranking(step: str) -> None:
+        if step == "rank":
+            raise KeyboardInterrupt(step)
+
+    with caplog.at_level(logging.INFO, logger="buy_agent"), pytest.raises(KeyboardInterrupt):
+        agent.run("headphones", checkpoint=stop_before_ranking)
+
+    assert "TOP" not in caplog.text

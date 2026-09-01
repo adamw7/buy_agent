@@ -435,8 +435,24 @@ describe('App', () => {
     await fixture.whenStable();
 
     expect(agent.unsubscribed).toBe(true);
-    expect(page.textContent).toContain('Stopped.');
+    expect(page.textContent).toContain('Stopped watching.');
     expect(page.querySelector('button[type="submit"]')).not.toBeNull();
+  });
+
+  it('says the run ends at the next step rather than at the click', async () => {
+    /* Closing the stream is what stops it, but the server only notices at the
+       pipeline's next boundary -- so a shopper who starts another search straight
+       away has two on one model server. The line is the only place that is said. */
+    const fixture = await render();
+    await searchFor(fixture, 'kettle');
+
+    const page = fixture.nativeElement as HTMLElement;
+    page.querySelector<HTMLButtonElement>('.actions button')!.click();
+    await fixture.whenStable();
+
+    const line = page.textContent!;
+    expect(line).toContain('next step');
+    expect(line).toContain('before starting another search');
   });
 
   it('closes the stream when the page goes away', async () => {
