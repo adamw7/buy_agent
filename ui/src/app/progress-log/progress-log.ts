@@ -1,6 +1,7 @@
 import { Component, ElementRef, effect, input, viewChild } from '@angular/core';
 
 import type { LogLine } from '../agent.types';
+import { filename, saveText } from '../save';
 
 /**
  * The run's log, as it happens.
@@ -68,15 +69,7 @@ export class ProgressLog {
    */
   protected download(): void {
     const when = new Date();
-    const blob = new Blob([transcript(this.lines(), this.failure(), when)], {
-      type: 'text/plain;charset=utf-8',
-    });
-    const href = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = href;
-    link.download = logFilename(when);
-    link.click();
-    URL.revokeObjectURL(href);
+    saveText(logFilename(when), transcript(this.lines(), this.failure(), when), 'text/plain');
   }
 }
 
@@ -113,6 +106,5 @@ export function transcript(lines: LogLine[], failure: string | null, when: Date)
 
 /** A name that sorts by when the file was taken, and survives every filesystem. */
 export function logFilename(when: Date): string {
-  const stamp = when.toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
-  return `buy-agent-log-${stamp}.txt`;
+  return filename('log', 'txt', when);
 }

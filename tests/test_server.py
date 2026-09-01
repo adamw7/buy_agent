@@ -314,6 +314,37 @@ def test_a_body_that_is_not_an_object_is_rejected(server: str) -> None:
     assert status == 400
 
 
+def test_reordering_a_finished_run_never_reaches_the_agent(server: str) -> None:
+    """The point of the endpoint: the browser posts back what it is already
+    holding and Python reorders it, so nothing searches, fetches or extracts
+    (ADR-0035). ``StubAgent.captured`` staying empty is that, exactly."""
+    found = post(f"{server}/api/search", {"request": "headphones", "top": 1})[1]
+    StubAgent.captured.clear()
+
+    status, payload = post(
+        f"{server}/api/rank",
+        {
+            "request": found["request"],
+            "products": found["products"],
+            "sort_by": "price",
+            "top": found["top_n"],
+        },
+    )
+
+    assert status == 200
+    assert [p["name"] for p in payload["products"]] == ["Anker Q30", "Sony WH-1000XM5"]
+    assert payload["sort_by"] == "price"
+    assert payload["top_n"] == 1
+    assert StubAgent.captured == {}, "no run was started to reorder what was there"
+
+
+def test_a_reorder_of_something_that_is_not_a_run_is_refused(server: str) -> None:
+    status, payload = post(f"{server}/api/rank", {"products": ["Sony"]})
+
+    assert status == 400
+    assert payload["field"] == "products"
+
+
 def test_unknown_api_paths_are_not_swallowed_by_the_app(server: str) -> None:
     """An /api typo must 404, not quietly return index.html."""
     assert get(f"{server}/api/nope")[0] == 404

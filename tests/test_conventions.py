@@ -60,6 +60,8 @@ from buy_agent.api import (
     model_payload,
     parse_options,
     product_payload,
+    rank_again,
+    results_payload,
     run_search,
     sources_payload,
 )
@@ -296,7 +298,7 @@ def test_every_key_a_refusal_can_name_is_one_the_form_sends() -> None:
     sends is a mark that lands nowhere; one the form sends and nothing reads is a
     setting that quietly does nothing (ADR-0033).
     """
-    keys = _keys_parse_options_reads()
+    keys = _keys_read_by(parse_options)
 
     # ``request`` is the one thing that is not an option, and ``sources`` is the
     # one option that does not go through ``_read`` -- it is a list, which that
@@ -304,17 +306,17 @@ def test_every_key_a_refusal_can_name_is_one_the_form_sends() -> None:
     assert keys | {"request", "sources"} == set(ts_interface("SearchOptions"))
 
 
-def _keys_parse_options_reads() -> set[str]:
-    """The request keys ``parse_options`` names, read off the call sites.
+def _keys_read_by(reader) -> set[str]:
+    """The request keys a reading function names, read off its ``_read`` calls.
 
     From the source rather than by trying names at it: what matters is which keys
     it reads at all, and a behavioural test can only confirm the ones it already
     knows to send.
     """
-    parse = ast.parse(inspect.getsource(parse_options))
+    parsed = ast.parse(inspect.getsource(reader))
     return {
         call.args[1].value
-        for call in ast.walk(parse)
+        for call in ast.walk(parsed)
         if isinstance(call, ast.Call)
         and isinstance(call.func, ast.Name)
         and call.func.id == "_read"
@@ -384,6 +386,39 @@ def test_a_finished_run_is_mirrored_field_for_field_in_typescript() -> None:
     )
 
     assert set(ts_interface("SearchResult")) == set(payload)
+
+
+def test_a_re_sort_answers_the_shape_a_finished_run_answers_with() -> None:
+    """The page shows a re-sorted run through the same view it showed the run
+    through, so the two payloads are one shape or the second is a view's worth of
+    fields quietly going undefined (ADR-0035)."""
+    ran = run_search("headphones", AgentConfig(), agent_factory=lambda _config: _StubAgent())
+    reordered = rank_again({"request": "headphones", "products": results_payload([RANKED])})
+
+    assert set(reordered) == set(ran)
+
+
+def test_a_re_sort_request_is_mirrored_field_for_field_in_typescript() -> None:
+    """The other direction of the same rule as ``SearchOptions``: a key the
+    browser never sends is a default nothing can move, and one it sends that
+    nothing reads is a setting that quietly does nothing."""
+    # ``products`` is the one key that does not go through ``_read`` -- it is a
+    # list, which that helper would render as a Python repr.
+    assert _keys_read_by(rank_again) | {"products"} == set(ts_interface("RankOptions"))
+
+
+def test_a_run_leaves_the_process_in_one_shape_however_it_leaves() -> None:
+    """``--json``, the API's answer and the page's Download results button hand
+    over the same document, because all three are ``results_payload``. Written
+    twice, the file a script parses and the file a shopper downloads drift."""
+    written = ast.parse((_ROOT / "buy_agent" / "__main__.py").read_text(encoding="utf-8"))
+    called = {
+        node.func.id
+        for node in ast.walk(written)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+
+    assert "results_payload" in called, "--json must not shape a run of its own"
 
 
 class _StubAgent:

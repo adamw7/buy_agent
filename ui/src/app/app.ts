@@ -9,10 +9,12 @@ import type {
   ModelStatus,
   SearchOptions,
   SearchResult,
+  SortBy,
   SourcesCheck,
 } from './agent.types';
 import { ProductCard } from './product-card/product-card';
 import { ProgressLog } from './progress-log/progress-log';
+import { filename, saveText } from './save';
 import { SearchForm } from './search-form/search-form';
 import type { Rejection } from './search-form/search-form';
 
@@ -44,12 +46,26 @@ export class App {
   protected readonly sourcesCheck = signal<SourcesCheck | null>(null);
   protected readonly running = signal(false);
   protected readonly started = signal(false);
+  /** A re-sort in flight. Its own flag and not `running`: the form stays usable
+   *  through it, because nothing is being searched -- this is one request over
+   *  products the page already has. */
+  protected readonly reordering = signal(false);
+  /** A re-sort that did not happen, said beside the results it did not change.
+   *  Not in `failure`: that one means the run failed, and the log panel offers a
+   *  bug report on the strength of it -- while this leaves a finished run on the
+   *  screen, in the order it was already in. */
+  protected readonly reorderFailed = signal<string | null>(null);
 
   /** The best few: the same ones the CLI logs at the end of a run. */
   protected readonly highlighted = computed(() => {
     const result = this.result();
     return result ? result.products.slice(0, result.top_n) : [];
   });
+
+  /** What the finished run may be re-ordered by: the server's own list, which is
+   *  the same one the form's Rank by field is built from -- offered in two
+   *  places and chosen in neither. */
+  protected readonly sortOptions = computed<SortBy[]>(() => this.defaults()?.sort_options ?? []);
 
   /** Everything the agent found beyond those, kept because it was still ranked. */
   protected readonly rest = computed(() => {
@@ -150,6 +166,7 @@ export class App {
     this.result.set(null);
     this.failure.set(null);
     this.rejected.set(null);
+    this.reorderFailed.set(null);
     this.running.set(true);
     this.started.set(true);
 
@@ -172,6 +189,65 @@ export class App {
       },
       complete: () => this.running.set(false),
     });
+  }
+
+  /**
+   * Ask for the same products in another order, without searching for them again.
+   *
+   * "Rank by" was a search option and nothing else, so changing it after a run
+   * spent the minute a second time -- another search, ten more pages fetched,
+   * another extraction -- to reorder products already on the screen. The
+   * ordering is still Python's: the products go back and come back ranked by
+   * the function every run ends with, which is the line ADR-0035 draws between
+   * skipping the search and letting the browser decide the answer.
+   */
+  protected resort(sortBy: SortBy): void {
+    const found = this.result();
+    if (!found || sortBy === found.sort_by || this.reordering()) {
+      return;
+    }
+    this.reordering.set(true);
+    this.reorderFailed.set(null);
+    this.agent
+      .rank({
+        request: found.request,
+        products: found.products,
+        sort_by: sortBy,
+        top: found.top_n,
+      })
+      .subscribe({
+        next: (result) => {
+          this.result.set(result);
+          this.reordering.set(false);
+        },
+        // Nothing was lost -- the run is still on the screen in the order it was
+        // already in -- so this is said beside those results rather than in the
+        // banner that means the run itself failed.
+        error: () => {
+          this.reorderFailed.set(
+            `Could not re-order these by ${sortBy}; they are still ranked by ` +
+              `${found.sort_by}. Is the agent server still running?`,
+          );
+          this.reordering.set(false);
+        },
+      });
+  }
+
+  /**
+   * Hand the finished run over as a file.
+   *
+   * The page is thrown away by the next question and the run took a minute, so
+   * a shopper comparing two searches had nothing to compare with. What is
+   * written is what the server sent, which is what `--json` writes: the shape is
+   * `results_payload`'s, so the browser saves the answer rather than composing
+   * one of its own.
+   */
+  protected downloadResults(): void {
+    saveText(
+      filename('results', 'json', new Date()),
+      JSON.stringify(this.result()?.products ?? [], null, 2),
+      'application/json',
+    );
   }
 
   /**

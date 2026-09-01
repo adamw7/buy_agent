@@ -106,6 +106,47 @@ main {
   width: fit-content;
 }
 
+.results-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Beside the heading rather than in the settings: both are about the run that
+   has already finished, and neither costs one. */
+.results-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.resort {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  /* Two words, and the row is tight enough that they would otherwise stack and
+     make the whole header a line taller than the heading beside them. */
+  white-space: nowrap;
+}
+
+.resort select {
+  font-size: 12px;
+  padding: 5px 8px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.results-actions .save {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
 @media (width < 640px) {
   .inner {
     flex-direction: column;

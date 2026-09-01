@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Observable, Subject, of, throwError } from 'rxjs';
+import { afterEach, vi } from 'vitest';
 
 import { App } from './app';
 import { AgentService } from './agent';
@@ -7,6 +8,7 @@ import type {
   AgentDefaults,
   ModelSource,
   ModelStatus,
+  RankOptions,
   SearchEvent,
   SearchResult,
   SourcesCheck,
@@ -92,6 +94,20 @@ class FakeAgent {
   sourcesAsked: string[] = [];
   sourcesResponse = (sources: string): Observable<SourcesCheck> => of({ sources, error: '' });
   unsubscribed = false;
+  ranked: RankOptions[] = [];
+  /** What `/api/rank` answers with. A function, so a test can shape the reply
+   *  around what was posted -- which is the whole set, ordered again. */
+  rankResponse: (options: RankOptions) => Observable<SearchResult> = (options) =>
+    of({
+      request: options.request,
+      count: options.products.length,
+      top_n: options.top,
+      sort_by: options.sort_by,
+      products: [...options.products].reverse().map((entry, index) => ({
+        ...entry,
+        rank: index + 1,
+      })),
+    });
 
   defaults() {
     return this.defaultsResponse;
@@ -105,6 +121,11 @@ class FakeAgent {
   checkSources(sources: string) {
     this.sourcesAsked.push(sources);
     return this.sourcesResponse(sources);
+  }
+
+  rank(options: RankOptions) {
+    this.ranked.push(options);
+    return this.rankResponse(options);
   }
 
   search(options: unknown): Observable<SearchEvent> {
@@ -460,5 +481,117 @@ describe('App', () => {
     await searchFor(fixture, 'kettle');
     fixture.destroy();
     expect(agent.unsubscribed).toBe(true);
+  });
+});
+
+describe('App results', () => {
+  let agent: FakeAgent;
+
+  beforeEach(() => {
+    localStorage.clear();
+    agent = new FakeAgent();
+    TestBed.configureTestingModule({ providers: [{ provide: AgentService, useValue: agent }] });
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  /** A finished run on the page, which is what both of these are about. */
+  const finished = async (result: SearchResult = RESULT) => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const page = fixture.nativeElement as HTMLElement;
+    const input = page.querySelector<HTMLInputElement>('input[name="request"]')!;
+    input.value = 'kettle';
+    input.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    page.querySelector('form')!.dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+    agent.stream.next({ kind: 'result', result });
+    agent.stream.complete();
+    await fixture.whenStable();
+    return fixture;
+  };
+
+  /** Pick a criterion out of the Rank by control beside the results. */
+  const rankBy = async (fixture: ComponentFixture<App>, criterion: string) => {
+    const select = (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>(
+      'select[name="resort"]',
+    )!;
+    select.value = criterion;
+    select.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+  };
+
+  it('offers the criteria the server named, showing the one the run used', async () => {
+    const page = (await finished()).nativeElement as HTMLElement;
+    const select = page.querySelector<HTMLSelectElement>('select[name="resort"]')!;
+
+    expect([...select.options].map((option) => option.value)).toEqual(['score', 'price', 'rating']);
+    expect(select.value).toBe('score');
+  });
+
+  it('re-orders a finished run without searching for it again', async () => {
+    /* The whole point: the products are already on the page, and reordering them
+       used to cost another search, ten more page fetches and another extraction
+       (ADR-0035). One request, and no second run. */
+    const fixture = await finished();
+    const searches = agent.searched.length;
+
+    await rankBy(fixture, 'price');
+
+    expect(agent.ranked).toHaveLength(1);
+    expect(agent.ranked[0].sort_by).toBe('price');
+    expect(agent.ranked[0].products).toHaveLength(3);
+    expect(agent.ranked[0].top).toBe(2);
+    expect(agent.searched).toHaveLength(searches);
+
+    const page = fixture.nativeElement as HTMLElement;
+    expect(page.querySelector('app-product-card')!.textContent).toContain('Other Kettle');
+  });
+
+  it('does not ask again for the order the run already came back in', async () => {
+    const fixture = await finished();
+
+    await rankBy(fixture, 'score');
+
+    expect(agent.ranked).toEqual([]);
+  });
+
+  it('says a re-order failed beside the results it left alone', async () => {
+    /* Not the banner that means the run failed: the run did not, its products are
+       still on the screen, and the log panel must not start offering a bug
+       report about a search that worked. */
+    agent.rankResponse = () => throwError(() => new Error('offline'));
+    const fixture = await finished();
+
+    await rankBy(fixture, 'rating');
+
+    const page = fixture.nativeElement as HTMLElement;
+    expect(page.querySelector('.results .banner')!.textContent).toContain('still ranked by score');
+    expect(page.querySelector('app-progress-log .save')).toBeNull();
+    expect(page.querySelector('app-product-card')!.textContent).toContain('Best Kettle');
+  });
+
+  it('hands the finished run over as the file the API answered with', async () => {
+    /* What `--json` writes, because it is what the server sent: the browser saves
+       the answer rather than composing a shape of its own. */
+    const blobs: Blob[] = [];
+    const links: HTMLAnchorElement[] = [];
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((blob) => {
+      blobs.push(blob as Blob);
+      return 'blob:results';
+    });
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      links.push(this);
+    });
+    const page = (await finished()).nativeElement as HTMLElement;
+
+    page.querySelector<HTMLButtonElement>('.results-actions .save')!.click();
+
+    expect(JSON.parse(await blobs[0].text())).toEqual(RESULT.products);
+    expect(links[0].download).toMatch(/^buy-agent-results-\d{8}-\d{6}\.json$/);
   });
 });

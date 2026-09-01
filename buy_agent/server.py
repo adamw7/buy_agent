@@ -12,6 +12,11 @@ seconds and the browser should show the progress the CLI prints. Closing that
 stream ends the run: the first frame that cannot be written says the reader has
 gone, and the pipeline stops at its next step boundary (ADR-0034).
 
+``POST /api/rank`` answers the same shape without running anything: a finished
+run's products, posted back and put in another order. Re-ranking needs no model
+and no network, so asking for one used to cost a whole second search -- ten more
+pages fetched to reorder products the browser was already holding (ADR-0035).
+
 ``GET /api/sources`` is the one endpoint that runs nothing: it reads a Trusted
 sources field the way a run would and says what is wrong with it, so the form can
 refuse ``Marques Brownlee`` before opening a stream (ADR-0033).
@@ -44,6 +49,7 @@ from buy_agent.api import (
     defaults_payload,
     installed_models,
     parse_options,
+    rank_again,
     run_search,
     sources_payload,
 )
@@ -52,7 +58,7 @@ from buy_agent.logging_setup import configure_logging
 from buy_agent.providers import PROVIDERS
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Sequence
+    from collections.abc import Callable, Iterator, Sequence
 
     from buy_agent.api import AgentFactory
 
@@ -309,12 +315,19 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             self._refuse()
             return
         url = urlparse(self.path)
-        if url.path != "/api/search":
+        # Both answer the same shape, and only one of them runs anything: a
+        # re-sort is the ranking a run ends with, asked for on its own (ADR-0035).
+        endpoints: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+            "/api/search": self._search,
+            "/api/rank": rank_again,
+        }
+        run = endpoints.get(url.path)
+        if run is None:
             self._send_json(404, {"error": f"No such endpoint: {url.path}"})
             return
         try:
             payload = self._read_json()
-            self._send_json(200, self._search(payload))
+            self._send_json(200, run(payload))
         except ApiError as exc:
             self._send_json(exc.status, exc.payload())
         except Exception as exc:  # noqa: BLE001 -- a 500 beats a dropped connection

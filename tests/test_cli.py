@@ -12,6 +12,7 @@ import pytest
 
 from buy_agent.__main__ import NOTHING_FOUND, build_parser, main
 from buy_agent.agent import ModelUnavailableError
+from buy_agent.api import results_payload
 from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.models import Product, RankedProduct
 from buy_agent.providers import PROVIDERS, VLLM
@@ -372,7 +373,7 @@ def test_the_json_carries_every_product_field(fake_agent, tmp_path) -> None:
     main(["headphones", "--json", str(destination)])
 
     entry = json.loads(destination.read_text(encoding="utf-8"))[0]
-    assert set(entry) == {
+    assert set(entry) >= {
         "rank",
         "score",
         "name",
@@ -385,6 +386,19 @@ def test_the_json_carries_every_product_field(fake_agent, tmp_path) -> None:
         "opinions",
         "notes",
     }
+
+
+def test_the_json_is_shaped_the_way_the_api_shapes_a_run(fake_agent, tmp_path) -> None:
+    """One shaping for every way a run leaves the process. The file this writes,
+    the API's answer and the file the page's Download results button hands over
+    are the same document, so a field added to ``product_payload`` is in all
+    three and the browser never has a shape of its own to write."""
+    destination = tmp_path / "out.json"
+
+    main(["headphones", "--json", str(destination)])
+
+    written = json.loads(destination.read_text(encoding="utf-8"))
+    assert written == json.loads(json.dumps(results_payload(RANKED)))
 
 
 def test_the_json_holds_every_product_not_just_the_top_n(fake_agent, tmp_path) -> None:

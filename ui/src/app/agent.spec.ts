@@ -93,6 +93,30 @@ describe('AgentService', () => {
     http.verify();
   });
 
+  it('posts a finished run back to be re-ordered, rather than searching again', () => {
+    /* A POST because a query string cannot carry a list of products -- and the
+       products are what makes this cost nothing (ADR-0035). */
+    const products = [{ rank: 1, name: 'Kettle' }] as never;
+    let answered = false;
+    service
+      .rank({ request: 'kettle', products, sort_by: 'price', top: 2 })
+      .subscribe(() => (answered = true));
+
+    const http = TestBed.inject(HttpTestingController);
+    const asked = http.expectOne('/api/rank');
+    expect(asked.request.method).toBe('POST');
+    expect(asked.request.body).toEqual({
+      request: 'kettle',
+      products,
+      sort_by: 'price',
+      top: 2,
+    });
+
+    asked.flush({ request: 'kettle', count: 1, top_n: 2, sort_by: 'price', products });
+    expect(answered).toBe(true);
+    http.verify();
+  });
+
   it('relays progress and finishes on the result', () => {
     const seen: SearchEvent[] = [];
     let completed = false;
