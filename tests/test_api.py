@@ -15,6 +15,8 @@ from buy_agent.api import (
     limits_payload,
     parse_options,
     product_payload,
+    rank_again,
+    results_payload,
     run_search,
     sources_payload,
 )
@@ -476,6 +478,140 @@ def test_what_a_checkpoint_raises_is_not_turned_into_an_api_error() -> None:
 
     with pytest.raises(KeyboardInterrupt):
         run_search("headphones", AgentConfig(), agent_factory=captured["factory"])
+
+
+# -- rank_again, the one entry point that runs no pipeline ---------------------
+
+
+#: Two products the criteria disagree about: the dearer one is better reviewed,
+#: so score puts it first and price puts it last. ``RANKED`` cannot show a
+#: re-sort at all -- its second product has neither a price nor a rating, so it
+#: sinks to the bottom whichever criterion is asked for.
+DISAGREEING = [
+    RankedProduct(
+        product=Product(name="Sony WH-1000XM5", price=328.0, rating=5.0, review_count=5000),
+        score=0.7,
+        rank=1,
+    ),
+    RankedProduct(
+        product=Product(name="Anker Q30", price=79.0, rating=2.0), score=0.6, rank=2
+    ),
+]
+
+
+def posted(**overrides) -> dict:
+    """A finished run posted back the way the page holds it: the payload it was
+    sent, extra keys and all."""
+    return {
+        "request": " headphones ",
+        "products": results_payload(RANKED),
+        "top": 1,
+        **overrides,
+    }
+
+
+def test_a_finished_run_can_be_reordered_without_running_it_again() -> None:
+    """The whole point of the endpoint: the same products, the other criterion,
+    and no agent anywhere near it -- ``rank_again`` takes no factory to hand one
+    to (ADR-0035). What used to cost a second search, ten more page fetches and
+    another extraction is this call."""
+    products = results_payload(DISAGREEING)
+
+    by_score = rank_again(posted(products=products, sort_by="score"))
+    by_price = rank_again(posted(products=products, sort_by="price"))
+
+    assert [p["name"] for p in by_score["products"]] == ["Sony WH-1000XM5", "Anker Q30"]
+    assert [p["name"] for p in by_price["products"]] == ["Anker Q30", "Sony WH-1000XM5"]
+    assert [p["rank"] for p in by_price["products"]] == [1, 2], "renumbered, not resent"
+
+
+def test_reordering_answers_the_shape_a_finished_run_answers_with() -> None:
+    """So the page can show it exactly the way it showed the run's own answer,
+    rather than reading a second shape into the same view."""
+    captured = agent_returning(RANKED)
+    ran = run_search("headphones", AgentConfig(top_n=1), agent_factory=captured["factory"])
+
+    assert set(rank_again(posted())) == set(ran)
+
+
+def test_reordering_keeps_the_request_and_the_count_it_was_given() -> None:
+    payload = rank_again(posted())
+
+    assert payload["request"] == "headphones", "stripped, as a run's own answer is"
+    assert payload["count"] == 2
+    assert payload["top_n"] == 1, "how many to highlight is the page's to carry over"
+
+
+def test_reordering_scores_the_set_again_rather_than_trusting_what_came_back() -> None:
+    """A score is a fact about the whole candidate set, and this is that set, so
+    it is recomputed -- which is also why a number the browser edited on the way
+    out changes nothing about the order."""
+    tampered = results_payload(RANKED)
+    tampered[1]["score"] = 1.0
+
+    payload = rank_again(posted(products=tampered))
+
+    assert [product["rank"] for product in payload["products"]] == [1, 2]
+    assert payload["products"][0]["name"] == "Sony WH-1000XM5"
+    assert payload["products"][1]["score"] < 1.0
+
+
+def test_reordering_reads_the_products_and_not_the_labels_beside_them() -> None:
+    """``product_payload`` adds two fields ``Product`` does not have, and they go
+    back out written from the figures rather than taken from the request."""
+    lying = results_payload(RANKED)
+    lying[0]["price_label"] = "free"
+
+    assert rank_again(posted(products=lying))["products"][0]["price_label"] == "328.00 USD"
+
+
+def test_reordering_defaults_to_the_score_the_run_was_ranked_by() -> None:
+    assert rank_again(posted())["sort_by"] == "score"
+
+
+def test_nothing_to_reorder_is_an_answer_not_a_failure() -> None:
+    """A run that found nothing offers no re-sort, but a client asking for one
+    gets the empty answer rather than a refusal to explain."""
+    payload = rank_again(posted(products=[]))
+
+    assert payload["count"] == 0
+    assert payload["products"] == []
+
+
+def test_reordering_refuses_a_criterion_nothing_sorts_by() -> None:
+    with pytest.raises(ApiError) as excinfo:
+        rank_again(posted(sort_by="cheapness"))
+
+    assert excinfo.value.status == 400
+    assert excinfo.value.field == "sort_by"
+
+
+def test_reordering_holds_the_highlight_count_to_the_range_a_run_holds_it_to() -> None:
+    """The same range on the same key: an endpoint that took 500 here would be a
+    second door accepting what the first refuses."""
+    with pytest.raises(ApiError) as excinfo:
+        rank_again(posted(top=LIMITS["top_n"][1] + 1))
+
+    assert excinfo.value.field == "top"
+
+
+@pytest.mark.parametrize("products", ["Sony", {"name": "Sony"}, None, 3])
+def test_reordering_refuses_anything_that_is_not_a_list_of_products(products) -> None:
+    with pytest.raises(ApiError) as excinfo:
+        rank_again(posted(products=products))
+
+    assert excinfo.value.status == 400
+    assert excinfo.value.field == "products"
+
+
+def test_reordering_says_which_product_it_could_not_read() -> None:
+    """One of ten came back wrong, and "products is invalid" is not enough to
+    find it -- the index is what a bug report is built out of."""
+    with pytest.raises(ApiError) as excinfo:
+        rank_again(posted(products=[*results_payload(RANKED), {"price": 3.0}]))
+
+    assert "products[2]" in str(excinfo.value)
+    assert excinfo.value.field == "products"
 
 
 # -- the rest ------------------------------------------------------------------

@@ -139,6 +139,18 @@ export interface SearchOptions {
   fetch?: boolean;
 }
 
+/** What a re-sort sends: the products of a finished run, and the order to put
+ *  them in. They go back to Python because the ordering is Python's -- what is
+ *  skipped is the searching, not the ranking, so a criterion changed after the
+ *  run costs a request rather than another minute (ADR-0035). `top` travels with
+ *  them so the answer keeps highlighting as many as the run did. */
+export interface RankOptions {
+  request: string;
+  products: RankedProduct[];
+  sort_by: SortBy;
+  top: number;
+}
+
 /** What a streamed run emits: progress, then exactly one ending. */
 export type SearchEvent =
   | { kind: 'log'; line: LogLine }

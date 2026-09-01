@@ -211,7 +211,7 @@ superseding it rather than an edit to the old one -- numbers are never reused,
 and accepted records are not rewritten. `tests/test_conventions.py` checks that
 the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0034 and every record is Accepted, so the next free number is 0035.
+to ADR-0035 and every record is Accepted, so the next free number is 0036.
 
 `.claude/skills/` holds the chores that span those files, one directory each:
 `add-option` walks a new setting through `config.py`, both front doors,
@@ -472,9 +472,10 @@ everything else to the built Angular app, with unknown paths falling back to
 | `GET /api/models` | What a named server is serving, or why it could not be asked and what to do about it |
 | `GET /api/sources` | Whether a Trusted sources field names sites -- the one endpoint that runs nothing |
 | `POST /api/search` | One run, as JSON |
+| `POST /api/rank` | A finished run's products in another order -- the only endpoint that runs no pipeline |
 | `GET /api/search/stream` | One run, as SSE: `log` lines, then `result` or `failure` |
 
-Five things there are load-bearing:
+Six things there are load-bearing:
 
 - **A run is streamed, not requested.** A search takes tens of seconds, so
   `GET /api/search/stream` runs the agent in a worker thread and relays its log
@@ -508,7 +509,9 @@ Five things there are load-bearing:
 - **The browser decides nothing.** Ranking, grounding and even the wording of an
   unknown price stay in Python: `product_payload` sends `price_label` and
   `rating_label` next to the raw figures, `sort_by` is a request parameter
-  rather than a client-side re-sort, `installed_models` sends each model's
+  rather than a client-side re-sort -- for a finished run too, which posts its
+  products back to `POST /api/rank` rather than sorting the array it is holding
+  (ADR-0035) -- `installed_models` sends each model's
   `completion` beside its name so the dropdown marks what it could not have
   worked out, and it sends the provider's
   `label` next to the models so the header pill never has to decide what to call
@@ -518,6 +521,21 @@ Five things there are load-bearing:
   rule as `clean_products` -- whatever decides the answer belongs where it is
   testable. `ui/src/app/agent.types.ts` mirrors those payloads for TypeScript, so
   a field added to `api.py` is added there too.
+- **Re-ordering a finished run is a request, not a re-run** (ADR-0035).
+  `rank_again` is `rank_products` and nothing else -- no agent is built, no page
+  is fetched, no model is asked -- and it answers the shape `run_search` answers
+  with, so the page shows a re-sorted run through the same view. The products
+  travel in the body rather than being kept server-side under a run id: a
+  session store is a lifetime, an eviction policy and a leak on a server that is
+  stdlib on purpose, and the browser is already holding them. What it sends is
+  what it was sent, and every product is scored again from the set, so an edited
+  figure changes nothing. `api.results_payload` is the one shaping of a run's
+  products -- the API's answer, the file `--json` writes and the file the page's
+  Download results button hands over -- so the browser saves the answer rather
+  than composing a document of its own. A re-sort that fails is said beside the
+  results it left alone, not in the banner that means the *run* failed, which is
+  also what keeps the log panel from offering a bug report about a search that
+  worked.
 - **A blank value means "use the default".** `api.parse_options` treats a missing
   key and an empty string alike, because an empty form field means "unset", not
   "zero" -- and the UI's `toQuery` drops blanks for the same reason. Values that
@@ -704,7 +722,7 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 1003 tests
+to EOF instead -- what it checks is that nothing follows the reply. 1026 tests
 run in about four seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
@@ -712,11 +730,11 @@ as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plu
 still be going: the keepalive ping, two streams overlapping, and the run a reader
 who has gone stops at its next step.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 1003 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 1003 collect but 13 of the 17
-in `tests/test_start_script.py` skip, so the summary reads `990 passed, 13
+is reaching out. 1026 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 1026 collect but 13 of the 17
+in `tests/test_start_script.py` skip, so the summary reads `1013 passed, 13
 skipped` -- nothing is missing, and the four that still run are the ones reading
-the script as text rather than through the probe. The UI's 105 tests
+the script as text rather than through the probe. The UI's 112 tests
 run in about two seconds, most of which is building the app first. The 20 in
 `integration/` are counted separately and collected only by being named.
 `docs/testing.md` quotes all three counts, so a new test file is two edits.

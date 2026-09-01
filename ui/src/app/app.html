@@ -56,10 +56,47 @@
   @if (result(); as found) {
     @if (found.count) {
       <section class="results">
-        <h2>
-          Top {{ highlighted().length }} of {{ found.count }}
-          <span class="pill">ranked by {{ found.sort_by }}</span>
-        </h2>
+        <header class="results-head">
+          <h2>Top {{ highlighted().length }} of {{ found.count }}</h2>
+
+          <div class="results-actions">
+            <!-- Changing this used to re-run the whole pipeline for products
+                 already on the screen. It now posts them back to be ranked, so
+                 the ordering is still Python's and only the search is skipped
+                 (ADR-0035). -->
+            <label class="resort">
+              <span>Rank by</span>
+              <select
+                name="resort"
+                [disabled]="reordering() || running()"
+                (change)="resort($any($event.target).value)"
+              >
+                <!-- `selected` on the option rather than `value` on the select:
+                     the options are written by a loop, and the select's value
+                     would be set before any of them exists. -->
+                @for (option of sortOptions(); track option) {
+                  <option [value]="option" [selected]="option === found.sort_by">
+                    {{ option }}
+                  </option>
+                }
+              </select>
+            </label>
+
+            <button
+              type="button"
+              class="secondary save"
+              [disabled]="reordering()"
+              (click)="downloadResults()"
+            >
+              Download results
+            </button>
+          </div>
+        </header>
+
+        @if (reorderFailed(); as problem) {
+          <p class="card banner" role="alert">{{ problem }}</p>
+        }
+
         @for (product of highlighted(); track product.rank) {
           <app-product-card [product]="product" [highlighted]="true" />
         }

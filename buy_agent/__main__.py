@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, get_args
 
 from buy_agent.agent import BuyAgent, ModelUnavailableError
+from buy_agent.api import results_payload
 from buy_agent.config import LIMITS, AgentConfig, parse_region
 from buy_agent.logging_setup import configure_logging
 from buy_agent.providers import PROVIDERS
@@ -266,10 +267,10 @@ def main(argv: list[str] | None = None) -> int:
         # Written even when the run found nothing, and so before the exit code
         # is decided: skipped, a script waiting on this file gets no file and no
         # reason, with the last run's results left sitting there looking current.
-        payload = [
-            {"rank": entry.rank, "score": round(entry.score, 4), **entry.product.model_dump()}
-            for entry in ranked
-        ]
+        # The API's own shaping, not a second one written here: the file the page
+        # hands over is that answer saved, and two spellings of "a run's results"
+        # would be two things to keep in step for whoever reads either.
+        payload = results_payload(ranked)
         try:
             args.json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         except OSError as exc:

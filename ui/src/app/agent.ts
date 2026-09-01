@@ -6,8 +6,10 @@ import type {
   AgentDefaults,
   ModelSource,
   ModelStatus,
+  RankOptions,
   SearchEvent,
   SearchOptions,
+  SearchResult,
   SourcesCheck,
 } from './agent.types';
 
@@ -38,6 +40,18 @@ export class AgentService {
    */
   checkSources(sources: string): Observable<SourcesCheck> {
     return this.http.get<SourcesCheck>('/api/sources', { params: { sources } });
+  }
+
+  /**
+   * Put a finished run's products in another order, without running it again.
+   *
+   * A POST rather than a GET because a query string cannot carry a list of
+   * products, and the products are what makes this cost nothing: the browser
+   * sends back what it was sent and Python ranks it with the same function a run
+   * ends with, so the searching is skipped and the judgement is not (ADR-0035).
+   */
+  rank(options: RankOptions): Observable<SearchResult> {
+    return this.http.post<SearchResult>('/api/rank', options);
   }
 
   /**

@@ -6,6 +6,10 @@ off a request, running the pipeline, shaping the answer as JSON.
 body (``POST /api/search``) or as query parameters (``GET
 /api/search/stream``), so every value is coerced from either its native JSON
 type or the string a query string yields.
+
+:func:`rank_again` is the one entry point here that runs no pipeline: a finished
+run's products, posted back and sorted by another criterion. It is a POST and
+only a POST, because a query string cannot carry a list of products.
 """
 
 from __future__ import annotations
@@ -13,7 +17,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from functools import partial
-from typing import TYPE_CHECKING, Any, TypeVar, get_args
+from typing import TYPE_CHECKING, Any, TypeVar, cast, get_args
+
+from pydantic import ValidationError
 
 from buy_agent.agent import (
     BuyAgent,
@@ -22,13 +28,14 @@ from buy_agent.agent import (
     every_step_passes,
 )
 from buy_agent.config import LIMITS, AgentConfig, parse_region
+from buy_agent.models import Product
 from buy_agent.providers import PROVIDERS, provider_options
-from buy_agent.ranking import SortBy
+from buy_agent.ranking import SortBy, rank_products
 from buy_agent.search import SearchError
 from buy_agent.sources import Source, format_sources, parse_sources
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from buy_agent.models import RankedProduct
     from buy_agent.providers import InstalledModel
@@ -115,12 +122,7 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
     defaults = AgentConfig()
     num_products = _read(data, "results", defaults.num_products, _bounded(int, "results"))
     top_n = _read(data, "top", defaults.top_n, _bounded(int, "top"))
-    sort_by = _read(data, "sort_by", "score", _as_text)
-    if sort_by not in SORT_OPTIONS:
-        raise ApiError(
-            f"sort_by must be one of {', '.join(SORT_OPTIONS)}; got {sort_by!r}.",
-            field="sort_by",
-        )
+    sort_by = _read(data, "sort_by", "score", _as_sort_by)
 
     provider = _read(data, "provider", defaults.provider, _as_text)
     if provider not in PROVIDER_OPTIONS:
@@ -194,8 +196,61 @@ def run_search(
         "count": len(ranked),
         "top_n": config.top_n,
         "sort_by": sort_by,
-        "products": [product_payload(entry) for entry in ranked],
+        "products": results_payload(ranked),
     }
+
+
+def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Put a finished run's products in another order, without running it again.
+
+    "Rank by" used to be a search option and nothing else, so changing it spent
+    the minute again -- another search, another ten pages fetched, another
+    extraction -- to reorder products the browser was already holding. Nothing in
+    :func:`~buy_agent.ranking.rank_products` needs a model or a network, so this
+    is the same ordering asked for on its own.
+
+    The judgement stays here, which is the point: the products go back to Python
+    and come back scored and sorted by the same function a run ends with, rather
+    than the browser sorting an array it happens to have. What it sends is only
+    what it was sent -- the scores it is holding are ignored and recomputed, since
+    a score is a fact about the whole candidate set and this is that set.
+
+    Args:
+        data: ``{"request", "products", "sort_by", "top"}`` -- the products as
+            :func:`product_payload` wrote them (the extra keys it adds are
+            ignored), and the two settings that shape the answer around them.
+            How many products may arrive is what the body size allows, which is
+            the server's to cap.
+
+    Returns:
+        The same shape a finished run answers with, so the page can show it the
+        same way.
+
+    Raises:
+        ApiError: if the criterion, the count or the products are unusable.
+    """
+    defaults = AgentConfig()
+    request = _read(data, "request", "", _as_text)
+    sort_by = _read(data, "sort_by", "score", _as_sort_by)
+    top_n = _read(data, "top", defaults.top_n, _bounded(int, "top"))
+    ranked = rank_products(_read_products(data), sort_by=cast(SortBy, sort_by))
+    return {
+        "request": request.strip(),
+        "count": len(ranked),
+        "top_n": top_n,
+        "sort_by": sort_by,
+        "products": results_payload(ranked),
+    }
+
+
+def results_payload(ranked: Sequence[RankedProduct]) -> list[dict[str, Any]]:
+    """A whole run's products as JSON, best first.
+
+    One shape for every way a run leaves the process: the API's answer, the file
+    ``--json`` writes and the file the page's Download results button hands over
+    -- which is that answer saved, so the browser writes no shape of its own.
+    """
+    return [product_payload(entry) for entry in ranked]
 
 
 def product_payload(entry: RankedProduct) -> dict[str, Any]:
@@ -383,8 +438,52 @@ def _read(
     return parse(key, str(data[key]).strip())
 
 
+def _read_products(data: Mapping[str, Any]) -> list[Product]:
+    """The products of a finished run, read back off the request that carried them.
+
+    Not through :func:`_read`, for the reason :func:`_read_sources` is not: this
+    is a list, and rendering it with ``str`` would make a Python repr of it. A
+    query string cannot carry one at all, which is why re-sorting is a POST.
+
+    ``Product`` validates them, so what comes back is the domain model the rest
+    of the code works in rather than whatever JSON was posted -- the extra keys
+    :func:`product_payload` adds are ignored, and a missing name is refused.
+    """
+    value = data.get("products")
+    if not isinstance(value, list):
+        raise ApiError(
+            "products must be the list of products a run answered with.",
+            field="products",
+        )
+    products = []
+    for index, entry in enumerate(value):
+        try:
+            products.append(Product.model_validate(entry))
+        except ValidationError as exc:
+            raise ApiError(
+                f"products[{index}] is not a product a run answered with: "
+                f"{exc.errors()[0]['msg']}.",
+                field="products",
+            ) from exc
+    return products
+
+
 def _as_text(_key: str, text: str) -> str:
     """Stripped text, which every string option already is."""
+    return text
+
+
+def _as_sort_by(key: str, text: str) -> str:
+    """A ranking criterion, checked against the ones ``rank_products`` sorts by.
+
+    Read by both doors into the ranking -- the search that ends in one and the
+    re-sort that is only one -- so a fourth criterion is offered by both the day
+    it is added to :data:`SORT_OPTIONS`.
+    """
+    if text not in SORT_OPTIONS:
+        raise ApiError(
+            f"sort_by must be one of {', '.join(SORT_OPTIONS)}; got {text!r}.", field=key
+        )
     return text
 
 

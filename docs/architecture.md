@@ -71,7 +71,7 @@ graph TB
     shopper -->|"types a request<br/>[terminal]"| cli
     shopper -->|"visits localhost:8000<br/>[HTTPS/HTTP]"| spa
 
-    spa -->|"GET /api/config, /api/models, /api/sources<br/>POST /api/search<br/>GET /api/search/stream (SSE)<br/>[JSON over HTTP]"| server
+    spa -->|"GET /api/config, /api/models, /api/sources<br/>POST /api/search, /api/rank<br/>GET /api/search/stream (SSE)<br/>[JSON over HTTP]"| server
     server -->|"serves index.html and assets<br/>[HTTP]"| spa
     cli -->|"calls run()"| pipeline
     server -->|"runs a search in a worker thread,<br/>relays its log records"| pipeline
@@ -235,7 +235,7 @@ graph TB
         handler["<b>BuyAgentHandler</b><br/><i>[Component: server.py]</i><br/>Admits the request, then routes /api<br/>to the API and everything else to the<br/>built app, falling back to index.html"]
         guard["<b>_admits</b><br/><i>[Component: server.py]</i><br/>Refuses a request another site's page<br/>made, and a Host that merely resolves<br/>here -- loopback is not a boundary<br/>the browser respects"]
         relay["<b>_LogRelay</b><br/><i>[Component: server.py]</i><br/>A logging handler that fans records<br/>out by thread id, so two concurrent<br/>runs never see each other's progress"]
-        api["<b>API</b><br/><i>[Component: api.py]</i><br/>Coerces options into an AgentConfig,<br/>runs the pipeline, shapes products as<br/>JSON, maps each failure to a status<br/>(400 / 502 / 503)"]
+        api["<b>API</b><br/><i>[Component: api.py]</i><br/>Coerces options into an AgentConfig,<br/>runs the pipeline, shapes products as<br/>JSON, maps each failure to a status<br/>(400 / 502 / 503); re-ranks a finished<br/>run without running one"]
     end
 
     agentpipeline["<b>Agent pipeline</b><br/><i>[Container]</i>"]
@@ -244,12 +244,12 @@ graph TB
     form -->|"submit"| app
     app --> log
     app --> card
-    app -->|"search(options)"| agentsvc
+    app -->|"search(options), rank(products)"| agentsvc
     agentsvc -->|"GET /api/search/stream<br/>[SSE: log, result, failure, ping]"| handler
-    agentsvc -->|"GET /api/config, /api/models, /api/sources<br/>POST /api/search<br/>[JSON]"| handler
+    agentsvc -->|"GET /api/config, /api/models, /api/sources<br/>POST /api/search, /api/rank<br/>[JSON]"| handler
 
     handler -->|"before any routing"| guard
-    handler -->|"parse_options, run_search"| api
+    handler -->|"parse_options, run_search, rank_again"| api
     handler -->|"reads the queue for this run"| relay
     api -->|"agent_factory(config).run()<br/>[worker thread]"| agentpipeline
     agentpipeline -.->|"log records"| relay
@@ -262,11 +262,16 @@ graph TB
     class app,form,log,card,agentsvc,handler,guard,relay,api component
 ```
 
-Five details there are easy to get wrong and are deliberate:
+Six details there are easy to get wrong and are deliberate:
 
 - **A run is streamed, not requested.** A search takes tens of seconds, so the
   UI uses `GET /api/search/stream` and watches the same progress the CLI prints.
   `POST /api/search` is the same run in one response, for scripts.
+- **Re-ordering a finished run runs nothing.** `POST /api/rank` takes the
+  products the page is already holding and answers the shape a run answers with,
+  having called `rank_products` and nothing else. The ordering stays in Python;
+  only the searching is skipped, which is what used to cost a whole second run
+  for products already on the screen (ADR-0035).
 - **Closing the stream stops the run, at its next step.** `BuyAgent.run` calls a
   `checkpoint` before each step, and the first frame the handler cannot write
   sets the flag that makes it raise. A chat call already in flight still
@@ -279,7 +284,8 @@ Five details there are easy to get wrong and are deliberate:
 - **The browser decides nothing.** Ranking, grounding and even the wording of an
   unknown price stay in Python: `product_payload` sends `price_label` and
   `rating_label` next to the raw figures, and `sort_by` is a request parameter
-  rather than a client-side re-sort.
+  rather than a client-side re-sort -- for a finished run too, which posts its
+  products back rather than sorting the array it holds (ADR-0035).
 - **Loopback is not a boundary the browser respects.** Any page the shopper has
   open can reach `127.0.0.1`, so `_admits` runs before routing and refuses a
   request another site's page made -- which would otherwise start a run whose

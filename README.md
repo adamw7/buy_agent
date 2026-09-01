@@ -336,6 +336,16 @@ was showing, plus the error that ended the run, saved as
 `buy-agent-log-20260825-140311.txt`. The panel scrolls and the next search clears
 it, so without this a failure worth reporting is gone as soon as it is retried.
 
+A finished run has two controls of its own beside the results. **Rank by** puts
+the same products in another order without searching for them again: they are
+posted back to `POST /api/rank`, which calls the same `rank_products` a run ends
+with and nothing else, so the ordering is still Python's and only the minute is
+skipped -- changing the criterion used to mean a second web search, ten more
+pages fetched and another extraction, for products already on the screen.
+**Download results** saves the run as `buy-agent-results-20260825-140311.json` --
+the same document `--json` writes, because it is the answer the server sent
+([ADR-0035](docs/adr/0035-re-sort-a-finished-run-without-running-it-again.md)).
+
 A search takes tens of seconds, so the browser does not wait on one response.
 `GET /api/search/stream` runs the search and relays the agent's own log lines as
 Server-Sent Events, finishing on a `result` or a `failure`. `POST /api/search`
