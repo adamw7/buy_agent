@@ -51,6 +51,15 @@ summary {
   width: fit-content;
 }
 
+/* Beside the word rather than under it: the panel is shut when this matters,
+   and the summary is the whole of what is on screen to say so. Its own class
+   and not `.problem`, which is the note *under* a field -- one is read with the
+   box it belongs to and the other stands in for a panel full of them. */
+summary .flagged {
+  color: var(--bad);
+  font-weight: 500;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));

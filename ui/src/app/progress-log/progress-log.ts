@@ -1,4 +1,14 @@
-import { Component, ElementRef, effect, input, viewChild } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+  viewChild,
+} from '@angular/core';
 
 import type { LogLine } from '../agent.types';
 import { filename, saveText } from '../save';
@@ -23,12 +33,50 @@ export class ProgressLog {
 
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
 
+  /** When the run on screen started, and a clock that moves while it runs.
+   *  Signals rather than plain fields because the header reads them once a
+   *  second -- see `elapsed`, which is the only thing on the panel that moves
+   *  through the step that takes the longest. */
+  private readonly startedAt = signal(0);
+  private readonly now = signal(0);
+  private ticking: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * How long the run has been going, or how long it took.
+   *
+   * Extraction is the slow step and it logs nothing at all while it runs, so for
+   * minutes at a time the panel is a frozen list of lines under a pulsing dot,
+   * with no way to tell a model thinking from a model that has stopped
+   * answering. The timestamps say that afterwards; this says it while it is
+   * happening. It is presentation and not judgement -- a duration off the
+   * browser's own clock, written here the way `shortName` trims a logger name.
+   */
+  protected readonly elapsed = computed(() => {
+    const started = this.startedAt();
+    return started ? duration(this.now() - started) : '';
+  });
+
+  /** What the pill says once the run has stopped: how much it logged and how
+   *  long that took. The time is dropped for a panel that has not seen a run --
+   *  there is no duration to report before the first one. */
+  protected readonly summary = computed(() => {
+    const lines = `${this.lines().length} lines`;
+    const took = this.elapsed();
+    return took ? `${lines} · ${took}` : lines;
+  });
+
   /** Whether new lines should pull the panel down with them. A plain field and
    *  not a signal: it is read by the effect that scrolls, and as a signal it
    *  would be a dependency of its own writes. */
   private sticking = true;
 
   constructor() {
+    // The clock starts with the run and stops with it, leaving the total on
+    // screen. This effect reads `running` and none of what it writes, so it runs
+    // exactly on the two transitions and a stamp is never reset mid-run.
+    effect(() => this.time(this.running()));
+    inject(DestroyRef).onDestroy(() => this.idle());
+
     // Follow the tail, the way a terminal does -- but only while the reader is
     // still at the tail. A run logs for a minute, so scrolling up to re-read the
     // refined query used to last until the next line arrived and yanked the panel
@@ -57,6 +105,24 @@ export class ProgressLog {
     this.sticking = fromBottom <= STICK_MARGIN;
   }
 
+  /** Start the clock for a run that has begun, or stop it and leave the total. */
+  private time(running: boolean): void {
+    this.idle();
+    this.now.set(Date.now());
+    if (running) {
+      this.startedAt.set(Date.now());
+      this.ticking = setInterval(() => this.now.set(Date.now()), TICK_MS);
+    }
+  }
+
+  /** Stop the clock, wherever it had got to. */
+  private idle(): void {
+    if (this.ticking !== null) {
+      clearInterval(this.ticking);
+      this.ticking = null;
+    }
+  }
+
   protected shortName(logger: string): string {
     return logger.replace(/^buy_agent\.?/, '') || 'agent';
   }
@@ -77,6 +143,21 @@ export class ProgressLog {
  *  a pixel or two off the end -- which a fractional scroll position leaves it --
  *  is not read as someone having deliberately scrolled away. */
 const STICK_MARGIN = 24;
+
+/** How often the elapsed time is redrawn. A second, because that is the unit it
+ *  is shown in -- anything finer would repaint for a digit nobody is reading. */
+const TICK_MS = 1000;
+
+/**
+ * A wait as a person would say it: `8s`, `2m 14s`.
+ *
+ * Seconds throughout rather than a `0:08` clock: this is how long something has
+ * taken, not what time it is, and the two read differently at a glance.
+ */
+export function duration(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
 
 /**
  * The run as a file: the lines the panel shows, and the error that ended it.

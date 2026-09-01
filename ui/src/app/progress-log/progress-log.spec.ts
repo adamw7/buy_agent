@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, vi } from 'vitest';
 
-import { ProgressLog, logFilename, transcript } from './progress-log';
+import { ProgressLog, duration, logFilename, transcript } from './progress-log';
 import type { LogLine } from '../agent.types';
 
 const LINES: LogLine[] = [
@@ -89,6 +89,66 @@ describe('ProgressLog', () => {
 
   it('counts the lines once the run is over', async () => {
     expect((await render(LINES)).querySelector('.pill')!.textContent).toContain('2 lines');
+  });
+
+  it('counts the wait out while the slow step is saying nothing', async () => {
+    /* Extraction logs nothing at all for as long as it takes, so without this
+       the panel is a frozen list of lines under a pulsing dot -- with no way to
+       tell a model still thinking from one that has stopped answering. */
+    // The clock and the ticker only: Angular's own scheduler runs on timeouts
+    // and microtasks, and freezing those hangs `whenStable` rather than the run.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+    try {
+      const fixture = TestBed.createComponent(ProgressLog);
+      fixture.componentRef.setInput('lines', LINES);
+      fixture.componentRef.setInput('running', true);
+      await fixture.whenStable();
+      const page = fixture.nativeElement as HTMLElement;
+
+      expect(page.querySelector('.pill')!.textContent).toContain('working · 0s');
+
+      await vi.advanceTimersByTimeAsync(75_000);
+      await fixture.whenStable();
+      expect(page.querySelector('.pill')!.textContent).toContain('working · 1m 15s');
+
+      // Stopped, the clock stops with it and the total stays on the panel: how
+      // long a run took is the question the next one is planned against.
+      fixture.componentRef.setInput('running', false);
+      await fixture.whenStable();
+      await vi.advanceTimersByTimeAsync(30_000);
+      await fixture.whenStable();
+      expect(page.querySelector('.pill')!.textContent).toContain('2 lines · 1m 15s');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops its clock when the panel goes away', async () => {
+    /* A ticker that outlives the component it was drawing ticks for the life of
+       the tab -- and this one is started again by every run. */
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+    try {
+      const fixture = TestBed.createComponent(ProgressLog);
+      fixture.componentRef.setInput('lines', LINES);
+      fixture.componentRef.setInput('running', true);
+      await fixture.whenStable();
+      expect(vi.getTimerCount()).toBe(1);
+
+      fixture.destroy();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('says a wait the way somebody waiting would', () => {
+    expect(duration(0)).toBe('0s');
+    expect(duration(8_400)).toBe('8s');
+    expect(duration(59_600)).toBe('1m 0s');
+    expect(duration(134_000)).toBe('2m 14s');
+    // A clock corrected mid-run is the only way this goes backwards, and a
+    // negative wait is not a thing to put on screen.
+    expect(duration(-5_000)).toBe('0s');
   });
 
   it('shows the time Python logged each line at', async () => {

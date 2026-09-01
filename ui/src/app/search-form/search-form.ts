@@ -280,6 +280,39 @@ export class SearchForm {
     return { ...problems, [rejected.field]: rejected.message };
   });
 
+  /**
+   * How many settings have something to say about them, for the summary to carry.
+   *
+   * Every one of these lives inside the Settings panel, which is shut until
+   * somebody opens it -- so a marked box says nothing at all, and a run refused
+   * for a setting leaves a greyed-out Find products button with no visible
+   * reason anywhere on the page. That is reachable without touching a thing: a
+   * remembered source or a remembered number the server no longer takes is
+   * restored, checked and marked before the form is first drawn. The count is
+   * what the summary shows once the panel is shut again, and what the effect in
+   * the constructor opens it on in the first place.
+   */
+  protected readonly flagged = computed(() => Object.keys(this.notes()).length);
+
+  /**
+   * What a cleared number box falls back to, named in the box itself.
+   *
+   * An empty field means "use the default" (ADR-0012) -- a real answer, and the
+   * only way to ask for the server's own -- but an empty box says nothing about
+   * which number that is. The context window field already names its own; these
+   * are the rest, off the same defaults every field was seeded from.
+   */
+  protected readonly placeholders = computed<Record<string, string>>(() => {
+    const named: Record<string, string> = {};
+    const defaults = this.defaults();
+    if (defaults) {
+      named['results'] = `${defaults.results}`;
+      named['top'] = `${defaults.top}`;
+      named['temperature'] = `${defaults.temperature}`;
+    }
+    return named;
+  });
+
   /** Nothing to shop for, or a field the page already knows the server would
    *  refuse. The second is the point: the ranges and the sources check cost no
    *  model, no network and no minute of waiting, so they are not worth a run. */
@@ -296,6 +329,18 @@ export class SearchForm {
       const defaults = this.defaults();
       if (defaults) {
         untracked(() => this.seed(defaults));
+      }
+    });
+
+    // Open the settings the first time there is something in them to read. A
+    // mark on a box inside a closed panel is a mark nobody sees, which is the
+    // whole of what ADR-0033 asks the form to do with a refusal -- and where the
+    // mark is also what disables the button, leaving it shut is a dead end: a
+    // page that will not search and will not say why. Closing it again is the
+    // reader's to do, since this fires only when the marks themselves change.
+    effect(() => {
+      if (this.flagged()) {
+        this.advanced.set(true);
       }
     });
   }
