@@ -6,6 +6,17 @@ run. Tell it what you want to buy; it searches the web, pulls out up to 10
 products along with what the pages say about them, ranks them, and logs the
 best 3.
 
+![The search form, with its settings open](docs/ui.png)
+
+Two runs of that page are recorded in `demo/`, fifteen seconds and twenty-two:
+[`wwii-books-1944-45.mpg`](demo/wwii-books-1944-45.mpg), which ends on the top 3
+with the rest folded away, and
+[`laptops-under-1000.mpg`](demo/laptops-under-1000.mpg), which ends on the shop
+page behind the top product's link. They are MPEG-1 in a program stream, which
+no browser plays inline -- GitHub hands the file over rather than showing a
+player, so both links download. [The web UI](#the-web-ui) below is what they
+show, written down.
+
 ```
 $ python -m buy_agent "wireless noise cancelling headphones under $200"
 
@@ -280,16 +291,12 @@ run at another machine. To work on the UI itself, run the Angular dev server
 instead of building for every change -- see [The dev server](#the-dev-server)
 below.
 
-![The search form, with its settings open](docs/ui.png)
-
-Two runs of it are recorded in `demo/`, fifteen seconds and twenty-two:
-`wwii-books-1944-45.mpg` and `laptops-under-1000.mpg`, the second ending on the
-shop page behind the top product's link. Everything between the search and the
-ranking is the real pipeline -- only DuckDuckGo, the page fetches and the model
-are scripted stand-ins -- so the progress panel is showing grounding actually
-throwing figures, quotes and links away. [demo/README.md](demo/README.md) says
-what is real in them, what is not, and how to record them -- and the picture
-above -- again.
+The two recordings at the top of this page are of this page. Everything in them
+between the search and the ranking is the real pipeline -- only DuckDuckGo, the
+page fetches and the model are scripted stand-ins -- so the progress panel is
+showing grounding actually throwing figures, quotes and links away.
+[demo/README.md](demo/README.md) says what is real in them, what is not, and how
+to record them -- and the picture -- again.
 
 The page takes the same settings the CLI takes as flags, shows the agent's log
 lines as the run happens, and lists the ranked products with a link to the page
