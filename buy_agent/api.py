@@ -15,7 +15,12 @@ from collections.abc import Callable
 from functools import partial
 from typing import TYPE_CHECKING, Any, TypeVar, get_args
 
-from buy_agent.agent import BuyAgent, ModelUnavailableError
+from buy_agent.agent import (
+    BuyAgent,
+    Checkpoint,
+    ModelUnavailableError,
+    every_step_passes,
+)
 from buy_agent.config import LIMITS, AgentConfig, parse_region
 from buy_agent.providers import PROVIDERS, provider_options
 from buy_agent.ranking import SortBy
@@ -153,6 +158,7 @@ def run_search(
     *,
     sort_by: str = "score",
     agent_factory: AgentFactory = BuyAgent,
+    checkpoint: Checkpoint = every_step_passes,
 ) -> dict[str, Any]:
     """Run the pipeline and shape the answer as JSON-ready data.
 
@@ -162,6 +168,10 @@ def run_search(
         sort_by: ``"score"``, ``"price"`` or ``"rating"``.
         agent_factory: Builds the agent from the config -- the seam tests inject a
             stub through, mirroring ``BuyAgent(config, llm=...)``.
+        checkpoint: Handed straight to ``BuyAgent.run``, which calls it at each
+            step boundary. A caller whose client has gone raises from it to end
+            the run there (ADR-0034); what it raises is not turned into an
+            ``ApiError``, because there is nobody left to answer with one.
 
     Returns:
         ``{"request", "count", "top_n", "sort_by", "products"}``, best first, each
@@ -171,7 +181,9 @@ def run_search(
         ApiError: for every failure the agent raises, with the status it deserves.
     """
     try:
-        ranked = agent_factory(config).run(request, sort_by=sort_by)  # type: ignore[arg-type]
+        ranked = agent_factory(config).run(  # type: ignore[arg-type]
+            request, sort_by=sort_by, checkpoint=checkpoint
+        )
     except tuple(_STATUS) as exc:
         # The clause and the mapping are one table, so this cannot come up empty.
         status = next(status for kind, status in _STATUS.items() if isinstance(exc, kind))

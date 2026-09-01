@@ -211,7 +211,7 @@ superseding it rather than an edit to the old one -- numbers are never reused,
 and accepted records are not rewritten. `tests/test_conventions.py` checks that
 the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0033 and every record is Accepted, so the next free number is 0034.
+to ADR-0034 and every record is Accepted, so the next free number is 0035.
 
 `.claude/skills/` holds the chores that span those files, one directory each:
 `add-option` walks a new setting through `config.py`, both front doors,
@@ -486,6 +486,20 @@ Five things there are load-bearing:
   the CLI's own `%H:%M:%S`, since the gap between two lines is the only thing
   that tells a four-minute extraction from a four-second one. `POST /api/search`
   is the same run in one response.
+- **Closing the stream stops the run, at the next step and not at the click**
+  (ADR-0034). `BuyAgent.run` calls its `checkpoint` with the name of each step
+  about to start -- `search`, `fetch`, `extract`, `rank` -- and nothing in the
+  pipeline catches what that raises, which is how a run ends. The first frame
+  `_stream_search` cannot write (a log line, or the ping 15s later) sets the
+  flag `server._stop_when` reads, and the worker's `_Stopped` goes no further
+  than the worker: a stopped run is not a failure, so it stays out of
+  `api._STATUS`, out of `__main__.main` and out of `run`'s `Raises:`, and the
+  three-failure agreement holds. What this cannot do is cancel a chat call
+  already in flight -- there is no way into either client -- so the granularity
+  is a step, and the browser's Stop line is what says so rather than a promise
+  nothing can keep. A step added to `run` announces itself or a stopped run pays
+  for it anyway; every stand-in for `BuyAgent` takes the keyword, since
+  `run_search` always passes it.
 - **The stream's failure event is called `failure`, not `error`.** A browser's
   `EventSource` delivers transport errors under `error` and then reconnects; a
   named `error` event would be indistinguishable from a dropped connection, and
@@ -690,18 +704,19 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 991 tests
-run in about three and a half seconds: most of that is the two
+to EOF instead -- what it checks is that nothing follows the reply. 1003 tests
+run in about four seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
-0.7s of deliberate `StubAgent.delay` in the two server tests that need a run to
-still be going: the keepalive ping, and two streams overlapping.
+1.0s of deliberate `StubAgent.delay` in the three server tests that need a run to
+still be going: the keepalive ping, two streams overlapping, and the run a reader
+who has gone stops at its next step.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 991 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 991 collect but 13 of the 17
-in `tests/test_start_script.py` skip, so the summary reads `978 passed, 13
+is reaching out. 1003 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 1003 collect but 13 of the 17
+in `tests/test_start_script.py` skip, so the summary reads `990 passed, 13
 skipped` -- nothing is missing, and the four that still run are the ones reading
-the script as text rather than through the probe. The UI's 103 tests
+the script as text rather than through the probe. The UI's 105 tests
 run in about two seconds, most of which is building the app first. The 20 in
 `integration/` are counted separately and collected only by being named.
 `docs/testing.md` quotes all three counts, so a new test file is two edits.

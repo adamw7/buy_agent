@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 import pytest
 
-from buy_agent.agent import ModelUnavailableError
+from buy_agent.agent import ModelUnavailableError, every_step_passes
 from buy_agent.models import Product, RankedProduct
 from buy_agent.providers import OLLAMA, VLLM
 from buy_agent.search import SearchError
@@ -57,7 +57,7 @@ class StubAgent:
     def __init__(self, config):
         StubAgent.captured["config"] = config
 
-    def run(self, request, *, sort_by="score"):
+    def run(self, request, *, sort_by="score", checkpoint=every_step_passes):
         StubAgent.captured["request"] = request
         StubAgent.captured["sort_by"] = sort_by
         logging.getLogger("buy_agent.stub").info("Searching for %s", request)
@@ -65,6 +65,11 @@ class StubAgent:
         # A second line on the far side of the delay: with two runs overlapping,
         # this is the one produced while both of them have a queue attached.
         logging.getLogger("buy_agent.stub").info("Ranking what came back for %s", request)
+        # Where the real pipeline asks whether anyone is still reading. Standing
+        # in for the boundary before the slow step, which is the one worth
+        # stopping at -- and, on a run nobody stopped, for every boundary passing.
+        checkpoint("extract")
+        StubAgent.captured["reached"] = "extract"
         if isinstance(StubAgent.result, BaseException):
             raise StubAgent.result
         return StubAgent.result
@@ -172,6 +177,21 @@ def ask(base: str, path: str = "/api/config", **headers: str) -> str:
     sent |= {name.replace("_", "-"): value for name, value in headers.items()}
     lines = [f"GET {path} HTTP/1.1", *(f"{k}: {v}" for k, v in sent.items())]
     return raw(base, ("\r\n".join(lines) + "\r\n\r\n").encode())
+
+
+def until(ready, timeout: float = 5.0) -> bool:
+    """Wait for something a worker thread does, without sleeping a fixed guess.
+
+    The response is finished the moment the stream is abandoned, but the run it
+    stopped is still unwinding on its own thread -- so what happened next has to
+    be waited for rather than assumed to have happened already.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if ready():
+            return True
+        time.sleep(0.01)
+    return False
 
 
 def events(url: str) -> list[tuple[str, Any]]:
@@ -855,7 +875,7 @@ def test_the_keepalive_is_frequent_enough_to_be_worth_sending() -> None:
 
 
 def test_a_stream_nobody_is_reading_is_abandoned(server: str, monkeypatch, caplog) -> None:
-    """The run itself carries on -- it is blocked in Ollama -- but the writing stops."""
+    """A frame that cannot be written is the only notice the loop gets."""
     monkeypatch.setattr(BuyAgentHandler, "_send_event", lambda self, event, data: False)
 
     with caplog.at_level(logging.INFO, logger="buy_agent.server"):
@@ -865,6 +885,36 @@ def test_a_stream_nobody_is_reading_is_abandoned(server: str, monkeypatch, caplo
             assert response.read() == b"", "nothing more is written to a dead socket"
 
     assert "Client disconnected" in caplog.text
+
+
+def test_a_stream_nobody_is_reading_stops_the_run(server: str, monkeypatch, caplog) -> None:
+    """Stop means stop, at the next step boundary the pipeline reaches (ADR-0034).
+
+    The stub spends ``delay`` in its slow step and asks the checkpoint on the far
+    side of it, which is where a real run asks before extraction. So the reader is
+    gone well before the question is put, and the step never happens -- which is
+    the whole point: a run nobody is reading keeps a laptop-sized model server to
+    itself while the shopper is starting their next search.
+    """
+    monkeypatch.setattr(BuyAgentHandler, "_send_event", lambda self, event, data: False)
+    StubAgent.delay = 0.3
+
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        with urllib.request.urlopen(
+            f"{server}/api/search/stream?request=kettle", timeout=10
+        ) as response:
+            response.read()
+        assert until(lambda: "Run stopped before extract" in caplog.text), caplog.text
+
+    assert "reached" not in StubAgent.captured, "the step after the boundary still ran"
+
+
+def test_a_run_nobody_stopped_passes_every_boundary(server: str) -> None:
+    """The other side of the same check: a reader who stays gets the whole run."""
+    collected = events(f"{server}/api/search/stream?request=kettle")
+
+    assert [name for name, _ in collected][-1] == "result"
+    assert StubAgent.captured["reached"] == "extract"
 
 
 def test_writing_to_a_closed_connection_is_reported_rather_than_raised() -> None:
