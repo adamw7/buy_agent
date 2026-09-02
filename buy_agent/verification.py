@@ -7,11 +7,10 @@ price, rating or review count is blanked (a blank scores neutral, an invented
 price wins the top spot); a link is worked out from the sources rather than read
 off the model.
 
-Quotes get the strictest bar: the one field asked for in words rather than
-figures, where being *nearly* right is putting words in a reviewer's mouth. A
-quote is supported only where *one page that mentions the product* has it as
-running text -- not as words scattered across ten pages, and not as a real
-sentence about whatever else those pages were selling.
+Quotes get the strictest bar, being the one field asked for in words: a quote is
+supported only where *one page that mentions the product* has it as running text
+-- not as words scattered across ten pages, and not as a real sentence about
+whatever else those pages were selling.
 """
 
 from __future__ import annotations
@@ -48,26 +47,22 @@ _NAME_COVERAGE = 0.6
 #: pages share -- "great sound, very comfortable" is five words every headphone
 #: page contains and none need have printed in that order.
 #:
-#: Not all the runs, so that a model topping or tailing a real quote with a word
-#: of its own -- a leading "The", a trailing "too" -- is still quoting: that
-#: damages only the runs at one end. A word changed in the *middle* breaks every
-#: run spanning it and fails, which is the point; the middle is where a
-#: paraphrase happens.
+#: Not all the runs, so a model topping or tailing a real quote with a word of its
+#: own is still quoting: that damages only the runs at one end. A word changed in
+#: the *middle* breaks every run spanning it and fails, which is the point.
 _QUOTE_WINDOW = 5
 _QUOTE_COVERAGE = 0.6
 
 #: A rating is a small number that occurs in text for a hundred other reasons, so
 #: it counts only where it is written like one: "4.3/5", "4.3 out of 5", "4.3
-#: stars", "rated 4.3". The 0-5 scale only, deliberately -- ``Product.rating`` is
-#: always out of 5, so accepting "4.5 out of 10" would vouch for a claimed 4.5/5
-#: with a score that means 2.25/5; :data:`_RATING_OUT_OF_TEN` is what tells the
-#: lead-in form ("scored it 4.5" reads like a rating whatever the scale) that the
-#: figure it found is out of ten.
+#: stars", "rated 4.3". The 0-5 scale only -- ``Product.rating`` is always out of
+#: 5, so accepting "4.5 out of 10" would vouch for a claimed 4.5/5 with a score
+#: meaning 2.25/5; :data:`_RATING_OUT_OF_TEN` tells the lead-in form ("scored it
+#: 4.5" reads like a rating whatever the scale) that the figure is out of ten.
 #:
 #: :data:`_COUNTING` words make the figure beside them a count of products rather
-#: than a score -- "we rated the 5 best headphones" is a headline whose 5 belongs
-#: to the noun after it -- and are ruled out on both sides, since either can carry
-#: the tell.
+#: than a score -- "we rated the 5 best headphones" -- and are ruled out on both
+#: sides, either being able to carry the tell.
 _RATING_AFTER = r"\s*(?:/\s*5\b|(?:out\s+of|of)\s+5\b|stars?\b)"
 _COUNTING = r"(?:best|top|cheapest|worst|greatest)"
 #: The gap stays generous -- "rated a solid 4.6" is how pages write it.
@@ -78,8 +73,8 @@ _RATING_OUT_OF_TEN = r"\s*(?:/\s*10\b|(?:out\s+of|of)\s+10\b)"
 def normalise_numbers(text: str) -> str:
     """Write every number one way, so the same figure compares equal either side.
 
-    A *dot* is left alone -- it is already the decimal point on these pages. Both
-    sides come through here (:func:`build_haystack` and :func:`running_words`):
+    A *dot* is left alone, being already the decimal point on these pages. Both
+    sides come through here (:func:`build_haystack`, :func:`running_words`):
     normalising only the pages left a quoted "1,299" unable to match a haystack in
     which it had already become "1299".
     """
@@ -110,7 +105,7 @@ def _as_literal(value: float) -> str:
     """Render a number the way a page would write it: 129.0 -> "129".
 
     ``.10g`` rather than ``g``: six significant digits turn a real 12999.95 into
-    "13000", which matches nothing and costs the product its price.
+    "13000", matching nothing and costing the product its price.
     """
     return f"{value:.0f}" if float(value).is_integer() else f"{value:.10g}"
 
@@ -119,9 +114,9 @@ def _same_figure(literal: str) -> str:
     """What may follow ``literal`` and still be the same figure: trailing zeros.
 
     A page prints a whole 4 as "4.0" where :func:`_as_literal` renders it "4",
-    which is also the "4" in a printed 4.3. Consuming the zeros and *then*
-    refusing a further digit tells them apart; without it a rating the page stated
-    exactly failed grounding, taking its review count with it.
+    which is also the "4" in a printed 4.3. Consuming the zeros and *then* refusing
+    a further digit tells them apart; without it a rating the page stated exactly
+    failed grounding, taking its review count with it.
     """
     zeros = r"0*" if "." in literal else r"(?:\.0+)?"
     return rf"{zeros}(?!\.?\d)"
@@ -142,14 +137,13 @@ def mentions_rating(haystack: str, value: float) -> bool:
 def mentions_name(haystack: str, name: str) -> bool:
     """Whether the distinctive words of ``name`` appear in ``haystack``.
 
-    Generic words are ignored -- every headphone page says "wireless" -- so what
-    is checked is the brand and model number. Most, not all, because a page may
-    write "WH-CH720N" where the model wrote "Sony WH-CH720N Wireless".
+    Generic words are ignored -- every headphone page says "wireless" -- so what is
+    checked is the brand and model number. Most, not all, since a page may write
+    "WH-CH720N" where the model wrote "Sony WH-CH720N Wireless".
 
-    Both sides split by the same rule, and a word counts only as a word of its
-    own: a substring test would let a page quoting "$1700" vouch for an invented
-    "Bose 700". Splitting still keeps the case the loose bar is for -- "WH-CH720N"
-    is "wh" and "ch720n" on both sides.
+    Both sides split by the same rule, and a word counts only as a word of its own:
+    a substring test would let a page quoting "$1700" vouch for an invented "Bose
+    700".
     """
     tokens = [
         token for token in NAME_TOKENS.findall(name.lower()) if token not in GENERIC_WORDS
@@ -193,10 +187,9 @@ def attribute_sources(
 
     A wrong link is worse than a blank -- a blanked price is *shown* as unknown,
     while a link is what the shopper clicks -- and it is the field the model is
-    worst at. Nothing here needs it: each result block carries its own ``URL:``.
-    So the model's link is kept only when it names a page that was searched
-    (ADR-0017), and otherwise the link is the first result whose text mentions the
-    product; one no page mentions keeps none rather than borrowing one.
+    worst at. So the model's link is kept only where it names a page that was
+    searched (ADR-0017); otherwise the link is the first result whose text mentions
+    the product, and one no page mentions keeps none rather than borrowing one.
     """
     known = source_urls(results)
     pages = [(result.url, build_haystack([result])) for result in results if result.url]
@@ -223,8 +216,7 @@ def attribute_sources(
 #: is. A rejected figure takes its :data:`~buy_agent.models.QUALIFIERS` down with
 #: it -- ADR-0022's grouping, one stage earlier than the merge it was written for.
 #: ``rating`` comes before ``review_count`` so a rejected rating blanks the count
-#: before the count is judged on its own; blanking only ever adds, so the later
-#: check cannot bring it back.
+#: before the count is judged alone; blanking only adds, so nothing brings it back.
 _GROUNDED_FIGURES: tuple[tuple[str, Callable[[str, float], bool]], ...] = (
     ("price", mentions_number),
     ("rating", mentions_rating),
@@ -295,13 +287,11 @@ def verify_opinions(
     """Drop every quoted opinion no page about this product actually printed.
 
     Page by page rather than pooled (ADR-0024, ADR-0025) -- the difference between
-    "somebody wrote this" and "somebody wrote this about *this*", since a verdict
-    on the electric kettle three results down is not evidence about these
-    headphones. A product may be quoted only from pages that mention it, by the
-    rule :func:`attribute_sources` picks its link by.
-
-    Per quote rather than per product: a model that read one verdict and invented
-    a second has still read one.
+    "somebody wrote this" and "somebody wrote this about *this*", a verdict on the
+    electric kettle three results down being no evidence about these headphones. A
+    product may be quoted only from pages that mention it, by the rule
+    :func:`attribute_sources` picks its link by. Per quote rather than per product:
+    a model that read one verdict and invented a second has still read one.
     """
     pages = [
         (text, running_words(text))

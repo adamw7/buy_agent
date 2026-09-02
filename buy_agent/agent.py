@@ -44,9 +44,9 @@ def every_step_passes(_step: str) -> None:
 class ModelUnavailableError(RuntimeError):
     """Raised when the model server is unreachable, or is not serving the model.
 
-    One exception for both providers, because it is one thing to the shopper: the
-    model could not be used. Only the sentence differs -- ``ollama pull`` or
-    ``vllm serve`` -- which is the provider's own to write (ADR-0028).
+    One exception for both providers: to the shopper it is one thing, the model
+    could not be used. Only the sentence differs -- ``ollama pull`` or ``vllm
+    serve`` -- which is the provider's own to write (ADR-0028).
     """
 
 
@@ -55,10 +55,9 @@ class BuyAgent:
 
     The control flow is fixed rather than left to the model: the LLM refines the
     query and reads products out of the results, while searching, ranking and
-    reporting are ordinary code. That keeps the agent usable with the small local
-    models these servers are typically run with, which drive a tool loop badly.
-    Which server it is, ``config.provider`` says and nothing here asks -- the
-    difference is all in :mod:`buy_agent.providers` (ADR-0028).
+    reporting are ordinary code -- which keeps the agent usable with the small
+    local models these servers are typically run with. Which server is answering,
+    ``config.provider`` says and nothing here asks (ADR-0028).
     """
 
     def __init__(
@@ -86,9 +85,9 @@ class BuyAgent:
         """Search for what the shopper asked for and log the top products.
 
         Three failures come out of here and no more (ADR-0009). What
-        ``checkpoint`` raises comes out too, but that is the caller's own
-        exception travelling back to the caller rather than a fourth thing this
-        pipeline can fail with, which is why it is not in ``Raises`` below.
+        ``checkpoint`` raises comes out too, but that is the caller's own exception
+        travelling back rather than a fourth thing this pipeline fails with, which
+        is why it is not in ``Raises`` below.
 
         Args:
             request: What the user wants to buy, in their own words.
@@ -96,10 +95,9 @@ class BuyAgent:
             checkpoint: Called with the name of each step as it is about to start
                 -- ``"search"``, ``"fetch"``, ``"extract"``, ``"rank"`` -- so a
                 caller can end a run it no longer wants. Nothing here catches what
-                it raises, which is how it ends one (ADR-0034). The granularity is
-                a step boundary and no finer: a call already in flight to the
-                model server finishes first, since there is nothing to cancel one
-                with.
+                it raises, which is how it ends one (ADR-0034). A step boundary is
+                as fine as it gets: a model call already in flight finishes first,
+                nothing being able to cancel one.
 
         Returns:
             Every product found, best first -- not only the ones logged.
@@ -155,8 +153,7 @@ class BuyAgent:
         found twice is kept once rather than crowding out another.
 
         The width is shared out rather than multiplied -- five sources at ten
-        results each would fetch fifty pages for a report of three -- so each gets
-        its share of ``search_results``, rounded up, and the pool is cut back.
+        results each would fetch fifty pages for a report of three.
         """
         sources = self.config.sources
         width = self.config.search_results
@@ -187,13 +184,10 @@ class BuyAgent:
         """The region, when it is one worth suspecting of an empty search.
 
         A region is checked for shape at both front doors, but the shapes outnumber
-        the codes: ``en-us`` is the right shape, the wrong way round, and a search
+        the codes: ``en-us`` is the right shape the wrong way round, and a search
         engine given it answers with nothing rather than complaining (ADR-0031).
-        Nothing else here can say so afterwards, so the one warning a shopper reads
-        does.
-
-        The default is left unnamed on purpose: it is the one value known to work,
-        and pointing at it would send someone to correct a setting that is correct.
+        The default is left unnamed on purpose -- it is the one value known to work,
+        and pointing at it would send someone to correct a correct setting.
         """
         region = self.config.region
         if region == DEFAULT_REGION:
@@ -245,8 +239,7 @@ class BuyAgent:
         Which errors those are, and what the message says, is the provider's to
         answer: a stopped Ollama and a stopped vLLM raise different classes and are
         restarted with different commands. Both arrive as one
-        ``ModelUnavailableError``, because above this line they are one failure --
-        the model could not be used (ADR-0009).
+        ``ModelUnavailableError`` -- above this line they are one failure (ADR-0009).
         """
         server = self.config.model_server
         try:

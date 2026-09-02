@@ -20,11 +20,10 @@ _FORMAT = "%(asctime)s %(levelname)-7s %(name)s | %(message)s"
 _DATEFMT = "%H:%M:%S"
 
 #: The attribute marking the records that *are* the report, as against the
-#: narration around it. One logger and one format either way -- so the SSE relay
-#: above still sees a single stream and the browser's panel is unchanged -- but on
-#: a terminal the two are split by handler: the report on stdout, where
-#: ``python -m buy_agent ... > top.txt`` catches it and catches nothing else, and
-#: the progress on stderr, which is where a running commentary belongs.
+#: narration around it. One logger and one format either way, so the SSE relay
+#: still sees a single stream -- but on a terminal the two are split by handler:
+#: the report on stdout, where ``python -m buy_agent ... > top.txt`` catches it
+#: and nothing else, and the progress on stderr.
 _REPORT = "report"
 
 #: Names the stdout handler, so a second ``configure_logging`` replaces it rather
@@ -45,8 +44,8 @@ def configure_logging(*, verbose: bool = False) -> None:
     _split_report_from_progress()
     if not verbose:
         # Both narrate at INFO and drown out the report: httpx logs every request
-        # under ChatOllama, and the OpenAI client a line per retry -- so a stopped
-        # vLLM prints its retries above the message saying what to do about it.
+        # under ChatOllama, the OpenAI client a line per retry -- so a stopped vLLM
+        # prints its retries above the message saying what to do about it.
         for chatty in _NOISY_LIBRARIES:
             logging.getLogger(chatty).setLevel(logging.WARNING)
 
@@ -54,12 +53,10 @@ def configure_logging(*, verbose: bool = False) -> None:
 def _split_report_from_progress() -> None:
     """Route the report to stdout and everything else to stderr.
 
-    A run narrates for a minute and then answers; the narration is progress and
-    the answer is the output, and without the split a ``> top.txt`` asking for the
-    second catches neither -- an empty file, all of it having gone to stderr. The
-    split is by handler and not by logger, so the records themselves are
-    unchanged: same name, same format, same single stream reaching
-    :class:`~buy_agent.server._LogRelay` and the browser.
+    A run narrates for a minute and then answers; without the split a ``> top.txt``
+    asking for the answer catches neither, all of it having gone to stderr. Split
+    by handler and not by logger, so the records are unchanged -- same name, same
+    format, same single stream reaching :class:`~buy_agent.server._LogRelay`.
     """
     package = logging.getLogger("buy_agent")
     for previous in [
@@ -75,11 +72,10 @@ def _split_report_from_progress() -> None:
 
     # The record still propagates to whatever basicConfig put on the root, so the
     # other half of the split is telling that handler to leave the report alone.
-    # Only the console one: a handler writing somewhere else -- a file, a test's
-    # capture buffer -- is nobody's stream to take lines out of, and taking them
-    # would make the report invisible to a caller who asked for all of it. A named
-    # function rather than a lambda, so repeated calls re-add the same filter
-    # instead of stacking a new one on every one of them.
+    # Only the console one: a handler writing anywhere else -- a file, a test's
+    # capture buffer -- is nobody's stream to take lines out of. A named function
+    # rather than a lambda, so repeated calls re-add the same filter instead of
+    # stacking a new one each time.
     for console in logging.getLogger().handlers:
         if getattr(console, "stream", None) is sys.stderr and _not_report not in console.filters:
             console.addFilter(_not_report)
