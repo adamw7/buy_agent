@@ -2,10 +2,10 @@
 
 Two shapes of "product" on purpose. ``ExtractedProduct`` is what the LLM is asked
 for: every field concrete, with a sentinel for "unknown" (``-1``, ``""``, ``[]``)
-rather than nullable, because the JSON schema becomes a decoding grammar and a
-required ``number`` makes it structurally impossible for a small model to answer
-``"N/A"`` and blow up validation for the whole batch. ``Product`` is the domain
-model the rest of the code uses, where unknown really is ``None``.
+rather than nullable -- the JSON schema becomes a decoding grammar, and a required
+``number`` makes it structurally impossible for a small model to answer ``"N/A"``
+and fail validation for the whole batch. ``Product`` is the domain model the rest
+of the code uses, where unknown really is ``None``.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ _WHITESPACE = re.compile(r"\s+")
 _PUNCTUATION = re.compile(r"[^\w\s]")
 
 #: How many opinions a product is reported with. Three fits a card and a log block
-#: without turning either into a review page -- and asking a small model for more
+#: without turning either into a review page, and asking a small model for more
 #: only trades quotes it read for quotes it wrote.
 MAX_OPINIONS = 3
 
@@ -71,16 +71,14 @@ class ExtractedProduct(BaseModel):
     def to_product(self) -> Product:
         """Convert sentinels back into ``None`` and tidy up whitespace."""
         # A count is only a fact about the product while the rating it counts
-        # stands -- :data:`QUALIFIERS` one stage earlier than ``verify_numbers``.
-        # Read out here because the count below is judged against it.
+        # stands -- :data:`QUALIFIERS`, one stage earlier than ``verify_numbers``.
         rating = self.rating if 0 <= self.rating <= 5 else None
         return Product(
             name=_clean(self.name),
-            # ``> 0`` rather than ``>= 0``, matching ``review_count``: zero is not
-            # a price anyone pays but the other thing a model writes for "unknown".
-            # Kept, it is worse than a blank -- grounding need only find a bare "0"
-            # in ten pages of "$0 shipping", and ranking then calls it the cheapest
-            # in the set and hands it the top spot.
+            # ``> 0`` rather than ``>= 0``, matching ``review_count``: zero is the
+            # other thing a model writes for "unknown", and kept it is worse than a
+            # blank -- grounding need only find a bare "0" in ten pages of "$0
+            # shipping", and ranking then calls it the cheapest and tops the report.
             price=self.price if self.price > 0 else None,
             currency=_clean(self.currency).upper() or None,
             rating=rating,
@@ -123,9 +121,9 @@ class Product(BaseModel):
     seller: str | None = None
     url: str | None = None
     #: What the sources say about it, in their words. A list rather than a
-    #: nullable field: "nobody said anything" and "no opinion survived
-    #: grounding" are the same empty answer, and a second way to spell it --
-    #: ``None`` beside ``[]`` -- would be one every caller had to handle.
+    #: nullable field: "nobody said anything" and "no opinion survived grounding"
+    #: are one empty answer, and a second spelling of it -- ``None`` beside ``[]``
+    #: -- would be one every caller had to handle.
     opinions: list[str] = []
     notes: str | None = None
 
@@ -152,14 +150,12 @@ class Product(BaseModel):
 #: *that listing's* rating was averaged over, so a figure carries its qualifiers
 #: wherever it moves and takes them down wherever it is rejected. Left standing
 #: alone either describes a figure it was never printed against: "129.00 EUR" out
-#: of a page saying 129 and a page saying "249 EUR", or a count whose rating has
-#: just been thrown out, reading "unrated" beside nothing while still feeding the
-#: popularity half of the score.
+#: of a page saying 129 and a page saying "249 EUR", or a count reading "unrated"
+#: beside nothing while still feeding the popularity half of the score.
 #:
-#: Beside the fields it names, because both places that move a figure need it
-#: (:func:`buy_agent.extraction._fill_gaps`,
-#: :func:`buy_agent.verification.verify_numbers`); stated twice, the two could
-#: disagree about what a review count belongs to.
+#: Declared beside the fields it names, because both places that move a figure
+#: need it (:func:`buy_agent.extraction._fill_gaps`,
+#: :func:`buy_agent.verification.verify_numbers`).
 QUALIFIERS: dict[str, tuple[str, ...]] = {
     "price": ("currency",),
     "rating": ("review_count",),
@@ -182,8 +178,8 @@ def distinct_quotes(values: Iterable[str]) -> list[str]:
     """The first spelling of each quote, at most :data:`MAX_OPINIONS` of them.
 
     Identity is the casefolded text -- two listings quoting one reviewer differ by
-    capitalisation and nothing else -- and the spelling kept is the earlier
-    listing's, the tie-break the merge makes everywhere else.
+    capitalisation and nothing else -- and the spelling kept is the earlier one,
+    the tie-break the merge makes everywhere else.
     """
     seen: dict[str, str] = {}
     for quote in values:

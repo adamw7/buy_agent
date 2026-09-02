@@ -13,9 +13,8 @@ Two runs of that page are recorded in `demo/`, fifteen seconds and twenty-two:
 with the rest folded away, and
 [`laptops-under-1000.mpg`](demo/laptops-under-1000.mpg), which ends on the shop
 page behind the top product's link. They are MPEG-1 in a program stream, which
-no browser plays inline -- GitHub hands the file over rather than showing a
-player, so both links download. [The web UI](#the-web-ui) below is what they
-show, written down.
+no browser plays inline, so both links download. [The web UI](#the-web-ui) below
+is what they show, written down.
 
 ```
 $ python -m buy_agent "wireless noise cancelling headphones under $200"
@@ -41,7 +40,7 @@ $ python -m buy_agent "wireless noise cancelling headphones under $200"
 [Architecture](docs/architecture.md) draws the whole of it as C4 diagrams --
 context, containers, the components inside the pipeline and inside the web tier,
 and one streamed run end to end. [How it works](#how-it-works) below is the same
-story in prose.
+story in prose, and [docs/adr/](docs/adr/README.md) is why it is this way.
 
 ## Setup
 
@@ -62,12 +61,11 @@ Already running a vLLM? Skip step 1 and see
 [Running against vLLM](#running-against-vllm) -- `--provider vllm` is the whole
 difference.
 
-To run the web UI without setting up either toolchain, build the image instead --
-see [Running in Docker](docs/docker.md). The model server still runs on the host.
-A published release needs no build at all: it carries an archive with the UI
-already built -- unpack it, `pip install -r requirements.txt`, run the server --
-and the same pair as a container image on `ghcr.io`. Both are in the same page,
-and why is in
+To run the web UI without either toolchain, build the image instead: see
+[Running in Docker](docs/docker.md). The model server still runs on the host. A
+published release needs no build at all -- an archive with the UI already built
+(unpack, `pip install -r requirements.txt`, run the server) and the same pair as
+a container image on `ghcr.io`, both explained in that page and in
 [ADR-0030](docs/adr/0030-publish-a-release-as-an-archive-and-an-image.md).
 
 A pulled tag follows the registry, and `python -m scripts.update_ollama` re-pulls
@@ -113,11 +111,21 @@ worked and found nothing, and `130` is Ctrl-C. Only the first is an answer, and
 only the second is a bug worth chasing. `--json` is written either way, so a
 script waiting on that file gets `[]` rather than yesterday's results.
 
+As a library:
+
+```python
+from buy_agent import AgentConfig, BuyAgent
+
+agent = BuyAgent(AgentConfig(model="gemma4:12b", top_n=3))
+ranked = agent.run("noise cancelling headphones under $200")   # logs the top 3
+print(ranked[0].product.name, ranked[0].score)                 # returns all of them
+```
+
 ### Running against vLLM
 
 Ollama is the default because it is the one you install in a minute on a laptop.
-On a machine that already serves a model with [vLLM](https://docs.vllm.ai) --
-a shared GPU box, a lab server -- installing a second model server and pulling a
+On a machine that already serves a model with [vLLM](https://docs.vllm.ai) -- a
+shared GPU box, a lab server -- installing a second model server and pulling a
 second copy of the weights is pure waste, so point the agent at the one that is
 already running:
 
@@ -128,64 +136,51 @@ $env:BUY_AGENT_PROVIDER = 'vllm'      # ...or once, for every run in this shell
 ```
 
 `--provider` on its own is a complete choice: `--model` and `--base-url` default
-to the pair that belongs to whichever provider was named, so nothing has to be
-retyped to switch. Those defaults are `$VLLM_MODEL` and `$VLLM_HOST` --
-`Qwen/Qwen3-8B` and `http://localhost:8000/v1`, the port and the `/v1` root
-`vllm serve` gives you with no arguments -- exactly as `$OLLAMA_MODEL` and
+to the pair belonging to whichever provider was named, so nothing has to be
+retyped to switch. Those defaults are `$VLLM_MODEL` and `$VLLM_HOST`
+(`Qwen/Qwen3-8B`, `http://localhost:8000/v1` -- the port and `/v1` root `vllm
+serve` gives you with no arguments), exactly as `$OLLAMA_MODEL` and
 `$OLLAMA_HOST` are Ollama's.
 
-Everything else is the same run. Both servers constrain decoding to the JSON
+Everything else is the same run: both servers constrain decoding to the JSON
 schema, so extraction, grounding, quoting and ranking are unchanged, and
-`buy_agent/providers.py` is the only module that knows which one is answering.
-Three differences are real, and none of them is hidden:
+`buy_agent/providers.py` is the only module that knows which is answering. Three
+differences are real, and none is hidden:
 
-- **A vLLM serves one model, chosen when it started.** So the Model dropdown has
-  one entry, and asking for a name it does not have is answered with a message
-  saying what it *is* serving and how to restart it -- there is nothing to pull.
-- **`--num-ctx` is Ollama's.** vLLM fixes its window with `--max-model-len` when
-  it starts, so the flag is not sent there and the web form disables the field
-  rather than taking a number it would ignore. `--think` / `--no-think` works on
-  both: it becomes `enable_thinking`, which is what the chat templates of the
-  thinking models vLLM serves read.
+- **A vLLM serves one model, chosen when it started.** The Model dropdown has one
+  entry, and asking for a name it does not have is answered with what it *is*
+  serving and how to restart it -- there is nothing to pull.
+- **`--num-ctx` is Ollama's.** vLLM fixes its window with `--max-model-len` at
+  startup, so the flag is not sent there and the form disables the field rather
+  than taking a number it would ignore. `--think` / `--no-think` works on both:
+  it becomes `enable_thinking`, which is what the chat templates of the thinking
+  models vLLM serves read.
 - **A key, if there is one.** A vLLM started with `--api-key` wants it back;
-  `$env:VLLM_API_KEY` is how, and deliberately the only how -- there is no flag
-  for it, so it stays out of your shell history, and it is not in what the web
-  API hands the browser.
+  `$env:VLLM_API_KEY` is how, and deliberately the only how -- no flag, so it
+  stays out of your shell history and out of what the web API hands the browser.
 
-See [ADR-0028](docs/adr/0028-serve-the-model-from-ollama-or-vllm.md) for why this
-is one seam rather than two code paths, and why it does not reopen the
+[ADR-0028](docs/adr/0028-serve-the-model-from-ollama-or-vllm.md) has why this is
+one seam rather than two code paths, and why it does not reopen the
 no-accounts-no-keys decision in
 [ADR-0003](docs/adr/0003-local-ollama-no-api-keys.md): a vLLM on your own machine
-or your own network is inside that decision, not an exception to it.
+or network is inside that decision, not an exception to it.
 
 ### Thinking models
 
 The default is one, so the two settings a thinking model needs are the defaults
-too: thinking off, and an 8192-token window. Left to itself such a model fails.
-The extraction prompt runs to roughly 4.3k tokens, so inside Ollama's own
-4096-token window the model spends what is left thinking, gets cut off before it
-writes any JSON, and the run ends with `Invalid json output:` and nothing after
-the colon. The wider window is also what gets you the full ten products rather
-than five.
+too: thinking off, and an 8192-token window. Left to itself such a model fails --
+the extraction prompt runs to roughly 4.3k tokens, so inside Ollama's own 4096
+the model spends what is left thinking, is cut off before it writes any JSON, and
+the run ends with `Invalid json output:` and nothing after the colon. The wider
+window is also what gets you the full ten products rather than five.
 
-That is why `--no-think` and `--num-ctx 8192` are no longer worth typing --
-`qwen3.5`, `gemma4`, `lfm2.5`, anything listing the `thinking` capability, is
-already covered. A model that cannot think ignores both, so switching to one
-costs nothing; only a model you specifically want to hear reasoning from wants
-the flags back:
+So `--no-think` and `--num-ctx 8192` are no longer worth typing: `qwen3.5`,
+`gemma4`, `lfm2.5`, anything listing the `thinking` capability, is already
+covered, and a model that cannot think ignores both. Only a model you
+specifically want to hear reasoning from wants the flags back:
 
 ```powershell
 python -m buy_agent "wireless headphones under $200" --model qwen3.5:9b --think
-```
-
-As a library:
-
-```python
-from buy_agent import AgentConfig, BuyAgent
-
-agent = BuyAgent(AgentConfig(model="gemma4:12b", top_n=3))
-ranked = agent.run("noise cancelling headphones under $200")   # logs the top 3
-print(ranked[0].product.name, ranked[0].score)                 # returns all of them
 ```
 
 ### Sources you trust
@@ -201,20 +196,19 @@ python -m buy_agent "gaming laptop" --source @mkbhd --source notebookcheck.net
 python -m buy_agent "espresso machine" --source https://www.seriouseats.com/coffee
 ```
 
-Because the pages a run reads are the same pages every figure and every quote is
-checked against, narrowing them narrows the report: everything in it was printed
-by a page you named. Nothing falls back to the wider web, so naming sources that
-have nothing to say about the request is a run that finds nothing -- which is the
-answer, and the report says so rather than quietly going elsewhere.
+Because the pages a run reads are the pages every figure and quote is checked
+against, narrowing them narrows the report: everything in it was printed by a page
+you named. Nothing falls back to the wider web, so naming sources with nothing to
+say about the request is a run that finds nothing -- which is the answer, and the
+report says so rather than quietly going elsewhere.
 
 Each source is searched separately (`site:` takes one domain at a time), and the
-number of pages the run reads stays what `--results` asked for rather than
-multiplying by the number of sources. What is enforced is the **domain**: a
-result from another host is discarded before the model sees it. A handle or a
-section narrows the search but cannot be enforced, because a video's address
-says which video it is and not who published it -- see
-[ADR-0027](docs/adr/0027-let-the-shopper-name-the-sources.md) for why that is
-the strongest rule the URLs support.
+number of pages read stays what `--results` asked for rather than multiplying by
+the sources. What is enforced is the **domain**; a handle or a section narrows the
+search but cannot be, a video's address saying which video it is and not who
+published it -- see
+[ADR-0027](docs/adr/0027-let-the-shopper-name-the-sources.md) for why that is the
+strongest rule the URLs support.
 
 The web UI has the same setting, as **Trusted sources** under Settings: one
 field, separated by spaces or commas.
@@ -228,34 +222,28 @@ needs neither toolchain.
 
 ### Starting it on localhost
 
-Two things run and one gets built: Ollama with a model pulled, the Angular
-build, and the server that serves that build alongside the API.
-
-`scripts/start.ps1` does all three and takes no arguments:
+Two things run and one gets built: Ollama with a model pulled, the Angular build,
+and the server that serves that build alongside the API. `scripts/start.ps1` does
+all three and takes no arguments:
 
 ```powershell
 .\scripts\start.ps1
 ```
 
-It creates `.venv` and installs `requirements.txt` if they are not there, starts
-Ollama if nothing is answering on it, pulls the default model if it is not
-pulled, builds `ui/` if there is no build, then runs the server in the
-foreground and opens the page. Each step is skipped when it is already done, so
-a second run is a few seconds. Ctrl+C stops the server -- and the Ollama too, if
-the script was what started it. It has no options on purpose: the provider, the
-model and the server address are `$env:BUY_AGENT_PROVIDER`, `$env:OLLAMA_MODEL`
-and `$env:OLLAMA_HOST` (or `$env:VLLM_MODEL` and `$env:VLLM_HOST`) like everywhere
-else, and anything past that is a flag on the server itself, which is what the
-manual route below is for.
+It creates `.venv`, installs `requirements.txt`, starts Ollama, pulls the default
+model and builds `ui/` where each is not already done, then runs the server in the
+foreground and opens the page -- so a second run is a few seconds. Ctrl+C stops
+the server, and the Ollama too if the script started it. It has no options on
+purpose: the provider, model and address are `$env:BUY_AGENT_PROVIDER`,
+`$env:OLLAMA_MODEL`/`$env:OLLAMA_HOST` (or `$env:VLLM_MODEL`/`$env:VLLM_HOST`) as
+everywhere else, and anything past that is a flag on the server itself.
 
-Ollama is the only model server it starts for you. With
-`$env:BUY_AGENT_PROVIDER` set to `vllm` it waits for one to be answering and says
-where instead of trying to launch it: a vLLM wants a GPU, a served model and
-flags this script has no business choosing.
-
-Node is the one thing it will not install: without `npm` on PATH it says so and
-serves the API anyway, so the page is the 503 until a build exists. A PowerShell
-that refuses to run an unsigned script takes the same file the long way round:
+Ollama is the only model server it starts for you: with `$env:BUY_AGENT_PROVIDER`
+set to `vllm` it waits for one to answer and says where instead of launching it,
+a vLLM wanting a GPU, a served model and flags this script has no business
+choosing. Node is the one thing it will not install -- without `npm` on PATH it
+says so and serves the API anyway, so the page is the 503 until a build exists. A
+PowerShell that refuses unsigned scripts takes the same file the long way round:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
@@ -281,15 +269,14 @@ python -m buy_agent.server         # http://127.0.0.1:8000
 
 Then open <http://127.0.0.1:8000> and search. Skip step 2 and the API still
 answers, but the page is a 503 telling you to build it; `--ui-dir` points at a
-build kept somewhere else, and `--host` / `--port` move the binding, which is
-loopback on port 8000 by default. Port 8000 is also where a vLLM started with no
-arguments listens, so on a machine serving one, give the UI another port
-(`--port 8001`) -- otherwise the bind fails, and the server says so and names the
-clash. The model server need not be local either --
-`$OLLAMA_HOST` and `$VLLM_HOST`, or the address field under Settings, point the
-run at another machine. To work on the UI itself, run the Angular dev server
-instead of building for every change -- see [The dev server](#the-dev-server)
-below.
+build kept elsewhere, and `--host` / `--port` move the binding, which is loopback
+on port 8000 by default. Port 8000 is also where a vLLM started with no arguments
+listens, so on a machine serving one give the UI another port (`--port 8001`) --
+otherwise the bind fails, and the server says so and names the clash. The model
+server need not be local either: `$OLLAMA_HOST` and `$VLLM_HOST`, or the address
+field under Settings, point the run at another machine. To work on the UI itself,
+run the Angular dev server rather than rebuilding for every change -- see
+[The dev server](#the-dev-server).
 
 The two recordings at the top of this page are of this page. Everything in them
 between the search and the ranking is the real pipeline -- only DuckDuckGo, the
@@ -304,53 +291,45 @@ each was found on. It binds loopback by default: it drives a model on your own
 machine, and is not meant to be exposed.
 
 Loopback keeps it off the network but not out of the browser, where any page you
-have open can send requests to `127.0.0.1`. So the server answers its own page
-and nothing else: a request a page on another site made is refused, as is one
-addressed to a name that merely resolves here -- which is what a rebinding attack
-looks like from this end. Clients that are not browsers send none of the headers
-that decide this and are unaffected, so the `curl` below still works. Reaching
-the server by some other name -- a container published on a LAN -- means naming
-that name, with `--allowed-host buy.lan`, or it is refused too. See
+have open can send requests to `127.0.0.1`. So the server answers its own page and
+nothing else: a request a page on another site made is refused, as is one
+addressed to a name that merely resolves here -- a rebinding attack, from this
+end. Clients that are not browsers send none of the headers that decide this, so
+the `curl` below still works, and reaching the server by another name -- a
+container published on a LAN -- means naming it with `--allowed-host buy.lan`. See
 [ADR-0018](docs/adr/0018-guard-the-loopback-server-against-other-pages.md).
 
 Under Settings, **Model server** picks between Ollama and vLLM and brings that
-one's model and address along with it, and **Model** is a dropdown of what that
-server is actually serving -- the list `ollama list` prints, or the one entry a
-vLLM reports at `/v1/models`, asked for over `GET /api/models`. Point the address
-field somewhere else and the list is fetched again from there. A model that is
-configured but not served stays in the dropdown marked `not served`, so a stale
-setting is visible rather than silently swapped; one that *is* pulled but cannot
-answer a prompt -- `nomic-embed-text` and the other embedding models, which
-`ollama list` prints exactly like a chat model -- is marked `embedding only`
-rather than offered as a choice that costs a whole run to find out about
-([ADR-0032](docs/adr/0032-say-which-models-can-answer-a-prompt.md)); a server
-that answered with nothing at all turns the field back into a text box, so a
-name can still be typed. The pill in the header names whichever server the list
-came from, so a page pointed at a vLLM never reports an Ollama being down.
+one's model and address with it, and **Model** is a dropdown of what that server
+is actually serving -- what `ollama list` prints, or the one entry a vLLM reports
+at `/v1/models` -- refetched when the address field is pointed elsewhere. Three
+cases are marked rather than hidden: a model configured but not served stays in
+the list as `not served`, so a stale setting is visible rather than silently
+swapped; one that *is* pulled but cannot answer a prompt (`nomic-embed-text` and
+the other embedding models, which `ollama list` prints exactly like a chat model)
+is `embedding only` rather than a choice that costs a whole run to find out about
+([ADR-0032](docs/adr/0032-say-which-models-can-answer-a-prompt.md)); and a server
+that answered with nothing turns the field back into a text box. The pill in the
+header names whichever server the list came from, so a page pointed at a vLLM
+never reports an Ollama being down.
 
 A setting the server would refuse is refused on the page instead, before a run
 starts: the ranges come down with the defaults, so **Products to find** of 51
 marks the field and greys out the button rather than opening a stream to be told
 a minute later, and a Trusted sources field is read by the same `parse_sources`
-the CLI uses -- `Marques Brownlee` is marked as naming no site while the form is
-still being filled in. What the page cannot judge for itself, it still shows in
-the right place: a run refused for one value comes back naming the field, and
-that box is marked along with the banner
+the CLI uses. What the page cannot judge for itself it still shows in the right
+place -- a run refused for one value comes back naming the field, and that box is
+marked along with the banner
 ([ADR-0033](docs/adr/0033-let-the-form-refuse-what-the-server-would.md)).
 
-When a run ends badly, the Progress panel offers **Download log**: the lines it
-was showing, plus the error that ended the run, saved as
-`buy-agent-log-20260825-140311.txt`. The panel scrolls and the next search clears
-it, so without this a failure worth reporting is gone as soon as it is retried.
-
-A finished run has two controls of its own beside the results. **Rank by** puts
-the same products in another order without searching for them again: they are
-posted back to `POST /api/rank`, which calls the same `rank_products` a run ends
+When a run ends badly the Progress panel offers **Download log**: the lines it was
+showing plus the error that ended the run. The panel scrolls and the next search
+clears it, so without this a failure worth reporting is gone as soon as it is
+retried. A finished run has two controls of its own: **Rank by** posts the
+products back to `POST /api/rank`, which calls the same `rank_products` a run ends
 with and nothing else, so the ordering is still Python's and only the minute is
-skipped -- changing the criterion used to mean a second web search, ten more
-pages fetched and another extraction, for products already on the screen.
-**Download results** saves the run as `buy-agent-results-20260825-140311.json` --
-the same document `--json` writes, because it is the answer the server sent
+skipped; **Download results** saves the answer the server sent, which is the same
+document `--json` writes
 ([ADR-0035](docs/adr/0035-re-sort-a-finished-run-without-running-it-again.md)).
 
 A search takes tens of seconds, so the browser does not wait on one response.
@@ -370,6 +349,7 @@ curl -X POST http://127.0.0.1:8000/api/search `
 | `GET /api/models` | What a named server is serving, or why it could not be asked |
 | `GET /api/sources` | Whether a Trusted sources field names sites, and what is wrong if not |
 | `POST /api/search` | One run, as JSON |
+| `POST /api/rank` | A finished run's products in another order |
 | `GET /api/search/stream` | One run, as an event stream |
 
 ### The dev server
@@ -389,22 +369,12 @@ for how it sits behind the API.
 ## How it works
 
 The C4 diagrams in [docs/architecture.md](docs/architecture.md) draw the same
-thing, a zoom level at a time -- Mermaid, so GitHub renders them in place:
-
-- [System context](docs/architecture.md#level-1----system-context) -- the
-  shopper, the agent as one box, and the three things outside it: the model
-  server, DuckDuckGo and the shop pages.
-- [Containers](docs/architecture.md#level-2----containers) -- the CLI, the web
-  UI, the HTTP server, and the one pipeline both front ends drive.
-- [Components of the agent pipeline](docs/architecture.md#level-3----components-of-the-agent-pipeline)
-  -- the modules the pipeline below is made of, and what each of them decides.
-- [Components of the web tier](docs/architecture.md#level-3----components-of-the-web-tier)
-  -- the handler, the API and the Angular components in front of them.
-- [A streamed run, end to end](docs/architecture.md#a-streamed-run-end-to-end)
-  -- one search as a sequence diagram, from the request to the ranked cards.
-
-For why it is this way, and what was tried and rejected, see the decision log in
-[docs/adr/](docs/adr/README.md).
+thing a zoom level at a time -- Mermaid, so GitHub renders them in place:
+[system context](docs/architecture.md#level-1----system-context),
+[containers](docs/architecture.md#level-2----containers),
+[the pipeline's components](docs/architecture.md#level-3----components-of-the-agent-pipeline),
+[the web tier's](docs/architecture.md#level-3----components-of-the-web-tier), and
+[a streamed run end to end](docs/architecture.md#a-streamed-run-end-to-end).
 
 ```
 request ──▶ [LLM] refine into a search query
@@ -431,41 +401,37 @@ at running a tool loop, but perfectly capable of these two steps.
 Seven details make it work with a small model:
 
 - **Structured output.** Both LLM calls use `json_schema` mode -- Ollama's, or
-  vLLM's on the OpenAI-compatible side -- so the model's decoding is constrained
-  to the schema and cannot drift into prose.
+  vLLM's on the OpenAI-compatible side -- so decoding is constrained to the schema
+  and cannot drift into prose.
 - **Sentinels instead of nulls.** The extraction schema asks for `-1` rather than
-  `null` for an unknown price (`buy_agent/models.py`). A required `number` makes
+  `null` for an unknown price (`buy_agent/models.py`): a required `number` makes
   it structurally impossible to answer `"N/A"` and fail validation for the whole
   batch. `ExtractedProduct.to_product()` turns the sentinels back into `None`.
 - **Reading the pages, not the snippets.** A DuckDuckGo snippet for "headphones
-  under $200" contains exactly one number: the $200 from the query. Extracting
-  from snippets alone produced ten products with no prices at all. So each result
-  page is fetched and condensed (`buy_agent/fetch.py`), which keeps the prompt
-  small and gives the model something real to read. `--no-fetch` reverts to
-  snippets only.
+  under $200" contains exactly one number: the $200 from the query. So each
+  result page is fetched and condensed (`buy_agent/fetch.py`), which keeps the
+  prompt small and gives the model something real to read. `--no-fetch` reverts
+  to snippets only.
 - **Reading the opinions too, not only the figures.** A page is swept twice: for
   the lines quoting a price or a rating, and for the lines passing judgement --
-  "reviewers found", "the downside is", "disappointing". Each sweep has a budget
-  of its own, so a shop page listing forty prices still contributes a verdict and
-  a review page of prose still contributes its price. A price says what a thing
+  "reviewers found", "the downside is", "disappointing". Each sweep has its own
+  budget, so a shop page listing forty prices still contributes a verdict and a
+  review page of prose still contributes its price. A price says what a thing
   costs and only these lines say whether to want it (ADR-0024).
-- **Sources you can name.** Left alone the agent searches the whole web and
-  the report is only as good as what ranked. `--source rtings.com --source
-  @mkbhd` searches those instead, and since the pages a run reads are the pages
-  every fact is checked against, that makes provenance a property of the
-  pipeline rather than a promise: nothing in the report was printed anywhere but
-  a page the shopper chose (ADR-0027).
+- **Sources you can name.** `--source rtings.com --source @mkbhd` searches those
+  instead of the whole web, and since the pages a run reads are the pages every
+  fact is checked against, that makes provenance a property of the pipeline
+  rather than a promise (ADR-0027).
 - **Grounding.** Models fill gaps -- inventing a price, or lifting a product
   straight out of the prompt's own example. `buy_agent/verification.py` drops any
   product whose name is absent from the sources, and blanks any price, rating or
   review count that does not appear in the text the model was shown. A blanked
   figure scores neutral instead of winning.
-- **Quotes, checked as quotes.** The opinions in the report are the source
-  pages' words, not the model's summary of them, and each one is looked for in
-  the sources as running text -- overlapping runs of five consecutive words, most
-  of which have to be found. A paraphrase fails that and is dropped: an invented
-  price is a number nobody wrote, but an invented quote is words in a reviewer's
-  mouth.
+- **Quotes, checked as quotes.** The opinions in the report are the source pages'
+  words, not the model's summary of them, and each is looked for in the sources
+  as running text -- overlapping runs of five consecutive words, most of which
+  have to be found. A paraphrase fails that and is dropped: an invented price is
+  a number nobody wrote, but an invented quote is words in a reviewer's mouth.
 
 ### Ranking
 
@@ -489,44 +455,43 @@ cd ui; npm test               # the UI's own tests, in jsdom
 python -m pytest integration  # ...and against a real model, if one is pulled
 ```
 
-Neither suite touches the network or a model server, both run on Windows and on
-Linux, and both are measured against a coverage floor CI enforces. The third, in
-`integration/`, is the deliberate exception: it runs the pipeline against a real
-Ollama on a model small enough for a CPU, which is the only place the claims
-about JSON-schema decoding and about Ollama's transport errors are actually put
-to Ollama. It lives outside `testpaths`, so `python -m pytest` cannot reach it,
-and a nightly job capped at five minutes is what runs it (ADR-0026). vLLM is not
-in that job -- it needs a GPU, and a CPU runner cannot host one honestly -- so its
-half is asserted in `tests/test_providers.py` and named as a gap in ADR-0028.
+Neither of the first two touches the network or a model server, both run on
+Windows and on Linux, and both are measured against a coverage floor CI enforces.
+The third, in `integration/`, is the deliberate exception: it runs the pipeline
+against a real Ollama on a model small enough for a CPU, which is the only place
+the claims about JSON-schema decoding and Ollama's transport errors are actually
+put to Ollama. It lives outside `testpaths`, so `python -m pytest` cannot reach
+it, and a nightly job capped at five minutes is what runs it (ADR-0026). vLLM is
+not in that job -- it needs a GPU, and a CPU runner cannot host one honestly -- so
+its half is asserted in `tests/test_providers.py` and named as a gap in ADR-0028.
 
 What the counts are, what `tests/test_conventions.py` checks that coverage
-cannot, and the mutation run that grades the suite itself every Saturday are in
+cannot, and the mutation run that grades the suite every Saturday are in
 [Tests](docs/testing.md).
 
 ## Limitations
 
 - **A figure can be real but attached to the wrong product.** Grounding checks
-  that a number appears in the sources, not that it belongs to the product it
-  was filed under, and small models sometimes give two products the same review
-  count. Reading the top 3 as candidates worth clicking, rather than as a price
-  quote, is the right level of trust.
+  that a number appears in the sources, not that it belongs to the product it was
+  filed under, and small models sometimes give two products the same review
+  count. Read the top 3 as candidates worth clicking rather than as a price
+  quote.
 - **A quote is tied to a page, not to a product on it.** A quoted opinion has to
   appear on a page that names the product (ADR-0025), so a verdict cannot move
   between pages about unrelated things -- but a review page covering eight
   headphones names all eight, and nothing stops a verdict moving between them.
 - **A named source is a domain, not an author.** `--source @mkbhd` searches
   YouTube for that handle and keeps the YouTube pages that come back; a video by
-  somebody else that mentions the handle can get through. The report links to
-  the page, so whose it is can be seen.
+  somebody else that mentions the handle can get through. The report links to the
+  page, so whose it is can be seen.
 - **Names are only as specific as the model makes them.** `lfm2.5` reported
   "Bose ANC" for a product the page named in full.
 - Some shops answer with JavaScript-rendered pages or a 403; those results fall
   back to their snippet rather than failing the run. Which is why the run says
-  how the fetching went -- "Got usable page text from 0 of 10 result(s): 7
-  refused (403), 2 timed out" -- on the CLI and in the browser's progress panel
-  alike: grounding blanks every figure the pages did not back, so a report of
-  "price unknown" throughout is either a bad model or nothing having been read,
-  and that line is which.
+  how the fetching went -- "Got usable page text from 0 of 10 result(s): 7 refused
+  (403), 2 timed out" -- on the CLI and in the browser alike: grounding blanks
+  every figure the pages did not back, so a report of "price unknown" throughout
+  is either a bad model or nothing having been read, and that line is which.
 - DuckDuckGo rate-limits heavy use; the agent reports this as a `SearchError`.
 - Only `lfm2.5` (1.2B) has been measured: it works, takes ~75s end to end, and
   most of that is extraction. The failure modes above are the ones a small model

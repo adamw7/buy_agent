@@ -3,22 +3,20 @@
 Left to itself the agent searches the whole web and reports whatever the first
 ten results printed. A shopper who knows where the good information is can name
 those sites instead, and then every price, rating and quote comes from one of
-them: the pages are what grounding checks against, so narrowing the pages
-narrows the facts (ADR-0027).
+them: the pages are what grounding checks against, so narrowing the pages narrows
+the facts (ADR-0027).
 
-A source is written the way people say it -- a site (``rtings.com``), a section
-of one (``rtings.com/headphones``), a pasted URL, or a YouTube handle
-(``@mkbhd``) -- and is read down to two parts. The **domain** is enforced: a
-result from anywhere else is discarded before the model sees it. The **term** (a
-handle, a section) narrows the *search* only, because a URL cannot carry it -- a
-video's address says which video it is and nothing about who published it, so
-enforcing a handle would throw away every video the channel ever posted and keep
-the channel page alone.
+A source is written the way people say it -- a site (``rtings.com``), a section of
+one (``rtings.com/headphones``), a pasted URL, or a YouTube handle (``@mkbhd``) --
+and is read down to two parts. The **domain** is enforced: a result from anywhere
+else is discarded before the model sees it. The **term** (a handle, a section)
+narrows the *search* only, a URL being unable to carry it -- a video's address says
+which video it is and nothing about who published it, so enforcing a handle would
+throw away every video the channel ever posted.
 
 Nothing here does any I/O: this module decides what a source *is* and
-:class:`~buy_agent.agent.BuyAgent` does the searching, which keeps it testable
-without a network and keeps :mod:`buy_agent.search` a DuckDuckGo wrapper and
-nothing else (ADR-0021).
+:class:`~buy_agent.agent.BuyAgent` does the searching, which keeps
+:mod:`buy_agent.search` a DuckDuckGo wrapper and nothing else (ADR-0021).
 """
 
 from __future__ import annotations
@@ -46,10 +44,9 @@ _SCHEME = re.compile(r"^(?:[a-z][a-z0-9+.-]*:)?//", re.IGNORECASE)
 _SEPARATORS = re.compile(r"[,\s]+")
 
 #: Path segments that route to a place rather than name one: YouTube writes a
-#: channel ``/@mkbhd``, ``/c/mkbhd`` or ``/channel/UC...`` and Reddit writes
-#: ``/r/headphones``, and in every one the segment that identifies anything is the
-#: next. Left in, ``reddit.com/r/headphones`` narrowed the search on the phrase
-#: "r" and dropped the only word the shopper typed.
+#: channel ``/@mkbhd``, ``/c/mkbhd`` or ``/channel/UC...``, Reddit ``/r/headphones``
+#: -- in each the identifying segment is the next. Left in,
+#: ``reddit.com/r/headphones`` narrowed the search on the phrase "r".
 _ROUTING = frozenset({"c", "user", "channel", "r", "u"})
 
 #: Where a bare ``@handle`` lives -- how people name the one kind of source that
@@ -79,9 +76,8 @@ class Source:
     def site_query(self, query: str) -> str:
         """``query``, narrowed to this source.
 
-        ``site:`` is what a search engine offers for "only this domain"; the
-        term goes in as a quoted phrase beside it, since a channel is not a
-        domain and there is no operator for one.
+        ``site:`` is what a search engine offers for "only this domain"; the term
+        goes in as a quoted phrase beside it, a channel being no domain.
         """
         narrowed = f"{query} site:{self.domain}"
         return f'{narrowed} "{self.term}"' if self.term else narrowed
@@ -89,9 +85,8 @@ class Source:
     def covers(self, url: str) -> bool:
         """Whether ``url`` is a page on this source's domain, subdomains included.
 
-        Subdomains count because a site's own pages live on them and the shopper
-        named the site. Whole labels are compared, so ``notrtings.com`` is not
-        ``rtings.com`` the way a substring test would have it.
+        Subdomains count: a site's own pages live on them. Whole labels are
+        compared, so ``notrtings.com`` is not ``rtings.com``.
         """
         try:
             host = urlsplit(url).hostname
@@ -143,11 +138,10 @@ def parse_source(spec: str) -> Source:
 def parse_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:
     """Every source in ``specs``, in the order given and without repeats.
 
-    Takes one string holding several -- how the web form sends them -- or the list
-    a repeated flag builds up, in which each entry may again hold several. Both
-    separate the same way, so a shopper who commas two sites into one ``--source``
-    gets what the form would have given them rather than an error about a hostname
-    with a comma in it.
+    Takes one string holding several -- how the web form sends them -- or the list a
+    repeated flag builds up, whose entries may again hold several. Both separate
+    the same way, so a shopper who commas two sites into one ``--source`` gets what
+    the form would have given them.
 
     Two specs naming the same domain and term are one source: a second identical
     search would halve what the other sources are allowed. That holds across
@@ -169,8 +163,8 @@ def parse_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:
 def format_sources(sources: Iterable[Source]) -> str:
     """Sources written back the way they were given, as one field's worth of text.
 
-    The inverse of :func:`parse_sources` over what the shopper typed, so the form
-    is handed back what it would have sent. A space separates: no spec has one.
+    The inverse of :func:`parse_sources`, so the form is handed back what it would
+    have sent. A space separates: no spec has one.
     """
     return " ".join(source.spec for source in sources)
 
@@ -178,8 +172,8 @@ def format_sources(sources: Iterable[Source]) -> str:
 def _term(path: str) -> str:
     """The part of a path worth searching for: a channel handle, or a section.
 
-    A query string and a fragment identify a page, where what is wanted is what
-    the pages have in common, so they go -- as do the routing segments.
+    A query string and a fragment identify a page where what is wanted is what the
+    pages have in common, so they go -- as do the routing segments.
     """
     segments = [segment for segment in path.split("?")[0].split("#")[0].split("/") if segment]
     while segments and segments[0].lower() in _ROUTING:

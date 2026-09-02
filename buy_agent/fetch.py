@@ -6,10 +6,9 @@ the query -- so extracting from them alone yields products with no comparable
 data, and a model asked to fill that gap invents figures.
 
 So each page is fetched and condensed to two kinds of line: the ones carrying a
-price or a rating, and the ones carrying an *opinion* -- what a reviewer or an
-owner thought of the thing, since a shopper's question is rarely only "how much".
-Both together keep the prompt small enough for a small local model while giving
-it something real to read.
+price or a rating, and the ones carrying an *opinion*, a shopper's question rarely
+being only "how much". Together they keep the prompt small enough for a small
+local model while giving it something real to read.
 """
 
 from __future__ import annotations
@@ -18,6 +17,7 @@ import logging
 import re
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from typing import TYPE_CHECKING, NamedTuple
 
 import httpx
@@ -54,7 +54,7 @@ _RATING = re.compile(
 #: Lines that judge a product rather than price it. Deliberately a vocabulary of
 #: *judgement* -- who is speaking ("reviewers found"), what they concluded ("the
 #: downside is"), the words only an opinion uses ("disappointing") -- and never of
-#: subject matter, which every line on a headphone page shares with every other.
+#: subject matter, which every line on a headphone page shares.
 _OPINION = re.compile(
     r"""
       # Plural only: a singular "pro" is half the products on the page
@@ -91,8 +91,7 @@ _MIN_OPINION = 25
 
 #: How a page's failure is named in the tally :func:`enrich` logs. Past tense
 #: throughout and never a copula, so one phrase reads the same after "1" as after
-#: "7" -- the counts are what a reader is here for, and "1 were not HTML" would
-#: cost a second line to fix what a word choice fixes for free.
+#: "7" -- "1 were not HTML" would cost a plural rule to fix what wording fixes free.
 _TIMED_OUT = "timed out"
 _LOOPED = "redirected in a loop"
 _UNFETCHABLE = "had an address that cannot be fetched"
@@ -101,9 +100,18 @@ _TRANSFER_FAILED = "failed mid-transfer"
 _NOT_HTML = "did not answer with HTML"
 _NOTHING_KEPT = "quoted no prices and no verdicts"
 
+#: Which phrase each kind of transport failure gets, in the order asked -- see
+#: :func:`describe_failure`. A status code is answered before any of them.
+_FAILURE_PHRASES: tuple[tuple[tuple[type[Exception], ...], str], ...] = (
+    ((httpx.TimeoutException,), _TIMED_OUT),
+    ((httpx.TooManyRedirects,), _LOOPED),
+    ((httpx.InvalidURL, httpx.UnsupportedProtocol), _UNFETCHABLE),
+    ((httpx.NetworkError, httpx.ProxyError), _UNREACHABLE),
+)
+
 #: What a status code means, where the number alone would not say it. Anything
-#: else is "rejected" under 500 and "failed" at or above it, and the code is
-#: quoted beside the word either way -- so a 402 is still legible as itself.
+#: else is "rejected" under 500 and "failed" at or above, the code quoted beside
+#: the word either way -- so a 402 is still legible as itself.
 _STATUS_WORDS = {
     401: "refused",
     403: "refused",
@@ -116,11 +124,10 @@ _STATUS_WORDS = {
 class PageText(NamedTuple):
     """What one fetch yielded, and -- when it yielded nothing -- why not.
 
-    ``problem`` is a phrase rather than the exception, because what :func:`enrich`
-    does with it is *count* it: ten pages that all answered 403 are worth one line
-    ("10 refused (403)") and not ten, and the exception each carried is already
-    the DEBUG line beside it. It is set exactly when ``text`` is empty, so a page
-    that was read and a page that was not are never both "".
+    ``problem`` is a phrase rather than the exception, because :func:`enrich`
+    *counts* it: ten pages answering 403 are worth one line ("10 refused (403)")
+    and not ten, the exception each carried being the DEBUG line beside it. Set
+    exactly when ``text`` is empty, so a page read and a page not are never both "".
     """
 
     text: str
@@ -143,15 +150,13 @@ def html_to_text(markup: str) -> str:
 def condense(text: str, *, max_chars: int, opinion_chars: int = 400) -> str:
     """Keep the lines that quote a figure or pass judgement, and nothing else.
 
-    A product page is mostly navigation and legal text; what matters is the
-    handful of lines naming a price or a rating and the handful saying what the
-    thing is like to own. The two kinds are swept for in turn, each on a budget of
-    its own (``max_chars`` and ``opinion_chars``), so a page listing forty prices
-    cannot crowd the verdicts out and a page of prose cannot crowd out the price.
-    ``opinion_chars=0`` leaves the opinions unread.
-
-    Lines come back in the page's own order whichever sweep took them, so the
-    prompt reads as an excerpt rather than as two lists.
+    A product page is mostly navigation and legal text; what matters is the handful
+    of lines naming a price or a rating and the handful saying what the thing is
+    like to own. The two kinds are swept for in turn, each on a budget of its own
+    (``max_chars`` and ``opinion_chars``), so neither crowds the other out;
+    ``opinion_chars=0`` leaves the opinions unread. Lines come back in the page's
+    own order whichever sweep took them, so the prompt reads as an excerpt rather
+    than as two lists.
     """
     segments = [_WHITESPACE.sub(" ", raw).strip() for raw in _SEGMENT_BREAK.split(text)]
     segments = [segment for segment in segments if segment]
@@ -209,24 +214,22 @@ def fetch_page(
 
     Every way of yielding nothing is named rather than collapsed into "": a shop
     that answered 403, a proxy that swallowed the connection and a page that
-    genuinely quoted no figures are three different diagnoses, and without them
-    the run reports the same "0 of 10" for all three -- which reads as the model
-    having been bad rather than as nothing having been read.
+    genuinely quoted no figures are three diagnoses, and without them the run
+    reports the same "0 of 10" for all three -- which reads as a bad model rather
+    than as nothing having been read.
 
     ``InvalidURL`` sits beside ``HTTPError`` because it is not one: httpx raises it
     out of parsing rather than the transport, so it inherits from ``Exception``
-    directly and the obvious ``except httpx.HTTPError`` misses it -- leaving a
-    result whose href has a bad port or an unbracketed IPv6 literal to escape the
-    pool and make ``BuyAgent.run`` raise a fourth thing (ADR-0009). A link that
-    cannot name a page is a page that could not be fetched.
+    directly and the obvious ``except httpx.HTTPError`` misses it -- letting a bad
+    port or an unbracketed IPv6 literal escape the pool and make ``BuyAgent.run``
+    raise a fourth thing (ADR-0009).
     """
     try:
         response = client.get(url)
         response.raise_for_status()
     except (httpx.HTTPError, httpx.InvalidURL) as exc:
-        # The URL and the exception stay at DEBUG, where they were: one line per
-        # result is ten lines of a run's narration, and the shape of the trouble
-        # -- which is what the tally carries -- is the same in one word.
+        # The URL and the exception stay at DEBUG: one line per result is ten lines
+        # of narration, and the tally already carries the shape of the trouble.
         logger.debug("Could not fetch %s: %s", url, exc)
         return PageText("", describe_failure(exc))
 
@@ -247,35 +250,27 @@ def fetch_page(
 def describe_failure(exc: Exception) -> str:
     """Why one page could not be read, in the words the tally counts.
 
-    Grouped by what a shopper could do about it rather than by httpx's class
-    tree: a connect timeout and a read timeout are one wait as far as
-    ``--fetch-timeout`` is concerned, and every kind of network failure is the
-    same "it is not answering". The status codes worth a word of their own get
-    one, and the rest are the number, which says enough beside "rejected".
+    Grouped by what a shopper could do about it rather than by httpx's class tree:
+    a connect timeout and a read timeout are one wait as far as ``--fetch-timeout``
+    is concerned, and every network failure is the same "it is not answering".
     """
     if isinstance(exc, httpx.HTTPStatusError):
         code = exc.response.status_code
         word = _STATUS_WORDS.get(code) or ("failed" if code >= 500 else "rejected")
         return f"{word} ({code})"
-    # Before the network check: a ConnectTimeout is a timeout and not a
-    # ConnectError, but the two read as one thing and are counted as one.
-    if isinstance(exc, httpx.TimeoutException):
-        return _TIMED_OUT
-    if isinstance(exc, httpx.TooManyRedirects):
-        return _LOOPED
-    if isinstance(exc, (httpx.InvalidURL, httpx.UnsupportedProtocol)):
-        return _UNFETCHABLE
-    if isinstance(exc, (httpx.NetworkError, httpx.ProxyError)):
-        return _UNREACHABLE
+    # In order: a ConnectTimeout is a timeout and not a ConnectError, but the two
+    # read as one thing and are counted as one, so the timeout is asked first.
+    for kinds, phrase in _FAILURE_PHRASES:
+        if isinstance(exc, kinds):
+            return phrase
     return _TRANSFER_FAILED
 
 
 def summarise_failures(problems: Iterable[str]) -> str:
     """The kinds of failure and how many of each, commonest first.
 
-    Empty when nothing went wrong, so the caller appends it or does not. Ties
-    keep the order the results were in, which is fixed, so two identical runs
-    narrate identically.
+    Empty when nothing went wrong, so the caller appends it or does not. Ties keep
+    the results' own order, which is fixed, so two identical runs narrate alike.
     """
     return ", ".join(
         f"{count} {problem}" for problem, count in Counter(problems).most_common()
@@ -292,16 +287,15 @@ def enrich(
 ) -> list[SearchResult]:
     """Attach condensed page content to each result, in parallel.
 
-    A result whose page could not be fetched keeps its snippet and is still used:
-    a slow shop should cost the run a few seconds, not the product.
+    A result whose page could not be fetched keeps its snippet and is still used: a
+    slow shop should cost the run a few seconds, not the product.
 
     The tally at the end says how the pages that yielded nothing failed, and how
-    many failed each way -- "7 refused (403), 2 timed out" -- because grounding
-    blanks every figure the pages did not back, so a run whose fetches all failed
-    produces a report of "price unknown" that is indistinguishable from a bad
-    model unless something says so. One line, so it is as readable in the
-    browser's progress panel as on the CLI, and it names no URLs: those are the
-    DEBUG lines the failures already write.
+    many each way -- "7 refused (403), 2 timed out". Grounding blanks every figure
+    the pages did not back, so a run whose fetches all failed reports "price
+    unknown" throughout, which is indistinguishable from a bad model unless
+    something says so. One line, and no URLs: those are the DEBUG lines already
+    written beside each failure.
     """
     urls = [result.url for result in results]
     logger.info("Fetching %d result page(s)", len(urls))
@@ -310,16 +304,11 @@ def enrich(
         timeout=timeout,
         follow_redirects=True,
         headers={"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9"},
-    ) as client:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            pages = list(
-                pool.map(
-                    lambda url: fetch_page(
-                        client, url, max_chars=max_chars, opinion_chars=opinion_chars
-                    ),
-                    urls,
-                )
-            )
+    ) as client, ThreadPoolExecutor(max_workers=workers) as pool:
+        read = partial(
+            fetch_page, client, max_chars=max_chars, opinion_chars=opinion_chars
+        )
+        pages = list(pool.map(read, urls))
 
     enriched = [
         result.model_copy(update={"content": page.text})
@@ -328,9 +317,8 @@ def enrich(
     with_content = sum(1 for page in pages if page.text)
     failures = summarise_failures(page.problem for page in pages if page.problem)
     logger.log(
-        # Nothing read at all is the case the shopper most needs told: every
-        # figure in the report ahead is about to be blanked by grounding, and a
-        # warning is what separates that from the narration it sits in.
+        # Nothing read at all is what the shopper most needs told: every figure in
+        # the report ahead is about to be blanked by grounding.
         logging.WARNING if urls and not with_content else logging.INFO,
         "Got usable page text from %d of %d result(s)%s",
         with_content,

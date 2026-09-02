@@ -25,14 +25,12 @@ _DEFAULTS = AgentConfig()
 
 #: Exit code for a run that worked and found nothing: the search reached the web,
 #: the model answered, and no product survived. Its own code because a shell
-#: cannot otherwise tell it from a stopped model server, and the two want
-#: different things done about them. 2 is argparse's own, for a usage error.
+#: cannot otherwise tell it from a stopped model server. 2 is argparse's own.
 NOTHING_FOUND = 3
 
 #: What ``--num-ctx`` holds when it was not given. A sentinel rather than the
-#: config's default, because "8192" and "the default, which is 8192" are the same
-#: number and different requests: only the first is worth telling a shopper their
-#: provider is going to ignore.
+#: config's default: "8192" and "the default, which is 8192" are the same number
+#: and different requests, and only the first is worth warning a shopper about.
 _UNSET = object()
 
 
@@ -51,11 +49,10 @@ def _provider_defaults(setting: str) -> str:
 def _bounded(kind: Callable[[str], Any], field: str) -> Callable[[str], Any]:
     """``--results`` and the rest, held to the range the API holds them to.
 
-    Read off :data:`buy_agent.config.LIMITS` so the two front ends cannot come to
-    disagree: unchecked, ``--results 0`` searches the web, reads ten pages and
-    then asks the model for no products at all -- a minute spent on an answer the
-    browser refuses before starting. The bound is checked here rather than after
-    parsing so that it is a usage error, printed with the flag that carries it.
+    Read off :data:`buy_agent.config.LIMITS` so the two front ends cannot disagree:
+    unchecked, ``--results 0`` searches the web and reads ten pages to ask the
+    model for no products at all. Checked here rather than after parsing, so it is
+    a usage error printed with the flag that carries it.
     """
     minimum, maximum = LIMITS[field]
 
@@ -79,8 +76,7 @@ def _source(spec: str) -> str:
     Checked here so an unusable source is a usage error carrying the shapes that
     work -- argparse turns a type function's ``ValueError`` into "invalid _source
     value" and throws away the reason, which is the whole message. Kept as text so
-    ``main`` parses every flag together: two naming one site are one source, and
-    that can only be seen from all of them.
+    ``main`` parses every flag together: two naming one site are one source.
     """
     try:
         parse_sources(spec)
@@ -92,11 +88,9 @@ def _source(spec: str) -> str:
 def _region(spec: str) -> str:
     """``--region`` as argparse takes it: checked here, and lower-cased.
 
-    Checked here for the reason :func:`_source` is -- a usage error naming the
-    shape is what argparse throws away otherwise, and the shape is the whole
-    message. Checked *at all* because this is the one search setting that fails
-    quietly: a region no engine knows returns nothing, which reads on screen as
-    the web having nothing to say about what you want to buy (ADR-0031).
+    Checked here for the reason :func:`_source` is. Checked *at all* because this
+    is the one search setting that fails quietly: a region no engine knows returns
+    nothing, which reads as the web having nothing to say (ADR-0031).
     """
     try:
         return parse_region(spec)
@@ -108,9 +102,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="buy_agent",
         description="Search the web for what you want to buy, rank it, log the best.",
-        # The report goes to stdout and the progress to stderr, so a redirect
-        # catches the answer alone -- worth saying here, since --help is the only
-        # documentation the CLI has, and so are the codes a script branches on.
+        # --help is the only documentation the CLI has, so the split between the
+        # two streams and the codes a script branches on are both worth saying.
         epilog=(
             "The report is written to stdout and the progress to stderr, so "
             "`... > top.txt` keeps the report and leaves the narration on screen.\n"
@@ -132,10 +125,9 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Which model server to talk to (default: {_DEFAULTS.provider}, override "
         "with $BUY_AGENT_PROVIDER). It decides what --model and --base-url mean.",
     )
-    # Both default to "" rather than a value, because which value is right depends
-    # on --provider, which argparse has not read yet. The config resolves an empty
-    # one per provider, so the help quotes every pair rather than one that would be
-    # wrong half the time.
+    # Both default to "" rather than a value: which one is right depends on
+    # --provider, which argparse has not read yet. The config resolves an empty one
+    # per provider, so the help quotes every pair.
     parser.add_argument(
         "--model",
         default="",
@@ -194,9 +186,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--num-ctx",
         type=_bounded(int, "num_ctx"),
-        # The sentinel, not the value: which is the default is written into the
-        # help below either way, and only a number the shopper actually typed is
-        # worth warning them a vLLM will ignore.
+        # The sentinel, not the value: the help below names the default either
+        # way, and only a number actually typed is worth a warning.
         default=_UNSET,
         help=f"Context window in tokens (default: {_DEFAULTS.num_ctx}). The "
         "extraction prompt runs to ~4.3k tokens, so a larger window leaves room for "
@@ -245,8 +236,8 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if args.num_ctx is not _UNSET and not config.model_server.takes_num_ctx:
-        # The form disables the field and says so; the CLI has no field to disable,
-        # so it says it here rather than dropping the number without a word.
+        # The form disables the field; the CLI has none to disable, so it says so
+        # here rather than dropping the number without a word.
         logger.warning(
             "%s fixes its context window when it starts (--max-model-len), so "
             "--num-ctx %s is ignored on this run.",
@@ -264,25 +255,22 @@ def main(argv: list[str] | None = None) -> int:
         return 130
 
     if args.json:
-        # Written even when the run found nothing, and so before the exit code
-        # is decided: skipped, a script waiting on this file gets no file and no
-        # reason, with the last run's results left sitting there looking current.
-        # The API's own shaping, not a second one written here: the file the page
-        # hands over is that answer saved, and two spellings of "a run's results"
-        # would be two things to keep in step for whoever reads either.
+        # Written even when the run found nothing, and so before the exit code is
+        # decided: skipped, a script waiting on this file finds the last run's
+        # results sitting there looking current. The API's own shaping, not a
+        # second one -- the file the page hands over is that same answer saved.
         payload = results_payload(ranked)
         try:
             args.json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         except OSError as exc:
             # Worth an exit code and not a traceback: the report is already on
-            # stdout, so what failed is the copy, and a run that took a minute
-            # should not end by looking like a crash.
+            # stdout, so what failed is the copy.
             logger.error("Could not write %s (%s)", args.json, exc)
             return 1
         logger.info("Wrote %d products to %s", len(payload), args.json)
 
-    # A run that worked and found nothing is not a failure, and a shell told it
-    # was one cannot tell it from a model server that never answered.
+    # A run that worked and found nothing is not a failure, and a shell told it was
+    # cannot tell it from a model server that never answered.
     return 0 if ranked else NOTHING_FOUND
 
 
