@@ -476,6 +476,21 @@ def test_a_cross_site_request_carrying_no_origin_is_still_refused(server: str) -
     assert "request" not in StubAgent.captured
 
 
+def test_a_refusal_names_the_header_that_decided_it(server: str, caplog) -> None:
+    """Origin is the value a reader reaches for, and on this path there is none.
+
+    Fetch metadata is the only thing that refuses a request carrying no Origin,
+    and an absent Origin is admitted rather than refused -- so a line reporting
+    it as '' and saying nothing about the fetch site accuses the one header that
+    was innocent.
+    """
+    with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
+        assert "403" in ask(server, Sec_Fetch_Site="cross-site").splitlines()[0]
+
+    assert "origin None" in caplog.text
+    assert "fetch site 'cross-site'" in caplog.text
+
+
 def test_the_dev_servers_proxy_is_not_a_foreign_site(server: str) -> None:
     """`npm start` serves the app on :4200 and proxies /api here, Origin and all.
 
