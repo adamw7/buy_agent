@@ -124,7 +124,14 @@ function Poll([int]$seconds, [int]$failures) {
 
 if ($facts.parseErrors.Count -eq 0) {
     Case 'run_hands_back_what_the_command_printed' {
-        [ordered]@{ output = (Run $Python @('-c', 'print("gemma4:12b")') 'unused') }
+        # Quoted with '' and not "", the way start.ps1 quotes its own `python -c`.
+        # Windows PowerShell 5.1 strips a double quote out of a native command's
+        # arguments instead of escaping it, so python would be handed
+        # print(gemma4:12b) -- a SyntaxError, a non-zero exit, and a Run that
+        # throws the failure string rather than returning anything. pwsh 7 passes
+        # it through, so a probe written that way passes in CI and fails on the
+        # Windows this script is for.
+        [ordered]@{ output = (Run $Python @('-c', 'print(''gemma4:12b'')') 'unused') }
     }
 
     Case 'run_throws_its_own_message_on_a_non_zero_exit' {

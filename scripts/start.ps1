@@ -58,10 +58,21 @@ function Run([string]$exe, [string[]]$arguments, [string]$failure) {
 function Answers([string]$probe, [int]$seconds) {
     # Polled rather than assumed: both servers are started as processes, and a
     # port that is not listening yet is indistinguishable from one that never will.
+    # The per-request timeout is loose on purpose. A request to localhost is not
+    # always quick: the name resolves to ::1 before 127.0.0.1, and a server bound
+    # to IPv4 alone -- which is what Ollama listens on by default -- is reached
+    # only once that first address has been given up on, which on Windows costs
+    # most of two seconds. A tighter timeout than that reads a server answering
+    # perfectly well as one that never came up, and no amount of waiting fixes it
+    # because every attempt is cut off at the same place. That wait is paid
+    # whether or not anything is listening, since it is the ::1 attempt that
+    # stalls rather than the server: a deadline of thirty seconds buys about a
+    # dozen attempts and not sixty, which is still far more than a server needs
+    # to come up.
     $deadline = (Get-Date).AddSeconds($seconds)
     do {
         try {
-            Invoke-WebRequest -Uri $probe -UseBasicParsing -TimeoutSec 2 | Out-Null
+            Invoke-WebRequest -Uri $probe -UseBasicParsing -TimeoutSec 10 | Out-Null
             return $true
         } catch {
             Start-Sleep -Milliseconds 500
