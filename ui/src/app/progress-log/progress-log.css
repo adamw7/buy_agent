@@ -9,6 +9,10 @@ header {
   gap: 12px;
   padding: 14px 18px;
   border-bottom: 1px solid var(--border);
+  /* A heading, a pill and a button are wider than a phone. Unwrapped, the row
+     ran off the end of a card that clips what leaves it, so the Download log a
+     failed run offers was half cut off and half unclickable. */
+  flex-wrap: wrap;
 }
 
 h2 {
@@ -21,6 +25,7 @@ h2 {
 .state {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -29,6 +34,8 @@ h2 {
 .save {
   padding: 5px 12px;
   font-size: 12px;
+  /* Two words: it takes a line of its own before it breaks into two. */
+  white-space: nowrap;
 }
 
 .working {
@@ -98,4 +105,26 @@ h2 {
 
 .idle {
   color: var(--text-dim);
+}
+
+/* Three columns is one too many for a phone: the fixed timestamp and module
+   left the message itself about four words wide, so a line that reads at a
+   glance on a desktop came down as a paragraph. Below this the pair keeps the
+   first line and the message takes the next one whole -- still aligned, since
+   what it is aligned with is now the line above it. */
+@media (width < 520px) {
+  .line {
+    flex-wrap: wrap;
+    gap: 0 10px;
+    margin-bottom: 8px;
+  }
+
+  .source {
+    flex: 0 0 auto;
+    text-align: start;
+  }
+
+  .message {
+    flex: 1 0 100%;
+  }
 }
