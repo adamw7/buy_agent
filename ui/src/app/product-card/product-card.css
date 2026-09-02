@@ -62,6 +62,16 @@ h3 a:hover {
   font-variant-numeric: tabular-nums;
 }
 
+/* A pill keeps its text on one line, which a rating with its review count
+   beside it and a long host name are both too wide for on a phone -- there they
+   were drawn out over the edge of the card. Wrapping is only reached when one
+   does not fit, so a roomier screen is unchanged. */
+.figures .pill {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .price.unknown,
 .pill.unknown {
   color: var(--text-dim);
@@ -130,4 +140,20 @@ h3 a:hover {
   height: 100%;
   border-radius: inherit;
   background: var(--accent);
+}
+
+/* The rank badge and the card's own gutters cost a phone a third of its width,
+   which is what pushed a rating and its review count past the edge in the first
+   place. Narrower here so the ordinary figures still fit on one line; the
+   wrapping above is what catches the ones that do not. */
+@media (width < 420px) {
+  .product {
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .rank {
+    min-width: 32px;
+    padding: 4px 6px;
+  }
 }

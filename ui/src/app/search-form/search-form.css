@@ -30,6 +30,13 @@
   border: 1px solid var(--border);
   cursor: pointer;
   font-weight: 500;
+  /* `.pill` holds a status on one line; an example is a sentence, and the
+     longest of them is wider than a phone. Left on `nowrap` it set the grid
+     column's min-content width, which no `1fr` can shrink under -- so the card
+     kept its widest example's width and every field inside it hung off the
+     right-hand edge of the page. */
+  white-space: normal;
+  text-align: start;
 }
 
 .example:hover:not(:disabled) {

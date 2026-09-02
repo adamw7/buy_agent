@@ -135,6 +135,7 @@ main {
 .results-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -161,6 +162,9 @@ main {
 .results-actions .save {
   padding: 5px 12px;
   font-size: 12px;
+  /* As in the log's header: the button wraps to its own line rather than
+     breaking its two words across two. */
+  white-space: nowrap;
 }
 
 @media (width < 640px) {
