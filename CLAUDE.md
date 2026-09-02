@@ -748,7 +748,7 @@ speak the protocol over a raw socket, because urllib will not build a request wi
 a malformed `Content-Length`; `raw()` reads until the declared body has arrived,
 since the headers and the body are separate writes and so can land in separate
 segments. The one asserting that a body refused unread ends the connection reads
-to EOF instead -- what it checks is that nothing follows the reply. 1026 tests
+to EOF instead -- what it checks is that nothing follows the reply. 1027 tests
 run in about four seconds: most of that is the two
 tests that spawn an interpreter -- one to check `python -m buy_agent` still runs
 as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plus
@@ -756,9 +756,9 @@ as a script, one PowerShell for the whole of `tests/test_start_script.py` -- plu
 still be going: the keepalive ping, two streams overlapping, and the run a reader
 who has gone stops at its next step.
 Nothing else should sleep, so a run that takes much longer still means something
-is reaching out. 1026 is what a machine with PowerShell collects *and* runs; on
-one with neither `pwsh` nor `powershell` the same 1026 collect but 13 of the 17
-in `tests/test_start_script.py` skip, so the summary reads `1013 passed, 13
+is reaching out. 1027 is what a machine with PowerShell collects *and* runs; on
+one with neither `pwsh` nor `powershell` the same 1027 collect but 13 of the 17
+in `tests/test_start_script.py` skip, so the summary reads `1014 passed, 13
 skipped` -- nothing is missing, and the four that still run are the ones reading
 the script as text rather than through the probe. The UI's 121 tests
 run in about two seconds, most of which is building the app first. The 20 in

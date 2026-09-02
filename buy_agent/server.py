@@ -278,12 +278,18 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         # Deliberately terse and deliberately not CORS-negotiable: there is
         # nothing here another site is meant to be able to ask for.
         self.close_connection = True
+        # The three headers the checks above read, logged as they arrived -- None
+        # where one was not sent at all. Fetch metadata refuses a request on its
+        # own and is the only thing that can refuse one carrying no Origin, so a
+        # line naming the Origin and not the fetch site reports an absent header
+        # as '' and sends the reader after the wrong one.
         logger.warning(
-            "Refused a %s %s from origin %r with host %r",
+            "Refused a %s %s from origin %r with host %r and fetch site %r",
             self.command,
             self.path,
-            self.headers.get("Origin", ""),
-            self.headers.get("Host", ""),
+            self.headers.get("Origin"),
+            self.headers.get("Host"),
+            self.headers.get("Sec-Fetch-Site"),
         )
         self._send_json(403, {"error": "This API only answers its own page."})
 
