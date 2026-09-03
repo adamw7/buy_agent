@@ -22,7 +22,7 @@
         <span class="message">{{ line.message }}</span>
       </p>
     } @empty {
-      <p class="line idle">Waiting for the first step…</p>
+      <p class="line idle">{{ nothingYet() }}</p>
     }
   </div>
 </section>

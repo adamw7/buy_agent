@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Observable, Subject, of, throwError } from 'rxjs';
 import { afterEach, vi } from 'vitest';
@@ -586,6 +587,27 @@ describe('App results', () => {
     expect(page.querySelector('.results .banner')!.textContent).toContain('still ranked by score');
     expect(page.querySelector('app-progress-log .save')).toBeNull();
     expect(page.querySelector('app-product-card')!.textContent).toContain('Best Kettle');
+  });
+
+  it('says what the server said about a re-order it refused', async () => {
+    /* The server names what it refused and why -- a body past its cap, a
+       criterion it does not sort by -- and a sentence written here on top of
+       that sent the reader after a server that had answered. */
+    agent.rankResponse = () =>
+      throwError(
+        () =>
+          new HttpErrorResponse({
+            status: 413,
+            error: { error: 'Request body is too large.', field: null },
+          }),
+      );
+    const fixture = await finished();
+
+    await rankBy(fixture, 'rating');
+
+    const banner = (fixture.nativeElement as HTMLElement).querySelector('.results .banner')!;
+    expect(banner.textContent).toContain('Request body is too large.');
+    expect(banner.textContent).not.toContain('still running');
   });
 
   it('puts the Rank by control back when the re-order did not happen', async () => {

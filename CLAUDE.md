@@ -76,7 +76,9 @@ Angular CLI, not by anything here), and nothing on the Python side needs Node.
 There is no Python linter; the UI has Prettier
 (`npx prettier --write "src/**/*"`). Without `ui/dist/ui/browser` the API still
 answers and the page is a 503 saying how to build it (`--ui-dir` points at a build
-elsewhere).
+elsewhere) -- as a small HTML page for a client whose `Accept` says it is a
+browser, which is who reads that message, and as the same sentence in JSON for
+everyone else.
 
 ### The container
 
@@ -700,15 +702,15 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1088 tests run in about four seconds: most of that is the two that spawn an
+1089 tests run in about four seconds: most of that is the two that spawn an
 interpreter -- one checking `python -m buy_agent` still runs as a script, one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1088 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1088 collect but 13 of the 17 in
-`tests/test_start_script.py` skip, so the summary reads `1075 passed, 13 skipped`.
-The UI's 123 tests run in about two seconds, most of which is building the app
+reaching out. 1089 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1089 collect but 13 of the 17 in
+`tests/test_start_script.py` skip, so the summary reads `1076 passed, 13 skipped`.
+The UI's 126 tests run in about two seconds, most of which is building the app
 first. The 30 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
 

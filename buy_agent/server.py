@@ -33,6 +33,7 @@ import sys
 import threading
 import time
 from functools import partial
+from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -119,6 +120,51 @@ _CONTENT_TYPES = {
     ".woff": "font/woff",
     ".woff2": "font/woff2",
 }
+
+
+#: What to run to get a page, and where. One command, quoted by both answers
+#: below, so the page and the JSON cannot come to say different things.
+_UNBUILT_COMMAND = "npm install && npm run build"
+
+#: The sentence a client that did not ask for HTML gets.
+_UNBUILT = (
+    f"The UI is not built. Run '{_UNBUILT_COMMAND}' in {{workspace}}, or point "
+    f"--ui-dir at a build elsewhere."
+)
+
+#: The same answer for a browser. No script and no other origin, so it is served
+#: under the same CSP as the app; the inline ``style`` is what ``style-src``
+#: already allows for Angular's own.
+_UNBUILT_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>buy_agent -- the UI is not built</title>
+<style>
+body {{ margin: 0; padding: 48px 20px; font: 15px/1.55 system-ui, sans-serif; }}
+main {{ max-width: 620px; margin: 0 auto; }}
+h1 {{ font-size: 20px; font-family: ui-monospace, monospace; }}
+code, pre {{ font-family: ui-monospace, monospace; }}
+pre {{ padding: 12px 14px; border-radius: 9px; background: rgb(128 128 128 / 14%);
+      overflow-x: auto; }}
+p {{ color: #5c6470; }}
+@media (prefers-color-scheme: dark) {{ p {{ color: #99a3b0; }} }}
+</style>
+</head>
+<body>
+<main>
+<h1>buy_agent</h1>
+<p>The API is answering, but the page has not been built yet. Run this in
+<code>{workspace}</code>:</p>
+<pre>{command}</pre>
+<p>Then reload. A build that lives somewhere else is named with
+<code>--ui-dir</code>.</p>
+</main>
+</body>
+</html>
+"""
 
 
 class _Stopped(Exception):
@@ -475,16 +521,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     def _serve_static(self, path: str) -> None:
         target = self._resolve(path)
         if target is None:
-            self._send_json(
-                503,
-                {
-                    "error": (
-                        f"The UI is not built. Run 'npm install && npm run build' in "
-                        f"{_workspace_for(self.ui_dir)}, or point --ui-dir at a build "
-                        f"elsewhere."
-                    )
-                },
-            )
+            self._send_unbuilt()
             return
 
         body = target.read_bytes()
@@ -494,6 +531,32 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             or "application/octet-stream"
         )
         self._send_bytes(200, body, content_type)
+
+    def _send_unbuilt(self) -> None:
+        """Say the app has not been built, in whatever the asker can read.
+
+        This is the first thing anybody who ran ``python -m buy_agent.server``
+        before ``npm run build`` sees, and they see it in a browser -- which
+        renders ``application/json`` as its braces and quotes, so the one message
+        standing between somebody and a working page arrived looking like a
+        crash. A browser says so in ``Accept``, so it gets the sentence as a page
+        and every other client gets the JSON it was already reading.
+
+        The sentence itself is written once and shown both ways: what to run and
+        where to run it is the same answer whoever asked.
+        """
+        workspace = _workspace_for(self.ui_dir)
+        if "text/html" not in self.headers.get("Accept", ""):
+            self._send_json(503, {"error": _UNBUILT.format(workspace=workspace)})
+            return
+        self._send_bytes(
+            503,
+            _UNBUILT_PAGE.format(
+                command=escape(_UNBUILT_COMMAND),
+                workspace=escape(str(workspace)),
+            ).encode("utf-8"),
+            "text/html; charset=utf-8",
+        )
 
     def _resolve(self, path: str) -> Path | None:
         """Map a URL path to a file inside the UI directory, or to ``index.html``.
