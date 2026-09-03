@@ -201,7 +201,8 @@ export class App {
    * the function every run ends with, which is the line ADR-0035 draws between
    * skipping the search and letting the browser decide the answer.
    */
-  protected resort(sortBy: SortBy): void {
+  protected resort(control: HTMLSelectElement): void {
+    const sortBy = control.value as SortBy;
     const found = this.result();
     if (!found || sortBy === found.sort_by || this.reordering()) {
       return;
@@ -228,6 +229,14 @@ export class App {
             `Could not re-order these by ${sortBy}; they are still ranked by ` +
               `${found.sort_by}. Is the agent server still running?`,
           );
+          // Put the control back to the order these products are actually in.
+          // Angular cannot: the reader moved the select, `found.sort_by` never
+          // moved with it, so every `selected` binding still evaluates to what it
+          // did and nothing is written. Left alone, the one control on the page
+          // saying what these are sorted by names an order they are not in -- and
+          // choosing that criterion again fires no `change`, so there was no way
+          // to ask a second time either.
+          control.value = found.sort_by;
           this.reordering.set(false);
         },
       });

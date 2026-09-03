@@ -50,7 +50,7 @@ from buy_agent.api import (
 )
 from buy_agent.config import DEFAULT_PROVIDER
 from buy_agent.logging_setup import configure_logging
-from buy_agent.providers import PROVIDERS
+from buy_agent.providers import PROVIDERS, provider_for
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -289,20 +289,35 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             return
         url = urlparse(self.path)
         params = {key: values[-1] for key, values in parse_qs(url.query).items()}
-        if url.path == "/api/config":
-            self._send_json(200, defaults_payload())
-        elif url.path == "/api/models":
-            self._send_json(200, self._models(params))
-        elif url.path == "/api/sources":
-            # 200 whatever it holds: what was asked is whether this parses, and
-            # that question was answered (ADR-0033).
-            self._send_json(200, sources_payload(params.get("sources", "")))
-        elif url.path == "/api/search/stream":
+        # Outside the guard below, and first: it writes its own response as it
+        # goes, so there is no status left to answer a late failure with -- and it
+        # has a ``failure`` event for the ones it can still report.
+        if url.path == "/api/search/stream":
             self._stream_search(params)
-        elif url.path.startswith("/api/"):
-            self._send_json(404, {"error": f"No such endpoint: {url.path}"})
-        else:
-            self._serve_static(url.path)
+            return
+        try:
+            if url.path == "/api/config":
+                self._send_json(200, defaults_payload())
+            elif url.path == "/api/models":
+                self._send_json(200, self._models(params))
+            elif url.path == "/api/sources":
+                # 200 whatever it holds: what was asked is whether this parses, and
+                # that question was answered (ADR-0033).
+                self._send_json(200, sources_payload(params.get("sources", "")))
+            elif url.path.startswith("/api/"):
+                self._send_json(404, {"error": f"No such endpoint: {url.path}"})
+            else:
+                self._serve_static(url.path)
+        except Exception as exc:  # noqa: BLE001 -- a 500 beats a dropped connection
+            # The reason ``do_POST`` has one of these: an exception here escapes to
+            # socketserver, which closes the socket unanswered, and the page reads
+            # that as the agent server being down -- "Could not reach the agent
+            # server" for a server that is up and answered every other request.
+            # ``$BUY_AGENT_PROVIDER=olama`` did exactly that to ``/api/config``,
+            # where ``AgentConfig()`` raises and the sentence naming the servers
+            # that do exist never reached anybody.
+            logger.exception("Unexpected failure answering %s", url.path)
+            self._send_json(500, {"error": f"Unexpected failure: {exc}"})
 
     def do_POST(self) -> None:  # noqa: N802 -- BaseHTTPRequestHandler's spelling
         if not self._admits():
@@ -724,6 +739,16 @@ def main(argv: list[str] | None = None) -> int:
 
     # Installed on the package logger so every module's output reaches a stream.
     _install_relay()
+
+    try:
+        provider_for(DEFAULT_PROVIDER)
+    except ValueError as exc:
+        # Every page load resolves this name -- the form's own defaults are an
+        # ``AgentConfig`` -- so a misspelt ``$BUY_AGENT_PROVIDER`` is not worth a
+        # server that starts and then answers 500 to everything it serves. Said
+        # here, where the shell that set it is still on screen.
+        logger.error("%s", exc)
+        return 1
 
     allowed = allowed_hosts_for(args.host, args.allowed_host)
     if allowed is None:

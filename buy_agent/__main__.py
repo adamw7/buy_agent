@@ -11,17 +11,32 @@ from typing import Any, Callable, get_args
 
 from buy_agent.agent import BuyAgent, ModelUnavailableError
 from buy_agent.api import results_payload
-from buy_agent.config import LIMITS, AgentConfig, parse_region
+from buy_agent.config import DEFAULT_PROVIDER, LIMITS, AgentConfig, parse_region
 from buy_agent.logging_setup import configure_logging
-from buy_agent.providers import PROVIDERS
+from buy_agent.providers import PROVIDERS, provider_for
 from buy_agent.ranking import SortBy
 from buy_agent.search import SearchError
 from buy_agent.sources import parse_sources
 
 logger = logging.getLogger("buy_agent")
 
+def _defaults() -> AgentConfig:
+    """Every flag's default, off one config so the two cannot drift apart.
+
+    Built on a provider that exists rather than on ``$BUY_AGENT_PROVIDER``
+    itself, which is a shopper's to misspell: resolved at import time, a bad one
+    was a ``ValueError`` out of importing this module -- a traceback before
+    ``main`` had run, with ``--help`` and its list of the servers there are
+    unreachable too. The name is still read below, where :func:`_provider` turns
+    it into the usage error it deserves; every other field here is a plain
+    default that no environment variable can make unusable.
+    """
+    known = DEFAULT_PROVIDER in PROVIDERS
+    return AgentConfig(provider=DEFAULT_PROVIDER if known else next(iter(PROVIDERS)))
+
+
 #: The flag defaults are the config's own, so the two cannot drift apart.
-_DEFAULTS = AgentConfig()
+_DEFAULTS = _defaults()
 
 #: Exit code for a run that worked and found nothing: the search reached the web,
 #: the model answered, and no product survived. Its own code because a shell
@@ -85,6 +100,22 @@ def _source(spec: str) -> str:
     return spec
 
 
+def _provider(name: str) -> str:
+    """``--provider`` as argparse takes it -- including when it is the default.
+
+    ``choices`` refuses a name typed on the command line and never one arriving
+    as the default, so ``$BUY_AGENT_PROVIDER=olama`` sailed past it and reached
+    ``AgentConfig`` in :func:`main`, outside the ``try`` that names the three
+    failures a run has. A ``type`` function runs over a string default too, which
+    is what makes an unknown name the usage error it always read like.
+    """
+    try:
+        provider_for(name)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+    return name
+
+
 def _region(spec: str) -> str:
     """``--region`` as argparse takes it: checked here, and lower-cased.
 
@@ -120,9 +151,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("request", help="What you want to buy, in plain words.")
     parser.add_argument(
         "--provider",
+        type=_provider,
         choices=tuple(PROVIDERS),
-        default=_DEFAULTS.provider,
-        help=f"Which model server to talk to (default: {_DEFAULTS.provider}, override "
+        default=DEFAULT_PROVIDER,
+        help=f"Which model server to talk to (default: {DEFAULT_PROVIDER}, override "
         "with $BUY_AGENT_PROVIDER). It decides what --model and --base-url mean.",
     )
     # Both default to "" rather than a value: which one is right depends on

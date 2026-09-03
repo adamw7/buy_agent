@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+import buy_agent.__main__ as main_module
 from buy_agent.__main__ import NOTHING_FOUND, build_parser, main
 from buy_agent.agent import ModelUnavailableError
 from buy_agent.api import results_payload
@@ -569,3 +570,35 @@ def test_the_module_is_runnable_as_a_script() -> None:
     assert completed.returncode == 2, "no request is a usage error, not a traceback"
     assert "usage: buy_agent" in completed.stderr
     assert "Traceback" not in completed.stderr
+
+
+def test_a_misspelt_provider_environment_is_a_usage_error(monkeypatch, capsys) -> None:
+    """``choices`` never sees a default, so the environment used to walk past it.
+
+    ``$BUY_AGENT_PROVIDER=olama`` reached ``AgentConfig`` -- at import time, in
+    the module-level defaults, so the traceback came out before ``main`` ran and
+    took ``--help`` with it. It is the CLI's own kind of mistake, so it gets the
+    CLI's own answer: argparse's exit 2, carrying the servers that do exist.
+    """
+    monkeypatch.setattr(main_module, "DEFAULT_PROVIDER", "olama")
+    parser = main_module.build_parser()
+
+    with pytest.raises(SystemExit) as exit_code:
+        parser.parse_args(["headphones"])
+
+    assert exit_code.value.code == 2
+    assert "ollama, vllm" in capsys.readouterr().err
+
+
+def test_the_defaults_survive_a_provider_the_environment_got_wrong(monkeypatch) -> None:
+    """The other half: the module still imports, so --help still lists them.
+
+    Every field but the provider is a plain default that no environment variable
+    can make unusable, and the one that can is refused above rather than here.
+    """
+    monkeypatch.setattr(main_module, "DEFAULT_PROVIDER", "olama")
+
+    defaults = main_module._defaults()
+
+    assert defaults.provider in PROVIDERS
+    assert defaults.num_products == AgentConfig().num_products
