@@ -15,7 +15,7 @@ pipeline, served by `buy_agent.server`.
 `README.md` keeps the tour and links out to the longer sections beside it:
 `docs/models.md` (keeping Ollama's models current), `docs/docker.md` (the web tier
 as a container, and what a release publishes), `docs/testing.md` (both suites, the
-coverage floors, the nightly run and the mutation run) and `demo/README.md` (two
+coverage floors, the nightly run, the benchmark and the mutation run) and `demo/README.md` (two
 recorded runs of the UI, the still the README shows, and the harness that took
 all three).
 
@@ -40,6 +40,9 @@ python -m pytest -k verification              # by name
 python -m coverage run -m pytest ; python -m coverage report   # with coverage
 
 ollama pull qwen3:0.6b ; python -m pytest integration   # against a real model
+
+python -m benchmark --scripted perfect        # score the pipeline, no model needed
+python -m benchmark -v --json score.json      # ...and against whatever is serving
 
 python -m buy_agent "gaming laptop under $1500"          # run the agent
 python -m buy_agent "espresso machine" --model lfm2.5 -v
@@ -195,7 +198,7 @@ a new record superseding it rather than an edit to the old one -- numbers are ne
 reused, and accepted records are not rewritten. `tests/test_conventions.py` checks
 that the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0035 and every record is Accepted, so the next free number is 0036.
+to ADR-0036 and every record is Accepted, so the next free number is 0037.
 
 `.claude/skills/` holds the chores that span those files: `add-option` walks a new
 setting through `config.py`, both front doors, `agent.types.ts` and the form;
@@ -697,16 +700,16 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1053 tests run in about four seconds: most of that is the two that spawn an
+1088 tests run in about four seconds: most of that is the two that spawn an
 interpreter -- one checking `python -m buy_agent` still runs as a script, one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1053 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1053 collect but 13 of the 17 in
-`tests/test_start_script.py` skip, so the summary reads `1040 passed, 13 skipped`.
+reaching out. 1088 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1088 collect but 13 of the 17 in
+`tests/test_start_script.py` skip, so the summary reads `1075 passed, 13 skipped`.
 The UI's 123 tests run in about two seconds, most of which is building the app
-first. The 20 in `integration/` are counted separately and collected only by being
+first. The 30 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
 
 ### The convention tests
@@ -746,7 +749,8 @@ that
   sections ADR-0001 asks for, and cites only records that exist;
 - the Saturday mutation run mutates the package `.coveragerc` measures, on the
   Python `ci.yml` pins, with every file these tests open -- or import from outside
-  `buy_agent` -- named in mutmut's `also_copy`.
+  `buy_agent`, `benchmark/` and `integration/` included -- named in mutmut's
+  `also_copy`.
 
 A field added on one side of the language boundary and forgotten on the other is
 otherwise invisible to both suites.
@@ -762,11 +766,14 @@ touches Ollama" is then a property of where a file sits, not of anyone rememberi
 an annotation. Four things there are load-bearing:
 
 - **The model is real; the web is not.** `search_web` and `enrich` are still faked,
-  over ten fabricated pages `integration/conftest.py` owns, so a nightly failure
-  caused by DuckDuckGo rate-limiting says nothing about this code. The fake stops at
-  the transport: `enrich` reads the fabricated text and then runs the real
-  `fetch.condense` over it, so the prompt is shaped as a production prompt is and is
-  wide enough for ADR-0019's `num_ctx` question to arise.
+  over the ten fabricated pages `benchmark/corpus.py` owns and
+  `benchmark.runner.serving_the_corpus` installs, so a nightly failure caused by
+  DuckDuckGo rate-limiting says nothing about this code. The corpus lives there
+  rather than here because `integration/test_benchmark.py` scores this same run
+  against the answer key beside it (ADR-0036) -- one corpus and one model call for
+  both questions. The fake stops at the transport: `enrich` reads the fabricated
+  text and then runs the real `fetch.condense` over it, so the prompt is shaped as
+  a production prompt is, wide enough for ADR-0019's `num_ctx` question to arise.
 - **One run, many assertions.** A session-scoped `live_run` fixture runs the
   pipeline once and each test reads something different off it. The extraction chain
   is *wrapped* rather than replaced -- an appended `RunnableLambda` records the raw
@@ -783,6 +790,36 @@ an annotation. Four things there are load-bearing:
   nightly job that skipped every test it has is a green job that checked nothing.
   `$BUY_AGENT_TEST_MODEL` moves the tag; `$OLLAMA_MODEL` deliberately does not,
   that one moving the default the agent ships with.
+- **The same run is also scored.** `integration/test_benchmark.py` puts it through
+  `benchmark.scoring.score_run` and fails under `FLOORS`, one test per metric so a
+  red job names which half slipped. That is the other question -- not "did the
+  promises hold" but "how well did it do" -- and it needs the answer key the four
+  points above deliberately do without.
+
+### The benchmark
+
+`benchmark/` is the answer key the invariants above cannot have, and the scorer
+over it. It owns the corpus, so `integration/` reads it back and the nightly job
+asks both questions of one model call. ADR-0036 has the reasoning and
+`docs/testing.md` the metric table; four rules hold here.
+
+- **The key is per-product sets, not one right answer.** `answers.py` records every
+  `(price, currency)` and every `(rating, review_count)` a page prints for each
+  product; the canonical value beside each set exists only to build the ranking the
+  run should have produced. `329 USD` is a pairing no page printed and so one wrong
+  price, not two right halves (ADR-0022).
+- **`scoring.METRICS` is the one place a metric is declared** -- its weight and what
+  it scores on an empty denominator -- and a `Scorecard` is `right out of` per name,
+  so nothing recomputes a ratio. Where the pipeline has a rule the scorer uses it:
+  `NAME_TOKENS` and `GENERIC_WORDS` for names, the *condensed* page text for quotes,
+  `rank_products` for the ideal order.
+- **The floors are a tripwire, not a target.** Set where a 0.6B model happens to sit
+  today, the nightly would fail for a reworded prompt, which is how a scheduled run
+  gets ignored. Raising one is a commit of its own quoting the runs that justify it.
+- **Editing the corpus means re-running both scripted answers.** `PERFECT` must
+  score exactly 1.000 -- which is what says the key is *reachable* rather than a
+  silent ceiling under every number the nightly reports -- and `SLOPPY` is wrong in
+  seven ways, pinned to the exact counts each mistake should produce.
 
 ### The scripts
 

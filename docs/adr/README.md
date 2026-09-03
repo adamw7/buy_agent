@@ -44,6 +44,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0033](0033-let-the-form-refuse-what-the-server-would.md) | Let the form refuse a value the server would, and mark the field | Accepted |
 | [0034](0034-stop-the-run-when-nobody-is-reading-it.md) | Stop the run when nobody is reading it, and say where it stops | Accepted |
 | [0035](0035-re-sort-a-finished-run-without-running-it-again.md) | Re-sort a finished run without running it again | Accepted |
+| [0036](0036-score-the-agent-against-a-fixed-answer-key.md) | Score the agent against a fixed answer key, beside the invariants | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written
