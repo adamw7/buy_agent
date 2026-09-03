@@ -67,9 +67,10 @@ callers use it and no one re-implements it:
 - `AgentConfig.__post_init__`, so a Python caller and every front end get the
   same answer, and get it when the config is built rather than a minute into a
   run that has already searched;
-- `__main__._region` as argparse's `type`, so a bad one is a usage error
-  carrying the shape -- argparse throws a type function's `ValueError` away, as
-  it does for `--source`, so the message has to be an `ArgumentTypeError`;
+- `__main__._checked(parse_region)` as argparse's `type`, so a bad one is a
+  usage error carrying the shape -- argparse throws a type function's
+  `ValueError` away, as it does for `--source`, so the message has to be an
+  `ArgumentTypeError`;
 - `api._as_region`, so the browser gets a 400 with the same sentence.
 
 The shape is not the whole story, and the second half of this decision is the

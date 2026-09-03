@@ -22,9 +22,14 @@ from dataclasses import dataclass
 from itertools import combinations
 from typing import TYPE_CHECKING
 
-from buy_agent.extraction import GENERIC_WORDS, NAME_TOKENS
 from buy_agent.ranking import rank_products
-from buy_agent.verification import build_haystack, running_words
+from buy_agent.verification import (
+    NAME_COVERAGE,
+    build_haystack,
+    distinctive_words,
+    running_words,
+    word_coverage,
+)
 from benchmark.answers import ANSWER_KEY, Expected
 from benchmark.corpus import NUM_PRODUCTS
 
@@ -36,8 +41,10 @@ if TYPE_CHECKING:
 
 #: Fraction of a name's distinctive words that has to be found on the other side
 #: for two names to be the same product -- the bar
-#: :func:`buy_agent.verification.mentions_name` sets, applied both ways.
-MATCH_COVERAGE = 0.6
+#: :func:`buy_agent.verification.mentions_name` sets, applied both ways. Read off
+#: the pipeline rather than written down again: a benchmark scoring names by its
+#: own rule would be scoring an agent that does not exist.
+MATCH_COVERAGE = NAME_COVERAGE
 
 #: Each metric: what it weighs, and what it scores on an empty denominator.
 #: Finding the products carries the most, everything else being measured over
@@ -78,23 +85,6 @@ FLOORS: dict[str, float] = {
 }
 
 
-def _distinctive(name: str) -> list[str]:
-    """The words of ``name`` that identify something, by the shared rule.
-
-    ``GENERIC_WORDS`` and ``NAME_TOKENS`` come from :mod:`buy_agent.extraction`,
-    so the benchmark splits and ignores words exactly as merging and grounding
-    do. A benchmark with its own idea of a name's words would be scoring the
-    pipeline against a rule the pipeline does not follow.
-    """
-    return [word for word in NAME_TOKENS.findall(name.lower()) if word not in GENERIC_WORDS]
-
-
-def _covered(tokens: Sequence[str], text: str) -> float:
-    """Share of ``tokens`` appearing in ``text`` as words of their own."""
-    words = frozenset(NAME_TOKENS.findall(text.lower()))
-    return sum(token in words for token in tokens) / len(tokens) if tokens else 0.0
-
-
 def identifies(reported: str, expected: Expected) -> float:
     """How well ``reported`` names ``expected``, or 0.0 if it does not.
 
@@ -105,11 +95,17 @@ def identifies(reported: str, expected: Expected) -> float:
     :data:`MATCH_COVERAGE` of each admits a name missing a word and refuses a
     fragment.
 
+    The splitting and the counting are the pipeline's own
+    (:func:`~buy_agent.verification.distinctive_words`,
+    :func:`~buy_agent.verification.word_coverage`), so the benchmark ignores the
+    same words merging and grounding ignore.
+
     Returns:
         The two coverages added, so an ambiguous name goes to its best match.
     """
-    mine, theirs = _distinctive(reported), _distinctive(expected.name)
-    forwards, backwards = _covered(mine, expected.name), _covered(theirs, reported)
+    mine, theirs = distinctive_words(reported), distinctive_words(expected.name)
+    forwards = word_coverage(mine, expected.name)
+    backwards = word_coverage(theirs, reported)
     if forwards < MATCH_COVERAGE or backwards < MATCH_COVERAGE:
         return 0.0
     return forwards + backwards

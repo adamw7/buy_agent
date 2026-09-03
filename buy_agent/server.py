@@ -122,8 +122,9 @@ _CONTENT_TYPES = {
 }
 
 
-#: What to run to get a page, and where. One command, quoted by both answers
-#: below, so the page and the JSON cannot come to say different things.
+#: What to run to get a page. One command, quoted by every answer that names it
+#: -- the page, the JSON and the warning ``main`` logs at startup -- so the three
+#: cannot come to say different things.
 _UNBUILT_COMMAND = "npm install && npm run build"
 
 #: The sentence a client that did not ask for HTML gets.
@@ -839,10 +840,15 @@ def main(argv: list[str] | None = None) -> int:
     host, port = httpd.server_address[:2]
     logger.info("buy_agent UI on %s", _browsable_url(str(host), port))
     if not (args.ui_dir / "index.html").is_file():
+        # The same command and the same workspace the 503 quotes: said at startup
+        # to the shell that is still on screen, and again to whoever loads the
+        # page -- one answer, not two that can come to differ.
         logger.warning(
             "No built UI at %s -- the API works, but the page will not. "
-            "Build it with:  npm install && npm run build   (in ui/)",
+            "Build it with:  %s   (in %s)",
             args.ui_dir,
+            _UNBUILT_COMMAND,
+            _workspace_for(args.ui_dir),
         )
     try:
         httpd.serve_forever()

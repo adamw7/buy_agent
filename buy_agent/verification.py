@@ -39,7 +39,9 @@ _THOUSANDS_SEPARATOR = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
 _DECIMAL_COMMA = re.compile(r"(?<=\d),(?=\d{1,2}(?!\d))")
 
 #: Fraction of a name's distinctive words that must appear in the sources.
-_NAME_COVERAGE = 0.6
+#: Public because the benchmark scores names by the bar the pipeline sets rather
+#: than by one of its own (:data:`benchmark.scoring.MATCH_COVERAGE`).
+NAME_COVERAGE = 0.6
 
 #: How a quote is compared with the sources: as overlapping runs of this many
 #: consecutive words, of which :data:`_QUOTE_COVERAGE` must be found. A
@@ -161,24 +163,35 @@ def mentions_review_count(haystack: str, value: float) -> bool:
     )
 
 
+def distinctive_words(name: str) -> list[str]:
+    """The words of ``name`` that identify something rather than describe it.
+
+    Generic words are ignored -- every headphone page says "wireless" -- so what
+    is left is the brand and the model number.
+    """
+    return [
+        token for token in NAME_TOKENS.findall(name.lower()) if token not in GENERIC_WORDS
+    ]
+
+
+def word_coverage(tokens: Sequence[str], text: str) -> float:
+    """Share of ``tokens`` appearing in ``text`` as words of their own.
+
+    A word counts only whole: a substring test would let a page quoting "$1700"
+    vouch for an invented "Bose 700". Nothing to look for covers nothing, which
+    is what keeps a name with no distinctive word from matching every page.
+    """
+    words = frozenset(NAME_TOKENS.findall(text.lower()))
+    return sum(token in words for token in tokens) / len(tokens) if tokens else 0.0
+
+
 def mentions_name(haystack: str, name: str) -> bool:
     """Whether the distinctive words of ``name`` appear in ``haystack``.
 
-    Generic words are ignored -- every headphone page says "wireless" -- so what is
-    checked is the brand and model number. Most, not all, since a page may write
-    "WH-CH720N" where the model wrote "Sony WH-CH720N Wireless".
-
-    Both sides split by the same rule, and a word counts only as a word of its own:
-    a substring test would let a page quoting "$1700" vouch for an invented "Bose
-    700".
+    Most of them, not all, since a page may write "WH-CH720N" where the model
+    wrote "Sony WH-CH720N Wireless" -- and both sides are split by the same rule.
     """
-    tokens = [
-        token for token in NAME_TOKENS.findall(name.lower()) if token not in GENERIC_WORDS
-    ]
-    if not tokens:
-        return False
-    words = frozenset(NAME_TOKENS.findall(haystack.lower()))
-    return sum(token in words for token in tokens) / len(tokens) >= _NAME_COVERAGE
+    return word_coverage(distinctive_words(name), haystack) >= NAME_COVERAGE
 
 
 def drop_ungrounded(products: Sequence[Product], haystack: str) -> list[Product]:
@@ -241,8 +254,9 @@ def attribute_sources(
 
 #: Each figure that has to be found in the sources, and how it is written when it
 #: is -- a price as a number, a rating and a review count as themselves, both of
-#: those being small figures a page prints for a hundred other reasons. A rejected figure takes its :data:`~buy_agent.models.QUALIFIERS` down with
-#: it -- ADR-0022's grouping, one stage earlier than the merge it was written for.
+#: those being small figures a page prints for a hundred other reasons. A
+#: rejected figure takes its :data:`~buy_agent.models.QUALIFIERS` down with it --
+#: ADR-0022's grouping, one stage earlier than the merge it was written for.
 #: ``rating`` comes before ``review_count`` so a rejected rating blanks the count
 #: before the count is judged alone; blanking only adds, so nothing brings it back.
 _GROUNDED_FIGURES: tuple[tuple[str, Callable[[str, float], bool]], ...] = (

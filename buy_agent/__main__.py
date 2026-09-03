@@ -85,48 +85,39 @@ def _bounded(kind: Callable[[str], Any], field: str) -> Callable[[str], Any]:
     return parse
 
 
-def _source(spec: str) -> str:
-    """``--source`` as argparse takes it: checked here, kept as text.
+def _checked(check: Callable[[str], object]) -> Callable[[str], str]:
+    """A flag's value as argparse takes it: refused here, and kept as written.
 
-    Checked here so an unusable source is a usage error carrying the shapes that
-    work -- argparse turns a type function's ``ValueError`` into "invalid _source
-    value" and throws away the reason, which is the whole message. Kept as text so
-    ``main`` parses every flag together: two naming one site are one source.
+    Three settings are judged before the run rather than after parsing -- a
+    source, a provider and a region -- and each is judged by the same function a
+    run would have used, so there is no second rule to keep true. The wrapper is
+    what argparse needs: a ``ValueError`` out of a ``type`` function becomes
+    "invalid value" with the sentence thrown away, and the sentence is the whole
+    message -- the shapes a source can have, the providers there are, the two
+    halves of a region code.
+
+    Checked *here* because two of the three otherwise fail quietly. A source that
+    names no site and a region no engine knows both search for nothing and come
+    back as an empty report with nothing to explain it (ADR-0027, ADR-0031). The
+    third is checked here because a ``type`` function also runs over a string
+    *default*, where ``choices`` does not: ``$BUY_AGENT_PROVIDER=olama`` sailed
+    past ``choices`` and reached ``AgentConfig`` in :func:`main`, outside the
+    ``try`` that names the three failures a run has.
+
+    The text comes back as it was typed rather than as ``check`` read it, so
+    ``main`` parses every ``--source`` together -- two flags naming one site are
+    one source -- and so the region is lower-cased where every other caller
+    lower-cases it, in ``AgentConfig``.
     """
-    try:
-        parse_sources(spec)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-    return spec
 
+    def parse(text: str) -> str:
+        try:
+            check(text)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(str(exc)) from exc
+        return text
 
-def _provider(name: str) -> str:
-    """``--provider`` as argparse takes it -- including when it is the default.
-
-    ``choices`` refuses a name typed on the command line and never one arriving
-    as the default, so ``$BUY_AGENT_PROVIDER=olama`` sailed past it and reached
-    ``AgentConfig`` in :func:`main`, outside the ``try`` that names the three
-    failures a run has. A ``type`` function runs over a string default too, which
-    is what makes an unknown name the usage error it always read like.
-    """
-    try:
-        provider_for(name)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-    return name
-
-
-def _region(spec: str) -> str:
-    """``--region`` as argparse takes it: checked here, and lower-cased.
-
-    Checked here for the reason :func:`_source` is. Checked *at all* because this
-    is the one search setting that fails quietly: a region no engine knows returns
-    nothing, which reads as the web having nothing to say (ADR-0031).
-    """
-    try:
-        return parse_region(spec)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
+    return parse
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -151,7 +142,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("request", help="What you want to buy, in plain words.")
     parser.add_argument(
         "--provider",
-        type=_provider,
+        type=_checked(provider_for),
         choices=tuple(PROVIDERS),
         default=DEFAULT_PROVIDER,
         help=f"Which model server to talk to (default: {DEFAULT_PROVIDER}, override "
@@ -194,7 +185,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--region",
-        type=_region,
+        type=_checked(parse_region),
         default=_DEFAULTS.region,
         help="Search region: a country and then a language, hyphenated (default: "
         f"{_DEFAULTS.region}; also uk-en, pl-pl). Anything else is a usage error, "
@@ -204,7 +195,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--source",
         action="append",
         metavar="SITE",
-        type=_source,
+        type=_checked(parse_sources),
         help="Take the facts from this source only; repeat for several. A site "
         "(rtings.com), a section of one (rtings.com/headphones) or a YouTube "
         "handle (@mkbhd). Without it the whole web is searched.",

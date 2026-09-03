@@ -813,8 +813,9 @@ asks both questions of one model call. ADR-0036 has the reasoning and
 - **`scoring.METRICS` is the one place a metric is declared** -- its weight and what
   it scores on an empty denominator -- and a `Scorecard` is `right out of` per name,
   so nothing recomputes a ratio. Where the pipeline has a rule the scorer uses it:
-  `NAME_TOKENS` and `GENERIC_WORDS` for names, the *condensed* page text for quotes,
-  `rank_products` for the ideal order.
+  `verification.distinctive_words`, `word_coverage` and `NAME_COVERAGE` for names
+  -- the bar `mentions_name` sets, applied both ways -- the *condensed* page text
+  for quotes, `rank_products` for the ideal order.
 - **The floors are a tripwire, not a target.** Set where a 0.6B model happens to sit
   today, the nightly would fail for a reworded prompt, which is how a scheduled run
   gets ignored. Raising one is a commit of its own quoting the runs that justify it.
