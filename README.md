@@ -468,16 +468,15 @@ it, and a nightly job capped at five minutes is what runs it (ADR-0026). vLLM is
 not in that job -- it needs a GPU, and a CPU runner cannot host one honestly -- so
 its half is asserted in `tests/test_providers.py` and named as a gap in ADR-0028.
 
-Those tests ask whether the pipeline's promises held, which holds however badly
+Those tests ask whether the pipeline's promises held, which they do however badly
 the model read the pages -- so none of them can say whether a change made things
 better. `benchmark/` is the other half: ten fixed pages, an answer key recording
-what each of them prints for each product, and a scorer that turns a run into
-eight shares in `[0, 1]` -- products found, products real, figures right, figures
-misattributed, links, quotes, quotes faithful, ranking order (ADR-0036). It is
-deterministic on everything but the model, so two scores a month apart are
-comparable; the nightly run is scored as well as checked, and
-`--scripted perfect` runs a hand-written answer through the whole real pipeline
-with no model at all and must come out at 1.000.
+what each prints for each product, and a scorer turning a run into eight shares
+in `[0, 1]` -- products found, products real, figures right, figures
+misattributed, links, quotes, quotes faithful, ranking order (ADR-0036). Only the
+model varies, so two scores a month apart are comparable; the nightly run is
+scored as well as checked, and `--scripted perfect` puts a hand-written answer
+through the whole real pipeline with no model at all and must come out at 1.000.
 
 What the counts are, what `tests/test_conventions.py` checks that coverage
 cannot, what the benchmark measures, and the mutation run that grades the suite

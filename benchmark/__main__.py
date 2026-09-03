@@ -1,9 +1,9 @@
 """``python -m benchmark`` -- run the benchmark and print the scorecard.
 
-Prints the eight metrics against their floors, then the products the run
-reported, so a score that moved can be read next to the answer that moved it.
-``--json`` writes the same numbers as a record, which is how two runs a month
-apart get compared without either of them having to be repeated.
+The metrics against their floors, then the products the run reported, so a score
+that moved can be read beside the answer that moved it. ``--json`` keeps the same
+numbers as a record, which is how two runs a month apart are compared without
+either being repeated. Exits 1 where a floor was missed.
 """
 
 from __future__ import annotations
@@ -30,26 +30,16 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python -m benchmark",
         description=f"Score the agent on a fixed corpus. The request is: {REQUEST!r}",
     )
-    parser.add_argument(
-        "--scripted",
-        choices=sorted(SCRIPTS),
-        help="Score a hand-written answer instead of a model: no network, "
-        "and 'perfect' scores 1.000 by construction.",
-    )
-    parser.add_argument(
-        "--provider", choices=sorted(PROVIDERS), default=DEFAULT_PROVIDER,
-        help="Which model server to score (default: %(default)s).",
-    )
-    parser.add_argument(
-        "--model", default="", help="Model to score, empty for the provider's own default."
-    )
-    parser.add_argument(
-        "--base-url", default="", help="Where that server listens, empty for its own default."
-    )
-    parser.add_argument("--json", type=Path, help="Also write the scorecard to this file.")
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Show the run's progress log."
-    )
+    add = parser.add_argument
+    add("--scripted", choices=sorted(SCRIPTS),
+        help="Score a hand-written answer instead of a model: no network, and "
+             "'perfect' scores 1.000 by construction.")
+    add("--provider", choices=sorted(PROVIDERS), default=DEFAULT_PROVIDER,
+        help="Which model server to score (default: %(default)s).")
+    add("--model", default="", help="Model to score, empty for the provider's own default.")
+    add("--base-url", default="", help="Where it listens, empty for its own default.")
+    add("--json", type=Path, help="Also write the scorecard to this file.")
+    add("-v", "--verbose", action="store_true", help="Show the run's progress log.")
     return parser
 
 
@@ -86,14 +76,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(describe(report))
-    if args.json:
-        args.json.write_text(
-            json.dumps(
-                {**report.scorecard.metrics, "score": report.scorecard.score}, indent=2
-            ),
-            encoding="utf-8",
-        )
     measured = report.scorecard.metrics | {"score": report.scorecard.score}
+    if args.json:
+        args.json.write_text(json.dumps(measured, indent=2), encoding="utf-8")
     return 0 if all(value >= FLOORS[name] for name, value in measured.items()) else 1
 
 

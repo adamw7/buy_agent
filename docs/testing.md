@@ -20,7 +20,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-1108 Python tests and 123 UI tests. Nothing in either suite touches the network or
+1088 Python tests and 123 UI tests. Nothing in either suite touches the network or
 a model server: the model is faked through the `llm=` argument of `BuyAgent`, both
 the search backend and the page fetcher are monkeypatched, the two clients
 `buy_agent.providers` builds are patched where that module imported them, and the
@@ -108,9 +108,9 @@ returned, before grounding judged it.
 ## The benchmark
 
 Those tests answer "did the promises hold?", which is the right question for a
-nightly job and not the one a maintainer has after changing a prompt, a
-threshold or `GENERIC_WORDS`. That one is "did it get *better*?", and nothing can
-answer it without knowing what the right answer was.
+nightly job and not the one a maintainer has after changing a prompt, a threshold
+or `GENERIC_WORDS`. That one is "did it get *better*?", and nothing can answer it
+without knowing what the right answer was.
 
 `benchmark/` writes the right answer down. The corpus lives there and
 `integration/conftest.py` reads it back, so the nightly run is scored *and*
@@ -122,16 +122,15 @@ python -m benchmark --scripted sloppy    # the same, wrong in seven ways
 python -m benchmark -v --json score.json # against a real model, keeping the numbers
 ```
 
-`benchmark/answers.py` records what each of the ten pages prints for each of the
-seven products -- as **sets**, not as one right answer. `$328`, the refurbished
-`$269` and EuroTech's `329 EUR` are all things the sources say the Sony costs,
-and a model reporting any of them has copied rather than invented. A currency
-travels with its price and a review count with its rating, so "329 USD" -- two
-figures the corpus prints and a pairing it never does -- is one wrong price
-(ADR-0022).
+`benchmark/answers.py` records what the ten pages print for each of the seven
+products -- as **sets**, not as one right answer. `$328`, the refurbished `$269`
+and EuroTech's `329 EUR` are all things the sources say the Sony costs, and a
+model reporting any of them has copied rather than invented. A currency travels
+with its price and a review count with its rating, so "329 USD" -- two figures
+the corpus prints and a pairing it never does -- is one wrong price (ADR-0022).
 
-`benchmark/scoring.py` turns a run into eight shares in `[0, 1]`, each of them a
-promise the pipeline makes, weighed into one score:
+`benchmark/scoring.py` turns a run into eight shares in `[0, 1]`, each a promise
+the pipeline makes, weighed into one score:
 
 | Metric | What it counts |
 | --- | --- |
@@ -144,32 +143,30 @@ promise the pipeline makes, weighed into one score:
 | `faithful` | The other half: quotes that are not verbatim on such a page |
 | `order` | Whether the ranking came out in the order the key's own figures give |
 
-Each "did it copy correctly" question is split into a completeness half and an
-error half on purpose: a model that reports nothing scores 0 on `figures` and
-1.0 on `attribution`, one that reports confident nonsense scores the other way
-round, and a single blended number would call them equally good.
-
-Three of these catch failures the tests above structurally cannot (ADR-0036): a
-figure copied off another product's line, which `verify_numbers` grounds against
-the *pooled* pages and therefore accepts; a product reported twice under names
+Each pair is split on purpose: a model that reports nothing scores 0 on `figures`
+and 1.0 on `attribution`, one that reports confident nonsense scores the other way
+round, and a single blended number would call them equally good. Three of the
+eight catch failures the tests above structurally cannot (ADR-0036): a figure
+copied off another product's line, which `verify_numbers` grounds against the
+*pooled* pages and therefore accepts; a product reported twice under names
 `deduplicate` does not merge, which the invariant test checks by re-running that
-same merge; and a ranking in the wrong order, which is ordered and numbered
-either way.
+same merge; and a ranking in the wrong order, which is ordered and numbered either
+way.
 
 `integration/test_benchmark.py` scores the live run and fails under
 `benchmark.scoring.FLOORS`, one test per metric so a red job names which half
 slipped. Those floors are a **tripwire, not a target**: set where a 0.6B model
 happens to sit today, the job would fail for a reworded prompt, which is how a
-scheduled run gets ignored. The whole scorecard is logged whether it passes or
-not, and raising a floor is a commit of its own quoting the runs that justify it.
+scheduled run gets ignored. The whole scorecard is logged pass or fail, and
+raising a floor is a commit of its own quoting the runs that justify it.
 
 What keeps the key honest is `tests/test_benchmark.py`, which runs entirely
-without a model. It reads every figure in the key back off the *condensed*
-corpus -- a line the fetch layer throws away is a figure no run can ever be
-credited for -- and puts two hand-written answers through the real pipeline:
-`PERFECT`, which must score exactly 1.000, and `SLOPPY`, wrong in seven ways and
-pinned to the exact counts each mistake should produce. **Editing the corpus
-means re-running both.**
+without a model. It reads every name, figure and page in the key back off the
+*condensed* corpus -- a line the fetch layer throws away is a figure no run can
+ever be credited for -- and puts two hand-written answers through the real
+pipeline: `PERFECT`, which must score exactly 1.000, and `SLOPPY`, wrong in seven
+ways and pinned to the exact counts each mistake should produce. **Editing the
+corpus means re-running both.**
 
 Two knobs, and neither is `$OLLAMA_MODEL` -- that one moves the default the
 agent ships with, and must not be able to start a 12B pull on a runner:

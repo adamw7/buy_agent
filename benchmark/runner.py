@@ -6,14 +6,13 @@ same scorer. What is *not* stubbed is the pipeline -- refining, condensing,
 extracting, cleaning, grounding, deduplicating and ranking all really run, which
 is the difference between benchmarking this agent and benchmarking a model.
 
-:func:`serving_the_corpus` is the seam, and it stops at the **transport**, the
-way ``integration/conftest.py`` and ``demo/server.py`` do: ``search_web`` hands
-back the fixture instead of calling DuckDuckGo, ``enrich`` reads the fabricated
-page text instead of fetching a URL -- and then runs the real
+:func:`serving_the_corpus` is the seam, and it stops at the **transport**, as
+``integration/conftest.py`` and ``demo/server.py`` do: ``search_web`` hands back
+the fixture instead of calling DuckDuckGo, ``enrich`` reads the fabricated text
+instead of fetching a URL -- and then runs the real
 :func:`buy_agent.fetch.condense` over it on the config's own budgets. So the
-prompt the model is scored on is shaped the way a production prompt is shaped,
-and the corpus a quote is checked against is the corpus the pipeline checked it
-against.
+prompt the model is scored on is shaped the way a production prompt is, and the
+corpus a quote is checked against is the one the pipeline checked it against.
 """
 
 from __future__ import annotations
@@ -58,9 +57,9 @@ def serving_the_corpus(
 ) -> Iterator[list[SearchResult]]:
     """Hand every agent the corpus instead of the web, for as long as this is open.
 
-    The two names are replaced on :mod:`buy_agent.agent`, which is the only
-    module that calls either -- the same single patch point the unit suite relies
-    on, and the reason the fan-out over named sources lives in ``agent.py``.
+    The two names are replaced on :mod:`buy_agent.agent`, the only module that
+    calls either -- the same single patch point the unit suite relies on, and the
+    reason the fan-out over named sources lives in ``agent.py``.
 
     Yields:
         The enriched results, filled in as the agent asks for them, so a caller
@@ -82,9 +81,7 @@ def serving_the_corpus(
             result.model_copy(
                 update={
                     "content": condense(
-                        page_text[result.url],
-                        max_chars=max_chars,
-                        opinion_chars=opinion_chars,
+                        page_text[result.url], max_chars=max_chars, opinion_chars=opinion_chars
                     )
                 }
             )
@@ -109,11 +106,7 @@ def run_benchmark(
         llm: The model to score. None builds the provider's own, which is the
             only thing in here that touches a network.
         config: Settings to run with; :func:`benchmark.corpus.settings` by
-            default. Widen ``num_products`` and the scorer widens its slots with
-            it.
-
-    Returns:
-        A :class:`Report`.
+            default. Widen ``num_products`` and the scorer widens its slots too.
     """
     config = config or settings()
     with serving_the_corpus() as served:

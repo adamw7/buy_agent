@@ -1,42 +1,19 @@
 """Turn one run's products into a scorecard, deterministically.
 
 Nothing here talks to a model, a network or a clock: given the same products and
-the same pages, :func:`score_run` answers the same eight numbers every time. That
-is the whole point -- the model is the only thing in a benchmark run that is
-allowed to vary, so everything downstream of it has to be a pure function or the
-score means nothing.
+the same pages, :func:`score_run` answers the same numbers every time. The model
+is the only part of a benchmark run allowed to vary, so everything downstream of
+it is a pure function or the score means nothing.
 
-The eight metrics are the pipeline's own promises, one apiece, all in ``[0, 1]``
-and all higher-is-better so they can be weighed into one number:
-
-===============  ==============================================================
-``identified``   Recall: how many of the slots the run has hold a real product.
-``genuine``      Precision: reported entries that are a real product, and not a
-                 second listing of one already reported (``clean_products``,
-                 ``drop_ungrounded``, ``deduplicate``).
-``figures``      Price, rating and review count reported and printed for *that*
-                 product -- accuracy and completeness together, a blank being a
-                 miss rather than an error.
-``attribution``  The other half of that: reported figures **not** printed for
-                 that product. The one thing grounding structurally cannot see,
-                 since ``verify_numbers`` pools the pages (see
-                 :mod:`benchmark.answers`).
-``links``        Products pointed at a page that is really about them (ADR-0017).
-``quotes``       Products carrying at least one verdict a page about them
-                 printed (ADR-0024).
-``faithful``     The other half of that: quotes that are *not* verbatim on such
-                 a page. Stricter than ``verify_opinions``, which tolerates a
-                 word of the model's own at either end (ADR-0025) -- the
-                 benchmark asks for the sentence, not for most of it.
-``order``        Whether the ranking came out in the order the answer key's own
-                 figures would have produced (ADR-0007).
-===============  ==============================================================
-
-Splitting each of the three "did it copy correctly" questions into a
-completeness half and an error half is deliberate. A model that reports nothing
-scores 0 on ``figures`` and 1.0 on ``attribution``, and one that reports
-confident nonsense scores the other way round; a single blended number would
-call those two runs equally good.
+Every metric is one share of something -- ``right`` out of ``out of`` -- so
+:data:`METRICS` is the whole design: each row names a promise the pipeline makes,
+what it weighs, and what it scores when there was nothing to be right about.
+Which of the three "did it copy correctly" questions a run fails matters, so each
+is split in two: a completeness half counted over what the run *found*
+(``figures``, ``quotes``) and an error half counted over what it *claimed*
+(``attribution``, ``faithful``). A model that reports nothing and one that
+reports confident nonsense are not equally good, and a single blended number
+calls them so. ADR-0036 has the rest; ``docs/testing.md`` has the table.
 """
 
 from __future__ import annotations
@@ -58,42 +35,36 @@ if TYPE_CHECKING:
     from buy_agent.search import SearchResult
 
 #: Fraction of a name's distinctive words that has to be found on the other side
-#: for two names to be the same product. The bar
-#: :func:`buy_agent.verification.mentions_name` sets, applied in both directions
-#: -- see :func:`identifies`.
+#: for two names to be the same product -- the bar
+#: :func:`buy_agent.verification.mentions_name` sets, applied both ways.
 MATCH_COVERAGE = 0.6
 
-#: What each metric contributes to the overall score. Finding the products at all
-#: carries the most, because everything else is measured over what was found and
-#: goes vacuous without it; the two error halves carry as much as the two
-#: completeness halves they qualify, a confident wrong answer being worse than a
-#: blank in a report somebody is going to act on.
-WEIGHTS: dict[str, float] = {
-    "identified": 3.0,
-    "genuine": 2.0,
-    "figures": 2.0,
-    "attribution": 2.0,
-    "links": 1.0,
-    "quotes": 1.0,
-    "faithful": 1.0,
-    "order": 1.0,
+#: Each metric: what it weighs, and what it scores on an empty denominator.
+#: Finding the products carries the most, everything else being measured over
+#: what was found and going vacuous without it. The empty value differs by what
+#: the denominator counts: nothing *found* is nothing to credit (0.0), nothing
+#: *claimed* is nothing to fault (1.0).
+METRICS: dict[str, tuple[float, float]] = {
+    "identified": (3.0, 0.0),  # slots filled with a product that is really there
+    "genuine": (2.0, 0.0),  # reported entries that are a real product, once each
+    "figures": (2.0, 0.0),  # of three per product, those printed for it
+    "attribution": (2.0, 1.0),  # of those reported, those not somebody else's
+    "links": (1.0, 0.0),  # products pointed at a page about them (ADR-0017)
+    "quotes": (1.0, 0.0),  # products carrying a verdict their page printed
+    "faithful": (1.0, 1.0),  # of the quotes reported, those word for word
+    "order": (1.0, 1.0),  # ranked pairs the answer key would order the same way
 }
 
 #: What the nightly run refuses to go below (``integration/test_benchmark.py``).
 #:
-#: These are a **tripwire, not a target**. The model behind them is a 0.6B one
-#: chosen for being able to run on a CI runner's four cores (ADR-0026), and the
-#: thing worth catching is that it stopped being able to read these pages at all
-#: -- a model update, an Ollama release that changes how ``json_schema`` decoding
-#: works, a prompt grown past what it can follow. A floor set where the model
-#: happens to sit today would fail the job for a rewording, which is how a
-#: scheduled run gets ignored.
-#:
-#: So they are set low on purpose and raised deliberately: a run that scores well
-#: above one of these is an argument for lifting it in a commit of its own, with
-#: the run that justified it quoted in the message. The nightly logs the whole
-#: scorecard whether it passes or not, which is where the numbers to argue from
-#: come from.
+#: A **tripwire, not a target**. The model behind them is a 0.6B one chosen for
+#: running on a CI runner's four cores (ADR-0026), and what is worth catching is
+#: that it stopped being able to read these pages at all -- a model update, an
+#: Ollama release that changes ``json_schema`` decoding, a prompt grown past what
+#: it can follow. A floor set where the model happens to sit today fails the job
+#: for a rewording, which is how a scheduled run gets ignored. So: set low, and
+#: raised deliberately, in a commit quoting the runs that justify it. The whole
+#: scorecard is logged pass or fail, which is where those runs come from.
 FLOORS: dict[str, float] = {
     "identified": 0.4,
     "genuine": 0.6,
@@ -110,36 +81,32 @@ FLOORS: dict[str, float] = {
 def _distinctive(name: str) -> list[str]:
     """The words of ``name`` that identify something, by the shared rule.
 
-    ``GENERIC_WORDS`` and ``NAME_TOKENS`` come from
-    :mod:`buy_agent.extraction`, so the benchmark splits and ignores words
-    exactly as merging and grounding do. A benchmark with its own idea of what a
-    name's words are would score the pipeline against a rule the pipeline does
-    not follow.
+    ``GENERIC_WORDS`` and ``NAME_TOKENS`` come from :mod:`buy_agent.extraction`,
+    so the benchmark splits and ignores words exactly as merging and grounding
+    do. A benchmark with its own idea of a name's words would be scoring the
+    pipeline against a rule the pipeline does not follow.
     """
     return [word for word in NAME_TOKENS.findall(name.lower()) if word not in GENERIC_WORDS]
 
 
 def _covered(tokens: Sequence[str], text: str) -> float:
-    """Share of ``tokens`` that appear in ``text`` as words of their own."""
-    if not tokens:
-        return 0.0
+    """Share of ``tokens`` appearing in ``text`` as words of their own."""
     words = frozenset(NAME_TOKENS.findall(text.lower()))
-    return sum(token in words for token in tokens) / len(tokens)
+    return sum(token in words for token in tokens) / len(tokens) if tokens else 0.0
 
 
 def identifies(reported: str, expected: Expected) -> float:
     """How well ``reported`` names ``expected``, or 0.0 if it does not.
 
-    Checked in **both** directions, and that is the whole subtlety. Forwards
-    alone -- every distinctive word of the reported name being in the expected
-    one -- makes "Sony" the Sony, which would let a model score full marks for
-    naming brands. Backwards alone rejects "WH-1000XM5", which is the product.
-    Requiring :data:`MATCH_COVERAGE` of each admits a name missing a word and
-    refuses one that is only a fragment.
+    Checked **both** ways, which is the whole subtlety. Forwards alone -- every
+    distinctive word of the reported name being in the expected one -- makes
+    "Sony" the Sony, and a model would score full marks for naming brands.
+    Backwards alone rejects "WH-1000XM5", which is the product. Requiring
+    :data:`MATCH_COVERAGE` of each admits a name missing a word and refuses a
+    fragment.
 
     Returns:
-        The two coverages added, so an ambiguous name goes to its best match, or
-        0.0 where either direction falls short.
+        The two coverages added, so an ambiguous name goes to its best match.
     """
     mine, theirs = _distinctive(reported), _distinctive(expected.name)
     forwards, backwards = _covered(mine, expected.name), _covered(theirs, reported)
@@ -151,176 +118,59 @@ def identifies(reported: str, expected: Expected) -> float:
 def best_match(name: str, key: Sequence[Expected] = ANSWER_KEY) -> Expected | None:
     """The answer-key entry ``name`` identifies, or None.
 
-    Ties go to the earlier entry, so this is a function of the key's order and
-    not of dictionary iteration -- a benchmark that scored differently on two
-    runs of the same answer would not be one.
+    Ties go to the earlier entry, so this is a function of the key's order: a
+    benchmark scoring the same answer two ways would not be one.
     """
-    scored = [(identifies(name, entry), -index, entry) for index, entry in enumerate(key)]
-    strength, _, entry = max(scored, key=lambda item: item[:2])
+    strength, _, entry = max(
+        (identifies(name, entry), -index, entry) for index, entry in enumerate(key)
+    )
     return entry if strength else None
-
-
-def _prices(entry: Expected) -> frozenset[float]:
-    return frozenset(price for price, _ in entry.prices)
-
-
-def _ratings(entry: Expected) -> frozenset[float]:
-    return frozenset(rating for rating, _ in entry.ratings)
-
-
-def _counts(entry: Expected) -> frozenset[int]:
-    return frozenset(count for _, count in entry.ratings)
 
 
 def figure_verdicts(product: Product, entry: Expected) -> list[bool | None]:
     """Each of the three figures: True printed for it, False not, None blank.
 
-    A qualifier is judged with the figure it qualifies rather than beside it
+    A qualifier is judged *with* the figure it qualifies rather than beside it
     (ADR-0022): a price is checked as ``(price, currency)`` where a currency was
-    reported, so ``329 USD`` -- two figures the corpus prints and a pairing it
-    never does -- is one wrong price rather than a right price and a right
-    currency.
-    """
-    if product.price is None:
-        price: bool | None = None
-    elif product.currency is None:
-        price = product.price in _prices(entry)
-    else:
-        price = (product.price, product.currency) in entry.prices
-
-    if product.rating is None:
-        rating: bool | None = None
-    elif product.review_count is None:
-        rating = product.rating in _ratings(entry)
-    else:
-        rating = (product.rating, product.review_count) in entry.ratings
-
-    count = None if product.review_count is None else product.review_count in _counts(entry)
-    return [price, rating, count]
-
-
-def _share(good: int, total: int, *, empty: float = 1.0) -> float:
-    """``good/total``, and ``empty`` where there was nothing to be right about."""
-    return good / total if total else empty
-
-
-@dataclass(frozen=True, slots=True)
-class Scorecard:
-    """What a run got right, as counts, with the metrics read off them.
-
-    Counts rather than ratios, so a report can say "3 of 5" and a regression can
-    be read without recomputing anything. Every metric below is a property over
-    these, which is what keeps :data:`WEIGHTS`, :data:`FLOORS` and the printed
-    table reading the same numbers.
+    reported, so "329 USD" -- two figures the corpus prints and a pairing it
+    never does -- is one wrong price rather than two right halves.
     """
 
-    #: Products the run reported, and the slots it had to fill (the cap, not the
-    #: whole key -- see :data:`benchmark.answers.ANSWER_KEY`).
-    reported: int
-    slots: int
-    #: Reported entries that are a real product, and a first sighting of it.
-    matched: int
-    #: The rest, split so a scorecard says which mistake was made.
-    invented: int
-    repeated: int
-    #: Figures: right, blank-or-wrong out of three per matched product, and how
-    #: many of the ones actually reported were not printed for that product.
-    figures_right: int
-    figures_reported: int
-    figures_wrong: int
-    #: Matched products linked to a page that is about them.
-    linked: int
-    #: Matched products carrying at least one verbatim verdict, and the quotes.
-    quoted: int
-    quotes_reported: int
-    quotes_wrong: int
-    #: Pairs of matched products the ranking put in the order the key would.
-    concordant: int
-    pairs: int
+    def judged(value: float | None, qualifier: float | None, printed: frozenset) -> bool | None:
+        if value is None:
+            return None
+        if qualifier is not None:
+            return (value, qualifier) in printed
+        return value in {figure for figure, _ in printed}
 
-    @property
-    def identified(self) -> float:
-        return _share(self.matched, self.slots, empty=0.0)
-
-    @property
-    def genuine(self) -> float:
-        return _share(self.matched, self.reported, empty=0.0)
-
-    @property
-    def figures(self) -> float:
-        return _share(self.figures_right, 3 * self.matched, empty=0.0)
-
-    @property
-    def attribution(self) -> float:
-        return 1.0 - _share(self.figures_wrong, self.figures_reported, empty=0.0)
-
-    @property
-    def links(self) -> float:
-        return _share(self.linked, self.matched, empty=0.0)
-
-    @property
-    def quotes(self) -> float:
-        return _share(self.quoted, self.matched, empty=0.0)
-
-    @property
-    def faithful(self) -> float:
-        return 1.0 - _share(self.quotes_wrong, self.quotes_reported, empty=0.0)
-
-    @property
-    def order(self) -> float:
-        return _share(self.concordant, self.pairs)
-
-    @property
-    def metrics(self) -> dict[str, float]:
-        """Every metric by name, in :data:`WEIGHTS` order."""
-        return {name: getattr(self, name) for name in WEIGHTS}
-
-    @property
-    def score(self) -> float:
-        """The eight metrics weighed into one number in ``[0, 1]``."""
-        total = sum(WEIGHTS.values())
-        return sum(WEIGHTS[name] * value for name, value in self.metrics.items()) / total
-
-    def table(self) -> str:
-        """The scorecard as lines, for a job log and for ``python -m benchmark``."""
-        rows = [
-            f"  {name:<12} {value:>6.3f}   floor {FLOORS[name]:.2f}"
-            f"{'' if value >= FLOORS[name] else '   UNDER'}"
-            for name, value in self.metrics.items()
-        ]
-        counts = (
-            f"  {self.matched} of {self.slots} slots filled with a real product; "
-            f"{self.invented} invented, {self.repeated} repeated; "
-            f"{self.figures_right}/{3 * self.matched} figures right, "
-            f"{self.figures_wrong} misattributed; "
-            f"{self.quoted} quoted, {self.quotes_wrong} quotes not on the page."
-        )
-        under = "" if self.score >= FLOORS["score"] else "   UNDER"
-        return "\n".join(
-            [*rows, f"  {'score':<12} {self.score:>6.3f}   floor {FLOORS['score']:.2f}{under}", counts]
-        )
+    return [
+        judged(product.price, product.currency, entry.prices),
+        judged(product.rating, product.review_count, entry.ratings),
+        None
+        if product.review_count is None
+        else product.review_count in {count for _, count in entry.ratings},
+    ]
 
 
 def page_words(results: Sequence[SearchResult]) -> dict[str, str]:
     """Each searched page as its running words, by URL.
 
-    The text the *model saw*, condensed, not the raw fixture: a quote is faithful
-    when it is on the page as the pipeline had it, and scoring against the
-    un-condensed original would credit a sentence the fetch layer threw away.
+    The text the *model saw*, condensed -- scoring a quote against the raw
+    fixture would credit a sentence the fetch layer threw away.
     """
     return {
-        result.url: running_words(build_haystack([result]))
-        for result in results
-        if result.url
+        result.url: running_words(build_haystack([result])) for result in results if result.url
     }
 
 
 def _quotes_verbatim(quote: str, entry: Expected, pages: Mapping[str, str]) -> bool:
-    """Whether some page about this product printed ``quote`` word for word."""
+    """Whether some page about this product printed ``quote`` word for word.
+
+    Stricter than ``verify_opinions``, which tolerates a word of the model's own
+    at either end (ADR-0025): the benchmark asks for the sentence, not most of it.
+    """
     words = running_words(quote)
-    if not words:
-        return False
-    return any(
+    return bool(words) and any(
         f" {words} " in f" {pages[url]} " for url in entry.pages if url in pages
     )
 
@@ -328,21 +178,70 @@ def _quotes_verbatim(quote: str, entry: Expected, pages: Mapping[str, str]) -> b
 def _ordering(pairs: Sequence[tuple[Product, Expected]]) -> tuple[int, int]:
     """Concordant pairs and total pairs, against the ranking the key would give.
 
-    The ideal is built over the *matched* products alone rather than over the
-    whole key, because ``score_product`` scores price relative to the candidate
-    set: ranking seven and comparing against five would mark a run down for a
-    product it never reported.
+    The ideal is built over the *matched* products alone, because
+    ``score_product`` scores price relative to the candidate set: ranking seven
+    and comparing against five would mark a run down for what it never reported.
     """
-    if len(pairs) < 2:
-        return 0, 0
     ideal = rank_products([entry.as_product() for _, entry in pairs])
     place = {ranked.product.name: ranked.rank for ranked in ideal}
-    positions = [(index, place[entry.name]) for index, (_, entry) in enumerate(pairs)]
+    seats = [(index, place[entry.name]) for index, (_, entry) in enumerate(pairs)]
     concordant = sum(
         (left[0] - right[0]) * (left[1] - right[1]) > 0
-        for left, right in combinations(positions, 2)
+        for left, right in combinations(seats, 2)
     )
-    return concordant, len(positions) * (len(positions) - 1) // 2
+    return concordant, len(seats) * (len(seats) - 1) // 2
+
+
+@dataclass(frozen=True, slots=True)
+class Scorecard:
+    """What a run got right, as ``right out of`` per metric.
+
+    Counts rather than ratios, so a report can say "3 of 5" and a regression can
+    be read without recomputing anything -- and so :data:`METRICS` stays the one
+    place a metric is declared. ``invented`` and ``repeated`` split the entries
+    ``genuine`` rejects, those being two different mistakes.
+    """
+
+    counts: dict[str, tuple[int, int]]
+    invented: int
+    repeated: int
+
+    @property
+    def metrics(self) -> dict[str, float]:
+        """Every metric by name, in :data:`METRICS` order."""
+        return {
+            name: right / out_of if out_of else empty
+            for name, (_, empty) in METRICS.items()
+            for right, out_of in [self.counts[name]]
+        }
+
+    @property
+    def score(self) -> float:
+        """The metrics weighed into one number in ``[0, 1]``."""
+        weights = {name: weight for name, (weight, _) in METRICS.items()}
+        weighted = sum(weights[name] * value for name, value in self.metrics.items())
+        return weighted / sum(weights.values())
+
+    def table(self) -> str:
+        """The scorecard as lines, for a job log and for ``python -m benchmark``."""
+        rows = {**self.metrics, "score": self.score}
+        matched, reported = self.counts["genuine"]
+        return "\n".join(
+            [
+                *(
+                    f"  {name:<12} {value:>6.3f}   floor {FLOORS[name]:.2f}"
+                    f"{'' if value >= FLOORS[name] else '   UNDER'}"
+                    for name, value in rows.items()
+                ),
+                f"  {matched} of {self.counts['identified'][1]} slots hold a real product "
+                f"({self.invented} invented, {self.repeated} repeated, {reported} reported); "
+                f"{'/'.join(map(str, self.counts['figures']))} figures right, "
+                f"{self.counts['attribution'][1] - self.counts['attribution'][0]} "
+                f"misattributed; {self.counts['quotes'][0]} quoted, "
+                f"{self.counts['faithful'][1] - self.counts['faithful'][0]} "
+                "quotes not on the page.",
+            ]
+        )
 
 
 def score_run(
@@ -356,18 +255,17 @@ def score_run(
 
     Args:
         products: What the run reported, **in the order it ranked them**.
-        results: The pages the run was given, enriched -- the corpus as the model
-            saw it, which is what a quote is checked against.
+        results: The pages it was given, enriched -- the corpus as the model saw
+            it, which is what a quote is checked against.
         key: The answer key; :data:`~benchmark.answers.ANSWER_KEY` by default.
         slots: How many products the run was allowed to report. Recall is
-            measured against this rather than against the key, the cap being
-            part of the run rather than a failure of it.
+            measured against this rather than against the whole key, the cap
+            being part of the run rather than a failure of it.
 
     Returns:
-        A :class:`Scorecard`. Every count is over the products that matched the
-        key: a hallucinated product is one mistake, counted once against
-        ``genuine``, and grading its invented price a second time would charge
-        twice for it.
+        A :class:`Scorecard`. Every count but ``genuine``'s is over the products
+        that matched: a hallucinated product is one mistake, and grading its
+        invented price a second time would charge twice for it.
     """
     pages = page_words(results)
     matched: list[tuple[Product, Expected]] = []
@@ -384,36 +282,41 @@ def score_run(
             seen.add(entry.name)
             matched.append((product, entry))
 
-    verdicts = [verdict for product, entry in matched for verdict in figure_verdicts(product, entry)]
+    verdicts = [
+        verdict for product, entry in matched for verdict in figure_verdicts(product, entry)
+    ]
+    reported_figures = sum(verdict is not None for verdict in verdicts)
     faithful = [
         [quote for quote in product.opinions if _quotes_verbatim(quote, entry, pages)]
         for product, entry in matched
     ]
-    quotes_reported = sum(len(product.opinions) for product, _ in matched)
-    concordant, total_pairs = _ordering(matched)
+    quoted = sum(len(product.opinions) for product, _ in matched)
+    kept = sum(len(quotes) for quotes in faithful)
+    concordant, ranked_pairs = _ordering(matched)
 
     return Scorecard(
-        reported=len(products),
-        slots=min(len(key), slots),
-        matched=len(matched),
+        counts={
+            "identified": (len(matched), min(len(key), slots)),
+            "genuine": (len(matched), len(products)),
+            "figures": (sum(verdict is True for verdict in verdicts), 3 * len(matched)),
+            "attribution": (
+                reported_figures - sum(verdict is False for verdict in verdicts),
+                reported_figures,
+            ),
+            "links": (sum(p.url in e.pages for p, e in matched), len(matched)),
+            "quotes": (sum(bool(quotes) for quotes in faithful), len(matched)),
+            "faithful": (kept, quoted),
+            "order": (concordant, ranked_pairs),
+        },
         invented=invented,
         repeated=repeated,
-        figures_right=sum(verdict is True for verdict in verdicts),
-        figures_reported=sum(verdict is not None for verdict in verdicts),
-        figures_wrong=sum(verdict is False for verdict in verdicts),
-        linked=sum(product.url in entry.pages for product, entry in matched),
-        quoted=sum(bool(kept) for kept in faithful),
-        quotes_reported=quotes_reported,
-        quotes_wrong=quotes_reported - sum(len(kept) for kept in faithful),
-        concordant=concordant,
-        pairs=total_pairs,
     )
 
 
 __all__ = [
     "FLOORS",
     "MATCH_COVERAGE",
-    "WEIGHTS",
+    "METRICS",
     "Scorecard",
     "best_match",
     "figure_verdicts",

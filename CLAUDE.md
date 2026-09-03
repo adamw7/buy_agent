@@ -700,14 +700,14 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1108 tests run in about four seconds: most of that is the two that spawn an
+1088 tests run in about four seconds: most of that is the two that spawn an
 interpreter -- one checking `python -m buy_agent` still runs as a script, one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1108 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1108 collect but 13 of the 17 in
-`tests/test_start_script.py` skip, so the summary reads `1095 passed, 13 skipped`.
+reaching out. 1088 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1088 collect but 13 of the 17 in
+`tests/test_start_script.py` skip, so the summary reads `1075 passed, 13 skipped`.
 The UI's 123 tests run in about two seconds, most of which is building the app
 first. The 30 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
@@ -773,8 +773,7 @@ an annotation. Four things there are load-bearing:
   against the answer key beside it (ADR-0036) -- one corpus and one model call for
   both questions. The fake stops at the transport: `enrich` reads the fabricated
   text and then runs the real `fetch.condense` over it, so the prompt is shaped as
-  a production prompt is and is wide enough for ADR-0019's `num_ctx` question to
-  arise.
+  a production prompt is, wide enough for ADR-0019's `num_ctx` question to arise.
 - **One run, many assertions.** A session-scoped `live_run` fixture runs the
   pipeline once and each test reads something different off it. The extraction chain
   is *wrapped* rather than replaced -- an appended `RunnableLambda` records the raw
@@ -800,42 +799,27 @@ an annotation. Four things there are load-bearing:
 ### The benchmark
 
 `benchmark/` is the answer key the invariants above cannot have, and the scorer
-over it (ADR-0036). It owns the corpus, so `integration/` reads it back and the
-nightly job asks both questions of one model call.
+over it. It owns the corpus, so `integration/` reads it back and the nightly job
+asks both questions of one model call. ADR-0036 has the reasoning and
+`docs/testing.md` the metric table; four rules hold here.
 
-- **The key is per-product sets, not one right answer.** `benchmark/answers.py`
-  records every `(price, currency)` and every `(rating, review_count)` a page
-  prints for each product. `$328`, a refurbished `$269` and a `329 EUR` listing are
-  all things the sources say the Sony costs; `329 USD` is a pairing none of them
-  printed, and is one wrong price rather than two right halves (ADR-0022). The
-  canonical value beside each set exists only to build the ranking the run should
-  have produced.
-- **Three failures live here and nowhere else**, being the ones the invariants
-  structurally cannot see: a figure copied off another product's line, which
-  `verify_numbers` grounds against the *pooled* pages and so accepts; a product
-  reported twice under names `deduplicate` does not merge, which the invariant test
-  checks by re-running that same merge; and a ranking in the wrong order, which is
-  ordered and numbered either way.
-- **Eight metrics, each a share in `[0, 1]`, higher-is-better**, weighed into one
-  score by `scoring.WEIGHTS`. Each "did it copy correctly" question is split into a
-  completeness half and an error half -- `figures`/`attribution`,
-  `quotes`/`faithful` -- because a model that reports nothing and one that reports
-  confident nonsense are not equally good and one blended number calls them so.
-  Where the pipeline has a rule the scorer uses it: `NAME_TOKENS` and
-  `GENERIC_WORDS` for names, the *condensed* page text for quotes, `rank_products`
-  for the ideal order.
-- **The floors are a tripwire, not a target.** Set where a 0.6B model happens to
-  sit today, the nightly would fail for a reworded prompt, which is how a scheduled
-  run gets ignored. The whole scorecard is logged whether it passes or not; raising
-  a floor is a commit of its own quoting the runs that justify it.
-- **Two scripted answers keep the scorer honest**, through the whole real pipeline
-  with no model and no network: `PERFECT` must score exactly 1.000, which is what
-  says the key is *reachable* rather than a silent ceiling under every number the
-  nightly reports, and `SLOPPY` is wrong in seven ways and pinned to the exact
-  counts each mistake should produce. Editing the corpus means re-running both --
-  `tests/test_benchmark.py` also reads every figure in the key back off the
-  condensed corpus, a line the fetch layer throws away being a figure no run can
-  ever be credited for.
+- **The key is per-product sets, not one right answer.** `answers.py` records every
+  `(price, currency)` and every `(rating, review_count)` a page prints for each
+  product; the canonical value beside each set exists only to build the ranking the
+  run should have produced. `329 USD` is a pairing no page printed and so one wrong
+  price, not two right halves (ADR-0022).
+- **`scoring.METRICS` is the one place a metric is declared** -- its weight and what
+  it scores on an empty denominator -- and a `Scorecard` is `right out of` per name,
+  so nothing recomputes a ratio. Where the pipeline has a rule the scorer uses it:
+  `NAME_TOKENS` and `GENERIC_WORDS` for names, the *condensed* page text for quotes,
+  `rank_products` for the ideal order.
+- **The floors are a tripwire, not a target.** Set where a 0.6B model happens to sit
+  today, the nightly would fail for a reworded prompt, which is how a scheduled run
+  gets ignored. Raising one is a commit of its own quoting the runs that justify it.
+- **Editing the corpus means re-running both scripted answers.** `PERFECT` must
+  score exactly 1.000 -- which is what says the key is *reachable* rather than a
+  silent ceiling under every number the nightly reports -- and `SLOPPY` is wrong in
+  seven ways, pinned to the exact counts each mistake should produce.
 
 ### The scripts
 
