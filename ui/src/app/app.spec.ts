@@ -588,6 +588,32 @@ describe('App results', () => {
     expect(page.querySelector('app-product-card')!.textContent).toContain('Best Kettle');
   });
 
+  it('puts the Rank by control back when the re-order did not happen', async () => {
+    /* The control is the one thing on the page saying what these are sorted by.
+       Left on the criterion that failed it says the wrong thing -- and picking it
+       again fires no `change`, so there was no way to retry either. */
+    agent.rankResponse = () => throwError(() => new Error('offline'));
+    const fixture = await finished();
+
+    await rankBy(fixture, 'rating');
+
+    const select = (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>(
+      'select[name="resort"]',
+    )!;
+    expect(select.value).toBe('score');
+  });
+
+  it('leaves the Rank by control on the order the re-sort delivered', async () => {
+    const fixture = await finished();
+
+    await rankBy(fixture, 'price');
+
+    const select = (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>(
+      'select[name="resort"]',
+    )!;
+    expect(select.value).toBe('price');
+  });
+
   it('hands the finished run over as the file the API answered with', async () => {
     /* What `--json` writes, because it is what the server sent: the browser saves
        the answer rather than composing a shape of its own. */

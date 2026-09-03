@@ -16,6 +16,7 @@ still raised, still a 503, and useless.
 from __future__ import annotations
 
 import importlib
+import threading
 from types import SimpleNamespace
 
 import httpx
@@ -645,3 +646,43 @@ def _status_error(kind: type[openai.APIStatusError], status: int) -> openai.APIS
     """One of the OpenAI client's status errors, built the way the client builds it."""
     response = httpx.Response(status, request=_REQUEST)
     return kind("The model `Qwen/Qwen3-8B` does not exist.", response=response, body=None)
+
+
+def test_the_listing_budget_covers_the_listing_and_not_each_tag(monkeypatch) -> None:
+    """``_LIST_TIMEOUT`` on the client bounds one question; a listing asks many.
+
+    Ollama reports capabilities per tag (ADR-0032), so fifty pulled tags on a
+    slow server was fifty timeouts eight at a time -- and the form waited on all
+    of it while being promised a five-second answer. The probes share a deadline
+    now, and one still running when it passes is the case the probe already has a
+    word for: it did not say, so it counts as able to answer.
+    """
+    started = threading.Event()
+    release = threading.Event()
+
+    class Slow:
+        def __init__(self, base_url: str, **kwargs) -> None:
+            pass
+
+        def list(self):
+            return SimpleNamespace(
+                models=[SimpleNamespace(model=name) for name in ("a:1", "b:1", "c:1")]
+            )
+
+        def show(self, name: str):
+            started.set()
+            release.wait(timeout=5.0)
+            return SimpleNamespace(capabilities=[_COMPLETION])
+
+    monkeypatch.setattr("buy_agent.providers.Client", Slow)
+    monkeypatch.setattr(providers_module, "_LIST_TIMEOUT", 0.05)
+    try:
+        models = providers_module._ollama_installed(AgentConfig())
+    finally:
+        # Before the assertions: a probe still blocked here is a non-daemon pool
+        # thread, and the interpreter joins those on the way out.
+        release.set()
+
+    assert started.is_set(), "the probes did go out"
+    assert [model.name for model in models] == ["a:1", "b:1", "c:1"]
+    assert all(model.completion for model in models), "a tag that did not say is offered"

@@ -16,6 +16,7 @@ from buy_agent.verification import (
     mentions_name,
     mentions_number,
     mentions_rating,
+    mentions_review_count,
     source_urls,
     verify_numbers,
     verify_opinions,
@@ -804,3 +805,55 @@ def test_a_product_with_nothing_said_about_it_is_left_alone() -> None:
     product = Product(name="Sony WH-CH720N")
 
     assert verify_opinions([product], OPINIONATED) == [product]
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "Rated 4.3 out of 5 from 12,500 shoppers",
+        "4.6 out of 5 from 12500 reviews",
+        "(12,500 global ratings)",
+        "12,500 verified customer reviews",
+        "Reviews (12,500)",
+        "12,500 reviewers agreed",
+    ],
+)
+def test_review_counts_are_recognised_however_they_are_written(snippet: str) -> None:
+    assert mentions_review_count(build_haystack([SearchResult(snippet=snippet)]), 12500)
+
+
+@pytest.mark.parametrize(
+    ("snippet", "count"),
+    [
+        ("The Sony WH-CH720N is our pick", 720),
+        ("Released in 2023", 2023),
+        ("Now $148 at Amazon", 148),
+        ("The 5 best headphones of 2026", 5),
+    ],
+)
+def test_a_count_the_page_wrote_as_something_else_is_not_one(snippet: str, count: int) -> None:
+    """The mistake :func:`mentions_rating` exists to refuse, on the other figure.
+
+    A review count is a small whole number, which is what a model number, a year
+    and a price all are -- so checked as a bare figure it grounded on any of
+    them, and then fed the popularity half of the score. It has to be written as
+    a count of somebody, the way a rating has to be written as a rating.
+    """
+    assert not mentions_review_count(build_haystack([SearchResult(snippet=snippet)]), count)
+
+
+def test_an_invented_count_that_collides_with_a_model_number_is_dropped() -> None:
+    """End to end, on the page that found the bug."""
+    results = [
+        SearchResult(
+            title="Sony WH-CH720N review",
+            url="https://audio.example/ch720n",
+            content="The Sony WH-CH720N is $148. Rated 4.3 out of 5.",
+        )
+    ]
+    product = Product(name="Sony WH-CH720N", rating=4.3, review_count=720)
+
+    grounded = ground([product], results)
+
+    assert grounded[0].rating == 4.3, "the rating the page really printed stays"
+    assert grounded[0].review_count is None

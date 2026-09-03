@@ -228,7 +228,7 @@ only qualify another and `_fill_gaps` moves the group.
 | --- | --- |
 | `agent.py` | `BuyAgent.run()` -- orchestrates the pipeline, translates model-server errors |
 | `extraction.py` | Both prompts, both chains, name cleaning, deduplication |
-| `fetch.py` | Fetches result pages, keeps the lines quoting a figure or passing judgement, and tallies how the rest failed |
+| `fetch.py` | Streams result pages up to a ceiling, keeps the lines quoting a figure or passing judgement, and tallies how the rest failed |
 | `verification.py` | Drops products, figures and quotes absent from the sources; links what is left |
 | `ranking.py` | Scoring and sorting; no LLM involved |
 | `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain) |
@@ -268,7 +268,10 @@ only qualify another and `_fill_gaps` moves the group.
   knows, which is how "every figure and every quote was printed by a page the
   shopper named" holds by construction (ADR-0027). What is enforced is the
   **domain**; a handle or a section only narrows the query, a URL being unable to
-  carry it. There is no fall back to the wider web when the named sources find
+  carry it. Every shape is checked for naming something -- a host against
+  `_HOSTNAME`, a handle against `_HANDLE` -- because a spec that parses without
+  identifying anything searches for a phrase no page contains, and with no fall
+  back to the wider web that is an empty report with nothing to explain it. There is no fall back to the wider web when the named sources find
   nothing: that would report facts from pages the shopper refused. `sources.py`
   does no I/O -- it decides what a source *is* and `agent.py` does the searching,
   which is also what keeps `search.py` a DuckDuckGo wrapper.
@@ -282,9 +285,15 @@ only qualify another and `_fill_gaps` moves the group.
 - **Never rank on an unverified number, never link to an unverified page, and
   never quote what nobody said.** `verification.ground()` drops products whose name
   is absent from the sources and blanks any price, rating or review count that is.
-  Ratings need context ("4.3/5", "rated 4.3"), a bare `5` matching the "5" in "out
-  of 5". Extraction and verification must be given the same text or the check
-  rejects everything, which is why `fetch.enrich()` puts page content on
+  Only the price is checked as a bare number. The other two are small whole
+  numbers a page prints for a hundred other reasons, so each is checked as
+  *itself*: a rating needs its scale ("4.3/5", "rated 4.3"), a bare `5` matching
+  the "5" in "out of 5", and a review count needs somebody to be counted ("3,200
+  ratings", "from 12,500 shoppers"), a bare `720` matching the model number in
+  "WH-CH720N", the year in a release date, or the price beside it. A figure added
+  here that a page could print by accident needs a `mentions_*` of its own rather
+  than `mentions_number`. Extraction and verification must be given the same text
+  or the check rejects everything, which is why `fetch.enrich()` puts page content on
   `SearchResult` rather than passing it around separately. `attribute_sources()`
   then gives each product the URL of the first searched page that mentions it,
   keeping the model's own `url` only when it names a page that was searched
@@ -512,6 +521,17 @@ everything else to the built Angular app, unknown paths falling back to
   could never read; the last stops DNS rebinding, which is how that page would get
   to read one. `--allowed-host` names a further host; a bind to a public interface
   turns the `Host` check off and says so at startup.
+- **Every request is answered, including the ones that go wrong.** `do_GET` and
+  `do_POST` each end in a catch-all that logs and sends a 500, because an
+  exception out of a handler escapes to socketserver, which closes the socket
+  unanswered -- and a browser reads that as the server having gone, which is the
+  one thing it did not do. `GET /api/config` is the reminder: it builds an
+  `AgentConfig`, so `$BUY_AGENT_PROVIDER=olama` made every page load a dropped
+  connection under a banner blaming the agent server. `server.main` refuses that
+  name before it binds a port, for the same reason `__main__` makes it a usage
+  error: it is not worth a server that starts and then 500s at its own form. The
+  stream sits outside the guard and answers its own failures with a `failure`
+  event, having spent the status line already.
 
 ### Two platform traps and one coupling
 
@@ -677,15 +697,15 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1027 tests run in about four seconds: most of that is the two that spawn an
+1053 tests run in about four seconds: most of that is the two that spawn an
 interpreter -- one checking `python -m buy_agent` still runs as a script, one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1027 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1027 collect but 13 of the 17 in
-`tests/test_start_script.py` skip, so the summary reads `1014 passed, 13 skipped`.
-The UI's 121 tests run in about two seconds, most of which is building the app
+reaching out. 1053 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1053 collect but 13 of the 17 in
+`tests/test_start_script.py` skip, so the summary reads `1040 passed, 13 skipped`.
+The UI's 123 tests run in about two seconds, most of which is building the app
 first. The 20 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
 

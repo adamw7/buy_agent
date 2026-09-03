@@ -75,11 +75,13 @@
               <select
                 name="resort"
                 [disabled]="reordering() || running()"
-                (change)="resort($any($event.target).value)"
+                (change)="resort($any($event.target))"
               >
                 <!-- `selected` on the option rather than `value` on the select:
                      the options are written by a loop, and the select's value
-                     would be set before any of them exists. -->
+                     would be set before any of them exists. It is also why a
+                     re-sort that failed puts the control back by hand rather
+                     than through a binding -- see `App.resort`. -->
                 @for (option of sortOptions(); track option) {
                   <option [value]="option" [selected]="option === found.sort_by">
                     {{ option }}

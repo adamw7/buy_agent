@@ -88,6 +88,14 @@ _MAX_SEGMENT = 300
 #: of the prompt.
 _MIN_OPINION = 25
 
+#: How much of one page is read before the rest is dropped on the floor. A
+#: ceiling is needed because neither of the other two bounds is one: ``timeout``
+#: is the wait between chunks rather than for the transfer, so a large, steady
+#: response never trips it, and ``condense`` runs on text that is already in
+#: memory -- with eight of these in flight at once. Far past any page worth
+#: reading: ``page_chars`` keeps 1200 characters of what arrives.
+_MAX_PAGE_BYTES = 4 * 1024 * 1024
+
 
 #: How a page's failure is named in the tally :func:`enrich` logs. Past tense
 #: throughout and never a copula, so one phrase reads the same after "1" as after
@@ -223,28 +231,51 @@ def fetch_page(
     directly and the obvious ``except httpx.HTTPError`` misses it -- letting a bad
     port or an unbracketed IPv6 literal escape the pool and make ``BuyAgent.run``
     raise a fourth thing (ADR-0009).
+
+    Streamed rather than fetched whole, so the body is bounded by
+    :data:`_MAX_PAGE_BYTES` and the content type is read before any of it: a shop
+    answering with a video keeps its headers and none of its gigabytes.
     """
     try:
-        response = client.get(url)
-        response.raise_for_status()
+        with client.stream("GET", url) as response:
+            response.raise_for_status()
+
+            content_type = response.headers.get("content-type", "html")
+            if "html" not in content_type:
+                logger.debug("Skipped %s: served as %r", url, content_type)
+                return PageText("", _NOT_HTML)
+
+            markup = _read_capped(response, url)
     except (httpx.HTTPError, httpx.InvalidURL) as exc:
         # The URL and the exception stay at DEBUG: one line per result is ten lines
         # of narration, and the tally already carries the shape of the trouble.
         logger.debug("Could not fetch %s: %s", url, exc)
         return PageText("", describe_failure(exc))
 
-    content_type = response.headers.get("content-type", "html")
-    if "html" not in content_type:
-        logger.debug("Skipped %s: served as %r", url, content_type)
-        return PageText("", _NOT_HTML)
-
-    text = condense(
-        html_to_text(response.text), max_chars=max_chars, opinion_chars=opinion_chars
-    )
+    text = condense(html_to_text(markup), max_chars=max_chars, opinion_chars=opinion_chars)
     if not text:
         logger.debug("Nothing worth keeping on %s", url)
         return PageText("", _NOTHING_KEPT)
     return PageText(text)
+
+
+def _read_capped(response: httpx.Response, url: str) -> str:
+    """The page's markup, up to :data:`_MAX_PAGE_BYTES` of it.
+
+    Truncated rather than refused: a page cut mid-tag still parses -- ``lxml``
+    takes broken markup, which is most of the web -- and the lines above the cut
+    are the ones a shop puts its prices on. The decoding is httpx's own
+    ``encoding``, read off the header a streamed response has already delivered.
+    """
+    chunks: list[bytes] = []
+    read = 0
+    for chunk in response.iter_bytes():
+        chunks.append(chunk)
+        read += len(chunk)
+        if read >= _MAX_PAGE_BYTES:
+            logger.debug("Read the first %d bytes of %s and stopped", read, url)
+            break
+    return b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
 
 
 def describe_failure(exc: Exception) -> str:

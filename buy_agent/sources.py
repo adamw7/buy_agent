@@ -53,6 +53,13 @@ _ROUTING = frozenset({"c", "user", "channel", "r", "u"})
 #: is a person rather than a site, and there is only one site it could mean.
 _HANDLE_HOST = "youtube.com"
 
+#: What has to follow that ``@``. Checked for the reason a host is: this was the
+#: one shape that named its site without naming anything *on* it, so ``--source
+#: @`` parsed and searched YouTube for the literal phrase "@" -- and since named
+#: sources have no fall back to the wider web (ADR-0027), the run then reported
+#: nothing found with nothing to say about why.
+_HANDLE = re.compile(r"@[a-z0-9][a-z0-9._-]*", re.IGNORECASE)
+
 #: Stripped off a host before it is compared: ``www.rtings.com`` and
 #: ``rtings.com`` are the same source, and pages link to both.
 _WWW = "www."
@@ -120,19 +127,32 @@ def parse_source(spec: str) -> Source:
         raise ValueError("A source cannot be blank.")
 
     if spec.startswith("@"):
-        return Source(spec=spec, domain=_HANDLE_HOST, term=spec.split("/")[0])
+        handle = spec.split("/")[0]
+        if not _HANDLE.fullmatch(handle):
+            raise _not_a_source(spec)
+        return Source(spec=spec, domain=_HANDLE_HOST, term=handle)
 
     # Everything after the host is a path, and everything before it is a scheme
     # or credentials -- neither says which site this is.
     host, _, path = _SCHEME.sub("", spec).partition("/")
     host = host.split("@")[-1].split(":")[0].lower().removeprefix(_WWW)
     if not _HOSTNAME.fullmatch(host):
-        raise ValueError(
-            f"{spec!r} does not name a source. Give a site (rtings.com), a section "
-            "of one (rtings.com/headphones) or a YouTube handle (@mkbhd)."
-        )
+        raise _not_a_source(spec)
 
     return Source(spec=spec, domain=host, term=_term(path))
+
+
+def _not_a_source(spec: str) -> ValueError:
+    """The refusal both shapes carry, naming the ones that work.
+
+    One sentence rather than two: a handle and a host fail for the same reason --
+    what was written identifies no page to take a fact from -- and the shopper
+    needs the shapes, not which branch turned them away.
+    """
+    return ValueError(
+        f"{spec!r} does not name a source. Give a site (rtings.com), a section "
+        "of one (rtings.com/headphones) or a YouTube handle (@mkbhd)."
+    )
 
 
 def parse_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:

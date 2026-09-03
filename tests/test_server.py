@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 
 import pytest
 
+import buy_agent.server as server_module
 from buy_agent.agent import ModelUnavailableError, every_step_passes
 from buy_agent.models import Product, RankedProduct
 from buy_agent.providers import OLLAMA, VLLM
@@ -343,6 +344,28 @@ def test_a_reorder_of_something_that_is_not_a_run_is_refused(server: str) -> Non
 
     assert status == 400
     assert payload["field"] == "products"
+
+
+def test_a_get_that_raises_is_answered_rather_than_dropped(server: str, monkeypatch) -> None:
+    """The reason ``do_POST`` has a catch-all, on the half that had none.
+
+    ``/api/config`` builds an ``AgentConfig``, which refuses a provider nothing
+    can serve -- so ``$BUY_AGENT_PROVIDER=olama`` made every page load an
+    exception escaping to socketserver, which closes the socket unanswered. The
+    browser reads that as the agent server being down and says so, for a server
+    that is up and answering everything else, while the sentence naming the
+    servers that do exist reaches nobody.
+    """
+
+    def explode() -> dict:
+        raise ValueError("Unknown provider 'olama'; expected one of ollama, vllm.")
+
+    monkeypatch.setattr(server_module, "defaults_payload", explode)
+
+    status, payload = get(f"{server}/api/config")
+
+    assert status == 500
+    assert "olama" in payload["error"], "the reason is what makes a 500 worth reading"
 
 
 def test_unknown_api_paths_are_not_swallowed_by_the_app(server: str) -> None:
@@ -1272,6 +1295,24 @@ def test_a_body_nobody_is_left_to_read_is_not_an_error() -> None:
     handler.end_headers = lambda: None
 
     handler._send_bytes(200, b"body", "text/plain")
+
+
+def test_the_server_refuses_to_start_on_a_provider_nothing_can_serve(
+    monkeypatch, caplog
+) -> None:
+    """Fail where the shell that set it is still on screen.
+
+    Every page load resolves ``$BUY_AGENT_PROVIDER`` -- the form's own defaults
+    are an ``AgentConfig`` -- so a misspelt one is a server that binds a port and
+    then answers 500 to everything it serves. Better to not bind it.
+    """
+    monkeypatch.setattr(server_module, "DEFAULT_PROVIDER", "olama")
+
+    with caplog.at_level(logging.ERROR):
+        assert main([]) == 1
+
+    assert "olama" in caplog.text
+    assert "ollama, vllm" in caplog.text, "the servers that do exist are the whole message"
 
 
 def test_a_client_that_left_before_the_headers_never_starts_a_search() -> None:

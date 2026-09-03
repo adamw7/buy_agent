@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
@@ -76,12 +77,18 @@ def test_boilerplate_without_figures_condenses_to_nothing() -> None:
     assert condense("About us\nContact\nPrivacy policy\n", max_chars=1000) == ""
 
 
-def stub_client(monkeypatch, handler) -> None:
-    """Point buy_agent.fetch at a fake httpx client."""
+def fake_client(handler, captured: dict | None = None):
+    """A stand-in for ``httpx.Client`` that answers ``handler``.
+
+    ``stream`` and not ``get``: the fetch reads the content type off the headers
+    and then stops at ``fetch._MAX_PAGE_BYTES``, so what it asks of a client is a
+    response it can iterate rather than one already whole.
+    """
 
     class FakeClient:
-        def __init__(self, **_kwargs) -> None:
-            pass
+        def __init__(self, **kwargs) -> None:
+            if captured is not None:
+                captured.update(kwargs)
 
         def __enter__(self):
             return self
@@ -89,10 +96,17 @@ def stub_client(monkeypatch, handler) -> None:
         def __exit__(self, *_exc) -> None:
             return None
 
-        def get(self, url: str):
-            return handler(url)
+        @contextlib.contextmanager
+        def stream(self, method: str, url: str):
+            assert method == "GET"
+            yield handler(url)
 
-    monkeypatch.setattr("buy_agent.fetch.httpx.Client", FakeClient)
+    return FakeClient
+
+
+def stub_client(monkeypatch, handler) -> None:
+    """Point buy_agent.fetch at a fake httpx client."""
+    monkeypatch.setattr("buy_agent.fetch.httpx.Client", fake_client(handler))
 
 
 def make_response(url: str, body: str, *, status: int = 200, content_type: str = "text/html"):
@@ -466,20 +480,10 @@ def test_pages_are_requested_as_a_browser_would(monkeypatch) -> None:
     """Many shops answer python-httpx with a 403."""
     captured: dict = {}
 
-    class Recorder:
-        def __init__(self, **kwargs) -> None:
-            captured.update(kwargs)
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_exc) -> None:
-            return None
-
-        def get(self, url: str):
-            return make_response(url, PAGE)
-
-    monkeypatch.setattr("buy_agent.fetch.httpx.Client", Recorder)
+    monkeypatch.setattr(
+        "buy_agent.fetch.httpx.Client",
+        fake_client(lambda url: make_response(url, PAGE), captured),
+    )
 
     enrich([SearchResult(url="https://shop.example")], max_chars=100, timeout=2.5)
 
@@ -512,20 +516,10 @@ def test_pages_are_asked_for_in_english(monkeypatch) -> None:
     """A shop that answers in the local language yields prices in another currency."""
     captured: dict = {}
 
-    class Recorder:
-        def __init__(self, **kwargs) -> None:
-            captured.update(kwargs)
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_exc) -> None:
-            return None
-
-        def get(self, url: str):
-            return make_response(url, PAGE)
-
-    monkeypatch.setattr("buy_agent.fetch.httpx.Client", Recorder)
+    monkeypatch.setattr(
+        "buy_agent.fetch.httpx.Client",
+        fake_client(lambda url: make_response(url, PAGE), captured),
+    )
 
     enrich([SearchResult(url="https://shop.example")], max_chars=100)
 
@@ -541,26 +535,16 @@ def test_the_fetch_defaults_are_the_ones_the_agent_relies_on(monkeypatch) -> Non
     """
     captured: dict = {}
 
-    class Recorder:
-        def __init__(self, **kwargs) -> None:
-            captured.update(kwargs)
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_exc) -> None:
-            return None
-
-        def get(self, url: str):
-            return make_response(url, PAGE)
-
     pool = ThreadPoolExecutor
 
     def record_pool(*, max_workers: int, **kwargs):
         captured["max_workers"] = max_workers
         return pool(max_workers=max_workers, **kwargs)
 
-    monkeypatch.setattr("buy_agent.fetch.httpx.Client", Recorder)
+    monkeypatch.setattr(
+        "buy_agent.fetch.httpx.Client",
+        fake_client(lambda url: make_response(url, PAGE), captured),
+    )
     monkeypatch.setattr("buy_agent.fetch.ThreadPoolExecutor", record_pool)
 
     enrich([SearchResult(url="https://shop.example")], max_chars=100)
@@ -680,3 +664,45 @@ def test_a_product_called_pro_is_not_mistaken_for_a_pros_list() -> None:
     """Half the products on a headphone page are a "Pro" of something."""
     assert condense("Apple AirPods Pro (2nd generation)", max_chars=1000) == ""
     assert "Pros and cons" in condense("Pros and cons of the WH-CH720N", max_chars=1000)
+
+
+def test_a_page_is_read_only_as_far_as_the_ceiling(monkeypatch) -> None:
+    """Neither of the other two bounds is a bound on how much arrives.
+
+    ``timeout`` is the wait between chunks rather than for the transfer, so a
+    large, steady response never trips it, and ``condense`` runs on text already
+    in memory -- with eight of these in flight. A page cut mid-tag still parses,
+    which is why the rest is dropped rather than the page refused.
+    """
+    monkeypatch.setattr("buy_agent.fetch._MAX_PAGE_BYTES", 64)
+    body = "<p>Sony WH-CH720N $129.00</p>" + "<p>filler</p>" * 500
+    stub_client(monkeypatch, lambda url: make_response(url, body))
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://huge.example", max_chars=1000)
+
+    assert "$129.00" in page.text, "what arrived before the cut is still read"
+    assert page.problem is None
+
+
+def test_a_page_served_as_something_else_is_dropped_before_its_body(monkeypatch) -> None:
+    """The content type is on the headers, which a stream delivers first."""
+    read: list[str] = []
+
+    def answer(url: str):
+        response = make_response(url, "%PDF-1.4" + "x" * 10_000, content_type="application/pdf")
+        original = response.iter_bytes
+
+        def watched(*args, **kwargs):
+            read.append(url)
+            return original(*args, **kwargs)
+
+        response.iter_bytes = watched
+        return response
+
+    stub_client(monkeypatch, answer)
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://manual.example/x.pdf", max_chars=1000)
+
+    assert page == PageText("", "did not answer with HTML")
+    assert read == [], "nothing of the body was read"

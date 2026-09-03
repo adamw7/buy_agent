@@ -214,3 +214,24 @@ def test_sources_are_written_back_the_way_they_were_given() -> None:
 
 def test_no_sources_is_an_empty_field_rather_than_a_word_meaning_none() -> None:
     assert format_sources(()) == ""
+
+
+@pytest.mark.parametrize("spec", ["@", "@@@", "@/", "@/videos"])
+def test_an_at_sign_naming_no_channel_is_not_a_source(spec: str) -> None:
+    """The one shape that used to name its site without naming anything on it.
+
+    Every other spec goes through the hostname check; this branch went through
+    nothing, so ``--source @`` parsed and then searched YouTube for the literal
+    phrase "@". Named sources have no fall back to the wider web (ADR-0027), so
+    what the shopper got was an empty report with nothing to say about why.
+    """
+    with pytest.raises(ValueError, match="does not name a source"):
+        parse_source(spec)
+
+
+@pytest.mark.parametrize("spec", ["@mkbhd", "@mkbhd/videos", "@marques.brownlee", "@a_b-1"])
+def test_a_handle_that_names_a_channel_is_still_a_source(spec: str) -> None:
+    source = parse_source(spec)
+
+    assert source.domain == "youtube.com"
+    assert source.term == spec.split("/")[0]

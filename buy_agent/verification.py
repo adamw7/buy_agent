@@ -69,6 +69,23 @@ _COUNTING = r"(?:best|top|cheapest|worst|greatest)"
 _RATING_BEFORE = rf"(?:rated|rating|score[ds]?)\b(?![^\d]{{0,12}}{_COUNTING}\b)[^\d]{{0,12}}"
 _RATING_OUT_OF_TEN = r"\s*(?:/\s*10\b|(?:out\s+of|of)\s+10\b)"
 
+#: A review count is a small whole number, which is what a year, a model number
+#: and a price all are too -- so checked as a bare figure it grounds on any of
+#: them: "720" out of "WH-CH720N", "2023" out of a release date, "148" out of the
+#: price beside it. That is the mistake :data:`_RATING_AFTER` exists to refuse,
+#: on the other figure that feeds the score (the popularity half of it), so it is
+#: refused the same way: the number counts only where it is written as a count of
+#: somebody. The nouns are who does the reviewing, not what a page is about --
+#: "headphones" or "products" would take every figure on it.
+_COUNTED = (
+    r"(?:reviews?|ratings?|reviewers?|shoppers?|customers?|buyers?|owners?|users?|votes?)"
+)
+#: Two words of room, which is what a page puts between: "3,200 global ratings",
+#: "1,024 verified customer reviews".
+_COUNT_AFTER = rf"\s+(?:\w+\s+){{0,2}}{_COUNTED}\b"
+#: The same gap :data:`_RATING_BEFORE` leaves, for "Reviews (3,200)".
+_COUNT_BEFORE = rf"{_COUNTED}\b[^\d]{{0,12}}"
+
 
 def normalise_numbers(text: str) -> str:
     """Write every number one way, so the same figure compares equal either side.
@@ -131,6 +148,16 @@ def mentions_rating(haystack: str, value: float) -> bool:
     return bool(
         re.search(after, haystack, re.IGNORECASE)
         or re.search(before, haystack, re.IGNORECASE)
+    )
+
+
+def mentions_review_count(haystack: str, value: float) -> bool:
+    """Whether ``value`` appears in ``haystack`` written as a count of reviews."""
+    literal = _as_literal(value)
+    figure = rf"(?<![\d.]){re.escape(literal)}(?!\d)"
+    return bool(
+        re.search(rf"{figure}{_COUNT_AFTER}", haystack, re.IGNORECASE)
+        or re.search(rf"{_COUNT_BEFORE}{figure}", haystack, re.IGNORECASE)
     )
 
 
@@ -213,14 +240,15 @@ def attribute_sources(
 
 
 #: Each figure that has to be found in the sources, and how it is written when it
-#: is. A rejected figure takes its :data:`~buy_agent.models.QUALIFIERS` down with
+#: is -- a price as a number, a rating and a review count as themselves, both of
+#: those being small figures a page prints for a hundred other reasons. A rejected figure takes its :data:`~buy_agent.models.QUALIFIERS` down with
 #: it -- ADR-0022's grouping, one stage earlier than the merge it was written for.
 #: ``rating`` comes before ``review_count`` so a rejected rating blanks the count
 #: before the count is judged alone; blanking only adds, so nothing brings it back.
 _GROUNDED_FIGURES: tuple[tuple[str, Callable[[str, float], bool]], ...] = (
     ("price", mentions_number),
     ("rating", mentions_rating),
-    ("review_count", mentions_number),
+    ("review_count", mentions_review_count),
 )
 
 

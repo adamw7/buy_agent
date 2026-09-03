@@ -25,9 +25,9 @@ one place a name becomes behaviour.
 from __future__ import annotations
 
 import os
-from concurrent.futures import ThreadPoolExecutor
+import time
+from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
-from functools import partial
 from typing import TYPE_CHECKING, Any, Callable
 
 import httpx
@@ -46,8 +46,13 @@ if TYPE_CHECKING:
 #: all, so a placeholder stands in for the header vLLM is not checking.
 _NO_KEY = "EMPTY"
 
-#: How long to wait on a model listing. Short on purpose: it is asked for while a
-#: form is rendering, and "unreachable" is an answer worth giving quickly.
+#: How long to wait on a model listing -- all of it, not each request in it.
+#: Short on purpose: it is asked for while a form is rendering, and
+#: "unreachable" is an answer worth giving quickly. The number is a per-request
+#: timeout on the client *and* the deadline the capability probes share, since
+#: the client's own bounds one question and Ollama's listing asks one per tag
+#: (ADR-0032): fifty tags on a slow server is fifty timeouts, eight at a time,
+#: with the form waiting on every one of them.
 _LIST_TIMEOUT = 5.0
 
 #: What an Ollama model's capabilities must include for it to answer a prompt at
@@ -138,14 +143,32 @@ def _ollama_installed(config: AgentConfig) -> list[InstalledModel]:
 
     A tag that will not say what it can do counts as able to answer: keeping an
     unusable model out of the way is the point, but hiding a working one on a
-    failed probe would be the worse mistake.
+    failed probe would be the worse mistake. A probe still running when the
+    budget is spent is that same case -- it did not say -- which is what keeps
+    the whole listing inside :data:`_LIST_TIMEOUT` rather than inside it per tag.
     """
+    deadline = time.monotonic() + _LIST_TIMEOUT
     client = Client(config.base_url, timeout=_LIST_TIMEOUT)
     names = [model.model for model in client.list().models if model.model]
     if not names:
         return []
-    with ThreadPoolExecutor(max_workers=min(len(names), _PROBES)) as pool:
-        return list(pool.map(partial(_ollama_capability, client), names))
+    return _probe(client, names, deadline)
+
+
+def _probe(client: Client, names: list[str], deadline: float) -> list[InstalledModel]:
+    """Ask every tag what it can do, with one budget for the lot of them."""
+    pool = ThreadPoolExecutor(max_workers=min(len(names), _PROBES))
+    try:
+        probes = [(name, pool.submit(_ollama_capability, client, name)) for name in names]
+        wait([probe for _, probe in probes], timeout=max(0.0, deadline - time.monotonic()))
+        return [
+            probe.result() if probe.done() else InstalledModel(name, completion=True)
+            for name, probe in probes
+        ]
+    finally:
+        # Not the context manager: its exit waits for the probes that ran past the
+        # deadline, which is the wait this budget exists to end.
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _ollama_capability(client: Client, name: str) -> InstalledModel:
