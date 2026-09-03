@@ -2,6 +2,7 @@ import {
   Component,
   DestroyRef,
   ElementRef,
+  afterRenderEffect,
   computed,
   effect,
   inject,
@@ -65,6 +66,19 @@ export class ProgressLog {
     return took ? `${lines} · ${took}` : lines;
   });
 
+  /**
+   * What an empty panel says, which is not the same thing twice.
+   *
+   * A run refused before it starts -- a region the server would not take, a
+   * source that names no site -- logs nothing at all, and the panel then sat
+   * under the banner explaining that saying "Waiting for the first step…", as if
+   * something were still on its way. Nothing is: the run is over, and the panel
+   * says which of the two this is.
+   */
+  protected readonly nothingYet = computed(() =>
+    this.running() ? 'Waiting for the first step…' : 'The run ended before it logged anything.',
+  );
+
   /** Whether new lines should pull the panel down with them. A plain field and
    *  not a signal: it is read by the effect that scrolls, and as a signal it
    *  would be a dependency of its own writes. */
@@ -81,7 +95,17 @@ export class ProgressLog {
     // still at the tail. A run logs for a minute, so scrolling up to re-read the
     // refined query used to last until the next line arrived and yanked the panel
     // back down; there is no reading a finished step out of a live run that way.
-    effect(() => {
+    //
+    // After the render and not during it. A plain `effect` runs before the DOM
+    // holds the lines it was woken for, so `scrollHeight` is still the height
+    // from before them and the panel is left one batch short of the bottom every
+    // time. Worse, the scroll event for that stale position arrives *after* the
+    // render, when the gap it measures is a whole batch of new lines -- past
+    // STICK_MARGIN, so `follow` reads it as the reader having scrolled away and
+    // the panel stops following for the rest of the run. Which is what it did:
+    // eleven of a run's forty-four lines, frozen, through the step it exists to
+    // narrate.
+    afterRenderEffect(() => {
       this.lines();
       const element = this.scroller()?.nativeElement;
       if (element && this.sticking) {

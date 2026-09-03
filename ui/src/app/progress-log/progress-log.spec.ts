@@ -151,6 +151,18 @@ describe('ProgressLog', () => {
     expect(duration(-5_000)).toBe('0s');
   });
 
+  it('stops promising a first step once the run is over', async () => {
+    /* A run refused before it starts -- a region the server will not take --
+       logs nothing at all, and "Waiting for the first step…" under the banner
+       explaining that says something is still coming. Nothing is. */
+    expect((await render([], true)).querySelector('.idle')!.textContent).toContain(
+      'Waiting for the first step',
+    );
+    expect((await render([], false)).querySelector('.idle')!.textContent).toContain(
+      'ended before it logged anything',
+    );
+  });
+
   it('shows the time Python logged each line at', async () => {
     const rows = (await render(LINES)).querySelectorAll('.line');
     expect(rows[0].querySelector('.at')!.textContent!.trim()).toBe('18:12:17');
@@ -230,6 +242,46 @@ describe('ProgressLog scrolling', () => {
     await add();
 
     expect(scroller.scrollTop).toBe(900);
+  });
+
+  it('measures the panel after the new lines are in it', async () => {
+    // The one thing `measure` above cannot say, its height being a constant: a
+    // browser's grows as lines land in it. Measured before the render -- which
+    // is when a plain `effect` runs -- the height is the one from before the
+    // line that woke it, and the panel comes to rest a line short of the bottom
+    // every time. The scroll event for that stale position then arrives after
+    // the render, reads the gap as the reader having scrolled away, and the
+    // panel stops following for the rest of the run.
+    const fixture = TestBed.createComponent(ProgressLog);
+    fixture.componentRef.setInput('lines', LINES);
+    fixture.componentRef.setInput('running', true);
+    await fixture.whenStable();
+    const scroller = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '.scroller',
+    )!;
+
+    const ROW = 30;
+    Object.defineProperty(scroller, 'clientHeight', { value: 30, configurable: true });
+    Object.defineProperty(scroller, 'scrollHeight', {
+      configurable: true,
+      get: () => scroller.querySelectorAll('.line').length * ROW,
+    });
+    let position = LINES.length * ROW - 30;
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => position,
+      set: (value: number) => void (position = value),
+    });
+    scroller.dispatchEvent(new Event('scroll'));
+
+    fixture.componentRef.setInput('lines', [
+      ...LINES,
+      { time: '18:12:24', level: 'INFO', logger: 'buy_agent', message: 'Extracting' },
+      { time: '18:12:25', level: 'INFO', logger: 'buy_agent', message: 'Extracted 10' },
+    ]);
+    await fixture.whenStable();
+
+    expect(scroller.scrollTop).toBe(4 * ROW);
   });
 });
 

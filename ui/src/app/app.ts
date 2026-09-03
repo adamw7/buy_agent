@@ -224,10 +224,10 @@ export class App {
         // Nothing was lost -- the run is still on the screen in the order it was
         // already in -- so this is said beside those results rather than in the
         // banner that means the run itself failed.
-        error: () => {
+        error: (failure: unknown) => {
           this.reorderFailed.set(
             `Could not re-order these by ${sortBy}; they are still ranked by ` +
-              `${found.sort_by}. Is the agent server still running?`,
+              `${found.sort_by}. ${refusal(failure)}`,
           );
           // Put the control back to the order these products are actually in.
           // Angular cannot: the reader moved the select, `found.sort_by` never
@@ -295,4 +295,21 @@ export class App {
 /** The wall clock as Python's `%H:%M:%S` writes it, for the one line above. */
 function now(): string {
   return new Date().toTimeString().slice(0, 8);
+}
+
+/**
+ * Why a request failed: the server's own sentence, or a guess where it sent none.
+ *
+ * The browser decides nothing, and that includes the diagnosis. `POST /api/rank`
+ * refuses things it can name -- fifty products with six quotes each is a body
+ * past the server's cap, and the answer says so -- and writing "Is the agent
+ * server still running?" over the top of that told a shopper to go looking for a
+ * server that had answered, in a sentence explaining exactly what was wrong. The
+ * guess is kept for the one case with nothing to read: a request that reached
+ * nothing at all.
+ */
+function refusal(failure: unknown): string {
+  const answered = (failure as { error?: { error?: unknown } } | null)?.error?.error;
+  const said = typeof answered === 'string' ? answered.trim() : '';
+  return said || 'Is the agent server still running?';
 }

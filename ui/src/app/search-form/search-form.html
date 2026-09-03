@@ -212,9 +212,16 @@
       <label class="field">
         <span>Thinking mode</span>
         <select name="thinking" [(ngModel)]="thinking" [disabled]="running()">
-          <option value="off">Off — needed by thinking models</option>
+          <option value="off">Off</option>
           <option value="on">On</option>
         </select>
+        <!-- Under the box, not inside the option. A select is as wide as its
+             grid column and clips whatever will not fit, so "Off — needed by
+             thinking models" came down as "Off — needed by thinking m": the one
+             option carrying the warning was the one that could not be read, and
+             the reader could not widen it. Every other field says its piece in a
+             `small` for the same reason. -->
+        <small>Thinking models are cut off before they answer; leave this off for them.</small>
       </label>
 
       <label class="field checkbox">
@@ -224,7 +231,7 @@
     </div>
 
     <p class="hint">
-      Naming trusted sources -- a site, a section of one, or a YouTube handle -- searches those and
+      Naming trusted sources — a site, a section of one, or a YouTube handle — searches those and
       nothing else, so every price, rating and quote comes from a page you chose.
     </p>
 

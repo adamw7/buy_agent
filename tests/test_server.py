@@ -1011,6 +1011,27 @@ def test_an_unbuilt_ui_says_how_to_build_it(server: str) -> None:
     assert "npm run build" in payload["error"]
 
 
+def test_an_unbuilt_ui_says_it_to_a_browser_as_a_page(server: str) -> None:
+    """The one client that matters here, and the one that cannot read JSON.
+
+    This message is what stands between somebody who has just started the server
+    and a working page, and they are looking at it in a browser -- which renders
+    ``application/json`` as its braces and quotes, so the instructions arrived
+    looking like the crash they are there to prevent. A browser says what it can
+    read in ``Accept``; everything else keeps the JSON above.
+    """
+    status, page = _call(
+        urllib.request.Request(f"{server}/", headers={"Accept": "text/html,*/*;q=0.8"})
+    )
+
+    assert status == 503
+    assert page.startswith("<!doctype html>")
+    assert "npm install &amp;&amp; npm run build" in page
+    # No script and nothing from another origin: the CSP that goes out with it is
+    # the app's own, and a page it refuses to draw says nothing to anybody.
+    assert "<script" not in page
+
+
 def test_the_directory_to_run_npm_in_is_the_workspace() -> None:
     """Not the build's own parent, which is where this message used to send people.
 
