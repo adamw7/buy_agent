@@ -453,6 +453,9 @@ mix through `AgentConfig(weights=RankingWeights(rating=0.7, price=0.3, ...))`.
 python -m pytest              # the Python suite
 cd ui; npm test               # the UI's own tests, in jsdom
 python -m pytest integration  # ...and against a real model, if one is pulled
+
+python -m benchmark --scripted perfect   # score the pipeline, no model needed
+python -m benchmark                      # ...and score whatever is serving
 ```
 
 Neither of the first two touches the network or a model server, both run on
@@ -465,9 +468,20 @@ it, and a nightly job capped at five minutes is what runs it (ADR-0026). vLLM is
 not in that job -- it needs a GPU, and a CPU runner cannot host one honestly -- so
 its half is asserted in `tests/test_providers.py` and named as a gap in ADR-0028.
 
+Those tests ask whether the pipeline's promises held, which holds however badly
+the model read the pages -- so none of them can say whether a change made things
+better. `benchmark/` is the other half: ten fixed pages, an answer key recording
+what each of them prints for each product, and a scorer that turns a run into
+eight shares in `[0, 1]` -- products found, products real, figures right, figures
+misattributed, links, quotes, quotes faithful, ranking order (ADR-0036). It is
+deterministic on everything but the model, so two scores a month apart are
+comparable; the nightly run is scored as well as checked, and
+`--scripted perfect` runs a hand-written answer through the whole real pipeline
+with no model at all and must come out at 1.000.
+
 What the counts are, what `tests/test_conventions.py` checks that coverage
-cannot, and the mutation run that grades the suite every Saturday are in
-[Tests](docs/testing.md).
+cannot, what the benchmark measures, and the mutation run that grades the suite
+every Saturday are in [Tests](docs/testing.md).
 
 ## Limitations
 
@@ -475,7 +489,8 @@ cannot, and the mutation run that grades the suite every Saturday are in
   that a number appears in the sources, not that it belongs to the product it was
   filed under, and small models sometimes give two products the same review
   count. Read the top 3 as candidates worth clicking rather than as a price
-  quote.
+  quote. This is the one limitation here that is measured rather than only
+  described: it is the benchmark's `attribution` metric.
 - **A quote is tied to a page, not to a product on it.** A quoted opinion has to
   appear on a page that names the product (ADR-0025), so a verdict cannot move
   between pages about unrelated things -- but a review page covering eight
@@ -493,7 +508,8 @@ cannot, and the mutation run that grades the suite every Saturday are in
   every figure the pages did not back, so a report of "price unknown" throughout
   is either a bad model or nothing having been read, and that line is which.
 - DuckDuckGo rate-limits heavy use; the agent reports this as a `SearchError`.
-- Only `lfm2.5` (1.2B) has been measured: it works, takes ~75s end to end, and
-  most of that is extraction. The failure modes above are the ones a small model
-  shows, so a larger model should improve on them, but that is an expectation
-  rather than something benchmarked here.
+- Only `lfm2.5` (1.2B) has been measured end to end for *speed*: it works, takes
+  ~75s, and most of that is extraction. The failure modes above are the ones a
+  small model shows, so a larger model should improve on them -- `python -m
+  benchmark --model <tag>` is how to find out rather than assume, but no model
+  larger than the nightly's `qwen3:0.6b` has been scored yet.
