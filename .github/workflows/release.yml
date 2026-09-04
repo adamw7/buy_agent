@@ -17,7 +17,7 @@ concurrency:
   # run cancelled halfway has attached some of the assets and none of the rest,
   # which is a release that looks finished and is not. Two runs for one tag
   # queue instead, and the second overwrites what the first uploaded.
-  group: release-${{ github.workflow }}-${{ github.event.release.tag_name || github.event.inputs.tag }}
+  group: ${{ github.workflow }}-${{ github.event.release.tag_name || github.event.inputs.tag }}
   cancel-in-progress: false
 
 permissions:
@@ -175,10 +175,15 @@ jobs:
 
       - name: Build the image
         run: |
-          # A registry path is lowercase; a GitHub owner need not be.
-          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
-          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
-          docker build -t "ghcr.io/${GITHUB_REPOSITORY,,}:${TAG#v}" .
+          # A registry path is lowercase; a GitHub owner need not be. Named once
+          # here and exported for the two steps below, which cannot see a
+          # $GITHUB_ENV line written by the step they are in.
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          version="${TAG#v}"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+          docker build -t "$image:$version" .
 
       # Built, started and asked a question before it is published: an image
       # that cannot serve its own page is worth catching here rather than in a
