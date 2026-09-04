@@ -101,7 +101,7 @@ default. No pull request builds it -- `release.yml` does, once per release
 pins, its copy destination and its `EXPOSE` in step.
 
 `.dockerignore` narrows what the build sees: `tests/`, `integration/`, `docs/`,
-`scripts/`, `demo/`, `.github/`, every Markdown file, the dev and mutation
+`scripts/`, `demo/`, `.github/`, `.claude/`, every Markdown file, the dev and mutation
 requirements with `setup.cfg`, and every local build artefact (`.venv/`,
 `ui/node_modules/`, `ui/dist/`, `ui/.angular/`, `mutants/`, `__pycache__/`). So
 the Node stage builds from source rather than copying a stale local `dist/`, and
@@ -209,6 +209,20 @@ above, which has gone stale before; `preflight` is the gate `ci.yml` applies. Th
 are checklists over the rules written down here, not new rules -- a rule belongs in
 this file or in a convention test, where it holds whether or not anybody invoked a
 skill.
+
+`.claude/hooks/session-start.sh` is the other thing in there, and it runs rather
+than being read: the images Claude Code on the web starts a session in ship a Node
+below the one `ci.yml` pins, which the Angular CLI refuses outright, so every
+session used to open by hunting for another interpreter and finding none. The hook
+fetches the pinned build into `/opt/node-<version>`, leaves it on `$PATH` through
+`$CLAUDE_ENV_FILE` -- the Bash tool starting a fresh shell per call, so exporting it
+is not enough -- and runs `npm install` in `ui/`. It reads the version out of
+`ci.yml` rather than writing it down again, by the rule `scripts/start.ps1` follows:
+that file is the one pin the `Dockerfile`, the start script and `docs/testing.md`
+already chase, and a fourth copy is a fourth thing to bump. It is a no-op outside a
+remote session (`$CLAUDE_CODE_REMOTE`), a no-op once the interpreter is unpacked,
+and every failure in it is a warning rather than a stop -- a session that starts
+with the old Node is the situation it was written for, not worse than it.
 
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used for
 the two steps it is reliable at, and ordinary Python does everything else, because

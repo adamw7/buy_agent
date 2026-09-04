@@ -4,6 +4,7 @@
 
 .git/
 .github/
+.claude/
 .gitignore
 .dockerignore
 Dockerfile
