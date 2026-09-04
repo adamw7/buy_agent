@@ -66,6 +66,7 @@ from buy_agent.api import (
     sources_payload,
 )
 from buy_agent.config import LIMITS, AgentConfig, parse_region
+import buy_agent.providers as providers_module
 from buy_agent.providers import PROVIDERS, InstalledModel, provider_options
 from buy_agent.models import Product, RankedProduct
 from buy_agent.ranking import SortBy
@@ -863,6 +864,56 @@ def test_the_mutation_run_is_scheduled_for_saturdays() -> None:
 
     assert (day_of_week, day_of_month, month) == ("6", "*", "*")
     assert minute != "0", "the top of the hour is where scheduled runs queue"
+
+
+#: The one test module that reloads a module of the package under test. A reload
+#: re-runs ``providers.py`` over its own ``__dict__``, so a *function* imported
+#: from it beforehand goes on reading the new table -- its globals are that dict --
+#: while a *class* is rebound to a brand new object, and a dataclass compares equal
+#: only to its own class.
+_RELOADS = _ROOT / "tests" / "test_providers.py"
+
+
+def names_imported_from(source: Path, module: str) -> list[str]:
+    """Every name ``source`` binds at import time out of ``module``."""
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    return [
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == module
+        for alias in node.names
+    ]
+
+
+def test_the_module_that_reloads_providers_binds_nothing_a_reload_replaces() -> None:
+    """The suite must not care what order it runs in, and this is the one place it
+    could.
+
+    ``tests/test_providers.py`` reloads ``buy_agent.providers`` to re-read its
+    environment-derived defaults. Anything that module imported *by name* from
+    ``providers`` beforehand still points at the pre-reload object, so an expected
+    value built from a class imported that way stops matching what the reloaded
+    code answers with -- ``InstalledModel(...) != InstalledModel(...)``, the two
+    being different classes with the same fields.
+
+    A normal run never sees it: the reloading tests sit at the bottom of the file
+    and pytest runs a file top to bottom. The mutation run's clean-test pass sorts
+    the suite by duration instead, so it fails there -- before a single mutant has
+    been tried, on a Saturday, with nobody watching.
+
+    Functions are safe and are what this leaves room for: a reload rebinds the
+    name in the module's namespace, but the old function object shares that same
+    namespace and so goes on reading the table the reload just wrote.
+    """
+    imported = names_imported_from(_RELOADS, "buy_agent.providers")
+
+    assert imported, "the module no longer imports from providers; this rule has moved"
+    for name in imported:
+        attribute = getattr(providers_module, name)
+        assert inspect.isfunction(attribute), (
+            f"{name} is imported by name into the module that reloads providers, and a"
+            " reload replaces it -- read it off the module instead"
+        )
 
 
 def files_read() -> list[Path]:

@@ -264,6 +264,24 @@ def test_nothing_found_is_not_reported_on_stdout(split_streams) -> None:
     assert captured.out == ""
 
 
+def test_the_report_is_a_block_with_a_rule_at_each_end(report) -> None:
+    """The report is what ``> top.txt`` catches and what the browser's panel shows
+    as the run's answer, so it has to read as one block rather than as lines that
+    happen to follow the narration.
+
+    The closing rule is the half nothing else here would notice going missing: a
+    report that opens with one and never closes leaves the last product looking
+    like the first line of whatever comes next.
+    """
+    log_top_products(ranked(Product(name="Alpha"), Product(name="Beta")), 2)
+
+    lines = [record.getMessage() for record in report.records]
+    assert set(lines[0]) == {"="}, "the report opens with a rule"
+    assert lines[2] == lines[0], "and the title sits between two of them"
+    assert lines[-1] == lines[0], "and it closes with the same rule"
+    assert lines.count(lines[0]) == 3, "three rules and no more: it is one block"
+
+
 def test_every_opinion_gets_its_own_line(report) -> None:
     """Two verdicts on one line would read as one reviewer's sentence."""
     log_top_products(

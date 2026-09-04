@@ -27,7 +27,7 @@ from ollama import ResponseError
 
 import buy_agent.providers as providers_module
 from buy_agent.config import AgentConfig
-from buy_agent.providers import InstalledModel, provider_for, provider_options
+from buy_agent.providers import provider_for, provider_options
 
 # The table and its rows are read off the module rather than imported by name,
 # because ``reloaded_providers`` below re-imports it: a reload re-runs the module
@@ -60,8 +60,21 @@ def chat_model(config: AgentConfig):
     return config.model_server.chat_model(config)
 
 
-def listed(config: AgentConfig) -> list[InstalledModel]:
+def listed(config: AgentConfig) -> list[providers_module.InstalledModel]:
     return config.model_server.installed(config)
+
+
+def installed(name: str, *, completion: bool) -> providers_module.InstalledModel:
+    """One entry of an expected listing, built through the module for the same
+    reason the rows are read off it.
+
+    A reload rebinds ``InstalledModel`` to a *new* class, and a dataclass compares
+    equal only to its own -- so an expected value built from a name bound at import
+    time stops matching what :func:`listed` answers with the moment a reloading
+    test has run. File order hides that from an ordinary run and not from the
+    mutation run's clean-test pass, which sorts the suite by duration.
+    """
+    return providers_module.InstalledModel(name, completion=completion)
 
 
 def names(config: AgentConfig) -> list[str]:
@@ -295,8 +308,8 @@ def test_a_tag_with_no_completion_to_give_is_listed_as_one(pulled) -> None:
     )
 
     assert listed(OLLAMA_CONFIG) == [
-        InstalledModel("gemma4:12b", completion=True),
-        InstalledModel("nomic-embed-text", completion=False),
+        installed("gemma4:12b", completion=True),
+        installed("nomic-embed-text", completion=False),
     ]
 
 
@@ -326,8 +339,8 @@ def test_a_tag_that_will_not_say_what_it_can_do_is_still_offered(pulled) -> None
     pulled(["gemma4:12b", "qwen3:8b"], capabilities={"gemma4:12b": [_COMPLETION]})
 
     assert listed(OLLAMA_CONFIG) == [
-        InstalledModel("gemma4:12b", completion=True),
-        InstalledModel("qwen3:8b", completion=True),
+        installed("gemma4:12b", completion=True),
+        installed("qwen3:8b", completion=True),
     ]
 
 
@@ -336,7 +349,7 @@ def test_an_ollama_too_old_to_report_capabilities_offers_everything(pulled) -> N
     about the tag -- and the same rule applies: it is taken at its word."""
     pulled(["gemma4:12b"], capabilities={"gemma4:12b": None})
 
-    assert listed(OLLAMA_CONFIG) == [InstalledModel("gemma4:12b", completion=True)]
+    assert listed(OLLAMA_CONFIG) == [installed("gemma4:12b", completion=True)]
 
 
 def test_an_ollama_with_nothing_pulled_is_asked_nothing_further(pulled) -> None:
@@ -350,7 +363,7 @@ def test_an_ollama_with_nothing_pulled_is_asked_nothing_further(pulled) -> None:
 def test_vllm_lists_the_one_model_it_was_started_with(serving) -> None:
     serving(["Qwen/Qwen3-8B"])
 
-    assert listed(VLLM_CONFIG) == [InstalledModel("Qwen/Qwen3-8B", completion=True)]
+    assert listed(VLLM_CONFIG) == [installed("Qwen/Qwen3-8B", completion=True)]
 
 
 def test_everything_a_vllm_serves_can_answer_a_prompt(serving) -> None:

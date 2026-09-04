@@ -8,6 +8,7 @@ import pytest
 
 from buy_agent import verification
 from buy_agent.extraction import (
+    _MAX_NAME_LENGTH,
     EXTRACTION_PROMPT,
     GENERIC_WORDS,
     NAME_TOKENS,
@@ -137,6 +138,10 @@ def test_a_product_named_after_a_superlative_is_kept() -> None:
     for name in (
         "Best Buy Essentials BE-HAPB02",
         "Top Rated Sony WH-1000XM5",
+        # The model number does not have to be the last word: a page copies the
+        # descriptor along with the name, and looking only at the end of the line
+        # would throw this away as a headline.
+        "Best Buy Essentials BE-HAPB02 Headphones",
     ):
         assert looks_like_a_product(name), name
 
@@ -157,6 +162,9 @@ def test_article_headlines_are_not_products() -> None:
         "12 Best Noise Cancelling Headphones Under $200 (August 2026)",
         "Best Headphones under $200 - SoundGuys",
         "The Top 5 Laptops",
+        # Nothing after the category at all, so there is no word to look for a
+        # model number in -- the question has to be answered before it is asked.
+        "Best Headphones",
         "How to choose a laptop",
         "Which headphones are best?",
         "Laptop Buying Guide",
@@ -178,6 +186,16 @@ def test_real_product_names_survive() -> None:
 
 def test_overlong_names_are_rejected() -> None:
     assert not looks_like_a_product("Sony " + "very " * 20 + "long name")
+
+
+def test_a_name_exactly_at_the_limit_is_still_a_name() -> None:
+    """The ceiling is what an article title runs past, and 80 characters is the
+    last length that is not one -- a real model name padded out with the variant
+    words a shop puts after it reaches this before any headline does."""
+    name = "Sony WH-1000XM5 Wireless Noise Cancelling Over-Ear Bluetooth Headphones in Black"
+    assert len(name) == _MAX_NAME_LENGTH
+
+    assert looks_like_a_product(name)
 
 
 def test_clean_name_strips_publisher_and_trailing_noise() -> None:
@@ -325,6 +343,16 @@ def test_clean_name_keeps_only_what_precedes_the_first_publisher_bar() -> None:
 def test_clean_name_of_pure_page_furniture_is_empty() -> None:
     """And an empty name never gets past looks_like_a_product."""
     assert clean_name("Reviews") == ""
+
+
+def test_a_name_cleaned_away_to_nothing_is_still_named_in_the_log(caplog) -> None:
+    """The names are logged so a heuristic that dropped a real product can be
+    diagnosed, and the one it is hardest to guess at is the one cleaning emptied:
+    a line reading '' says a product went and nothing about which."""
+    with caplog.at_level(logging.DEBUG, logger="buy_agent.extraction"):
+        clean_products([Product(name="Reviews")])
+
+    assert "'Reviews'" in caplog.text
     assert not looks_like_a_product("")
 
 

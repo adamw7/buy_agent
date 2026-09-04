@@ -70,6 +70,20 @@ def test_single_price_ties_on_the_price_criterion() -> None:
     assert score == pytest.approx(NEUTRAL)
 
 
+def test_a_price_scale_narrower_than_a_pound_is_still_a_scale() -> None:
+    """Two listings of one product differ by pennies, and the cheaper is still the
+    cheaper -- so the criterion has to separate them rather than call the spread
+    close enough to be no spread. Anything but zero is a scale."""
+    cheapest, priciest = 129.0, 129.5
+    weights = RankingWeights()
+
+    assert score_product(
+        product("a", price=cheapest), cheapest=cheapest, priciest=priciest, weights=weights
+    ) > score_product(
+        product("b", price=priciest), cheapest=cheapest, priciest=priciest, weights=weights
+    )
+
+
 def test_scores_stay_within_zero_and_one() -> None:
     products = [
         product("floor", price=999.0, rating=0.0, review_count=1),
