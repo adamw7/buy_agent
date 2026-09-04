@@ -35,7 +35,7 @@ type Thinking = 'on' | 'off';
  * pull made by mistake is visible rather than absent (ADR-0032). `note` is the
  * empty string for an entry that is simply a choice.
  */
-export interface ModelOption {
+interface ModelOption {
   name: string;
   note: string;
 }
