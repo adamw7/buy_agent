@@ -981,6 +981,12 @@ def test_a_quiet_run_is_kept_alive_with_pings(server: str, monkeypatch) -> None:
     assert ("ping", {}) in collected, "a quiet stream sent nothing for 0.4s"
     assert names[-1] == "result", "a ping is never the last word"
     assert "failure" not in names, "a quiet stretch is not a failure"
+    # And the stream goes on relaying afterwards. A ping that ended the relay
+    # would still deliver the result -- the worker is waited for either way -- so
+    # what a run costs is everything it went on to say: the panel freezes on the
+    # last line before the quiet stretch and never moves again.
+    after_the_first_ping = names[names.index("ping") :]
+    assert "log" in after_the_first_ping, "the progress stopped at the first ping"
 
 
 def test_the_keepalive_is_frequent_enough_to_be_worth_sending() -> None:
