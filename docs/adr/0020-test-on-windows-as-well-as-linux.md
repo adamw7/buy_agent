@@ -1,6 +1,6 @@
 # ADR-0020: Run both suites on Windows as well as Linux
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0037](0037-run-windows-weekly-rather-than-on-every-push.md)
 - **Date:** 2026-08-26
 
 ## Context

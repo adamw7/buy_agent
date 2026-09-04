@@ -20,7 +20,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-1097 Python tests and 129 UI tests. Nothing in either suite touches the network or
+1103 Python tests and 129 UI tests. Nothing in either suite touches the network or
 a model server: the model is faked through the `llm=` argument of `BuyAgent`, both
 the search backend and the page fetcher are monkeypatched, the two clients
 `buy_agent.providers` builds are patched where that module imported them, and the
@@ -45,14 +45,18 @@ they share and on the Python and Node they run; the release archive carrying the
 UI build where the server looks for it; the nightly run pulling the model the live
 tests ask for; and the decision log agreeing with its own index.
 
-Both suites run on Windows and on Linux. `.github/workflows/ci.yml` spreads its two
-jobs -- `coverage run -m pytest` on Python 3.13, `npm run test:coverage && npm run
-build` on Node 22.22.3 -- over `ubuntu-latest` and `windows-latest`, four runs in
-all, with `fail-fast` off so a failure on one platform still reports the other.
-This project is written on Windows and its runners were Linux, each checking the
-half of the differences the other hides: a path separator, a default encoding, a
-socket that resets where the other closes, a `mimetypes` lookup that reads the
-registry (ADR-0020).
+Both suites run on Windows and on Linux, on different triggers.
+`.github/workflows/ci.yml` spreads its two jobs -- `coverage run -m pytest` on
+Python 3.13, `npm run test:coverage && npm run build` on Node 22.22.3 -- over
+`ubuntu-latest` and `windows-latest`, with `fail-fast` off so a failure on one
+platform still reports the other. This project is written on Windows and its
+runners were Linux, each checking the half of the differences the other hides: a
+path separator, a default encoding, a socket that resets where the other closes, a
+`mimetypes` lookup that reads the registry (ADR-0020). What gates a merge is the
+Linux half: a push to `main` and a pull request run those two jobs and no more.
+Windows joins the matrix on the schedule -- 04:09 UTC on Saturdays -- and on
+`workflow_dispatch`, which is how a branch that touched one of the things above
+asks for all four runs before it is merged (ADR-0037).
 
 `scripts/start.ps1` is the one file neither suite can import or run, so
 `tests/test_start_script.py` does everything short of running it: a PowerShell

@@ -4,24 +4,38 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # 04:09 UTC on Saturdays: the Windows half of the matrix, which no push and no
+    # pull request runs any more (ADR-0037). Off the hour for the reason the other
+    # two schedules are -- runs queued at :00 can start an hour late -- and off
+    # mutation.yml's 05:17 so the two weekly jobs are not both waiting on runners.
+    # GitHub only schedules workflows that are on the default branch, so this fires
+    # once it is on main.
+    - cron: "9 4 * * 6"
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # The event is part of the group so the weekly Windows run and a push to main are
+  # not each other's to cancel: both are on refs/heads/main, and cancel-in-progress
+  # would otherwise let a Saturday morning merge silently drop the run that is the
+  # only Windows check there is.
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
-    # Development happens on Windows and the runners are Linux, so both are run:
+    # Development happens on Windows and the runners are Linux, so both are run --
     # a platform difference either one hides is one nobody sees until it is the
-    # only machine left. fail-fast is off for the same reason -- a Windows-only
-    # failure that cancelled the Linux job would tell you half of what happened.
+    # only machine left -- but not on the same schedule (ADR-0037): Linux gates
+    # every push and pull request, Windows runs weekly and on a manual run, which
+    # is also how to ask for it on a branch. fail-fast is off so a failure on one
+    # platform still reports the other on the runs that have both.
     name: pytest (Python 3.13, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
     defaults:
       run:
         # One shell on both runners. PowerShell is the default on Windows, and a
@@ -54,7 +68,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
     defaults:
       run:
         shell: bash

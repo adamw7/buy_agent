@@ -6,8 +6,9 @@ description: Run the full gate CI applies -- both test suites and both coverage 
 # Preflight
 
 `.github/workflows/ci.yml` runs two jobs on every push to `main` and every pull
-request, matrixed over Linux and Windows. This is the same gate, locally. Run it
-from the repository root with `.venv` active.
+request, on Linux; Windows runs the same two on Saturdays and on a manual run
+(ADR-0037). This is the same gate, locally. Run it from the repository root with
+`.venv` active.
 
 ## Python (Python 3.13)
 
@@ -57,8 +58,10 @@ npm run build
 
 ## If it fails
 
-Fix it before pushing rather than after: both jobs are matrixed over two
-platforms with `fail-fast: false`, so a red push costs two runners and a cycle.
+Fix it before pushing rather than after: a red push costs two runners and a
+cycle, and the half of the matrix that would have caught a platform difference
+does not run until Saturday -- dispatch `CI` on the branch if the change touched a
+path, an encoding, a socket or `scripts/start.ps1`.
 Convention-test failures in particular are telling you a change landed on one
 side of a boundary and not the other -- read what the test's docstring says the
 rule is before changing the test.
