@@ -188,7 +188,13 @@ and `docs/testing.md` each pin themselves to *the* version `ci.yml` names.
   `/`. Linux only, like the other two schedules.
 
 `pytest.ini` sets `pythonpath = .` (which is why the package imports without being
-installed), `testpaths = tests` and `addopts = -q --strict-markers`. `.coveragerc`
+installed), `testpaths = tests`, `addopts = -q --strict-markers` and
+`filterwarnings`, which makes a `DeprecationWarning` or a `PendingDeprecationWarning`
+an error rather than a paragraph at the end of a green run: every direct dependency
+is pinned exactly, so the run that goes red is the one where somebody moved a pin,
+which is when the call is worth fixing. It reaches `integration/` too. A warning a
+dependency raises about itself is not ours to fix and gets an `ignore` line there
+naming the message and the module. `.coveragerc`
 holds the Python floor (99%, against 100% actual) with `branch = true`, so the
 floor is over branches as well as lines; the one exclusion is the
 `if __name__ == "__main__"` guard, covered instead by spawning a real interpreter.
