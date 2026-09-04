@@ -19,7 +19,7 @@ concurrency:
   # not each other's to cancel: both are on refs/heads/main, and cancel-in-progress
   # would otherwise let a Saturday morning merge silently drop the run that is the
   # only Windows check there is.
-  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -39,7 +39,9 @@ jobs:
     defaults:
       run:
         # One shell on both runners. PowerShell is the default on Windows, and a
-        # step of several commands there carries on past a failing one.
+        # step of several commands there carries on past a failing one. It is not
+        # the Linux default either: `shell: bash` is `bash -eo pipefail`, where
+        # the default is `bash -e` and a failing command mid-pipeline is ignored.
         shell: bash
 
     steps:
@@ -52,9 +54,7 @@ jobs:
           cache-dependency-path: requirements-dev.txt
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+        run: pip install -r requirements-dev.txt
 
       - name: Run tests
         run: python -m coverage run -m pytest

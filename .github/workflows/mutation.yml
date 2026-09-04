@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: mutation-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -23,6 +23,11 @@ jobs:
     # guard against a mutant that hangs the suite in a way mutmut's own timeout
     # does not catch, not an expectation.
     timeout-minutes: 60
+    defaults:
+      run:
+        # As in the other three workflows: `shell: bash` is `bash -eo pipefail`,
+        # so the pipe in the report step below fails when its left-hand side does.
+        shell: bash
 
     steps:
       - uses: actions/checkout@v7
@@ -34,9 +39,7 @@ jobs:
           cache-dependency-path: requirements-mutation.txt
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-mutation.txt
+        run: pip install -r requirements-mutation.txt
 
       # Settings, including what to mutate, come from setup.cfg. mutmut exits 0
       # whatever the mutants do; what fails this job is the floor in
@@ -50,9 +53,7 @@ jobs:
 
       - name: Report
         if: always()
-        run: |
-          set -o pipefail
-          python scripts/mutation_report.py mutation-results.txt | tee -a "$GITHUB_STEP_SUMMARY"
+        run: python scripts/mutation_report.py mutation-results.txt | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the results
         if: always()
