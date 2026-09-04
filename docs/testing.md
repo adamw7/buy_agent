@@ -29,6 +29,16 @@ only real sockets are the loopback ones the HTTP tests need in order to be about
 HTTP at all. The 30 tests in `integration/` are the exception that proves it, and
 they live outside `testpaths` so a bare `pytest` cannot reach them.
 
+A deprecation warning fails the Python suite. `pytest.ini` sets `filterwarnings` to
+turn `DeprecationWarning` and `PendingDeprecationWarning` into errors, in both the
+main suite and `integration/`, so a call that a pinned dependency has started
+warning about is a red run rather than a block of text under a green one. Every
+direct dependency is pinned to an exact version, so that run is the one where
+somebody moved a pin -- the moment the call is worth changing. A warning a
+dependency raises about something it does to itself is not ours to fix: that one
+gets an `ignore` line in `pytest.ini` naming the message and the module, and a
+comment saying which upgrade removes it again.
+
 Both suites are measured and CI fails on a drop: the Python side covers every line
 and branch (`.coveragerc` sets the floor at 99%), and the UI's statements and
 lines sit just under 100% (`ui/scripts/check-coverage.mjs`, floor 98%). Coverage
