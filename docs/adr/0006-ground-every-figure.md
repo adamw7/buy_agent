@@ -25,7 +25,7 @@ the model was shown (`build_haystack()` of the `SearchResult` contents -- see
 ADR-0005), and nothing reaches the ranking unsupported:
 
 - A product whose name is absent from the sources is **dropped**. "Absent" means
-  fewer than 60% of the name's distinctive tokens appear (`_NAME_COVERAGE`),
+  fewer than 60% of the name's distinctive tokens appear (`NAME_COVERAGE`),
   ignoring the generic words shared with `extraction.GENERIC_WORDS`.
 - A price, rating or review count absent from the text is **blanked** to `None`,
   and a blank scores neutral (ADR-0007) rather than winning.

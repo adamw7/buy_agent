@@ -28,16 +28,21 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
-from ollama import Client, RequestError, ResponseError
+from ollama import Client, ResponseError
 
 from buy_agent.providers import OLLAMA
 
-#: Transport failures that mean "the server is not there" -- the tuple
-#: ``BuyAgent._invoke`` catches, for the reasons documented there: ollama's
-#: ``RequestError`` is not httpx's, and a refused connection surfaces as either
-#: one depending on which path the client took.
-UNREACHABLE = (RequestError, OSError, httpx.HTTPError)
+#: Transport failures that mean "the server is not there": the tuple
+#: ``BuyAgent._invoke`` catches, read off the provider's own row rather than
+#: written down again -- what a stopped Ollama raises is that row's to say
+#: (ADR-0029), and it is wider than it looks.
+#:
+#: Minus ``ResponseError``, which is the one member that is not about the
+#: transport: a status from the registry is one tag's pull failing, recorded
+#: against that model while the rest still run.
+UNREACHABLE = tuple(
+    failure for failure in OLLAMA.transport_errors if failure is not ResponseError
+)
 
 #: What a status reads as in the report, in the order the summary lists them.
 LABELS = {
