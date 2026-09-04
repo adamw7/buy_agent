@@ -22,6 +22,11 @@ from buy_agent.sources import Source, format_sources, parse_source, parse_source
         ("http://rtings.com", "rtings.com", ""),
         ("//rtings.com/headphones", "rtings.com", "headphones"),
         ("rtings.com:443/headphones", "rtings.com", "headphones"),
+        # Credentials sit in front of the host and name a *reader*, not a site.
+        # Left on, the host reads "shopper" -- no dot, so no site, so a URL
+        # pasted straight out of an address bar was refused as naming nothing.
+        ("https://shopper@rtings.com/headphones", "rtings.com", "headphones"),
+        ("https://shopper:hunter2@www.rtings.com:443/headphones", "rtings.com", "headphones"),
         ("shop.example.co.uk", "shop.example.co.uk", ""),
     ],
 )

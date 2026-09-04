@@ -109,6 +109,48 @@ def test_verification_never_drops_the_product_itself() -> None:
     assert verified[0].name == "Ghost Model"
 
 
+def test_the_products_that_lost_a_figure_are_counted_once_each(caplog) -> None:
+    """The other three grounding steps say what they took; this one says it too.
+
+    Counted per *product* and not per figure -- a listing whose price and rating
+    are both invented is one product the report has less to say about, and the
+    line is what the progress panel shows a shopper who is watching a run thin
+    out. An uncounted product reads as a run that dropped nothing.
+    """
+    products = [
+        Product(name="Sony WH-CH720N", price=99.0, rating=4.9),
+        Product(name="Sony WH-CH720N", price=129.0, rating=4.3),
+        Product(name="Sony WH-CH720N", review_count=90000),
+    ]
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.verification"):
+        verify_numbers(products, HAYSTACK)
+
+    assert "Dropped unsupported figures on 2 product(s)" in caplog.text
+
+
+def test_a_run_that_took_nothing_away_says_nothing(caplog) -> None:
+    """Narration, not a tally: a line reading "0 product(s)" is noise in a panel
+    whose whole value is that every line in it happened."""
+    product = Product(name="Sony WH-CH720N", price=129.0, rating=4.3, review_count=12500)
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.verification"):
+        verify_numbers([product], HAYSTACK)
+
+    assert "unsupported figures" not in caplog.text
+
+
+def test_which_figures_went_is_said_for_the_reader_who_asked_for_detail(caplog) -> None:
+    """The count is the headline and this is the detail behind it, which is the
+    only place a run says *what* it disbelieved rather than how much."""
+    product = Product(name="Sony WH-CH720N", price=99.0, rating=4.9, review_count=12500)
+
+    with caplog.at_level(logging.DEBUG, logger="buy_agent.verification"):
+        verify_numbers([product], HAYSTACK)
+
+    assert "Unsupported currency/price/rating/review_count for 'Sony WH-CH720N'" in caplog.text
+
+
 def test_thousands_separators_are_normalised() -> None:
     assert build_haystack(SOURCES).count("12500") == 1
 

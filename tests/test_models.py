@@ -5,7 +5,13 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from buy_agent.models import ExtractedProduct, Product, ProductList, SearchQuery
+from buy_agent.models import (
+    _MAX_OPINION_LENGTH,
+    ExtractedProduct,
+    Product,
+    ProductList,
+    SearchQuery,
+)
 
 
 def test_sentinels_become_none() -> None:
@@ -234,6 +240,29 @@ def test_more_opinions_than_a_card_can_hold_are_cut_to_the_first_few() -> None:
     ).to_product()
 
     assert converted.opinions == ["one", "two", "three"]
+
+
+def test_a_quote_exactly_as_long_as_a_card_holds_is_kept() -> None:
+    """The limit is what a quote may run to, not what it must stay under -- and
+    the boundary is the only length at which the two readings differ."""
+    quote = (
+        "Reviewers found the fit snug, the battery life excellent and the case a little "
+        "bulky for a coat pocket, but said that the noise cancelling here is the best "
+        "they have tested anywhere near this price and easily worth the money all on its own."
+    )
+    assert len(quote) == _MAX_OPINION_LENGTH
+
+    assert ExtractedProduct(name="Thing", opinions=[quote]).to_product().opinions == [quote]
+
+
+def test_a_review_count_of_zero_is_no_count_at_all() -> None:
+    """Nobody has reviewed it yet, which is the absence of the figure rather than
+    the figure zero -- and the schema's sentinels are meant to arrive as ``None``
+    whichever of them the model reached for."""
+    converted = ExtractedProduct(name="Thing", rating=4.5, review_count=0).to_product()
+
+    assert converted.review_count is None
+    assert converted.rating == 4.5
 
 
 def test_a_paragraph_is_not_a_quote() -> None:

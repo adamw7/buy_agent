@@ -97,6 +97,28 @@ def test_the_refined_query_is_what_gets_searched(
     }
 
 
+def test_every_named_source_is_searched_in_the_shoppers_own_region(
+    agent_factory, search_results, extracted_products
+) -> None:
+    """The other search call, which the test above cannot reach.
+
+    Naming sources takes a different branch -- one search per source rather than
+    one for the web -- and a region dropped there sends a shopper in Poland the
+    American edition of every site they asked for, with nothing in the report to
+    say the setting was ignored.
+    """
+    llm = FakeLLM(query=SearchQuery(query="headphones"), products=extracted_products)
+    agent, calls = agent_factory(
+        llm, search_results, region="uk-en", sources=parse_sources("example.com rtings.com")
+    )
+
+    agent.run("headphones")
+
+    searches = [call for call in calls if "region" in call]
+    assert len(searches) == 2, "one per named source"
+    assert {call["region"] for call in searches} == {"uk-en"}
+
+
 def test_search_falls_back_to_the_raw_request_when_refinement_fails(
     agent_factory, search_results, extracted_products, monkeypatch
 ) -> None:
@@ -619,14 +641,29 @@ def test_the_request_reaches_the_extraction_prompt(
     assert "noise cancelling headphones under $200" in human.content
 
 
+@pytest.mark.parametrize(
+    ("sort_by", "order"),
+    [
+        ("score", ["Anker Soundcore Q30", "Sony WH-1000XM5", "Unknown Brand Buds"]),
+        ("price", ["Anker Soundcore Q30", "Sony WH-1000XM5", "Unknown Brand Buds"]),
+        # The one criterion that disagrees with the blended score on this set,
+        # and so the one that says the argument was read rather than defaulted:
+        # the Sony is the better-rated pair and the more expensive one.
+        ("rating", ["Sony WH-1000XM5", "Anker Soundcore Q30", "Unknown Brand Buds"]),
+    ],
+)
 def test_sort_by_reaches_the_ranking(
-    agent_factory, search_results, extracted_products
+    agent_factory, search_results, extracted_products, sort_by: str, order: list[str]
 ) -> None:
+    """Every criterion the two front doors offer, each asserted on an order only
+    it produces -- ``--sort-by rating`` silently ignored is a report in the wrong
+    order that still looks like a report."""
     agent, _ = agent_factory(FakeLLM(products=extracted_products), search_results)
 
-    ranked = agent.run("headphones", sort_by="price")
+    ranked = agent.run("headphones", sort_by=sort_by)
 
-    assert [entry.product.price for entry in ranked] == [79.0, 328.0, None]
+    assert [entry.product.name for entry in ranked] == order
+    assert [entry.rank for entry in ranked] == [1, 2, 3]
 
 
 def test_the_number_of_products_kept_is_capped(
