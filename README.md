@@ -213,6 +213,39 @@ strongest rule the URLs support.
 The web UI has the same setting, as **Trusted sources** under Settings: one
 field, separated by spaces or commas.
 
+### What the pages say
+
+Every product in the report carries up to three quotes: the `says` lines under the
+top 3 on the CLI, the quoted lines under each card in the browser, the `opinions`
+array in `--json` and in what the API answers with. They are the source pages' own
+words, and they are there because a price says what a thing costs and only these
+lines say whether to want it.
+
+Having any means reading the pages, so each one is swept twice -- once for the
+lines quoting a price or a rating, once for the lines passing judgement -- and each
+sweep has a budget of its own, so a shop page listing forty prices still
+contributes a verdict and a page of prose still contributes its price. What counts
+as judgement is a vocabulary of who is speaking and what they concluded
+("reviewers found", "the downside is", "disappointing"), never one of subject
+matter: "wireless" or "battery" would take every line on a headphone page
+([ADR-0024](docs/adr/0024-read-and-quote-what-the-sources-say.md)).
+
+Each quote is then checked before it is shown, and against the pages that name the
+product rather than against the run's pages pooled -- a verdict on the kettle three
+results down is no evidence about these headphones. What is checked is the quote as
+running text: overlapping runs of five consecutive words, most of which have to be
+found. A small model paraphrasing what it read fails that, and the quote is dropped
+([ADR-0025](docs/adr/0025-check-a-quote-against-the-page-it-came-from.md)); a
+product whose quotes all fail is still reported, with none. An invented price is a
+number nobody wrote, but an invented quote is words in a reviewer's mouth.
+
+None of it is scored -- the ranking is the figures alone -- so the quotes are what
+to read when two candidates come out within a hair of each other. `--no-fetch`
+leaves nothing to quote, a search snippet passing judgement about as rarely as it
+quotes a price, and `AgentConfig(opinion_chars=0)` reads the pages but skips the
+second sweep, which like the budgets themselves is reachable from Python and
+neither front end.
+
 ## The web UI
 
 The same agent, with a page in front of it. `buy_agent.server` serves a small
