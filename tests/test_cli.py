@@ -489,6 +489,23 @@ def test_a_number_outside_its_range_is_a_usage_error(flag: str, value: str) -> N
     assert exit_info.value.code == 2
 
 
+def test_a_refused_number_is_told_the_range_and_what_it_gave(capsys) -> None:
+    """Exit 2 alone is a shopper reading "invalid value" and guessing.
+
+    The range is the whole content of the refusal -- it is read off
+    ``config.LIMITS`` precisely so the shopper is told the same bounds the API
+    would have told them -- and the value echoes back because argparse prints the
+    flag but not always the number, and "50" mistyped as "500" is the case this
+    catches.
+    """
+    with pytest.raises(SystemExit):
+        main(["headphones", "--results", "500"])
+
+    error = capsys.readouterr().err
+    minimum, maximum = LIMITS["num_products"]
+    assert f"must be between {minimum} and {maximum}; got 500" in error
+
+
 @pytest.mark.parametrize("field", ["num_products", "top_n", "temperature", "num_ctx"])
 def test_the_bounds_are_the_config_s_own(field: str) -> None:
     """Written down here as well, the CLI would come to accept what the API refuses."""
@@ -602,3 +619,42 @@ def test_the_defaults_survive_a_provider_the_environment_got_wrong(monkeypatch) 
 
     assert defaults.provider in PROVIDERS
     assert defaults.num_products == AgentConfig().num_products
+
+
+def test_a_provider_the_environment_got_right_is_the_one_the_flags_default_to(
+    monkeypatch,
+) -> None:
+    """The half the fallback above must not swallow.
+
+    ``$BUY_AGENT_PROVIDER`` is how a shopper moves a whole run to the other
+    server, and every flag's default is built off this one config -- so a
+    ``_defaults`` that reached for the first row whatever the environment said
+    would run vLLM's address against Ollama's model, silently, with ``--help``
+    still naming the server they asked for.
+    """
+    other = next(name for name in PROVIDERS if name != next(iter(PROVIDERS)))
+    monkeypatch.setattr(main_module, "DEFAULT_PROVIDER", other)
+
+    defaults = main_module._defaults()
+
+    assert defaults.provider == other
+    assert (defaults.model, defaults.base_url) == (VLLM.model, VLLM.base_url)
+
+
+@pytest.mark.parametrize(("flag", "setting"), [("--model", "model"), ("--base-url", "base_url")])
+def test_the_help_names_every_provider_s_own_default(flag: str, setting: str) -> None:
+    """Neither flag has one default, so the help lists the lot.
+
+    Read off the table, so a third server appears here by being added there
+    rather than by somebody remembering this sentence -- and read off the
+    *action* rather than out of ``format_help()``, which wraps to a width this
+    suite does not choose.
+    """
+    listed = main_module._provider_defaults(setting)
+
+    assert listed.split(", ") == [
+        f"{getattr(server, setting)} for {name}" for name, server in PROVIDERS.items()
+    ], "one comma-separated entry per provider, in the table's order"
+
+    action = next(a for a in build_parser()._actions if flag in a.option_strings)
+    assert listed in action.help

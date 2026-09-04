@@ -10,6 +10,7 @@ import httpx
 import pytest
 
 from buy_agent.fetch import (
+    _MAX_SEGMENT,
     PageText,
     condense,
     describe_failure,
@@ -522,6 +523,46 @@ def test_the_character_budget_is_per_page(monkeypatch) -> None:
     enriched = enrich(results, max_chars=40)
 
     assert all(len(result.content) <= 41 for result in enriched)
+
+
+def test_a_line_that_exactly_fills_the_budget_is_kept() -> None:
+    """The budget is what may be spent, not what must be left over.
+
+    Off by one the other way, a page whose figures happen to come to exactly
+    ``page_chars`` loses its last line -- and the boundary is where a ceiling is
+    got wrong, every other length passing either version of the test.
+    """
+    text = "Price $10\nPrice $20"
+    assert len(text) == 19
+
+    assert condense(text, max_chars=19) == text
+
+
+def test_a_spent_budget_stops_the_sweep_rather_than_skipping_the_line() -> None:
+    """A page is read top down, and the prompt is an excerpt rather than a
+    best-fit selection.
+
+    Skipping the line that would not fit and carrying on takes a cheaper one from
+    further down the page -- so the prompt quietly reorders the page's own
+    argument, dropping the expensive listing the shopper is being shown and
+    keeping the afterthought below it.
+    """
+    text = "Price $10\nA rather longer line about this one at $20 here\nPrice $30"
+
+    condensed = condense(text, max_chars=25)
+
+    assert condensed == "Price $10"
+
+
+def test_a_line_exactly_at_the_ceiling_is_still_a_line() -> None:
+    """The ceiling excludes walls of boilerplate, and 300 characters is not one --
+    the two length checks it is spelt in have to agree about that, or a page's
+    longest kept line is dropped by the second after passing the first."""
+    padding = "a" * (_MAX_SEGMENT - len("Sony WH-CH720N costs $129.00 ") - 1)
+    line = f"Sony WH-CH720N costs $129.00 {padding}."
+    assert len(line) == _MAX_SEGMENT
+
+    assert condense(line, max_chars=1000) == line
 
 
 def test_the_budget_counts_the_newline_between_segments() -> None:

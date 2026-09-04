@@ -464,6 +464,24 @@ def test_a_request_with_no_body_is_read_as_an_empty_object(server: str) -> None:
     assert StubAgent.captured["request"] == ""
 
 
+def test_a_post_with_no_length_header_at_all_is_read_as_an_empty_object(
+    server: str,
+) -> None:
+    """The header absent, rather than present and zero -- which is what a client
+    that meant to send nothing actually sends.
+
+    Read as any length but nothing, the handler blocks on a body that is never
+    coming and the request hangs until the client gives up, on a server whose
+    whole answer to this is "you sent no options".
+    """
+    StubAgent.result = ValueError("Nothing to shop for: the request is empty.")
+
+    reply = raw(server, b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+
+    assert "400" in reply.splitlines()[0]
+    assert "Nothing to shop for" in reply
+
+
 # -- who is allowed to ask -----------------------------------------------------
 
 
@@ -512,6 +530,35 @@ def test_a_refusal_names_the_header_that_decided_it(server: str, caplog) -> None
 
     assert "origin None" in caplog.text
     assert "fetch site 'cross-site'" in caplog.text
+
+
+def test_a_refusal_names_the_host_when_the_host_is_what_decided_it(
+    server: str, caplog
+) -> None:
+    """The other header a refusal can turn on, and the one a reader least expects.
+
+    A rebinding attempt arrives with a perfectly ordinary Origin and fetch site
+    and a Host this server has never been called -- so the two values the line
+    above asserts both read as innocent, and the name that was actually refused
+    is the only thing that explains the 403.
+    """
+    with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
+        assert "403" in ask(server, Host="attacker.example").splitlines()[0]
+
+    assert "host 'attacker.example'" in caplog.text
+
+
+def test_a_refusal_says_what_was_asked_for(server: str, caplog) -> None:
+    """One line per refused request, and a run of them is a scan.
+
+    Without the method and the path they are indistinguishable from each other:
+    what a reader wants to know is whether somebody is walking the API or a
+    browser mis-sent one request.
+    """
+    with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
+        ask(server, "/api/models?provider=ollama", Sec_Fetch_Site="cross-site")
+
+    assert "Refused a GET /api/models?provider=ollama" in caplog.text
 
 
 def test_the_dev_servers_proxy_is_not_a_foreign_site(server: str) -> None:
@@ -636,6 +683,9 @@ def test_a_chunked_request_never_reaches_the_agent(server: str) -> None:
     )
 
     assert "411" in reply.splitlines()[0]
+    assert "Send a body with a Content-Length; chunked is not read here." in reply, (
+        "411 alone is a client author guessing which of the two framings to use"
+    )
     assert StubAgent.captured == {}
 
 
