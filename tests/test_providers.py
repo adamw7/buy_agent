@@ -22,6 +22,7 @@ from types import SimpleNamespace
 import httpx
 import openai
 import pytest
+from langchain_core.exceptions import OutputParserException
 from ollama import ResponseError
 
 import buy_agent.providers as providers_module
@@ -428,6 +429,51 @@ def test_a_slow_vllm_reported_by_httpx_says_the_same_thing() -> None:
     message = hint(VLLM_CONFIG, httpx.ReadTimeout("timed out"))
 
     assert "did not answer in time" in message
+
+
+def test_an_unreadable_answer_names_the_room_ollama_can_be_given() -> None:
+    """A server that answered, badly. Neither "start it" nor "pull it" applies --
+    it is running and it has the tag -- and the usual cause is a window too small
+    for the prompt and its answer both (ADR-0019)."""
+    message = hint(OLLAMA_CONFIG, OutputParserException("Invalid json output: {\"produ"))
+
+    assert "not the JSON this asks for" in message
+    assert "--num-ctx" in message and "--no-think" in message
+    assert "ollama serve" not in message and "ollama pull" not in message
+
+
+def test_an_unreadable_answer_names_what_vllm_can_be_given_instead(serving) -> None:
+    """The same failure, and the same declared difference: a vLLM's window is
+    fixed when it starts, so the only room to give it here is a shorter prompt."""
+    message = hint(VLLM_CONFIG, OutputParserException("Invalid json output: {"))
+
+    assert "not the JSON this asks for" in message
+    assert "--max-model-len" in message
+    assert "--num-ctx" not in message and "vllm serve" not in message
+
+
+def test_a_half_finished_answer_is_not_read_as_a_missing_model() -> None:
+    """The quoted text is the model's own words, and any of them could say "not
+    found" -- which is the message Ollama uses for a tag it has not pulled."""
+    message = hint(
+        OLLAMA_CONFIG, OutputParserException('Invalid json output: {"name": "Page not found')
+    )
+
+    assert "ollama pull" not in message
+    assert "not the JSON this asks for" in message
+
+
+def test_an_unreadable_answer_quotes_one_line_of_it() -> None:
+    """The failure carries the answer the model did give -- a prompt's worth of
+    half-finished JSON with a docs link under it -- and the sentence around it is
+    the actionable half."""
+    message = hint(
+        OLLAMA_CONFIG,
+        OutputParserException("Invalid json output: {\nFor troubleshooting, visit: https://x"),
+    )
+
+    assert "For troubleshooting" not in message
+    assert "Invalid json output: {" in message
 
 
 def test_a_refused_key_says_which_variable_sets_one() -> None:

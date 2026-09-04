@@ -88,9 +88,21 @@ export class App {
   });
 
   private run: Subscription | null = null;
+  /** The two requests whose answer is about a question the page can have moved
+   *  on from: a re-sort of products the next search is about to replace, and a
+   *  listing of a server the form is no longer pointed at. Held so the newer ask
+   *  cancels the older, since an answer that arrives second is not the answer to
+   *  the second question -- which is the same care `sourcesProblem` takes in the
+   *  form, by comparing what was asked with what the box now holds. */
+  private reorder: Subscription | null = null;
+  private listing: Subscription | null = null;
 
   constructor() {
-    inject(DestroyRef).onDestroy(() => this.run?.unsubscribe());
+    inject(DestroyRef).onDestroy(() => {
+      this.run?.unsubscribe();
+      this.reorder?.unsubscribe();
+      this.listing?.unsubscribe();
+    });
 
     this.agent.defaults().subscribe({
       next: (defaults) => {
@@ -113,7 +125,11 @@ export class App {
     if (!target) {
       return;
     }
-    this.agent.models(target).subscribe({
+    // Two of these can be in flight at once -- the provider picker fills in the
+    // address and both ask -- and the slower one answering last would leave the
+    // pill and the model list describing a server the form is not pointed at.
+    this.listing?.unsubscribe();
+    this.listing = this.agent.models(target).subscribe({
       next: (status) => this.status.set(status),
       // The agent server itself did not answer, so nothing came back to name the
       // provider with -- the defaults it served earlier are where that name is.
@@ -162,6 +178,14 @@ export class App {
 
   protected start(options: SearchOptions): void {
     this.run?.unsubscribe();
+    // A re-sort still in flight is about the run being replaced: left running,
+    // its answer lands on a cleared page and puts the last search's products
+    // back under a progress panel narrating the next one. The form stays usable
+    // through a re-sort on purpose, so this is reachable by asking for one and
+    // searching again before it answers.
+    this.reorder?.unsubscribe();
+    this.reorder = null;
+    this.reordering.set(false);
     this.logs.set([]);
     this.result.set(null);
     this.failure.set(null);
@@ -209,7 +233,7 @@ export class App {
     }
     this.reordering.set(true);
     this.reorderFailed.set(null);
-    this.agent
+    this.reorder = this.agent
       .rank({
         request: found.request,
         products: found.products,

@@ -33,6 +33,20 @@ def test_real_values_survive_conversion() -> None:
     assert converted.review_count == 12000
 
 
+def test_a_currency_without_a_price_never_becomes_one() -> None:
+    """The other half of ADR-0022's rule, at the stage the review count keeps it.
+
+    A model that reads "EUR" off a page and no price to put beside it has read a
+    fact about nothing: blank, the card says "price unknown" and the currency is
+    never shown, but it went out in the payload -- what ``--json`` writes and
+    what Download results hands over -- as a qualifier describing no figure.
+    """
+    converted = ExtractedProduct(name="Thing", price=-1, currency="EUR").to_product()
+
+    assert converted.price is None
+    assert converted.currency is None
+
+
 def test_out_of_range_rating_is_discarded() -> None:
     """Models sometimes report a 0-10 or percentage score despite the instruction."""
     assert ExtractedProduct(name="Thing", rating=9.2).to_product().rating is None

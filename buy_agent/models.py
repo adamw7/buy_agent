@@ -70,17 +70,19 @@ class ExtractedProduct(BaseModel):
 
     def to_product(self) -> Product:
         """Convert sentinels back into ``None`` and tidy up whitespace."""
-        # A count is only a fact about the product while the rating it counts
-        # stands -- :data:`QUALIFIERS`, one stage earlier than ``verify_numbers``.
+        # Neither qualifier outlives the figure it describes -- :data:`QUALIFIERS`,
+        # one stage earlier than ``verify_numbers``. A model that reads a currency
+        # off a page and no price to go with it has read a fact about nothing.
         rating = self.rating if 0 <= self.rating <= 5 else None
+        # ``> 0`` rather than ``>= 0``, matching ``review_count``: zero is the
+        # other thing a model writes for "unknown", and kept it is worse than a
+        # blank -- grounding need only find a bare "0" in ten pages of "$0
+        # shipping", and ranking then calls it the cheapest and tops the report.
+        price = self.price if self.price > 0 else None
         return Product(
             name=_clean(self.name),
-            # ``> 0`` rather than ``>= 0``, matching ``review_count``: zero is the
-            # other thing a model writes for "unknown", and kept it is worse than a
-            # blank -- grounding need only find a bare "0" in ten pages of "$0
-            # shipping", and ranking then calls it the cheapest and tops the report.
-            price=self.price if self.price > 0 else None,
-            currency=_clean(self.currency).upper() or None,
+            price=price,
+            currency=(_clean(self.currency).upper() or None) if price is not None else None,
             rating=rating,
             # Left standing on its own it would read as "unrated" beside nothing
             # and still feed the popularity half of the score (ADR-0022).
