@@ -327,8 +327,9 @@ only qualify another and `_fill_gaps` moves the group.
   where the figure it describes is carried over too, or where both listings quote
   the same one. The same rule binds at both earlier stages:
   `verification.verify_numbers`, where a figure the sources do not back takes its
-  qualifiers down with it, and `ExtractedProduct.to_product`, where a review count
-  reported with no rating beside it never becomes one. Either way a count left
+  qualifiers down with it, and `ExtractedProduct.to_product`, where neither a
+  review count reported with no rating beside it nor a currency reported with no
+  price ever becomes one. Either way a count left
   standing alone describes nothing, reads "unrated" on the card, and still feeds
   the popularity half of the score -- which is why the pairing is declared once
   beside the fields it names rather than restated in the merge's table and the
@@ -389,6 +390,15 @@ model too slow to answer and a killed stream all arrive as raw `httpx` errors, n
 an `OSError`. Hence `httpx.HTTPError` beside ollama's own `RequestError`, a
 different class from httpx's identically named one. vLLM's is `openai.OpenAIError`,
 the root of that client's hierarchy, plus the two above for the listing.
+
+A server that answers with something that is not the JSON asked for is the third
+of those three and not a fourth: langchain's `OutputParserException` *is* a
+`ValueError`, so left alone it arrived as the one `run` documents for an empty
+request -- a 400 in the browser, over a langchain docs link where a sentence
+should be. `_extract_products` turns it into a `ModelUnavailableError` carrying
+`hint(config, exc)`, which names the room the model may have run out of
+(ADR-0019). Caught there rather than in `_invoke`, which the recoverable step goes
+through too: a fumbled query still falls back to the raw request.
 
 ### Options, and the five that are special
 
@@ -702,15 +712,15 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1089 tests run in about four seconds: most of that is the two that spawn an
+1097 tests run in about four seconds: most of that is the two that spawn an
 interpreter -- one checking `python -m buy_agent` still runs as a script, one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1089 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1089 collect but 13 of the 17 in
-`tests/test_start_script.py` skip, so the summary reads `1076 passed, 13 skipped`.
-The UI's 126 tests run in about two seconds, most of which is building the app
+reaching out. 1097 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1097 collect but 13 of the 17 in
+`tests/test_start_script.py` skip, so the summary reads `1084 passed, 13 skipped`.
+The UI's 129 tests run in about two seconds, most of which is building the app
 first. The 30 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
 

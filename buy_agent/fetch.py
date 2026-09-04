@@ -78,6 +78,14 @@ _OPINION = re.compile(
 _SEGMENT_BREAK = re.compile(r"[\n\r]+")
 _WHITESPACE = re.compile(r"\s+")
 
+#: The XML declaration an XHTML page opens with. Taken off before parsing because
+#: ``lxml`` refuses a *str* that carries an encoding declaration outright -- the
+#: bytes it describes were decoded by :func:`_read_capped` off the header httpx
+#: read, so by here the declaration names an encoding nothing is in any more.
+#: Left in, every such page raised ``ValueError`` and was reported as one that
+#: "quoted no prices and no verdicts", which is a page that parsed and had none.
+_XML_DECLARATION = re.compile(r"^\s*<\?xml[^>]*\?>")
+
 #: A bare "$129" line is short but is what shop pages contain, so the floor only
 #: excludes stray characters; the ceiling excludes walls of boilerplate.
 _MIN_SEGMENT = 4
@@ -145,7 +153,7 @@ class PageText(NamedTuple):
 def html_to_text(markup: str) -> str:
     """Strip a page down to its visible text."""
     try:
-        document = lxml_html.fromstring(markup)
+        document = lxml_html.fromstring(_XML_DECLARATION.sub("", markup, count=1))
     except (ValueError, lxml_html.etree.ParserError):
         return ""
     for element in document.xpath("//script|//style|//noscript|//svg"):

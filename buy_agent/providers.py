@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import httpx
 import openai
+from langchain_core.exceptions import OutputParserException
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from ollama import Client, RequestError, ResponseError
@@ -195,6 +196,11 @@ def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
     to "start the server" -- wrong and unactionable, the server having answered
     (ADR-0032). The other two are what either server would say, written once below.
     """
+    # Asked before the two string tests below, which read the message: a
+    # half-finished answer is the model's own words, and any of them could say
+    # "not found".
+    if isinstance(exc, OutputParserException):
+        return _unreadable_hint(config, exc)
     if isinstance(exc, httpx.TimeoutException):
         return _too_slow_hint(config, exc)
     lowered = str(exc).lower()
@@ -263,6 +269,8 @@ def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
     pull, it serving one model chosen at startup -- a server to restart or a name
     to correct, so the message names both.
     """
+    if isinstance(exc, OutputParserException):
+        return _unreadable_hint(config, exc)
     detail = str(exc)
     if isinstance(exc, (httpx.TimeoutException, openai.APITimeoutError)):
         return _too_slow_hint(config, exc)
@@ -298,6 +306,33 @@ def _too_slow_hint(config: AgentConfig, exc: Exception) -> str:
         f"{server.label} at {config.base_url} did not answer in time ({detail}). "
         f"The model {config.model!r} may be too slow for this prompt -- "
         f"try a smaller model, or {smaller}."
+    )
+
+
+def _unreadable_hint(config: AgentConfig, exc: Exception) -> str:
+    """A server that answered, with something that is not the JSON asked for.
+
+    The usual cause is room rather than the model being wrong: extraction runs to
+    ~4.3k tokens and the answer is JSON on top of that, so a window too small for
+    both ends the stream part-way through an object -- which is ADR-0019's trap,
+    and why the remedy differs the way :func:`_too_slow_hint`'s does.
+
+    The failure's own message is the answer the model did give -- a prompt's worth
+    of half-finished JSON, and a langchain docs link under it -- so only its first
+    line is quoted. The whole of it is a DEBUG line where it was caught.
+    """
+    server = config.model_server
+    room = (
+        "give it more room with a larger --num-ctx, or turn thinking off with --no-think"
+        if server.takes_num_ctx
+        else "ask for fewer products, or restart it with a larger --max-model-len"
+    )
+    said = str(exc).strip()
+    detail = said.splitlines()[0] if said else type(exc).__name__
+    return (
+        f"{server.label} at {config.base_url} answered with something that is not "
+        f"the JSON this asks for ({detail}). The model {config.model!r} may have run "
+        f"out of room before it finished: {room}."
     )
 
 

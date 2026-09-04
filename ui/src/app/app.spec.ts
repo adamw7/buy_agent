@@ -87,7 +87,9 @@ const RESULT: SearchResult = {
 
 /** Stands in for the HTTP layer: no request leaves the page in these tests. */
 class FakeAgent {
-  readonly stream = new Subject<SearchEvent>();
+  /** Replaced rather than reused for a second run: a completed subject stays
+   *  completed, and a run that has finished has completed this one. */
+  stream = new Subject<SearchEvent>();
   defaultsResponse = of(DEFAULTS);
   modelsResponse: Observable<ModelStatus> = of(STATUS);
   searched: unknown[] = [];
@@ -493,6 +495,31 @@ describe('App', () => {
     expect(line).toContain('before starting another search');
   });
 
+  it('takes the newest server listing, not the one that answers last', async () => {
+    /* Changing the provider fills in its address and asks, and editing the
+       address asks again -- so two listings can be in flight at once. The slower
+       one answering second left the pill and the model list describing a server
+       the form is not pointed at. */
+    const first = new Subject<ModelStatus>();
+    const second = new Subject<ModelStatus>();
+    agent.modelsResponse = first;
+    const fixture = await render();
+    const page = fixture.nativeElement as HTMLElement;
+
+    agent.modelsResponse = second;
+    const server = page.querySelector<HTMLInputElement>('input[name="baseUrl"]')!;
+    server.value = 'http://10.0.0.5:11434';
+    server.dispatchEvent(new Event('input'));
+    server.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    second.next({ ...STATUS, base_url: 'http://10.0.0.5:11434', models: [] });
+    first.next({ ...STATUS, models: [{ name: 'llama3.2', completion: true }] });
+    await fixture.whenStable();
+
+    expect(page.querySelector('.server')!.textContent).toContain('Ollama · 0 models');
+  });
+
   it('closes the stream when the page goes away', async () => {
     const fixture = await render();
     await searchFor(fixture, 'kettle');
@@ -527,6 +554,18 @@ describe('App results', () => {
     agent.stream.complete();
     await fixture.whenStable();
     return fixture;
+  };
+
+  /** Ask for something else, with a stream of its own for the new run. */
+  const searchAgain = async (fixture: ComponentFixture<App>, request: string) => {
+    agent.stream = new Subject<SearchEvent>();
+    const page = fixture.nativeElement as HTMLElement;
+    const input = page.querySelector<HTMLInputElement>('input[name="request"]')!;
+    input.value = request;
+    input.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    page.querySelector('form')!.dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
   };
 
   /** Pick a criterion out of the Rank by control beside the results. */
@@ -634,6 +673,41 @@ describe('App results', () => {
       'select[name="resort"]',
     )!;
     expect(select.value).toBe('price');
+  });
+
+  it('drops a re-order that answers after the next search has started', async () => {
+    /* The form stays usable through a re-sort, so a shopper can ask for one and
+       search again before it answers. Left running, its answer landed on the
+       cleared page and put the finished run's products back under a progress
+       panel narrating the next one. */
+    const reorder = new Subject<SearchResult>();
+    agent.rankResponse = () => reorder;
+    const fixture = await finished();
+    await rankBy(fixture, 'price');
+
+    await searchAgain(fixture, 'toaster');
+    reorder.next({ ...RESULT, sort_by: 'price' });
+    await fixture.whenStable();
+
+    const page = fixture.nativeElement as HTMLElement;
+    expect(page.querySelector('app-product-card')).toBeNull();
+    expect(page.querySelector('.results')).toBeNull();
+  });
+
+  it('re-enables Download results when a new run cancels a re-order', async () => {
+    /* The flag that greys the button out is cleared by the answer, and the
+       cancelled request has none to give. */
+    agent.rankResponse = () => new Subject<SearchResult>();
+    const fixture = await finished();
+    await rankBy(fixture, 'price');
+    await searchAgain(fixture, 'toaster');
+
+    agent.stream.next({ kind: 'result', result: RESULT });
+    agent.stream.complete();
+    await fixture.whenStable();
+
+    const page = fixture.nativeElement as HTMLElement;
+    expect(page.querySelector<HTMLButtonElement>('.results-actions .save')!.disabled).toBe(false);
   });
 
   it('hands the finished run over as the file the API answered with', async () => {

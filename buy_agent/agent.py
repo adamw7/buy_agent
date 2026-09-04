@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, TypeAlias
 
+from langchain_core.exceptions import OutputParserException
+
 from buy_agent.config import DEFAULT_REGION, AgentConfig
 from buy_agent.extraction import (
     build_extraction_chain,
@@ -42,11 +44,16 @@ def every_step_passes(_step: str) -> None:
 
 
 class ModelUnavailableError(RuntimeError):
-    """Raised when the model server is unreachable, or is not serving the model.
+    """Raised when the model could not be used: no server, no model, or no answer.
 
     One exception for both providers: to the shopper it is one thing, the model
     could not be used. Only the sentence differs -- ``ollama pull`` or ``vllm
     serve`` -- which is the provider's own to write (ADR-0028).
+
+    A server that answered with something other than the JSON it was asked for is
+    the third of those and not a fourth failure mode (ADR-0009): nothing about the
+    request was wrong, and the remedy is the model's -- more room, or a smaller
+    prompt.
     """
 
 
@@ -220,14 +227,24 @@ class BuyAgent:
     ) -> list[Product]:
         """Read products out of the results, then keep only what the sources back."""
         logger.info("Extracting up to %d products from the results", self.config.num_products)
-        extracted = self._invoke(
-            self.extraction_chain,
-            {
-                "request": request,
-                "results": format_results(results),
-                "limit": self.config.num_products,
-            },
-        )
+        payload = {
+            "request": request,
+            "results": format_results(results),
+            "limit": self.config.num_products,
+        }
+        try:
+            extracted = self._invoke(self.extraction_chain, payload)
+        except OutputParserException as exc:
+            # Caught here rather than in ``_invoke``, which the recoverable step
+            # goes through too: a query the model fumbles falls back to the raw
+            # request, while an extraction that comes back unreadable has nothing
+            # to fall back to. It is a ``ValueError`` -- which the API answers 400
+            # to and the CLI reports as the run's own fault -- so it is turned
+            # into the failure it actually is, carrying what to do about it.
+            logger.debug("The model's answer could not be read", exc_info=True)
+            server = self.config.model_server
+            raise ModelUnavailableError(server.hint(self.config, exc)) from exc
+
         products = [item.to_product() for item in extracted.products]
         logger.info("Extracted %d candidate(s)", len(products))
         grounded = ground(clean_products(products), results)

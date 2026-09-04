@@ -46,6 +46,26 @@ def test_unparseable_markup_yields_no_text() -> None:
     assert html_to_text("") == ""
 
 
+def test_a_page_that_opens_with_an_xml_declaration_is_still_read() -> None:
+    """XHTML pages carry one, and lxml refuses a *str* that does.
+
+    The body arrives decoded -- httpx read the charset off the header -- so by
+    the time it gets here the declaration names an encoding nothing is in any
+    more, and lxml raises ``ValueError`` rather than parsing. Swallowed, every
+    figure and verdict on such a page was lost and ``enrich`` counted it under
+    "quoted no prices and no verdicts", which is what a page that parsed and had
+    none is called.
+    """
+    text = html_to_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<html xmlns="http://www.w3.org/1999/xhtml"><body>'
+        "<h2>Sony WH-CH720N</h2><span>$129.99</span></body></html>"
+    )
+
+    assert "Sony WH-CH720N" in text
+    assert "$129.99" in text
+
+
 def test_only_lines_with_figures_are_kept() -> None:
     condensed = condense(html_to_text(PAGE), max_chars=1000)
 

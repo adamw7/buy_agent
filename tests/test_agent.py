@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 import httpx
+from langchain_core.exceptions import OutputParserException
 from ollama import RequestError, ResponseError
 
 from buy_agent.agent import BuyAgent, ModelUnavailableError
@@ -205,6 +206,47 @@ def test_unreachable_server_produces_an_actionable_error(
 
     with pytest.raises(ModelUnavailableError, match="ollama serve"):
         agent.run("headphones")
+
+
+def test_an_unreadable_extraction_is_the_model_failing_not_the_request(
+    agent_factory, search_results, monkeypatch
+) -> None:
+    """A half-finished answer is a ``ValueError``, and it is not the shopper's.
+
+    ``OutputParserException`` subclasses ``ValueError``, which ``run`` documents
+    as "the request is empty" and ``api._STATUS`` answers 400 to -- so a model
+    that ran out of room mid-JSON told the shopper their request was bad, over a
+    langchain traceback and a docs link. It is the model that could not be used
+    (ADR-0009), and the sentence says what to do about it.
+    """
+    agent, _ = agent_factory(FakeLLM(), search_results)
+    monkeypatch.setattr(
+        agent,
+        "extraction_chain",
+        _failing_chain(OutputParserException('Invalid json output: {"products": [{"name"')),
+    )
+
+    with pytest.raises(ModelUnavailableError, match="not the JSON this asks for") as caught:
+        agent.run("headphones")
+
+    assert "--num-ctx" in str(caught.value), "the remedy Ollama has for too little room"
+    assert isinstance(caught.value.__cause__, OutputParserException)
+
+
+def test_an_unreadable_refinement_still_falls_back_to_the_raw_request(
+    agent_factory, search_results, extracted_products, monkeypatch
+) -> None:
+    """Only extraction has nothing to fall back to, so only it fails the run."""
+    llm = FakeLLM(products=extracted_products)
+    agent, calls = agent_factory(llm, search_results)
+    monkeypatch.setattr(
+        agent, "query_chain", _failing_chain(OutputParserException("Invalid json output: {"))
+    )
+
+    ranked = agent.run("wireless earbuds")
+
+    assert calls[0]["query"] == "wireless earbuds"
+    assert ranked
 
 
 def test_search_failures_propagate(monkeypatch, extracted_products) -> None:
