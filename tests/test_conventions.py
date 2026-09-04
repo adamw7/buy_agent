@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import json
 import re
 import sys
 from configparser import ConfigParser
@@ -568,12 +569,27 @@ def test_the_image_installs_the_runtime_dependencies_only() -> None:
 #: A runner label names its platform first: ``windows-latest``, ``ubuntu-latest``.
 _PLATFORMS = ("windows", "ubuntu")
 
+#: The events Windows is run for, and the only ones a job may name (ADR-0037).
+_WEEKLY_EVENTS = frozenset({"schedule", "workflow_dispatch"})
 
-def ci_matrices() -> list[list[str]]:
-    """The runner labels each job in ci.yml spreads itself over."""
-    lists = re.findall(r"^\s+os: \[([^\]]+)\]$", _CI.read_text(encoding="utf-8"), re.M)
-    assert lists, "no job in ci.yml names the runners it uses"
-    return [[label.strip() for label in group.split(",")] for group in lists]
+#: ``os: ${{ fromJSON(<condition> && '<weekly>' || '<merge>') }}``, one line per job.
+_MATRIX = re.compile(
+    r"^\s+os: \$\{\{ fromJSON\((?P<condition>.+?)"
+    r" && '(?P<weekly>\[.*?\])' \|\| '(?P<merge>\[.*?\])'\) \}\}$",
+    re.M,
+)
+
+
+def ci_matrices() -> list[re.Match[str]]:
+    """The runner matrix each job in ci.yml picks, as the halves it picks between."""
+    found = list(_MATRIX.finditer(_CI.read_text(encoding="utf-8")))
+    assert found, "no job in ci.yml names the runners it uses"
+    return found
+
+
+def runner_platforms(runners: str) -> set[str]:
+    """The platforms one branch of a matrix expression names, off its JSON array."""
+    return {label.split("-")[0] for label in json.loads(runners)}
 
 
 def test_every_job_runs_on_windows_as_well_as_linux() -> None:
@@ -581,11 +597,47 @@ def test_every_job_runs_on_windows_as_well_as_linux() -> None:
     alone is a platform nobody checks against. The differences are not exotic --
     a path separator, a default encoding, a socket that resets where the other
     closes, a ``mimetypes`` lookup that reads the registry -- and every one of
-    them surfaces on exactly one of the two."""
-    for runners in ci_matrices():
-        platforms = {label.split("-")[0] for label in runners}
+    them surfaces on exactly one of the two. Since ADR-0037 the two platforms run
+    on different schedules, but a job that names only one of them anywhere has
+    dropped a platform rather than moved it."""
+    for matrix in ci_matrices():
+        assert runner_platforms(matrix["weekly"]).issuperset(_PLATFORMS), matrix[0]
 
-        assert platforms.issuperset(_PLATFORMS), runners
+
+def test_no_job_holds_a_merge_up_for_windows() -> None:
+    """The other half of ADR-0037: a push and a pull request are gated on Linux
+    alone. Windows back in that branch is the wait this record moved to Saturday
+    -- two slower runners on every push -- restored by a one-word edit."""
+    for matrix in ci_matrices():
+        assert runner_platforms(matrix["merge"]) == {"ubuntu"}, matrix[0]
+
+
+def test_windows_runs_on_the_schedule_and_on_a_manual_run() -> None:
+    """Weekly, and on demand: a manual run is how a branch that touched a path, an
+    encoding or a socket asks for Windows before it is merged rather than after.
+    An event named here and nowhere in ``on:`` is a branch of the matrix that
+    never runs, which reads as a Windows check and is not one."""
+    triggers = re.search(r"^on:\n(?:[ -].*\n|\n)*", _CI.read_text(encoding="utf-8"), re.M)
+    assert triggers, "ci.yml says nothing about when it runs"
+
+    for matrix in ci_matrices():
+        named = set(re.findall(r"github\.event_name == '(\w+)'", matrix["condition"]))
+
+        assert named == _WEEKLY_EVENTS, matrix[0]
+        for event in named:
+            assert re.search(rf"^  {event}:", triggers.group(0), re.M), event
+
+
+def test_the_windows_run_is_scheduled_for_saturdays() -> None:
+    """The day docs/testing.md and CLAUDE.md both name, and the day the mutation run
+    already uses -- cron counts from Sunday, so Saturday is 6. Off the hour, where
+    scheduled runs do not queue behind everyone else's, and off the mutation run's
+    own minute so the two weekly jobs are not waiting on the same runners."""
+    minute, hour, day_of_month, month, day_of_week = cron(_CI)
+
+    assert (day_of_week, day_of_month, month) == ("6", "*", "*")
+    assert minute != "0", "the top of the hour is where scheduled runs queue"
+    assert (hour, minute) != cron(_MUTATION)[1::-1], "both weekly runs at one time"
 
 
 def test_ci_sets_up_one_python_and_one_node() -> None:

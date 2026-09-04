@@ -142,17 +142,25 @@ there, the value is not sent, and both front ends say so rather than accepting a
 number nothing reads. `reasoning` *is* shared: Ollama's `think`, vLLM's
 `chat_template_kwargs.enable_thinking`.
 
-### CI and the three schedules
+### CI and the three workflows beside it
 
 `.github/workflows/ci.yml` runs two jobs for pushes to `main` and every pull
 request: `coverage run -m pytest` plus `coverage report` on Python 3.13, and
-`npm run test:coverage && npm run build` in `ui/` on Node 22.22.3. Both are
-matrixed over `ubuntu-latest` and `windows-latest`, either alone leaving half the
-platform differences unchecked (ADR-0020). `fail-fast` is off so one platform's
-failure still reports the other; every step runs under `bash`, PowerShell carrying
-on past a failing command mid-step; and the matrix is over platforms only, one
-Python and one Node, since the `Dockerfile`, `scripts/start.ps1` and
-`docs/testing.md` each pin themselves to *the* version `ci.yml` names.
+`npm run test:coverage && npm run build` in `ui/` on Node 22.22.3. Either platform
+alone leaves half the platform differences unchecked (ADR-0020), so both jobs are
+still matrixed over `ubuntu-latest` and `windows-latest` -- but not on the same
+trigger (ADR-0037): a push and a pull request are gated on Linux, and Windows joins
+the matrix at 04:09 UTC on Saturdays and on `workflow_dispatch`, which is how a
+branch that touched a path, an encoding, a socket or `start.ps1` asks for Windows
+before it is merged rather than a week after. The matrix is one expression over
+`github.event_name`, in one workflow, rather than a second file copying both jobs'
+steps and both version pins. `fail-fast` is off so one platform's failure still
+reports the other; the concurrency group names the event, the schedule firing on
+`main` where pushes land and `cancel-in-progress` otherwise letting a Saturday
+morning merge drop the week's only Windows run; every step runs under `bash`,
+PowerShell carrying on past a failing command mid-step; and the matrix is over
+platforms only, one Python and one Node, since the `Dockerfile`, `scripts/start.ps1`
+and `docs/testing.md` each pin themselves to *the* version `ci.yml` names.
 
 - **`integration.yml`** runs `pytest integration` against a real Ollama at 03:41
   UTC nightly (and on `workflow_dispatch`), never on a pull request, capped at
@@ -200,7 +208,8 @@ a new record superseding it rather than an edit to the old one -- numbers are ne
 reused, and accepted records are not rewritten. `tests/test_conventions.py` checks
 that the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0036 and every record is Accepted, so the next free number is 0037.
+to ADR-0037 and every record is Accepted but ADR-0020, which ADR-0037 supersedes,
+so the next free number is 0038.
 
 `.claude/skills/` holds the chores that span those files: `add-option` walks a new
 setting through `config.py`, both front doors, `agent.types.ts` and the form;
@@ -726,14 +735,14 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1122 tests run in about four seconds: most of that is the two that spawn an
+1128 tests run in about four seconds: most of that is the two that spawn an
 interpreter -- one checking `python -m buy_agent` still runs as a script, one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1122 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1122 collect but 13 of the 17 in
-`tests/test_start_script.py` skip, so the summary reads `1109 passed, 13 skipped`.
+reaching out. 1128 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1128 collect but 13 of the 17 in
+`tests/test_start_script.py` skip, so the summary reads `1115 passed, 13 skipped`.
 The UI's 129 tests run in about two seconds, most of which is building the app
 first. The 30 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
@@ -761,7 +770,9 @@ that
 - the `Dockerfile` pins the versions CI tests against, copies the built UI where
   the server looks, exposes the port it binds and installs the runtime dependencies
   only;
-- every job in `ci.yml` names both a Windows and a Linux runner, and sets up exactly
+- every job in `ci.yml` names both a Windows and a Linux runner between them and
+  holds a merge up for neither, over the events the workflow actually runs on
+  (ADR-0037), and sets up exactly
   one Python and one Node for the three files that pin themselves to those; every
   workflow sets up that same Python and builds with that same Node; and the
   workflows pin the same version of every action they share, an update reaching only
