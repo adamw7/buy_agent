@@ -36,3 +36,6 @@ htmlcov/
 pytest.ini
 requirements-dev.txt
 *.md
+
+# Renovate's config: read by the bot on GitHub, by nothing in the image.
+renovate.json5

@@ -1,0 +1,70 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+
+  // Renovate was already running against this repository -- it keeps the
+  // Dependency Dashboard issue up to date -- but with no config file here it read
+  // whatever its runner handed it, and that only ever watched
+  // `.github/workflows/`. `requirements.txt`, `requirements-dev.txt`,
+  // `requirements-mutation.txt`, `ui/package.json` and the `Dockerfile` were
+  // invisible to it, so no pull request for any of them was ever possible. This
+  // file is that config, in the repository, reviewed like everything else in it.
+  extends: ['config:recommended'],
+
+  // The one issue that says what is pending and what was found, so a run that
+  // decides to raise nothing still leaves a record of why.
+  dependencyDashboard: true,
+
+  // Every direct dependency is pinned exactly and `pytest.ini` makes a
+  // `DeprecationWarning` an error, so the run that goes red is the run where
+  // somebody moved a pin -- which is the whole point of letting these through.
+  enabledManagers: [
+    'github-actions',
+    'dockerfile',
+    'npm',
+    'pip_requirements',
+    'custom.regex',
+  ],
+
+  customManagers: [
+    {
+      // Node and Python are quoted in prose as well as pinned in YAML. Renovate
+      // has no manager for a sentence, and `tests/test_conventions.py` reads both
+      // of these files against `ci.yml`, so they are matched by hand rather than
+      // left to drift a pull request at a time.
+      customType: 'regex',
+      description: 'Node where the testing docs and the start script name it',
+      managerFilePatterns: ['docs/testing.md', 'scripts/start.ps1'],
+      matchStrings: ['Node (?<currentValue>\\d+\\.\\d+\\.\\d+)'],
+      depNameTemplate: 'node',
+      datasourceTemplate: 'node-version',
+      versioningTemplate: 'node',
+    },
+    {
+      customType: 'regex',
+      description: 'Python where the testing docs and the start script name it',
+      managerFilePatterns: ['docs/testing.md', 'scripts/start.ps1'],
+      matchStrings: ['Python (?<currentValue>\\d+\\.\\d+)'],
+      depNameTemplate: 'python',
+      datasourceTemplate: 'python-version',
+    },
+  ],
+
+  packageRules: [
+    {
+      // Node is pinned in six places: the job in `ci.yml` that builds the UI, the
+      // one in `release.yml`, the build stage of the `Dockerfile`, and the two
+      // files above. `tests/test_conventions.py` asserts all of them agree, so a
+      // pull request moving one is a red run and every occurrence moves together.
+      matchDepNames: ['node'],
+      groupName: 'Node',
+      commitMessageTopic: 'Node',
+    },
+    {
+      // The same, for the Python that `ci.yml`, `integration.yml`,
+      // `mutation.yml`, `release.yml` and the runtime stage of the image set up.
+      matchDepNames: ['python'],
+      groupName: 'Python',
+      commitMessageTopic: 'Python',
+    },
+  ],
+}
