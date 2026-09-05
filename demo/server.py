@@ -1,9 +1,9 @@
 """Serve the real UI against one of the scripted runs in :mod:`demo`.
 
 ``python -m demo.server`` is ``python -m buy_agent.server`` with two names
-replaced -- ``search_web`` and ``enrich`` -- and a fake chat model in place of
-ChatOllama, through the ``agent_factory=`` seam ``create_server`` already has for
-the tests. Everything else on the page is the shipped code path.
+replaced -- ``search_web`` and ``enrich`` -- and a fake chat model in place of the
+provider's own, through the ``agent_factory=`` seam ``create_server`` already has
+for the tests. Everything else on the page is the shipped code path.
 
 ``--script`` picks which fabricated web that run searches. A script is a module
 offering the five names the run needs -- ``REQUEST``, ``REFINED_QUERY``,
@@ -26,8 +26,6 @@ import time
 import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-
-from langchain_core.runnables import RunnableLambda
 
 from buy_agent import agent as agent_module
 from buy_agent.agent import BuyAgent
@@ -60,25 +58,22 @@ EXTRACT_SECONDS = 2.6
 
 
 class ScriptedLLM:
-    """Stands in for ChatOllama, answering from the script after a pause.
+    """Stands in for a model server, answering from the script after a pause.
 
-    ``with_structured_output`` is the entire surface the two chains use, and the
-    schema it is asked for is what says which of the two is calling.
+    ``answer`` is the entire surface the two chains use, and the schema it is
+    asked for is what says which of the two is calling.
     """
 
     def __init__(self, script: ModuleType, pace: float = 1.0) -> None:
         self.script = script
         self.pace = pace
 
-    def with_structured_output(self, schema: type, **_: Any) -> RunnableLambda:
-        def respond(_value: Any) -> Any:
-            refining = schema is SearchQuery
-            time.sleep((REFINE_SECONDS if refining else EXTRACT_SECONDS) * self.pace)
-            if refining:
-                return SearchQuery(query=self.script.REFINED_QUERY)
-            return self.script.EXTRACTED
-
-        return RunnableLambda(respond)
+    def answer(self, _messages: Any, schema: type) -> Any:
+        refining = schema is SearchQuery
+        time.sleep((REFINE_SECONDS if refining else EXTRACT_SECONDS) * self.pace)
+        if refining:
+            return SearchQuery(query=self.script.REFINED_QUERY)
+        return self.script.EXTRACTED
 
 
 def install_fake_web(script: ModuleType, pace: float = 1.0) -> None:

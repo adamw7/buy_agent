@@ -1,10 +1,12 @@
 """The two model servers, and the four things each of them answers differently.
 
-Nothing here opens a socket. The chat models are built and then read back rather
-than called -- what is being checked is that a setting reaches the client at all,
-which is the half no live test can see once it has gone wrong. The listings and
-the failures are driven through fakes standing in for the two transports:
-ollama's own ``Client`` for one, ``httpx.get`` for the other.
+Nothing here opens a socket. The chat models are asked a question against a fake
+client and the *request* is read back -- what is being checked is that a setting
+reaches the server at all, which is the half no live test can see once it has
+gone wrong, and since ADR-0038 the settings travel per call rather than sitting
+on a wrapper anyone could read off. Everything is driven through fakes standing
+in for the three transports: ollama's own ``Client``, the OpenAI client, and
+``httpx.get`` for vLLM's listing.
 
 The failure messages are asserted on their *wording* rather than their type,
 because the wording is the whole value of ``ModelUnavailableError``: a shopper
@@ -22,11 +24,12 @@ from types import SimpleNamespace
 import httpx
 import openai
 import pytest
-from langchain_core.exceptions import OutputParserException
 from ollama import ResponseError
 
 import buy_agent.providers as providers_module
+from buy_agent.chat import UnreadableAnswerError
 from buy_agent.config import AgentConfig
+from buy_agent.models import SearchQuery
 from buy_agent.providers import provider_for, provider_options
 
 # The table and its rows are read off the module rather than imported by name,
@@ -115,6 +118,53 @@ def serving(monkeypatch):
 
         monkeypatch.setattr("buy_agent.providers.httpx.get", get)
         return asked
+
+    return install
+
+
+@pytest.fixture
+def chatting(monkeypatch):
+    """Stand in for ollama's ``Client`` being asked a question, capturing it.
+
+    ``answered`` is what the fake model says back, so a test about a request need
+    not care and a test about a bad answer can hand over prose.
+    """
+    sent: dict = {}
+
+    def install(answered: str = '{"query": "a refined query"}') -> dict:
+        class FakeClient:
+            def __init__(self, base_url: str, **kwargs) -> None:
+                sent["base_url"] = base_url
+
+            @staticmethod
+            def chat(**kwargs):
+                sent.update(kwargs)
+                return SimpleNamespace(message=SimpleNamespace(content=answered))
+
+        monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
+        return sent
+
+    return install
+
+
+@pytest.fixture
+def completing(monkeypatch):
+    """Stand in for the OpenAI client vLLM is reached through, capturing the call."""
+    sent: dict = {}
+
+    def install(answered: str = '{"query": "a refined query"}') -> dict:
+        class FakeOpenAI:
+            def __init__(self, **kwargs) -> None:
+                sent["client"] = kwargs
+                self.chat = SimpleNamespace(completions=SimpleNamespace(create=create))
+
+        def create(**kwargs):
+            sent.update(kwargs)
+            choice = SimpleNamespace(message=SimpleNamespace(content=answered))
+            return SimpleNamespace(choices=[choice])
+
+        monkeypatch.setattr("buy_agent.providers.openai.OpenAI", FakeOpenAI)
+        return sent
 
     return install
 
@@ -214,7 +264,15 @@ def test_only_one_of_them_takes_the_context_window_per_request() -> None:
 # -- building the chat model ---------------------------------------------------
 
 
-def test_ollama_is_given_the_window_and_the_thinking_switch() -> None:
+def asked(config: AgentConfig, sent: dict, schema: type = SearchQuery) -> dict:
+    """Put one question to the config's provider, and hand back what it sent."""
+    config.model_server.chat_model(config).answer(
+        [{"role": "user", "content": "headphones"}], schema
+    )
+    return sent
+
+
+def test_ollama_is_given_the_window_and_the_thinking_switch(chatting) -> None:
     """Both are Ollama request options, and ADR-0019 is about them arriving."""
     config = AgentConfig(
         provider="ollama",
@@ -225,13 +283,36 @@ def test_ollama_is_given_the_window_and_the_thinking_switch() -> None:
         reasoning=False,
     )
 
-    llm = config.model_server.chat_model(config)
+    sent = asked(config, chatting())
 
-    assert (llm.model, llm.base_url) == ("qwen3.5:9b", "http://ollama.internal:11434")
-    assert (llm.temperature, llm.num_ctx, llm.reasoning) == (0.2, 8192, False)
+    assert (sent["model"], sent["base_url"]) == ("qwen3.5:9b", "http://ollama.internal:11434")
+    assert sent["options"] == {"temperature": 0.2, "num_ctx": 8192}
+    assert sent["think"] is False
 
 
-def test_vllm_is_pointed_at_the_openai_api_it_serves() -> None:
+def test_ollama_is_sent_no_window_when_there_is_none_to_send(chatting) -> None:
+    """``None`` is "leave the model's own alone", which a null option is not."""
+    sent = asked(AgentConfig(provider="ollama", num_ctx=None), chatting())
+
+    assert "num_ctx" not in sent["options"]
+
+
+def test_ollama_is_asked_to_decode_against_the_schema(chatting) -> None:
+    """The schema *is* the request option: Ollama compiles it into a grammar."""
+    sent = asked(AgentConfig(provider="ollama"), chatting(), SearchQuery)
+
+    assert sent["format"] == SearchQuery.model_json_schema()
+
+
+def test_ollama_is_not_asked_to_stream_it(chatting) -> None:
+    """Nothing reads a token before the whole answer is parsed against a schema,
+    and the plain path is the one whose refused connection is an ``OSError``."""
+    sent = asked(AgentConfig(provider="ollama"), chatting())
+
+    assert not sent.get("stream")
+
+
+def test_vllm_is_pointed_at_the_openai_api_it_serves(completing) -> None:
     config = AgentConfig(
         provider="vllm",
         model="Qwen/Qwen3-8B",
@@ -239,50 +320,97 @@ def test_vllm_is_pointed_at_the_openai_api_it_serves() -> None:
         temperature=0.2,
     )
 
-    llm = config.model_server.chat_model(config)
+    sent = asked(config, completing())
 
-    assert llm.model_name == "Qwen/Qwen3-8B"
-    assert llm.openai_api_base == "http://gpu.internal:8000/v1"
-    assert llm.temperature == 0.2
+    assert sent["client"]["base_url"] == "http://gpu.internal:8000/v1"
+    assert sent["model"] == "Qwen/Qwen3-8B"
+    assert sent["temperature"] == 0.2
 
 
-def test_vllm_is_never_sent_the_context_window() -> None:
+def test_vllm_is_asked_to_decode_against_the_schema(completing) -> None:
+    """The same constraint as Ollama's ``format``, in the OpenAI API's spelling.
+
+    ``strict`` is deliberately absent: that is OpenAI's own stricter dialect,
+    which wants ``additionalProperties: false`` on every object -- Pydantic does
+    not emit it and vLLM does not ask for it.
+    """
+    sent = asked(AgentConfig(provider="vllm"), completing(), SearchQuery)
+
+    assert sent["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "SearchQuery",
+            "schema": SearchQuery.model_json_schema(),
+        },
+    }
+
+
+def test_vllm_is_never_sent_the_context_window(completing) -> None:
     """It is not a request option there; sent anyway it would be rejected, and the
     run would fail for a setting the shopper could not have known was Ollama's."""
-    llm = chat_model(AgentConfig(provider="vllm", num_ctx=8192))
+    sent = asked(AgentConfig(provider="vllm", num_ctx=8192), completing())
 
-    assert "num_ctx" not in llm.extra_body
-    assert "num_ctx" not in llm.model_kwargs
+    assert "num_ctx" not in sent["extra_body"]
+    assert "num_ctx" not in sent
 
 
 @pytest.mark.parametrize("reasoning", [True, False])
-def test_vllm_carries_the_thinking_switch_its_templates_read(reasoning: bool) -> None:
+def test_vllm_carries_the_thinking_switch_its_templates_read(
+    completing, reasoning: bool
+) -> None:
     """``enable_thinking`` is what the chat templates of the thinking models vLLM
     serves look for, and ADR-0019's default of off has to reach them."""
-    llm = chat_model(AgentConfig(provider="vllm", reasoning=reasoning))
+    sent = asked(AgentConfig(provider="vllm", reasoning=reasoning), completing())
 
-    assert llm.extra_body == {"chat_template_kwargs": {"enable_thinking": reasoning}}
+    assert sent["extra_body"] == {"chat_template_kwargs": {"enable_thinking": reasoning}}
 
 
-def test_vllm_sends_nothing_when_thinking_is_left_alone() -> None:
+def test_vllm_sends_nothing_when_thinking_is_left_alone(completing) -> None:
     """The tri-state's third value: send nothing, and let the template decide."""
-    llm = chat_model(AgentConfig(provider="vllm", reasoning=None))
+    sent = asked(AgentConfig(provider="vllm", reasoning=None), completing())
 
-    assert llm.extra_body == {}
+    assert sent["extra_body"] == {}
 
 
-def test_a_vllm_without_a_key_still_gets_one() -> None:
+def test_a_vllm_without_a_key_still_gets_one(completing) -> None:
     """The OpenAI client refuses to send a request with no key at all, and a vLLM
     started without --api-key is not checking the header it arrives in."""
-    llm = chat_model(AgentConfig(provider="vllm", api_key=""))
+    sent = asked(AgentConfig(provider="vllm", api_key=""), completing())
 
-    assert llm.openai_api_key.get_secret_value() == "EMPTY"
+    assert sent["client"]["api_key"] == "EMPTY"
 
 
-def test_a_configured_key_reaches_the_client() -> None:
-    llm = chat_model(AgentConfig(provider="vllm", api_key="s3cret"))
+def test_a_configured_key_reaches_the_client(completing) -> None:
+    sent = asked(AgentConfig(provider="vllm", api_key="s3cret"), completing())
 
-    assert llm.openai_api_key.get_secret_value() == "s3cret"
+    assert sent["client"]["api_key"] == "s3cret"
+
+
+@pytest.mark.parametrize("provider", ["ollama", "vllm"])
+def test_an_answer_that_is_not_the_schema_is_one_failure_either_way(
+    chatting, completing, provider: str
+) -> None:
+    """Both servers can answer with prose, and it is the same thing when they do
+    -- one class, one wording, whichever of them said it (ADR-0038)."""
+    chatting("I think the best headphones are...")
+    completing("I think the best headphones are...")
+    config = AgentConfig(provider=provider)
+
+    with pytest.raises(UnreadableAnswerError, match="I think the best"):
+        asked(config, {})
+
+
+@pytest.mark.parametrize("provider", ["ollama", "vllm"])
+def test_a_server_that_answers_with_nothing_says_so(
+    chatting, completing, provider: str
+) -> None:
+    """A dropped stream leaves an empty message, and "Invalid JSON answer:" with
+    nothing after it names no symptom at all."""
+    chatting("")
+    completing("")
+
+    with pytest.raises(UnreadableAnswerError, match="nothing at all"):
+        asked(AgentConfig(provider=provider), {})
 
 
 # -- what the server is serving ------------------------------------------------
@@ -448,7 +576,7 @@ def test_an_unreadable_answer_names_the_room_ollama_can_be_given() -> None:
     """A server that answered, badly. Neither "start it" nor "pull it" applies --
     it is running and it has the tag -- and the usual cause is a window too small
     for the prompt and its answer both (ADR-0019)."""
-    message = hint(OLLAMA_CONFIG, OutputParserException("Invalid json output: {\"produ"))
+    message = hint(OLLAMA_CONFIG, UnreadableAnswerError("Invalid json output: {\"produ"))
 
     assert "not the JSON this asks for" in message
     assert "--num-ctx" in message and "--no-think" in message
@@ -458,7 +586,7 @@ def test_an_unreadable_answer_names_the_room_ollama_can_be_given() -> None:
 def test_an_unreadable_answer_names_what_vllm_can_be_given_instead(serving) -> None:
     """The same failure, and the same declared difference: a vLLM's window is
     fixed when it starts, so the only room to give it here is a shorter prompt."""
-    message = hint(VLLM_CONFIG, OutputParserException("Invalid json output: {"))
+    message = hint(VLLM_CONFIG, UnreadableAnswerError("Invalid json output: {"))
 
     assert "not the JSON this asks for" in message
     assert "--max-model-len" in message
@@ -469,7 +597,7 @@ def test_a_half_finished_answer_is_not_read_as_a_missing_model() -> None:
     """The quoted text is the model's own words, and any of them could say "not
     found" -- which is the message Ollama uses for a tag it has not pulled."""
     message = hint(
-        OLLAMA_CONFIG, OutputParserException('Invalid json output: {"name": "Page not found')
+        OLLAMA_CONFIG, UnreadableAnswerError('Invalid json output: {"name": "Page not found')
     )
 
     assert "ollama pull" not in message
@@ -482,7 +610,7 @@ def test_an_unreadable_answer_quotes_one_line_of_it() -> None:
     the actionable half."""
     message = hint(
         OLLAMA_CONFIG,
-        OutputParserException("Invalid json output: {\nFor troubleshooting, visit: https://x"),
+        UnreadableAnswerError("Invalid json output: {\nFor troubleshooting, visit: https://x"),
     )
 
     assert "For troubleshooting" not in message

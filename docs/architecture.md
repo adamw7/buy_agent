@@ -109,7 +109,8 @@ graph TB
     subgraph pipeline["Agent pipeline"]
         agent["<b>BuyAgent</b><br/><i>[Component: agent.py]</i><br/>Orchestrates the fixed pipeline and<br/>translates transport failures into<br/>an actionable message"]
         config["<b>AgentConfig</b><br/><i>[Component: config.py]</i><br/>Provider, model, search, fetch and<br/>ranking settings; the CLI's flag<br/>defaults, and the ranges and the<br/>region shape both front doors<br/>hold a request to"]
-        providers["<b>Providers</b><br/><i>[Component: providers.py]</i><br/>Everything that differs between<br/>Ollama and vLLM, one row each: the<br/>model, address and key it defaults<br/>to, the chat model, the listing, the<br/>errors that mean &quot;not there&quot;,<br/>and what to say"]
+        providers["<b>Providers</b><br/><i>[Component: providers.py]</i><br/>Everything that differs between<br/>Ollama and vLLM, one row each: the<br/>model, address and key it defaults<br/>to, the client and how it declares a<br/>schema, the listing, the errors that<br/>mean &quot;not there&quot;, and what to say"]
+        chat["<b>Chat</b><br/><i>[Component: chat.py]</i><br/>A prompt with the run's values in it,<br/>a chain binding one to a schema, and<br/>the answer read back as that schema<br/>-- or refused"]
         extraction["<b>Extraction</b><br/><i>[Component: extraction.py]</i><br/>Both prompts and both chains,<br/>plus name cleaning and merging<br/>of variant names"]
         search["<b>Search</b><br/><i>[Component: search.py]</i><br/>DuckDuckGo wrapper; raises<br/>SearchError on a rate limit"]
         sources["<b>Sources</b><br/><i>[Component: sources.py]</i><br/>Reads a trusted source down to a<br/>domain and a term, narrows the<br/>query to it, and says whether a<br/>result came from it"]
@@ -129,6 +130,9 @@ graph TB
     cli -.->|"builds"| config
     server -.->|"builds from the request"| config
     config -.->|"reads"| agent
+
+    extraction -.->|"a prompt, a schema,<br/>one answer"| chat
+    chat -.->|"asks the server the<br/>provider built"| providers
 
     agent -->|"1. refine the query"| extraction
     agent -->|"2. search -- once, or once<br/>per named source"| search

@@ -1,11 +1,15 @@
 # Direct dependencies, pinned to the versions this was tested against.
-# Transitive packages (httpx, ollama, openai, primp, ...) are resolved by pip.
-langchain-core==1.6.0
-# One per model server: `buy_agent.providers` builds a ChatOllama or a ChatOpenAI
-# pointed at vLLM's OpenAI-compatible API, and imports both at module level, so
-# neither is optional (ADR-0028).
-langchain-ollama==1.1.0
-langchain-openai==1.1.0
+# Transitive packages (httpcore, primp, pydantic-core, ...) are resolved by pip.
+#
+# There is no LangChain here on purpose (ADR-0038): the two model calls are one
+# prompt and one JSON schema each, which `buy_agent/chat.py` is, and a framework
+# for them brought seventeen packages -- a tracing client, a tokeniser and their
+# own HTTP stack -- for a surface of six symbols.
+#
+# One per model server: `buy_agent.providers` builds a client on each and imports
+# both at module level, so neither is optional (ADR-0028).
+ollama==0.6.2
+openai==2.54.0
 ddgs==9.15.0
 pydantic==2.13.4
 httpx==0.28.1

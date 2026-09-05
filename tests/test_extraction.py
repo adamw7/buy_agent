@@ -37,8 +37,8 @@ def test_format_results_numbers_every_result(search_results) -> None:
 
 def test_extraction_prompt_carries_the_limit_through() -> None:
     messages = EXTRACTION_PROMPT.format_messages(request="headphones", results="none", limit=7)
-    assert "at most 7 distinct products" in messages[0].content
-    assert "headphones" in messages[1].content
+    assert "at most 7 distinct products" in messages[0]["content"]
+    assert "headphones" in messages[1]["content"]
 
 
 def test_deduplicate_keeps_the_most_complete_listing() -> None:
@@ -284,8 +284,8 @@ def test_unrelated_products_are_left_alone() -> None:
 def test_the_query_prompt_asks_for_a_shopping_query() -> None:
     messages = QUERY_PROMPT.format_messages(request="a two person tent under $300")
 
-    assert "search query" in messages[0].content.lower()
-    assert "a two person tent under $300" in messages[1].content
+    assert "search query" in messages[0]["content"].lower()
+    assert "a two person tent under $300" in messages[1]["content"]
 
 
 def test_the_query_chain_answers_with_a_search_query() -> None:
@@ -307,20 +307,25 @@ def test_the_extraction_chain_answers_with_a_product_list() -> None:
 
 
 def test_both_chains_ask_for_a_schema_constrained_answer() -> None:
-    """json_schema is what stops a small model answering with prose."""
-    calls: list[dict] = []
+    """A schema on every call is what stops a small model answering with prose.
+
+    Asserted on what the model is *handed*, not on how a server declares it: that
+    part differs between the two and is theirs to say (ADR-0004, ADR-0038). What
+    is fixed here is that neither call ever goes out without one, and that each
+    goes out with its own.
+    """
+    asked: list[type] = []
 
     class Recorder(FakeLLM):
-        def with_structured_output(self, schema, **kwargs):
-            calls.append({"schema": schema, **kwargs})
-            return super().with_structured_output(schema, **kwargs)
+        def answer(self, messages, schema):
+            asked.append(schema)
+            return super().answer(messages, schema)
 
     llm = Recorder()
-    build_query_chain(llm)
-    build_extraction_chain(llm)
+    build_query_chain(llm).invoke({"request": "a tent"})
+    build_extraction_chain(llm).invoke({"request": "a tent", "results": "", "limit": 3})
 
-    assert [call["schema"] for call in calls] == [SearchQuery, ProductList]
-    assert all(call["method"] == "json_schema" for call in calls)
+    assert asked == [SearchQuery, ProductList]
 
 
 def test_format_results_includes_the_fetched_page_text() -> None:

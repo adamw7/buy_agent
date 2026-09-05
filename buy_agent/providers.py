@@ -32,18 +32,18 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import httpx
 import openai
-from langchain_core.exceptions import OutputParserException
-from langchain_ollama import ChatOllama
-from langchain_openai import ChatOpenAI
 from ollama import Client, RequestError, ResponseError
 
-if TYPE_CHECKING:
-    from langchain_core.language_models import BaseChatModel
+from buy_agent.chat import ChatModel, SchemaT, UnreadableAnswerError, read_answer
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from buy_agent.chat import Message
     from buy_agent.config import AgentConfig
 
-#: What ``ChatOpenAI`` is given when no key is configured. vLLM serves without
-#: one by default, but the OpenAI client refuses to send a request with no key at
+#: What the OpenAI client is given when no key is configured. vLLM serves without
+#: one by default, but the client refuses to send a request with no key at
 #: all, so a placeholder stands in for the header vLLM is not checking.
 _NO_KEY = "EMPTY"
 
@@ -103,7 +103,7 @@ class Provider:
         takes_num_ctx: Whether the context window is a per-request setting. False
             for vLLM, which fixes it at startup, so ``AgentConfig.num_ctx`` is
             ignored there rather than quietly failing to apply.
-        chat_model: Builds the LangChain chat model this config asks for.
+        chat_model: Builds the client this config's run puts its two questions to.
         installed: Lists what the server is serving and what each can do, raising
             whatever the transport raises -- both callers phrase that their own way.
         transport_errors: The exceptions meaning the server could not be reached,
@@ -117,17 +117,56 @@ class Provider:
     base_url: str
     api_key: str
     takes_num_ctx: bool
-    chat_model: Callable[[AgentConfig], BaseChatModel]
+    chat_model: Callable[[AgentConfig], ChatModel]
     installed: Callable[[AgentConfig], list[InstalledModel]]
     transport_errors: tuple[type[BaseException], ...]
     hint: Callable[[AgentConfig, Exception], str]
 
 
-def _ollama_chat_model(config: AgentConfig) -> BaseChatModel:
+@dataclass(frozen=True, slots=True)
+class _OllamaChat:
+    """Ollama's own client, asked for one schema-shaped answer.
+
+    ``format`` is the JSON schema itself, which Ollama compiles into a decoding
+    grammar -- the mechanism ADR-0004 is about, reached here through the client
+    rather than through a wrapper around it. The window and the thinking switch
+    are request options, so both travel per call: Ollama switches models between
+    requests and carries them with it.
+
+    Not streamed. Nothing reads a token before the answer is complete -- it is
+    parsed whole against a schema -- and the non-streaming path is the one where
+    ollama's client turns a refused connection into a builtin ``ConnectionError``
+    rather than letting httpx's own out.
+    """
+
+    client: Client
+    model: str
+    temperature: float
+    num_ctx: int | None
+    reasoning: bool | None
+
+    def answer(self, messages: Sequence[Message], schema: type[SchemaT]) -> SchemaT:
+        """One chat call, read back as ``schema``."""
+        options: dict[str, Any] = {"temperature": self.temperature}
+        # Sent only when there is one: ``None`` means "leave the model's own
+        # alone", and a null in the options is not that (ADR-0019).
+        if self.num_ctx is not None:
+            options["num_ctx"] = self.num_ctx
+        response = self.client.chat(
+            model=self.model,
+            messages=list(messages),
+            format=schema.model_json_schema(),
+            options=options,
+            think=self.reasoning,
+        )
+        return read_answer(response.message.content or "", schema)
+
+
+def _ollama_chat_model(config: AgentConfig) -> ChatModel:
     """Ollama takes the window and the thinking switch as request options."""
-    return ChatOllama(
+    return _OllamaChat(
+        client=Client(config.base_url),
         model=config.model,
-        base_url=config.base_url,
         temperature=config.temperature,
         num_ctx=config.num_ctx,
         reasoning=config.reasoning,
@@ -199,7 +238,7 @@ def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
     # Asked before the two string tests below, which read the message: a
     # half-finished answer is the model's own words, and any of them could say
     # "not found".
-    if isinstance(exc, OutputParserException):
+    if isinstance(exc, UnreadableAnswerError):
         return _unreadable_hint(config, exc)
     if isinstance(exc, httpx.TimeoutException):
         return _too_slow_hint(config, exc)
@@ -220,7 +259,44 @@ def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
     return _unreachable_hint(config, exc, "ollama serve")
 
 
-def _vllm_chat_model(config: AgentConfig) -> BaseChatModel:
+@dataclass(frozen=True, slots=True)
+class _VLLMChat:
+    """vLLM through the OpenAI client, asked for one schema-shaped answer.
+
+    The schema arrives as ``response_format``, which vLLM turns into the same kind
+    of constrained decoding Ollama's ``format`` does -- one mechanism, two
+    spellings, which is the sort of difference this module exists to hold
+    (ADR-0004, ADR-0028).
+
+    ``strict`` is deliberately not set. It is OpenAI's own stricter dialect, which
+    demands ``additionalProperties: false`` on every object; Pydantic does not emit
+    that, and vLLM does not ask for it.
+    """
+
+    client: openai.OpenAI
+    model: str
+    temperature: float
+    extra_body: dict[str, Any]
+
+    def answer(self, messages: Sequence[Message], schema: type[SchemaT]) -> SchemaT:
+        """One chat completion, read back as ``schema``."""
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=list(messages),
+            temperature=self.temperature,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": schema.__name__,
+                    "schema": schema.model_json_schema(),
+                },
+            },
+            extra_body=self.extra_body,
+        )
+        return read_answer(response.choices[0].message.content or "", schema)
+
+
+def _vllm_chat_model(config: AgentConfig) -> ChatModel:
     """vLLM through its OpenAI-compatible API.
 
     ``num_ctx`` is deliberately not passed: vLLM fixes the window at startup and
@@ -232,10 +308,11 @@ def _vllm_chat_model(config: AgentConfig) -> BaseChatModel:
     extra_body: dict[str, Any] = {}
     if config.reasoning is not None:
         extra_body["chat_template_kwargs"] = {"enable_thinking": config.reasoning}
-    return ChatOpenAI(
+    return _VLLMChat(
+        client=openai.OpenAI(
+            base_url=config.base_url, api_key=config.api_key or _NO_KEY
+        ),
         model=config.model,
-        base_url=config.base_url,
-        api_key=config.api_key or _NO_KEY,
         temperature=config.temperature,
         extra_body=extra_body,
     )
@@ -269,7 +346,7 @@ def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
     pull, it serving one model chosen at startup -- a server to restart or a name
     to correct, so the message names both.
     """
-    if isinstance(exc, OutputParserException):
+    if isinstance(exc, UnreadableAnswerError):
         return _unreadable_hint(config, exc)
     detail = str(exc)
     if isinstance(exc, (httpx.TimeoutException, openai.APITimeoutError)):
@@ -317,9 +394,10 @@ def _unreadable_hint(config: AgentConfig, exc: Exception) -> str:
     both ends the stream part-way through an object -- which is ADR-0019's trap,
     and why the remedy differs the way :func:`_too_slow_hint`'s does.
 
-    The failure's own message is the answer the model did give -- a prompt's worth
-    of half-finished JSON, and a langchain docs link under it -- so only its first
-    line is quoted. The whole of it is a DEBUG line where it was caught.
+    The failure's own message is the answer the model did give, truncated by
+    :func:`buy_agent.chat.read_answer` -- and truncated to one line here as well,
+    a half-finished object having newlines in it. The whole of it is a DEBUG line
+    where it was caught.
     """
     server = config.model_server
     room = (
@@ -371,13 +449,13 @@ OLLAMA = Provider(
     takes_num_ctx=True,
     chat_model=_ollama_chat_model,
     installed=_ollama_installed,
-    # ``httpx.HTTPError`` is what actually reaches us when Ollama is not running:
-    # the ollama client turns a refused connection into a builtin
-    # ``ConnectionError`` only on its *non*-streaming path, and ``ChatOllama``
-    # always chats over the streaming one -- so a stopped server, a model too slow
-    # to answer and a killed stream all arrive as raw httpx errors, none an
-    # ``OSError``, which covers the non-streaming path instead. ``RequestError``
-    # is ollama's own, a different class from httpx's identically named one.
+    # Both halves are load-bearing, the ollama client converting exactly one of
+    # its transport failures: a refused connection becomes a builtin
+    # ``ConnectionError`` -- an ``OSError`` -- while a model too slow to answer and
+    # a stream the server drops mid-object arrive as raw ``httpx`` errors, neither
+    # of them one. A status vLLM or Ollama answers with is ``ResponseError``, and
+    # ``RequestError`` is ollama's own for a request it will not send, a different
+    # class from httpx's identically named one.
     transport_errors=(ResponseError, RequestError, OSError, httpx.HTTPError),
     hint=_ollama_hint,
 )

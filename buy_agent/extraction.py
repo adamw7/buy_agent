@@ -1,9 +1,10 @@
 """The two LLM steps -- rewrite the request as a search query, then read products
 out of the search results -- plus the deterministic clean-up that follows.
 
-Both chains use structured output (``method="json_schema"``), constraining
-decoding to the schema, so a small local model cannot answer with prose or a
-half-closed object. What it still gets wrong is judgement, not syntax: it will
+Both chains are answered under a JSON schema, constraining decoding to it, so a
+small local model cannot answer with prose or a half-closed object -- how that
+schema is declared is the provider's to say (ADR-0004, ADR-0038). What the model
+still gets wrong is judgement, not syntax: it will
 happily report "12 Best Headphones Under $200" as a product, which is what
 ``clean_products`` and ``deduplicate`` are for.
 """
@@ -14,8 +15,7 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
-from langchain_core.prompts import ChatPromptTemplate
-
+from buy_agent.chat import Chain, Prompt
 from buy_agent.models import (
     MAX_OPINIONS,
     QUALIFIERS,
@@ -27,67 +27,56 @@ from buy_agent.models import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from langchain_core.language_models import BaseChatModel
-    from langchain_core.runnables import Runnable
-
+    from buy_agent.chat import ChatModel
     from buy_agent.models import Product
     from buy_agent.search import SearchResult
 
 logger = logging.getLogger(__name__)
 
-QUERY_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            "You turn a shopper's request into one web search query that will surface "
-            "actual products for sale with prices and reviews.\n"
-            "Keep the shopper's constraints (budget, brand, size, use case). "
-            "Add words like 'price' or 'review' when useful. "
-            "Do not add constraints the shopper never mentioned. "
-            "Answer with the query only, no explanation.",
-        ),
-        ("human", "Shopper's request: {request}"),
-    ]
+QUERY_PROMPT = Prompt(
+    system=(
+        "You turn a shopper's request into one web search query that will surface "
+        "actual products for sale with prices and reviews.\n"
+        "Keep the shopper's constraints (budget, brand, size, use case). "
+        "Add words like 'price' or 'review' when useful. "
+        "Do not add constraints the shopper never mentioned. "
+        "Answer with the query only, no explanation."
+    ),
+    human="Shopper's request: {request}",
 )
 
-EXTRACTION_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            "You extract concrete, buyable products from web search results.\n"
-            "Rules:\n"
-            "- Extract at most {limit} distinct products that match the shopper's request.\n"
-            "- Only use facts present in the results. Never invent a price or a rating.\n"
-            "- Unknown price or rating is -1; unknown review count is 0; unknown text "
-            "is empty; no opinions is an empty list.\n"
-            "- Ratings go on a 0-5 scale. Convert a 0-10 or percentage score first.\n"
-            "- A name is a specific model, such as 'Sony WH-1000XM5'. Never an article "
-            "headline, a shop name, or a category.\n"
-            f"- opinions are up to {MAX_OPINIONS} short quotes saying what the product "
-            "is like to own: praise, a complaint, a verdict. Copy them word for word "
-            "from the results. Never write your own, and never give a product an "
-            "opinion the results gave to a different one.\n"
-            "\n"
-            "Example of the naming rule, on an unrelated product:\n"
-            "  TITLE: 9 Best Electric Kettles of 2026 | KitchenSite\n"
-            "  SNIPPET: The Fellow Stagg EKG is $165 (4.6/5 from 3,200 ratings). "
-            "The Bonavita Gooseneck is $80.\n"
-            "  PAGE: We loved the Stagg's precise temperature control, but the "
-            "handle gets warm.\n"
-            "Correct: 'Fellow Stagg EKG' (price 165, rating 4.6, review_count 3200, "
-            "opinions [\"We loved the Stagg's precise temperature control\", "
-            "\"the handle gets warm\"]) and 'Bonavita Gooseneck' (price 80, "
-            "rating -1, opinions []).\n"
-            "Wrong: '9 Best Electric Kettles of 2026' or 'KitchenSite' -- those are "
-            "the article and the website, not products.\n"
-            "The example shows the format only. Every number and every quote you "
-            "report must appear in the search results below.",
-        ),
-        (
-            "human",
-            "Shopper's request: {request}\n\nSearch results:\n\n{results}",
-        ),
-    ]
+EXTRACTION_PROMPT = Prompt(
+    system=(
+        "You extract concrete, buyable products from web search results.\n"
+        "Rules:\n"
+        "- Extract at most {limit} distinct products that match the shopper's request.\n"
+        "- Only use facts present in the results. Never invent a price or a rating.\n"
+        "- Unknown price or rating is -1; unknown review count is 0; unknown text "
+        "is empty; no opinions is an empty list.\n"
+        "- Ratings go on a 0-5 scale. Convert a 0-10 or percentage score first.\n"
+        "- A name is a specific model, such as 'Sony WH-1000XM5'. Never an article "
+        "headline, a shop name, or a category.\n"
+        f"- opinions are up to {MAX_OPINIONS} short quotes saying what the product "
+        "is like to own: praise, a complaint, a verdict. Copy them word for word "
+        "from the results. Never write your own, and never give a product an "
+        "opinion the results gave to a different one.\n"
+        "\n"
+        "Example of the naming rule, on an unrelated product:\n"
+        "  TITLE: 9 Best Electric Kettles of 2026 | KitchenSite\n"
+        "  SNIPPET: The Fellow Stagg EKG is $165 (4.6/5 from 3,200 ratings). "
+        "The Bonavita Gooseneck is $80.\n"
+        "  PAGE: We loved the Stagg's precise temperature control, but the "
+        "handle gets warm.\n"
+        "Correct: 'Fellow Stagg EKG' (price 165, rating 4.6, review_count 3200, "
+        "opinions [\"We loved the Stagg's precise temperature control\", "
+        "\"the handle gets warm\"]) and 'Bonavita Gooseneck' (price 80, "
+        "rating -1, opinions []).\n"
+        "Wrong: '9 Best Electric Kettles of 2026' or 'KitchenSite' -- those are "
+        "the article and the website, not products.\n"
+        "The example shows the format only. Every number and every quote you "
+        "report must appear in the search results below."
+    ),
+    human="Shopper's request: {request}\n\nSearch results:\n\n{results}",
 )
 
 #: A name opening on a superlative: "12 Best ...", "The 5 Best ...", "Top ...".
@@ -146,14 +135,14 @@ GENERIC_WORDS = frozenset(
 NAME_TOKENS = re.compile(r"[a-z0-9]+")
 
 
-def build_query_chain(llm: BaseChatModel) -> Runnable:
+def build_query_chain(llm: ChatModel) -> Chain[SearchQuery]:
     """Chain: ``{"request": str}`` -> :class:`SearchQuery`."""
-    return QUERY_PROMPT | llm.with_structured_output(SearchQuery, method="json_schema")
+    return Chain(QUERY_PROMPT, llm, SearchQuery)
 
 
-def build_extraction_chain(llm: BaseChatModel) -> Runnable:
+def build_extraction_chain(llm: ChatModel) -> Chain[ProductList]:
     """Chain: ``{"request", "results", "limit"}`` -> :class:`ProductList`."""
-    return EXTRACTION_PROMPT | llm.with_structured_output(ProductList, method="json_schema")
+    return Chain(EXTRACTION_PROMPT, llm, ProductList)
 
 
 def format_results(results: Sequence[SearchResult]) -> str:

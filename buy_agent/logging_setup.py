@@ -44,8 +44,8 @@ def configure_logging(*, verbose: bool = False) -> None:
     _split_report_from_progress()
     if not verbose:
         # Both narrate at INFO and drown out the report: httpx logs every request
-        # under ChatOllama, the OpenAI client a line per retry -- so a stopped vLLM
-        # prints its retries above the message saying what to do about it.
+        # the ollama client makes, and the OpenAI client a line per retry -- so a
+        # stopped vLLM prints its retries above the message saying what to do.
         for chatty in _NOISY_LIBRARIES:
             logging.getLogger(chatty).setLevel(logging.WARNING)
 
