@@ -70,7 +70,7 @@ from buy_agent.config import LIMITS, AgentConfig, parse_region
 import buy_agent.providers as providers_module
 from buy_agent.providers import PROVIDERS, InstalledModel, provider_options
 from buy_agent.models import Product
-from tests.conftest import ranked_product
+from tests.conftest import ranked_product, said
 from buy_agent.ranking import SortBy
 from buy_agent.server import DEFAULT_UI_DIR
 from buy_agent.server import build_parser as build_server_parser
@@ -83,7 +83,15 @@ _FORM_TS = _ROOT / "ui" / "src" / "app" / "search-form" / "search-form.ts"
 _FORM_HTML = _ROOT / "ui" / "src" / "app" / "search-form" / "search-form.html"
 
 RANKED = ranked_product(
-    Product(name="Sony WH-1000XM5", price=328.0, rating=4.7), score=0.9, rank=1
+    Product(
+        name="Sony WH-1000XM5",
+        price=328.0,
+        rating=4.7,
+        # Quoted, so the payload these tests read carries an opinion to mirror.
+        opinions=said("the noise cancelling is uncanny", page="https://audio.example/xm5"),
+    ),
+    score=0.9,
+    rank=1,
 )
 
 
@@ -377,6 +385,15 @@ def test_the_sources_check_is_mirrored_field_for_field_in_typescript() -> None:
 
 def test_a_ranked_product_is_mirrored_field_for_field_in_typescript() -> None:
     assert set(ts_interface("RankedProduct")) == set(product_payload(RANKED))
+
+
+def test_a_quoted_opinion_is_mirrored_field_for_field_in_typescript() -> None:
+    """The card links each quote to the page that printed it, so a field added in
+    Python and forgotten here is an undefined in an ``href`` (ADR-0042)."""
+    quoted = product_payload(RANKED)["opinions"]
+    assert quoted, "the fixture has to carry a quote for this to check anything"
+
+    assert set(ts_interface("Opinion")) == set(quoted[0])
 
 
 def test_a_score_s_parts_are_mirrored_field_for_field_in_typescript() -> None:

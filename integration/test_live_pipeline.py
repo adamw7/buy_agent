@@ -134,7 +134,24 @@ def test_every_quote_was_printed_on_a_page_about_that_product(products, live_run
     for product in products:
         mine = [words for text, words in pages if mentions_name(text, product.name)]
         for opinion in product.opinions:
-            assert any(quotes_sources(words, opinion) for words in mine), opinion
+            assert any(quotes_sources(words, opinion.text) for words in mine), opinion
+
+
+def test_every_quote_names_the_page_it_was_printed_on(products, live_run) -> None:
+    """ADR-0042. The link is the whole point of keeping it: a quote pointing at a
+    page that never printed it, or at one that was never searched, is worse than
+    no link at all -- it is a citation the shopper follows and does not find.
+
+    Every page in the corpus carries a URL, so a quote that named none would be a
+    bug here rather than the result the search returned without one.
+    """
+    by_url = {page.url: page for page in live_run.pages if page.url}
+    for product in products:
+        for opinion in product.opinions:
+            assert opinion.url in by_url, f"{product.name}: {opinion.url}"
+            page = build_haystack([by_url[opinion.url]])
+            assert mentions_name(page, product.name), opinion.url
+            assert quotes_sources(running_words(page), opinion.text), opinion.text
 
 
 def test_no_product_is_reported_twice(products) -> None:

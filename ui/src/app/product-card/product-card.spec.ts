@@ -21,7 +21,10 @@ const SONY: RankedProduct = {
   seller: 'Amazon',
   url: 'https://www.example.com/sony',
   notes: 'Best noise cancelling.',
-  opinions: ['the noise cancelling is uncanny', 'the case is bulky'],
+  opinions: [
+    { text: 'the noise cancelling is uncanny', url: 'https://www.example.com/sony' },
+    { text: 'the case is bulky', url: 'https://audiosite.example/xm5' },
+  ],
   price_label: '328.00 USD',
   rating_label: '4.7/5 (12,000 reviews)',
 };
@@ -159,12 +162,37 @@ describe('ProductCard', () => {
 
   it('quotes what the sources said about it, one line each', async () => {
     /* Every quote here survived grounding, so it is somebody's actual words. */
-    const quotes = (await render(SONY)).querySelectorAll('.opinions li');
+    const quotes = (await render(SONY)).querySelectorAll('.opinions .quote');
 
     expect([...quotes].map((quote) => quote.textContent!.trim())).toEqual([
       'the noise cancelling is uncanny',
       'the case is bulky',
     ]);
+  });
+
+  it('links each quote to the page that printed it', async () => {
+    /* The only way to check a quote: a figure is checked by following the
+       product's own link, and before this a quote could not be checked at all. */
+    const sources = (await render(SONY)).querySelectorAll<HTMLAnchorElement>('.opinions .source');
+
+    expect([...sources].map((link) => link.href)).toEqual([
+      'https://www.example.com/sony',
+      'https://audiosite.example/xm5',
+    ]);
+    expect(sources[0].rel).toBe('noreferrer noopener');
+  });
+
+  it('still shows a quote off a page that carried no link', async () => {
+    /* A result the search returned without a URL printed the words all the
+       same, and Python keeps the quote rather than dropping it. */
+    const unlinked = {
+      ...SONY,
+      opinions: [{ text: 'the case is bulky', url: null }],
+    };
+    const card = await render(unlinked);
+
+    expect(card.querySelector('.opinions .quote')!.textContent!.trim()).toBe('the case is bulky');
+    expect(card.querySelector('.opinions .source')).toBeNull();
   });
 
   it('shows nothing at all where the sources gave no opinion', async () => {

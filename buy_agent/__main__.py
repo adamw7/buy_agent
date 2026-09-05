@@ -208,9 +208,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-price",
         type=_bounded(float, "max_price"),
         default=_DEFAULTS.max_price,
-        help="Report nothing dearer than this (default: no limit). In whatever "
-        "currency the pages quote -- nothing is converted. A product whose price "
-        "no page printed is kept: a blank is the extractor's miss, not a $900 tag.",
+        help="Report nothing dearer than this (default: no limit). Read in the "
+        "currency the run's prices are counted in -- the commonest one the pages "
+        "quote -- and nothing is converted, so a price in another currency is one "
+        "this cannot judge and does not. A product whose price no page printed is "
+        "kept too: a blank is the extractor's miss, not a $900 tag.",
     )
     parser.add_argument(
         "--min-rating",
@@ -231,10 +233,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=_bounded(float, "cache_ttl"),
         default=_DEFAULTS.cache_ttl,
         metavar="SECONDS",
-        help=f"How long a fetched page stays usable on disk (default: "
-        f"{_DEFAULTS.cache_ttl:g}, a day; 0 reads every page off the web). Most "
-        "of a repeated run is opening the same pages again. $BUY_AGENT_CACHE_DIR "
-        "says where they are kept.",
+        help=f"How long a fetched page, and the model's answer about it, stay "
+        f"usable on disk (default: {_DEFAULTS.cache_ttl:g}, a day; 0 reads every "
+        "page off the web and asks the model every question). Most of a repeated "
+        "run is opening the same pages again and asking the same thing about "
+        "them. A run at a temperature above 0 is never remembered. "
+        "$BUY_AGENT_CACHE_DIR says where it is all kept.",
     )
     parser.add_argument(
         "--temperature",

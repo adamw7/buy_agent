@@ -115,10 +115,10 @@ graph TB
         search["<b>Search</b><br/><i>[Component: search.py]</i><br/>DuckDuckGo wrapper; raises<br/>SearchError on a rate limit"]
         sources["<b>Sources</b><br/><i>[Component: sources.py]</i><br/>Reads a trusted source down to a<br/>domain and a term, narrows the<br/>query to it, and says whether a<br/>result came from it"]
         fetch["<b>Fetch</b><br/><i>[Component: fetch.py]</i><br/>Fetches result pages in parallel and<br/>keeps the lines quoting a figure and<br/>the lines passing judgement, each<br/>on a budget of its own; tallies how<br/>the pages that yielded nothing failed"]
-        cache["<b>Page cache</b><br/><i>[Component: cache.py]</i><br/>The text of a fetched page, kept on<br/>disk for a day. Best-effort: every<br/>failure is a miss, never a failed run"]
-        verification["<b>Verification</b><br/><i>[Component: verification.py]</i><br/>Drops products the sources never<br/>named, blanks any figure and any<br/>quote the page text does not<br/>contain, and links each product<br/>to the page naming it"]
+        cache["<b>Cache</b><br/><i>[Component: cache.py]</i><br/>What a run can reuse: the text of a<br/>fetched page, and the answer a model<br/>gave about it. Kept on disk for a<br/>day. Best-effort: every failure is a<br/>miss, never a failed run"]
+        verification["<b>Verification</b><br/><i>[Component: verification.py]</i><br/>Drops products the sources never<br/>named, blanks any figure and any<br/>quote the page text does not<br/>contain, and links each product --<br/>and each quote -- to the page it<br/>came off"]
         constraints["<b>Constraints</b><br/><i>[Component: constraints.py]</i><br/>The shopper's bounds -- max price,<br/>min rating, min reviews -- applied<br/>after merging and before ranking.<br/>An unknown figure is not a violation"]
-        ranking["<b>Ranking</b><br/><i>[Component: ranking.py]</i><br/>Weighted score over rating,<br/>popularity and price, and the shares<br/>it was blended from. No LLM"]
+        ranking["<b>Ranking</b><br/><i>[Component: ranking.py]</i><br/>Weighted score over rating,<br/>popularity and price -- prices<br/>compared inside one currency -- and<br/>the shares it was blended from. No LLM"]
         models["<b>Models</b><br/><i>[Component: models.py]</i><br/>ExtractedProduct (sentinels, for the<br/>LLM's schema) vs Product (None)"]
         logsetup["<b>Report and logging</b><br/><i>[Component: logging_setup.py]</i><br/>Log format, and the top-N report<br/>the browser also reads as events"]
     end
@@ -154,6 +154,7 @@ graph TB
     search -->|"[HTTPS]"| ddg
     fetch -->|"[HTTPS]"| shops
     fetch -.->|"reads what it read<br/>last time"| cache
+    agent -.->|"reuses what the model<br/>answered last time"| cache
     extraction -.->|"ExtractedProduct → Product"| models
     verification -.-> models
     constraints -.-> models
@@ -214,8 +215,13 @@ each occur somewhere, since a model paraphrasing out of the vocabulary it has ju
 read would clear any looser bar (ADR-0024). And it has to appear on a *single page
 that mentions the product* rather than anywhere in the ten pooled together, a real
 verdict on the electric kettle three results down being no evidence about these
-headphones (ADR-0025). The merge treats opinions as the exception they are: they
-come from *both* listings, two reviewers being no conflict.
+headphones (ADR-0025). The page that cleared that bar is kept on the quote rather
+than discarded -- `verify_opinions()` has it in hand at the moment it decides, and
+it is the only way a shopper can check a quote at all, a figure being checkable by
+following the product's own link (ADR-0042). The merge treats opinions as the
+exception they are: they come from *both* listings, two reviewers being no
+conflict, and the pair moves as one value so neither listing's link ends up under
+the other's words.
 
 Grounding also decides where a product *links*. The model is asked for a `url` but
 reliably leaves it empty, so `attribute_sources()` gives each product the first
@@ -230,7 +236,10 @@ any of them says what it did with them ("1 of 10 product(s) are within the
 limits"). A product whose figure the run never learned is kept: grounding blanks
 what the pages did not back, and dropping blanks would reject products for the
 extractor's misses, which is the reasoning that already scores them neutral
-(ADR-0039).
+(ADR-0039). A price the run cannot *place* counts as one of those blanks: prices
+are compared inside a single currency -- the commonest one the pages printed --
+and converted never, so a figure outside it passes the budget and scores neutral
+instead of being read as the number it happens to be (ADR-0043).
 
 Step 8 keeps what it worked out. `rank_products` blends three shares into one
 score, and the shares travel beside it: without them a report says where a product

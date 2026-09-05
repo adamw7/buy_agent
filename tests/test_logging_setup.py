@@ -10,7 +10,7 @@ import pytest
 from buy_agent.logging_setup import _NOISY_LIBRARIES, configure_logging, log_top_products
 from buy_agent.models import Product, RankedProduct
 from buy_agent.ranking import rank_products
-from tests.conftest import ranked_product
+from tests.conftest import ranked_product, said
 
 
 def ranked(*products: Product) -> list[RankedProduct]:
@@ -71,7 +71,9 @@ def test_every_known_field_reaches_the_report(report) -> None:
                 seller="Amazon",
                 url="https://shop.example/sony",
                 notes="Best noise cancelling.",
-                opinions=["the noise cancelling is uncanny"],
+                opinions=said(
+                    "the noise cancelling is uncanny", page="https://shop.example/sony"
+                ),
             )
         ),
         1,
@@ -284,10 +286,58 @@ def test_the_report_is_a_block_with_a_rule_at_each_end(report) -> None:
     assert lines.count(lines[0]) == 3, "three rules and no more: it is one block"
 
 
+def test_a_quote_off_the_product_s_own_page_does_not_repeat_the_link(report) -> None:
+    """The ordinary case: the URL is two lines up already, and repeating it under
+    each of three quotes says nothing (ADR-0042)."""
+    log_top_products(
+        ranked(
+            Product(
+                name="Sony WH-1000XM5",
+                url="https://shop.example/sony",
+                opinions=said("the fit is snug", page="https://shop.example/sony"),
+            )
+        ),
+        1,
+    )
+
+    assert "says   : the fit is snug" in report.text
+    assert report.text.count("https://shop.example/sony") == 1
+
+
+def test_a_quote_off_another_page_names_it(report) -> None:
+    """The case the link is worth printing: the words came off a page the report
+    would otherwise never name."""
+    log_top_products(
+        ranked(
+            Product(
+                name="Sony WH-1000XM5",
+                url="https://shop.example/sony",
+                opinions=said("the fit is snug", page="https://audiosite.example/xm5"),
+            )
+        ),
+        1,
+    )
+
+    assert "says   : the fit is snug  -- https://audiosite.example/xm5" in report.text
+
+
+def test_a_quote_with_no_page_behind_it_is_still_reported(report) -> None:
+    """A result the search returned without a URL still printed the words."""
+    log_top_products(
+        ranked(Product(name="Sony WH-1000XM5", opinions=said("the fit is snug"))), 1
+    )
+
+    assert "says   : the fit is snug" in report.text
+
+
 def test_every_opinion_gets_its_own_line(report) -> None:
     """Two verdicts on one line would read as one reviewer's sentence."""
     log_top_products(
-        ranked(Product(name="Sony WH-1000XM5", opinions=["the fit is snug", "the case is bulky"])),
+        ranked(
+            Product(
+                name="Sony WH-1000XM5", opinions=said("the fit is snug", "the case is bulky")
+            )
+        ),
         1,
     )
 

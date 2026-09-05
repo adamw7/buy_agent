@@ -283,7 +283,11 @@ def score_run(
     ]
     reported_figures = sum(verdict is not None for verdict in verdicts)
     faithful = [
-        [quote for quote in product.opinions if _quotes_verbatim(quote, entry, pages)]
+        [
+            quote
+            for quote in product.opinions
+            if _quotes_verbatim(quote.text, entry, pages)
+        ]
         for product, entry in matched
     ]
     quoted = sum(len(product.opinions) for product, _ in matched)

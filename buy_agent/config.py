@@ -110,7 +110,10 @@ class AgentConfig:
         max_price: The most the shopper will pay, or None for no bound. Applied
             after grounding and before ranking, so what is reported is what was
             asked for rather than the cheapest of whatever came back (ADR-0039).
-            In the currency the pages printed, which is not converted.
+            Read in the currency the run's own prices are counted in -- the
+            commonest one the pages printed -- and nothing is converted, so a
+            price in another currency is one this bound cannot judge and does not
+            (ADR-0043).
         min_rating: The lowest average review score worth reporting, on the same
             0-5 scale as ``Product.rating``, or None for no bound.
         min_reviews: How many reviews a rating has to be averaged over, or None.

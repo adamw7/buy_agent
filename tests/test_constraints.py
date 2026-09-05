@@ -183,3 +183,67 @@ def test_a_bound_at_the_bottom_of_its_range_is_still_a_bound(bounds: Constraints
     Read as falsy, ``min_rating=0`` would stop being applied and stop being
     reported -- and 0 admits everything, so nothing would ever look wrong."""
     assert bounds.given
+
+
+# -- a budget is a number in one currency (ADR-0043) ---------------------------
+
+
+def test_a_price_the_run_cannot_place_is_not_held_against_the_budget() -> None:
+    """Nothing is converted, so a euro price and a dollar budget are not two
+    comparable numbers -- and an unplaceable figure passes, the way an unknown
+    one does."""
+    products = [
+        Product(name="Over", price=300.0, currency="USD"),
+        Product(name="Under", price=100.0, currency="USD"),
+        Product(name="Elsewhere", price=300.0, currency="EUR"),
+    ]
+
+    kept = Constraints(max_price=200.0).apply(products)
+
+    assert [product.name for product in kept] == ["Under", "Elsewhere"]
+
+
+def test_a_bare_price_is_still_held_to_the_budget() -> None:
+    """A price the page printed without a currency is the run's own, which is
+    what every price here was before the rule existed."""
+    products = [Product(name="Over", price=300.0), Product(name="Under", price=100.0)]
+
+    kept = Constraints(max_price=200.0).apply(products)
+
+    assert [product.name for product in kept] == ["Under"]
+
+
+def test_the_budget_is_reported_with_the_currency_it_was_read_in(caplog) -> None:
+    """The part of the bound nobody typed: the number came from the shopper and
+    the currency from whatever the pages were printing."""
+    with caplog.at_level(logging.INFO, logger="buy_agent.constraints"):
+        Constraints(max_price=200.0).apply(
+            [Product(name="Under", price=100.0, currency="USD")]
+        )
+
+    assert "at most 200.00 USD" in caplog.text
+
+
+def test_a_run_whose_pages_named_no_currency_names_none(caplog) -> None:
+    """There is nothing to say, and "at most 200.00 None" would be worse than
+    the sentence the report always had."""
+    with caplog.at_level(logging.INFO, logger="buy_agent.constraints"):
+        Constraints(max_price=200.0).apply([Product(name="Under", price=100.0)])
+
+    assert "(at most 200.00)" in caplog.text
+
+
+def test_the_other_two_bounds_are_the_same_in_every_currency(caplog) -> None:
+    """A rating is out of five wherever it was printed, so nothing about the
+    currency reaches those rows."""
+    with caplog.at_level(logging.INFO, logger="buy_agent.constraints"):
+        kept = Constraints(min_rating=4.0).apply(
+            [
+                Product(name="Good", price=100.0, currency="EUR", rating=4.5),
+                Product(name="Poor", price=100.0, currency="EUR", rating=2.0),
+            ]
+        )
+
+    assert [product.name for product in kept] == ["Good"]
+    assert "rated at least 4 EUR" not in caplog.text
+    assert "rated at least 4" in caplog.text

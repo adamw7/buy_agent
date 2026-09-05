@@ -288,7 +288,7 @@ export class SearchForm {
   protected readonly numberFields: NumberField[] = [
     field('max_price', 'Max price', this.maxPrice, {
       step: 0.01,
-      hint: 'In whatever currency the pages quote.',
+      hint: 'In the currency most of the pages quote; nothing is converted.',
     }),
     field('min_rating', 'Min rating', this.minRating, {
       step: 0.1,
@@ -308,7 +308,7 @@ export class SearchForm {
       off: () => !this.takesNumCtx(),
     }),
     field('cache_ttl', 'Cache pages for', this.cacheTtl, {
-      hint: 'Seconds. 0 reads every page off the web.',
+      hint: 'Seconds a page, and the answer about it, stay usable. 0 is off.',
     }),
   ];
 

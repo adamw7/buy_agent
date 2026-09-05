@@ -25,7 +25,7 @@ from buy_agent.extraction import (
 from buy_agent.models import Product, ProductList, SearchQuery
 from buy_agent.search import SearchResult
 
-from tests.conftest import FakeLLM
+from tests.conftest import FakeLLM, said
 
 
 def test_format_results_numbers_every_result(search_results) -> None:
@@ -627,12 +627,57 @@ def test_merging_keeps_what_both_pages_said_about_the_product() -> None:
     """
     merged = merge_variants(
         [
-            Product(name="JBL Live 780NC", price=149.0, opinions=["the fit is snug"]),
-            Product(name="JBL Live 780NC Headphones", opinions=["the case is bulky"]),
+            Product(name="JBL Live 780NC", price=149.0, opinions=said("the fit is snug")),
+            Product(name="JBL Live 780NC Headphones", opinions=said("the case is bulky")),
         ]
     )
 
-    assert merged[0].opinions == ["the fit is snug", "the case is bulky"]
+    assert merged[0].opinions == said("the fit is snug", "the case is bulky")
+
+
+def test_a_quote_keeps_the_page_it_came_off_through_the_merge() -> None:
+    """The pair is one object, so neither half can be carried over without the
+    other and neither listing's link ends up under the other's words (ADR-0042)."""
+    merged = merge_variants(
+        [
+            Product(
+                name="JBL Live 780NC",
+                price=149.0,
+                opinions=said("the fit is snug", page="https://one.example/jbl"),
+            ),
+            Product(
+                name="JBL Live 780NC Headphones",
+                opinions=said("the case is bulky", page="https://two.example/jbl"),
+            ),
+        ]
+    )
+
+    assert [(o.text, o.url) for o in merged[0].opinions] == [
+        ("the fit is snug", "https://one.example/jbl"),
+        ("the case is bulky", "https://two.example/jbl"),
+    ]
+
+
+def test_the_same_verdict_on_two_pages_keeps_the_first_page_that_printed_it() -> None:
+    """Identity is the words and not the pair, so a syndicated review is one
+    quote -- and the page kept is the earlier listing's, which is the tie-break
+    the merge makes everywhere else."""
+    merged = merge_variants(
+        [
+            Product(
+                name="JBL Live 780NC",
+                opinions=said("The fit is snug", page="https://one.example/jbl"),
+            ),
+            Product(
+                name="JBL Live 780NC Headphones",
+                opinions=said("the FIT is snug", page="https://two.example/jbl"),
+            ),
+        ]
+    )
+
+    assert [(o.text, o.url) for o in merged[0].opinions] == [
+        ("The fit is snug", "https://one.example/jbl")
+    ]
 
 
 def test_the_same_verdict_on_two_pages_is_quoted_once() -> None:
@@ -640,31 +685,31 @@ def test_the_same_verdict_on_two_pages_is_quoted_once() -> None:
     as not -- and a card repeating itself reads as two people agreeing."""
     merged = merge_variants(
         [
-            Product(name="JBL Live 780NC", opinions=["The fit is snug"]),
-            Product(name="JBL Live 780NC Headphones", opinions=["the FIT is snug", "cheap"]),
+            Product(name="JBL Live 780NC", opinions=said("The fit is snug")),
+            Product(name="JBL Live 780NC Headphones", opinions=said("the FIT is snug", "cheap")),
         ]
     )
 
-    assert merged[0].opinions == ["The fit is snug", "cheap"]
+    assert merged[0].opinions == said("The fit is snug", "cheap")
 
 
 def test_a_merge_reports_no_more_opinions_than_one_listing_could() -> None:
     """Both listings' quotes, but still a product card and not a review page."""
     merged = merge_variants(
         [
-            Product(name="JBL Live 780NC", opinions=["one", "two"]),
-            Product(name="JBL Live 780NC Headphones", opinions=["three", "four"]),
+            Product(name="JBL Live 780NC", opinions=said("one", "two")),
+            Product(name="JBL Live 780NC Headphones", opinions=said("three", "four")),
         ]
     )
 
-    assert merged[0].opinions == ["one", "two", "three"]
+    assert merged[0].opinions == said("one", "two", "three")
 
 
 def test_the_loser_s_opinions_are_kept_even_when_it_loses_everything_else() -> None:
     """The winner is decided on figures, which say nothing about who was read."""
     merged = merge_variants(
         [
-            Product(name="JBL Live 780NC Headphones", opinions=["the case is bulky"]),
+            Product(name="JBL Live 780NC Headphones", opinions=said("the case is bulky")),
             Product(
                 name="JBL Live 780NC",
                 price=149.0,
@@ -675,5 +720,5 @@ def test_the_loser_s_opinions_are_kept_even_when_it_loses_everything_else() -> N
         ]
     )
 
-    assert merged[0].opinions == ["the case is bulky"]
+    assert merged[0].opinions == said("the case is bulky")
     assert merged[0].price == 149.0

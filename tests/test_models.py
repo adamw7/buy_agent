@@ -11,7 +11,10 @@ from buy_agent.models import (
     Product,
     ProductList,
     SearchQuery,
+    comparable_price,
+    dominant_currency,
 )
+from tests.conftest import said
 
 
 def test_sentinels_become_none() -> None:
@@ -215,7 +218,16 @@ def test_quoted_opinions_survive_conversion_tidied() -> None:
         name="Thing", opinions=["  the fit   is snug ", "", "the case is bulky"]
     ).to_product()
 
-    assert converted.opinions == ["the fit is snug", "the case is bulky"]
+    assert converted.opinions == said("the fit is snug", "the case is bulky")
+
+
+def test_a_quote_the_model_gave_points_at_no_page_yet() -> None:
+    """The model is asked for the words and never for the page: which page said
+    it is grounding's answer, out of the results that were really searched
+    (ADR-0017, ADR-0042)."""
+    converted = ExtractedProduct(name="Thing", opinions=["the fit is snug"]).to_product()
+
+    assert converted.opinions[0].url is None
 
 
 def test_no_opinions_is_an_empty_list_and_not_a_none() -> None:
@@ -231,7 +243,7 @@ def test_the_same_opinion_twice_is_reported_once() -> None:
         name="Thing", opinions=["The fit is snug", "the FIT is snug"]
     ).to_product()
 
-    assert converted.opinions == ["The fit is snug"]
+    assert converted.opinions == said("The fit is snug")
 
 
 def test_more_opinions_than_a_card_can_hold_are_cut_to_the_first_few() -> None:
@@ -239,7 +251,7 @@ def test_more_opinions_than_a_card_can_hold_are_cut_to_the_first_few() -> None:
         name="Thing", opinions=["one", "two", "three", "four"]
     ).to_product()
 
-    assert converted.opinions == ["one", "two", "three"]
+    assert converted.opinions == said("one", "two", "three")
 
 
 def test_a_quote_exactly_as_long_as_a_card_holds_is_kept() -> None:
@@ -252,7 +264,9 @@ def test_a_quote_exactly_as_long_as_a_card_holds_is_kept() -> None:
     )
     assert len(quote) == _MAX_OPINION_LENGTH
 
-    assert ExtractedProduct(name="Thing", opinions=[quote]).to_product().opinions == [quote]
+    assert ExtractedProduct(name="Thing", opinions=[quote]).to_product().opinions == said(
+        quote
+    )
 
 
 def test_a_review_count_of_zero_is_no_count_at_all() -> None:
@@ -271,3 +285,74 @@ def test_a_paragraph_is_not_a_quote() -> None:
     retold = "The reviewers were impressed. " * 10
 
     assert ExtractedProduct(name="Thing", opinions=[retold]).to_product().opinions == []
+
+
+# -- which currency a set of prices is counted in (ADR-0043) -------------------
+
+
+def test_the_currency_of_a_set_is_the_commonest_one_named() -> None:
+    products = [
+        Product(name="Lone", price=90.0, currency="EUR"),
+        Product(name="One", price=100.0, currency="USD"),
+        Product(name="Two", price=200.0, currency="USD"),
+    ]
+
+    assert dominant_currency(products) == "USD"
+
+
+def test_currencies_tie_on_the_order_they_were_first_seen_in() -> None:
+    """Which is the search's own order, and the tie-break every other merge here
+    makes -- so the same set is counted in the same currency twice."""
+    euro = Product(name="Euro", price=90.0, currency="EUR")
+    dollar = Product(name="Dollar", price=100.0, currency="USD")
+
+    assert dominant_currency([euro, dollar]) == "EUR"
+    assert dominant_currency([dollar, euro]) == "USD"
+
+
+def test_a_currency_with_no_price_beside_it_counts_towards_nothing() -> None:
+    """A currency is a fact about a price (ADR-0022), and one left standing alone
+    describes nothing -- so it does not get to decide what the set is counted in.
+    ``to_product`` drops such a pairing, and this is the rule saying why."""
+    products = [
+        Product(name="Priced", price=100.0, currency="USD"),
+        Product(name="Unpriced", currency="EUR"),
+        Product(name="Also unpriced", currency="EUR"),
+    ]
+
+    assert dominant_currency(products) == "USD"
+
+
+def test_a_set_nobody_named_a_currency_in_is_counted_in_none() -> None:
+    assert dominant_currency([Product(name="Bare", price=100.0)]) is None
+    assert dominant_currency([]) is None
+
+
+@pytest.mark.parametrize(
+    ("product", "currency", "expected", "why"),
+    [
+        pytest.param(
+            Product(name="a", price=100.0, currency="USD"), "USD", 100.0,
+            "the set's own currency", id="same",
+        ),
+        pytest.param(
+            Product(name="a", price=100.0), "USD", 100.0,
+            "a bare price is taken as the set's own", id="bare",
+        ),
+        pytest.param(
+            Product(name="a", price=100.0, currency="JPY"), "USD", None,
+            "not a smaller number: a number this set cannot place", id="other",
+        ),
+        pytest.param(
+            Product(name="a", price=100.0, currency="JPY"), None, 100.0,
+            "nothing says these are different currencies", id="no set currency",
+        ),
+        pytest.param(
+            Product(name="a"), "USD", None, "no price at all", id="unpriced",
+        ),
+    ],
+)
+def test_which_prices_are_on_the_set_s_scale(
+    product: Product, currency: str | None, expected: float | None, why: str
+) -> None:
+    assert comparable_price(product, currency) == expected, why

@@ -50,6 +50,9 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0039](0039-enforce-the-shoppers-bounds-in-python.md) | Let the shopper set bounds, and enforce them after grounding | Accepted |
 | [0040](0040-cache-the-page-text-on-disk.md) | Cache the page text on disk, and cache the text rather than the excerpt | Accepted |
 | [0041](0041-report-what-a-score-is-made-of.md) | Report what a score is made of, and name the parts that were assumed | Accepted |
+| [0042](0042-keep-the-page-a-quote-came-from.md) | Keep the page a quote came from, and link it | Accepted |
+| [0043](0043-compare-prices-only-within-one-currency.md) | Compare prices only within one currency, and convert nothing | Accepted |
+| [0044](0044-remember-a-deterministic-model-answer.md) | Remember a deterministic model answer on disk, beside the pages | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

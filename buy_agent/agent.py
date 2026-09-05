@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, TypeAlias
 
+from buy_agent.cache import remember_answers
 from buy_agent.chat import UnreadableAnswerError
 from buy_agent.config import DEFAULT_REGION, AgentConfig
 from buy_agent.constraints import Constraints
@@ -55,6 +56,47 @@ class ModelUnavailableError(RuntimeError):
     """
 
 
+def _served_model(config: AgentConfig) -> ChatModel:
+    """The model server this config names, answering off disk where it may.
+
+    The remembering is here rather than in :mod:`buy_agent.providers` because it
+    is nothing to do with which server is answering: the same wrapper goes round
+    either one, and neither row has to declare it (ADR-0044).
+    """
+    return remember_answers(
+        config.model_server.chat_model(config),
+        fingerprint=_asks_the_same_question(config),
+        ttl=config.cache_ttl,
+        deterministic=config.temperature == 0,
+    )
+
+
+def _asks_the_same_question(config: AgentConfig) -> dict[str, object]:
+    """Everything besides the prompt that decides what a model answers.
+
+    The prompt and the schema are the model call's own and go into the key where
+    it is built; this is the rest -- which server, which model, and the settings
+    the request carries.
+
+    Two settings are deliberately absent. ``api_key`` is a secret, and the key is
+    written to a file: nothing that would be a mistake to leave on disk goes in.
+    ``temperature`` is not there because only a run at zero is remembered at all
+    (:func:`buy_agent.cache.remember_answers`), so it is a constant here and a
+    constant in a key is noise. ``num_ctx`` goes in only where the provider sends
+    it: on vLLM the window is fixed at startup and the number changes nothing, so
+    including it would miss on a setting the server never saw.
+    """
+    fingerprint: dict[str, object] = {
+        "provider": config.provider,
+        "model": config.model,
+        "base_url": config.base_url,
+        "reasoning": config.reasoning,
+    }
+    if config.model_server.takes_num_ctx:
+        fingerprint["num_ctx"] = config.num_ctx
+    return fingerprint
+
+
 class BuyAgent:
     """Finds products for a shopper, ranks them, and logs the best few.
 
@@ -73,10 +115,13 @@ class BuyAgent:
         Args:
             config: Model, search and ranking settings; the defaults are sensible.
             llm: Chat model to use instead of the provider's own -- the seam the
-                tests inject a fake model through.
+                tests inject a fake model through. Given one, nothing is wrapped
+                around it: a stand-in answers whatever it was told to, and a
+                remembered answer over the top of that would be this module
+                deciding what a test meant.
         """
         self.config = config or AgentConfig()
-        self.llm = llm or self.config.model_server.chat_model(self.config)
+        self.llm = llm or _served_model(self.config)
         self.query_chain = build_query_chain(self.llm)
         self.extraction_chain = build_extraction_chain(self.llm)
 

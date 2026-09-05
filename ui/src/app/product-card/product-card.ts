@@ -25,8 +25,12 @@ interface ScoreShare {
  * the page the product was found on, never one the model named.
  *
  * The opinions are shown as quotes because that is what they are: words a source
- * page printed, which `verification.verify_opinions()` checked are really there.
- * Nothing here summarises or scores them -- the browser decides nothing.
+ * page printed, which `verification.verify_opinions()` checked are really there
+ * -- each with a link to the page that printed it, which is the only way a
+ * shopper can check a quote the way a figure is checked by following the
+ * product's own link (ADR-0042). Nothing here summarises or scores them, and
+ * nothing here decides which page a quote came off -- the browser decides
+ * nothing.
  */
 @Component({
   selector: 'app-product-card',

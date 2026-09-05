@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from buy_agent.models import Product
+from buy_agent.models import Opinion, Product
 from buy_agent.search import SearchResult
 from buy_agent.verification import (
     attribute_sources,
@@ -21,6 +21,7 @@ from buy_agent.verification import (
     verify_numbers,
     verify_opinions,
 )
+from tests.conftest import said
 
 SOURCES = [
     SearchResult(
@@ -720,10 +721,16 @@ OPINIONATED = [
 ]
 
 
-def opinions_after(*quotes: str, name: str = "Sony WH-CH720N") -> list[str]:
-    """What survives grounding, for a product the sources do mention."""
-    product = Product(name=name, opinions=list(quotes))
+def quoted_from(*quotes: str, name: str = "Sony WH-CH720N") -> list[Opinion]:
+    """What survives grounding, for a product the sources do mention: the words
+    and the page that printed them."""
+    product = Product(name=name, opinions=said(*quotes))
     return verify_opinions([product], OPINIONATED)[0].opinions
+
+
+def opinions_after(*quotes: str, name: str = "Sony WH-CH720N") -> list[str]:
+    """The same, as the words alone -- which is what most of these are about."""
+    return [opinion.text for opinion in quoted_from(*quotes, name=name)]
 
 
 def test_a_quote_the_page_printed_survives() -> None:
@@ -805,17 +812,19 @@ def test_grounding_a_product_grounds_the_opinions_it_arrived_with() -> None:
     """``ground`` is the one door the pipeline goes through, so it does all four."""
     product = Product(
         name="Sony WH-CH720N",
-        opinions=["the noise cancelling uncanny for the money", "battery life is poor"],
+        opinions=said("the noise cancelling uncanny for the money", "battery life is poor"),
     )
 
     grounded = ground([product], OPINIONATED)[0]
 
-    assert grounded.opinions == ["the noise cancelling uncanny for the money"]
+    assert grounded.opinions == said(
+        "the noise cancelling uncanny for the money", page="https://audiosite.example/ch720n"
+    )
     assert grounded.url == "https://audiosite.example/ch720n"
 
 
 def test_dropped_opinions_are_reported(caplog) -> None:
-    product = Product(name="Sony WH-CH720N", opinions=["battery life is poor"])
+    product = Product(name="Sony WH-CH720N", opinions=said("battery life is poor"))
 
     with caplog.at_level(logging.INFO, logger="buy_agent.verification"):
         verify_opinions([product], OPINIONATED)
@@ -836,11 +845,96 @@ def test_a_grouped_number_in_a_quote_matches_the_page_that_grouped_it() -> None:
             snippet="Reviewers found over 1,299 owners said the same thing.",
         )
     ]
-    product = Product(name="Sony WH-CH720N", opinions=["found over 1,299 owners said"])
+    product = Product(name="Sony WH-CH720N", opinions=said("found over 1,299 owners said"))
 
-    assert verify_opinions([product], results)[0].opinions == [
+    assert verify_opinions([product], results)[0].opinions == said(
         "found over 1,299 owners said"
+    )
+
+
+# -- and the page it came off (ADR-0042) ---------------------------------------
+
+
+def test_a_quote_carries_the_page_that_printed_it() -> None:
+    """The evidence a shopper can follow. Before this a figure could be checked
+    by following the product's link and a quote could not be checked at all."""
+    assert quoted_from("the noise cancelling uncanny for the money") == [
+        Opinion(
+            text="the noise cancelling uncanny for the money",
+            url="https://audiosite.example/ch720n",
+        )
     ]
+
+
+def test_a_quote_is_linked_to_the_first_page_that_printed_it() -> None:
+    """The same "first result that mentions it" rule ``attribute_sources`` picks
+    a product's own link by, so the two answers cannot disagree about which page
+    a product was found on."""
+    twice = [
+        SearchResult(
+            title="Sony WH-CH720N first look",
+            snippet="Reviewers found the noise cancelling uncanny for the money.",
+            url="https://first.example/ch720n",
+        ),
+        *OPINIONATED,
+    ]
+    product = Product(
+        name="Sony WH-CH720N",
+        opinions=said("the noise cancelling uncanny for the money"),
+    )
+
+    kept = verify_opinions([product], twice)[0].opinions
+
+    assert kept[0].url == "https://first.example/ch720n"
+
+
+def test_a_page_with_no_link_still_backs_its_quote() -> None:
+    """A result the search returned without a URL printed the words all the same,
+    and a quote is not worth dropping for want of a link to it."""
+    unlinked = [
+        SearchResult(
+            title="Sony WH-CH720N review",
+            snippet="Reviewers found the noise cancelling uncanny for the money.",
+        )
+    ]
+    product = Product(
+        name="Sony WH-CH720N",
+        opinions=said("the noise cancelling uncanny for the money"),
+    )
+
+    kept = verify_opinions([product], unlinked)[0].opinions
+
+    assert [opinion.text for opinion in kept] == [
+        "the noise cancelling uncanny for the money"
+    ]
+    assert kept[0].url is None
+
+
+def test_a_quote_is_never_linked_to_a_page_about_another_product() -> None:
+    """The link follows the check, and the check is page by page (ADR-0025): the
+    Anker's page cannot be cited for the Sony even though it printed the words."""
+    product = Product(
+        name="Anker Q45", opinions=said("Great sound, and it ships in black")
+    )
+
+    kept = verify_opinions([product], OPINIONATED)[0].opinions
+
+    assert kept[0].url == "https://audiosite.example/q45"
+
+
+def test_a_quote_the_model_arrived_with_a_link_on_gets_the_page_s(caplog) -> None:
+    """Nothing about a quote's page is the model's to say, so whatever it came in
+    with is replaced by the page that was actually searched (ADR-0017)."""
+    product = Product(
+        name="Sony WH-CH720N",
+        opinions=said(
+            "the noise cancelling uncanny for the money", page="https://invented.example"
+        ),
+    )
+
+    kept = verify_opinions([product], OPINIONATED)[0].opinions
+
+    assert kept[0].url == "https://audiosite.example/ch720n"
 
 
 def test_a_product_with_nothing_said_about_it_is_left_alone() -> None:

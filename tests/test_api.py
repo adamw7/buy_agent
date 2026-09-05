@@ -23,7 +23,7 @@ from buy_agent.api import (
 from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.models import Product
 from buy_agent.ranking import rank_products
-from tests.conftest import ranked_product
+from tests.conftest import ranked_product, said
 from buy_agent.providers import VLLM
 from buy_agent.search import SearchError
 from buy_agent.sources import Source
@@ -38,7 +38,7 @@ RANKED = [
             review_count=12000,
             seller="Amazon",
             url="https://example.com/sony",
-            opinions=["the noise cancelling is uncanny"],
+            opinions=said("the noise cancelling is uncanny", page="https://example.com/sony"),
         ),
         score=0.912345,
         rank=1,
@@ -430,7 +430,9 @@ def test_a_product_carries_both_the_figures_and_their_labels() -> None:
 
 def test_a_product_carries_what_the_sources_said_about_it() -> None:
     """Quoted, not summarised: the browser shows words Python already grounded."""
-    assert product_payload(RANKED[0])["opinions"] == ["the noise cancelling is uncanny"]
+    assert product_payload(RANKED[0])["opinions"] == [
+        {"text": "the noise cancelling is uncanny", "url": "https://example.com/sony"}
+    ], "each quote goes over the wire with the page that printed it (ADR-0042)"
     assert product_payload(RANKED[1])["opinions"] == []
 
 

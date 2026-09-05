@@ -10,7 +10,12 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-from buy_agent.models import RankedProduct, ScoreParts
+from buy_agent.models import (
+    RankedProduct,
+    ScoreParts,
+    comparable_price,
+    dominant_currency,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -43,11 +48,19 @@ def score_product(
     cheapest: float | None,
     priciest: float | None,
     weights: RankingWeights,
+    currency: str | None = None,
 ) -> ScoreParts:
     """Score one product in ``[0, 1]`` relative to the rest of the candidate set.
 
     Price is relative rather than absolute: the cheapest in the set gets 1.0, the
     most expensive 0.0, and with one distinct price everything ties at ``NEUTRAL``.
+
+    ``currency`` is the one the set's prices are compared in, and a product priced
+    in another is not on that scale: its price scores ``NEUTRAL`` and says so,
+    rather than being read as the number it happens to be (ADR-0043). Defaulted to
+    ``None`` -- "nothing says these are different currencies" -- so a caller
+    scoring one product against two figures need not answer a question about a set
+    it does not have.
 
     The three shares come back beside the blend rather than being added up and
     forgotten (ADR-0041). They cost nothing -- they are what the blend was made of
@@ -71,12 +84,17 @@ def score_product(
             else None
         ),
         # The last clause is a set with one distinct price in it, where nothing
-        # separates any product from any other.
+        # separates any product from any other. The first is both a price nobody
+        # published and one published in a currency this set is not counted in:
+        # neither can be placed between the cheapest and the priciest, and the
+        # difference between them is not one a score could carry anyway.
         "price": (
             None
-            if product.price is None or cheapest is None or priciest is None
+            if (price := comparable_price(product, currency)) is None
+            or cheapest is None
+            or priciest is None
             or priciest <= cheapest
-            else (priciest - product.price) / (priciest - cheapest)
+            else (priciest - price) / (priciest - cheapest)
         ),
     }
     shares = {name: NEUTRAL if share is None else share for name, share in read.items()}
@@ -97,30 +115,46 @@ def rank_products(
     """Sort products best-first and attach the score and 1-based rank.
 
     ``sort_by="price"`` sorts cheapest first and ``"rating"`` highest first; either
-    way products missing that field sink to the bottom rather than being dropped.
+    way products missing that field sink to the bottom rather than being dropped --
+    and a price in a currency this set is not counted in sinks with them, being a
+    figure that means something different from the rest of the column (ADR-0043).
     """
     weights = weights or RankingWeights()
-    prices = [p.price for p in products if p.price is not None]
-    cheapest = min(prices) if prices else None
-    priciest = max(prices) if prices else None
+    # The scale is the run's own currency and the prices that are on it: a set
+    # holding one price in yen would otherwise put every dollar price at the
+    # cheap end of a range five orders of magnitude wide (ADR-0043). Worked out
+    # once, beside the products it belongs to, rather than per product: it is a
+    # fact about the set, as ``cheapest`` and ``priciest`` are.
+    currency = dominant_currency(products)
+    prices = [comparable_price(product, currency) for product in products]
+    on_the_scale = [price for price in prices if price is not None]
+    cheapest = min(on_the_scale) if on_the_scale else None
+    priciest = max(on_the_scale) if on_the_scale else None
 
     scored = [
         (
             product,
-            score_product(product, cheapest=cheapest, priciest=priciest, weights=weights),
+            price,
+            score_product(
+                product,
+                cheapest=cheapest,
+                priciest=priciest,
+                weights=weights,
+                currency=currency,
+            ),
         )
-        for product in products
+        for product, price in zip(products, prices, strict=True)
     ]
 
     if sort_by == "price":
-        scored.sort(key=lambda item: (item[0].price is None, item[0].price or 0.0))
+        scored.sort(key=lambda item: (item[1] is None, item[1] or 0.0))
     elif sort_by == "rating":
         scored.sort(key=lambda item: (item[0].rating is None, -(item[0].rating or 0.0)))
     else:
         # Name breaks ties, so equal scores come out in a reproducible order.
-        scored.sort(key=lambda item: (-item[1].total, item[0].name.lower()))
+        scored.sort(key=lambda item: (-item[2].total, item[0].name.lower()))
 
     return [
         RankedProduct(product=product, breakdown=parts, rank=index)
-        for index, (product, parts) in enumerate(scored, start=1)
+        for index, (product, _price, parts) in enumerate(scored, start=1)
     ]

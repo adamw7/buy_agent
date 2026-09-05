@@ -103,12 +103,23 @@ h3 a:hover {
   margin-top: 6px;
 }
 
-.opinions li::before {
+/* On the quote and not on the list item: the link that follows it is not part
+   of what the page said, and a closing quote mark after "source" would put the
+   reviewer's words around this project's own label. */
+.opinions .quote::before {
   content: '\201C';
 }
 
-.opinions li::after {
+.opinions .quote::after {
   content: '\201D';
+}
+
+.opinions .source {
+  margin-inline-start: 6px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-style: normal;
+  white-space: nowrap;
 }
 
 .score {

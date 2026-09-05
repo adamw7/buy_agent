@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import httpx
 from lxml import html as lxml_html
 
-from buy_agent.cache import PageCache, open_cache
+from buy_agent.cache import PAGES, DiskCache, open_cache
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
@@ -237,7 +237,7 @@ def fetch_page(
     *,
     max_chars: int,
     opinion_chars: int = 400,
-    cache: PageCache | None = None,
+    cache: DiskCache | None = None,
 ) -> PageText:
     """Read one URL -- off the cache or off the web -- and condense it.
 
@@ -391,7 +391,7 @@ def enrich(
     """
     urls = [result.url for result in results]
     logger.info("Fetching %d result page(s)", len(urls))
-    cache = open_cache(cache_ttl)
+    cache = open_cache(PAGES, cache_ttl)
 
     with httpx.Client(
         timeout=timeout,

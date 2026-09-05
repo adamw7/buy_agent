@@ -92,10 +92,10 @@ python -m buy_agent "headphones" --max-price 200 --min-rating 4.5 --min-reviews 
 | `--sort-by` | `score` | `score`, `price` or `rating` |
 | `--region` | `us-en` | Search region: a country, then a language -- `uk-en`, `pl-pl` |
 | `--source` | -- | Take the facts from this source only; repeatable |
-| `--max-price` | no limit | Report nothing dearer, in the currency the pages quote |
+| `--max-price` | no limit | Report nothing dearer, in the currency the run's prices are counted in |
 | `--min-rating` | no limit | Report nothing rated below this, out of 5 |
 | `--min-reviews` | no limit | Report nothing whose rating averages fewer reviews |
-| `--cache-ttl` | `86400` | Seconds a fetched page stays usable on disk; `0` is off |
+| `--cache-ttl` | `86400` | Seconds a page, and the model's answer about it, stay usable on disk; `0` is off |
 | `--temperature` | `0.0` | Model temperature, 0-2; extraction is a copying task |
 | `--num-ctx` | `8192` | Context window in tokens (Ollama only) |
 | `--think` / `--no-think` | `--no-think` | Force thinking mode on or off |
@@ -244,26 +244,36 @@ figure the source pages did not back, so a blank price is as often a page that d
 not print one as a product that costs too much, and dropping blanks would throw
 away real products for the extractor's misses -- the same reason a missing figure
 scores neutral rather than zero
-([ADR-0039](docs/adr/0039-enforce-the-shoppers-bounds-in-python.md)). Prices are
-compared in whatever currency the page printed and nothing is converted.
+([ADR-0039](docs/adr/0039-enforce-the-shoppers-bounds-in-python.md)).
+
+**Prices are compared inside one currency, and nothing is converted.** A run's
+prices are counted in the commonest currency its pages printed, and a price in any
+other is a figure the run cannot place: it passes the budget, it scores neutral
+rather than being read as the number it happens to be, and the card marks it
+"assumed". A price a page printed with no currency at all is taken as the run's
+own. A rate table would be the first figure here that no source page printed, and
+a stale rate is a wrong ranking wearing a right one's clothes
+([ADR-0043](docs/adr/0043-compare-prices-only-within-one-currency.md)).
 
 The bounds are not read out of the request by the model, deliberately: a model
 that saw "under $200" in "headphones with 200 hours of battery" would drop every
 product in the run, and the report would say only that nothing was found. The
 number goes in the flag, or in the box under Settings in the browser.
 
-### Reading the same pages twice is free
+### Running the same search twice is nearly free
 
-Most of a repeated run is opening the ten pages it opened last time. Their text is
-kept on disk for a day, so a second run of the same search costs the extraction
-and nothing else -- which is the difference between a minute and a few seconds
-when what you are actually changing is a bound, a weight or a prompt. It also
-stops ten more requests going to shops that rate-limit, and stops two runs of one
-search disagreeing because a shop answered 403 the second time.
+Most of a repeated run is opening the ten pages it opened last time and then
+asking the model the identical question about them. Both are kept on disk for a
+day, so a second run of the same search costs almost nothing -- which is the
+difference between a minute and a second or two when what you are actually
+changing is a bound, a weight or the sort order, all of which happen *after* the
+model has spoken. It also stops ten more requests going to shops that rate-limit,
+and stops two runs of one search disagreeing because a shop answered 403 the
+second time.
 
 ```powershell
-python -m buy_agent "headphones" --cache-ttl 0      # every page read fresh
-$env:BUY_AGENT_CACHE_DIR = "D:\scratch\pages"      # somewhere else
+python -m buy_agent "headphones" --cache-ttl 0      # every page and answer fresh
+$env:BUY_AGENT_CACHE_DIR = "D:\scratch\buy-agent" # somewhere else
 ```
 
 What is stored is the page *text* rather than the condensed excerpt, so changing
@@ -275,8 +285,18 @@ failure -- an unwritable directory, a corrupt entry, a full disk -- is a cache m
 and never a failed run
 ([ADR-0040](docs/adr/0040-cache-the-page-text-on-disk.md)).
 
+What the model answered is kept the same way, under a key holding the whole
+question: the prompt with those pages in it, the schema, the model, the server and
+the settings the request carries. So a reworded prompt, a widened page budget or
+another model all ask again, and the only thing that comes off disk is the same
+question put to the same server twice. A run at a `temperature` above 0 is never
+remembered at all -- a model asked to sample has no one answer, and replaying one
+sample would be the cache deciding the result
+([ADR-0044](docs/adr/0044-remember-a-deterministic-model-answer.md)).
+
 The cost is honest and worth knowing: a day-old entry is a day-old price, reported
-as current. `--cache-ttl 0` is the answer when the figures have to be live.
+as current, and a day-old answer is that same figure one step further from the
+source. `--cache-ttl 0` is the answer when the figures have to be live.
 
 ### What the pages say
 
@@ -303,6 +323,16 @@ found. A small model paraphrasing what it read fails that, and the quote is drop
 ([ADR-0025](docs/adr/0025-check-a-quote-against-the-page-it-came-from.md)); a
 product whose quotes all fail is still reported, with none. An invented price is a
 number nobody wrote, but an invented quote is words in a reviewer's mouth.
+
+**Each quote names the page that printed it** -- a `source` link beside it on the
+card, the URL after the `says` line on the CLI where it is not the product's own
+link, and a `url` beside the `text` in the JSON. The check above already has to
+find that page to keep the quote, so it is kept rather than thrown away: a figure
+can be checked by following the product's link, and without this a quote could be
+checked by nobody. The tolerance for a word of the model's own at either end is
+deliberate and stays; what changes is that a paraphrase which slips through is now
+one click from being visible as one
+([ADR-0042](docs/adr/0042-keep-the-page-a-quote-came-from.md)).
 
 None of it is scored -- the ranking is the figures alone -- so the quotes are what
 to read when two candidates come out within a hair of each other. `--no-fetch`
@@ -529,11 +559,13 @@ Nine details make it work with a small model:
   product whose name is absent from the sources, and blanks any price, rating or
   review count that does not appear in the text the model was shown. A blanked
   figure scores neutral instead of winning.
-- **Quotes, checked as quotes.** The opinions in the report are the source pages'
-  words, not the model's summary of them, and each is looked for in the sources
-  as running text -- overlapping runs of five consecutive words, most of which
-  have to be found. A paraphrase fails that and is dropped: an invented price is
-  a number nobody wrote, but an invented quote is words in a reviewer's mouth.
+- **Quotes, checked as quotes, and cited.** The opinions in the report are the
+  source pages' words, not the model's summary of them, and each is looked for in
+  the sources as running text -- overlapping runs of five consecutive words, most
+  of which have to be found. A paraphrase fails that and is dropped: an invented
+  price is a number nobody wrote, but an invented quote is words in a reviewer's
+  mouth. The page that cleared the check is kept on the quote and shown beside it,
+  so a shopper can go and read the sentence.
 
 - **Bounds that are enforced, not searched for.** A budget in the request text
   only shapes the query. `--max-price`, `--min-rating` and `--min-reviews` are
@@ -625,19 +657,29 @@ every Saturday are in [Tests](docs/testing.md).
   appear on a page that names the product (ADR-0025), so a verdict cannot move
   between pages about unrelated things -- but a review page covering eight
   headphones names all eight, and nothing stops a verdict moving between them.
+  The `source` link beside each quote is that page, which is what makes this one
+  checkable by eye rather than only describable (ADR-0042).
 - **A bound has to be typed, not implied.** "under $200" in the request shapes
   the search query and nothing else; `--max-price 200` is what enforces it. And a
   product whose price no page printed is inside every budget, deliberately -- a
   blank is the extractor having missed something more often than it is a $900 tag.
-- **A cached page is as current as its age.** Pages are kept for a day by
-  default, so a figure can be up to that stale while reading as current;
-  `--cache-ttl 0` is the run that reads everything fresh.
+- **A cached page is as current as its age, and so is a cached answer.** Both
+  are kept for a day by default, so a figure can be up to that stale while
+  reading as current, and the reading of it is a day old too. The two expire on
+  one clock and the pages are part of an answer's key, so an answer is never
+  reused for pages that have themselves gone stale; `--cache-ttl 0` is the run
+  that reads and asks everything fresh.
 - **A named source is a domain, not an author.** `--source @mkbhd` searches
   YouTube for that handle and keeps the YouTube pages that come back; a video by
   somebody else that mentions the handle can get through. The report links to the
   page, so whose it is can be seen.
 - **Names are only as specific as the model makes them.** `lfm2.5` reported
   "Bose ANC" for a product the page named in full.
+- **A mixed-currency search scores most of itself on nothing.** Prices are
+  compared inside one currency and converted never (ADR-0043), so a search
+  returning five currencies gets a price criterion that is "assumed" for four of
+  them. That is the true state of what the run knows, and the cards say so --
+  but the ranking is then carried by rating and popularity alone.
 - Some shops answer with JavaScript-rendered pages or a 403; those results fall
   back to their snippet rather than failing the run. Which is why the run says
   how the fetching went -- "Got usable page text from 0 of 10 result(s): 7 refused

@@ -26,27 +26,53 @@ from __future__ import annotations
 import logging
 import operator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeAlias
+
+from buy_agent.models import Product, comparable_price, dominant_currency
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
     from buy_agent.config import AgentConfig
-    from buy_agent.models import Product
 
 logger = logging.getLogger(__name__)
 
+#: How a bound gets at the figure it judges: off the product, and off the currency
+#: the run's prices are counted in, which only the price cares about.
+Reader: TypeAlias = "Callable[[Product, str | None], float | None]"
+
+
+def _figure(name: str) -> Reader:
+    """Read one of the product's own figures, whatever the set is priced in.
+
+    Two of the three bounds judge a number that means the same thing in every
+    currency; this is how they say so, and it is what keeps the currency out of
+    every row but the one it belongs to.
+    """
+
+    def read(product: Product, _currency: str | None) -> float | None:
+        value: float | None = getattr(product, name)
+        return value
+
+    return read
+
+
 #: One row per bound: the field holding it -- named the same on this class and on
 #: :class:`~buy_agent.config.AgentConfig`, which is what lets ``from_config`` be a
-#: comprehension -- the figure on the product it judges, what "outside" means for
-#: it, and how it reads in the line a run logs. A fourth bound is a row here and
-#: nothing else: everything below reads the table rather than the fields, so a
-#: bound that is added cannot be one that is applied and never mentioned, or
+#: comprehension -- how the figure it judges is read off a product, what "outside"
+#: means for it, and how it reads in the line a run logs. A fourth bound is a row
+#: here and nothing else: everything below reads the table rather than the fields,
+#: so a bound that is added cannot be one that is applied and never mentioned, or
 #: mentioned and never applied (ADR-0039).
-_BOUNDS: tuple[tuple[str, str, Callable[[float, float], bool], str], ...] = (
-    ("max_price", "price", operator.gt, "at most {:,.2f}"),
-    ("min_rating", "rating", operator.lt, "rated at least {:g}"),
-    ("min_reviews", "review_count", operator.lt, "from at least {:,} reviews"),
+#:
+#: The price is read by :func:`~buy_agent.models.comparable_price` rather than off
+#: the product, which is the whole of ADR-0043 here: a budget is a number in one
+#: currency, and a price in another is not a figure it can be held against. Such a
+#: price reads as unknown, and an unknown figure passes every bound.
+_BOUNDS: tuple[tuple[str, Reader, Callable[[float, float], bool], str], ...] = (
+    ("max_price", comparable_price, operator.gt, "at most {:,.2f}"),
+    ("min_rating", _figure("rating"), operator.lt, "rated at least {:g}"),
+    ("min_reviews", _figure("review_count"), operator.lt, "from at least {:,} reviews"),
 )
 
 
@@ -58,10 +84,12 @@ class Constraints:
     gave terms to reports everything it found, as it always did.
 
     Attributes:
-        max_price: The most the shopper will pay, in whatever currency the page
-            printed. Not converted: a bound and a price from two currencies are
-            not comparable, and the one place that could be fixed is a rate table
-            this project has no business shipping (ADR-0039).
+        max_price: The most the shopper will pay, read in the currency the run's
+            prices are counted in (ADR-0043). Nothing is converted -- a rate table
+            is not this project's to ship, and a stale rate is a wrong answer
+            wearing a right one's clothes -- so a price in some other currency is
+            not held against this at all: it is a figure the run cannot place, and
+            an unplaceable figure passes, the way an unknown one does.
         min_rating: The lowest average review score worth reporting, on the 0-5
             scale ``Product.rating`` is in.
         min_reviews: How many reviews a rating has to be averaged over. A 5.0
@@ -95,24 +123,38 @@ class Constraints:
         """
         return any(True for _ in self._set())
 
-    def admits(self, product: Product) -> bool:
+    def admits(self, product: Product, currency: str | None = None) -> bool:
         """Whether this product is inside every bound that was set.
 
         A figure the run does not know passes: see the module docstring. So the
-        test is "known *and* outside", never "not inside".
+        test is "known *and* outside", never "not inside". ``currency`` is what
+        the run's prices are counted in, and a price in another one is a figure
+        this run does not know (ADR-0043). It defaults to "nothing says these are
+        different currencies", which is what one product on its own says.
         """
         return not any(
-            (figure := getattr(product, field)) is not None and outside(figure, bound)
-            for field, bound, outside, _ in self._set()
+            (figure := read(product, currency)) is not None and outside(figure, bound)
+            for read, bound, outside, _ in self._set()
         )
 
-    def describe(self) -> str:
+    def describe(self, currency: str | None = None) -> str:
         """The bounds as one phrase, for the line the run logs about them.
 
         Only the ones that were set, in the order :data:`_BOUNDS` declares them,
         so a run narrowed on price alone does not report two bounds it never had.
+
+        A budget is named with the currency it was read in where the run found
+        one, because that is the part of it nobody typed: the number came from the
+        shopper and the currency from whatever the pages were printing.
         """
-        return ", ".join(phrase.format(bound) for _, bound, _, phrase in self._set())
+        return ", ".join(
+            phrase.format(bound)
+            # The one row whose figure carries a unit, which is why it is the one
+            # row read by ``comparable_price`` -- said once, here, rather than as
+            # a column repeating what the reader already is.
+            + (f" {currency}" if currency and read is comparable_price else "")
+            for read, bound, _, phrase in self._set()
+        )
 
     def apply(self, products: Sequence[Product]) -> list[Product]:
         """The products inside the bounds, and a line saying how many were not.
@@ -129,7 +171,11 @@ class Constraints:
         if not self.given:
             return list(products)
 
-        kept = [product for product in products if self.admits(product)]
+        # The run's own currency, worked out here for the reason ``rank_products``
+        # works it out: it is a fact about the set, and this is the one place that
+        # has the set (ADR-0043).
+        currency = dominant_currency(products)
+        kept = [product for product in products if self.admits(product, currency)]
         logger.log(
             # Nothing left is the one case worth interrupting for: the run found
             # products and is about to report none of them, and without this line
@@ -138,13 +184,13 @@ class Constraints:
             "%d of %d product(s) are within the limits (%s)",
             len(kept),
             len(products),
-            self.describe(),
+            self.describe(currency),
         )
         return kept
 
-    def _set(self) -> Iterator[tuple[str, float, Callable[[float, float], bool], str]]:
+    def _set(self) -> Iterator[tuple[Reader, float, Callable[[float, float], bool], str]]:
         """The rows of :data:`_BOUNDS` the shopper actually gave a number for."""
-        for name, field, outside, phrase in _BOUNDS:
+        for name, read, outside, phrase in _BOUNDS:
             bound = getattr(self, name)
             if bound is not None:
-                yield field, bound, outside, phrase
+                yield read, bound, outside, phrase

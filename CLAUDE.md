@@ -115,11 +115,15 @@ directories is only kept out of the image by keeping this list current.
 
 ### Settings and their environment
 
-`$BUY_AGENT_CACHE_DIR` moves where the page cache keeps what it read, defaulting
-to the platform's own cache directory under `buy-agent/pages` (ADR-0040). Like
-`$VLLM_API_KEY` it has no flag and no form field -- a path on the server's disk is
-not a browser's to choose -- while *how long* an entry lasts is the ordinary
-`cache_ttl` setting, 0 meaning "read every page off the web".
+`$BUY_AGENT_CACHE_DIR` moves where a run keeps what it can reuse -- `pages/` for
+the text the fetch read (ADR-0040) and `answers/` for what the model said about it
+(ADR-0044) -- defaulting to the platform's own cache directory under `buy-agent/`.
+Like `$VLLM_API_KEY` it has no flag and no form field -- a path on the server's
+disk is not a browser's to choose -- while *how long* an entry lasts is the
+ordinary `cache_ttl` setting, one number for both kinds, 0 meaning "read every
+page off the web and ask the model every question". A sampled run
+(`temperature` above 0) is never remembered whatever the setting says: it has no
+one answer to remember.
 
 `$BUY_AGENT_PROVIDER` moves which model server a run talks to, and each provider
 has its own variables behind it -- `$OLLAMA_MODEL`/`$OLLAMA_HOST` and
@@ -224,8 +228,8 @@ a new record superseding it rather than an edit to the old one -- numbers are ne
 reused, and accepted records are not rewritten. `tests/test_conventions.py` checks
 that the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0041 and every record is Accepted but ADR-0020, which ADR-0037 supersedes,
-so the next free number is 0042.
+to ADR-0044 and every record is Accepted but ADR-0020, which ADR-0037 supersedes,
+so the next free number is 0045.
 
 `.claude/skills/` holds the chores that span those files: `add-option` walks a new
 setting through `config.py`, both front doors, `agent.types.ts` and the form;
@@ -278,7 +282,7 @@ reported.
 | `chat.py` | The whole model-facing seam: a prompt, a chain, an answer read back as its schema (ADR-0038) |
 | `extraction.py` | Both prompts, both chains, name cleaning, deduplication |
 | `fetch.py` | Streams result pages up to a ceiling, keeps the lines quoting a figure or passing judgement, and tallies how the rest failed |
-| `cache.py` | The page text a run read, kept on disk for the next one -- and nothing else (ADR-0040) |
+| `cache.py` | What a run can reuse from the last one: the page text it read (ADR-0040) and the answers it got (ADR-0044) -- and nothing else |
 | `verification.py` | Drops products, figures and quotes absent from the sources; links what is left |
 | `constraints.py` | The bounds the shopper set, applied to the products before they are ranked |
 | `ranking.py` | Scoring and sorting, and what each score is made of; no LLM involved |
@@ -368,6 +372,17 @@ reported.
   makes `mentions_name` the decider of three things -- whether a product is real,
   where it links, and what may be quoted for it -- so a word added to
   `GENERIC_WORDS` loosens all three.
+- **A quote carries the page that printed it** (ADR-0042). `verify_opinions()`
+  already has to find that page to keep the quote at all, so `Product.opinions`
+  are `Opinion` objects -- the words and the URL of the first result that both
+  mentions the product and prints them, which is the rule `attribute_sources`
+  picks the product's own link by. The model is asked for the words and never for
+  the page, exactly as it is never trusted with a link (ADR-0017). `url` is
+  nullable and `None` is *not* "no page printed it": it is a result the search
+  returned without one, and collapsing the two would drop every quote off such a
+  page. The pair travels as one object -- through `_merge_opinions`,
+  `distinct_quotes`, `product_payload` and the card -- which is why it needs none
+  of the qualifier care below: neither half can move without the other.
 - **A currency belongs to its price, and a review count to its rating**
   (ADR-0022). Both are facts about the *listing* that printed them, so
   `models.QUALIFIERS` pairs them up and `_fill_gaps` carries a qualifier over only
@@ -402,7 +417,14 @@ reported.
   0 would punish a product for the extractor's misses. For the same reason
   `sort_by="price"` and `"rating"` sink products missing that field to the bottom
   instead of dropping them, and the shopper's bounds keep a product whose figure
-  is unknown rather than dropping it (ADR-0039). The cost of that rule is that
+  is unknown rather than dropping it (ADR-0039). A price the run cannot *place*
+  is one of those blanks: prices are compared inside one currency and converted
+  never, so `models.dominant_currency` says which currency a set is counted in
+  and `models.comparable_price` answers `None` for anything outside it, which
+  scores neutral, sinks in a price sort and passes every bound (ADR-0043). A bare
+  price is taken as the set's own. Both places that hold one price against another
+  -- `rank_products` and `Constraints` -- go through that one function; a third
+  would have to. The cost of that rule is that
   0.5 means two different things, so `score_product` answers a `ScoreParts` whose
   `neutral` names the criteria that were assumed rather than read, and both front
   ends show it (ADR-0041). It is decided there and nowhere else: a share that
@@ -503,7 +525,10 @@ seeds the web form.
   ordinary numbers with one rule of their own: they default to `None`, so a blank
   is not "the default value" but "no bound at all", and a product whose figure is
   unknown passes every one of them (ADR-0039). The form says so rather than
-  showing a fallback number: their placeholder is "No limit".
+  showing a fallback number: their placeholder is "No limit". `max_price` is read
+  in the currency the run's own prices are counted in, and a price outside it is
+  a figure the bound cannot judge -- so it passes too, and the line the run logs
+  names the currency (ADR-0043).
 - **`weights`** is the one field neither door fills in: `RankingWeights` is
   reachable only by constructing an `AgentConfig` in Python, so rebalancing the
   blended score is a code change and not a flag.
@@ -776,7 +801,11 @@ teardown puts the *values* back, which is why comparing those is safe anywhere.
 Patching `DDGS.text` does *not* work -- the name `ddgs` exports is a wrapper that
 constructs a different class.
 
-No test in `tests/` touches the network or a model server; keep it that way.
+No test in `tests/` touches the network, a model server or the machine's own
+cache: `conftest.py` points `$BUY_AGENT_CACHE_DIR` at a scratch directory per
+test, autouse, so a test that builds a real `BuyAgent` gets a model that remembers
+its answers somewhere disposable (ADR-0044) and no test can answer another test's
+question. Keep all three that way.
 `integration/` is where a real model goes, outside `testpaths` so a bare `pytest`
 cannot reach it. The server tests are the one exception to "no sockets": they bind
 loopback, routing and status codes being what they are about, and pass
@@ -787,16 +816,16 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1270 tests run in about five seconds: most of that is the two that spawn an
+1328 tests run in about six seconds: most of that is the two that spawn an
 interpreter -- one checking `python -m buy_agent` still runs as a script, one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1270 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1270 collect but 13 of the 17 in
-`tests/test_start_script.py` skip, so the summary reads `1257 passed, 13 skipped`.
-The UI's 141 tests run in about two seconds, most of which is building the app
-first. The 30 in `integration/` are counted separately and collected only by being
+reaching out. 1328 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1328 collect but 13 of the 17 in
+`tests/test_start_script.py` skip, so the summary reads `1315 passed, 13 skipped`.
+The UI's 143 tests run in about two seconds, most of which is building the app
+first. The 31 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
 
 ### The convention tests
@@ -814,7 +843,8 @@ that
   `api.PROVIDER_OPTIONS` and in the rows the form's picker is built from, and
   `ProviderOption` is mirrored in TypeScript;
 - `agent.types.ts` mirrors `defaults_payload`, `product_payload`, the
-  `breakdown` a product carries and `run_search` field for field;
+  `breakdown` a product carries, the `Opinion`s it quotes and `run_search` field
+  for field;
 - the form holds a number to a range for every range `limits_payload` ships and
   writes no `min` or `max` of its own into its template, and every key
   `parse_options` reads is one `SearchOptions` sends -- a key it reads and the form
@@ -912,7 +942,7 @@ asks both questions of one model call. ADR-0036 has the reasoning and
 - **Editing the corpus means re-running both scripted answers.** `PERFECT` must
   score exactly 1.000 -- which is what says the key is *reachable* rather than a
   silent ceiling under every number the nightly reports -- and `SLOPPY` is wrong in
-  seven ways, pinned to the exact counts each mistake should produce.
+  eight ways, pinned to the exact counts each mistake should produce.
 
 ### The scripts
 

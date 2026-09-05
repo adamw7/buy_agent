@@ -31,8 +31,20 @@
 
     @if (product().opinions.length) {
       <ul class="opinions">
-        @for (opinion of product().opinions; track opinion) {
-          <li>{{ opinion }}</li>
+        @for (opinion of product().opinions; track opinion.text) {
+          <li>
+            <span class="quote">{{ opinion.text }}</span>
+            @if (opinion.url) {
+              <a
+                class="source"
+                [href]="opinion.url"
+                target="_blank"
+                rel="noreferrer noopener"
+                aria-label="The page this quote came from"
+                >source</a
+              >
+            }
+          </li>
         }
       </ul>
     }

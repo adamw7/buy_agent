@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from buy_agent.chat import ChatModel
-    from buy_agent.models import Product
+    from buy_agent.models import Opinion, Product
     from buy_agent.search import SearchResult
 
 logger = logging.getLogger(__name__)
@@ -285,7 +285,7 @@ def _combine(first: Product, second: Product) -> Product:
     return winner.model_copy(update=updates)
 
 
-def _merge_opinions(winner: Product, loser: Product) -> list[str]:
+def _merge_opinions(winner: Product, loser: Product) -> list[Opinion]:
     """Both listings' opinions, the winner's first, without repeats.
 
     The only field taken from both. Two listings quoting different prices are in
@@ -293,6 +293,11 @@ def _merge_opinions(winner: Product, loser: Product) -> list[str]:
     quote was grounded on its own, and a quote says who it is about by being about
     the product rather than by sitting next to a figure -- which is why it needs
     none of the pairing care :data:`_MERGEABLE_FIELDS` takes.
+
+    A quote travels with the page that printed it, which is the one qualifier here
+    that needs no rule of its own (ADR-0042): the pair is one object, so neither
+    half can be carried over without the other and neither listing's link can end
+    up under the other listing's words.
     """
     return distinct_quotes([*winner.opinions, *loser.opinions])
 

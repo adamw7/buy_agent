@@ -316,3 +316,112 @@ def test_scores_are_normalised_by_the_total_weight() -> None:
     )
 
     assert best.total == pytest.approx(1.0)
+
+
+# -- one scale, one currency (ADR-0043) ----------------------------------------
+
+
+def test_a_price_in_another_currency_does_not_stretch_the_scale() -> None:
+    """The bug this closes: price scores *relative to the set*, so one yen figure
+    put every dollar price at the cheap end of a range five orders of magnitude
+    wide, and the ordering it decided was arithmetic on unlike things."""
+    ranked = rank_products(
+        [
+            Product(name="Cheap", price=100.0, currency="USD"),
+            Product(name="Dear", price=200.0, currency="USD"),
+            Product(name="Elsewhere", price=12_800.0, currency="JPY"),
+        ]
+    )
+    shares = {entry.product.name: entry.breakdown.price for entry in ranked}
+
+    assert (shares["Cheap"], shares["Dear"]) == (1.0, 0.0)
+    assert shares["Elsewhere"] == NEUTRAL
+
+
+def test_a_price_the_set_cannot_place_says_so() -> None:
+    """``NEUTRAL`` is what an unread figure scores too, and the two are one number
+    until something names the difference (ADR-0041)."""
+    ranked = rank_products(
+        [
+            Product(name="Here", price=100.0, currency="USD"),
+            Product(name="Here too", price=200.0, currency="USD"),
+            Product(name="Elsewhere", price=90.0, currency="EUR"),
+        ]
+    )
+    assumed = {entry.product.name: entry.breakdown.neutral for entry in ranked}
+
+    assert "price" in assumed["Elsewhere"]
+    assert "price" not in assumed["Here"]
+
+
+def test_a_price_printed_without_a_currency_is_taken_as_the_set_s_own() -> None:
+    """Which is what every price in this pipeline was, and what a search in one
+    region overwhelmingly returns: refusing to place the commonest shape of price
+    there is would score most sets on nothing at all."""
+    ranked = rank_products(
+        [
+            Product(name="Named", price=100.0, currency="USD"),
+            Product(name="Bare", price=200.0),
+        ]
+    )
+    shares = {entry.product.name: entry.breakdown.price for entry in ranked}
+
+    assert (shares["Named"], shares["Bare"]) == (1.0, 0.0)
+
+
+def test_a_set_where_nobody_named_a_currency_is_scored_as_it_always_was() -> None:
+    """Nothing says these are different currencies, so nothing treats them as if
+    they were."""
+    ranked = rank_products(
+        [Product(name="Cheap", price=100.0), Product(name="Dear", price=200.0)]
+    )
+
+    assert [entry.breakdown.price for entry in ranked] == [1.0, 0.0]
+
+
+def test_the_currency_the_set_is_counted_in_is_the_commonest_one() -> None:
+    """A majority of one listing is still the majority: what is being asked is
+    which scale the most of these figures are on."""
+    ranked = rank_products(
+        [
+            Product(name="Lone", price=90.0, currency="EUR"),
+            Product(name="One", price=100.0, currency="USD"),
+            Product(name="Two", price=200.0, currency="USD"),
+        ]
+    )
+    assumed = {entry.product.name: entry.breakdown.neutral for entry in ranked}
+
+    assert "price" in assumed["Lone"]
+    assert "price" not in assumed["Two"]
+
+
+def test_sorting_by_price_sinks_a_price_the_set_cannot_place() -> None:
+    """It sinks with the prices nobody published, for the reason those do:
+    ordering by a figure means ordering by one that means the same thing all the
+    way down the column."""
+    ranked = rank_products(
+        [
+            Product(name="Elsewhere", price=1.0, currency="JPY"),
+            Product(name="Unpriced"),
+            Product(name="Dear", price=200.0, currency="USD"),
+            Product(name="Cheap", price=100.0, currency="USD"),
+        ],
+        sort_by="price",
+    )
+
+    assert [entry.product.name for entry in ranked][:2] == ["Cheap", "Dear"]
+    assert set(entry.product.name for entry in ranked[2:]) == {"Elsewhere", "Unpriced"}
+
+
+def test_one_product_on_its_own_is_not_asked_about_a_set() -> None:
+    """``score_product`` takes the currency as "nothing says otherwise", so a
+    caller scoring one product against two figures need not have a set."""
+    score = score_product(
+        Product(name="Alone", price=50.0, currency="EUR"),
+        cheapest=10.0,
+        priciest=100.0,
+        weights=RankingWeights(),
+    )
+
+    assert score.price == pytest.approx(0.5555555555555556)
+    assert "price" not in score.neutral

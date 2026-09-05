@@ -9,8 +9,8 @@ the runtime dependencies. That is what makes the scorer testable: every metric
 has a scripted run that moves it and one that does not, which is the only way to
 tell a scorer that measures something from one that returns 1.0.
 
-:data:`SLOPPY` is wrong in the seven ways a small model is wrong. Four the
-pipeline catches, so the scorecard never sees them; three it cannot, and those
+:data:`SLOPPY` is wrong in the eight ways a small model is wrong. Four the
+pipeline catches, so the scorecard never sees them; four it cannot, and those
 are what a benchmark exists for (ADR-0036):
 
 * a listicle headline reported as a product -- ``clean_products`` drops it;
@@ -27,7 +27,11 @@ are what a benchmark exists for (ADR-0036):
   again, and why the scorecard counts ``invented`` and ``repeated`` apart;
 * the Bose's price reported for the Sony -- both figures are in the corpus and
   ``verify_numbers`` grounds against the pooled pages, so nothing in the
-  pipeline can see it. ``attribution``.
+  pipeline can see it. ``attribution``;
+* the Bose's own price paired with the euro sign off another listing, which is
+  the pairing ADR-0022 is about: 349 is printed and EUR is printed, never
+  together. ``figures``, and then ``order`` as well, a price in a currency the
+  set is not counted in scoring ``NEUTRAL`` rather than last (ADR-0043).
 
 Every invariant ``integration/test_live_pipeline.py`` asserts holds on this
 answer, which is the argument for the benchmark in one fixture.
@@ -110,7 +114,7 @@ PERFECT = ProductList(
     ]
 )
 
-#: The same run, wrong in the seven ways this module's docstring lists.
+#: The same run, wrong in the eight ways this module's docstring lists.
 #:
 #: The order matters as much as the contents: seven entries against a
 #: ``num_products`` of five means the two slots spent on a shop and on a repeat
@@ -130,7 +134,8 @@ SLOPPY = ProductList(
         ),
         ExtractedProduct(name="AudioSite", url=AUDIOSITE),
         ExtractedProduct(
-            # The corpus prints 349 and it prints EUR, never together.
+            # The corpus prints 349 and it prints EUR, never together -- and
+            # the euro price it does print is the Sony's, on EuroTech.
             name="Bose QuietComfort Ultra", price=349.0, currency="EUR",
             rating=4.3, review_count=5_600, url=CANSREVIEW,
             opinions=["In our tests the isolation was outstanding on a noisy train."],

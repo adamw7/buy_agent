@@ -9,7 +9,7 @@ import pytest
 import httpx
 from ollama import RequestError, ResponseError
 
-from buy_agent.agent import BuyAgent, ModelUnavailableError
+from buy_agent.agent import BuyAgent, ModelUnavailableError, _asks_the_same_question
 from buy_agent.cache import DEFAULT_TTL
 from buy_agent.chat import UnreadableAnswerError
 from buy_agent.config import AgentConfig
@@ -18,7 +18,7 @@ from buy_agent.ranking import RankingWeights
 from buy_agent.search import SearchError, SearchResult
 from buy_agent.sources import parse_sources
 
-from tests.conftest import FakeLLM
+from tests.conftest import FakeLLM, said
 
 
 @pytest.fixture
@@ -491,6 +491,82 @@ def test_an_injected_model_bypasses_chat_ollama(ollama_request) -> None:
     assert ollama_request == {}
 
 
+# -- and answers the same question off disk (ADR-0044) -------------------------
+
+
+@pytest.fixture
+def ollama_calls(monkeypatch):
+    """Ollama's client again, counting the questions rather than reading one."""
+    asked: list[dict] = []
+
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def chat(self, **kwargs):
+            asked.append(kwargs)
+            return SimpleNamespace(
+                message=SimpleNamespace(content='{"query": "a refined query"}')
+            )
+
+    monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
+    return asked
+
+
+def test_the_same_question_is_not_put_to_the_model_twice(ollama_calls) -> None:
+    """Two runs of the same search over the same pages ask the same thing, and
+    the second is most of a minute the shopper does not have to wait again."""
+    for _ in range(2):
+        _refine(AgentConfig())
+
+    assert len(ollama_calls) == 1
+
+
+def test_a_run_that_reads_nothing_off_disk_asks_every_time(ollama_calls) -> None:
+    """``--cache-ttl 0`` is one setting for a live run, pages and answers alike."""
+    for _ in range(2):
+        _refine(AgentConfig(cache_ttl=0))
+
+    assert len(ollama_calls) == 2
+
+
+def test_a_sampled_run_is_never_remembered(ollama_calls) -> None:
+    """A model asked for a different answer each time has no answer to remember,
+    and replaying one sample would be the cache deciding a run's result."""
+    for _ in range(2):
+        _refine(AgentConfig(temperature=0.7))
+
+    assert len(ollama_calls) == 2
+
+
+def test_another_model_s_answer_is_not_this_model_s(ollama_calls) -> None:
+    """What a model answers is the whole of what is stored, so which model it was
+    is in the key -- along with the server, and the settings the request carries."""
+    _refine(AgentConfig(model="gemma4:12b"))
+    _refine(AgentConfig(model="lfm2.5"))
+
+    assert len(ollama_calls) == 2
+
+
+def test_the_api_key_is_never_part_of_what_is_written_to_disk() -> None:
+    """The one setting with no flag and no form field is also the one that must
+    not reach a cache entry."""
+    fingerprint = _asks_the_same_question(AgentConfig(provider="vllm", api_key="secret"))
+
+    assert "secret" not in str(fingerprint)
+
+
+def test_a_setting_the_server_never_sees_is_not_part_of_the_question() -> None:
+    """vLLM fixes its window with ``--max-model-len`` at startup, so ``num_ctx``
+    changes nothing there -- and a key holding it would miss on a setting that
+    never left the process."""
+    ollama = _asks_the_same_question(AgentConfig(provider="ollama"))
+    vllm = _asks_the_same_question(AgentConfig(provider="vllm"))
+
+    assert "num_ctx" in ollama
+    assert "num_ctx" not in vllm
+
+
 @pytest.fixture
 def installed_models(monkeypatch):
     """Stand in for ollama's Client, so listing models never opens a socket.
@@ -883,7 +959,9 @@ def test_what_the_pages_said_reaches_the_report(agent_factory, caplog) -> None:
     with caplog.at_level(logging.INFO, logger="buy_agent"):
         ranked = agent.run("headphones")
 
-    assert ranked[0].product.opinions == ["Testers found the noise cancelling uncanny"]
+    assert ranked[0].product.opinions == said(
+        "Testers found the noise cancelling uncanny", page="https://example.com/sony"
+    ), "the quote that survived carries the page that printed it (ADR-0042)"
     assert "says   : Testers found the noise cancelling uncanny" in caplog.text
     assert "battery life" not in caplog.text
 
@@ -1185,7 +1263,7 @@ def test_bounds_that_admit_nothing_end_the_run_without_a_report(
     with caplog.at_level(logging.INFO):
         assert agent.run("headphones") == []
 
-    assert "0 of 2 product(s) are within the limits (at most 1.00)" in caplog.text
+    assert "0 of 2 product(s) are within the limits (at most 1.00 USD)" in caplog.text
     assert "No products to report" not in caplog.text
 
 
