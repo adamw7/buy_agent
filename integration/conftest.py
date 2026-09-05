@@ -35,7 +35,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, NoReturn
 
 import pytest
-from langchain_core.runnables import RunnableLambda
 
 from buy_agent.agent import BuyAgent
 from buy_agent.config import AgentConfig
@@ -45,8 +44,10 @@ from benchmark.runner import serving_the_corpus
 from integration import MODEL_ENV_VAR, REQUIRE_ENV_VAR, TINY_MODEL
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Mapping
+    from typing import Any
 
+    from buy_agent.chat import Chain
     from buy_agent.models import ProductList, RankedProduct
     from buy_agent.search import SearchResult
 
@@ -176,24 +177,33 @@ def fake_web() -> Iterator[list[SearchResult]]:
         yield served
 
 
+class Recording:
+    """The extraction chain, with what it answered kept on the way past.
+
+    A wrapper and not a replacement: ``invoke`` is the whole of a chain's surface,
+    so delegating it leaves the run underneath the one ``BuyAgent`` would have
+    made on its own -- the same prompt, the same schema, the same model.
+    """
+
+    def __init__(self, chain: Chain[ProductList]) -> None:
+        self.chain = chain
+        self.seen: list[ProductList] = []
+
+    def invoke(self, payload: Mapping[str, Any]) -> ProductList:
+        answer = self.chain.invoke(payload)
+        self.seen.append(answer)
+        return answer
+
+
 @pytest.fixture(scope="session")
 def live_run(live_config: AgentConfig, fake_web: list[SearchResult]) -> LiveRun:
-    """One real run of the whole pipeline, shared by every test that reads it.
-
-    The extraction chain is wrapped rather than replaced: the appended step
-    records what came back and hands it straight on, so the run underneath is
-    the one ``BuyAgent`` would have made on its own.
-    """
-    seen: list[ProductList] = []
-
-    def record(products: ProductList) -> ProductList:
-        seen.append(products)
-        return products
-
+    """One real run of the whole pipeline, shared by every test that reads it."""
     agent = BuyAgent(live_config)
-    agent.extraction_chain = agent.extraction_chain | RunnableLambda(record)
+    recorded = Recording(agent.extraction_chain)
+    agent.extraction_chain = recorded
     ranked = agent.run(REQUEST)
 
+    seen = recorded.seen
     assert seen, "the extraction chain was never invoked"
     assert fake_web, "the agent never fetched the pages it was given"
     return LiveRun(ranked=ranked, extracted=seen[-1], pages=tuple(fake_web))

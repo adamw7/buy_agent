@@ -1,6 +1,6 @@
 # buy_agent
 
-A shopping agent built on LangChain and a local model -- served by
+A shopping agent built on a local model -- served by
 [Ollama](https://ollama.com), or by a [vLLM](https://docs.vllm.ai) you already
 run. Tell it what you want to buy; it searches the web, pulls out up to 10
 products along with what the pages say about them, ranks them, and logs the

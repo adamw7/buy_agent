@@ -1,6 +1,6 @@
 """The two chains against a real model: does Ollama's schema decoding still hold.
 
-The unit suite fakes ``with_structured_output`` outright, so the whole premise
+The unit suite fakes the model server outright, so the whole premise
 of ADR-0004 -- that a JSON schema compiled into a decoding grammar makes a small
 model structurally unable to answer with prose, a half-closed object or ``"N/A"``
 in a number -- is checked nowhere in it. It is checked here, and only here.
@@ -35,7 +35,7 @@ def test_query_refinement_answers_with_a_query_and_not_with_prose(
     "answer with the query only" is put to a model that could ignore it.
 
     The chain is taken off a real ``BuyAgent`` rather than built here out of a
-    hand-rolled ``ChatOllama``. Constructing one by hand meant copying all five
+    hand-rolled client. Constructing one by hand meant copying all five
     of ``BuyAgent.__init__``'s arguments, and a sixth added there would have
     left this quietly testing a configuration the agent no longer ships --
     the same rule ``scripts/start.ps1`` follows by reading its defaults out of

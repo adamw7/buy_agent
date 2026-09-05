@@ -5,8 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, TypeAlias
 
-from langchain_core.exceptions import OutputParserException
-
+from buy_agent.chat import UnreadableAnswerError
 from buy_agent.config import DEFAULT_REGION, AgentConfig
 from buy_agent.extraction import (
     build_extraction_chain,
@@ -24,9 +23,7 @@ from buy_agent.verification import ground
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from langchain_core.language_models import BaseChatModel
-    from langchain_core.runnables import Runnable
-
+    from buy_agent.chat import Chain, ChatModel
     from buy_agent.models import Product, RankedProduct
     from buy_agent.ranking import SortBy
     from buy_agent.search import SearchResult
@@ -68,7 +65,7 @@ class BuyAgent:
     """
 
     def __init__(
-        self, config: AgentConfig | None = None, *, llm: BaseChatModel | None = None
+        self, config: AgentConfig | None = None, *, llm: ChatModel | None = None
     ) -> None:
         """Build an agent.
 
@@ -234,7 +231,7 @@ class BuyAgent:
         }
         try:
             extracted = self._invoke(self.extraction_chain, payload)
-        except OutputParserException as exc:
+        except UnreadableAnswerError as exc:
             # Caught here rather than in ``_invoke``, which the recoverable step
             # goes through too: a query the model fumbles falls back to the raw
             # request, while an extraction that comes back unreadable has nothing
@@ -250,7 +247,7 @@ class BuyAgent:
         grounded = ground(clean_products(products), results)
         return deduplicate(grounded, self.config.num_products)
 
-    def _invoke(self, chain: Runnable, payload: dict[str, Any]) -> Any:
+    def _invoke(self, chain: Chain[Any], payload: dict[str, Any]) -> Any:
         """Invoke a chain, turning transport errors into an actionable message.
 
         Which errors those are, and what the message says, is the provider's to

@@ -1,12 +1,12 @@
 """The failure paths, against a real server rather than a raised exception.
 
 ``BuyAgent._invoke`` catches four things, and the docstring explaining why is
-the longest in the module: the ollama client turns a refused connection into a
-builtin ``ConnectionError`` only on its non-streaming path, ``ChatOllama``
-always chats over the streaming one, and so a stopped server arrives as a raw
-``httpx`` error that is not an ``OSError``. The unit suite checks that claim by
-raising each of those four itself -- which proves the ``except`` tuple contains
-them, and nothing about whether they are what Ollama actually raises.
+the longest in the module: the ollama client converts exactly one of its
+transport failures, so a refused connection is a builtin ``ConnectionError``
+while a timeout and a dropped stream stay raw ``httpx`` errors that are not
+``OSError``s. The unit suite checks that claim by raising each of those four
+itself -- which proves the ``except`` tuple contains them, and nothing about
+whether they are what Ollama actually raises.
 
 That is what these tests are for. They need no inference and cost nothing: a
 refused connection and a model that is not pulled both answer immediately.
@@ -17,7 +17,7 @@ Two of the four are covered here and two are not. A stopped server (raw
 ``httpx.TimeoutException`` branch of ``_ollama_hint`` -- the one that says to
 try a smaller model or a smaller ``--num-ctx`` -- is not: nothing in
 ``AgentConfig`` sets a client timeout, so provoking it live would mean
-constructing the ``ChatOllama`` here by hand, which is the duplication
+constructing the provider's client here by hand, which is the duplication
 ``test_live_extraction`` just stopped doing. It stays a unit test raising the
 exception itself until there is a config field to turn it down.
 """

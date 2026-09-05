@@ -6,10 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A shopping agent: it takes a plain-language request ("wireless headphones under
 $200"), searches the web, extracts up to 10 products along with what the pages
-say about them, ranks them, and logs the top 3. Built on LangChain with a local
-model, served by Ollama or by a vLLM behind its OpenAI-compatible API --
-`AgentConfig.provider` chooses, and `buy_agent/providers.py` is the only module
-that knows the difference (ADR-0028). `ui/` is an Angular front end onto the same
+say about them, ranks them, and logs the top 3. Built on a local model, served by
+Ollama or by a vLLM behind its OpenAI-compatible API -- `AgentConfig.provider`
+chooses, `buy_agent/providers.py` is the only module that knows the difference
+(ADR-0028), and each server's own client is called directly: there is no
+framework between the prompt and the answer, `buy_agent/chat.py` being all of one
+there is (ADR-0038). `ui/` is an Angular front end onto the same
 pipeline, served by `buy_agent.server`.
 
 `README.md` keeps the tour and links out to the longer sections beside it:
@@ -214,8 +216,8 @@ a new record superseding it rather than an edit to the old one -- numbers are ne
 reused, and accepted records are not rewritten. `tests/test_conventions.py` checks
 that the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0037 and every record is Accepted but ADR-0020, which ADR-0037 supersedes,
-so the next free number is 0038.
+to ADR-0038 and every record is Accepted but ADR-0020, which ADR-0037 supersedes,
+so the next free number is 0039.
 
 `.claude/skills/` holds the chores that span those files: `add-option` walks a new
 setting through `config.py`, both front doors, `agent.types.ts` and the form;
@@ -261,6 +263,7 @@ only qualify another and `_fill_gaps` moves the group.
 | Module | Responsibility |
 | --- | --- |
 | `agent.py` | `BuyAgent.run()` -- orchestrates the pipeline, translates model-server errors |
+| `chat.py` | The whole model-facing seam: a prompt, a chain, an answer read back as its schema (ADR-0038) |
 | `extraction.py` | Both prompts, both chains, name cleaning, deduplication |
 | `fetch.py` | Streams result pages up to a ceiling, keeps the lines quoting a figure or passing judgement, and tallies how the rest failed |
 | `verification.py` | Drops products, figures and quotes absent from the sources; links what is left |
@@ -278,8 +281,9 @@ only qualify another and `_fill_gaps` moves the group.
 - **A model server is one row in one table, reached one way.**
   `providers.PROVIDERS` holds each server whole -- its defaults (`model`,
   `base_url`, `api_key`, from its own environment variables) beside how it is
-  talked to (the chat model, the listing, the transport errors meaning "not there",
-  the sentence that failure carries) plus `takes_num_ctx` (ADR-0029). The listing
+  talked to (the client, how it declares a schema, the listing, the transport
+  errors meaning "not there", the sentence that failure carries) plus
+  `takes_num_ctx` (ADR-0029). The listing
   answers `InstalledModel`s rather than names, since what a server holds and what a
   run can use are the same question only on vLLM: Ollama's `installed` asks
   `ollama show` per tag, so an embedding-only pull is marked in the picker rather
@@ -412,19 +416,22 @@ Within the agent only query refinement is recoverable: it falls back to the raw
 request but lets `ModelUnavailableError` through rather than searching with a model
 that is not there. What has to be caught is the provider's to say -- `_invoke`
 catches `self.config.model_server.transport_errors` and nothing written down
-locally. For Ollama that tuple is wider than it looks: the ollama client turns a
-refused connection into a builtin `ConnectionError` only on its *non*-streaming
-path, and `ChatOllama` always chats over the streaming one, so a stopped server, a
-model too slow to answer and a killed stream all arrive as raw `httpx` errors, none
-an `OSError`. Hence `httpx.HTTPError` beside ollama's own `RequestError`, a
-different class from httpx's identically named one. vLLM's is `openai.OpenAIError`,
+locally. For Ollama that tuple is wider than it looks: the ollama client converts
+exactly one of its transport failures, a refused connection becoming a builtin
+`ConnectionError`, while a model too slow to answer and a stream the server drops
+mid-object arrive as raw `httpx` errors, neither an `OSError`. Hence
+`httpx.HTTPError` beside ollama's own `RequestError`, a different class from
+httpx's identically named one. Which failure is which moved with ADR-0038 -- the
+chat call is the plain path now, not the streaming one -- so the tuple is read off
+what the client actually raises rather than off this paragraph. vLLM's is `openai.OpenAIError`,
 the root of that client's hierarchy, plus the two above for the listing.
 
 A server that answers with something that is not the JSON asked for is the third
-of those three and not a fourth: langchain's `OutputParserException` *is* a
-`ValueError`, so left alone it arrived as the one `run` documents for an empty
-request -- a 400 in the browser, over a langchain docs link where a sentence
-should be. `_extract_products` turns it into a `ModelUnavailableError` carrying
+of those three and not a fourth: `chat.UnreadableAnswerError` *is* a `ValueError`
+-- deliberately, so an uncaught one lands in the three `run` documents rather than
+a fourth -- so left alone it arrives as the one `run` documents for an empty
+request, telling a shopper whose model ran out of room that their request was bad.
+`_extract_products` turns it into a `ModelUnavailableError` carrying
 `hint(config, exc)`, which names the room the model may have run out of
 (ADR-0019). Caught there rather than in `_invoke`, which the recoverable step goes
 through too: a fumbled query still falls back to the raw request.
@@ -713,7 +720,9 @@ mutated and, per `.dockerignore`, not in the image.
 ## Tests
 
 `BuyAgent(config, llm=...)` is the injection seam: `tests/conftest.py` provides a
-`FakeLLM` exposing only `with_structured_output`. The network is monkeypatched in
+`FakeLLM` with the one `answer` method `chat.ChatModel` asks for, and a stand-in
+for a *chain* is a class with `invoke` -- which is what `integration/conftest.py`
+wraps the real one in. The network is monkeypatched in
 three places: `buy_agent.agent.search_web` and `buy_agent.agent.enrich` for
 pipeline tests, and `buy_agent.search.DDGS` / `buy_agent.fetch.httpx.Client` for
 the wrappers' own tests. `search_web` is patched on `agent` and only there, which
@@ -722,10 +731,11 @@ rest of `sources.py`: a second call site elsewhere would be a second thing to
 patch, and a test that forgot it would reach the real DuckDuckGo silently.
 
 Both model clients are patched where `buy_agent.providers` imported them --
-`providers.ChatOllama` for the kwargs a real `ChatOllama` would be built with,
-`providers.Client` for the listing (that fake answers both `list` and `show`, an
-Ollama listing being a call per tag) and `providers.httpx.get` for vLLM's
-`/v1/models`. Patching `ollama.Client` no longer works: `providers.py` imports the
+`providers.Client` for Ollama's chat *and* its listing (that fake answers `chat`,
+`list` and `show`, a listing being a call per tag), `providers.openai.OpenAI` for
+vLLM's chat and `providers.httpx.get` for its `/v1/models`. What a setting reaches
+is asserted on the *request*, not on a wrapper read back: since ADR-0038 the
+window, the thinking switch and the schema travel per call. Patching `ollama.Client` no longer works: `providers.py` imports the
 name at module level, which is also the only place either client is named. A row of
 `providers.PROVIDERS` is compared by identity only through the module --
 `providers_module.OLLAMA`, never a name imported from it -- because
@@ -747,14 +757,14 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1149 tests run in about four seconds: most of that is the two that spawn an
+1172 tests run in about five seconds: most of that is the two that spawn an
 interpreter -- one checking `python -m buy_agent` still runs as a script, one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1149 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1149 collect but 13 of the 17 in
-`tests/test_start_script.py` skip, so the summary reads `1136 passed, 13 skipped`.
+reaching out. 1172 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1172 collect but 13 of the 17 in
+`tests/test_start_script.py` skip, so the summary reads `1159 passed, 13 skipped`.
 The UI's 133 tests run in about two seconds, most of which is building the app
 first. The 30 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
@@ -828,9 +838,9 @@ an annotation. Four things there are load-bearing:
   a production prompt is, wide enough for ADR-0019's `num_ctx` question to arise.
 - **One run, many assertions.** A session-scoped `live_run` fixture runs the
   pipeline once and each test reads something different off it. The extraction chain
-  is *wrapped* rather than replaced -- an appended `RunnableLambda` records the raw
-  `ProductList` and hands it on -- so what runs underneath is the run `BuyAgent`
-  would have made.
+  is *wrapped* rather than replaced -- a `Recording` delegating `invoke`, which is
+  the whole of a chain's surface, keeps the raw `ProductList` on the way past -- so
+  what runs underneath is the run `BuyAgent` would have made.
 - **Almost nothing asserts the model was right.** The assertions are the
   invariants: every name, figure and quote in the sources, every link a page that
   was searched, no repeats, the ranking ordered. A 0.6B model is not held to an

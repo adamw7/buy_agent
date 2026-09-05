@@ -46,6 +46,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0035](0035-re-sort-a-finished-run-without-running-it-again.md) | Re-sort a finished run without running it again | Accepted |
 | [0036](0036-score-the-agent-against-a-fixed-answer-key.md) | Score the agent against a fixed answer key, beside the invariants | Accepted |
 | [0037](0037-run-windows-weekly-rather-than-on-every-push.md) | Run the Windows half of CI weekly rather than on every push | Accepted |
+| [0038](0038-own-the-model-call-instead-of-a-framework.md) | Call each model server's own client, and drop LangChain | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

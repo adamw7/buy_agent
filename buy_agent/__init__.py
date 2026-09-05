@@ -1,4 +1,4 @@
-"""A LangChain agent that searches the web for products and ranks them.
+"""An agent that searches the web for products and ranks them.
 
 The model is a local one, served by Ollama or by vLLM -- ``AgentConfig.provider``
 chooses which (ADR-0003, ADR-0028).

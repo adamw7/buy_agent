@@ -7,10 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 import httpx
-from langchain_core.exceptions import OutputParserException
 from ollama import RequestError, ResponseError
 
 from buy_agent.agent import BuyAgent, ModelUnavailableError
+from buy_agent.chat import UnreadableAnswerError
 from buy_agent.config import AgentConfig
 from buy_agent.models import ExtractedProduct, ProductList, SearchQuery
 from buy_agent.ranking import RankingWeights
@@ -235,24 +235,24 @@ def test_an_unreadable_extraction_is_the_model_failing_not_the_request(
 ) -> None:
     """A half-finished answer is a ``ValueError``, and it is not the shopper's.
 
-    ``OutputParserException`` subclasses ``ValueError``, which ``run`` documents
+    ``UnreadableAnswerError`` subclasses ``ValueError``, which ``run`` documents
     as "the request is empty" and ``api._STATUS`` answers 400 to -- so a model
-    that ran out of room mid-JSON told the shopper their request was bad, over a
-    langchain traceback and a docs link. It is the model that could not be used
-    (ADR-0009), and the sentence says what to do about it.
+    that ran out of room mid-JSON would tell the shopper their request was bad.
+    It is the model that could not be used (ADR-0009), and the sentence says what
+    to do about it.
     """
     agent, _ = agent_factory(FakeLLM(), search_results)
     monkeypatch.setattr(
         agent,
         "extraction_chain",
-        _failing_chain(OutputParserException('Invalid json output: {"products": [{"name"')),
+        _failing_chain(UnreadableAnswerError('Invalid JSON answer: {"products": [{"name"')),
     )
 
     with pytest.raises(ModelUnavailableError, match="not the JSON this asks for") as caught:
         agent.run("headphones")
 
     assert "--num-ctx" in str(caught.value), "the remedy Ollama has for too little room"
-    assert isinstance(caught.value.__cause__, OutputParserException)
+    assert isinstance(caught.value.__cause__, UnreadableAnswerError)
 
 
 def test_an_unreadable_refinement_still_falls_back_to_the_raw_request(
@@ -262,7 +262,7 @@ def test_an_unreadable_refinement_still_falls_back_to_the_raw_request(
     llm = FakeLLM(products=extracted_products)
     agent, calls = agent_factory(llm, search_results)
     monkeypatch.setattr(
-        agent, "query_chain", _failing_chain(OutputParserException("Invalid json output: {"))
+        agent, "query_chain", _failing_chain(UnreadableAnswerError("Invalid JSON answer: {"))
     )
 
     ranked = agent.run("wireless earbuds")
@@ -283,12 +283,18 @@ def test_search_failures_propagate(monkeypatch, extracted_products) -> None:
 
 
 def _failing_chain(error: Exception):
-    from langchain_core.runnables import RunnableLambda
+    """A stand-in chain that raises instead of answering.
 
-    def fail(_value):
-        raise error
+    ``invoke`` is the whole of one's surface, so this is a class with one method
+    -- the same shape ``FakeLLM`` is for a model server.
+    """
 
-    return RunnableLambda(fail)
+    class Failing:
+        @staticmethod
+        def invoke(_payload):
+            raise error
+
+    return Failing()
 
 
 def test_article_headlines_never_reach_the_report(
@@ -411,62 +417,74 @@ def test_fetching_can_be_turned_off(
 
 
 @pytest.fixture
-def recorded_chat_ollama(monkeypatch):
-    """Capture the kwargs the Ollama provider builds its real ChatOllama with.
+def ollama_request(monkeypatch):
+    """Capture the request the Ollama provider puts a run's settings into.
 
-    Patched where the provider imported it rather than on ``langchain_ollama``:
-    building the chat model moved out of ``BuyAgent`` and into
-    ``buy_agent.providers``, which is now the one place that names the class.
+    There is no wrapper left whose constructor can be read back for them
+    (ADR-0038): the window and the thinking switch are request options and the
+    address belongs to the client, so what says a setting arrived is the call
+    itself. Patched where the provider imported the class, which is the one place
+    either client is named.
     """
-    captured: dict = {}
+    sent: dict = {}
 
-    class Recorder(FakeLLM):
-        def __init__(self, **kwargs) -> None:
-            super().__init__()
-            captured.update(kwargs)
+    class FakeClient:
+        def __init__(self, base_url: str, **kwargs) -> None:
+            sent["base_url"] = base_url
 
-    monkeypatch.setattr("buy_agent.providers.ChatOllama", Recorder)
-    return captured
+        @staticmethod
+        def chat(**kwargs):
+            sent.update(kwargs)
+            return SimpleNamespace(
+                message=SimpleNamespace(content='{"query": "a refined query"}')
+            )
 
-
-def test_model_settings_reach_the_chat_model(recorded_chat_ollama) -> None:
-    BuyAgent(AgentConfig(model="qwen3.5:9b", temperature=0.2, num_ctx=8192, reasoning=False))
-
-    assert recorded_chat_ollama["model"] == "qwen3.5:9b"
-    assert recorded_chat_ollama["temperature"] == 0.2
-    assert recorded_chat_ollama["num_ctx"] == 8192
-    assert recorded_chat_ollama["reasoning"] is False
+    monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
+    return sent
 
 
-def test_the_ollama_address_reaches_the_chat_model(recorded_chat_ollama) -> None:
+def _refine(config: AgentConfig) -> None:
+    """Put one question to the model the config's provider builds."""
+    BuyAgent(config).query_chain.invoke({"request": "headphones"})
+
+
+def test_model_settings_reach_the_chat_model(ollama_request) -> None:
+    _refine(AgentConfig(model="qwen3.5:9b", temperature=0.2, num_ctx=8192, reasoning=False))
+
+    assert ollama_request["model"] == "qwen3.5:9b"
+    assert ollama_request["options"] == {"temperature": 0.2, "num_ctx": 8192}
+    assert ollama_request["think"] is False
+
+
+def test_the_ollama_address_reaches_the_chat_model(ollama_request) -> None:
     """$OLLAMA_HOST is only worth having if the model is built with what it set."""
     BuyAgent(AgentConfig(base_url="http://ollama.internal:11434"))
 
-    assert recorded_chat_ollama["base_url"] == "http://ollama.internal:11434"
+    assert ollama_request["base_url"] == "http://ollama.internal:11434"
 
 
-def test_the_defaults_reach_the_chat_model(recorded_chat_ollama) -> None:
+def test_the_defaults_reach_the_chat_model(ollama_request) -> None:
     """DEFAULT_MODEL thinks, so the defaults that make it usable have to arrive."""
-    BuyAgent(AgentConfig())
+    _refine(AgentConfig())
 
-    assert recorded_chat_ollama["num_ctx"] == 8192
-    assert recorded_chat_ollama["reasoning"] is False
+    assert ollama_request["options"]["num_ctx"] == 8192
+    assert ollama_request["think"] is False
 
 
-def test_thinking_and_context_can_be_left_alone(recorded_chat_ollama) -> None:
+def test_thinking_and_context_can_be_left_alone(ollama_request) -> None:
     """None means "send nothing": a model that cannot think must not be told to."""
-    BuyAgent(AgentConfig(num_ctx=None, reasoning=None))
+    _refine(AgentConfig(num_ctx=None, reasoning=None))
 
-    assert recorded_chat_ollama["num_ctx"] is None
-    assert recorded_chat_ollama["reasoning"] is None
+    assert "num_ctx" not in ollama_request["options"]
+    assert ollama_request["think"] is None
 
 
-def test_an_injected_model_bypasses_chat_ollama(recorded_chat_ollama) -> None:
+def test_an_injected_model_bypasses_chat_ollama(ollama_request) -> None:
     llm = FakeLLM()
     agent = BuyAgent(AgentConfig(num_ctx=8192), llm=llm)
 
     assert agent.llm is llm
-    assert recorded_chat_ollama == {}
+    assert ollama_request == {}
 
 
 @pytest.fixture
@@ -539,9 +557,9 @@ def test_an_unlistable_server_still_gives_the_pull_command(
         RequestError("malformed request"),
         ConnectionError("connection refused"),
         OSError("socket died"),
-        # What the real client actually raises. ``ChatOllama`` chats over the
-        # ollama client's *streaming* path, and that path -- unlike the plain one
-        # -- does not convert httpx's errors into builtins, so these arrive raw.
+        # What the real client actually raises. The ollama client converts a
+        # refused connection and nothing else, so a timeout and a dropped stream
+        # arrive as httpx's own -- which is why both kinds are in the tuple.
         httpx.ConnectError("[Errno 111] Connection refused"),
         httpx.RemoteProtocolError("the server closed the stream"),
         httpx.ProxyError("no route to the proxy"),
@@ -592,7 +610,7 @@ def test_the_request_is_stripped_before_it_reaches_the_model(
 
     agent.run("  wireless earbuds \n")
 
-    assert llm.calls[0].to_messages()[-1].content.endswith("wireless earbuds")
+    assert llm.calls[0][-1]["content"].endswith("wireless earbuds")
 
 
 def test_the_extraction_prompt_gets_the_results_and_the_limit(
@@ -603,9 +621,9 @@ def test_the_extraction_prompt_gets_the_results_and_the_limit(
 
     agent.run("headphones")
 
-    system, human = llm.calls[1].to_messages()
-    assert "at most 4 distinct products" in system.content
-    assert "https://example.com/sony" in human.content
+    system, human = llm.calls[1]
+    assert "at most 4 distinct products" in system["content"]
+    assert "https://example.com/sony" in human["content"]
 
 
 def test_the_configured_weights_reach_the_ranking(
@@ -637,8 +655,8 @@ def test_the_request_reaches_the_extraction_prompt(
 
     agent.run("noise cancelling headphones under $200")
 
-    _, human = llm.calls[1].to_messages()
-    assert "noise cancelling headphones under $200" in human.content
+    _, human = llm.calls[1]
+    assert "noise cancelling headphones under $200" in human["content"]
 
 
 @pytest.mark.parametrize(

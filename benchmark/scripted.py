@@ -37,8 +37,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from langchain_core.runnables import RunnableLambda
-
 from buy_agent.models import ExtractedProduct, ProductList, SearchQuery
 from benchmark.answers import AUDIOSITE, BARN, CANSREVIEW, ROUNDUP, SOUNDCHECK
 
@@ -49,22 +47,19 @@ REFINED_QUERY = "noise cancelling headphones under $350 price review comfort"
 class ScriptedLLM:
     """Stands in for a chat model, answering from a fixed script.
 
-    ``with_structured_output`` is the entire surface both chains use, and the
-    schema it is asked for is what says which of the two is calling -- the same
-    stand-in ``demo/server.py`` uses, without the pauses it adds for the camera.
+    ``answer`` is the entire surface both chains use, and the schema it is asked
+    for is what says which of the two is calling -- the same stand-in
+    ``demo/server.py`` uses, without the pauses it adds for the camera.
     """
 
     def __init__(self, answer: ProductList, query: str = REFINED_QUERY) -> None:
-        self.answer = answer
+        self.script = answer
         self.query = query
 
-    def with_structured_output(self, schema: type, **_: Any) -> RunnableLambda:
-        def respond(_value: Any) -> Any:
-            if schema is SearchQuery:
-                return SearchQuery(query=self.query)
-            return self.answer
-
-        return RunnableLambda(respond)
+    def answer(self, _messages: Any, schema: type) -> Any:
+        if schema is SearchQuery:
+            return SearchQuery(query=self.query)
+        return self.script
 
 
 #: The first five products of the answer key, copied exactly as the pages print

@@ -30,8 +30,7 @@ from benchmark.scoring import Scorecard, score_run
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping, Sequence
 
-    from langchain_core.language_models import BaseChatModel
-
+    from buy_agent.chat import ChatModel
     from buy_agent.config import AgentConfig
     from buy_agent.models import RankedProduct
     from buy_agent.search import SearchResult
@@ -98,7 +97,7 @@ def serving_the_corpus(
 
 
 def run_benchmark(
-    *, llm: BaseChatModel | None = None, config: AgentConfig | None = None
+    *, llm: ChatModel | None = None, config: AgentConfig | None = None
 ) -> Report:
     """Run the agent over the corpus and score it.
 

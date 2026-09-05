@@ -5,17 +5,17 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from langchain_core.runnables import RunnableLambda
 
 from buy_agent.models import ExtractedProduct, ProductList, SearchQuery
 from buy_agent.search import SearchResult
 
 
 class FakeLLM:
-    """Stands in for ChatOllama: returns a canned object per requested schema.
+    """Stands in for a model server: a canned object per requested schema.
 
-    Only ``with_structured_output`` is needed, because that is the entire surface
-    the chains use. Raising is supported so error paths can be exercised.
+    ``answer`` is the whole of :class:`buy_agent.chat.ChatModel`, so this is a
+    class with one method. The schema it is asked for says which of the two
+    chains is calling. Raising is supported so error paths can be exercised.
     """
 
     def __init__(
@@ -30,14 +30,11 @@ class FakeLLM:
         self.raises = raises
         self.calls: list[Any] = []
 
-    def with_structured_output(self, schema: type, **_: Any) -> RunnableLambda:
-        def respond(value: Any) -> Any:
-            self.calls.append(value)
-            if self.raises is not None:
-                raise self.raises
-            return self.query if schema is SearchQuery else self.products
-
-        return RunnableLambda(respond)
+    def answer(self, messages: Any, schema: type) -> Any:
+        self.calls.append(messages)
+        if self.raises is not None:
+            raise self.raises
+        return self.query if schema is SearchQuery else self.products
 
 
 @pytest.fixture
