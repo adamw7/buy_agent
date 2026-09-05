@@ -130,9 +130,16 @@ def test_no_sources_asked_for_is_the_whole_web() -> None:
     assert parse_options({})[0].sources == ()
 
 
-@pytest.mark.parametrize("blank", ["", "   ", []])
+@pytest.mark.parametrize("blank", ["", "   ", [], [""], ["", "  "], ","])
 def test_an_empty_sources_field_is_the_whole_web_too(blank) -> None:
-    """A cleared form field means "unset", the same as every other option."""
+    """A cleared form field means "unset", the same as every other option.
+
+    Including in the shape only this option arrives in: a list of blanks says
+    what a blank string says. Read as a value it reached ``parse_sources``, came
+    back empty and left the run searching the whole web -- the right answer by
+    accident, arrived at through the path that would give the wrong one for
+    anything with a rule of its own.
+    """
     assert parse_options({"sources": blank})[0].sources == ()
 
 

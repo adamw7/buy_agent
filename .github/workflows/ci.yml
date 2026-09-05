@@ -22,6 +22,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Both jobs run the tests and read nothing else: no release to upload, no image
+# to push, no comment to post. The other three workflows say so already, and a
+# job that asks for nothing cannot be talked into using more than it asked for.
+permissions:
+  contents: read
+
 jobs:
   test:
     # Development happens on Windows and the runners are Linux, so both are run --

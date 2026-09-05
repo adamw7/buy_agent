@@ -16,7 +16,7 @@ from buy_agent.logging_setup import configure_logging
 from buy_agent.providers import PROVIDERS, provider_for
 from buy_agent.ranking import SortBy
 from buy_agent.search import SearchError
-from buy_agent.sources import parse_sources
+from buy_agent.sources import parse_named_sources, parse_sources
 
 logger = logging.getLogger("buy_agent")
 
@@ -195,7 +195,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--source",
         action="append",
         metavar="SITE",
-        type=_checked(parse_sources),
+        # ``parse_named_sources`` rather than ``parse_sources``: on a command line
+        # there is no way to spell "unset" other than leaving the flag off, so a
+        # flag that names nothing -- ``--source ""`` -- is a mistake and not an
+        # answer. Left to parse, it came back empty and the run searched the whole
+        # web, which is the opposite of what was asked for and said so nowhere.
+        type=_checked(parse_named_sources),
         help="Take the facts from this source only; repeat for several. A site "
         "(rtings.com), a section of one (rtings.com/headphones) or a YouTube "
         "handle (@mkbhd). Without it the whole web is searched.",

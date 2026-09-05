@@ -313,6 +313,50 @@ describe('SearchForm', () => {
     expect(form.querySelector<HTMLSelectElement>('select[name="thinking"]')!.value).toBe('off');
   });
 
+  it('ignores a rank criterion the server no longer offers', async () => {
+    /* The same rule the thinking mode gets, on the field that most needed it:
+       `sort_options` is the server's list and it is free to change, while
+       storage outlives every version of it. Restored unchecked, the Rank by
+       select matched no option and showed nothing, and the run was refused by
+       Python for a value nobody could see on the page. */
+    localStorage.setItem('buy_agent.settings', JSON.stringify({ sortBy: 'cheapness' }));
+
+    const form = await seeded();
+
+    expect(form.querySelector<HTMLSelectElement>('select[name="sortBy"]')!.value).toBe('score');
+  });
+
+  it('keeps a rank criterion the server does still offer', async () => {
+    localStorage.setItem('buy_agent.settings', JSON.stringify({ sortBy: 'price' }));
+
+    const form = await seeded();
+
+    expect(form.querySelector<HTMLSelectElement>('select[name="sortBy"]')!.value).toBe('price');
+  });
+
+  it('ignores a provider the server no longer offers, and its pair with it', async () => {
+    /* A provider dropped from the table -- or a name this build never had --
+       leaves the picker matching nothing, which takes the model and address
+       fields with it: they describe a server that is not there, and the context
+       field goes back to guessing because `takes_num_ctx` has no row to read. */
+    localStorage.setItem(
+      'buy_agent.settings',
+      JSON.stringify({ provider: 'llamacpp', model: 'ggml', baseUrl: 'http://localhost:9999' }),
+    );
+
+    const form = await seeded();
+
+    expect(form.querySelector<HTMLSelectElement>('select[name="provider"]')!.value).toBe('ollama');
+  });
+
+  it('keeps a provider the server does still offer', async () => {
+    localStorage.setItem('buy_agent.settings', JSON.stringify({ provider: 'vllm' }));
+
+    const form = await seeded();
+
+    expect(form.querySelector<HTMLSelectElement>('select[name="provider"]')!.value).toBe('vllm');
+  });
+
   it('offers the models the server reported, as a dropdown', async () => {
     await pulled(['llama3.2', 'lfm2.5']);
 

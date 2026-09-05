@@ -64,6 +64,13 @@ _HANDLE = re.compile(r"@[a-z0-9][a-z0-9._-]*", re.IGNORECASE)
 #: ``rtings.com`` are the same source, and pages link to both.
 _WWW = "www."
 
+#: The shapes that work, written once. Every refusal in this module ends in them:
+#: what the shopper needs is a spec they can type, not which check turned them away.
+_SHAPES = (
+    "Give a site (rtings.com), a section of one (rtings.com/headphones) or a "
+    "YouTube handle (@mkbhd)."
+)
+
 
 @dataclass(frozen=True, slots=True)
 class Source:
@@ -124,7 +131,7 @@ def parse_source(spec: str) -> Source:
     """
     spec = spec.strip()
     if not spec:
-        raise ValueError("A source cannot be blank.")
+        raise ValueError(f"A source cannot be blank. {_SHAPES}")
 
     if spec.startswith("@"):
         handle = spec.split("/")[0]
@@ -149,10 +156,7 @@ def _not_a_source(spec: str) -> ValueError:
     what was written identifies no page to take a fact from -- and the shopper
     needs the shapes, not which branch turned them away.
     """
-    return ValueError(
-        f"{spec!r} does not name a source. Give a site (rtings.com), a section "
-        "of one (rtings.com/headphones) or a YouTube handle (@mkbhd)."
-    )
+    return ValueError(f"{spec!r} does not name a source. {_SHAPES}")
 
 
 def parse_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:
@@ -178,6 +182,30 @@ def parse_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:
             source = parse_source(spec)
             sources.setdefault((source.domain, source.term), source)
     return tuple(sources.values())
+
+
+def parse_named_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:
+    """The sources in ``specs``, where naming none of them is the mistake.
+
+    :func:`parse_sources` answers "which sources are these?", and ``()`` is a real
+    answer to it: an empty Trusted sources field is the whole web, which is the
+    default and is fine (ADR-0012). This answers the other question -- "they asked
+    to narrow the search: to what?" -- where nothing is no answer at all.
+
+    The two differ only for a spec that is blank once the separators are taken
+    out, which is the same hole ``@`` used to go through: it parses, it identifies
+    nothing, and named sources have no fall back to the wider web (ADR-0027). But
+    a blank *widens* rather than narrowing -- ``--source ""`` searched the whole
+    web without a word -- which is the opposite of what was asked for and the one
+    version of this mistake nothing downstream can notice.
+
+    Raises:
+        ValueError: if ``specs`` names no source, or any of them names no site.
+    """
+    sources = parse_sources(specs)
+    if not sources:
+        raise ValueError(f"A source cannot be blank. {_SHAPES}")
+    return sources
 
 
 def format_sources(sources: Iterable[Source]) -> str:
