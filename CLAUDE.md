@@ -104,14 +104,14 @@ default. No pull request builds it -- `release.yml` does, once per release
 (ADR-0030); the rest of the time `tests/test_conventions.py` keeps its version
 pins, its copy destination and its `EXPOSE` in step.
 
-`.dockerignore` narrows what the build sees: `tests/`, `integration/`, `docs/`,
-`scripts/`, `demo/`, `.github/`, `.claude/`, every Markdown file, the dev and mutation
-requirements with `setup.cfg`, and every local build artefact (`.venv/`,
-`ui/node_modules/`, `ui/dist/`, `ui/.angular/`, `mutants/`, `__pycache__/`). So
-the Node stage builds from source rather than copying a stale local `dist/`, and
-`demo/` -- a video the size of the rest put together -- never reaches the daemon.
-Nothing tests that file, so a path added to one of those directories is only kept
-out of the image by keeping this list current.
+`.dockerignore` narrows what the build sees: `tests/`, `integration/`,
+`benchmark/`, `docs/`, `scripts/`, `demo/`, `.github/`, `.claude/`, every Markdown
+file, the dev and mutation requirements with `setup.cfg`, and every local build
+artefact (`.venv/`, `ui/node_modules/`, `ui/dist/`, `ui/.angular/`, `mutants/`,
+`__pycache__/`). So the Node stage builds from source rather than copying a stale
+local `dist/`, and `demo/` -- a video the size of the rest put together -- never
+reaches the daemon. Nothing tests that file, so a path added to one of those
+directories is only kept out of the image by keeping this list current.
 
 ### Settings and their environment
 
@@ -622,11 +622,11 @@ everything else to the built Angular app, unknown paths falling back to
 them to `mimetypes`, which reads the registry on Windows and can answer
 `text/plain` for `.js` -- which a browser refuses to run as a module, leaving a
 blank page and no error. `_resolve` catches `OSError` and `ValueError` around
-`Path.resolve` because an exception there escapes to socketserver, which drops the
-socket without a reply; an encoded NUL raises on POSIX and does not on Windows,
-where `ntpath.realpath` returns the path unchanged, so the branch is tested by
-making `resolve()` refuse outright rather than by an input only one platform
-rejects (ADR-0020).
+`Path.resolve` and falls back to the app, an unreadable path naming nothing to
+serve; an encoded NUL raises on POSIX and does not on Windows, where
+`ntpath.realpath` returns the path unchanged, so the branch is tested by making
+`resolve()` refuse outright rather than by an input only one platform rejects
+(ADR-0020).
 
 `_SECURITY_HEADERS` goes out on every response, its CSP `'self'` throughout because
 the app is served whole from one origin -- `'unsafe-inline'` for styles only, which

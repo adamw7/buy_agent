@@ -35,7 +35,6 @@ def _defaults() -> AgentConfig:
     return AgentConfig(provider=DEFAULT_PROVIDER if known else next(iter(PROVIDERS)))
 
 
-#: The flag defaults are the config's own, so the two cannot drift apart.
 _DEFAULTS = _defaults()
 
 #: Exit code for a run that worked and found nothing: the search reached the web,
@@ -333,8 +332,6 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         logger.info("Wrote %d products to %s", len(payload), args.json)
 
-    # A run that worked and found nothing is not a failure, and a shell told it was
-    # cannot tell it from a model server that never answered.
     return 0 if ranked else NOTHING_FOUND
 
 

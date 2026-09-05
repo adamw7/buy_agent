@@ -332,10 +332,8 @@ def defaults_payload() -> dict[str, Any]:
 def limits_payload() -> dict[str, dict[str, int]]:
     """The range each number a request carries is held to, by the key it uses.
 
-    Shipped rather than written into the form, for the reason both front doors
-    read :data:`buy_agent.config.LIMITS`: a range written down twice is a form
-    that accepts what the API refuses. The browser applies it and does not choose
-    it, which is the line ADR-0033 draws.
+    Shipped rather than written into the form (:data:`_BOUNDED`): the browser
+    applies these and does not choose them, which is the line ADR-0033 draws.
     """
     return {
         key: dict(zip(("min", "max"), LIMITS[field]))

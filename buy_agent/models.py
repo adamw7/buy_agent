@@ -84,8 +84,6 @@ class ExtractedProduct(BaseModel):
             price=price,
             currency=(_clean(self.currency).upper() or None) if price is not None else None,
             rating=rating,
-            # Left standing on its own it would read as "unrated" beside nothing
-            # and still feed the popularity half of the score (ADR-0022).
             review_count=(
                 self.review_count if rating is not None and self.review_count > 0 else None
             ),

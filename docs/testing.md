@@ -84,8 +84,8 @@ Everything above fakes the model, which leaves the half of this project that is 
 grammar makes `"N/A"` in a number impossible (ADR-0004), that `reasoning=False` and
 `num_ctx=8192` are what make a thinking model answer at all (ADR-0019), and that a
 stopped server arrives as a raw `httpx` error rather than an `OSError`. The unit
-tests raise those four themselves, which proves the `except` tuple contains them
-and nothing about what Ollama raises.
+tests raise those errors themselves, which proves the provider's
+`transport_errors` contains them and nothing about what Ollama raises.
 
 `integration/` closes that, on a model small enough to run anywhere (ADR-0026):
 

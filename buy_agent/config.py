@@ -188,6 +188,4 @@ class AgentConfig:
         self.model = self.model or server.model
         self.base_url = self.base_url or server.base_url
         self.api_key = self.api_key or server.api_key
-        # Refused here as well as at each front door, so a Python caller gets the
-        # same answer -- before a search, not as an empty report a minute later.
         self.region = parse_region(self.region)
