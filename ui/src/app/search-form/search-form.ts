@@ -126,9 +126,7 @@ export class SearchForm {
 
   readonly search = output<SearchOptions>();
   readonly stop = output<void>();
-  /** Ask what another server is serving, when the provider or the address changes.
-   *  Both, because the address alone is not the question: the same URL is asked
-   *  one way for Ollama and another for vLLM. */
+  /** Ask what another server is serving, when the provider or the address changes. */
   readonly refresh = output<ModelSource>();
   /** Ask whether the sources field names sources. The parse is Python's, so the
    *  page asks rather than keeping a second copy of it (ADR-0033). */
@@ -303,10 +301,6 @@ export class SearchForm {
     field('top', 'Products to highlight', this.top),
     field('temperature', 'Temperature', this.temperature, { step: 0.1 }),
     field('num_ctx', 'Context window', this.numCtx, {
-      // The one field whose sentence depends on the provider, and the one that
-      // can be switched off without the run being switched off: vLLM fixes its
-      // window when it starts, so the box is disabled rather than left to be
-      // filled in and ignored.
       hint: () =>
         this.takesNumCtx()
           ? 'Thinking models need the room to answer; the default leaves it.'
@@ -383,14 +377,11 @@ export class SearchForm {
   /**
    * How many settings have something to say about them, for the summary to carry.
    *
-   * Every one of these lives inside the Settings panel, which is shut until
-   * somebody opens it -- so a marked box says nothing at all, and a run refused
-   * for a setting leaves a greyed-out Find products button with no visible
-   * reason anywhere on the page. That is reachable without touching a thing: a
-   * remembered source or a remembered number the server no longer takes is
-   * restored, checked and marked before the form is first drawn. The count is
-   * what the summary shows once the panel is shut again, and what the effect in
-   * the constructor opens it on in the first place.
+   * The count is what the summary shows once the Settings panel is shut again,
+   * and what the effect in the constructor opens it on in the first place --
+   * which is reachable without touching a thing: a remembered source or a
+   * remembered number the server no longer takes is restored, checked and marked
+   * before the form is first drawn.
    */
   protected readonly flagged = computed(() => Object.keys(this.notes()).length);
 

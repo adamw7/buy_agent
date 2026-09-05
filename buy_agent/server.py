@@ -371,8 +371,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             else:
                 self._serve_static(url.path)
         except Exception as exc:  # noqa: BLE001 -- a 500 beats a dropped connection
-            # The reason ``do_POST`` has one of these: an exception here escapes to
-            # socketserver, which closes the socket unanswered, and the page reads
+            # The reason both handlers have one of these: an exception here escapes
+            # to socketserver, which closes the socket unanswered, and the page reads
             # that as the agent server being down -- "Could not reach the agent
             # server" for a server that is up and answered every other request.
             # ``$BUY_AGENT_PROVIDER=olama`` did exactly that to ``/api/config``,
@@ -402,10 +402,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         except ApiError as exc:
             self._send_json(exc.status, exc.payload())
         except Exception as exc:  # noqa: BLE001 -- a 500 beats a dropped connection
-            # Otherwise it escapes to socketserver, which closes the socket
-            # unanswered: the browser sees a network error and cannot tell a failed
-            # run from a server that went away. The stream answers such failures
-            # with a ``failure`` event, and this endpoint has to match.
+            # For the reason ``do_GET`` has one, and because the stream answers
+            # such failures with a ``failure`` event: this endpoint has to match.
             logger.exception("Unexpected failure during a search")
             self._send_json(500, {"error": f"Unexpected failure: {exc}"})
 
@@ -589,9 +587,9 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         try:
             candidate = (self.ui_dir / relative).resolve()
         except (OSError, ValueError):
-            # A percent-encoded NUL makes resolve() raise, and an exception here
-            # escapes to socketserver, which drops the socket unanswered -- from
-            # the browser, indistinguishable from the server having died.
+            # A percent-encoded NUL makes resolve() raise. A path that cannot be
+            # read names nothing to serve, which is what ``index.html`` already
+            # answers -- better than the 500 ``do_GET``'s catch-all would send.
             return index
         # A candidate outside the UI directory is someone walking out of it with
         # '..'; fall through to the app rather than reading the filesystem.

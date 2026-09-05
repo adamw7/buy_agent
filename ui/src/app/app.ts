@@ -245,9 +245,6 @@ export class App {
           this.result.set(result);
           this.reordering.set(false);
         },
-        // Nothing was lost -- the run is still on the screen in the order it was
-        // already in -- so this is said beside those results rather than in the
-        // banner that means the run itself failed.
         error: (failure: unknown) => {
           this.reorderFailed.set(
             `Could not re-order these by ${sortBy}; they are still ranked by ` +

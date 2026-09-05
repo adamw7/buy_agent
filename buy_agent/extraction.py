@@ -237,8 +237,7 @@ def merge_variants(products: Sequence[Product]) -> list[Product]:
 
     Exact matching would miss the common case where one page says "Sony WH-CH720N"
     and the next "Sony WH-CH720N Noise Canceling Wireless Headphones", taking two of
-    the three reported slots. Names differing by nothing are the same case with an
-    empty difference, so this is the only pass :func:`deduplicate` needs.
+    the three reported slots.
     """
     merged: list[Product] = []
     for product in products:

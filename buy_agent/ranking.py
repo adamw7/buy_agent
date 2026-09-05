@@ -57,12 +57,10 @@ def score_product(
     the two are one number until something names the difference. ``neutral`` is
     that name, and the one thing here nothing else could work out afterwards.
     """
-    # ``None`` is "nothing was read", which is what tells a criterion apart from
-    # one that scored 0.5 on the evidence -- so it is carried as its own value and
-    # turned into ``NEUTRAL`` once, below, rather than by testing a share against
-    # 0.5 afterwards. A product priced exactly mid-way through the set really does
-    # score 0.5 on price, and that is the case this whole field exists to tell
-    # apart from a product nobody priced.
+    # ``None`` is "nothing was read", carried as its own value and turned into
+    # ``NEUTRAL`` once, below, rather than by testing a share against 0.5
+    # afterwards -- a product priced exactly mid-way through the set scores that
+    # on the evidence.
     read = {
         "rating": None if product.rating is None else product.rating / 5,
         # log10 so the 10th review counts for far more than the 10_000th;

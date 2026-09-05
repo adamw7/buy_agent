@@ -209,7 +209,6 @@ export function transcript(lines: LogLine[], failure: string | null, when: Date)
   ].join('\n');
 }
 
-/** A name that sorts by when the file was taken, and survives every filesystem. */
 export function logFilename(when: Date): string {
   return filename('log', 'txt', when);
 }
