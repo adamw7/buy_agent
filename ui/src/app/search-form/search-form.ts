@@ -123,7 +123,16 @@ export class SearchForm {
     // Remembered like the rest, and remembered *with* the two fields it decides:
     // a browser that switched to vLLM saved that provider's model and address in
     // the same blob, so restoring them together can never pair one with the other.
-    provider: setting(this.provider, (d) => d.provider, asText),
+    // Checked against what this server offers rather than taken as text, for the
+    // reason `asThinking` is: a name remembered by a browser and since dropped --
+    // a build without vLLM, a provider renamed -- leaves the picker matching
+    // nothing, `chosenProvider` undefined, and the model and context fields
+    // describing a server nobody chose.
+    provider: setting(
+      this.provider,
+      (d) => d.provider,
+      amongst((d) => providerNames(d)),
+    ),
     model: setting(this.model, (d) => d.model, asText),
     baseUrl: setting(this.baseUrl, (d) => d.base_url, asText),
     region: setting(this.region, (d) => d.region, asText),
@@ -132,7 +141,15 @@ export class SearchForm {
     sources: setting(this.sources, (d) => d.sources, asText),
     results: setting(this.results, (d) => d.results, asNumber),
     top: setting(this.top, (d) => d.top, asNumber),
-    sortBy: setting(this.sortBy, (d) => d.sort_by, asText as Parser<SortBy>),
+    // The same check, and the row that most needed it: a cast is not one, and
+    // `SortBy` is a union the server is free to add to and drop from. Restored
+    // unchecked, a criterion no longer offered left the Rank by select showing
+    // nothing and the run refused by Python for a value nobody could see.
+    sortBy: setting(
+      this.sortBy,
+      (d) => d.sort_by,
+      amongst<SortBy>((d) => d.sort_options),
+    ),
     temperature: setting(this.temperature, (d) => d.temperature, asNumber),
     // The one field a remembered `null` has to win on. Cleared, this box means
     // "whatever the server defaults to" -- what `numCtxHint` names -- which is a
@@ -350,7 +367,7 @@ export class SearchForm {
     for (const field of Object.values(this.settings)) {
       field.seed(defaults);
     }
-    this.restore();
+    this.restore(defaults);
     // A remembered value is one nobody is about to type, so nothing else would
     // ever ask about it: a browser holding a bad source would find out a run
     // later, which is the whole complaint.
@@ -440,7 +457,7 @@ export class SearchForm {
    * the field existed -- and leaves the seeded default standing. A key that is
    * there but holds something its parser will not take is ignored the same way.
    */
-  private restore(): void {
+  private restore(defaults: AgentDefaults): void {
     let saved: unknown;
     try {
       saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null') ?? {};
@@ -452,20 +469,25 @@ export class SearchForm {
     }
     for (const [key, field] of Object.entries(this.settings)) {
       if (key in saved) {
-        field.restore((saved as Record<string, unknown>)[key]);
+        field.restore((saved as Record<string, unknown>)[key], defaults);
       }
     }
   }
 }
 
-/** Reads one remembered value, or undefined for anything it will not take. */
-type Parser<T> = (raw: unknown) => T | undefined;
+/** Reads one remembered value, or undefined for anything it will not take.
+ *
+ * The server's defaults come with it, because two of these are about what this
+ * server currently offers rather than about the shape of the value: whether a
+ * provider or a sort criterion is still one of them is a question only the
+ * defaults can answer, and they have landed by the time anything is restored. */
+type Parser<T> = (raw: unknown, defaults: AgentDefaults) => T | undefined;
 
 /** One remembered setting, with the signal's own type closed over. */
 interface Setting {
   seed(defaults: AgentDefaults): void;
   value(): unknown;
-  restore(raw: unknown): void;
+  restore(raw: unknown, defaults: AgentDefaults): void;
 }
 
 function setting<T>(
@@ -476,8 +498,8 @@ function setting<T>(
   return {
     seed: (defaults) => target.set(fromDefaults(defaults)),
     value: () => target(),
-    restore: (raw) => {
-      const parsed = parse(raw);
+    restore: (raw, defaults) => {
+      const parsed = parse(raw, defaults);
       if (parsed !== undefined) {
         target.set(parsed);
       }
@@ -488,7 +510,30 @@ function setting<T>(
 const asText: Parser<string> = (raw) => (typeof raw === 'string' ? raw : undefined);
 const asNumber: Parser<number> = (raw) => (typeof raw === 'number' ? raw : undefined);
 const asBoolean: Parser<boolean> = (raw) => (typeof raw === 'boolean' ? raw : undefined);
-const asNumberOrNull: Parser<number | null> = (raw) => (raw === null ? null : asNumber(raw));
+const asNumberOrNull: Parser<number | null> = (raw) =>
+  raw === null || typeof raw === 'number' ? raw : undefined;
+
+/**
+ * A remembered name the server still offers, and nothing else.
+ *
+ * The same guard `asThinking` is, over a list that comes down with the defaults
+ * rather than one written here: which providers exist and which criteria a run
+ * can be sorted by are the server's to say, and a form holding a name it dropped
+ * is a field describing something that is not there. Anything else is undefined,
+ * which leaves the seeded default standing -- the answer a browser with nothing
+ * remembered would have got.
+ */
+function amongst<T extends string>(
+  offered: (defaults: AgentDefaults) => readonly string[],
+): Parser<T> {
+  return (raw, defaults) =>
+    typeof raw === 'string' && offered(defaults).includes(raw) ? (raw as T) : undefined;
+}
+
+/** The providers this server offers, by name. */
+function providerNames(defaults: AgentDefaults): string[] {
+  return defaults.provider_options.map((option) => option.name);
+}
 
 /** Validated rather than taken as text, so a `'default'` remembered by a browser
  *  from when the form offered three states is ignored and the seed stands. */

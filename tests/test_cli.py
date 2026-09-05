@@ -240,6 +240,36 @@ def test_a_source_that_names_no_site_is_a_usage_error_that_says_what_does(capsys
     assert "@mkbhd" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("spec", ["", "   ", ","])
+def test_a_source_flag_naming_nothing_is_a_usage_error_too(spec: str, capsys) -> None:
+    """And the one that used to be silent, rather than an empty report.
+
+    Every other bad spec fails loudly. A blank one parsed to no sources at all,
+    which is not a narrower search but the widest there is: ``--source ""``
+    searched the whole web and said nothing about having done so. On a command
+    line "unset" is spelled by leaving the flag off, so a flag that names nothing
+    is a mistake and gets the shapes that are not.
+    """
+    with pytest.raises(SystemExit) as exit_info:
+        main(["headphones", "--source", spec])
+
+    assert exit_info.value.code == 2
+    printed = capsys.readouterr().err
+    assert "cannot be blank" in printed
+    assert "@mkbhd" in printed
+
+
+def test_a_blank_source_among_real_ones_is_still_the_real_ones(fake_agent) -> None:
+    """The refusal is per flag and about that flag, so a trailing separator inside
+    a spec that does name sites is nothing to complain about."""
+    main(["headphones", "--source", "rtings.com,", "--source", "@mkbhd"])
+
+    assert [source.domain for source in fake_agent["config"].sources] == [
+        "rtings.com",
+        "youtube.com",
+    ]
+
+
 def test_a_region_that_is_not_a_region_is_a_usage_error_that_says_what_is(capsys) -> None:
     """The one search setting that otherwise fails by returning nothing, so it is
     refused before the run rather than blamed on the web afterwards (ADR-0031)."""

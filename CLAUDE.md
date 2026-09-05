@@ -465,6 +465,12 @@ seeds the web form.
   repeatable, and its `type` checks the spec but hands back the text: checking there
   makes a bad source a usage error carrying the shapes that work, while parsing
   every flag together in `main` is what makes two flags naming one site one source.
+  It is the one option whose two doors judge a *blank* differently, and they have
+  to: over the wire an empty value is how "unset" is spelled (ADR-0012), so
+  `api._present` reads an empty string and a list of blanks alike as the whole web,
+  while on a command line "unset" is spelled by leaving the flag off -- so
+  `parse_named_sources` refuses a flag naming nothing rather than letting it come
+  back empty and widen the search to everything (ADR-0027).
 - **`weights`** is the one field neither door fills in: `RankingWeights` is
   reachable only by constructing an `AgentConfig` in Python, so rebalancing the
   blended score is a code change and not a flag.
@@ -741,15 +747,15 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1128 tests run in about four seconds: most of that is the two that spawn an
+1149 tests run in about four seconds: most of that is the two that spawn an
 interpreter -- one checking `python -m buy_agent` still runs as a script, one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1128 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1128 collect but 13 of the 17 in
-`tests/test_start_script.py` skip, so the summary reads `1115 passed, 13 skipped`.
-The UI's 129 tests run in about two seconds, most of which is building the app
+reaching out. 1149 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1149 collect but 13 of the 17 in
+`tests/test_start_script.py` skip, so the summary reads `1136 passed, 13 skipped`.
+The UI's 133 tests run in about two seconds, most of which is building the app
 first. The 30 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
 
@@ -782,7 +788,10 @@ that
   one Python and one Node for the three files that pin themselves to those; every
   workflow sets up that same Python and builds with that same Node; and the
   workflows pin the same version of every action they share, an update reaching only
-  one leaving every file valid and a scheduled run on the older action;
+  one leaving every file valid and a scheduled run on the older action, and every
+  one of them declares a read-only token, a workflow that declares none inheriting
+  whatever the repository's default happens to be -- the two jobs that publish
+  anything widen that on their own job instead;
 - the release archive puts the built UI where `server.DEFAULT_UI_DIR` looks, and
   both of its jobs check out the tag being released rather than a branch;
 - the nightly run pulls the tag `integration.TINY_MODEL` names, names the directory

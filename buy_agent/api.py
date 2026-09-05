@@ -394,9 +394,24 @@ def _read_sources(
 
 
 def _present(data: Mapping[str, Any], key: str) -> bool:
-    """Is the key set to something? An empty form field counts as unset."""
+    """Is the key set to something? An empty form field counts as unset.
+
+    A list holding nothing but blanks is the same answer in the shape only
+    ``sources`` arrives in: ``[]`` and ``["", " "]`` say what ``""`` says, which
+    is "use the default" (ADR-0012). Read as set, they reached ``parse_sources``,
+    came back empty and left the run searching the whole web -- the widening
+    ``parse_named_sources`` refuses on the command line, arrived at from the other
+    side. Said here rather than there, because over the wire a blank really is how
+    "unset" is spelled.
+    """
     value = data.get(key)
-    return value is not None and not (isinstance(value, str) and not value.strip())
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple)):
+        return any(str(entry).strip() for entry in value)
+    return True
 
 
 def _read(

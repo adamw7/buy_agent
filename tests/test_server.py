@@ -10,7 +10,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -713,6 +713,93 @@ def test_a_negative_content_length_does_not_desync_the_connection(server: str) -
     assert "400" in text.splitlines()[0]
     assert "Connection: close" in text
     assert text.count("HTTP/1.1 ") == 1, "the smuggled request was answered"
+
+
+def read_all(sock: socket.socket) -> bytes:
+    """Read a reply to the end, so closing the socket sends a FIN and not a reset.
+
+    A socket closed with bytes still unread resets the connection, and the server
+    is then reading the next request line off it -- which is a stderr full of
+    ``socketserver`` traceback for a test that passed.
+    """
+    reply = b""
+    while chunk := sock.recv(4096):
+        reply += chunk
+    return reply
+
+
+def wait_until(settled: Callable[[], bool], limit: float = 5.0) -> bool:
+    """Poll until the condition holds, or give up. A handler thread is started and
+    reclaimed by the server on its own schedule, so both are waited for rather
+    than asserted on the instant."""
+    deadline = time.monotonic() + limit
+    while not settled() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    return settled()
+
+
+def test_a_handler_does_not_wait_on_a_stalled_client_for_ever(
+    server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A body announced and never sent parks the thread reading it.
+
+    Nothing else bounds that wait: the loop blocks in ``rfile.read`` until the
+    declared bytes arrive, and a client that simply stops sending never delivers
+    them. Three such connections used to park three handler threads for the life
+    of the process, and nothing ever reclaimed them -- which is a page in the same
+    browser away (ADR-0018), and needs no bad intent at all: a laptop that sleeps
+    mid-request does it.
+    """
+    monkeypatch.setattr(BuyAgentHandler, "timeout", 0.5)
+    before = threading.active_count()
+    parsed = urlparse(server)
+
+    with socket.create_connection((parsed.hostname, parsed.port), timeout=10) as sock:
+        sock.sendall(
+            b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+            b"Content-Length: 500\r\n\r\n{"
+        )
+        assert wait_until(lambda: threading.active_count() > before), (
+            "nothing is holding the connection"
+        )
+        reply = sock.recv(4096).decode("utf-8", "replace")
+
+    # Answered rather than dropped, and answered as itself: without the clause
+    # that names it, the timeout reached ``do_POST``'s catch-all and was logged
+    # as an "Unexpected failure during a search" over a traceback.
+    assert "408" in reply.splitlines()[0]
+    assert "Connection: close" in reply
+
+    assert wait_until(lambda: threading.active_count() == before), (
+        "the handler thread was never reclaimed"
+    )
+
+
+def test_a_client_that_is_merely_slow_still_gets_its_answer(
+    server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The timeout bounds one blocking read, not a request and not a run.
+
+    Which is the whole reason it can be as short as it is: a search takes a
+    minute and blocks on no socket while it works, and a body that arrives in two
+    writes a moment apart is an ordinary client on an ordinary network.
+    """
+    monkeypatch.setattr(BuyAgentHandler, "timeout", 0.5)
+    body = json.dumps({"products": [{"name": "Sony WH-1000XM5"}]}).encode()
+    parsed = urlparse(server)
+
+    with socket.create_connection((parsed.hostname, parsed.port), timeout=10) as sock:
+        sock.sendall(
+            b"POST /api/rank HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n"
+            b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n"
+        )
+        # Longer than half the timeout above, so a wait per read is what is being
+        # measured rather than a wait per request.
+        time.sleep(0.3)
+        sock.sendall(body)
+        reply = read_all(sock).decode("utf-8", "replace")
+
+    assert "200" in reply.splitlines()[0]
 
 
 def test_a_path_that_cannot_name_a_file_is_answered_not_dropped(tmp_path: Path) -> None:

@@ -691,6 +691,24 @@ def test_every_workflow_builds_the_ui_with_the_node_ci_builds_it_with(workflow: 
         assert version == ci_version("node-version"), workflow.name
 
 
+@pytest.mark.parametrize("workflow", workflows(), ids=lambda path: path.stem)
+def test_every_workflow_starts_from_a_read_only_token(workflow: Path) -> None:
+    """A workflow that declares nothing is handed whatever the repository's default
+    is, which is a setting nothing in here can see and which grants write on plenty
+    of repositories. Every job in this project reads the checkout and runs the
+    tests; the two that publish anything ask for what they need on their own job
+    (`.github/workflows/release.yml`), which is the whole point of a floor -- said
+    once at the top, widened where it is earned, and never inherited by accident.
+    """
+    source = workflow.read_text(encoding="utf-8")
+    match = re.search(r"^permissions:\n((?:  \w[^\n]*\n)+)", source, re.M)
+    assert match, f"{workflow.name} declares no top-level permissions"
+
+    assert match.group(1).strip() == "contents: read", (
+        f"{workflow.name}'s floor is not read-only; widen a job, not the workflow"
+    )
+
+
 def action_versions(workflow: Path) -> dict[str, str]:
     """The ref each ``uses: owner/action@ref`` step of a workflow pins."""
     steps = re.findall(r"uses: (\S+?)@(\S+)$", workflow.read_text(encoding="utf-8"), re.M)

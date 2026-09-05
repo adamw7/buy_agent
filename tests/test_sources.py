@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from buy_agent.sources import Source, format_sources, parse_source, parse_sources
+from buy_agent.sources import (
+    Source,
+    format_sources,
+    parse_named_sources,
+    parse_source,
+    parse_sources,
+)
 
 
 # -- what a source may look like -----------------------------------------------
@@ -201,6 +207,30 @@ def test_two_spellings_of_one_source_are_one_source() -> None:
 def test_naming_none_is_not_an_error_but_the_whole_web() -> None:
     assert parse_sources("") == ()
     assert parse_sources([]) == ()
+
+
+@pytest.mark.parametrize("spec", ["", "   ", ",", " , , ", [""], ["", "  "], []])
+def test_asking_to_narrow_to_nothing_is_a_refusal(spec: str | list[str]) -> None:
+    """The widening half of the hole ``@`` went through, and the worse half.
+
+    A spec that identifies nothing searched for a phrase no page contains, and
+    the answer was an empty report. A spec that is *blank* does not even do that:
+    it comes back as no sources at all, which is the whole web -- so a shopper who
+    asked for rtings.com and mistyped got facts from every site there is, reported
+    as if they had asked for them. Named sources have no fall back to the wider
+    web (ADR-0027), and this is the one way to reach one.
+    """
+    with pytest.raises(ValueError, match="cannot be blank"):
+        parse_named_sources(spec)
+
+
+def test_narrowing_to_a_real_source_is_the_same_answer_as_parsing_it() -> None:
+    """The refusal is the only difference between the two: everything about which
+    sources these are, how they are separated and which repeats collapse stays
+    :func:`parse_sources`'s to answer."""
+    specs = "rtings.com, @mkbhd rtings.com"
+
+    assert parse_named_sources(specs) == parse_sources(specs)
 
 
 def test_one_unusable_source_fails_the_lot_rather_than_being_dropped() -> None:

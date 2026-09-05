@@ -70,6 +70,18 @@ _KEEPALIVE_SECONDS = 15.0
 
 _MAX_BODY_BYTES = 64 * 1024
 
+#: How long one blocking read or write on a connection may take before it is
+#: dropped. Without it a client that announces a body and never sends it parks a
+#: handler thread for the life of the process -- three such connections park
+#: three, and nothing ever reclaims them. It bounds a single socket operation and
+#: not a request, so it costs the slow paths nothing: a run that takes a minute
+#: blocks on no socket while it works, and the stream's own frames are small and
+#: sent at worst :data:`_KEEPALIVE_SECONDS` apart. A write that does time out
+#: arrives as the ``OSError`` :meth:`BuyAgentHandler._send_event` already reads as
+#: a reader who has gone (ADR-0034), and an idle keep-alive connection is closed
+#: by ``handle_one_request``, which answers ``TimeoutError`` by hanging up.
+_REQUEST_TIMEOUT = 30.0
+
 #: Host names that mean "this machine". A ``Host`` outside the allowed set is a
 #: name that resolved here without being one of ours -- DNS rebinding. 0.0.0.0 is
 #: deliberately absent: an address to *bind*, never one a browser addresses, so
@@ -250,6 +262,9 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
     server_version = "buy_agent"
     protocol_version = "HTTP/1.1"
+    #: Read by ``socketserver`` when the connection is set up -- see
+    #: :data:`_REQUEST_TIMEOUT`, which is why there is one at all.
+    timeout = _REQUEST_TIMEOUT
 
     def __init__(
         self,
@@ -607,7 +622,16 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             raise ApiError("Request body is too large.", 413)
         if length == 0:
             return {}
-        raw = self.rfile.read(length)
+        try:
+            raw = self.rfile.read(length)
+        except TimeoutError as exc:
+            # A body announced and never sent: what :data:`_REQUEST_TIMEOUT` is
+            # there to end. Named rather than left to the catch-all in ``do_POST``,
+            # which would log a traceback for a slow client and call it an
+            # "Unexpected failure during a search" -- and a socket that has timed
+            # out refuses every later read outright, so the connection goes too.
+            self.close_connection = True
+            raise ApiError("The request body did not arrive in time.", 408) from exc
         try:
             payload = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -643,6 +667,12 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             if self.command != "HEAD":
                 self.wfile.write(body)
         except OSError:
+            # And nothing more goes over it. A connection whose response could not
+            # be written is not one to read the next request off: after a write
+            # that timed out the socket refuses reads as well, so leaving it open
+            # sends that failure to ``socketserver``, which is the dropped, silent
+            # close every catch-all in here exists to avoid.
+            self.close_connection = True
             logger.debug("Client went away before the response was written")
 
     def _send_event(self, event: str, data: Any) -> bool:
