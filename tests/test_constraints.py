@@ -187,50 +187,51 @@ def test_a_bound_at_the_bottom_of_its_range_is_still_a_bound(bounds: Constraints
 
 # -- a budget is a number in one currency (ADR-0043) ---------------------------
 
-
-def test_a_price_the_run_cannot_place_is_not_held_against_the_budget() -> None:
-    """Nothing is converted, so a euro price and a dollar budget are not two
-    comparable numbers -- and an unplaceable figure passes, the way an unknown
-    one does."""
-    products = [
-        Product(name="Over", price=300.0, currency="USD"),
-        Product(name="Under", price=100.0, currency="USD"),
-        Product(name="Elsewhere", price=300.0, currency="EUR"),
-    ]
-
-    kept = Constraints(max_price=200.0).apply(products)
-
-    assert [product.name for product in kept] == ["Under", "Elsewhere"]
+OVER = Product(name="Over", price=300.0, currency="USD")
+UNDER = Product(name="Under", price=100.0, currency="USD")
+ELSEWHERE = Product(name="Elsewhere", price=300.0, currency="EUR")
 
 
-def test_a_bare_price_is_still_held_to_the_budget() -> None:
-    """A price the page printed without a currency is the run's own, which is
-    what every price here was before the rule existed."""
-    products = [Product(name="Over", price=300.0), Product(name="Under", price=100.0)]
+@pytest.mark.parametrize(
+    ("products", "kept"),
+    [
+        # Nothing is converted, so a euro price and a dollar budget are not two
+        # comparable numbers -- and an unplaceable figure passes, as an unknown
+        # one does.
+        pytest.param([OVER, UNDER, ELSEWHERE], ["Under", "Elsewhere"], id="another currency"),
+        # A price printed without a currency is the run's own, which is what
+        # every price here was before the rule existed.
+        pytest.param(
+            [Product(name="Over", price=300.0), Product(name="Under", price=100.0)],
+            ["Under"],
+            id="a bare price",
+        ),
+    ],
+)
+def test_what_a_budget_in_one_currency_admits(
+    products: list[Product], kept: list[str]
+) -> None:
+    assert [p.name for p in Constraints(max_price=200.0).apply(products)] == kept
 
-    kept = Constraints(max_price=200.0).apply(products)
 
-    assert [product.name for product in kept] == ["Under"]
-
-
-def test_the_budget_is_reported_with_the_currency_it_was_read_in(caplog) -> None:
-    """The part of the bound nobody typed: the number came from the shopper and
-    the currency from whatever the pages were printing."""
+@pytest.mark.parametrize(
+    ("products", "expected"),
+    [
+        # The part of the bound nobody typed: the number came from the shopper
+        # and the currency from whatever the pages were printing.
+        pytest.param([UNDER], "at most 200.00 USD", id="a currency the pages named"),
+        # Nothing to say, and "at most 200.00 None" would be worse than the
+        # sentence the report always had.
+        pytest.param([Product(name="Under", price=100.0)], "(at most 200.00)", id="no currency"),
+    ],
+)
+def test_the_budget_is_reported_with_the_currency_it_was_read_in(
+    products: list[Product], expected: str, caplog
+) -> None:
     with caplog.at_level(logging.INFO, logger="buy_agent.constraints"):
-        Constraints(max_price=200.0).apply(
-            [Product(name="Under", price=100.0, currency="USD")]
-        )
+        Constraints(max_price=200.0).apply(products)
 
-    assert "at most 200.00 USD" in caplog.text
-
-
-def test_a_run_whose_pages_named_no_currency_names_none(caplog) -> None:
-    """There is nothing to say, and "at most 200.00 None" would be worse than
-    the sentence the report always had."""
-    with caplog.at_level(logging.INFO, logger="buy_agent.constraints"):
-        Constraints(max_price=200.0).apply([Product(name="Under", price=100.0)])
-
-    assert "(at most 200.00)" in caplog.text
+    assert expected in caplog.text
 
 
 def test_the_other_two_bounds_are_the_same_in_every_currency(caplog) -> None:

@@ -55,12 +55,11 @@ def score_product(
     Price is relative rather than absolute: the cheapest in the set gets 1.0, the
     most expensive 0.0, and with one distinct price everything ties at ``NEUTRAL``.
 
-    ``currency`` is the one the set's prices are compared in, and a product priced
-    in another is not on that scale: its price scores ``NEUTRAL`` and says so,
-    rather than being read as the number it happens to be (ADR-0043). Defaulted to
-    ``None`` -- "nothing says these are different currencies" -- so a caller
-    scoring one product against two figures need not answer a question about a set
-    it does not have.
+    ``currency`` is the one the set's prices are compared in; a product priced in
+    another is not on that scale, so its price scores ``NEUTRAL`` and says so
+    rather than being read as the number it happens to be (ADR-0043). ``None`` is
+    "nothing says these are different currencies", which is what one product on
+    its own says.
 
     The three shares come back beside the blend rather than being added up and
     forgotten (ADR-0041). They cost nothing -- they are what the blend was made of
@@ -74,6 +73,7 @@ def score_product(
     # ``NEUTRAL`` once, below, rather than by testing a share against 0.5
     # afterwards -- a product priced exactly mid-way through the set scores that
     # on the evidence.
+    placed = comparable_price(product, currency)
     read = {
         "rating": None if product.rating is None else product.rating / 5,
         # log10 so the 10th review counts for far more than the 10_000th;
@@ -83,18 +83,15 @@ def score_product(
             if product.review_count
             else None
         ),
-        # The last clause is a set with one distinct price in it, where nothing
-        # separates any product from any other. The first is both a price nobody
-        # published and one published in a currency this set is not counted in:
-        # neither can be placed between the cheapest and the priciest, and the
-        # difference between them is not one a score could carry anyway.
+        # ``placed`` is None for a price nobody published *and* for one printed
+        # in a currency this set is not counted in: neither has a place between
+        # the cheapest and the priciest. The last clause is a set with one
+        # distinct price, where nothing separates any product from any other.
         "price": (
             None
-            if (price := comparable_price(product, currency)) is None
-            or cheapest is None
-            or priciest is None
+            if placed is None or cheapest is None or priciest is None
             or priciest <= cheapest
-            else (priciest - price) / (priciest - cheapest)
+            else (priciest - placed) / (priciest - cheapest)
         ),
     }
     shares = {name: NEUTRAL if share is None else share for name, share in read.items()}
@@ -120,11 +117,10 @@ def rank_products(
     figure that means something different from the rest of the column (ADR-0043).
     """
     weights = weights or RankingWeights()
-    # The scale is the run's own currency and the prices that are on it: a set
-    # holding one price in yen would otherwise put every dollar price at the
-    # cheap end of a range five orders of magnitude wide (ADR-0043). Worked out
-    # once, beside the products it belongs to, rather than per product: it is a
-    # fact about the set, as ``cheapest`` and ``priciest`` are.
+    # The scale is the run's own currency and the prices on it: one price in yen
+    # would otherwise put every dollar price at the cheap end of a range five
+    # orders of magnitude wide (ADR-0043). A fact about the set, like ``cheapest``
+    # and ``priciest``, so it is worked out here and passed down.
     currency = dominant_currency(products)
     prices = [comparable_price(product, currency) for product in products]
     on_the_scale = [price for price in prices if price is not None]

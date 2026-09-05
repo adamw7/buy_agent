@@ -28,6 +28,7 @@ from buy_agent.cache import (
 )
 from buy_agent.chat import UnreadableAnswerError
 from buy_agent.models import SearchQuery
+from tests.conftest import FakeLLM
 
 URL = "https://example.com/headphones"
 
@@ -328,25 +329,12 @@ def _raising(exc: Exception):
 # -- remembering what a model answered -----------------------------------------
 
 
-class CountingModel:
-    """A model server that answers the same thing and counts being asked.
+def _remembering(tmp_path: Path, server: FakeLLM, **fingerprint: object):
+    """``server``, remembering into ``tmp_path``. Fingerprint defaults to a run.
 
-    One method, which is the whole of ``chat.ChatModel`` -- the same shape
-    ``tests/conftest.py``'s ``FakeLLM`` has, kept separate because what these
-    tests read is the *count*.
+    The model is the suite's own ``FakeLLM``: it already records every call, and
+    what these tests read is how many of them got through.
     """
-
-    def __init__(self, answer: str = "wireless headphones") -> None:
-        self.answer_text = answer
-        self.asked = 0
-
-    def answer(self, messages: object, schema: type) -> object:
-        self.asked += 1
-        return schema(query=self.answer_text)
-
-
-def _remembering(tmp_path: Path, server: CountingModel, **fingerprint: object):
-    """``server``, remembering into ``tmp_path``. Fingerprint defaults to a run."""
     cache = DiskCache(tmp_path / ANSWERS, ttl=DEFAULT_TTL)
     return RememberedAnswers(server, cache, {"model": "gemma4:12b", **fingerprint})
 
@@ -355,117 +343,107 @@ ASKED = [{"role": "user", "content": "headphones"}]
 
 
 def test_the_same_question_is_answered_off_disk(tmp_path: Path) -> None:
-    model = CountingModel()
+    model = FakeLLM(query=SearchQuery(query="wireless headphones"))
     remembering = _remembering(tmp_path, model)
 
     first = remembering.answer(ASKED, SearchQuery)
     second = remembering.answer(ASKED, SearchQuery)
 
-    assert model.asked == 1
+    assert len(model.calls) == 1
     assert first == second == SearchQuery(query="wireless headphones")
 
 
-def test_a_different_question_is_put_to_the_model(tmp_path: Path) -> None:
-    """The prompt is in the key, so a reworded one is a different question and
-    not the same one with a stale answer."""
-    model = CountingModel()
-    remembering = _remembering(tmp_path, model)
-
-    remembering.answer(ASKED, SearchQuery)
-    remembering.answer([{"role": "user", "content": "earbuds"}], SearchQuery)
-
-    assert model.asked == 2
+class Reworded(SearchQuery):
+    """The same schema with a field described differently, which is a different
+    decoding grammar and so a different question (ADR-0004)."""
 
 
-def test_a_different_run_does_not_reuse_another_run_s_answer(tmp_path: Path) -> None:
-    """Same prompt, other model. What a model answers is what is being stored."""
-    model = CountingModel()
-    _remembering(tmp_path, model, model="gemma4:12b").answer(ASKED, SearchQuery)
-    _remembering(tmp_path, model, model="lfm2.5").answer(ASKED, SearchQuery)
-
-    assert model.asked == 2
+Reworded.model_fields["query"].description = "something else entirely"
+Reworded.model_rebuild(force=True)
 
 
-def test_a_different_schema_is_a_different_question(tmp_path: Path) -> None:
-    """The schema is the decoding grammar and the shape of the answer (ADR-0004),
-    so it goes into the key as itself -- a field added to it is a new question."""
+@pytest.mark.parametrize(
+    "ask_again",
+    [
+        pytest.param(
+            lambda tmp, model: _remembering(tmp, model).answer(
+                [{"role": "user", "content": "earbuds"}], SearchQuery
+            ),
+            id="another prompt",
+        ),
+        # What a model answers is the whole of what is stored, so which model it
+        # was is in the key -- with the server and the request's settings.
+        pytest.param(
+            lambda tmp, model: _remembering(tmp, model, model="lfm2.5").answer(ASKED, SearchQuery),
+            id="another model",
+        ),
+        pytest.param(
+            lambda tmp, model: _remembering(tmp, model).answer(ASKED, Reworded),
+            id="another schema",
+        ),
+    ],
+)
+def test_a_different_question_is_put_to_the_model(ask_again, tmp_path: Path) -> None:
+    """Everything that decides an answer is in the key, so changing any of it
+    misses. The one thing that hits is the same question asked twice."""
+    model = FakeLLM()
+    _remembering(tmp_path, model).answer(ASKED, SearchQuery)
 
-    class Renamed(SearchQuery):
-        pass
+    ask_again(tmp_path, model)
 
-    Renamed.model_fields["query"].description = "something else entirely"
-    Renamed.model_rebuild(force=True)
-
-    model = CountingModel()
-    remembering = _remembering(tmp_path, model)
-    remembering.answer(ASKED, SearchQuery)
-    remembering.answer(ASKED, Renamed)
-
-    assert model.asked == 2
+    assert len(model.calls) == 2
 
 
 def test_an_answer_that_will_not_read_back_is_a_miss(tmp_path: Path) -> None:
     """It should not happen -- the schema is in the key -- and it costs a model
     call rather than a run."""
-    model = CountingModel()
+    model = FakeLLM(query=SearchQuery(query="wireless headphones"))
     remembering = _remembering(tmp_path, model)
     remembering.answer(ASKED, SearchQuery)
-    key = remembering._key(ASKED, SearchQuery)
-    remembering.cache.put(key, '{"not": "a query"}')
+    remembering.cache.put(remembering._key(ASKED, SearchQuery), '{"not": "a query"}')
 
     assert remembering.answer(ASKED, SearchQuery).query == "wireless headphones"
-    assert model.asked == 2
+    assert len(model.calls) == 2
 
 
 def test_a_model_that_failed_left_nothing_to_remember(tmp_path: Path) -> None:
     """A failure is not an answer: a stopped server is a state of the world, and
     storing one would answer the next run with it."""
-
-    class Failing(CountingModel):
-        def answer(self, messages: object, schema: type) -> object:
-            self.asked += 1
-            raise UnreadableAnswerError("Invalid JSON answer: nothing at all")
-
-    model = Failing()
+    model = FakeLLM(raises=UnreadableAnswerError("Invalid JSON answer: nothing at all"))
     remembering = _remembering(tmp_path, model)
     for _ in range(2):
         with pytest.raises(UnreadableAnswerError):
             remembering.answer(ASKED, SearchQuery)
 
-    assert model.asked == 2
+    assert len(model.calls) == 2
 
 
 @pytest.mark.parametrize(
-    ("ttl", "deterministic", "why"),
+    ("ttl", "deterministic"),
     [
-        pytest.param(0, True, "the shopper asked for a live run", id="no cache"),
-        pytest.param(3600, False, "the run samples, so it has no answer", id="sampled"),
+        pytest.param(0, True, id="the shopper asked for a live run"),
+        pytest.param(3600, False, id="the run samples, so it has no one answer"),
     ],
 )
 def test_a_run_that_should_not_remember_gets_the_model_itself(
-    ttl: float, deterministic: bool, why: str
+    ttl: float, deterministic: bool
 ) -> None:
     """Both are somebody's decision rather than a failure, and both come back as
     the plain model -- not as a wrapper that quietly never hits."""
-    model = CountingModel()
+    model = FakeLLM()
 
-    assert (
-        remember_answers(model, fingerprint={}, ttl=ttl, deterministic=deterministic)
-        is model
-    ), why
+    assert remember_answers(model, fingerprint={}, ttl=ttl, deterministic=deterministic) is model
 
 
 def test_a_run_that_should_remember_gets_a_model_that_does(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("BUY_AGENT_CACHE_DIR", str(tmp_path))
-    model = CountingModel()
+    model = FakeLLM()
 
-    remembering = remember_answers(
-        model, fingerprint={}, ttl=3600, deterministic=True
-    )
+    remembering = remember_answers(model, fingerprint={}, ttl=3600, deterministic=True)
     remembering.answer(ASKED, SearchQuery)
     remembering.answer(ASKED, SearchQuery)
 
-    assert model.asked == 1
+    assert len(model.calls) == 1
     assert list((tmp_path / ANSWERS).glob("*.json"))

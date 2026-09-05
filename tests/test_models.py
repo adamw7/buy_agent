@@ -289,70 +289,73 @@ def test_a_paragraph_is_not_a_quote() -> None:
 
 # -- which currency a set of prices is counted in (ADR-0043) -------------------
 
-
-def test_the_currency_of_a_set_is_the_commonest_one_named() -> None:
-    products = [
-        Product(name="Lone", price=90.0, currency="EUR"),
-        Product(name="One", price=100.0, currency="USD"),
-        Product(name="Two", price=200.0, currency="USD"),
-    ]
-
-    assert dominant_currency(products) == "USD"
-
-
-def test_currencies_tie_on_the_order_they_were_first_seen_in() -> None:
-    """Which is the search's own order, and the tie-break every other merge here
-    makes -- so the same set is counted in the same currency twice."""
-    euro = Product(name="Euro", price=90.0, currency="EUR")
-    dollar = Product(name="Dollar", price=100.0, currency="USD")
-
-    assert dominant_currency([euro, dollar]) == "EUR"
-    assert dominant_currency([dollar, euro]) == "USD"
-
-
-def test_a_currency_with_no_price_beside_it_counts_towards_nothing() -> None:
-    """A currency is a fact about a price (ADR-0022), and one left standing alone
-    describes nothing -- so it does not get to decide what the set is counted in.
-    ``to_product`` drops such a pairing, and this is the rule saying why."""
-    products = [
-        Product(name="Priced", price=100.0, currency="USD"),
-        Product(name="Unpriced", currency="EUR"),
-        Product(name="Also unpriced", currency="EUR"),
-    ]
-
-    assert dominant_currency(products) == "USD"
-
-
-def test_a_set_nobody_named_a_currency_in_is_counted_in_none() -> None:
-    assert dominant_currency([Product(name="Bare", price=100.0)]) is None
-    assert dominant_currency([]) is None
+EURO = Product(name="Euro", price=90.0, currency="EUR")
+DOLLAR = Product(name="Dollar", price=100.0, currency="USD")
+UNPRICED = Product(name="Unpriced", currency="EUR")
 
 
 @pytest.mark.parametrize(
-    ("product", "currency", "expected", "why"),
+    ("products", "expected"),
     [
+        pytest.param([DOLLAR, EURO, DOLLAR], "USD", id="the commonest one named"),
+        # Ties go to the one seen first -- the search's own order, and the
+        # tie-break every other merge here makes -- so a set is counted in the
+        # same currency twice.
+        pytest.param([EURO, DOLLAR], "EUR", id="a tie, euro first"),
+        pytest.param([DOLLAR, EURO], "USD", id="a tie, dollar first"),
+        # A currency with no price beside it describes nothing (ADR-0022), so it
+        # does not get to decide what the set is counted in.
+        pytest.param([DOLLAR, UNPRICED, UNPRICED], "USD", id="a currency qualifying nothing"),
+        pytest.param([Product(name="Bare", price=100.0)], None, id="nobody named one"),
+        pytest.param([], None, id="nothing to count"),
+    ],
+)
+def test_which_currency_a_set_is_counted_in(
+    products: list[Product], expected: str | None
+) -> None:
+    assert dominant_currency(products) == expected
+
+
+@pytest.mark.parametrize(
+    ("products", "expected", "why"),
+    [
+        pytest.param([DOLLAR, EURO, DOLLAR], "USD", "the commonest one named", id="commonest"),
+        # Ties go to the one seen first, which is the search's own order and the
+        # tie-break every other merge here makes -- so a set is counted in the
+        # same currency twice.
+        pytest.param([EURO, DOLLAR], "EUR", "ties go to the first seen", id="tie, euro first"),
+        pytest.param([DOLLAR, EURO], "USD", "ties go to the first seen", id="tie, dollar first"),
         pytest.param(
-            Product(name="a", price=100.0, currency="USD"), "USD", 100.0,
-            "the set's own currency", id="same",
+            [DOLLAR, Product(name="Unpriced", currency="EUR"),
+             Product(name="Also unpriced", currency="EUR")],
+            "USD",
+            "a currency with no price beside it describes nothing (ADR-0022), so "
+            "it does not get to decide what the set is counted in",
+            id="a currency qualifying nothing",
         ),
-        pytest.param(
-            Product(name="a", price=100.0), "USD", 100.0,
-            "a bare price is taken as the set's own", id="bare",
-        ),
-        pytest.param(
-            Product(name="a", price=100.0, currency="JPY"), "USD", None,
-            "not a smaller number: a number this set cannot place", id="other",
-        ),
-        pytest.param(
-            Product(name="a", price=100.0, currency="JPY"), None, 100.0,
-            "nothing says these are different currencies", id="no set currency",
-        ),
-        pytest.param(
-            Product(name="a"), "USD", None, "no price at all", id="unpriced",
-        ),
+        pytest.param([Product(name="Bare", price=100.0)], None, "nobody named one", id="bare"),
+        pytest.param([], None, "nothing to count", id="empty"),
+    ],
+)
+def test_which_currency_a_set_is_counted_in(
+    products: list[Product], expected: str | None, why: str
+) -> None:
+    assert dominant_currency(products) == expected, why
+
+
+@pytest.mark.parametrize(
+    ("product", "currency", "expected"),
+    [
+        pytest.param(Product(name="a", price=100.0, currency="USD"), "USD", 100.0, id="same"),
+        pytest.param(Product(name="a", price=100.0), "USD", 100.0, id="a bare price"),
+        # Not a smaller number: a number this set cannot place.
+        pytest.param(Product(name="a", price=100.0, currency="JPY"), "USD", None, id="other"),
+        pytest.param(Product(name="a", price=100.0, currency="JPY"), None, 100.0,
+                     id="nothing says these differ"),
+        pytest.param(Product(name="a"), "USD", None, id="no price at all"),
     ],
 )
 def test_which_prices_are_on_the_set_s_scale(
-    product: Product, currency: str | None, expected: float | None, why: str
+    product: Product, currency: str | None, expected: float | None
 ) -> None:
-    assert comparable_price(product, currency) == expected, why
+    assert comparable_price(product, currency) == expected

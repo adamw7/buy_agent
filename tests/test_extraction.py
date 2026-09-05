@@ -635,7 +635,29 @@ def test_merging_keeps_what_both_pages_said_about_the_product() -> None:
     assert merged[0].opinions == said("the fit is snug", "the case is bulky")
 
 
-def test_a_quote_keeps_the_page_it_came_off_through_the_merge() -> None:
+@pytest.mark.parametrize(
+    ("theirs", "expected"),
+    [
+        # Two reviewers are no conflict, so both quotes and both pages survive.
+        pytest.param(
+            said("the case is bulky", page="https://two.example/jbl"),
+            [("the fit is snug", "https://one.example/jbl"),
+             ("the case is bulky", "https://two.example/jbl")],
+            id="two verdicts, two pages",
+        ),
+        # Identity is the words and not the pair, so a syndicated review is one
+        # quote -- and the page kept is the earlier listing's, which is the
+        # tie-break the merge makes everywhere else.
+        pytest.param(
+            said("the FIT is snug", page="https://two.example/jbl"),
+            [("the fit is snug", "https://one.example/jbl")],
+            id="one verdict, syndicated",
+        ),
+    ],
+)
+def test_a_quote_keeps_the_page_it_came_off_through_the_merge(
+    theirs: list, expected: list[tuple[str, str]]
+) -> None:
     """The pair is one object, so neither half can be carried over without the
     other and neither listing's link ends up under the other's words (ADR-0042)."""
     merged = merge_variants(
@@ -645,39 +667,11 @@ def test_a_quote_keeps_the_page_it_came_off_through_the_merge() -> None:
                 price=149.0,
                 opinions=said("the fit is snug", page="https://one.example/jbl"),
             ),
-            Product(
-                name="JBL Live 780NC Headphones",
-                opinions=said("the case is bulky", page="https://two.example/jbl"),
-            ),
+            Product(name="JBL Live 780NC Headphones", opinions=theirs),
         ]
     )
 
-    assert [(o.text, o.url) for o in merged[0].opinions] == [
-        ("the fit is snug", "https://one.example/jbl"),
-        ("the case is bulky", "https://two.example/jbl"),
-    ]
-
-
-def test_the_same_verdict_on_two_pages_keeps_the_first_page_that_printed_it() -> None:
-    """Identity is the words and not the pair, so a syndicated review is one
-    quote -- and the page kept is the earlier listing's, which is the tie-break
-    the merge makes everywhere else."""
-    merged = merge_variants(
-        [
-            Product(
-                name="JBL Live 780NC",
-                opinions=said("The fit is snug", page="https://one.example/jbl"),
-            ),
-            Product(
-                name="JBL Live 780NC Headphones",
-                opinions=said("the FIT is snug", page="https://two.example/jbl"),
-            ),
-        ]
-    )
-
-    assert [(o.text, o.url) for o in merged[0].opinions] == [
-        ("The fit is snug", "https://one.example/jbl")
-    ]
+    assert [(o.text, o.url) for o in merged[0].opinions] == expected
 
 
 def test_the_same_verdict_on_two_pages_is_quoted_once() -> None:

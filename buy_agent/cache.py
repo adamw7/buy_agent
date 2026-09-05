@@ -196,13 +196,9 @@ class RememberedAnswers:
     A :class:`~buy_agent.chat.ChatModel` wrapping a ``ChatModel``, so everything
     above it asks its one question and cannot tell: the pipeline sees a model that
     is sometimes very fast. That is the only way this is allowed to work, and it
-    is why the key below has to hold *everything* that decides an answer.
-
-    The key is the rendered messages, the schema decoding is constrained to, and
-    the run's own fingerprint -- which is the caller's to build, this module having
-    no business knowing what a provider is. A reworded prompt, a widened budget, a
-    different model or a different server all change it, so all of them miss, and
-    the one thing that hits is the same question asked of the same server twice.
+    is why the key has to hold *everything* that decides an answer -- the messages,
+    the schema, and the run's own fingerprint, which is the caller's to build,
+    this module having no business knowing what a provider is (ADR-0044).
 
     Only an answer is stored. A failure is not an answer, and a model that could
     not be reached is a state of the world rather than a fact about this question.
@@ -263,12 +259,12 @@ def remember_answers(
 ) -> ChatModel:
     """``model``, answering off disk where it may, or ``model`` itself where not.
 
-    Two things turn it off, and both are somebody's decision rather than a
-    failure. ``ttl <= 0`` is the shopper asking for a live run, the same setting
-    that reads every page off the web. ``deterministic`` false is the run being
-    *sampled*: a model asked for a different answer each time has no answer to
-    remember, and replaying one sample would be this cache changing a run's
-    result, which is the one thing it may never do (ADR-0044).
+    Two things turn it off, both somebody's decision rather than a failure.
+    ``ttl <= 0`` is the shopper asking for a live run, the same setting that reads
+    every page off the web. ``deterministic`` false is the run being *sampled*: a
+    model asked for a different answer each time has none to remember, and
+    replaying one sample would be this cache changing a run's result, which is the
+    one thing it may never do (ADR-0044).
     """
     if not deterministic:
         return model

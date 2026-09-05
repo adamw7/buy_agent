@@ -35,21 +35,12 @@ def cache_somewhere_disposable(
     """Point every test's cache at a scratch directory of its own.
 
     ``autouse``, so "nothing in this suite reads or writes the machine's own
-    cache" is a property of the suite rather than of each test remembering. It is
-    the same care taken over the network: a test that builds a real ``BuyAgent``
-    gets a model that remembers its answers on disk (ADR-0044), and without this
-    the disk would be the developer's -- one run's answers surviving into another
-    run's assertions, and a suite that passes only on a machine that has run it
-    before.
-
-    One directory per test rather than one for the suite, for the same reason:
-    two tests asking one model the same question are two tests, and the second
-    reading the first's answer would pass without the model it is about being
-    reached at all. Nothing is created until something writes, so this costs the
-    tests that never touch a cache nothing.
-
-    The tests that have something to say about ``$BUY_AGENT_CACHE_DIR`` set it
-    themselves, and ``monkeypatch`` puts this back afterwards.
+    cache" is a property of the suite rather than of each test remembering: a
+    test that builds a real ``BuyAgent`` gets a model that remembers its answers
+    on disk (ADR-0044). One directory *per test* rather than one for the suite,
+    because two tests asking one model the same question are two tests, and the
+    second reading the first's answer would pass without ever reaching the model
+    it is about. Nothing is created until something writes.
     """
     named = re.sub(r"[^\w.-]", "_", request.node.name)
     monkeypatch.setenv("BUY_AGENT_CACHE_DIR", str(_scratch_cache / named))

@@ -28,34 +28,19 @@ import operator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeAlias
 
-from buy_agent.models import Product, comparable_price, dominant_currency
+from buy_agent.models import comparable_price, dominant_currency
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
     from buy_agent.config import AgentConfig
+    from buy_agent.models import Product
 
 logger = logging.getLogger(__name__)
 
 #: How a bound gets at the figure it judges: off the product, and off the currency
 #: the run's prices are counted in, which only the price cares about.
 Reader: TypeAlias = "Callable[[Product, str | None], float | None]"
-
-
-def _figure(name: str) -> Reader:
-    """Read one of the product's own figures, whatever the set is priced in.
-
-    Two of the three bounds judge a number that means the same thing in every
-    currency; this is how they say so, and it is what keeps the currency out of
-    every row but the one it belongs to.
-    """
-
-    def read(product: Product, _currency: str | None) -> float | None:
-        value: float | None = getattr(product, name)
-        return value
-
-    return read
-
 
 #: One row per bound: the field holding it -- named the same on this class and on
 #: :class:`~buy_agent.config.AgentConfig`, which is what lets ``from_config`` be a
@@ -68,11 +53,13 @@ def _figure(name: str) -> Reader:
 #: The price is read by :func:`~buy_agent.models.comparable_price` rather than off
 #: the product, which is the whole of ADR-0043 here: a budget is a number in one
 #: currency, and a price in another is not a figure it can be held against. Such a
-#: price reads as unknown, and an unknown figure passes every bound.
+#: price reads as unknown, and an unknown figure passes every bound. The other two
+#: ignore the currency they are handed: a rating is out of five wherever it was
+#: printed.
 _BOUNDS: tuple[tuple[str, Reader, Callable[[float, float], bool], str], ...] = (
     ("max_price", comparable_price, operator.gt, "at most {:,.2f}"),
-    ("min_rating", _figure("rating"), operator.lt, "rated at least {:g}"),
-    ("min_reviews", _figure("review_count"), operator.lt, "from at least {:,} reviews"),
+    ("min_rating", lambda p, _: p.rating, operator.lt, "rated at least {:g}"),
+    ("min_reviews", lambda p, _: p.review_count, operator.lt, "from at least {:,} reviews"),
 )
 
 
@@ -147,12 +134,12 @@ class Constraints:
         one, because that is the part of it nobody typed: the number came from the
         shopper and the currency from whatever the pages were printing.
         """
+        # The budget is the one bound whose figure carries a unit, which is why it
+        # is the one read by ``comparable_price``: said here rather than as a
+        # column repeating what the reader already is.
+        unit = f" {currency}" if currency else ""
         return ", ".join(
-            phrase.format(bound)
-            # The one row whose figure carries a unit, which is why it is the one
-            # row read by ``comparable_price`` -- said once, here, rather than as
-            # a column repeating what the reader already is.
-            + (f" {currency}" if currency and read is comparable_price else "")
+            phrase.format(bound) + (unit if read is comparable_price else "")
             for read, bound, _, phrase in self._set()
         )
 

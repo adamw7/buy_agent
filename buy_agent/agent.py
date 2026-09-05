@@ -56,35 +56,15 @@ class ModelUnavailableError(RuntimeError):
     """
 
 
-def _served_model(config: AgentConfig) -> ChatModel:
-    """The model server this config names, answering off disk where it may.
-
-    The remembering is here rather than in :mod:`buy_agent.providers` because it
-    is nothing to do with which server is answering: the same wrapper goes round
-    either one, and neither row has to declare it (ADR-0044).
-    """
-    return remember_answers(
-        config.model_server.chat_model(config),
-        fingerprint=_asks_the_same_question(config),
-        ttl=config.cache_ttl,
-        deterministic=config.temperature == 0,
-    )
-
-
 def _asks_the_same_question(config: AgentConfig) -> dict[str, object]:
-    """Everything besides the prompt that decides what a model answers.
+    """Everything besides the prompt that decides what a model answers (ADR-0044).
 
-    The prompt and the schema are the model call's own and go into the key where
-    it is built; this is the rest -- which server, which model, and the settings
-    the request carries.
-
-    Two settings are deliberately absent. ``api_key`` is a secret, and the key is
-    written to a file: nothing that would be a mistake to leave on disk goes in.
-    ``temperature`` is not there because only a run at zero is remembered at all
-    (:func:`buy_agent.cache.remember_answers`), so it is a constant here and a
-    constant in a key is noise. ``num_ctx`` goes in only where the provider sends
-    it: on vLLM the window is fixed at startup and the number changes nothing, so
-    including it would miss on a setting the server never saw.
+    The prompt and the schema go into the key where it is built; this is the rest.
+    Two settings are deliberately absent. ``api_key`` is a secret and the key is
+    written to a file. ``temperature`` is a constant here -- only a run at zero is
+    remembered at all -- and a constant in a key is noise. ``num_ctx`` goes in
+    only where the provider sends it: vLLM fixes its window at startup, so
+    including it would miss on a setting that server never saw.
     """
     fingerprint: dict[str, object] = {
         "provider": config.provider,
@@ -121,7 +101,14 @@ class BuyAgent:
                 deciding what a test meant.
         """
         self.config = config or AgentConfig()
-        self.llm = llm or _served_model(self.config)
+        # The remembering goes here rather than in ``providers``: it has nothing
+        # to do with which server is answering, so neither row declares it.
+        self.llm = llm or remember_answers(
+            self.config.model_server.chat_model(self.config),
+            fingerprint=_asks_the_same_question(self.config),
+            ttl=self.config.cache_ttl,
+            deterministic=self.config.temperature == 0,
+        )
         self.query_chain = build_query_chain(self.llm)
         self.extraction_chain = build_extraction_chain(self.llm)
 

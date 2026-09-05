@@ -513,39 +513,33 @@ def ollama_calls(monkeypatch):
     return asked
 
 
-def test_the_same_question_is_not_put_to_the_model_twice(ollama_calls) -> None:
-    """Two runs of the same search over the same pages ask the same thing, and
-    the second is most of a minute the shopper does not have to wait again."""
-    for _ in range(2):
-        _refine(AgentConfig())
+@pytest.mark.parametrize(
+    ("configs", "asked"),
+    [
+        # Two runs of the same search over the same pages ask the same thing,
+        # and the second is most of a minute the shopper does not wait again.
+        pytest.param([AgentConfig(), AgentConfig()], 1, id="the same question twice"),
+        # One setting for a live run, pages and answers alike.
+        pytest.param([AgentConfig(cache_ttl=0)] * 2, 2, id="--cache-ttl 0"),
+        # A model asked for a different answer each time has none to remember,
+        # and replaying one sample would be the cache deciding the result.
+        pytest.param([AgentConfig(temperature=0.7)] * 2, 2, id="a sampled run"),
+        # What a model answers is the whole of what is stored, so which model it
+        # was is in the key -- with the server, and the request's own settings.
+        pytest.param(
+            [AgentConfig(model="gemma4:12b"), AgentConfig(model="lfm2.5")],
+            2,
+            id="another model",
+        ),
+    ],
+)
+def test_how_often_a_repeated_run_reaches_the_model(
+    configs: list[AgentConfig], asked: int, ollama_calls
+) -> None:
+    for config in configs:
+        _refine(config)
 
-    assert len(ollama_calls) == 1
-
-
-def test_a_run_that_reads_nothing_off_disk_asks_every_time(ollama_calls) -> None:
-    """``--cache-ttl 0`` is one setting for a live run, pages and answers alike."""
-    for _ in range(2):
-        _refine(AgentConfig(cache_ttl=0))
-
-    assert len(ollama_calls) == 2
-
-
-def test_a_sampled_run_is_never_remembered(ollama_calls) -> None:
-    """A model asked for a different answer each time has no answer to remember,
-    and replaying one sample would be the cache deciding a run's result."""
-    for _ in range(2):
-        _refine(AgentConfig(temperature=0.7))
-
-    assert len(ollama_calls) == 2
-
-
-def test_another_model_s_answer_is_not_this_model_s(ollama_calls) -> None:
-    """What a model answers is the whole of what is stored, so which model it was
-    is in the key -- along with the server, and the settings the request carries."""
-    _refine(AgentConfig(model="gemma4:12b"))
-    _refine(AgentConfig(model="lfm2.5"))
-
-    assert len(ollama_calls) == 2
+    assert len(ollama_calls) == asked
 
 
 def test_the_api_key_is_never_part_of_what_is_written_to_disk() -> None:

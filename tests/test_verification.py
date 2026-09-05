@@ -855,15 +855,27 @@ def test_a_grouped_number_in_a_quote_matches_the_page_that_grouped_it() -> None:
 # -- and the page it came off (ADR-0042) ---------------------------------------
 
 
-def test_a_quote_carries_the_page_that_printed_it() -> None:
+@pytest.mark.parametrize(
+    "arrived_with",
+    [
+        pytest.param(None, id="pointing nowhere, as extraction leaves it"),
+        # Nothing about a quote's page is the model's to say, so whatever a
+        # hand-built product came in with is replaced (ADR-0017).
+        pytest.param("https://invented.example", id="pointing at a page nobody searched"),
+    ],
+)
+def test_a_quote_carries_the_page_that_printed_it(arrived_with: str | None) -> None:
     """The evidence a shopper can follow. Before this a figure could be checked
     by following the product's link and a quote could not be checked at all."""
-    assert quoted_from("the noise cancelling uncanny for the money") == [
-        Opinion(
-            text="the noise cancelling uncanny for the money",
-            url="https://audiosite.example/ch720n",
-        )
-    ]
+    product = Product(
+        name="Sony WH-CH720N",
+        opinions=said("the noise cancelling uncanny for the money", page=arrived_with),
+    )
+
+    assert verify_opinions([product], OPINIONATED)[0].opinions == said(
+        "the noise cancelling uncanny for the money",
+        page="https://audiosite.example/ch720n",
+    )
 
 
 def test_a_quote_is_linked_to_the_first_page_that_printed_it() -> None:
@@ -878,12 +890,11 @@ def test_a_quote_is_linked_to_the_first_page_that_printed_it() -> None:
         ),
         *OPINIONATED,
     ]
-    product = Product(
-        name="Sony WH-CH720N",
-        opinions=said("the noise cancelling uncanny for the money"),
-    )
 
-    kept = verify_opinions([product], twice)[0].opinions
+    kept = verify_opinions(
+        [Product(name="Sony WH-CH720N", opinions=said("the noise cancelling uncanny for the money"))],
+        twice,
+    )[0].opinions
 
     assert kept[0].url == "https://first.example/ch720n"
 
@@ -897,44 +908,21 @@ def test_a_page_with_no_link_still_backs_its_quote() -> None:
             snippet="Reviewers found the noise cancelling uncanny for the money.",
         )
     ]
-    product = Product(
-        name="Sony WH-CH720N",
-        opinions=said("the noise cancelling uncanny for the money"),
-    )
 
-    kept = verify_opinions([product], unlinked)[0].opinions
+    kept = verify_opinions(
+        [Product(name="Sony WH-CH720N", opinions=said("the noise cancelling uncanny for the money"))],
+        unlinked,
+    )[0].opinions
 
-    assert [opinion.text for opinion in kept] == [
-        "the noise cancelling uncanny for the money"
-    ]
-    assert kept[0].url is None
+    assert kept == said("the noise cancelling uncanny for the money")
 
 
 def test_a_quote_is_never_linked_to_a_page_about_another_product() -> None:
     """The link follows the check, and the check is page by page (ADR-0025): the
     Anker's page cannot be cited for the Sony even though it printed the words."""
-    product = Product(
-        name="Anker Q45", opinions=said("Great sound, and it ships in black")
-    )
-
-    kept = verify_opinions([product], OPINIONATED)[0].opinions
+    kept = quoted_from("Great sound, and it ships in black", name="Anker Q45")
 
     assert kept[0].url == "https://audiosite.example/q45"
-
-
-def test_a_quote_the_model_arrived_with_a_link_on_gets_the_page_s(caplog) -> None:
-    """Nothing about a quote's page is the model's to say, so whatever it came in
-    with is replaced by the page that was actually searched (ADR-0017)."""
-    product = Product(
-        name="Sony WH-CH720N",
-        opinions=said(
-            "the noise cancelling uncanny for the money", page="https://invented.example"
-        ),
-    )
-
-    kept = verify_opinions([product], OPINIONATED)[0].opinions
-
-    assert kept[0].url == "https://audiosite.example/ch720n"
 
 
 def test_a_product_with_nothing_said_about_it_is_left_alone() -> None:

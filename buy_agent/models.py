@@ -11,6 +11,7 @@ of the code uses, where unknown really is ``None``.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Iterable
 from typing import Annotated
 
@@ -97,19 +98,16 @@ class ExtractedProduct(BaseModel):
 class Opinion(BaseModel):
     """One thing a source page said about a product, and the page that said it.
 
-    The quote and its page are one fact, not two. ``verify_opinions`` already
-    decides a quote page by page -- a verdict counts only where *one page that
-    mentions this product* printed it (ADR-0025) -- so which page that was is
-    known at the moment the quote is kept, and was being thrown away. Kept, it is
-    the only way a shopper can check a quote: a figure is checked by following
-    ``Product.url``, and before this a quote could not be checked at all, which is
-    the field a model is likeliest to have paraphrased into existence (ADR-0042).
+    The quote and its page are one fact, not two: ``verify_opinions`` keeps a
+    verdict only where *one page that mentions this product* printed it
+    (ADR-0025), so which page that was is known where the quote is kept, and it
+    is the only way a shopper can check a quote -- a figure is checked by
+    following ``Product.url`` (ADR-0042).
 
-    ``url`` is nullable because a result can carry no URL of its own -- the page
-    still printed the words, and a quote is not worth dropping for want of a link
-    to it. It is never the model's: like ``Product.url`` it is written by
-    :func:`buy_agent.verification.verify_opinions` out of the results that were
-    searched, and :class:`ExtractedProduct` is never asked for one (ADR-0017).
+    ``url`` is nullable because a result can carry no URL of its own, and the page
+    printed the words all the same. It is never the model's: like ``Product.url``
+    it is written out of the results that were searched, and
+    :class:`ExtractedProduct` is never asked for one (ADR-0017).
     """
 
     text: str
@@ -199,13 +197,15 @@ def dominant_currency(products: Iterable[Product]) -> str | None:
     is a wrong ranking dressed as a right one -- so what is outside it is treated
     as a figure this run cannot place rather than as a smaller number.
     """
-    counts: dict[str, int] = {}
-    for product in products:
-        if product.price is not None and product.currency is not None:
-            counts[product.currency] = counts.get(product.currency, 0) + 1
-    # ``max`` keeps the first of equal counts, and insertion order is the order
-    # the currencies were first seen.
-    return max(counts, key=counts.__getitem__) if counts else None
+    counted = Counter(
+        product.currency
+        for product in products
+        # A currency with no price beside it describes nothing (ADR-0022) and so
+        # does not get to decide what the set is counted in.
+        if product.price is not None and product.currency is not None
+    )
+    # ``most_common`` sorts stably, so equal counts stay in first-seen order.
+    return counted.most_common(1)[0][0] if counted else None
 
 
 def comparable_price(product: Product, currency: str | None) -> float | None:
@@ -218,14 +218,11 @@ def comparable_price(product: Product, currency: str | None) -> float | None:
 
     A price in some *other* currency is not a smaller or a bigger number, it is a
     number this run cannot place. ``None`` is how that is said, which is the same
-    answer a price nobody published gets: neutral on the score, named as assumed,
-    and kept rather than dropped.
+    answer a price nobody published gets -- and is why an unpriced product needs
+    no case of its own here: its ``None`` price is already the answer.
     """
-    if product.price is None:
-        return None
-    if currency is None or product.currency is None or product.currency == currency:
-        return product.price
-    return None
+    on_the_scale = currency is None or product.currency in (None, currency)
+    return product.price if on_the_scale else None
 
 
 class ScoreParts(BaseModel):
