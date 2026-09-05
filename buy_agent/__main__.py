@@ -206,6 +206,38 @@ def build_parser() -> argparse.ArgumentParser:
         "handle (@mkbhd). Without it the whole web is searched.",
     )
     parser.add_argument(
+        "--max-price",
+        type=_bounded(float, "max_price"),
+        default=_DEFAULTS.max_price,
+        help="Report nothing dearer than this (default: no limit). In whatever "
+        "currency the pages quote -- nothing is converted. A product whose price "
+        "no page printed is kept: a blank is the extractor's miss, not a $900 tag.",
+    )
+    parser.add_argument(
+        "--min-rating",
+        type=_bounded(float, "min_rating"),
+        default=_DEFAULTS.min_rating,
+        help="Report nothing rated below this, out of 5 (default: no limit). "
+        "Unrated products are kept, for the reason unpriced ones are.",
+    )
+    parser.add_argument(
+        "--min-reviews",
+        type=_bounded(int, "min_reviews"),
+        default=_DEFAULTS.min_reviews,
+        help="Report nothing whose rating was averaged over fewer reviews than "
+        "this (default: no limit). A 5.0 from two people is not a rating.",
+    )
+    parser.add_argument(
+        "--cache-ttl",
+        type=_bounded(float, "cache_ttl"),
+        default=_DEFAULTS.cache_ttl,
+        metavar="SECONDS",
+        help=f"How long a fetched page stays usable on disk (default: "
+        f"{_DEFAULTS.cache_ttl:g}, a day; 0 reads every page off the web). Most "
+        "of a repeated run is opening the same pages again. $BUY_AGENT_CACHE_DIR "
+        "says where they are kept.",
+    )
+    parser.add_argument(
         "--temperature",
         type=_bounded(float, "temperature"),
         default=_DEFAULTS.temperature,
@@ -256,6 +288,10 @@ def main(argv: list[str] | None = None) -> int:
         search_results=max(args.results, args.top),
         num_products=args.results,
         top_n=args.top,
+        max_price=args.max_price,
+        min_rating=args.min_rating,
+        min_reviews=args.min_reviews,
+        cache_ttl=args.cache_ttl,
         region=args.region,
         # Repeated flags build a list; no flag leaves None, and the fallback is
         # the config's own default rather than an empty one written down again.

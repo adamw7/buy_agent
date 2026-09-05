@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from buy_agent.models import RankedProduct
+    from buy_agent.models import RankedProduct, ScoreParts
 
 logger = logging.getLogger("buy_agent")
 
@@ -94,6 +94,24 @@ def _report(message: str, *args: object) -> None:
     logger.info(message, *args, extra={_REPORT: True})
 
 
+def _parts(breakdown: ScoreParts) -> str:
+    """The three shares behind a score, each marked where it was assumed.
+
+    On the score's own line rather than three lines of its own: it is what the
+    number is made of, and a report is read down the left edge. "assumed" and not
+    a blank, because ``NEUTRAL`` is a real 0.5 in the blend -- it is where the
+    0.5 came from that the shopper cannot otherwise see (ADR-0041).
+    """
+    return ", ".join(
+        f"{name} {value:.2f}" + (" assumed" if name in breakdown.neutral else "")
+        for name, value in (
+            ("rating", breakdown.rating),
+            ("popularity", breakdown.popularity),
+            ("price", breakdown.price),
+        )
+    )
+
+
 def log_top_products(ranked: Sequence[RankedProduct], top_n: int) -> None:
     """Log the best ``top_n`` products, one block each."""
     if not ranked:
@@ -109,7 +127,7 @@ def log_top_products(ranked: Sequence[RankedProduct], top_n: int) -> None:
     for entry in top:
         product = entry.product
         _report("#%d  %s", entry.rank, product.name)
-        _report("     score  : %.3f", entry.score)
+        _report("     score  : %.3f  (%s)", entry.score, _parts(entry.breakdown))
         _report("     price  : %s", product.price_label())
         _report("     rating : %s", product.rating_label())
         if product.seller:

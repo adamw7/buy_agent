@@ -15,14 +15,15 @@ from buy_agent.__main__ import NOTHING_FOUND, build_parser, main
 from buy_agent.agent import ModelUnavailableError
 from buy_agent.api import results_payload
 from buy_agent.config import LIMITS, AgentConfig
-from buy_agent.models import Product, RankedProduct
+from buy_agent.models import Product
 from buy_agent.providers import PROVIDERS, VLLM
 from buy_agent.search import SearchError
 from buy_agent.sources import Source
+from tests.conftest import ranked_product
 
 RANKED = [
-    RankedProduct(product=Product(name="Sony WH-1000XM5", price=328.0), score=0.9, rank=1),
-    RankedProduct(product=Product(name="Anker Q30", price=79.0), score=0.8, rank=2),
+    ranked_product(Product(name="Sony WH-1000XM5", price=328.0), score=0.9, rank=1),
+    ranked_product(Product(name="Anker Q30", price=79.0), score=0.8, rank=2),
 ]
 
 
@@ -389,7 +390,7 @@ def test_verbose_reaches_the_logging_setup(fake_agent, monkeypatch) -> None:
 
 def test_scores_are_rounded_in_the_json(fake_agent, tmp_path) -> None:
     fake_agent["result"] = [
-        RankedProduct(product=Product(name="Thing"), score=0.123456789, rank=1)
+        ranked_product(Product(name="Thing"), score=0.123456789, rank=1)
     ]
     destination = tmp_path / "out.json"
 
@@ -688,3 +689,42 @@ def test_the_help_names_every_provider_s_own_default(flag: str, setting: str) ->
 
     action = next(a for a in build_parser()._actions if flag in a.option_strings)
     assert listed in action.help
+
+
+# -- the shopper's bounds and the cache, as flags ------------------------------
+
+
+def test_the_bounds_reach_the_config(fake_agent) -> None:
+    main(["headphones", "--max-price", "200", "--min-rating", "4.5", "--min-reviews", "100"])
+    config = fake_agent["config"]
+
+    assert (config.max_price, config.min_rating, config.min_reviews) == (200.0, 4.5, 100)
+
+
+def test_no_bound_flags_means_no_bounds(fake_agent) -> None:
+    main(["headphones"])
+    config = fake_agent["config"]
+
+    assert (config.max_price, config.min_rating, config.min_reviews) == (None, None, None)
+
+
+@pytest.mark.parametrize(
+    ("flag", "value"),
+    [("--max-price", "0"), ("--min-rating", "6"), ("--min-reviews", "-1")],
+)
+def test_a_bound_outside_its_range_is_a_usage_error(flag: str, value: str, capsys) -> None:
+    """A usage error rather than a minute wasted, and the same range the API
+    holds it to -- both read ``config.LIMITS`` (ADR-0033)."""
+    with pytest.raises(SystemExit) as excinfo:
+        main(["headphones", flag, value])
+
+    assert excinfo.value.code == 2
+    assert "must be between" in capsys.readouterr().err
+
+
+def test_the_cache_lifetime_is_the_flag_s_or_the_config_s_own(fake_agent) -> None:
+    main(["headphones", "--cache-ttl", "0"])
+    assert fake_agent["config"].cache_ttl == 0.0
+
+    main(["headphones"])
+    assert fake_agent["config"].cache_ttl == AgentConfig().cache_ttl

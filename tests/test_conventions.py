@@ -69,7 +69,8 @@ from buy_agent.api import (
 from buy_agent.config import LIMITS, AgentConfig, parse_region
 import buy_agent.providers as providers_module
 from buy_agent.providers import PROVIDERS, InstalledModel, provider_options
-from buy_agent.models import Product, RankedProduct
+from buy_agent.models import Product
+from tests.conftest import ranked_product
 from buy_agent.ranking import SortBy
 from buy_agent.server import DEFAULT_UI_DIR
 from buy_agent.server import build_parser as build_server_parser
@@ -81,8 +82,8 @@ _TYPES_TS = _ROOT / "ui" / "src" / "app" / "agent.types.ts"
 _FORM_TS = _ROOT / "ui" / "src" / "app" / "search-form" / "search-form.ts"
 _FORM_HTML = _ROOT / "ui" / "src" / "app" / "search-form" / "search-form.html"
 
-RANKED = RankedProduct(
-    product=Product(name="Sony WH-1000XM5", price=328.0, rating=4.7), score=0.9, rank=1
+RANKED = ranked_product(
+    Product(name="Sony WH-1000XM5", price=328.0, rating=4.7), score=0.9, rank=1
 )
 
 
@@ -277,12 +278,16 @@ def test_the_form_is_shipped_a_range_for_every_number_it_holds_to_one() -> None:
     field left out of the shipped table is one nothing on the page bounds, and a
     range sent for a field the form does not know is a bound nobody applies
     (ADR-0033).
+
+    Read off the table the template loops over, which is the same one
+    ``problems()`` checks against the ranges -- so a box that is drawn is a box
+    that is held to something, by construction rather than by a second list.
     """
     source = _FORM_TS.read_text(encoding="utf-8")
-    match = re.search(r"private readonly numbers[^{]*\{(.*?)\n  \};", source, re.DOTALL)
+    match = re.search(r"numberFields: NumberField\[\] = \[(.*?)\n  \];", source, re.DOTALL)
     assert match, "no table of number fields in search-form.ts"
 
-    assert set(re.findall(r"^\s+(\w+):", match.group(1), re.M)) == set(limits_payload())
+    assert set(re.findall(r"field\('(\w+)'", match.group(1))) == set(limits_payload())
 
 
 def test_the_form_takes_its_bounds_from_the_server_rather_than_the_markup() -> None:
@@ -372,6 +377,13 @@ def test_the_sources_check_is_mirrored_field_for_field_in_typescript() -> None:
 
 def test_a_ranked_product_is_mirrored_field_for_field_in_typescript() -> None:
     assert set(ts_interface("RankedProduct")) == set(product_payload(RANKED))
+
+
+def test_a_score_s_parts_are_mirrored_field_for_field_in_typescript() -> None:
+    """The card draws one share per criterion and marks the assumed ones, so a
+    part added in Python and forgotten here is an undefined in a percentage
+    (ADR-0041)."""
+    assert set(ts_interface("ScoreParts")) == set(product_payload(RANKED)["breakdown"])
 
 
 def test_an_installed_model_is_mirrored_field_for_field_in_typescript() -> None:

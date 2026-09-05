@@ -67,7 +67,11 @@ def test_single_price_ties_on_the_price_criterion() -> None:
         priciest=42.0,
         weights=RankingWeights(),
     )
-    assert score == pytest.approx(NEUTRAL)
+    assert score.total == pytest.approx(NEUTRAL)
+    assert score.price == pytest.approx(NEUTRAL)
+    # Nothing in the set separates it from anything else, which is an assumption
+    # and not a reading -- so it is named as one (ADR-0041).
+    assert "price" in score.neutral
 
 
 def test_a_price_scale_narrower_than_a_pound_is_still_a_scale() -> None:
@@ -77,10 +81,19 @@ def test_a_price_scale_narrower_than_a_pound_is_still_a_scale() -> None:
     cheapest, priciest = 129.0, 129.5
     weights = RankingWeights()
 
-    assert score_product(
-        product("a", price=cheapest), cheapest=cheapest, priciest=priciest, weights=weights
-    ) > score_product(
-        product("b", price=priciest), cheapest=cheapest, priciest=priciest, weights=weights
+    assert (
+        score_product(
+            product("a", price=cheapest),
+            cheapest=cheapest,
+            priciest=priciest,
+            weights=weights,
+        ).total
+        > score_product(
+            product("b", price=priciest),
+            cheapest=cheapest,
+            priciest=priciest,
+            weights=weights,
+        ).total
     )
 
 
@@ -150,7 +163,7 @@ def popularity_of(review_count: int | None) -> float:
         cheapest=None,
         priciest=None,
         weights=RankingWeights(rating=0.0, popularity=1.0, price=0.0),
-    )
+    ).total
 
 
 def test_popularity_saturates_past_a_thousand_reviews() -> None:
@@ -188,8 +201,12 @@ def test_a_zero_rating_is_the_floor_and_a_missing_one_is_not() -> None:
         product("unrated"), cheapest=None, priciest=None, weights=rating_only
     )
 
-    assert scored == 0.0
-    assert absent == pytest.approx(NEUTRAL)
+    assert scored.total == 0.0
+    assert absent.total == pytest.approx(NEUTRAL)
+    # The pair this whole scheme exists to keep apart: 0.0 and NEUTRAL are both
+    # shares of the rating criterion, and only one of them was read off a page.
+    assert "rating" not in scored.neutral
+    assert "rating" in absent.neutral
 
 
 def price_score(value: float, *, cheapest: float | None, priciest: float | None) -> float:
@@ -199,7 +216,7 @@ def price_score(value: float, *, cheapest: float | None, priciest: float | None)
         cheapest=cheapest,
         priciest=priciest,
         weights=RankingWeights(rating=0.0, popularity=0.0, price=1.0),
-    )
+    ).total
 
 
 def test_the_cheapest_and_dearest_candidates_anchor_the_price_scale() -> None:
@@ -220,7 +237,8 @@ def test_an_unpriced_product_among_priced_ones_scores_neutral_on_price() -> None
         weights=RankingWeights(rating=0.0, popularity=0.0, price=1.0),
     )
 
-    assert scored == pytest.approx(NEUTRAL)
+    assert scored.total == pytest.approx(NEUTRAL)
+    assert "price" in scored.neutral
 
 
 def test_ranking_does_not_reorder_the_caller_s_list() -> None:
@@ -276,7 +294,8 @@ def test_a_product_with_no_data_scores_exactly_neutral() -> None:
         weights=RankingWeights(),
     )
 
-    assert score == 0.5 == NEUTRAL
+    assert score.total == 0.5 == NEUTRAL
+    assert score.neutral == ["rating", "popularity", "price"]
 
 
 def test_the_default_weights_favour_rating_then_price_then_popularity() -> None:
@@ -296,4 +315,4 @@ def test_scores_are_normalised_by_the_total_weight() -> None:
         weights=weights,
     )
 
-    assert best == pytest.approx(1.0)
+    assert best.total == pytest.approx(1.0)

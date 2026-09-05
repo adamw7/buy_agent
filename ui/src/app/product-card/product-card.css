@@ -142,6 +142,43 @@ h3 a:hover {
   background: var(--accent);
 }
 
+/* What the score is made of, under the bar it made. Wrapping rather than
+   scrolling: three short pairs fit one line on a laptop and two on a phone, and
+   a share that fell off the edge would leave the total unexplained again. */
+.parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.parts li {
+  display: flex;
+  gap: 5px;
+  align-items: baseline;
+}
+
+.parts .share {
+  color: var(--text);
+}
+
+/* A share nobody published, which scored the neutral 0.5 and is therefore not a
+   measurement. Dimmed *and* labelled: colour alone would say nothing to a reader
+   who cannot see it, and this is the difference between a rating of 2.5 and no
+   rating at all. */
+.parts li.assumed .share {
+  color: var(--text-dim);
+}
+
+.parts .assumed {
+  font-style: italic;
+}
+
 /* The rank badge and the card's own gutters cost a phone a third of its width,
    which is what pushed a rating and its review count past the edge in the first
    place. Narrower here so the ordinary figures still fit on one line; the

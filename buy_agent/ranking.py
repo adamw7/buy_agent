@@ -10,7 +10,7 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-from buy_agent.models import RankedProduct
+from buy_agent.models import RankedProduct, ScoreParts
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -43,31 +43,51 @@ def score_product(
     cheapest: float | None,
     priciest: float | None,
     weights: RankingWeights,
-) -> float:
+) -> ScoreParts:
     """Score one product in ``[0, 1]`` relative to the rest of the candidate set.
 
     Price is relative rather than absolute: the cheapest in the set gets 1.0, the
     most expensive 0.0, and with one distinct price everything ties at ``NEUTRAL``.
+
+    The three shares come back beside the blend rather than being added up and
+    forgotten (ADR-0041). They cost nothing -- they are what the blend was made of
+    -- and without them a report can say what a product scored but not what it
+    scored *on*, nor which criteria it scored on at all: ``NEUTRAL`` is what a
+    product with no rating gets and also what a thoroughly average one gets, so
+    the two are one number until something names the difference. ``neutral`` is
+    that name, and the one thing here nothing else could work out afterwards.
     """
-    rating = product.rating / 5 if product.rating is not None else NEUTRAL
-
-    # log10 so the 10th review counts for far more than the 10_000th; saturates
-    # at 1_000 reviews, past which extra reviews say nothing new.
-    if product.review_count:
-        popularity = min(1.0, math.log10(product.review_count + 1) / 3)
-    else:
-        popularity = NEUTRAL
-
-    price = NEUTRAL
-    if product.price is not None and cheapest is not None and priciest is not None:
-        span = priciest - cheapest
-        if span > 0:
-            price = (priciest - product.price) / span
-
-    weighted = (
-        weights.rating * rating + weights.popularity * popularity + weights.price * price
+    # ``None`` is "nothing was read", which is what tells a criterion apart from
+    # one that scored 0.5 on the evidence -- so it is carried as its own value and
+    # turned into ``NEUTRAL`` once, below, rather than by testing a share against
+    # 0.5 afterwards. A product priced exactly mid-way through the set really does
+    # score 0.5 on price, and that is the case this whole field exists to tell
+    # apart from a product nobody priced.
+    read = {
+        "rating": None if product.rating is None else product.rating / 5,
+        # log10 so the 10th review counts for far more than the 10_000th;
+        # saturates at 1_000 reviews, past which extra reviews say nothing new.
+        "popularity": (
+            min(1.0, math.log10(product.review_count + 1) / 3)
+            if product.review_count
+            else None
+        ),
+        # The last clause is a set with one distinct price in it, where nothing
+        # separates any product from any other.
+        "price": (
+            None
+            if product.price is None or cheapest is None or priciest is None
+            or priciest <= cheapest
+            else (priciest - product.price) / (priciest - cheapest)
+        ),
+    }
+    shares = {name: NEUTRAL if share is None else share for name, share in read.items()}
+    weighted = sum(getattr(weights, name) * share for name, share in shares.items())
+    return ScoreParts(
+        **shares,
+        total=weighted / weights.total if weights.total else 0.0,
+        neutral=[name for name, share in read.items() if share is None],
     )
-    return weighted / weights.total if weights.total else 0.0
 
 
 def rank_products(
@@ -100,9 +120,9 @@ def rank_products(
         scored.sort(key=lambda item: (item[0].rating is None, -(item[0].rating or 0.0)))
     else:
         # Name breaks ties, so equal scores come out in a reproducible order.
-        scored.sort(key=lambda item: (-item[1], item[0].name.lower()))
+        scored.sort(key=lambda item: (-item[1].total, item[0].name.lower()))
 
     return [
-        RankedProduct(product=product, score=score, rank=index)
-        for index, (product, score) in enumerate(scored, start=1)
+        RankedProduct(product=product, breakdown=parts, rank=index)
+        for index, (product, parts) in enumerate(scored, start=1)
     ]

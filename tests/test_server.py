@@ -20,7 +20,8 @@ import pytest
 
 import buy_agent.server as server_module
 from buy_agent.agent import ModelUnavailableError, every_step_passes
-from buy_agent.models import Product, RankedProduct
+from buy_agent.models import Product
+from tests.conftest import ranked_product
 from buy_agent.providers import OLLAMA, VLLM
 from buy_agent.search import SearchError
 from buy_agent.server import (
@@ -40,10 +41,8 @@ from buy_agent.server import (
 )
 
 RANKED = [
-    RankedProduct(
-        product=Product(name="Sony WH-1000XM5", price=328.0, rating=4.7), score=0.9, rank=1
-    ),
-    RankedProduct(product=Product(name="Anker Q30", price=79.0), score=0.7, rank=2),
+    ranked_product(Product(name="Sony WH-1000XM5", price=328.0, rating=4.7), score=0.9, rank=1),
+    ranked_product(Product(name="Anker Q30", price=79.0), score=0.7, rank=2),
 ]
 
 

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 
 from buy_agent.chat import UnreadableAnswerError
 from buy_agent.config import DEFAULT_REGION, AgentConfig
+from buy_agent.constraints import Constraints
 from buy_agent.extraction import (
     build_extraction_chain,
     build_query_chain,
@@ -104,7 +105,8 @@ class BuyAgent:
                 nothing being able to cancel one.
 
         Returns:
-            Every product found, best first -- not only the ones logged.
+            Every product found that is inside the bounds the config carries,
+            best first -- not only the ones logged.
 
         Raises:
             ValueError: if the request is empty.
@@ -130,12 +132,21 @@ class BuyAgent:
                 max_chars=self.config.page_chars,
                 opinion_chars=self.config.opinion_chars,
                 timeout=self.config.fetch_timeout,
+                cache_ttl=self.config.cache_ttl,
             )
 
         checkpoint("extract")
         products = self._extract_products(request, results)
         if not products:
             logger.warning("No products could be extracted from the search results.")
+            return []
+
+        # After the merging rather than before it: ``deduplicate`` fills a
+        # listing's gaps from another listing of the same product, so a product
+        # whose price is only known once the two are merged would be judged here
+        # on a blank and kept for the wrong reason (ADR-0039).
+        products = Constraints.from_config(self.config).apply(products)
+        if not products:
             return []
 
         # Before ranking rather than only before the slow steps: ranking is cheap,

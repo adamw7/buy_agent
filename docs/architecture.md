@@ -115,8 +115,10 @@ graph TB
         search["<b>Search</b><br/><i>[Component: search.py]</i><br/>DuckDuckGo wrapper; raises<br/>SearchError on a rate limit"]
         sources["<b>Sources</b><br/><i>[Component: sources.py]</i><br/>Reads a trusted source down to a<br/>domain and a term, narrows the<br/>query to it, and says whether a<br/>result came from it"]
         fetch["<b>Fetch</b><br/><i>[Component: fetch.py]</i><br/>Fetches result pages in parallel and<br/>keeps the lines quoting a figure and<br/>the lines passing judgement, each<br/>on a budget of its own; tallies how<br/>the pages that yielded nothing failed"]
+        cache["<b>Page cache</b><br/><i>[Component: cache.py]</i><br/>The text of a fetched page, kept on<br/>disk for a day. Best-effort: every<br/>failure is a miss, never a failed run"]
         verification["<b>Verification</b><br/><i>[Component: verification.py]</i><br/>Drops products the sources never<br/>named, blanks any figure and any<br/>quote the page text does not<br/>contain, and links each product<br/>to the page naming it"]
-        ranking["<b>Ranking</b><br/><i>[Component: ranking.py]</i><br/>Weighted score over rating,<br/>popularity and price. No LLM"]
+        constraints["<b>Constraints</b><br/><i>[Component: constraints.py]</i><br/>The shopper's bounds -- max price,<br/>min rating, min reviews -- applied<br/>after merging and before ranking.<br/>An unknown figure is not a violation"]
+        ranking["<b>Ranking</b><br/><i>[Component: ranking.py]</i><br/>Weighted score over rating,<br/>popularity and price, and the shares<br/>it was blended from. No LLM"]
         models["<b>Models</b><br/><i>[Component: models.py]</i><br/>ExtractedProduct (sentinels, for the<br/>LLM's schema) vs Product (None)"]
         logsetup["<b>Report and logging</b><br/><i>[Component: logging_setup.py]</i><br/>Log format, and the top-N report<br/>the browser also reads as events"]
     end
@@ -141,8 +143,9 @@ graph TB
     agent -->|"4. extract products"| extraction
     agent -->|"5. clean, then ground<br/>against the same text"| verification
     agent -->|"6. deduplicate"| extraction
-    agent -->|"7. rank"| ranking
-    agent -->|"8. log the top N"| logsetup
+    agent -->|"7. hold to the<br/>shopper's bounds"| constraints
+    agent -->|"8. rank"| ranking
+    agent -->|"9. log the top N"| logsetup
     agent -.->|"builds the chat model,<br/>names the failure"| providers
     config -.->|"model_server: the model, the<br/>address and the key per provider"| providers
 
@@ -150,26 +153,33 @@ graph TB
     extraction -->|"invokes the chains<br/>[JSON schema]"| ollama
     search -->|"[HTTPS]"| ddg
     fetch -->|"[HTTPS]"| shops
+    fetch -.->|"reads what it read<br/>last time"| cache
     extraction -.->|"ExtractedProduct → Product"| models
     verification -.-> models
+    constraints -.-> models
     ranking -.-> models
 
     classDef container fill:#438dd5,stroke:#2e6295,color:#fff
     classDef component fill:#85bbf0,stroke:#5d82a8,color:#000
     classDef external fill:#999,stroke:#6b6b6b,color:#fff
     class cli,server container
-    class agent,config,providers,extraction,search,sources,fetch,verification,ranking,models,logsetup component
+    class agent,config,providers,extraction,search,sources,fetch,cache,verification,constraints,ranking,models,logsetup component
     class ollama,ddg,shops external
 ```
 
-Two joints in that order are load-bearing, and both are about not ranking a
-number nobody wrote down:
+Three joints in that order are load-bearing, and the first two are about not
+ranking a number nobody wrote down:
 
 - `clean_products` runs **before** `ground`, so a name still wearing its
   publisher suffix ("... Review | AudioSite") is not failed by a coverage check
   for tokens the page never had to contain.
 - `ground` runs **before** `deduplicate`, so merging only ever combines figures
   -- and links -- the sources back.
+- The shopper's bounds run **after** `deduplicate` and **before** `rank_products`
+  (ADR-0039). After, because `_fill_gaps` may be what supplies the price they are
+  judged on; before, because price scores relative to the candidate set, and
+  scored against products the shopper cannot buy "the cheapest of these" names an
+  option that is not on offer.
 
 Order alone is not enough for the merge, because a merge also *pairs* figures.
 `models.QUALIFIERS` names what only qualifies another field -- price with
@@ -212,6 +222,22 @@ reliably leaves it empty, so `attribute_sources()` gives each product the first
 searched page whose own text mentions it, and keeps a model-supplied link only
 when it names one of those pages (ADR-0017).
 
+Step 7 is where the shopper's own terms are finally enforced rather than merely
+searched for. A budget in the request text only ever shaped the query -- a page is
+returned for matching words, not for obeying them -- so `--max-price`,
+`--min-rating` and `--min-reviews` are numbers checked here, and a run that set
+any of them says what it did with them ("1 of 10 product(s) are within the
+limits"). A product whose figure the run never learned is kept: grounding blanks
+what the pages did not back, and dropping blanks would reject products for the
+extractor's misses, which is the reasoning that already scores them neutral
+(ADR-0039).
+
+Step 8 keeps what it worked out. `rank_products` blends three shares into one
+score, and the shares travel beside it: without them a report says where a product
+placed and not what it placed on, and -- worse -- cannot distinguish a criterion
+that scored middling from one nothing was published for, both being the same 0.5
+(ADR-0041).
+
 ## Level 3 -- Components of the web tier
 
 ```mermaid
@@ -222,7 +248,7 @@ graph TB
         app["<b>App</b><br/><i>[Component: app.ts]</i><br/>Holds the run's state in signals;<br/>splits the answer into the top N<br/>and the rest"]
         form["<b>SearchForm</b><br/><i>[Component: search-form]</i><br/>The request and every option,<br/>seeded from /api/config,<br/>and refused here first"]
         log["<b>ProgressLog</b><br/><i>[Component: progress-log]</i><br/>The agent's own log lines,<br/>as they arrive"]
-        card["<b>ProductCard</b><br/><i>[Component: product-card]</i><br/>One ranked product, rendered<br/>from the labels the API sent"]
+        card["<b>ProductCard</b><br/><i>[Component: product-card]</i><br/>One ranked product, rendered<br/>from the labels the API sent,<br/>with the shares its score<br/>was blended from"]
         agentsvc["<b>AgentService</b><br/><i>[Component: agent.ts]</i><br/>HttpClient for the JSON endpoints;<br/>wraps EventSource as an Observable,<br/>so unsubscribing is the Stop button"]
     end
 

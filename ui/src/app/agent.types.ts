@@ -9,10 +9,25 @@ export interface LogLine {
   message: string;
 }
 
+/** What a score is made of: one share per criterion, each in `[0, 1]`, and the
+ *  blend they add up to. `neutral` names the criteria this product published
+ *  nothing for, which scored the neutral 0.5 rather than being read off a page --
+ *  the one thing the numbers alone cannot say, since a criterion assumed and a
+ *  criterion that scored middling are the same 0.5 (ADR-0041). Python decides
+ *  every value here; the page only draws them. */
+export interface ScoreParts {
+  rating: number;
+  popularity: number;
+  price: number;
+  total: number;
+  neutral: string[];
+}
+
 /** One ranked product. The `*_label` fields are written by Python's `Product`. */
 export interface RankedProduct {
   rank: number;
   score: number;
+  breakdown: ScoreParts;
   name: string;
   price: number | null;
   currency: string | null;
@@ -68,6 +83,14 @@ export interface AgentDefaults {
   think: boolean | null;
   results: number;
   top: number;
+  /** The shopper's own bounds, `null` for the bound nobody set -- which is the
+   *  default, and what an empty box means (ADR-0039). */
+  max_price: number | null;
+  min_rating: number | null;
+  min_reviews: number | null;
+  /** How many seconds a fetched page stays usable on disk; 0 fetches every page
+   *  fresh. Where they are kept is the server's own business (ADR-0040). */
+  cache_ttl: number;
   region: string;
   /** Sites to take the facts from, separated by spaces or commas. Empty is the whole web. */
   sources: string;
@@ -75,7 +98,8 @@ export interface AgentDefaults {
   sort_by: SortBy;
   sort_options: SortBy[];
   /** Keyed by the name the value is sent under -- `results`, `top`,
-   *  `temperature`, `num_ctx`. A field with no entry here is one nothing bounds. */
+   *  `max_price`, `cache_ttl` and the rest. A field with no entry here is one
+   *  nothing bounds. */
   limits: Record<string, Limit>;
 }
 
@@ -129,10 +153,17 @@ export interface SearchOptions {
   base_url?: string;
   region?: string;
   sources?: string;
-  results?: number;
-  top?: number;
+  /** Every number is nullable, because null is what a cleared box holds and
+   *  what `toQuery` drops: "use the default" for most of them, and "no bound at
+   *  all" for the three the shopper sets (ADR-0012, ADR-0039). */
+  results?: number | null;
+  top?: number | null;
+  max_price?: number | null;
+  min_rating?: number | null;
+  min_reviews?: number | null;
+  cache_ttl?: number | null;
   sort_by?: SortBy;
-  temperature?: number;
+  temperature?: number | null;
   num_ctx?: number | null;
   /** Two-valued: the tri-state's `null` cannot be sent -- see `Thinking`. */
   think?: boolean;

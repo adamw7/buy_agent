@@ -6,6 +6,13 @@ import type { RankedProduct } from '../agent.types';
 const SONY: RankedProduct = {
   rank: 1,
   score: 0.912,
+  breakdown: {
+    rating: 0.94,
+    popularity: 1,
+    price: 0.32,
+    total: 0.912,
+    neutral: [],
+  },
   name: 'Sony WH-1000XM5',
   price: 328,
   currency: 'USD',
@@ -23,6 +30,13 @@ const UNKNOWN: RankedProduct = {
   ...SONY,
   rank: 4,
   score: 0.5,
+  breakdown: {
+    rating: 0.5,
+    popularity: 0.5,
+    price: 0.5,
+    total: 0.5,
+    neutral: ['rating', 'popularity', 'price'],
+  },
   name: 'Anker Q30',
   price: null,
   rating: null,
@@ -101,6 +115,46 @@ describe('ProductCard', () => {
     expect(meter.getAttribute('aria-valuetext')).toBe('91%');
     expect(meter.getAttribute('aria-valuemin')).toBe('0');
     expect(meter.getAttribute('aria-valuemax')).toBe('100');
+  });
+
+  it('says what the score is made of, so the bar is not the whole story', async () => {
+    /* A bare 91% says where a product placed and nothing about why (ADR-0041). */
+    const shares = [...(await render(SONY)).querySelectorAll('.parts li')];
+
+    expect(shares.map((share) => share.querySelector('.part')!.textContent)).toEqual([
+      'rating',
+      'popularity',
+      'price',
+    ]);
+    expect(shares.map((share) => share.querySelector('.share')!.textContent)).toEqual([
+      '94%',
+      '100%',
+      '32%',
+    ]);
+  });
+
+  it('marks the shares nobody published rather than passing them off as read', async () => {
+    /* The distinction the breakdown exists for: 0.5 because the page said
+       nothing looks exactly like 0.5 because the product is middling. */
+    const shares = [...(await render(UNKNOWN)).querySelectorAll('.parts li')];
+
+    expect(shares.every((share) => share.classList.contains('assumed'))).toBe(true);
+    expect(shares[0].textContent).toContain('assumed');
+  });
+
+  it('takes which shares were assumed from the payload, never from the value', async () => {
+    /* A product priced exactly mid-way through the set scores 0.5 on price
+       having been read off a page. Worked out here from the number, the card
+       would call that one assumed and libel it. */
+    const middling = {
+      ...SONY,
+      breakdown: { rating: 0.5, popularity: 0.5, price: 0.5, total: 0.5, neutral: [] },
+    };
+
+    const shares = [...(await render(middling)).querySelectorAll('.parts li')];
+
+    expect(shares.some((share) => share.classList.contains('assumed'))).toBe(false);
+    expect((await render(middling)).textContent).not.toContain('assumed');
   });
 
   it('quotes what the sources said about it, one line each', async () => {

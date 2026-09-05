@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING, NamedTuple
 import httpx
 from lxml import html as lxml_html
 
+from buy_agent.cache import PageCache, open_cache
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
 
@@ -144,10 +146,16 @@ class PageText(NamedTuple):
     *counts* it: ten pages answering 403 are worth one line ("10 refused (403)")
     and not ten, the exception each carried being the DEBUG line beside it. Set
     exactly when ``text`` is empty, so a page read and a page not are never both "".
+
+    ``cached`` says the text came off disk rather than off the web (ADR-0040).
+    Counted the same way ``problem`` is: a run that read nine of its ten pages out
+    of the cache took seconds where it usually takes a minute, and the line saying
+    so is what tells that from a web that suddenly got fast.
     """
 
     text: str
     problem: str | None = None
+    cached: bool = False
 
 
 def html_to_text(markup: str) -> str:
@@ -224,15 +232,51 @@ def reads_like_an_opinion(segment: str) -> bool:
 
 
 def fetch_page(
-    client: httpx.Client, url: str, *, max_chars: int, opinion_chars: int = 400
+    client: httpx.Client,
+    url: str,
+    *,
+    max_chars: int,
+    opinion_chars: int = 400,
+    cache: PageCache | None = None,
 ) -> PageText:
-    """Fetch one URL and condense it, saying why when nothing comes back.
+    """Read one URL -- off the cache or off the web -- and condense it.
 
     Every way of yielding nothing is named rather than collapsed into "": a shop
     that answered 403, a proxy that swallowed the connection and a page that
     genuinely quoted no figures are three diagnoses, and without them the run
     reports the same "0 of 10" for all three -- which reads as a bad model rather
     than as nothing having been read.
+
+    The condensing happens on both paths and the caching only ever holds the text
+    that went into it, so a page read off disk yields exactly what a page read off
+    the web would at these budgets (ADR-0040). Only a page that was actually read
+    is stored: a 403 stays live, so a shop that has stopped refusing is noticed on
+    the next run rather than at the end of a time to live.
+    """
+    text = cache.get(url) if cache else None
+    cached = text is not None
+    if text is None:
+        page = read_page(client, url)
+        if page.problem:
+            return page
+        text = page.text
+        if cache:
+            cache.put(url, text)
+
+    kept = condense(text, max_chars=max_chars, opinion_chars=opinion_chars)
+    if not kept:
+        logger.debug("Nothing worth keeping on %s", url)
+        return PageText("", _NOTHING_KEPT, cached)
+    return PageText(kept, None, cached)
+
+
+def read_page(client: httpx.Client, url: str) -> PageText:
+    """One page's visible text, or the phrase saying why there is none.
+
+    Split from the condensing above it because this half is what a cache can
+    stand in for and the other half is what has to run every time: the budgets
+    that decide which lines survive are per-run settings, and an excerpt stored
+    under one of them is wrong under the next (ADR-0040).
 
     ``InvalidURL`` sits beside ``HTTPError`` because it is not one: httpx raises it
     out of parsing rather than the transport, so it inherits from ``Exception``
@@ -260,9 +304,12 @@ def fetch_page(
         logger.debug("Could not fetch %s: %s", url, exc)
         return PageText("", describe_failure(exc))
 
-    text = condense(html_to_text(markup), max_chars=max_chars, opinion_chars=opinion_chars)
+    text = html_to_text(markup)
     if not text:
-        logger.debug("Nothing worth keeping on %s", url)
+        # Markup nothing could parse. Named here rather than left as empty text,
+        # so this answers ``PageText``'s own rule -- text empty exactly when a
+        # problem says why -- and so nothing empty is ever handed to the cache.
+        logger.debug("Nothing could be read out of %s", url)
         return PageText("", _NOTHING_KEPT)
     return PageText(text)
 
@@ -323,21 +370,28 @@ def enrich(
     opinion_chars: int = 400,
     timeout: float = 8.0,
     workers: int = 8,
+    cache_ttl: float = 0.0,
 ) -> list[SearchResult]:
     """Attach condensed page content to each result, in parallel.
 
     A result whose page could not be fetched keeps its snippet and is still used: a
     slow shop should cost the run a few seconds, not the product.
 
-    The tally at the end says how the pages that yielded nothing failed, and how
-    many each way -- "7 refused (403), 2 timed out". Grounding blanks every figure
-    the pages did not back, so a run whose fetches all failed reports "price
-    unknown" throughout, which is indistinguishable from a bad model unless
-    something says so. One line, and no URLs: those are the DEBUG lines already
-    written beside each failure.
+    ``cache_ttl`` is how many seconds a stored page stays usable, 0 -- the default
+    here -- reading every page off the web. The cache is opened and pruned here
+    rather than passed in, for the reason the HTTP client is: this is the function
+    that knows when the fetching starts and when it is done (ADR-0040).
+
+    The tally at the end says how many pages came off disk, how the ones that
+    yielded nothing failed, and how many each way -- "7 refused (403), 2 timed
+    out". Grounding blanks every figure the pages did not back, so a run whose
+    fetches all failed reports "price unknown" throughout, which is
+    indistinguishable from a bad model unless something says so. One line, and no
+    URLs: those are the DEBUG lines already written beside each failure.
     """
     urls = [result.url for result in results]
     logger.info("Fetching %d result page(s)", len(urls))
+    cache = open_cache(cache_ttl)
 
     with httpx.Client(
         timeout=timeout,
@@ -345,7 +399,11 @@ def enrich(
         headers={"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9"},
     ) as client, ThreadPoolExecutor(max_workers=workers) as pool:
         read = partial(
-            fetch_page, client, max_chars=max_chars, opinion_chars=opinion_chars
+            fetch_page,
+            client,
+            max_chars=max_chars,
+            opinion_chars=opinion_chars,
+            cache=cache,
         )
         pages = list(pool.map(read, urls))
 
@@ -354,14 +412,16 @@ def enrich(
         for result, page in zip(results, pages, strict=True)
     ]
     with_content = sum(1 for page in pages if page.text)
+    cached = sum(1 for page in pages if page.cached)
     failures = summarise_failures(page.problem for page in pages if page.problem)
     logger.log(
         # Nothing read at all is what the shopper most needs told: every figure in
         # the report ahead is about to be blanked by grounding.
         logging.WARNING if urls and not with_content else logging.INFO,
-        "Got usable page text from %d of %d result(s)%s",
+        "Got usable page text from %d of %d result(s)%s%s",
         with_content,
         len(urls),
+        f", {cached} from cache" if cached else "",
         f": {failures}" if failures else "",
     )
     return enriched
