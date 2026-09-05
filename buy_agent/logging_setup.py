@@ -136,7 +136,13 @@ def log_top_products(ranked: Sequence[RankedProduct], top_n: int) -> None:
             _report("     url    : %s", product.url)
         if product.notes:
             _report("     note   : %s", product.notes)
-        # Quoted rather than summarised, and last: the longer read.
+        # Quoted rather than summarised, and last: the longer read. The page is
+        # named only where it is not the product's own link (ADR-0042) -- a quote
+        # off the page already printed two lines up is the ordinary case, and
+        # repeating the URL under every one of three quotes says nothing.
         for opinion in product.opinions:
-            _report("     says   : %s", opinion)
+            elsewhere = opinion.url and opinion.url != product.url
+            _report(
+                "     says   : %s%s", opinion.text, f"  -- {opinion.url}" if elsewhere else ""
+            )
     _report(separator)

@@ -42,6 +42,11 @@ def settings(**overrides: object) -> AgentConfig:
         "search_results": len(PAGES),
         "num_products": NUM_PRODUCTS,
         "top_n": TOP_N,
+        # Nothing here is remembered between runs (ADR-0044). The pages are the
+        # corpus and never fetched, so the page half would do nothing -- but the
+        # *answers* are the thing being measured, and a scored run that replayed
+        # yesterday's would report yesterday's model. A benchmark asks the model.
+        "cache_ttl": 0,
     }
     return AgentConfig(**(fields | overrides))  # type: ignore[arg-type]
 

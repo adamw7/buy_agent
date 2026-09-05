@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 import pytest
 
-from buy_agent.cache import PageCache
+from buy_agent.cache import DiskCache
 from buy_agent.fetch import (
     _MAX_SEGMENT,
     PageText,
@@ -779,7 +779,7 @@ def test_a_cached_page_is_condensed_rather_than_fetched(monkeypatch, tmp_path) -
     Same text through the same ``condense``, so a cached run extracts from what a
     fresh one would have -- which is what makes the cache invisible to grounding.
     """
-    cache = PageCache(tmp_path, ttl=3600)
+    cache = DiskCache(tmp_path, ttl=3600)
     cache.put("https://shop.example", html_to_text(PAGE))
     stub_client(monkeypatch, _refuses_to_be_called)
 
@@ -791,7 +791,7 @@ def test_a_cached_page_is_condensed_rather_than_fetched(monkeypatch, tmp_path) -
 
 
 def test_a_fetched_page_is_stored_and_marked_as_not_cached(monkeypatch, tmp_path) -> None:
-    cache = PageCache(tmp_path, ttl=3600)
+    cache = DiskCache(tmp_path, ttl=3600)
     stub_client(monkeypatch, lambda url: make_response(url, PAGE))
 
     with httpx.Client() as client:
@@ -806,7 +806,7 @@ def test_what_is_stored_is_the_page_and_not_the_excerpt(monkeypatch, tmp_path) -
     per-run setting, so an excerpt stored under one budget is the wrong excerpt
     under the next. Stored whole, a wider budget widens the excerpt from the
     cache exactly as it would from the web."""
-    cache = PageCache(tmp_path, ttl=3600)
+    cache = DiskCache(tmp_path, ttl=3600)
     stub_client(monkeypatch, lambda url: make_response(url, PAGE))
 
     with httpx.Client() as client:
@@ -821,7 +821,7 @@ def test_what_is_stored_is_the_page_and_not_the_excerpt(monkeypatch, tmp_path) -
 def test_a_page_that_could_not_be_read_is_not_stored(monkeypatch, tmp_path) -> None:
     """A 403 stays live, so a shop that has stopped refusing is noticed on the
     next run rather than at the end of a day-long time to live."""
-    cache = PageCache(tmp_path, ttl=3600)
+    cache = DiskCache(tmp_path, ttl=3600)
     stub_client(monkeypatch, lambda url: make_response(url, PAGE, status=403))
 
     with httpx.Client() as client:
@@ -836,7 +836,7 @@ def test_markup_that_will_not_parse_is_neither_stored_nor_called_a_failure(
 ) -> None:
     """Empty text with no phrase beside it would break ``PageText``'s own rule --
     and would put an empty entry in the cache for a page nobody could read."""
-    cache = PageCache(tmp_path, ttl=3600)
+    cache = DiskCache(tmp_path, ttl=3600)
     stub_client(monkeypatch, lambda url: make_response(url, "   "))
 
     with httpx.Client() as client:
@@ -850,7 +850,7 @@ def test_a_cached_page_with_nothing_worth_keeping_is_still_marked_cached(
     monkeypatch, tmp_path
 ) -> None:
     """The tally counts what was read off disk, not what survived condensing."""
-    cache = PageCache(tmp_path, ttl=3600)
+    cache = DiskCache(tmp_path, ttl=3600)
     cache.put("https://about.example", "About us. Our story. Careers.")
     stub_client(monkeypatch, _refuses_to_be_called)
 

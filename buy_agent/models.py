@@ -11,6 +11,7 @@ of the code uses, where unknown really is ``None``.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Iterable
 from typing import Annotated
 
@@ -94,6 +95,25 @@ class ExtractedProduct(BaseModel):
         )
 
 
+class Opinion(BaseModel):
+    """One thing a source page said about a product, and the page that said it.
+
+    The quote and its page are one fact, not two: ``verify_opinions`` keeps a
+    verdict only where *one page that mentions this product* printed it
+    (ADR-0025), so which page that was is known where the quote is kept, and it
+    is the only way a shopper can check a quote -- a figure is checked by
+    following ``Product.url`` (ADR-0042).
+
+    ``url`` is nullable because a result can carry no URL of its own, and the page
+    printed the words all the same. It is never the model's: like ``Product.url``
+    it is written out of the results that were searched, and
+    :class:`ExtractedProduct` is never asked for one (ADR-0017).
+    """
+
+    text: str
+    url: str | None = None
+
+
 class ProductList(BaseModel):
     """Wrapper schema — Ollama's structured output needs a JSON object at the root."""
 
@@ -120,11 +140,12 @@ class Product(BaseModel):
     review_count: int | None = None
     seller: str | None = None
     url: str | None = None
-    #: What the sources say about it, in their words. A list rather than a
-    #: nullable field: "nobody said anything" and "no opinion survived grounding"
-    #: are one empty answer, and a second spelling of it -- ``None`` beside ``[]``
-    #: -- would be one every caller had to handle.
-    opinions: list[str] = []
+    #: What the sources say about it, in their words, each beside the page that
+    #: said it. A list rather than a nullable field: "nobody said anything" and
+    #: "no opinion survived grounding" are one empty answer, and a second
+    #: spelling of it -- ``None`` beside ``[]`` -- would be one every caller had
+    #: to handle.
+    opinions: list[Opinion] = []
     notes: str | None = None
 
     @property
@@ -160,6 +181,48 @@ QUALIFIERS: dict[str, tuple[str, ...]] = {
     "price": ("currency",),
     "rating": ("review_count",),
 }
+
+
+def dominant_currency(products: Iterable[Product]) -> str | None:
+    """The currency this set of products is priced in, where they agree on one.
+
+    The most common currency among the priced products that named one, ties going
+    to the one seen first -- which is the search's own order, and the tie-break
+    every other merge here makes. ``None`` where no priced product named a
+    currency at all: nothing then says the figures are in different ones, and they
+    are compared as they always were.
+
+    A run's prices are only comparable inside one currency (ADR-0043), and this is
+    the one that gets to be it. Not converted -- no rate is shipped and a stale one
+    is a wrong ranking dressed as a right one -- so what is outside it is treated
+    as a figure this run cannot place rather than as a smaller number.
+    """
+    counted = Counter(
+        product.currency
+        for product in products
+        # A currency with no price beside it describes nothing (ADR-0022) and so
+        # does not get to decide what the set is counted in.
+        if product.price is not None and product.currency is not None
+    )
+    # ``most_common`` sorts stably, so equal counts stay in first-seen order.
+    return counted.most_common(1)[0][0] if counted else None
+
+
+def comparable_price(product: Product, currency: str | None) -> float | None:
+    """``product``'s price on this run's own scale, or ``None`` if it is not on it.
+
+    A price the page printed without a currency is taken as the run's own: that is
+    what every price in this pipeline was until ADR-0043, it is what a search in
+    one region overwhelmingly returns, and the alternative -- refusing to place the
+    commonest shape of price there is -- would score most sets on nothing.
+
+    A price in some *other* currency is not a smaller or a bigger number, it is a
+    number this run cannot place. ``None`` is how that is said, which is the same
+    answer a price nobody published gets -- and is why an unpriced product needs
+    no case of its own here: its ``None`` price is already the answer.
+    """
+    on_the_scale = currency is None or product.currency in (None, currency)
+    return product.price if on_the_scale else None
 
 
 class ScoreParts(BaseModel):
@@ -209,22 +272,33 @@ def _clean(value: str) -> str:
     return _WHITESPACE.sub(" ", value).strip()
 
 
-def distinct_quotes(values: Iterable[str]) -> list[str]:
+def distinct_quotes(values: Iterable[Opinion]) -> list[Opinion]:
     """The first spelling of each quote, at most :data:`MAX_OPINIONS` of them.
 
-    Identity is the casefolded text -- two listings quoting one reviewer differ by
-    capitalisation and nothing else -- and the spelling kept is the earlier one,
-    the tie-break the merge makes everywhere else.
+    Identity is the casefolded *text* and not the pair: two listings quoting one
+    reviewer differ by capitalisation and by which page was read, and they are
+    still one quote. The one kept is the earlier -- the tie-break the merge makes
+    everywhere else -- which is also what keeps a quote pointing at the first page
+    that printed it, the page :func:`buy_agent.verification.attribute_sources`
+    would have picked.
     """
-    seen: dict[str, str] = {}
+    seen: dict[str, Opinion] = {}
     for quote in values:
-        seen.setdefault(quote.casefold(), quote)
+        seen.setdefault(quote.text.casefold(), quote)
     return list(seen.values())[:MAX_OPINIONS]
 
 
-def _quotes(values: list[str]) -> list[str]:
-    """Tidy the quoted opinions, dropping blanks, repeats and whole paragraphs."""
+def _quotes(values: list[str]) -> list[Opinion]:
+    """Tidy the quoted opinions, dropping blanks, repeats and whole paragraphs.
+
+    Every one comes out pointing at nothing: the model is asked for the words and
+    never for the page, which is
+    :func:`buy_agent.verification.verify_opinions`' to fill in out of the pages
+    that were actually searched (ADR-0017, ADR-0042).
+    """
     cleaned = (_clean(value) for value in values)
     return distinct_quotes(
-        quote for quote in cleaned if quote and len(quote) <= _MAX_OPINION_LENGTH
+        Opinion(text=quote)
+        for quote in cleaned
+        if quote and len(quote) <= _MAX_OPINION_LENGTH
     )

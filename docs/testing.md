@@ -20,15 +20,19 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-1270 Python tests and 141 UI tests. Nothing in either suite touches the network or
+1328 Python tests and 143 UI tests. Nothing in either suite touches the network or
 a model server: the model is faked through the `llm=` argument of `BuyAgent` -- a class
 with one `answer` method, which is the whole of `chat.ChatModel`, both
 the search backend and the page fetcher are monkeypatched, the two clients
 `buy_agent.providers` builds are patched where that module imported them, and the
 server tests inject a stub agent through `create_server(agent_factory=...)`. The
 only real sockets are the loopback ones the HTTP tests need in order to be about
-HTTP at all. The 30 tests in `integration/` are the exception that proves it, and
-they live outside `testpaths` so a bare `pytest` cannot reach them.
+HTTP at all. Nor does either suite touch the machine's own cache: `conftest.py`
+points `$BUY_AGENT_CACHE_DIR` at a scratch directory per test, autouse, so a test
+building a real `BuyAgent` remembers its answers somewhere disposable (ADR-0044)
+and no test can be answered by another test's question. The 31 tests in
+`integration/` are the exception that proves it, and they live outside
+`testpaths` so a bare `pytest` cannot reach them.
 
 A deprecation warning fails the Python suite. `pytest.ini` sets `filterwarnings` to
 turn `DeprecationWarning` and `PendingDeprecationWarning` into errors, in both the
@@ -112,7 +116,8 @@ that fills the window, and three pages of tidy prose came to ~675 tokens.
 
 Almost nothing there asserts the model was *right*. What is asserted is what holds
 whatever came back: every name, price, rating and quote is in the sources, every
-link is a page that was searched, a currency never outlives its price, nothing is
+link is a page that was searched, every quote names a page that was searched and
+printed it, a currency never outlives its price, nothing is
 listed twice, the ranking is ordered and numbered -- the guarantees the unit suite
 checks against an answer it dictated, here meeting one nobody wrote. The one
 exception is a smoke test that *something* was extracted, and a second that
@@ -133,7 +138,7 @@ checked for its invariants off one model call:
 
 ```powershell
 python -m benchmark --scripted perfect   # no model, no network: scores 1.000
-python -m benchmark --scripted sloppy    # the same, wrong in seven ways
+python -m benchmark --scripted sloppy    # the same, wrong in eight ways
 python -m benchmark -v --json score.json # against a real model, keeping the numbers
 ```
 
@@ -179,7 +184,7 @@ What keeps the key honest is `tests/test_benchmark.py`, which runs entirely
 without a model. It reads every name, figure and page in the key back off the
 *condensed* corpus -- a line the fetch layer throws away is a figure no run can
 ever be credited for -- and puts two hand-written answers through the real
-pipeline: `PERFECT`, which must score exactly 1.000, and `SLOPPY`, wrong in seven
+pipeline: `PERFECT`, which must score exactly 1.000, and `SLOPPY`, wrong in eight
 ways and pinned to the exact counts each mistake should produce. **Editing the
 corpus means re-running both.**
 

@@ -25,7 +25,7 @@ from buy_agent.models import QUALIFIERS
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from buy_agent.models import Product
+    from buy_agent.models import Opinion, Product
     from buy_agent.search import SearchResult
 
 logger = logging.getLogger(__name__)
@@ -326,7 +326,7 @@ def quotes_sources(haystack_words: str, quote: str) -> bool:
 def verify_opinions(
     products: Sequence[Product], results: Sequence[SearchResult]
 ) -> list[Product]:
-    """Drop every quoted opinion no page about this product actually printed.
+    """Keep the quotes a page about this product printed, and say which page.
 
     Page by page rather than pooled (ADR-0024, ADR-0025) -- the difference between
     "somebody wrote this" and "somebody wrote this about *this*", a verdict on the
@@ -334,26 +334,38 @@ def verify_opinions(
     product may be quoted only from pages that mention it, by the rule
     :func:`attribute_sources` picks its link by. Per quote rather than per product:
     a model that read one verdict and invented a second has still read one.
+
+    The page that backed a quote is kept on it rather than discarded (ADR-0042).
+    This loop already has to find that page to keep the quote at all, and it is
+    the only evidence a shopper can follow: the first one that both mentions the
+    product and prints the words, which is the same "first result that mentions
+    it" :func:`attribute_sources` links the product by. A page carrying no URL
+    still supports its quote and simply links to nothing.
     """
-    pages = [
-        (text, running_words(text))
-        for text in (build_haystack([result]) for result in results)
-    ]
+    haystacks = [(result.url or None, build_haystack([result])) for result in results]
+    pages = [(url, text, running_words(text)) for url, text in haystacks]
     verified: list[Product] = []
     dropped = 0
 
     for product in products:
-        mine = [words for text, words in pages if mentions_name(text, product.name)]
-        kept = [
-            opinion
-            for opinion in product.opinions
-            if any(quotes_sources(words, opinion) for words in mine)
+        mine = [
+            (url, words) for url, text, words in pages if mentions_name(text, product.name)
         ]
+        kept: list[Opinion] = []
+        for opinion in product.opinions:
+            # Written out rather than as a comprehension because the loop answers
+            # two things at once -- whether any page printed the quote, and which
+            # was the first that did -- and ``None`` is already taken: it is the
+            # answer for a page that printed it and carries no URL.
+            for url, words in mine:
+                if quotes_sources(words, opinion.text):
+                    kept.append(opinion.model_copy(update={"url": url}))
+                    break
+
         if len(kept) != len(product.opinions):
             dropped += len(product.opinions) - len(kept)
             logger.debug("Unsupported opinion(s) for %r", product.name)
-            product = product.model_copy(update={"opinions": kept})
-        verified.append(product)
+        verified.append(product.model_copy(update={"opinions": kept}))
 
     if dropped:
         logger.info("Dropped %d opinion(s) the sources never printed", dropped)

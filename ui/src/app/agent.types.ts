@@ -23,6 +23,19 @@ export interface ScoreParts {
   neutral: string[];
 }
 
+/**
+ * One thing a source page said about a product, beside the page that said it.
+ *
+ * Both halves are Python's: `verification.verify_opinions()` keeps a quote only
+ * where a page that mentions this product printed it, and `url` is that page --
+ * the first of them, never a link the model wrote. `null` where the result the
+ * quote came off carried no URL, which is a quote to show and nothing to link.
+ */
+export interface Opinion {
+  text: string;
+  url: string | null;
+}
+
 /** One ranked product. The `*_label` fields are written by Python's `Product`. */
 export interface RankedProduct {
   rank: number;
@@ -35,8 +48,9 @@ export interface RankedProduct {
   review_count: number | null;
   seller: string | null;
   url: string | null;
-  /** What the source pages said about it, in their words -- each one grounded. */
-  opinions: string[];
+  /** What the source pages said about it, in their words -- each one grounded,
+   *  and each carrying the page it was read off. */
+  opinions: Opinion[];
   notes: string | null;
   price_label: string;
   rating_label: string;

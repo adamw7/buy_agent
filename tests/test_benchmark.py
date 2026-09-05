@@ -11,8 +11,8 @@ the arithmetic in :mod:`benchmark.scoring` alone.
 a name ``clean_products`` rewrites would each show up here as a reference run
 that cannot reach full marks -- rather than as a silent ceiling under every
 number the nightly ever reports, which nothing would notice. ``SLOPPY`` is the
-other end, scored to the exact counts each of its seven mistakes should produce,
-which is what turns "the scorer returned 0.726" into "it noticed the Bose's price
+other end, scored to the exact counts each of its eight mistakes should produce,
+which is what turns "the scorer returned 0.701" into "it noticed the Bose's price
 on the Sony, the shop reported as a product, and the paraphrase".
 """
 
@@ -73,7 +73,7 @@ def perfect() -> Scorecard:
 
 @pytest.fixture(scope="module")
 def sloppy() -> Scorecard:
-    """The same run, wrong in the seven ways :mod:`benchmark.scripted` lists."""
+    """The same run, wrong in the eight ways :mod:`benchmark.scripted` lists."""
     return run_benchmark(llm=ScriptedLLM(SLOPPY)).scorecard
 
 
@@ -259,6 +259,15 @@ def test_the_sloppy_run_scores_exactly_what_its_mistakes_cost(sloppy: Scorecard)
     repeat). They fill in all nine of their figures and get seven right, the
     other two being somebody else's; all three link home; and of their three
     quotes one is a paraphrase.
+
+    Two of the three ranked pairs come out in the key's order. The third is the
+    "349 EUR" the corpus never printed (ADR-0022) reaching the ranking: a price in
+    a currency this set is not counted in cannot be placed on its scale, so it
+    scores ``NEUTRAL`` (ADR-0043) -- which is *better* than the priciest thing in
+    the set, and lifts the Bose above the Sony the key puts ahead of it. The
+    figure was already marked wrong under ``figures``; this is the second place
+    the same mistake shows up, and the reason it is worth scoring the order at
+    all.
     """
     assert sloppy.counts == {
         "identified": (3, 5),
@@ -268,10 +277,10 @@ def test_the_sloppy_run_scores_exactly_what_its_mistakes_cost(sloppy: Scorecard)
         "links": (3, 3),
         "quotes": (2, 3),
         "faithful": (2, 3),
-        "order": (3, 3),
+        "order": (2, 3),
     }
     assert (sloppy.invented, sloppy.repeated) == (1, 1)
-    assert sloppy.score == pytest.approx(0.7264957264957265)
+    assert sloppy.score == pytest.approx(0.7008547008547008)
 
 
 def test_the_scorer_catches_the_three_the_pipeline_cannot(sloppy: Scorecard) -> None:
@@ -287,8 +296,8 @@ def test_the_scorer_catches_the_three_the_pipeline_cannot(sloppy: Scorecard) -> 
 
 
 def test_a_ranking_in_the_wrong_order_scores_less(perfect: Scorecard) -> None:
-    """``order`` is the one metric both scripted runs max out, the ideal and the
-    actual being ranked off the same figures -- so it is exercised by handing the
+    """``order`` is maxed out by the perfect run, the ideal and the actual being
+    ranked off the same figures -- so both ends of it are exercised by handing the
     scorer an answer in the wrong order instead."""
     right = [entry.as_product() for entry in (ANKER, SENNHEISER, SONY)]
 
@@ -395,7 +404,7 @@ def test_the_command_line_writes_the_scorecard_as_a_record(tmp_path, capsys) -> 
     written = json.loads(target.read_text(encoding="utf-8"))
 
     assert set(written) == set(METRICS) | {"score"}
-    assert written["score"] == pytest.approx(0.7264957264957265)
+    assert written["score"] == pytest.approx(0.7008547008547008)
     capsys.readouterr()
 
 

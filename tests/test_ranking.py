@@ -316,3 +316,80 @@ def test_scores_are_normalised_by_the_total_weight() -> None:
     )
 
     assert best.total == pytest.approx(1.0)
+
+
+# -- one scale, one currency (ADR-0043) ----------------------------------------
+
+USD = Product(name="Cheap", price=100.0, currency="USD")
+DEARER = Product(name="Dear", price=200.0, currency="USD")
+YEN = Product(name="Elsewhere", price=12_800.0, currency="JPY")
+EURO = Product(name="Elsewhere", price=90.0, currency="EUR")
+
+
+@pytest.mark.parametrize(
+    ("products", "expected"),
+    [
+        # The bug this closes: price scores relative to the set, so one yen figure
+        # used to put every dollar price at the cheap end of a range five orders
+        # of magnitude wide.
+        pytest.param([USD, DEARER, YEN], {"Cheap": 1.0, "Dear": 0.0, "Elsewhere": NEUTRAL},
+                     id="another currency does not stretch the scale"),
+        # A bare price is the set's own -- which is what every price here was, and
+        # what a search in one region overwhelmingly returns.
+        pytest.param([USD, Product(name="Bare", price=200.0)], {"Cheap": 1.0, "Bare": 0.0},
+                     id="a price with no currency"),
+        pytest.param([Product(name="Cheap", price=100.0), Product(name="Dear", price=200.0)],
+                     {"Cheap": 1.0, "Dear": 0.0}, id="a set that named no currency at all"),
+    ],
+)
+def test_price_scores_on_the_scale_the_set_is_counted_in(
+    products: list[Product], expected: dict[str, float]
+) -> None:
+    """Prices are compared inside one currency and converted never, so what is
+    outside it scores ``NEUTRAL`` rather than the number it happens to be."""
+    ranked = rank_products(products)
+
+    assert {e.product.name: e.breakdown.price for e in ranked} == expected
+
+
+@pytest.mark.parametrize(
+    "products",
+    [
+        pytest.param([USD, DEARER, EURO], id="the odd currency out"),
+        # A majority of one listing is still the majority: what is being asked is
+        # which scale the most of these figures are on.
+        pytest.param([EURO, USD, DEARER], id="the commonest wins, whoever came first"),
+    ],
+)
+def test_a_price_the_set_cannot_place_says_so(products: list[Product]) -> None:
+    """``NEUTRAL`` is what an unread figure scores too, and the two are one number
+    until something names the difference (ADR-0041)."""
+    assumed = {e.product.name: e.breakdown.neutral for e in rank_products(products)}
+
+    assert "price" in assumed["Elsewhere"]
+    assert "price" not in assumed["Cheap"]
+
+
+def test_sorting_by_price_sinks_a_price_the_set_cannot_place() -> None:
+    """It sinks with the prices nobody published, for the reason those do:
+    ordering by a figure means ordering by one that means the same thing all the
+    way down the column."""
+    ranked = rank_products([YEN, Product(name="Unpriced"), DEARER, USD], sort_by="price")
+    names = [entry.product.name for entry in ranked]
+
+    assert names[:2] == ["Cheap", "Dear"]
+    assert set(names[2:]) == {"Elsewhere", "Unpriced"}
+
+
+def test_one_product_on_its_own_is_not_asked_about_a_set() -> None:
+    """``score_product`` takes the currency as "nothing says otherwise", so a
+    caller scoring one product against two figures need not have a set."""
+    score = score_product(
+        Product(name="Alone", price=50.0, currency="EUR"),
+        cheapest=10.0,
+        priciest=100.0,
+        weights=RankingWeights(),
+    )
+
+    assert score.price == pytest.approx(0.5555555555555556)
+    assert "price" not in score.neutral
