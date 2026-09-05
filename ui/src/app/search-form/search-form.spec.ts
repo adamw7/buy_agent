@@ -135,7 +135,7 @@ describe('SearchForm', () => {
   });
 
   it('names the default the context field falls back to when cleared', async () => {
-    const field = () => element<HTMLInputElement>('input[name="numCtx"]');
+    const field = () => element<HTMLInputElement>('input[name="num_ctx"]');
     expect(field().placeholder).toBe("Ollama's own (4096)");
 
     const wide = TestBed.createComponent(SearchForm);
@@ -143,7 +143,7 @@ describe('SearchForm', () => {
     await wide.whenStable();
 
     const placeholder = (wide.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
-      'input[name="numCtx"]',
+      'input[name="num_ctx"]',
     )!.placeholder;
     expect(placeholder).toBe('The default (8192)');
   });
@@ -233,11 +233,11 @@ describe('SearchForm', () => {
     await type('input[name="request"]', 'kettle');
     await type('input[name="top"]', '0');
     await type('input[name="temperature"]', '3');
-    await type('input[name="numCtx"]', '0');
+    await type('input[name="num_ctx"]', '0');
 
     expect(problem('top')).toContain('Between 1 and 50');
     expect(problem('temperature')).toContain('Between 0 and 2');
-    expect(problem('numCtx')).toContain('Between 1 and 1000000');
+    expect(problem('num_ctx')).toContain('Between 1 and 1000000');
     expect(submit().disabled).toBe(true);
   });
 
@@ -251,16 +251,16 @@ describe('SearchForm', () => {
 
     expect(bounds('results')).toEqual(['1', '50']);
     expect(bounds('temperature')).toEqual(['0', '2']);
-    expect(bounds('numCtx')).toEqual(['1', '1000000']);
+    expect(bounds('num_ctx')).toEqual(['1', '1000000']);
   });
 
   it('lets a cleared number field mean the default, not a number out of range', async () => {
     /* A blank field is "unset" (ADR-0012), which is how the context window asks
        for the server's own -- and is nothing to hold to a range. */
     await type('input[name="request"]', 'kettle');
-    await type('input[name="numCtx"]', '');
+    await type('input[name="num_ctx"]', '');
 
-    expect(problem('numCtx')).toBe('');
+    expect(problem('num_ctx')).toBe('');
     expect(submit().disabled).toBe(false);
   });
 
@@ -541,7 +541,7 @@ describe('SearchForm', () => {
   it('closes the context field for a provider that does not take one', async () => {
     /* vLLM fixes its window with --max-model-len when it starts, so a box to type
        one into would be a setting that quietly does nothing. */
-    const field = () => element<HTMLInputElement>('input[name="numCtx"]');
+    const field = () => element<HTMLInputElement>('input[name="num_ctx"]');
     expect(field().disabled).toBe(false);
 
     await choose('select[name="provider"]', 'vllm');
@@ -650,7 +650,7 @@ describe('SearchForm', () => {
       return next.nativeElement as HTMLElement;
     };
     const numCtx = (form: HTMLElement) =>
-      form.querySelector<HTMLInputElement>('input[name="numCtx"]')!.value;
+      form.querySelector<HTMLInputElement>('input[name="num_ctx"]')!.value;
 
     // Nothing remembered at all: every first visit.
     expect(numCtx(await render())).toBe('8192');
@@ -675,7 +675,7 @@ describe('SearchForm', () => {
     await next.whenStable();
     const form = next.nativeElement as HTMLElement;
 
-    expect(form.querySelector<HTMLInputElement>('input[name="numCtx"]')!.value).toBe('');
+    expect(form.querySelector<HTMLInputElement>('input[name="num_ctx"]')!.value).toBe('');
   });
 
   it('still searches in a browser that refuses to store anything', async () => {

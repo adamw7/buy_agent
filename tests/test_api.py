@@ -822,20 +822,25 @@ def test_an_unreachable_vllm_is_told_to_start_a_vllm(monkeypatch) -> None:
 # -- the shopper's bounds and the cache, over the wire -------------------------
 
 
-def test_the_bounds_reach_the_config() -> None:
+@pytest.mark.parametrize("spell", [lambda value: value, str], ids=["json", "query string"])
+def test_the_bounds_and_the_cache_reach_the_config(spell) -> None:
+    """Both carriers: a JSON body sends numbers and the stream's query string
+    sends the same options as text, so each has to survive being spelled either
+    way."""
     config, _ = parse_options(
-        {"request": "x", "max_price": 200, "min_rating": 4.5, "min_reviews": 100}
+        {
+            key: spell(value)
+            for key, value in (
+                ("max_price", 200),
+                ("min_rating", 4.5),
+                ("min_reviews", 100),
+                ("cache_ttl", 0),
+            )
+        }
     )
 
     assert (config.max_price, config.min_rating, config.min_reviews) == (200.0, 4.5, 100)
-
-
-def test_the_bounds_arrive_as_text_from_a_query_string() -> None:
-    """The stream carries every option as a query parameter, so each one has to
-    survive being spelled as text."""
-    config, _ = parse_options({"max_price": "1500", "min_rating": "4", "cache_ttl": "0"})
-
-    assert (config.max_price, config.min_rating, config.cache_ttl) == (1500.0, 4.0, 0.0)
+    assert config.cache_ttl == 0.0
 
 
 @pytest.mark.parametrize("key", ["max_price", "min_rating", "min_reviews"])
@@ -846,23 +851,17 @@ def test_a_blank_bound_is_no_bound(key: str) -> None:
     assert getattr(parse_options({})[0], key) is None
 
 
-def test_a_bound_outside_its_range_is_refused_before_a_run_starts() -> None:
+@pytest.mark.parametrize(
+    ("key", "unusable"), [("min_rating", 9), ("max_price", "cheap"), ("cache_ttl", -1)]
+)
+def test_an_unusable_bound_is_refused_before_a_run_starts(key: str, unusable) -> None:
+    """Out of range or not a number at all, and either way it names the box it
+    came out of so the form can mark it (ADR-0033)."""
     with pytest.raises(ApiError) as excinfo:
-        parse_options({"min_rating": 9})
+        parse_options({key: unusable})
 
-    assert excinfo.value.field == "min_rating"
+    assert excinfo.value.field == key
     assert excinfo.value.status == 400
-
-
-def test_a_bound_that_is_not_a_number_names_its_own_field() -> None:
-    with pytest.raises(ApiError) as excinfo:
-        parse_options({"max_price": "cheap"})
-
-    assert excinfo.value.field == "max_price"
-
-
-def test_the_cache_time_to_live_reaches_the_config() -> None:
-    assert parse_options({"cache_ttl": 60})[0].cache_ttl == 60.0
 
 
 def test_the_form_is_sent_the_bounds_as_nothing_at_all() -> None:

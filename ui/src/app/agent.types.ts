@@ -153,14 +153,17 @@ export interface SearchOptions {
   base_url?: string;
   region?: string;
   sources?: string;
-  results?: number;
-  top?: number;
+  /** Every number is nullable, because null is what a cleared box holds and
+   *  what `toQuery` drops: "use the default" for most of them, and "no bound at
+   *  all" for the three the shopper sets (ADR-0012, ADR-0039). */
+  results?: number | null;
+  top?: number | null;
   max_price?: number | null;
   min_rating?: number | null;
   min_reviews?: number | null;
   cache_ttl?: number | null;
   sort_by?: SortBy;
-  temperature?: number;
+  temperature?: number | null;
   num_ctx?: number | null;
   /** Two-valued: the tri-state's `null` cannot be sent -- see `Thinking`. */
   think?: boolean;

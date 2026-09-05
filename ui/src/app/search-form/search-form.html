@@ -120,102 +120,38 @@
         }
       </label>
 
-      <label class="field">
-        <span>Max price</span>
-        <input
-          name="max_price"
-          type="number"
-          [min]="limits()['max_price']?.min"
-          [max]="limits()['max_price']?.max"
-          [placeholder]="placeholders()['max_price'] ?? ''"
-          [(ngModel)]="maxPrice"
-          [disabled]="running()"
-          [class.invalid]="notes()['max_price']"
-          [attr.aria-invalid]="notes()['max_price'] ? true : null"
-        />
-        @if (notes()['max_price']; as problem) {
-          <small class="problem" role="alert">{{ problem }}</small>
-        } @else {
-          <small>In whatever currency the pages quote.</small>
-        }
-      </label>
-
-      <label class="field">
-        <span>Min rating</span>
-        <input
-          name="min_rating"
-          type="number"
-          step="0.1"
-          [min]="limits()['min_rating']?.min"
-          [max]="limits()['min_rating']?.max"
-          [placeholder]="placeholders()['min_rating'] ?? ''"
-          [(ngModel)]="minRating"
-          [disabled]="running()"
-          [class.invalid]="notes()['min_rating']"
-          [attr.aria-invalid]="notes()['min_rating'] ? true : null"
-        />
-        @if (notes()['min_rating']; as problem) {
-          <small class="problem" role="alert">{{ problem }}</small>
-        } @else {
-          <small>Out of 5. Unrated products are still shown.</small>
-        }
-      </label>
-
-      <label class="field">
-        <span>Min reviews</span>
-        <input
-          name="min_reviews"
-          type="number"
-          [min]="limits()['min_reviews']?.min"
-          [max]="limits()['min_reviews']?.max"
-          [placeholder]="placeholders()['min_reviews'] ?? ''"
-          [(ngModel)]="minReviews"
-          [disabled]="running()"
-          [class.invalid]="notes()['min_reviews']"
-          [attr.aria-invalid]="notes()['min_reviews'] ? true : null"
-        />
-        @if (notes()['min_reviews']; as problem) {
-          <small class="problem" role="alert">{{ problem }}</small>
-        } @else {
-          <small>How many reviews a rating has to average.</small>
-        }
-      </label>
-
-      <label class="field">
-        <span>Products to find</span>
-        <input
-          name="results"
-          type="number"
-          [min]="limits()['results']?.min"
-          [max]="limits()['results']?.max"
-          [placeholder]="placeholders()['results'] ?? ''"
-          [(ngModel)]="results"
-          [disabled]="running()"
-          [class.invalid]="notes()['results']"
-          [attr.aria-invalid]="notes()['results'] ? true : null"
-        />
-        @if (notes()['results']; as problem) {
-          <small class="problem" role="alert">{{ problem }}</small>
-        }
-      </label>
-
-      <label class="field">
-        <span>Products to highlight</span>
-        <input
-          name="top"
-          type="number"
-          [min]="limits()['top']?.min"
-          [max]="limits()['top']?.max"
-          [placeholder]="placeholders()['top'] ?? ''"
-          [(ngModel)]="top"
-          [disabled]="running()"
-          [class.invalid]="notes()['top']"
-          [attr.aria-invalid]="notes()['top'] ? true : null"
-        />
-        @if (notes()['top']; as problem) {
-          <small class="problem" role="alert">{{ problem }}</small>
-        }
-      </label>
+      <!-- Every number box, one row of `numberFields` each: the same markup, the
+           same range off the server, the same mark under the same rules. The two
+           `select`s below are what they are not -- a criterion and a mode are
+           chosen from a list, not held to a range. -->
+      @for (number of numberFields; track number.key) {
+        <label class="field">
+          <span>{{ number.label }}</span>
+          <!-- `[name]` and `[attr.name]` are not the same binding: the first is
+               an input on `NgModel`, which swallows it, leaving the element
+               itself without the attribute a label, an autofill or a test
+               selector goes looking for. Both, so both get one. -->
+          <input
+            type="number"
+            [name]="number.key"
+            [attr.name]="number.key"
+            [min]="limits()[number.key]?.min"
+            [max]="limits()[number.key]?.max"
+            [step]="number.step"
+            [placeholder]="placeholders()[number.key] ?? ''"
+            [ngModel]="number.value()"
+            (ngModelChange)="number.value.set($event)"
+            [disabled]="running() || number.off()"
+            [class.invalid]="notes()[number.key]"
+            [attr.aria-invalid]="notes()[number.key] ? true : null"
+          />
+          @if (notes()[number.key]; as problem) {
+            <small class="problem" role="alert">{{ problem }}</small>
+          } @else if (number.hint(); as hint) {
+            <small>{{ hint }}</small>
+          }
+        </label>
+      }
 
       <label class="field">
         <span>Rank by</span>
@@ -224,50 +160,6 @@
             <option [value]="option">{{ option }}</option>
           }
         </select>
-      </label>
-
-      <label class="field">
-        <span>Temperature</span>
-        <input
-          name="temperature"
-          type="number"
-          [min]="limits()['temperature']?.min"
-          [max]="limits()['temperature']?.max"
-          [placeholder]="placeholders()['temperature'] ?? ''"
-          step="0.1"
-          [(ngModel)]="temperature"
-          [disabled]="running()"
-          [class.invalid]="notes()['temperature']"
-          [attr.aria-invalid]="notes()['temperature'] ? true : null"
-        />
-        @if (notes()['temperature']; as problem) {
-          <small class="problem" role="alert">{{ problem }}</small>
-        }
-      </label>
-
-      <label class="field">
-        <span>Context window</span>
-        <input
-          name="numCtx"
-          type="number"
-          [min]="limits()['num_ctx']?.min"
-          [max]="limits()['num_ctx']?.max"
-          [placeholder]="numCtxHint()"
-          [(ngModel)]="numCtx"
-          [disabled]="running() || !takesNumCtx()"
-          [class.invalid]="notes()['num_ctx']"
-          [attr.aria-invalid]="notes()['num_ctx'] ? true : null"
-        />
-        @if (notes()['num_ctx']; as problem) {
-          <small class="problem" role="alert">{{ problem }}</small>
-        } @else if (takesNumCtx()) {
-          <small>Thinking models need the room to answer; the default leaves it.</small>
-        } @else {
-          <small
-            >{{ providerLabel() }} is started with the window it serves, so this is not a per-run
-            setting there.</small
-          >
-        }
       </label>
 
       <label class="field">
@@ -283,26 +175,6 @@
              the reader could not widen it. Every other field says its piece in a
              `small` for the same reason. -->
         <small>Thinking models are cut off before they answer; leave this off for them.</small>
-      </label>
-
-      <label class="field">
-        <span>Cache pages for</span>
-        <input
-          name="cache_ttl"
-          type="number"
-          [min]="limits()['cache_ttl']?.min"
-          [max]="limits()['cache_ttl']?.max"
-          [placeholder]="placeholders()['cache_ttl'] ?? ''"
-          [(ngModel)]="cacheTtl"
-          [disabled]="running()"
-          [class.invalid]="notes()['cache_ttl']"
-          [attr.aria-invalid]="notes()['cache_ttl'] ? true : null"
-        />
-        @if (notes()['cache_ttl']; as problem) {
-          <small class="problem" role="alert">{{ problem }}</small>
-        } @else {
-          <small>Seconds. 0 reads every page off the web.</small>
-        }
       </label>
 
       <label class="field checkbox">

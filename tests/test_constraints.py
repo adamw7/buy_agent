@@ -29,40 +29,41 @@ def test_nothing_set_keeps_everything_and_says_nothing(caplog) -> None:
     assert caplog.records == []
 
 
-def test_a_budget_drops_what_costs_more() -> None:
-    kept = Constraints(max_price=200.0).apply(
-        [product("dear", price=900.0), product("cheap", price=99.0)]
+@pytest.mark.parametrize(
+    ("bounds", "figure", "outside", "inside"),
+    [
+        pytest.param(Constraints(max_price=200.0), "price", 900.0, 99.0, id="over budget"),
+        pytest.param(Constraints(min_rating=4.0), "rating", 3.9, 4.5, id="rated too low"),
+        # A 5.0 from two people is not a rating, whatever the arithmetic says.
+        pytest.param(
+            Constraints(min_reviews=100), "review_count", 2, 8000, id="too few reviews"
+        ),
+    ],
+)
+def test_a_bound_drops_what_is_outside_it_and_keeps_what_is_not(
+    bounds: Constraints, figure: str, outside: float, inside: float
+) -> None:
+    kept = bounds.apply(
+        [product("out", **{figure: outside}), product("in", **{figure: inside})]
     )
 
-    assert [entry.name for entry in kept] == ["cheap"]
+    assert [entry.name for entry in kept] == ["in"]
 
 
-def test_a_price_exactly_on_the_budget_is_inside_it() -> None:
+@pytest.mark.parametrize(
+    ("bounds", "figures"),
+    [
+        (Constraints(max_price=200.0), {"price": 200.0}),
+        (Constraints(min_rating=4.0), {"rating": 4.0}),
+        (Constraints(min_reviews=100), {"review_count": 100}),
+    ],
+)
+def test_a_figure_exactly_on_a_bound_is_inside_it(
+    bounds: Constraints, figures: dict
+) -> None:
     """"Under $200" is how a shopper says it and "at most 200" is what they mean:
     a listing at exactly the budget is the one they were hoping for."""
-    kept = Constraints(max_price=200.0).apply([product("exact", price=200.0)])
-
-    assert [entry.name for entry in kept] == ["exact"]
-
-
-def test_a_rating_floor_drops_what_is_rated_lower() -> None:
-    kept = Constraints(min_rating=4.0).apply(
-        [product("bad", rating=3.9), product("good", rating=4.0)]
-    )
-
-    assert [entry.name for entry in kept] == ["good"]
-
-
-def test_a_review_floor_drops_a_rating_too_few_people_gave() -> None:
-    """A 5.0 from two people is not a rating, whatever the arithmetic says."""
-    kept = Constraints(min_reviews=100).apply(
-        [
-            product("thin", rating=5.0, review_count=2),
-            product("real", rating=4.2, review_count=8000),
-        ]
-    )
-
-    assert [entry.name for entry in kept] == ["real"]
+    assert [entry.name for entry in bounds.apply([product("exact", **figures)])] == ["exact"]
 
 
 def test_every_bound_set_has_to_be_satisfied_at_once() -> None:
@@ -100,14 +101,6 @@ def test_a_figure_the_run_never_learned_is_not_a_violation(bounds: Constraints) 
     zero, which is what ADR-0007 already decided for the same reason.
     """
     assert [entry.name for entry in bounds.apply([product("silent")])] == ["silent"]
-
-
-def test_a_review_floor_ignores_a_product_with_no_count_but_a_rating() -> None:
-    """The count is the blank, so the count is what goes unjudged -- the rating
-    beside it is not evidence about how many people gave it."""
-    kept = Constraints(min_reviews=1000).apply([product("rated", rating=4.5)])
-
-    assert [entry.name for entry in kept] == ["rated"]
 
 
 # -- what the run is told about it ---------------------------------------------

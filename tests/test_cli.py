@@ -722,13 +722,9 @@ def test_a_bound_outside_its_range_is_a_usage_error(flag: str, value: str, capsy
     assert "must be between" in capsys.readouterr().err
 
 
-def test_the_cache_lifetime_reaches_the_config(fake_agent) -> None:
+def test_the_cache_lifetime_is_the_flag_s_or_the_config_s_own(fake_agent) -> None:
     main(["headphones", "--cache-ttl", "0"])
-
     assert fake_agent["config"].cache_ttl == 0.0
 
-
-def test_the_cache_lifetime_defaults_to_the_config_s_own(fake_agent) -> None:
     main(["headphones"])
-
     assert fake_agent["config"].cache_ttl == AgentConfig().cache_ttl

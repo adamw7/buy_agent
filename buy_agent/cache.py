@@ -30,6 +30,7 @@ import logging
 import os
 import tempfile
 import time
+from contextlib import suppress
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -105,20 +106,25 @@ class PageCache:
         Written to a temporary file and moved into place, so a reader never sees
         half an entry and two runs storing the same page cannot interleave into
         one broken file. ``os.replace`` is the atomic move on both platforms.
+
+        The cleanup is suppressed rather than guarded, because it runs *inside*
+        the handler: an ``unlink`` that raised there would leave this raising
+        after all, which is the one thing this module may not do.
         """
+        temporary = ""
         try:
             self.directory.mkdir(parents=True, exist_ok=True)
             handle, temporary = tempfile.mkstemp(dir=self.directory, suffix=".tmp")
-        except OSError:
-            logger.debug("Could not open the page cache at %s", self.directory, exc_info=True)
-            return
-        try:
             with os.fdopen(handle, "w", encoding="utf-8") as entry:
                 json.dump({"url": url, "text": text}, entry)
             os.replace(temporary, self._path(url))
         except OSError:
             logger.debug("Could not cache %s", url, exc_info=True)
-            _discard(Path(temporary))
+            with suppress(OSError):
+                # Empty only where ``mkstemp`` is what failed, and then there is
+                # nothing on disk to take back.
+                if temporary:
+                    Path(temporary).unlink(missing_ok=True)
 
     def prune(self) -> int:
         """Delete every entry past its time to live, and say how many went.
@@ -141,8 +147,6 @@ class PageCache:
                     removed += 1
             except OSError:  # a file another run is replacing right now
                 continue
-        if removed:
-            logger.debug("Dropped %d stale page(s) from %s", removed, self.directory)
         return removed
 
     def _path(self, url: str) -> Path:
@@ -161,11 +165,3 @@ def open_cache(ttl: float) -> PageCache | None:
     cache = PageCache(default_dir(), ttl=ttl)
     cache.prune()
     return cache
-
-
-def _discard(path: Path) -> None:
-    """Drop a temporary file that never made it into place."""
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:  # nothing left to do about it, and nothing worth failing for
-        logger.debug("Could not remove %s", path, exc_info=True)

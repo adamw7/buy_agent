@@ -1115,35 +1115,24 @@ def test_a_run_stopped_before_ranking_reports_nothing(
 # -- the shopper's own bounds (ADR-0039) ---------------------------------------
 
 
-def test_a_budget_keeps_the_report_to_what_was_asked_for(
-    agent_factory, search_results, extracted_products
+@pytest.mark.parametrize(
+    ("bound", "reported"),
+    [
+        # The gap this closes: the request says "under $200", the search puts
+        # that in the query, and nothing downstream ever checked it -- so the
+        # $328 pair was reported, and reported as the *best* one where nothing
+        # cheaper came back. The unpriced product survives either bound, which is
+        # the rule about blanks arriving intact from ``constraints``.
+        ({"max_price": 200.0}, ["Anker Soundcore Q30", "Unknown Brand Buds"]),
+        ({"min_rating": 4.5}, ["Sony WH-1000XM5", "Unknown Brand Buds"]),
+    ],
+)
+def test_a_bound_reaches_the_report(
+    agent_factory, search_results, extracted_products, bound: dict, reported: list
 ) -> None:
-    """The gap this closes: the request says "under $200", the search puts that
-    in the query, and nothing downstream ever checks it -- so a $328 pair is
-    reported, and reported as the *best* one where nothing cheaper came back."""
-    agent, _ = agent_factory(
-        FakeLLM(products=extracted_products), search_results, max_price=200.0
-    )
+    agent, _ = agent_factory(FakeLLM(products=extracted_products), search_results, **bound)
 
-    ranked = agent.run("headphones under $200")
-
-    assert [entry.product.name for entry in ranked] == [
-        "Anker Soundcore Q30",
-        "Unknown Brand Buds",
-    ]
-
-
-def test_a_rating_floor_reaches_the_report_too(
-    agent_factory, search_results, extracted_products
-) -> None:
-    agent, _ = agent_factory(
-        FakeLLM(products=extracted_products), search_results, min_rating=4.5
-    )
-
-    assert [entry.product.name for entry in agent.run("headphones")] == [
-        "Sony WH-1000XM5",
-        "Unknown Brand Buds",
-    ]
+    assert [entry.product.name for entry in agent.run("headphones")] == reported
 
 
 def test_the_ranks_are_renumbered_over_what_survived(

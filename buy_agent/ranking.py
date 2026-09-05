@@ -57,42 +57,36 @@ def score_product(
     the two are one number until something names the difference. ``neutral`` is
     that name, and the one thing here nothing else could work out afterwards.
     """
-    neutral: list[str] = []
-
-    if product.rating is None:
-        rating = NEUTRAL
-        neutral.append("rating")
-    else:
-        rating = product.rating / 5
-
-    # log10 so the 10th review counts for far more than the 10_000th; saturates
-    # at 1_000 reviews, past which extra reviews say nothing new.
-    if product.review_count:
-        popularity = min(1.0, math.log10(product.review_count + 1) / 3)
-    else:
-        popularity = NEUTRAL
-        neutral.append("popularity")
-
-    # Asked as one condition rather than by testing the share against ``NEUTRAL``
-    # afterwards: a product priced exactly mid-way through the set scores 0.5 on
-    # price having been read rather than assumed, and calling that one neutral
-    # would mark the very case the field exists to tell apart. The last clause is
-    # the set with one distinct price in it, where nothing separates anything.
-    if product.price is None or cheapest is None or priciest is None or priciest <= cheapest:
-        price = NEUTRAL
-        neutral.append("price")
-    else:
-        price = (priciest - product.price) / (priciest - cheapest)
-
-    weighted = (
-        weights.rating * rating + weights.popularity * popularity + weights.price * price
-    )
+    # ``None`` is "nothing was read", which is what tells a criterion apart from
+    # one that scored 0.5 on the evidence -- so it is carried as its own value and
+    # turned into ``NEUTRAL`` once, below, rather than by testing a share against
+    # 0.5 afterwards. A product priced exactly mid-way through the set really does
+    # score 0.5 on price, and that is the case this whole field exists to tell
+    # apart from a product nobody priced.
+    read = {
+        "rating": None if product.rating is None else product.rating / 5,
+        # log10 so the 10th review counts for far more than the 10_000th;
+        # saturates at 1_000 reviews, past which extra reviews say nothing new.
+        "popularity": (
+            min(1.0, math.log10(product.review_count + 1) / 3)
+            if product.review_count
+            else None
+        ),
+        # The last clause is a set with one distinct price in it, where nothing
+        # separates any product from any other.
+        "price": (
+            None
+            if product.price is None or cheapest is None or priciest is None
+            or priciest <= cheapest
+            else (priciest - product.price) / (priciest - cheapest)
+        ),
+    }
+    shares = {name: NEUTRAL if share is None else share for name, share in read.items()}
+    weighted = sum(getattr(weights, name) * share for name, share in shares.items())
     return ScoreParts(
-        rating=rating,
-        popularity=popularity,
-        price=price,
+        **shares,
         total=weighted / weights.total if weights.total else 0.0,
-        neutral=neutral,
+        neutral=[name for name, share in read.items() if share is None],
     )
 
 

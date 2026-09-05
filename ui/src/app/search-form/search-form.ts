@@ -53,6 +53,41 @@ export interface Rejection {
   message: string;
 }
 
+/**
+ * One number box, as the template draws it and the checks read it.
+ *
+ * `hint` and `off` are functions rather than values because two of them depend
+ * on the provider the picker is on: the context window's sentence names the
+ * server, and the box itself is switched off for a vLLM, which fixes its window
+ * when it starts. Everything else answers the same for every run.
+ */
+interface NumberField {
+  key: string;
+  label: string;
+  value: WritableSignal<number | null>;
+  step: number;
+  hint: () => string;
+  off: () => boolean;
+}
+
+/** One row of the table above, with the defaults most of them take. */
+function field(
+  key: string,
+  label: string,
+  value: WritableSignal<number | null>,
+  extra: { step?: number; hint?: string | (() => string); off?: () => boolean } = {},
+): NumberField {
+  const hint = extra.hint ?? '';
+  return {
+    key,
+    label,
+    value,
+    step: extra.step ?? 1,
+    hint: typeof hint === 'string' ? () => hint : hint,
+    off: extra.off ?? (() => false),
+  };
+}
+
 const SETTINGS_KEY = 'buy_agent.settings';
 
 /** What a cleared bound box falls back to, said in the box. The other numbers
@@ -107,16 +142,18 @@ export class SearchForm {
   protected readonly baseUrl = signal('');
   protected readonly region = signal('us-en');
   protected readonly sources = signal('');
-  protected readonly results = signal(10);
-  protected readonly top = signal(3);
-  // Null is the value, not the absence of one: no bound is what the shopper who
-  // set none of them asked for, and what a cleared box means (ADR-0039).
+  // Every number box is `number | null`, because null is what one holds when it
+  // is cleared -- "use the default" for most of them (ADR-0012) and "no bound at
+  // all" for the three the shopper sets (ADR-0039). Typed as plain numbers, three
+  // of these already went null at runtime the moment somebody emptied the box.
+  protected readonly results = signal<number | null>(10);
+  protected readonly top = signal<number | null>(3);
   protected readonly maxPrice = signal<number | null>(null);
   protected readonly minRating = signal<number | null>(null);
   protected readonly minReviews = signal<number | null>(null);
   protected readonly cacheTtl = signal<number | null>(null);
   protected readonly sortBy = signal<SortBy>('score');
-  protected readonly temperature = signal(0);
+  protected readonly temperature = signal<number | null>(0);
   protected readonly numCtx = signal<number | null>(null);
   protected readonly thinking = signal<Thinking>('off');
   protected readonly fetchPages = signal(true);
@@ -241,22 +278,45 @@ export class SearchForm {
   });
 
   /**
-   * The number fields, by the key each is sent under.
+   * Every number field, in the order the form draws them.
    *
-   * That key is the one the server ships its ranges under and the one its
-   * refusals name, so this one table answers both "what may this box hold" and
-   * "which box was the run refused for".
+   * The key is the one the server ships the range under, the one its refusals
+   * name and the one the value is sent as, so this one table answers "what may
+   * this box hold", "which box was the run refused for" and "what does it say
+   * on it". The template loops over it: written out one at a time these were
+   * eight blocks of identical markup, and the ninth setting would have been
+   * twenty more lines of it.
    */
-  private readonly numbers: Record<string, () => number | null> = {
-    results: this.results,
-    top: this.top,
-    temperature: this.temperature,
-    num_ctx: this.numCtx,
-    max_price: this.maxPrice,
-    min_rating: this.minRating,
-    min_reviews: this.minReviews,
-    cache_ttl: this.cacheTtl,
-  };
+  protected readonly numberFields: NumberField[] = [
+    field('max_price', 'Max price', this.maxPrice, {
+      step: 0.01,
+      hint: 'In whatever currency the pages quote.',
+    }),
+    field('min_rating', 'Min rating', this.minRating, {
+      step: 0.1,
+      hint: 'Out of 5. Unrated products are still shown.',
+    }),
+    field('min_reviews', 'Min reviews', this.minReviews, {
+      hint: 'How many reviews a rating has to average.',
+    }),
+    field('results', 'Products to find', this.results),
+    field('top', 'Products to highlight', this.top),
+    field('temperature', 'Temperature', this.temperature, { step: 0.1 }),
+    field('num_ctx', 'Context window', this.numCtx, {
+      // The one field whose sentence depends on the provider, and the one that
+      // can be switched off without the run being switched off: vLLM fixes its
+      // window when it starts, so the box is disabled rather than left to be
+      // filled in and ignored.
+      hint: () =>
+        this.takesNumCtx()
+          ? 'Thinking models need the room to answer; the default leaves it.'
+          : `${this.providerLabel()} is started with the window it serves, so this is not a per-run setting there.`,
+      off: () => !this.takesNumCtx(),
+    }),
+    field('cache_ttl', 'Cache pages for', this.cacheTtl, {
+      hint: 'Seconds. 0 reads every page off the web.',
+    }),
+  ];
 
   /** The ranges the server declared, by the key each field is sent under. Empty
    *  until the defaults land, which is a form that holds nothing to anything yet. */
@@ -275,7 +335,7 @@ export class SearchForm {
   protected readonly problems = computed<Record<string, string>>(() => {
     const problems: Record<string, string> = {};
     const limits = this.limits();
-    for (const [key, held] of Object.entries(this.numbers)) {
+    for (const { key, value: held } of this.numberFields) {
       const limit = limits[key];
       const value = held();
       // A cleared box means "use the default" (ADR-0012) rather than a number to
@@ -351,6 +411,9 @@ export class SearchForm {
       named['temperature'] = `${defaults.temperature}`;
       named['cache_ttl'] = `${defaults.cache_ttl}`;
     }
+    // Its own sentence rather than a bare number: cleared, this one falls back to
+    // whatever the server defaults to, which is a different answer per provider.
+    named['num_ctx'] = this.numCtxHint();
     // Not off the defaults, because their default is `null`: an empty box here
     // is the whole answer rather than a stand-in for a number, so it says so.
     named['max_price'] = NO_LIMIT;

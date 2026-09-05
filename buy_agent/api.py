@@ -69,12 +69,19 @@ _FALSE = frozenset({"false", "0", "no", "off"})
 _BOUNDED: dict[str, str] = {
     "results": "num_products",
     "top": "top_n",
-    "temperature": "temperature",
-    "num_ctx": "num_ctx",
-    "max_price": "max_price",
-    "min_rating": "min_rating",
-    "min_reviews": "min_reviews",
-    "cache_ttl": "cache_ttl",
+    # The rest are asked for under the name of the field they bound, which is
+    # said once here rather than as a row apiece repeating itself.
+    **{
+        field: field
+        for field in (
+            "temperature",
+            "num_ctx",
+            "max_price",
+            "min_rating",
+            "min_reviews",
+            "cache_ttl",
+        )
+    },
 }
 
 #: Which HTTP status each of the agent's three failure modes deserves. It raises

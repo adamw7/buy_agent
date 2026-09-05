@@ -24,16 +24,30 @@ the model's misses, which is the same reasoning that scores missing data
 from __future__ import annotations
 
 import logging
+import operator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Iterator, Sequence
 
     from buy_agent.config import AgentConfig
     from buy_agent.models import Product
 
 logger = logging.getLogger(__name__)
+
+#: One row per bound: the field holding it -- named the same on this class and on
+#: :class:`~buy_agent.config.AgentConfig`, which is what lets ``from_config`` be a
+#: comprehension -- the figure on the product it judges, what "outside" means for
+#: it, and how it reads in the line a run logs. A fourth bound is a row here and
+#: nothing else: everything below reads the table rather than the fields, so a
+#: bound that is added cannot be one that is applied and never mentioned, or
+#: mentioned and never applied (ADR-0039).
+_BOUNDS: tuple[tuple[str, str, Callable[[float, float], bool], str], ...] = (
+    ("max_price", "price", operator.gt, "at most {:,.2f}"),
+    ("min_rating", "rating", operator.lt, "rated at least {:g}"),
+    ("min_reviews", "review_count", operator.lt, "from at least {:,} reviews"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,11 +83,7 @@ class Constraints:
         -- one field, one flag, one form box. This is where they become the thing
         that does the work.
         """
-        return cls(
-            max_price=config.max_price,
-            min_rating=config.min_rating,
-            min_reviews=config.min_reviews,
-        )
+        return cls(**{name: getattr(config, name) for name, *_ in _BOUNDS})
 
     @property
     def given(self) -> bool:
@@ -83,42 +93,26 @@ class Constraints:
         for" and "everything passed" is worth keeping: only the second is worth a
         line in the report.
         """
-        return any(
-            bound is not None
-            for bound in (self.max_price, self.min_rating, self.min_reviews)
-        )
+        return any(True for _ in self._set())
 
     def admits(self, product: Product) -> bool:
         """Whether this product is inside every bound that was set.
 
-        A figure the run does not know passes: see the module docstring. So each
-        clause is "known *and* outside", never "not inside".
+        A figure the run does not know passes: see the module docstring. So the
+        test is "known *and* outside", never "not inside".
         """
-        if self.max_price is not None and product.price is not None:
-            if product.price > self.max_price:
-                return False
-        if self.min_rating is not None and product.rating is not None:
-            if product.rating < self.min_rating:
-                return False
-        if self.min_reviews is not None and product.review_count is not None:
-            if product.review_count < self.min_reviews:
-                return False
-        return True
+        return not any(
+            (figure := getattr(product, field)) is not None and outside(figure, bound)
+            for field, bound, outside, _ in self._set()
+        )
 
     def describe(self) -> str:
         """The bounds as one phrase, for the line the run logs about them.
 
-        Only the ones that were set, in the order they are declared, so a run
-        narrowed on price alone does not report two bounds it never had.
+        Only the ones that were set, in the order :data:`_BOUNDS` declares them,
+        so a run narrowed on price alone does not report two bounds it never had.
         """
-        said = []
-        if self.max_price is not None:
-            said.append(f"at most {self.max_price:,.2f}")
-        if self.min_rating is not None:
-            said.append(f"rated at least {self.min_rating:g}")
-        if self.min_reviews is not None:
-            said.append(f"from at least {self.min_reviews:,} reviews")
-        return ", ".join(said)
+        return ", ".join(phrase.format(bound) for _, bound, _, phrase in self._set())
 
     def apply(self, products: Sequence[Product]) -> list[Product]:
         """The products inside the bounds, and a line saying how many were not.
@@ -147,3 +141,10 @@ class Constraints:
             self.describe(),
         )
         return kept
+
+    def _set(self) -> Iterator[tuple[str, float, Callable[[float, float], bool], str]]:
+        """The rows of :data:`_BOUNDS` the shopper actually gave a number for."""
+        for name, field, outside, phrase in _BOUNDS:
+            bound = getattr(self, name)
+            if bound is not None:
+                yield field, bound, outside, phrase

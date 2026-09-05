@@ -278,12 +278,16 @@ def test_the_form_is_shipped_a_range_for_every_number_it_holds_to_one() -> None:
     field left out of the shipped table is one nothing on the page bounds, and a
     range sent for a field the form does not know is a bound nobody applies
     (ADR-0033).
+
+    Read off the table the template loops over, which is the same one
+    ``problems()`` checks against the ranges -- so a box that is drawn is a box
+    that is held to something, by construction rather than by a second list.
     """
     source = _FORM_TS.read_text(encoding="utf-8")
-    match = re.search(r"private readonly numbers[^{]*\{(.*?)\n  \};", source, re.DOTALL)
+    match = re.search(r"numberFields: NumberField\[\] = \[(.*?)\n  \];", source, re.DOTALL)
     assert match, "no table of number fields in search-form.ts"
 
-    assert set(re.findall(r"^\s+(\w+):", match.group(1), re.M)) == set(limits_payload())
+    assert set(re.findall(r"field\('(\w+)'", match.group(1))) == set(limits_payload())
 
 
 def test_the_form_takes_its_bounds_from_the_server_rather_than_the_markup() -> None:

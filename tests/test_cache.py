@@ -17,6 +17,9 @@ from buy_agent.cache import DEFAULT_TTL, PageCache, default_dir, open_cache
 
 URL = "https://example.com/headphones"
 
+#: What a root named by one of the platform variables comes out as.
+ROOTED = "/root/buy-agent/pages"
+
 
 @pytest.fixture
 def cache(tmp_path: Path) -> PageCache:
@@ -97,43 +100,29 @@ def test_an_entry_inside_its_time_to_live_is_a_hit(tmp_path: Path) -> None:
     assert cache.get(URL) == "fresh"
 
 
-def test_an_entry_that_is_not_json_is_a_miss(cache: PageCache) -> None:
+@pytest.mark.parametrize(
+    "written",
+    [
+        pytest.param(b"{not json", id="not json"),
+        # The other ``ValueError`` a file can raise on the way to being an entry.
+        pytest.param(b"\xff\xfe not text", id="not utf-8"),
+        pytest.param(b'["a list"]', id="json, but not an entry"),
+        # A hash is not a promise. Answering with this would let one page's text
+        # stand in for another's, which is the one thing a cache must never do.
+        pytest.param(
+            json.dumps({"url": "https://elsewhere.example", "text": "else"}).encode(),
+            id="another url's entry",
+        ),
+        pytest.param(json.dumps({"url": URL, "text": 42}).encode(), id="text that is not text"),
+    ],
+)
+def test_anything_that_is_not_this_url_s_entry_is_a_miss(
+    cache: PageCache, written: bytes
+) -> None:
+    """Every way a file can fail to be this URL's entry means "fetch it", which is
+    the direction a cache is allowed to be wrong in."""
     cache.put(URL, "text")
-    _entry(cache, URL).write_text("{not json", encoding="utf-8")
-
-    assert cache.get(URL) is None
-
-
-def test_an_entry_that_is_not_utf_8_is_a_miss(cache: PageCache) -> None:
-    """The other ``ValueError`` a file can raise on the way to being an entry."""
-    cache.put(URL, "text")
-    _entry(cache, URL).write_bytes(b"\xff\xfe not text")
-
-    assert cache.get(URL) is None
-
-
-def test_json_that_is_not_an_entry_is_a_miss(cache: PageCache) -> None:
-    cache.put(URL, "text")
-    _entry(cache, URL).write_text('["a list"]', encoding="utf-8")
-
-    assert cache.get(URL) is None
-
-
-def test_an_entry_naming_another_url_is_a_miss(cache: PageCache) -> None:
-    """A hash is not a promise. Answering with it would let one page's text stand
-    in for another's, which is the one thing a cache must never do."""
-    cache.put(URL, "text")
-    _entry(cache, URL).write_text(
-        json.dumps({"url": "https://elsewhere.example", "text": "someone else"}),
-        encoding="utf-8",
-    )
-
-    assert cache.get(URL) is None
-
-
-def test_an_entry_whose_text_is_not_text_is_a_miss(cache: PageCache) -> None:
-    cache.put(URL, "text")
-    _entry(cache, URL).write_text(json.dumps({"url": URL, "text": 42}), encoding="utf-8")
+    _entry(cache, URL).write_bytes(written)
 
     assert cache.get(URL) is None
 
@@ -256,49 +245,32 @@ def test_opening_a_cache_prunes_it(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 # -- where it lives ------------------------------------------------------------
 
 
-def test_the_directory_is_whatever_the_environment_names(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("environment", "expected"),
+    [
+        # Named outright, which is what the container and a scratch run use.
+        pytest.param({"BUY_AGENT_CACHE_DIR": "/named"}, "/named", id="named outright"),
+        # An unset variable and one exported empty mean the same thing; read as a
+        # path, the second puts the cache in the working directory.
+        pytest.param({"BUY_AGENT_CACHE_DIR": "", "XDG_CACHE_HOME": "/root"}, ROOTED, id="empty"),
+        # Windows names one and everything else the other, so both are read here
+        # and neither of these is a platform test.
+        pytest.param({"LOCALAPPDATA": "/root"}, ROOTED, id="windows"),
+        pytest.param({"XDG_CACHE_HOME": "/root"}, ROOTED, id="xdg"),
+        # Naming neither is every platform's fallback.
+        pytest.param({}, "/home/.cache/buy-agent/pages", id="neither"),
+    ],
+)
+def test_where_the_cache_lives(
+    environment: dict[str, str], expected: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("BUY_AGENT_CACHE_DIR", "/somewhere/else")
+    for name in ("BUY_AGENT_CACHE_DIR", "LOCALAPPDATA", "XDG_CACHE_HOME"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(Path, "home", classmethod(lambda _cls: Path("/home")))
 
-    assert default_dir() == Path("/somewhere/else")
-
-
-@pytest.mark.parametrize("named", ["LOCALAPPDATA", "XDG_CACHE_HOME"])
-def test_each_platform_s_own_variable_is_taken_as_the_root(
-    named: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Windows names one and everything else names the other, so both are read
-    and neither is a platform test -- the variable that is set is the answer."""
-    monkeypatch.delenv("BUY_AGENT_CACHE_DIR", raising=False)
-    monkeypatch.delenv("LOCALAPPDATA", raising=False)
-    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
-    monkeypatch.setenv(named, str(tmp_path))
-
-    assert default_dir() == tmp_path / "buy-agent" / "pages"
-
-
-def test_a_machine_naming_neither_falls_back_to_the_home_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("BUY_AGENT_CACHE_DIR", raising=False)
-    monkeypatch.delenv("LOCALAPPDATA", raising=False)
-    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
-    monkeypatch.setattr(Path, "home", classmethod(lambda _cls: tmp_path))
-
-    assert default_dir() == tmp_path / ".cache" / "buy-agent" / "pages"
-
-
-def test_an_empty_variable_is_not_a_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """An unset variable and one exported empty mean the same thing, and reading
-    the second as a path puts the cache in the process's working directory."""
-    monkeypatch.setenv("BUY_AGENT_CACHE_DIR", "")
-    monkeypatch.delenv("LOCALAPPDATA", raising=False)
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-
-    assert default_dir() == tmp_path / "buy-agent" / "pages"
+    assert default_dir() == Path(expected)
 
 
 def _entry(cache: PageCache, url: str) -> Path:

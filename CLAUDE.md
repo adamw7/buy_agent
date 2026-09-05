@@ -684,8 +684,12 @@ is the `field` a `failure` event named. The server's mark does not gate the butt
 -- it is about what was sent -- and clears when the next run starts. The sources
 check goes out on `change` rather than on every keystroke, and once more after
 `restore`, a remembered bad source being one nobody is about to retype. The
-`numbers` table, keyed by the name each field is sent under, is the one place that
-mapping lives, and `tests/test_conventions.py` holds it against `limits_payload`.
+`numberFields` table is the one place a number box is declared -- the key it is
+sent under (which is also the key its range arrives under and its refusal names),
+its label, its step and its hint -- and the template loops over it rather than
+repeating the same twenty lines of markup per setting.
+`tests/test_conventions.py` holds its keys against `limits_payload`, so a box
+that is drawn is a box that is held to a range.
 
 Every one of those marks is on a field inside the Settings panel, which is shut
 until somebody opens it -- so the form opens it itself the first time `flagged()`
