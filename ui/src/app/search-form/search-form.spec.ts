@@ -29,6 +29,10 @@ const DEFAULTS: AgentDefaults = {
   think: null,
   results: 10,
   top: 3,
+  max_price: null,
+  min_rating: null,
+  min_reviews: null,
+  cache_ttl: 86400,
   region: 'us-en',
   sources: '',
   fetch: true,
@@ -39,6 +43,10 @@ const DEFAULTS: AgentDefaults = {
     top: { min: 1, max: 50 },
     temperature: { min: 0, max: 2 },
     num_ctx: { min: 1, max: 1_000_000 },
+    max_price: { min: 1, max: 10_000_000 },
+    min_rating: { min: 0, max: 5 },
+    min_reviews: { min: 0, max: 10_000_000 },
+    cache_ttl: { min: 0, max: 2_592_000 },
   },
 };
 
@@ -138,6 +146,66 @@ describe('SearchForm', () => {
       'input[name="numCtx"]',
     )!.placeholder;
     expect(placeholder).toBe('The default (8192)');
+  });
+
+  it('sends the shopper bounds it was given, and null for the ones it was not', async () => {
+    /* Null is a value here: "no bound" is what a shopper who set none asked for,
+       and what the server reads an empty field as (ADR-0039). */
+    await type('input[name="request"]', 'headphones');
+    await type('input[name="max_price"]', '200');
+    await type('input[name="min_rating"]', '4.5');
+    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+
+    expect(submitted[0].max_price).toBe(200);
+    expect(submitted[0].min_rating).toBe(4.5);
+    expect(submitted[0].min_reviews).toBeNull();
+  });
+
+  it('sends how long pages may be cached for', async () => {
+    await type('input[name="request"]', 'headphones');
+    await type('input[name="cache_ttl"]', '0');
+    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+
+    expect(submitted[0].cache_ttl).toBe(0);
+  });
+
+  it('holds each bound to the range the server shipped for it', async () => {
+    /* Every one of them, not the first: each is a field of its own, and a mark
+       that lands on none of them is a greyed-out button with no visible reason. */
+    await type('input[name="request"]', 'headphones');
+    await type('input[name="min_rating"]', '9');
+    await type('input[name="max_price"]', '0');
+    await type('input[name="min_reviews"]', '-1');
+    await type('input[name="cache_ttl"]', '99999999');
+
+    expect(problem('min_rating')).toContain('Between 0 and 5');
+    expect(problem('max_price')).toContain('Between 1 and 10000000');
+    expect(problem('min_reviews')).toContain('Between 0 and 10000000');
+    expect(problem('cache_ttl')).toContain('Between 0 and 2592000');
+    expect(submit().disabled).toBe(true);
+  });
+
+  it('says a cleared bound is no bound rather than naming a number', async () => {
+    /* Every other cleared box falls back to a number the server named; these
+       fall back to no bound at all, and a grey "10" would say otherwise. */
+    expect(element<HTMLInputElement>('input[name="max_price"]').placeholder).toBe('No limit');
+    expect(element<HTMLInputElement>('input[name="min_reviews"]').placeholder).toBe('No limit');
+    expect(element<HTMLInputElement>('input[name="cache_ttl"]').placeholder).toBe('86400');
+  });
+
+  it('remembers the bounds a shopper set, the way it remembers the rest', async () => {
+    /* A budget is a standing answer -- shopped under for weeks -- not something
+       retyped per search. */
+    await type('input[name="request"]', 'headphones');
+    await type('input[name="max_price"]', '200');
+    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+
+    const next = await seeded();
+
+    expect(next.querySelector<HTMLInputElement>('input[name="max_price"]')!.value).toBe('200');
   });
 
   it('will not search for nothing', async () => {

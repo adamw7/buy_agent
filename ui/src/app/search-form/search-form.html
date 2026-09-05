@@ -121,6 +121,67 @@
       </label>
 
       <label class="field">
+        <span>Max price</span>
+        <input
+          name="max_price"
+          type="number"
+          [min]="limits()['max_price']?.min"
+          [max]="limits()['max_price']?.max"
+          [placeholder]="placeholders()['max_price'] ?? ''"
+          [(ngModel)]="maxPrice"
+          [disabled]="running()"
+          [class.invalid]="notes()['max_price']"
+          [attr.aria-invalid]="notes()['max_price'] ? true : null"
+        />
+        @if (notes()['max_price']; as problem) {
+          <small class="problem" role="alert">{{ problem }}</small>
+        } @else {
+          <small>In whatever currency the pages quote.</small>
+        }
+      </label>
+
+      <label class="field">
+        <span>Min rating</span>
+        <input
+          name="min_rating"
+          type="number"
+          step="0.1"
+          [min]="limits()['min_rating']?.min"
+          [max]="limits()['min_rating']?.max"
+          [placeholder]="placeholders()['min_rating'] ?? ''"
+          [(ngModel)]="minRating"
+          [disabled]="running()"
+          [class.invalid]="notes()['min_rating']"
+          [attr.aria-invalid]="notes()['min_rating'] ? true : null"
+        />
+        @if (notes()['min_rating']; as problem) {
+          <small class="problem" role="alert">{{ problem }}</small>
+        } @else {
+          <small>Out of 5. Unrated products are still shown.</small>
+        }
+      </label>
+
+      <label class="field">
+        <span>Min reviews</span>
+        <input
+          name="min_reviews"
+          type="number"
+          [min]="limits()['min_reviews']?.min"
+          [max]="limits()['min_reviews']?.max"
+          [placeholder]="placeholders()['min_reviews'] ?? ''"
+          [(ngModel)]="minReviews"
+          [disabled]="running()"
+          [class.invalid]="notes()['min_reviews']"
+          [attr.aria-invalid]="notes()['min_reviews'] ? true : null"
+        />
+        @if (notes()['min_reviews']; as problem) {
+          <small class="problem" role="alert">{{ problem }}</small>
+        } @else {
+          <small>How many reviews a rating has to average.</small>
+        }
+      </label>
+
+      <label class="field">
         <span>Products to find</span>
         <input
           name="results"
@@ -222,6 +283,26 @@
              the reader could not widen it. Every other field says its piece in a
              `small` for the same reason. -->
         <small>Thinking models are cut off before they answer; leave this off for them.</small>
+      </label>
+
+      <label class="field">
+        <span>Cache pages for</span>
+        <input
+          name="cache_ttl"
+          type="number"
+          [min]="limits()['cache_ttl']?.min"
+          [max]="limits()['cache_ttl']?.max"
+          [placeholder]="placeholders()['cache_ttl'] ?? ''"
+          [(ngModel)]="cacheTtl"
+          [disabled]="running()"
+          [class.invalid]="notes()['cache_ttl']"
+          [attr.aria-invalid]="notes()['cache_ttl'] ? true : null"
+        />
+        @if (notes()['cache_ttl']; as problem) {
+          <small class="problem" role="alert">{{ problem }}</small>
+        } @else {
+          <small>Seconds. 0 reads every page off the web.</small>
+        }
       </label>
 
       <label class="field checkbox">

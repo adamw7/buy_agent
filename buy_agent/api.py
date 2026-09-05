@@ -71,6 +71,10 @@ _BOUNDED: dict[str, str] = {
     "top": "top_n",
     "temperature": "temperature",
     "num_ctx": "num_ctx",
+    "max_price": "max_price",
+    "min_rating": "min_rating",
+    "min_reviews": "min_reviews",
+    "cache_ttl": "cache_ttl",
 }
 
 #: Which HTTP status each of the agent's three failure modes deserves. It raises
@@ -147,6 +151,16 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         region=_read(data, "region", defaults.region, _as_region),
         sources=_read_sources(data, defaults.sources),
         fetch_pages=_read(data, "fetch", defaults.fetch_pages, _as_bool),
+        # A blank is "no bound" here rather than "the default" -- which is the
+        # same thing, these three defaulting to None (ADR-0012, ADR-0039).
+        max_price=_read(data, "max_price", defaults.max_price, _bounded(float, "max_price")),
+        min_rating=_read(
+            data, "min_rating", defaults.min_rating, _bounded(float, "min_rating")
+        ),
+        min_reviews=_read(
+            data, "min_reviews", defaults.min_reviews, _bounded(int, "min_reviews")
+        ),
+        cache_ttl=_read(data, "cache_ttl", defaults.cache_ttl, _bounded(float, "cache_ttl")),
     )
     return config, sort_by
 
@@ -253,6 +267,11 @@ def product_payload(entry: RankedProduct) -> dict[str, Any]:
     return {
         "rank": entry.rank,
         "score": round(entry.score, 4),
+        # What that score is made of, so a card can say why a product placed
+        # where it did and which criteria it was placed on nothing at all
+        # (ADR-0041). Sent whole rather than pre-formatted: how to draw three
+        # shares is the page's business, what they are is Python's.
+        "breakdown": entry.breakdown.model_dump(),
         **entry.product.model_dump(),
         "price_label": entry.product.price_label(),
         "rating_label": entry.product.rating_label(),
@@ -284,6 +303,12 @@ def defaults_payload() -> dict[str, Any]:
         "think": defaults.reasoning,
         "results": defaults.num_products,
         "top": defaults.top_n,
+        # None, which the form shows as an empty box meaning "no bound" -- the
+        # answer a shopper who set none of them gives (ADR-0039).
+        "max_price": defaults.max_price,
+        "min_rating": defaults.min_rating,
+        "min_reviews": defaults.min_reviews,
+        "cache_ttl": defaults.cache_ttl,
         "region": defaults.region,
         # One text field's worth, written the way the form sends it back.
         # Empty -- the default -- is the whole web.

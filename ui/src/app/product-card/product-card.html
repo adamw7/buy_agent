@@ -52,5 +52,20 @@
       </div>
       <span class="value">{{ scoreLabel() }}</span>
     </div>
+
+    <ul class="parts">
+      @for (part of parts(); track part.name) {
+        <li [class.assumed]="part.assumed">
+          <span class="part">{{ part.name }}</span>
+          <span class="share">{{ part.percent }}%</span>
+          @if (part.assumed) {
+            <!-- Said in words rather than by a colour alone: this is the
+                 difference between a figure read off a page and one nobody
+                 published, and it decides how much the total is worth. -->
+            <span class="assumed">assumed</span>
+          }
+        </li>
+      }
+    </ul>
   </div>
 </article>

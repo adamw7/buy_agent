@@ -6,6 +6,7 @@ import os
 import re
 from dataclasses import dataclass, field
 
+from buy_agent.cache import DEFAULT_TTL
 from buy_agent.providers import Provider, provider_for
 from buy_agent.ranking import RankingWeights
 from buy_agent.sources import Source
@@ -27,6 +28,17 @@ LIMITS: dict[str, tuple[int, int]] = {
     "top_n": (1, 50),
     "temperature": (0, 2),
     "num_ctx": (1, 1_000_000),
+    # The shopper's own three (ADR-0039). Their ranges are what a *number* may
+    # be rather than what a sensible bound is: 1 is a real budget on something
+    # cheap, and 0 stars is the bound that admits everything, which is what
+    # leaving the box empty already means. The ceilings are there so a slip on
+    # the keyboard is a usage error rather than a filter that drops the lot.
+    "max_price": (1, 10_000_000),
+    "min_rating": (0, 5),
+    "min_reviews": (0, 10_000_000),
+    # 0 is off -- every page read fresh -- and the ceiling is 30 days, past
+    # which a stored price is not evidence of anything (ADR-0040).
+    "cache_ttl": (0, 2_592_000),
 }
 
 #: Where the search looks when nothing says otherwise. Named rather than written
@@ -95,6 +107,15 @@ class AgentConfig:
         search_results: How many raw web results to feed the extractor.
         num_products: How many products to keep after extraction.
         top_n: How many products to log at the end.
+        max_price: The most the shopper will pay, or None for no bound. Applied
+            after grounding and before ranking, so what is reported is what was
+            asked for rather than the cheapest of whatever came back (ADR-0039).
+            In the currency the pages printed, which is not converted.
+        min_rating: The lowest average review score worth reporting, on the same
+            0-5 scale as ``Product.rating``, or None for no bound.
+        min_reviews: How many reviews a rating has to be averaged over, or None.
+            A product whose figure is unknown passes all three: a blank is the
+            extractor having missed something, not a violation.
         region: Search region -- a country and then a language, e.g. ``us-en``,
             ``uk-en``, ``pl-pl``. Checked and lower-cased by :func:`parse_region`,
             since a code no engine knows returns nothing rather than failing.
@@ -110,6 +131,11 @@ class AgentConfig:
             forty prices still contributes a verdict and a page of prose still
             contributes its price; 0 leaves the opinions unread.
         fetch_timeout: Seconds to wait on any single page.
+        cache_ttl: How many seconds a fetched page stays usable on disk; 0 reads
+            every page off the web. A day by default -- most of a run is opening
+            the same ten pages it opened last time (ADR-0040). Where they are
+            kept is ``$BUY_AGENT_CACHE_DIR``, which has no flag and no form
+            field, a path on the server's disk being nobody's to choose remotely.
         weights: Relative importance of rating, popularity and price when ranking.
 
     Raises:
@@ -127,12 +153,16 @@ class AgentConfig:
     search_results: int = 10
     num_products: int = 10
     top_n: int = 3
+    max_price: float | None = None
+    min_rating: float | None = None
+    min_reviews: int | None = None
     region: str = DEFAULT_REGION
     sources: tuple[Source, ...] = ()
     fetch_pages: bool = True
     page_chars: int = 1200
     opinion_chars: int = 400
     fetch_timeout: float = 8.0
+    cache_ttl: float = DEFAULT_TTL
     weights: RankingWeights = field(default_factory=RankingWeights)
 
     @property

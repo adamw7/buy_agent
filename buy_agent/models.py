@@ -164,12 +164,47 @@ QUALIFIERS: dict[str, tuple[str, ...]] = {
 }
 
 
+class ScoreParts(BaseModel):
+    """What one product's blended score is made of, a share per criterion.
+
+    Reported rather than kept, because a bare 0.62 says nothing about *why* a
+    product placed where it did -- and the one thing a shopper most needs to tell
+    apart is a criterion that scored middling from one that was never known at
+    all, which :data:`buy_agent.ranking.NEUTRAL` deliberately makes look identical
+    (ADR-0041). ``neutral`` names the criteria that were assumed rather than read,
+    so the two are separable again by whoever is showing them.
+
+    Every share is in ``[0, 1]`` and none is weighted: how much each counts is
+    ``RankingWeights``, which is one setting for the whole run rather than a fact
+    about this product. ``total`` is what they blend to, and the number the
+    ordering was actually made on.
+    """
+
+    rating: float
+    popularity: float
+    price: float
+    total: float
+    #: The criteria this product published nothing for, each scored ``NEUTRAL``.
+    #: A list rather than three booleans: it is read as a set of names, and the
+    #: names are the field names above.
+    neutral: list[str] = []
+
+
 class RankedProduct(BaseModel):
-    """A product plus the score it was sorted by."""
+    """A product, the score it was sorted by, and what that score is made of."""
 
     product: Product
-    score: float
+    breakdown: ScoreParts
     rank: int
+
+    @property
+    def score(self) -> float:
+        """The blended score, which is the total of its parts.
+
+        A property and not a field, so there is one number and not two that agree
+        until somebody constructs a ``RankedProduct`` by hand and they do not.
+        """
+        return self.breakdown.total
 
 
 def _clean(value: str) -> str:

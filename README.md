@@ -79,6 +79,7 @@ python -m buy_agent "gaming laptop under 5000 PLN" --region pl-pl
 python -m buy_agent "espresso machine" --model qwen2.5 --results 15 --top 5
 python -m buy_agent "running shoes" --sort-by price --json results.json
 python -m buy_agent "wireless earbuds" --source rtings.com --source @mkbhd
+python -m buy_agent "headphones" --max-price 200 --min-rating 4.5 --min-reviews 500
 ```
 
 | Flag | Default | Meaning |
@@ -91,6 +92,10 @@ python -m buy_agent "wireless earbuds" --source rtings.com --source @mkbhd
 | `--sort-by` | `score` | `score`, `price` or `rating` |
 | `--region` | `us-en` | Search region: a country, then a language -- `uk-en`, `pl-pl` |
 | `--source` | -- | Take the facts from this source only; repeatable |
+| `--max-price` | no limit | Report nothing dearer, in the currency the pages quote |
+| `--min-rating` | no limit | Report nothing rated below this, out of 5 |
+| `--min-reviews` | no limit | Report nothing whose rating averages fewer reviews |
+| `--cache-ttl` | `86400` | Seconds a fetched page stays usable on disk; `0` is off |
 | `--temperature` | `0.0` | Model temperature, 0-2; extraction is a copying task |
 | `--num-ctx` | `8192` | Context window in tokens (Ollama only) |
 | `--think` / `--no-think` | `--no-think` | Force thinking mode on or off |
@@ -212,6 +217,66 @@ strongest rule the URLs support.
 
 The web UI has the same setting, as **Trusted sources** under Settings: one
 field, separated by spaces or commas.
+
+### Saying what you will actually buy
+
+"under $200" in the request only ever shaped the *search query* -- a page comes
+back for matching the words, not for obeying them -- so a run could top its report
+with a $328 pair and look right doing it, price being scored relative to whatever
+else came back. Three flags say it as a number instead, and Python enforces them:
+
+```powershell
+python -m buy_agent "wireless headphones" --max-price 200
+python -m buy_agent "espresso machine" --min-rating 4.5 --min-reviews 500
+```
+
+They are applied after the pages have been read and the duplicates merged, and
+before the ranking -- so the "cheapest" in the report is the cheapest of what you
+could actually buy, not of a list you were shown none of. A run that set any of
+them says what they did, whether or not they did anything:
+
+```
+1 of 10 product(s) are within the limits (at most 200.00, rated at least 4.5)
+```
+
+**A product whose figure the run never learned is kept.** Grounding blanks every
+figure the source pages did not back, so a blank price is as often a page that did
+not print one as a product that costs too much, and dropping blanks would throw
+away real products for the extractor's misses -- the same reason a missing figure
+scores neutral rather than zero
+([ADR-0039](docs/adr/0039-enforce-the-shoppers-bounds-in-python.md)). Prices are
+compared in whatever currency the page printed and nothing is converted.
+
+The bounds are not read out of the request by the model, deliberately: a model
+that saw "under $200" in "headphones with 200 hours of battery" would drop every
+product in the run, and the report would say only that nothing was found. The
+number goes in the flag, or in the box under Settings in the browser.
+
+### Reading the same pages twice is free
+
+Most of a repeated run is opening the ten pages it opened last time. Their text is
+kept on disk for a day, so a second run of the same search costs the extraction
+and nothing else -- which is the difference between a minute and a few seconds
+when what you are actually changing is a bound, a weight or a prompt. It also
+stops ten more requests going to shops that rate-limit, and stops two runs of one
+search disagreeing because a shop answered 403 the second time.
+
+```powershell
+python -m buy_agent "headphones" --cache-ttl 0      # every page read fresh
+$env:BUY_AGENT_CACHE_DIR = "D:\scratch\pages"      # somewhere else
+```
+
+What is stored is the page *text* rather than the condensed excerpt, so changing
+`page_chars` re-condenses instead of replaying a stale excerpt, and a cached run
+extracts from exactly what a fresh one would have -- which is what keeps the cache
+invisible to grounding. Only pages that were actually read are stored: a 403 stays
+live, so a shop that has stopped refusing is noticed on the next run. Every
+failure -- an unwritable directory, a corrupt entry, a full disk -- is a cache miss
+and never a failed run
+([ADR-0040](docs/adr/0040-cache-the-page-text-on-disk.md)).
+
+The cost is honest and worth knowing: a day-old entry is a day-old price, reported
+as current. `--cache-ttl 0` is the answer when the figures have to be live.
 
 ### What the pages say
 
@@ -417,13 +482,17 @@ request ──▶ [LLM] refine into a search query
               -- or one search per trusted source, pooled
                       │
                       ▼
-     fetch each page, keep the lines quoting a figure or an opinion
+     fetch each page (or read yesterday's), keep the lines
+     quoting a figure or an opinion
                       │
                       ▼
         [LLM] extract structured products from that text
                       │
                       ▼
-   clean names ▶ ground against sources ▶ merge duplicates ▶ rank ▶ log top 3
+   clean names ▶ ground against sources ▶ merge duplicates
+                      │
+                      ▼
+   hold to the bounds you set ▶ rank ▶ log top 3
 ```
 
 The control flow is fixed rather than left to the model to drive with tools. The
@@ -431,7 +500,7 @@ LLM does the two things it is good at -- rewording a request and reading facts o
 of prose -- and ordinary Python does the rest. Small local models are unreliable
 at running a tool loop, but perfectly capable of these two steps.
 
-Seven details make it work with a small model:
+Nine details make it work with a small model:
 
 - **Structured output.** Both LLM calls use `json_schema` mode -- Ollama's, or
   vLLM's on the OpenAI-compatible side -- so decoding is constrained to the schema
@@ -466,6 +535,16 @@ Seven details make it work with a small model:
   have to be found. A paraphrase fails that and is dropped: an invented price is
   a number nobody wrote, but an invented quote is words in a reviewer's mouth.
 
+- **Bounds that are enforced, not searched for.** A budget in the request text
+  only shapes the query. `--max-price`, `--min-rating` and `--min-reviews` are
+  numbers checked in Python after the pages are read and the duplicates merged,
+  so the report answers the question that was asked -- and a product whose figure
+  no page printed is kept rather than dropped for the extractor's miss.
+- **A score that says what it is made of.** Every product carries the three
+  shares its score was blended from, with the ones nothing was published for
+  marked "assumed" -- because a missing rating and a middling one both score 0.5,
+  and only one of them is a measurement.
+
 ### Ranking
 
 `rank_products` scores each product in `[0, 1]`:
@@ -479,6 +558,25 @@ Seven details make it work with a small model:
 A missing criterion scores 0.5 rather than 0, so a listing that simply did not
 publish a rating is not buried beneath one that published a bad one. Adjust the
 mix through `AgentConfig(weights=RankingWeights(rating=0.7, price=0.3, ...))`.
+
+That rule has a catch, and the report answers it rather than hiding it: 0.5 is
+what a product with **no** rating scores and also what a thoroughly average one
+scores, so the total alone cannot tell a measurement from an assumption. Every
+score therefore comes with the shares it was blended from, and the assumed ones
+say so -- on the CLI:
+
+```
+#1  Anker Soundcore Q30
+     score  : 0.650  (rating 0.50 assumed, popularity 0.50 assumed, price 1.00)
+```
+
+and under the bar on each card in the browser, with the same word. A report whose
+every product is assumed three times over is a run that read nothing useful, which
+is worth seeing next to the answer rather than only in the log above it
+([ADR-0041](docs/adr/0041-report-what-a-score-is-made-of.md)). Which shares were
+assumed is decided where the scoring happens, never inferred from a share being
+0.5 -- a product priced exactly mid-way through the set scores that having been
+read off a page.
 
 ## Tests
 
@@ -527,6 +625,13 @@ every Saturday are in [Tests](docs/testing.md).
   appear on a page that names the product (ADR-0025), so a verdict cannot move
   between pages about unrelated things -- but a review page covering eight
   headphones names all eight, and nothing stops a verdict moving between them.
+- **A bound has to be typed, not implied.** "under $200" in the request shapes
+  the search query and nothing else; `--max-price 200` is what enforces it. And a
+  product whose price no page printed is inside every budget, deliberately -- a
+  blank is the extractor having missed something more often than it is a $900 tag.
+- **A cached page is as current as its age.** Pages are kept for a day by
+  default, so a figure can be up to that stale while reading as current;
+  `--cache-ttl 0` is the run that reads everything fresh.
 - **A named source is a domain, not an author.** `--source @mkbhd` searches
   YouTube for that handle and keeps the YouTube pages that come back; a video by
   somebody else that mentions the handle can get through. The report links to the

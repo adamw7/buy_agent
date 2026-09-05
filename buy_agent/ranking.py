@@ -10,7 +10,7 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-from buy_agent.models import RankedProduct
+from buy_agent.models import RankedProduct, ScoreParts
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -43,13 +43,27 @@ def score_product(
     cheapest: float | None,
     priciest: float | None,
     weights: RankingWeights,
-) -> float:
+) -> ScoreParts:
     """Score one product in ``[0, 1]`` relative to the rest of the candidate set.
 
     Price is relative rather than absolute: the cheapest in the set gets 1.0, the
     most expensive 0.0, and with one distinct price everything ties at ``NEUTRAL``.
+
+    The three shares come back beside the blend rather than being added up and
+    forgotten (ADR-0041). They cost nothing -- they are what the blend was made of
+    -- and without them a report can say what a product scored but not what it
+    scored *on*, nor which criteria it scored on at all: ``NEUTRAL`` is what a
+    product with no rating gets and also what a thoroughly average one gets, so
+    the two are one number until something names the difference. ``neutral`` is
+    that name, and the one thing here nothing else could work out afterwards.
     """
-    rating = product.rating / 5 if product.rating is not None else NEUTRAL
+    neutral: list[str] = []
+
+    if product.rating is None:
+        rating = NEUTRAL
+        neutral.append("rating")
+    else:
+        rating = product.rating / 5
 
     # log10 so the 10th review counts for far more than the 10_000th; saturates
     # at 1_000 reviews, past which extra reviews say nothing new.
@@ -57,17 +71,29 @@ def score_product(
         popularity = min(1.0, math.log10(product.review_count + 1) / 3)
     else:
         popularity = NEUTRAL
+        neutral.append("popularity")
 
-    price = NEUTRAL
-    if product.price is not None and cheapest is not None and priciest is not None:
-        span = priciest - cheapest
-        if span > 0:
-            price = (priciest - product.price) / span
+    # Asked as one condition rather than by testing the share against ``NEUTRAL``
+    # afterwards: a product priced exactly mid-way through the set scores 0.5 on
+    # price having been read rather than assumed, and calling that one neutral
+    # would mark the very case the field exists to tell apart. The last clause is
+    # the set with one distinct price in it, where nothing separates anything.
+    if product.price is None or cheapest is None or priciest is None or priciest <= cheapest:
+        price = NEUTRAL
+        neutral.append("price")
+    else:
+        price = (priciest - product.price) / (priciest - cheapest)
 
     weighted = (
         weights.rating * rating + weights.popularity * popularity + weights.price * price
     )
-    return weighted / weights.total if weights.total else 0.0
+    return ScoreParts(
+        rating=rating,
+        popularity=popularity,
+        price=price,
+        total=weighted / weights.total if weights.total else 0.0,
+        neutral=neutral,
+    )
 
 
 def rank_products(
@@ -100,9 +126,9 @@ def rank_products(
         scored.sort(key=lambda item: (item[0].rating is None, -(item[0].rating or 0.0)))
     else:
         # Name breaks ties, so equal scores come out in a reproducible order.
-        scored.sort(key=lambda item: (-item[1], item[0].name.lower()))
+        scored.sort(key=lambda item: (-item[1].total, item[0].name.lower()))
 
     return [
-        RankedProduct(product=product, score=score, rank=index)
-        for index, (product, score) in enumerate(scored, start=1)
+        RankedProduct(product=product, breakdown=parts, rank=index)
+        for index, (product, parts) in enumerate(scored, start=1)
     ]

@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 import pytest
 
+from buy_agent.cache import PageCache
 from buy_agent.fetch import (
     _MAX_SEGMENT,
     PageText,
@@ -767,3 +768,154 @@ def test_a_page_served_as_something_else_is_dropped_before_its_body(monkeypatch)
 
     assert page == PageText("", "did not answer with HTML")
     assert read == [], "nothing of the body was read"
+
+
+# -- the page cache, where a run reads the pages it read last time (ADR-0040) ---
+
+
+def test_a_cached_page_is_condensed_rather_than_fetched(monkeypatch, tmp_path) -> None:
+    """The whole point: the network is not touched, and the answer is the same.
+
+    Same text through the same ``condense``, so a cached run extracts from what a
+    fresh one would have -- which is what makes the cache invisible to grounding.
+    """
+    cache = PageCache(tmp_path, ttl=3600)
+    cache.put("https://shop.example", html_to_text(PAGE))
+    stub_client(monkeypatch, _refuses_to_be_called)
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://shop.example", max_chars=1000, cache=cache)
+
+    assert "$129.99" in page.text
+    assert page.cached is True
+
+
+def test_a_fetched_page_is_stored_and_marked_as_not_cached(monkeypatch, tmp_path) -> None:
+    cache = PageCache(tmp_path, ttl=3600)
+    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://shop.example", max_chars=1000, cache=cache)
+
+    assert page.cached is False
+    assert "Sony WH-CH720N" in (cache.get("https://shop.example") or "")
+
+
+def test_what_is_stored_is_the_page_and_not_the_excerpt(monkeypatch, tmp_path) -> None:
+    """``page_chars`` decides which lines survive into the prompt and is a
+    per-run setting, so an excerpt stored under one budget is the wrong excerpt
+    under the next. Stored whole, a wider budget widens the excerpt from the
+    cache exactly as it would from the web."""
+    cache = PageCache(tmp_path, ttl=3600)
+    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
+
+    with httpx.Client() as client:
+        narrow = fetch_page(client, "https://shop.example", max_chars=20, cache=cache)
+        stub_client(monkeypatch, _refuses_to_be_called)
+        wide = fetch_page(client, "https://shop.example", max_chars=1000, cache=cache)
+
+    assert len(wide.text) > len(narrow.text)
+    assert wide.cached is True
+
+
+def test_a_page_that_could_not_be_read_is_not_stored(monkeypatch, tmp_path) -> None:
+    """A 403 stays live, so a shop that has stopped refusing is noticed on the
+    next run rather than at the end of a day-long time to live."""
+    cache = PageCache(tmp_path, ttl=3600)
+    stub_client(monkeypatch, lambda url: make_response(url, PAGE, status=403))
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://blocked.example", max_chars=1000, cache=cache)
+
+    assert page == PageText("", "refused (403)")
+    assert cache.get("https://blocked.example") is None
+
+
+def test_markup_that_will_not_parse_is_neither_stored_nor_called_a_failure(
+    monkeypatch, tmp_path
+) -> None:
+    """Empty text with no phrase beside it would break ``PageText``'s own rule --
+    and would put an empty entry in the cache for a page nobody could read."""
+    cache = PageCache(tmp_path, ttl=3600)
+    stub_client(monkeypatch, lambda url: make_response(url, "   "))
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://empty.example", max_chars=1000, cache=cache)
+
+    assert page == PageText("", "quoted no prices and no verdicts")
+    assert cache.get("https://empty.example") is None
+
+
+def test_a_cached_page_with_nothing_worth_keeping_is_still_marked_cached(
+    monkeypatch, tmp_path
+) -> None:
+    """The tally counts what was read off disk, not what survived condensing."""
+    cache = PageCache(tmp_path, ttl=3600)
+    cache.put("https://about.example", "About us. Our story. Careers.")
+    stub_client(monkeypatch, _refuses_to_be_called)
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://about.example", max_chars=1000, cache=cache)
+
+    assert page == PageText("", "quoted no prices and no verdicts", True)
+
+
+def test_no_cache_at_all_fetches_every_page(monkeypatch, tmp_path) -> None:
+    """The default here, and what ``--cache-ttl 0`` asks for."""
+    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://shop.example", max_chars=1000, cache=None)
+
+    assert page.cached is False
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_enrich_opens_a_cache_for_the_run(monkeypatch, tmp_path) -> None:
+    """Opened here rather than passed in, for the reason the HTTP client is."""
+    monkeypatch.setenv("BUY_AGENT_CACHE_DIR", str(tmp_path))
+    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
+    results = [SearchResult(title="t", url="https://shop.example", snippet="s")]
+
+    first = enrich(results, max_chars=1000, cache_ttl=3600)
+    stub_client(monkeypatch, _refuses_to_be_called)
+    again = enrich(results, max_chars=1000, cache_ttl=3600)
+
+    assert again[0].content == first[0].content
+
+
+def test_enrich_says_how_many_pages_came_off_disk(monkeypatch, tmp_path, caplog) -> None:
+    """A run that read nine of its ten pages out of the cache took seconds where
+    it takes a minute, and this line is what tells that from a fast web."""
+    monkeypatch.setenv("BUY_AGENT_CACHE_DIR", str(tmp_path))
+    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
+    results = [
+        SearchResult(title="t", url="https://shop.example", snippet="s"),
+        SearchResult(title="t", url="https://other.example", snippet="s"),
+    ]
+    enrich(results, max_chars=1000, cache_ttl=3600)
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
+        enrich(results, max_chars=1000, cache_ttl=3600)
+
+    assert "from 2 of 2 result(s), 2 from cache" in caplog.text
+
+
+def test_a_run_that_cached_nothing_says_nothing_about_a_cache(
+    monkeypatch, caplog
+) -> None:
+    """The phrase is there when there is something to say and absent otherwise --
+    ", 0 from cache" on every line would be noise on the ordinary run."""
+    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
+    results = [SearchResult(title="t", url="https://shop.example", snippet="s")]
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
+        enrich(results, max_chars=1000, cache_ttl=0)
+
+    assert "from 1 of 1 result(s)" in caplog.text
+    assert "cache" not in caplog.text
+
+
+def _refuses_to_be_called(url: str):
+    """A transport nothing may reach: a cache hit must not open a socket."""
+    raise AssertionError(f"{url} was fetched when it should have come off the cache")

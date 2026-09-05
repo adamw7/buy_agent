@@ -40,6 +40,10 @@ const DEFAULTS: AgentDefaults = {
   think: null,
   results: 10,
   top: 2,
+  max_price: null,
+  min_rating: null,
+  min_reviews: null,
+  cache_ttl: 86400,
   region: 'us-en',
   sources: '',
   fetch: true,
@@ -50,6 +54,10 @@ const DEFAULTS: AgentDefaults = {
     top: { min: 1, max: 50 },
     temperature: { min: 0, max: 2 },
     num_ctx: { min: 1, max: 1_000_000 },
+    max_price: { min: 1, max: 10_000_000 },
+    min_rating: { min: 0, max: 5 },
+    min_reviews: { min: 0, max: 10_000_000 },
+    cache_ttl: { min: 0, max: 2_592_000 },
   },
 };
 
@@ -64,6 +72,13 @@ const STATUS: ModelStatus = {
 const product = (rank: number, name: string) => ({
   rank,
   score: 1 - rank / 10,
+  breakdown: {
+    rating: 0.9,
+    popularity: 0.5,
+    price: 1 - rank / 10,
+    total: 1 - rank / 10,
+    neutral: ['popularity'],
+  },
   name,
   price: 100 * rank,
   currency: 'USD',

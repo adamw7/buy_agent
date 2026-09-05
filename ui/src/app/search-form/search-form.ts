@@ -55,6 +55,11 @@ export interface Rejection {
 
 const SETTINGS_KEY = 'buy_agent.settings';
 
+/** What a cleared bound box falls back to, said in the box. The other numbers
+ *  fall back to a value the server named; these fall back to no bound at all,
+ *  and "10" in grey where the answer is "everything" would be a lie. */
+const NO_LIMIT = 'No limit';
+
 const EXAMPLES = [
   'wireless noise cancelling headphones under $200',
   'gaming laptop under $1500',
@@ -104,6 +109,12 @@ export class SearchForm {
   protected readonly sources = signal('');
   protected readonly results = signal(10);
   protected readonly top = signal(3);
+  // Null is the value, not the absence of one: no bound is what the shopper who
+  // set none of them asked for, and what a cleared box means (ADR-0039).
+  protected readonly maxPrice = signal<number | null>(null);
+  protected readonly minRating = signal<number | null>(null);
+  protected readonly minReviews = signal<number | null>(null);
+  protected readonly cacheTtl = signal<number | null>(null);
   protected readonly sortBy = signal<SortBy>('score');
   protected readonly temperature = signal(0);
   protected readonly numCtx = signal<number | null>(null);
@@ -141,6 +152,14 @@ export class SearchForm {
     sources: setting(this.sources, (d) => d.sources, asText),
     results: setting(this.results, (d) => d.results, asNumber),
     top: setting(this.top, (d) => d.top, asNumber),
+    // The three the shopper sets once and shops under for weeks -- a budget, a
+    // rating floor -- so they are remembered like the rest. `asNumberOrNull`
+    // for all four, because a cleared box is an answer here: "no bound", and
+    // for the cache "fetch everything fresh".
+    maxPrice: setting(this.maxPrice, (d) => d.max_price, asNumberOrNull),
+    minRating: setting(this.minRating, (d) => d.min_rating, asNumberOrNull),
+    minReviews: setting(this.minReviews, (d) => d.min_reviews, asNumberOrNull),
+    cacheTtl: setting(this.cacheTtl, (d) => d.cache_ttl, asNumberOrNull),
     // The same check, and the row that most needed it: a cast is not one, and
     // `SortBy` is a union the server is free to add to and drop from. Restored
     // unchecked, a criterion no longer offered left the Rank by select showing
@@ -233,6 +252,10 @@ export class SearchForm {
     top: this.top,
     temperature: this.temperature,
     num_ctx: this.numCtx,
+    max_price: this.maxPrice,
+    min_rating: this.minRating,
+    min_reviews: this.minReviews,
+    cache_ttl: this.cacheTtl,
   };
 
   /** The ranges the server declared, by the key each field is sent under. Empty
@@ -326,7 +349,13 @@ export class SearchForm {
       named['results'] = `${defaults.results}`;
       named['top'] = `${defaults.top}`;
       named['temperature'] = `${defaults.temperature}`;
+      named['cache_ttl'] = `${defaults.cache_ttl}`;
     }
+    // Not off the defaults, because their default is `null`: an empty box here
+    // is the whole answer rather than a stand-in for a number, so it says so.
+    named['max_price'] = NO_LIMIT;
+    named['min_rating'] = NO_LIMIT;
+    named['min_reviews'] = NO_LIMIT;
     return named;
   });
 
@@ -388,6 +417,10 @@ export class SearchForm {
       sources: this.sources().trim(),
       results: this.results(),
       top: this.top(),
+      max_price: this.maxPrice(),
+      min_rating: this.minRating(),
+      min_reviews: this.minReviews(),
+      cache_ttl: this.cacheTtl(),
       sort_by: this.sortBy(),
       temperature: this.temperature(),
       num_ctx: this.numCtx(),

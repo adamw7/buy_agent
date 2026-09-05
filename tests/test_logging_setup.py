@@ -9,12 +9,14 @@ import pytest
 
 from buy_agent.logging_setup import _NOISY_LIBRARIES, configure_logging, log_top_products
 from buy_agent.models import Product, RankedProduct
+from buy_agent.ranking import rank_products
+from tests.conftest import ranked_product
 
 
 def ranked(*products: Product) -> list[RankedProduct]:
     """Wrap products as a finished ranking, best first."""
     return [
-        RankedProduct(product=product, score=1.0 - index / 10, rank=index + 1)
+        ranked_product(product, score=1.0 - index / 10, rank=index + 1)
         for index, product in enumerate(products)
     ]
 
@@ -290,3 +292,30 @@ def test_every_opinion_gets_its_own_line(report) -> None:
     )
 
     assert report.text.count("says   :") == 2
+
+
+def test_the_report_says_what_a_score_is_made_of(caplog) -> None:
+    """A bare 0.670 says where a product placed and nothing about why (ADR-0041)."""
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        log_top_products(
+            rank_products(
+                [
+                    Product(name="Sony", price=328.0, rating=4.7, review_count=12000),
+                    Product(name="Anker", price=79.0, rating=4.3, review_count=90000),
+                ]
+            ),
+            1,
+        )
+
+    # The Anker tops this pair: better value and more reviewed, and cheapest in
+    # a set of two, which is the whole of the price criterion.
+    assert "rating 0.86, popularity 1.00, price 1.00" in caplog.text
+
+
+def test_the_report_marks_a_share_that_was_assumed_rather_than_read(caplog) -> None:
+    """The distinction the whole breakdown exists for: 0.50 because nothing was
+    published reads identically to 0.50 because the product is middling."""
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        log_top_products(rank_products([Product(name="Silent")]), 1)
+
+    assert "rating 0.50 assumed, popularity 0.50 assumed, price 0.50 assumed" in caplog.text

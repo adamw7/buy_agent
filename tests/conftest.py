@@ -6,7 +6,14 @@ from typing import Any
 
 import pytest
 
-from buy_agent.models import ExtractedProduct, ProductList, SearchQuery
+from buy_agent.models import (
+    ExtractedProduct,
+    Product,
+    ProductList,
+    RankedProduct,
+    ScoreParts,
+    SearchQuery,
+)
 from buy_agent.search import SearchResult
 
 
@@ -35,6 +42,33 @@ class FakeLLM:
         if self.raises is not None:
             raise self.raises
         return self.query if schema is SearchQuery else self.products
+
+
+def ranked_product(product: Product, *, score: float, rank: int) -> RankedProduct:
+    """One finished ranking entry with the score a test wants it to have.
+
+    ``rank_products`` is what builds these in a run, and its scores fall where
+    the arithmetic puts them -- so a test about something else (a payload's
+    shape, the report's wording, a rounding) says the score it needs and gets a
+    breakdown that agrees with it: three shares blending to exactly that, and
+    ``neutral`` naming whatever this product genuinely published nothing for.
+    """
+    assumed = [
+        name
+        for name, figure in (
+            ("rating", product.rating),
+            ("popularity", product.review_count),
+            ("price", product.price),
+        )
+        if figure is None
+    ]
+    return RankedProduct(
+        product=product,
+        breakdown=ScoreParts(
+            rating=score, popularity=score, price=score, total=score, neutral=assumed
+        ),
+        rank=rank,
+    )
 
 
 @pytest.fixture

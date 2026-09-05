@@ -21,14 +21,16 @@ from buy_agent.api import (
     sources_payload,
 )
 from buy_agent.config import LIMITS, AgentConfig
-from buy_agent.models import Product, RankedProduct
+from buy_agent.models import Product
+from buy_agent.ranking import rank_products
+from tests.conftest import ranked_product
 from buy_agent.providers import VLLM
 from buy_agent.search import SearchError
 from buy_agent.sources import Source
 
 RANKED = [
-    RankedProduct(
-        product=Product(
+    ranked_product(
+        Product(
             name="Sony WH-1000XM5",
             price=328.0,
             currency="USD",
@@ -41,7 +43,7 @@ RANKED = [
         score=0.912345,
         rank=1,
     ),
-    RankedProduct(product=Product(name="Anker Q30"), score=0.5, rank=2),
+    ranked_product(Product(name="Anker Q30"), score=0.5, rank=2),
 ]
 
 
@@ -345,7 +347,17 @@ def test_the_limits_are_the_ones_both_doors_hold_a_request_to() -> None:
     assert limits["results"] == {"min": LIMITS["num_products"][0], "max": LIMITS["num_products"][1]}
     assert limits["top"] == {"min": LIMITS["top_n"][0], "max": LIMITS["top_n"][1]}
     assert limits["temperature"] == {"min": 0, "max": 2}
-    assert set(limits) == {"results", "top", "temperature", "num_ctx"}
+    assert limits["max_price"] == {"min": LIMITS["max_price"][0], "max": LIMITS["max_price"][1]}
+    assert set(limits) == {
+        "results",
+        "top",
+        "temperature",
+        "num_ctx",
+        "max_price",
+        "min_rating",
+        "min_reviews",
+        "cache_ttl",
+    }
 
 
 def test_every_shipped_range_is_one_a_request_is_actually_held_to() -> None:
@@ -495,14 +507,12 @@ def test_what_a_checkpoint_raises_is_not_turned_into_an_api_error() -> None:
 #: re-sort at all -- its second product has neither a price nor a rating, so it
 #: sinks to the bottom whichever criterion is asked for.
 DISAGREEING = [
-    RankedProduct(
-        product=Product(name="Sony WH-1000XM5", price=328.0, rating=5.0, review_count=5000),
+    ranked_product(
+        Product(name="Sony WH-1000XM5", price=328.0, rating=5.0, review_count=5000),
         score=0.7,
         rank=1,
     ),
-    RankedProduct(
-        product=Product(name="Anker Q30", price=79.0, rating=2.0), score=0.6, rank=2
-    ),
+    ranked_product(Product(name="Anker Q30", price=79.0, rating=2.0), score=0.6, rank=2),
 ]
 
 
@@ -807,3 +817,95 @@ def test_an_unreachable_vllm_is_told_to_start_a_vllm(monkeypatch) -> None:
 
     assert "vllm serve" in payload["hint"]
     assert "ollama" not in payload["hint"].lower()
+
+
+# -- the shopper's bounds and the cache, over the wire -------------------------
+
+
+def test_the_bounds_reach_the_config() -> None:
+    config, _ = parse_options(
+        {"request": "x", "max_price": 200, "min_rating": 4.5, "min_reviews": 100}
+    )
+
+    assert (config.max_price, config.min_rating, config.min_reviews) == (200.0, 4.5, 100)
+
+
+def test_the_bounds_arrive_as_text_from_a_query_string() -> None:
+    """The stream carries every option as a query parameter, so each one has to
+    survive being spelled as text."""
+    config, _ = parse_options({"max_price": "1500", "min_rating": "4", "cache_ttl": "0"})
+
+    assert (config.max_price, config.min_rating, config.cache_ttl) == (1500.0, 4.0, 0.0)
+
+
+@pytest.mark.parametrize("key", ["max_price", "min_rating", "min_reviews"])
+def test_a_blank_bound_is_no_bound(key: str) -> None:
+    """An empty form field means "unset" (ADR-0012), and unset here is ``None`` --
+    which is the same answer, these three defaulting to no bound at all."""
+    assert getattr(parse_options({key: ""})[0], key) is None
+    assert getattr(parse_options({})[0], key) is None
+
+
+def test_a_bound_outside_its_range_is_refused_before_a_run_starts() -> None:
+    with pytest.raises(ApiError) as excinfo:
+        parse_options({"min_rating": 9})
+
+    assert excinfo.value.field == "min_rating"
+    assert excinfo.value.status == 400
+
+
+def test_a_bound_that_is_not_a_number_names_its_own_field() -> None:
+    with pytest.raises(ApiError) as excinfo:
+        parse_options({"max_price": "cheap"})
+
+    assert excinfo.value.field == "max_price"
+
+
+def test_the_cache_time_to_live_reaches_the_config() -> None:
+    assert parse_options({"cache_ttl": 60})[0].cache_ttl == 60.0
+
+
+def test_the_form_is_sent_the_bounds_as_nothing_at_all() -> None:
+    """Not zero, which is a real bound that admits nothing dearer than free: the
+    box starts empty and empty means "no limit" (ADR-0039)."""
+    defaults = defaults_payload()
+
+    assert defaults["max_price"] is None
+    assert defaults["min_rating"] is None
+    assert defaults["min_reviews"] is None
+    assert defaults["cache_ttl"] == AgentConfig().cache_ttl
+
+
+# -- the score's parts, on the way to the card (ADR-0041) ----------------------
+
+
+def test_a_product_carries_what_its_score_is_made_of() -> None:
+    payload = product_payload(RANKED[0])
+
+    assert payload["breakdown"] == {
+        "rating": pytest.approx(0.912345),
+        "popularity": pytest.approx(0.912345),
+        "price": pytest.approx(0.912345),
+        "total": pytest.approx(0.912345),
+        "neutral": [],
+    }
+
+
+def test_the_parts_name_the_criteria_that_were_assumed() -> None:
+    """The one thing the numbers cannot say for themselves: a criterion nothing
+    was published for scores the same 0.5 as one that scored exactly middling."""
+    ranked = rank_products([Product(name="Silent")])
+
+    assert product_payload(ranked[0])["breakdown"]["neutral"] == [
+        "rating",
+        "popularity",
+        "price",
+    ]
+
+
+def test_a_re_sorted_run_carries_the_parts_too() -> None:
+    """Re-scored from the products rather than carried over from the request, so
+    the shares describe the order the page is actually showing (ADR-0035)."""
+    answer = rank_again({"request": "headphones", "products": results_payload(DISAGREEING)})
+
+    assert all("breakdown" in product for product in answer["products"])

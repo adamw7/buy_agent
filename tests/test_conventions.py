@@ -69,7 +69,8 @@ from buy_agent.api import (
 from buy_agent.config import LIMITS, AgentConfig, parse_region
 import buy_agent.providers as providers_module
 from buy_agent.providers import PROVIDERS, InstalledModel, provider_options
-from buy_agent.models import Product, RankedProduct
+from buy_agent.models import Product
+from tests.conftest import ranked_product
 from buy_agent.ranking import SortBy
 from buy_agent.server import DEFAULT_UI_DIR
 from buy_agent.server import build_parser as build_server_parser
@@ -81,8 +82,8 @@ _TYPES_TS = _ROOT / "ui" / "src" / "app" / "agent.types.ts"
 _FORM_TS = _ROOT / "ui" / "src" / "app" / "search-form" / "search-form.ts"
 _FORM_HTML = _ROOT / "ui" / "src" / "app" / "search-form" / "search-form.html"
 
-RANKED = RankedProduct(
-    product=Product(name="Sony WH-1000XM5", price=328.0, rating=4.7), score=0.9, rank=1
+RANKED = ranked_product(
+    Product(name="Sony WH-1000XM5", price=328.0, rating=4.7), score=0.9, rank=1
 )
 
 
@@ -372,6 +373,13 @@ def test_the_sources_check_is_mirrored_field_for_field_in_typescript() -> None:
 
 def test_a_ranked_product_is_mirrored_field_for_field_in_typescript() -> None:
     assert set(ts_interface("RankedProduct")) == set(product_payload(RANKED))
+
+
+def test_a_score_s_parts_are_mirrored_field_for_field_in_typescript() -> None:
+    """The card draws one share per criterion and marks the assumed ones, so a
+    part added in Python and forgotten here is an undefined in a percentage
+    (ADR-0041)."""
+    assert set(ts_interface("ScoreParts")) == set(product_payload(RANKED)["breakdown"])
 
 
 def test_an_installed_model_is_mirrored_field_for_field_in_typescript() -> None:

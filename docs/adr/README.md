@@ -47,6 +47,9 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0036](0036-score-the-agent-against-a-fixed-answer-key.md) | Score the agent against a fixed answer key, beside the invariants | Accepted |
 | [0037](0037-run-windows-weekly-rather-than-on-every-push.md) | Run the Windows half of CI weekly rather than on every push | Accepted |
 | [0038](0038-own-the-model-call-instead-of-a-framework.md) | Call each model server's own client, and drop LangChain | Accepted |
+| [0039](0039-enforce-the-shoppers-bounds-in-python.md) | Let the shopper set bounds, and enforce them after grounding | Accepted |
+| [0040](0040-cache-the-page-text-on-disk.md) | Cache the page text on disk, and cache the text rather than the excerpt | Accepted |
+| [0041](0041-report-what-a-score-is-made-of.md) | Report what a score is made of, and name the parts that were assumed | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

@@ -10,6 +10,7 @@ import httpx
 from ollama import RequestError, ResponseError
 
 from buy_agent.agent import BuyAgent, ModelUnavailableError
+from buy_agent.cache import DEFAULT_TTL
 from buy_agent.chat import UnreadableAnswerError
 from buy_agent.config import AgentConfig
 from buy_agent.models import ExtractedProduct, ProductList, SearchQuery
@@ -374,6 +375,7 @@ def test_result_pages_are_fetched_by_default(
         "max_chars": 1200,
         "opinion_chars": 400,
         "timeout": 8.0,
+        "cache_ttl": DEFAULT_TTL,
     }
 
 
@@ -392,6 +394,7 @@ def test_the_page_budget_and_timeout_are_the_config_s_own(
         page_chars=777,
         opinion_chars=99,
         fetch_timeout=2.5,
+        cache_ttl=60.0,
     )
 
     agent.run("headphones")
@@ -401,6 +404,7 @@ def test_the_page_budget_and_timeout_are_the_config_s_own(
         "max_chars": 777,
         "opinion_chars": 99,
         "timeout": 2.5,
+        "cache_ttl": 60.0,
     }
 
 
@@ -1106,3 +1110,104 @@ def test_a_run_stopped_before_ranking_reports_nothing(
         agent.run("headphones", checkpoint=stop_before_ranking)
 
     assert "TOP" not in caplog.text
+
+
+# -- the shopper's own bounds (ADR-0039) ---------------------------------------
+
+
+def test_a_budget_keeps_the_report_to_what_was_asked_for(
+    agent_factory, search_results, extracted_products
+) -> None:
+    """The gap this closes: the request says "under $200", the search puts that
+    in the query, and nothing downstream ever checks it -- so a $328 pair is
+    reported, and reported as the *best* one where nothing cheaper came back."""
+    agent, _ = agent_factory(
+        FakeLLM(products=extracted_products), search_results, max_price=200.0
+    )
+
+    ranked = agent.run("headphones under $200")
+
+    assert [entry.product.name for entry in ranked] == [
+        "Anker Soundcore Q30",
+        "Unknown Brand Buds",
+    ]
+
+
+def test_a_rating_floor_reaches_the_report_too(
+    agent_factory, search_results, extracted_products
+) -> None:
+    agent, _ = agent_factory(
+        FakeLLM(products=extracted_products), search_results, min_rating=4.5
+    )
+
+    assert [entry.product.name for entry in agent.run("headphones")] == [
+        "Sony WH-1000XM5",
+        "Unknown Brand Buds",
+    ]
+
+
+def test_the_ranks_are_renumbered_over_what_survived(
+    agent_factory, search_results, extracted_products
+) -> None:
+    """Filtered before ranking rather than after, so #1 is the best thing the
+    shopper can actually buy and not the best of a list they were shown none of."""
+    agent, _ = agent_factory(
+        FakeLLM(products=extracted_products), search_results, max_price=200.0
+    )
+
+    ranked = agent.run("headphones under $200")
+
+    assert [entry.rank for entry in ranked] == [1, 2]
+
+
+def test_the_price_scale_is_over_what_survived_the_bounds(
+    agent_factory, search_results, extracted_products
+) -> None:
+    """Price scores relative to the candidate set, so the set has to be the one
+    being reported: scored against the $328 pair that was dropped, the $79 one
+    would be "the cheapest available" on the strength of an option nobody has."""
+    agent, _ = agent_factory(
+        FakeLLM(products=extracted_products), search_results, max_price=200.0
+    )
+
+    ranked = agent.run("headphones under $200")
+    cheapest = next(entry for entry in ranked if entry.product.name == "Anker Soundcore Q30")
+
+    assert "price" in cheapest.breakdown.neutral, "one price left in the set is no scale"
+
+
+def test_bounds_that_admit_nothing_end_the_run_without_a_report(
+    agent_factory, search_results, caplog
+) -> None:
+    """Not a failure -- the run worked -- so it is the empty answer the CLI turns
+    into its own exit code, with the reason on the way past.
+
+    Every candidate here carries a price, which is what it takes to drop the lot:
+    a product whose price no page printed is kept whatever the budget is.
+    """
+    priced = ProductList(
+        products=[
+            ExtractedProduct(name="Sony WH-1000XM5", price=328.0, currency="USD"),
+            ExtractedProduct(name="Anker Soundcore Q30", price=79.0, currency="USD"),
+        ]
+    )
+    agent, _ = agent_factory(FakeLLM(products=priced), search_results, max_price=1.0)
+
+    with caplog.at_level(logging.INFO):
+        assert agent.run("headphones") == []
+
+    assert "0 of 2 product(s) are within the limits (at most 1.00)" in caplog.text
+    assert "No products to report" not in caplog.text
+
+
+def test_a_run_with_no_bounds_reports_everything_it_found(
+    agent_factory, search_results, extracted_products, caplog
+) -> None:
+    """The default, and the run this always was."""
+    agent, _ = agent_factory(FakeLLM(products=extracted_products), search_results)
+
+    with caplog.at_level(logging.INFO):
+        ranked = agent.run("headphones")
+
+    assert len(ranked) == 3
+    assert "within the limits" not in caplog.text

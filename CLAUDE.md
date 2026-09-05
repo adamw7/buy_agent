@@ -50,6 +50,8 @@ python -m buy_agent "gaming laptop under $1500"          # run the agent
 python -m buy_agent "espresso machine" --model lfm2.5 -v
 python -m buy_agent "gaming laptop" --provider vllm      # the other model server
 python -m buy_agent "running shoes" --sort-by price --json results.json
+python -m buy_agent "headphones" --max-price 200 --min-rating 4.5   # bounds, enforced
+python -m buy_agent "headphones" --cache-ttl 0                      # every page fresh
 python -m buy_agent "wireless earbuds" --source rtings.com --source @mkbhd
 
 python -m buy_agent.server                    # the UI and its API on :8000
@@ -112,6 +114,12 @@ Nothing tests that file, so a path added to one of those directories is only kep
 out of the image by keeping this list current.
 
 ### Settings and their environment
+
+`$BUY_AGENT_CACHE_DIR` moves where the page cache keeps what it read, defaulting
+to the platform's own cache directory under `buy-agent/pages` (ADR-0040). Like
+`$VLLM_API_KEY` it has no flag and no form field -- a path on the server's disk is
+not a browser's to choose -- while *how long* an entry lasts is the ordinary
+`cache_ttl` setting, 0 meaning "read every page off the web".
 
 `$BUY_AGENT_PROVIDER` moves which model server a run talks to, and each provider
 has its own variables behind it -- `$OLLAMA_MODEL`/`$OLLAMA_HOST` and
@@ -216,8 +224,8 @@ a new record superseding it rather than an edit to the old one -- numbers are ne
 reused, and accepted records are not rewritten. `tests/test_conventions.py` checks
 that the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0038 and every record is Accepted but ADR-0020, which ADR-0037 supersedes,
-so the next free number is 0039.
+to ADR-0041 and every record is Accepted but ADR-0020, which ADR-0037 supersedes,
+so the next free number is 0042.
 
 `.claude/skills/` holds the chores that span those files: `add-option` walks a new
 setting through `config.py`, both front doors, `agent.types.ts` and the form;
@@ -249,16 +257,20 @@ these servers are typically run with small models that drive tool loops badly.
 request -> refine query (LLM) -> DuckDuckGo (once, or once per named
 source) -> fetch + condense pages
         -> extract products and their opinions (LLM) -> clean_products
-        -> ground -> deduplicate -> rank -> log top 3
+        -> ground -> deduplicate -> the shopper's bounds -> rank -> log top 3
 ```
 
-That order is load-bearing in both joints. `clean_products` runs before `ground`
+That order is load-bearing in three joints. `clean_products` runs before `ground`
 so a name still wearing its publisher suffix ("... Review | AudioSite") is not
 failed by the coverage check for tokens the page never had to contain; `ground`
 runs before `deduplicate` so `_combine` only ever merges figures the sources back.
 That is necessary and not sufficient: a merge taking each field on its own would
 still report a pairing no page printed, so `models.QUALIFIERS` says which fields
-only qualify another and `_fill_gaps` moves the group.
+only qualify another and `_fill_gaps` moves the group. The third is the shopper's
+bounds (ADR-0039): after `deduplicate`, since `_fill_gaps` may be what supplies
+the price they are judged on, and before `rank_products`, since price scores
+relative to the candidate set and the set that matters is the one being
+reported.
 
 | Module | Responsibility |
 | --- | --- |
@@ -266,8 +278,10 @@ only qualify another and `_fill_gaps` moves the group.
 | `chat.py` | The whole model-facing seam: a prompt, a chain, an answer read back as its schema (ADR-0038) |
 | `extraction.py` | Both prompts, both chains, name cleaning, deduplication |
 | `fetch.py` | Streams result pages up to a ceiling, keeps the lines quoting a figure or passing judgement, and tallies how the rest failed |
+| `cache.py` | The page text a run read, kept on disk for the next one -- and nothing else (ADR-0040) |
 | `verification.py` | Drops products, figures and quotes absent from the sources; links what is left |
-| `ranking.py` | Scoring and sorting; no LLM involved |
+| `constraints.py` | The bounds the shopper set, applied to the products before they are ranked |
+| `ranking.py` | Scoring and sorting, and what each score is made of; no LLM involved |
 | `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain) |
 | `search.py` | DuckDuckGo wrapper -- and nothing else (ADR-0021) |
 | `sources.py` | What a trusted source is: domain, term, `site:` query, `covers` |
@@ -276,7 +290,7 @@ only qualify another and `_fill_gaps` moves the group.
 | `api.py` | Request options in, ranked products out -- the web-facing half worth testing |
 | `server.py` | A stdlib HTTP server: the JSON API, the event stream, the built UI |
 
-### Nine conventions
+### Ten conventions
 
 - **A model server is one row in one table, reached one way.**
   `providers.PROVIDERS` holds each server whole -- its defaults (`model`,
@@ -382,11 +396,18 @@ only qualify another and `_fill_gaps` moves the group.
   an invented "Bose 700". Only ever add words that identify nothing ("wireless",
   "black"); a brand or a model number there would let an invented product pass
   grounding.
-- **Missing data scores neutral, not zero.** `ranking.NEUTRAL` is 0.5, and an
-  unknown rating, review count or price scores that. Grounding blanks figures the
-  sources did not back, so scoring a blank as 0 would punish a product for the
-  extractor's misses. For the same reason `sort_by="price"` and `"rating"` sink
-  products missing that field to the bottom instead of dropping them.
+- **Missing data scores neutral, not zero -- and says that it did.**
+  `ranking.NEUTRAL` is 0.5, and an unknown rating, review count or price scores
+  that. Grounding blanks figures the sources did not back, so scoring a blank as
+  0 would punish a product for the extractor's misses. For the same reason
+  `sort_by="price"` and `"rating"` sink products missing that field to the bottom
+  instead of dropping them, and the shopper's bounds keep a product whose figure
+  is unknown rather than dropping it (ADR-0039). The cost of that rule is that
+  0.5 means two different things, so `score_product` answers a `ScoreParts` whose
+  `neutral` names the criteria that were assumed rather than read, and both front
+  ends show it (ADR-0041). It is decided there and nowhere else: a share that
+  *equals* 0.5 may have been measured, a product priced mid-way through the set
+  scoring exactly that.
 - **The report is output; the progress is narration.** `logging_setup` splits them
   by handler rather than by logger: `log_top_products` marks its records and they
   go to stdout, everything else to the stderr handler `basicConfig` installed, and
@@ -478,6 +499,11 @@ seeds the web form.
   while on a command line "unset" is spelled by leaving the flag off -- so
   `parse_named_sources` refuses a flag naming nothing rather than letting it come
   back empty and widen the search to everything (ADR-0027).
+- **The three bounds** -- `max_price`, `min_rating`, `min_reviews` -- are
+  ordinary numbers with one rule of their own: they default to `None`, so a blank
+  is not "the default value" but "no bound at all", and a product whose figure is
+  unknown passes every one of them (ADR-0039). The form says so rather than
+  showing a fallback number: their placeholder is "No limit".
 - **`weights`** is the one field neither door fills in: `RankingWeights` is
   reachable only by constructing an `AgentConfig` in Python, so rebalancing the
   blended score is a code change and not a flag.
@@ -757,15 +783,15 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1172 tests run in about five seconds: most of that is the two that spawn an
+1270 tests run in about five seconds: most of that is the two that spawn an
 interpreter -- one checking `python -m buy_agent` still runs as a script, one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1172 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1172 collect but 13 of the 17 in
-`tests/test_start_script.py` skip, so the summary reads `1159 passed, 13 skipped`.
-The UI's 133 tests run in about two seconds, most of which is building the app
+reaching out. 1270 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1270 collect but 13 of the 17 in
+`tests/test_start_script.py` skip, so the summary reads `1257 passed, 13 skipped`.
+The UI's 141 tests run in about two seconds, most of which is building the app
 first. The 30 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
 
@@ -783,8 +809,8 @@ that
 - every provider in `providers.PROVIDERS` is offered by `--provider`, by
   `api.PROVIDER_OPTIONS` and in the rows the form's picker is built from, and
   `ProviderOption` is mirrored in TypeScript;
-- `agent.types.ts` mirrors `defaults_payload`, `product_payload` and `run_search`
-  field for field;
+- `agent.types.ts` mirrors `defaults_payload`, `product_payload`, the
+  `breakdown` a product carries and `run_search` field for field;
 - the form holds a number to a range for every range `limits_payload` ships and
   writes no `min` or `max` of its own into its template, and every key
   `parse_options` reads is one `SearchOptions` sends -- a key it reads and the form
