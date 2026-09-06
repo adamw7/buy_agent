@@ -450,15 +450,19 @@ place -- a run refused for one value comes back naming the field, and that box i
 marked along with the banner
 ([ADR-0033](docs/adr/0033-let-the-form-refuse-what-the-server-would.md)).
 
-When a run ends badly the Progress panel offers **Download log**: the lines it was
-showing plus the error that ended the run. The panel scrolls and the next search
-clears it, so without this a failure worth reporting is gone as soon as it is
-retried. A finished run has two controls of its own: **Rank by** posts the
-products back to `POST /api/rank`, which calls the same `rank_products` a run ends
-with and nothing else, so the ordering is still Python's and only the minute is
-skipped; **Download results** saves the answer the server sent, which is the same
-document `--json` writes
+When a run ends badly -- or when you stop one yourself -- the Progress panel
+offers **Download log**: the lines it was showing plus the error that ended the
+run. The panel scrolls and the next search clears it, so without this a failure
+worth reporting is gone as soon as it is retried, and the reason to stop a run is
+usually that it had gone quiet for four minutes. A finished run has two controls
+of its own: **Re-order these** posts the products back to `POST /api/rank`, which
+calls the same `rank_products` a run ends with and nothing else, so the ordering
+is still Python's and only the minute is skipped; **Download results** saves the
+answer the server sent, which is the same document `--json` writes
 ([ADR-0035](docs/adr/0035-re-sort-a-finished-run-without-running-it-again.md)).
+It is deliberately not called *Rank by*, which is what the settings call the
+criterion the **next** run is ranked by: the two are different questions, and one
+label over both read as a single setting perpetually out of step with itself.
 
 A search takes tens of seconds, so the browser does not wait on one response.
 `GET /api/search/stream` runs the search and relays the agent's own log lines as
@@ -573,9 +577,9 @@ Nine details make it work with a small model:
   so the report answers the question that was asked -- and a product whose figure
   no page printed is kept rather than dropped for the extractor's miss.
 - **A score that says what it is made of.** Every product carries the three
-  shares its score was blended from, with the ones nothing was published for
-  marked "assumed" -- because a missing rating and a middling one both score 0.5,
-  and only one of them is a measurement.
+  shares its score was blended from and the weight each went in at, with the ones
+  nothing was published for marked "assumed" -- because a missing rating and a
+  middling one both score 0.5, and only one of them is a measurement.
 
 ### Ranking
 
@@ -599,7 +603,7 @@ say so -- on the CLI:
 
 ```
 #1  Anker Soundcore Q30
-     score  : 0.650  (rating 0.50 assumed, popularity 0.50 assumed, price 1.00)
+     score  : 0.650  (rating 0.50 x0.50 assumed, popularity 0.50 x0.20 assumed, price 1.00 x0.30)
 ```
 
 and under the bar on each card in the browser, with the same word. A report whose
@@ -609,6 +613,14 @@ is worth seeing next to the answer rather than only in the log above it
 assumed is decided where the scoring happens, never inferred from a share being
 0.5 -- a product priced exactly mid-way through the set scores that having been
 read off a page.
+
+The `x0.50` beside each share is the weight it went in at, and it is there because
+the shares are each scored out of 1 on their own: three of them under a total they
+do not add up to read as arithmetic that has gone wrong, and nothing else says
+whether a product placed first on its rating or on a price no page printed. A run
+reports what it ranked with, so the card draws the weights rather than working
+them out
+([ADR-0045](docs/adr/0045-report-the-weights-a-score-was-blended-by.md)).
 
 ## Tests
 

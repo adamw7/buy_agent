@@ -70,6 +70,13 @@
         <li [class.assumed]="part.assumed">
           <span class="part">{{ part.name }}</span>
           <span class="share">{{ part.percent }}%</span>
+          <!-- Beside every share, because without it three percentages under a
+               total read as parts of it: they are each out of 100 on their own
+               and never add up to the score. It is also the only thing that says
+               which criterion a placing turned on. -->
+          @if (part.weight !== null) {
+            <span class="weight">{{ part.weight }}% of the score</span>
+          }
           @if (part.assumed) {
             <!-- Said in words rather than by a colour alone: this is the
                  difference between a figure read off a page and one nobody
@@ -79,5 +86,7 @@
         </li>
       }
     </ul>
+
+    <p class="parts-note">Each criterion is scored on its own, then blended by weight.</p>
   </div>
 </article>

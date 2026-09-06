@@ -28,6 +28,12 @@ SortBy = Literal["score", "price", "rating"]
 #: listing that simply did not publish a rating is not buried by one that did.
 NEUTRAL = 0.5
 
+#: The criteria a score is blended from, in the order they are weighted -- the
+#: field names of both :class:`RankingWeights` and
+#: :class:`~buy_agent.models.ScoreParts`, which is what lets a weight be looked up
+#: beside the share it weighs.
+CRITERIA: tuple[str, ...] = ("rating", "popularity", "price")
+
 
 @dataclass(frozen=True, slots=True)
 class RankingWeights:
@@ -40,6 +46,24 @@ class RankingWeights:
     @property
     def total(self) -> float:
         return self.rating + self.popularity + self.price
+
+    @property
+    def fractions(self) -> dict[str, float]:
+        """Each criterion's share of the blend, by name, adding up to one.
+
+        The weights as a reader needs them rather than as they were written: 0.5
+        out of a total of 1.0 and 5 out of a total of 10 weigh the same. Without
+        them a breakdown cannot be read at all -- "rating 0.94, price 1.00" beside
+        a score of 0.96 invites adding three numbers that were never meant to be
+        added, and says nothing about which of them the placing turned on
+        (ADR-0041). Zero throughout for weights totalling nothing, which is the
+        run ``score_product`` scores 0.0 for.
+        """
+        total = self.total
+        return {
+            name: (getattr(self, name) / total if total else 0.0)
+            for name in CRITERIA
+        }
 
 
 def score_product(

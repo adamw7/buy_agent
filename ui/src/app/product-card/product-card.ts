@@ -1,9 +1,16 @@
 import { Component, computed, input } from '@angular/core';
 
-import type { RankedProduct } from '../agent.types';
+import type { RankedProduct, ScoreWeights } from '../agent.types';
 
 /**
- * One criterion's share of the score, as the card draws it.
+ * One criterion behind the score, as the card draws it.
+ *
+ * `percent` is that criterion scored on its own out of 100, and `weight` is how
+ * much of the blend it was allowed to decide -- both, because either alone
+ * misleads. Three bare percentages under a total read as parts of it and are
+ * not: they do not add up to the score, and which of them the placing turned on
+ * is the weight's to say. `weight` is null before a run has answered, which is
+ * the only time the card has products and no weights to draw them with.
  *
  * `assumed` is Python's answer and not a guess made here: it is the name
  * appearing in `breakdown.neutral`, which is how a criterion nothing was
@@ -13,6 +20,7 @@ import type { RankedProduct } from '../agent.types';
 interface ScoreShare {
   name: string;
   percent: number;
+  weight: number | null;
   assumed: boolean;
 }
 
@@ -44,6 +52,11 @@ export class ProductCard {
   /** Whether this one made the top N the agent reports. */
   readonly highlighted = input(false);
 
+  /** How much each criterion counted, as the run that produced this reported it.
+   *  A fact about the run rather than the product, so it arrives beside the
+   *  products rather than inside each one. */
+  readonly weights = input<ScoreWeights | null>(null);
+
   protected readonly percent = computed(() => Math.round(this.product().score * 100));
 
   /**
@@ -61,16 +74,22 @@ export class ProductCard {
    * Shown because the bar alone says where a product placed and nothing about
    * why -- and because half of these numbers are routinely not measurements at
    * all: a product no page rated scores the same 0.5 as one rated exactly
-   * average, and the shopper cannot tell those apart from the total. The share
-   * is drawn as a percentage for the reason the total is, and marked where it
-   * was assumed. Which of them were assumed is read off the payload, never
-   * worked out here from a value equalling 0.5: a genuinely mid-priced product
-   * scores exactly that, and the card would libel it.
+   * average, and the shopper cannot tell those apart from the total. Each is
+   * drawn as a percentage for the reason the total is, and marked where it was
+   * assumed. Which of them were assumed is read off the payload, never worked
+   * out here from a value equalling 0.5: a genuinely mid-priced product scores
+   * exactly that, and the card would libel it.
+   *
+   * The weight comes with each one because without it the three read as parts of
+   * the total: they are each out of 100 on their own, they do not add up to the
+   * score, and a product placed on its price alone looks identical to one placed
+   * on its rating. Python normalises the weights; nothing here works one out.
    */
   protected readonly parts = computed<ScoreShare[]>(() => {
     const breakdown = this.product().breakdown;
+    const weights = this.weights();
     const assumed = new Set(breakdown.neutral);
-    const shares: [string, number][] = [
+    const shares: [keyof ScoreWeights, number][] = [
       ['rating', breakdown.rating],
       ['popularity', breakdown.popularity],
       ['price', breakdown.price],
@@ -78,6 +97,7 @@ export class ProductCard {
     return shares.map(([name, share]) => ({
       name,
       percent: Math.round(share * 100),
+      weight: weights ? Math.round(weights[name] * 100) : null,
       assumed: assumed.has(name),
     }));
   });

@@ -9,7 +9,7 @@ import pytest
 
 from buy_agent.logging_setup import _NOISY_LIBRARIES, configure_logging, log_top_products
 from buy_agent.models import Product, RankedProduct
-from buy_agent.ranking import rank_products
+from buy_agent.ranking import RankingWeights, rank_products
 from tests.conftest import ranked_product, said
 
 
@@ -350,7 +350,21 @@ def test_the_report_says_what_a_score_is_made_of(caplog) -> None:
 
     # The Anker tops this pair: better value and more reviewed, and cheapest in
     # a set of two, which is the whole of the price criterion.
-    assert "rating 0.86, popularity 1.00, price 1.00" in caplog.text
+    assert "rating 0.86 x0.50, popularity 1.00 x0.20, price 1.00 x0.30" in caplog.text
+
+
+def test_the_report_says_what_each_criterion_was_weighted_at(caplog) -> None:
+    """Three scores beside a total they do not add up to read as a sum that has
+    gone wrong, and say nothing about which criterion a placing turned on."""
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        log_top_products(
+            rank_products([Product(name="Sony", rating=5.0)]),
+            1,
+            weights=RankingWeights(rating=3.0, popularity=1.0, price=0.0),
+        )
+
+    # Written as fractions of the blend, not as they were given: 3 out of 4.
+    assert "rating 1.00 x0.75, popularity 0.50 x0.25 assumed, price 0.50 x0.00" in caplog.text
 
 
 def test_the_report_marks_a_share_that_was_assumed_rather_than_read(caplog) -> None:
@@ -359,4 +373,7 @@ def test_the_report_marks_a_share_that_was_assumed_rather_than_read(caplog) -> N
     with caplog.at_level(logging.INFO, logger="buy_agent"):
         log_top_products(rank_products([Product(name="Silent")]), 1)
 
-    assert "rating 0.50 assumed, popularity 0.50 assumed, price 0.50 assumed" in caplog.text
+    assert (
+        "rating 0.50 x0.50 assumed, popularity 0.50 x0.20 assumed, price 0.50 x0.30 assumed"
+        in caplog.text
+    )

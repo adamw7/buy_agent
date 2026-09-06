@@ -154,12 +154,15 @@ h3 a:hover {
 }
 
 /* What the score is made of, under the bar it made. Wrapping rather than
-   scrolling: three short pairs fit one line on a laptop and two on a phone, and
-   a share that fell off the edge would leave the total unexplained again. */
+   scrolling: a criterion that fell off the edge would leave the total
+   unexplained again. A column and not a row, since each entry now carries its
+   weight as well as its share -- three of those side by side wrapped mid-entry
+   on a laptop, which put a weight under the share belonging to the one before
+   it. */
 .parts {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
+  flex-direction: column;
+  gap: 3px;
   margin: 6px 0 0;
   padding: 0;
   list-style: none;
@@ -170,12 +173,36 @@ h3 a:hover {
 
 .parts li {
   display: flex;
-  gap: 5px;
+  flex-wrap: wrap;
+  gap: 2px 8px;
   align-items: baseline;
 }
 
+/* A fixed column each, so the shares line up down the card and the eye can
+   compare them without reading the names again. */
+.parts .part {
+  flex: 0 0 68px;
+}
+
 .parts .share {
+  flex: 0 0 34px;
   color: var(--text);
+  text-align: end;
+}
+
+/* How much of the blend this criterion was allowed to decide. Dimmer than the
+   share, which is the measurement; this is the constant beside it. */
+.parts .weight {
+  opacity: 0.85;
+}
+
+/* One sentence for the list above it: the three numbers are not slices of the
+   total, and a reader who adds them up otherwise gets an answer that looks
+   broken. */
+.parts-note {
+  margin: 6px 0 0;
+  color: var(--text-dim);
+  font-size: 11px;
 }
 
 /* A share nobody published, which scored the neutral 0.5 and is therefore not a

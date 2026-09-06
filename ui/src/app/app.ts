@@ -46,6 +46,19 @@ export class App {
   protected readonly sourcesCheck = signal<SourcesCheck | null>(null);
   protected readonly running = signal(false);
   protected readonly started = signal(false);
+  /** A run the reader ended themselves. Its own flag and not `failure`: nothing
+   *  failed, so no banner and no alert -- but the log is worth keeping all the
+   *  same, a run somebody stopped being exactly the one that was going wrong. */
+  protected readonly stopped = signal(false);
+  /** The model server currently being asked what it serves, or null for none in
+   *  flight. The server and not a bare flag, because the pill has to name what it
+   *  is waiting on and that is not what `status` holds: a provider just picked is
+   *  being asked about while the last one's answer is still on the screen. */
+  private readonly asking = signal<ModelSource | null>(null);
+  /** Whether a listing is in flight. The one wait on this page with nothing else
+   *  to say it is happening: `/api/models` is a call per pulled tag on a
+   *  five-second budget, so a dead server takes the whole of it. */
+  protected readonly checking = computed(() => this.asking() !== null);
   /** A re-sort in flight. Its own flag and not `running`: the form stays usable
    *  through it, because nothing is being searched -- this is one request over
    *  products the page already has. */
@@ -84,8 +97,24 @@ export class App {
    */
   protected readonly unreachable = computed(() => {
     const server = this.status();
-    return server && !server.reachable ? (server.hint ?? null) : null;
+    // Nothing while a listing is in flight: the remedy under the pill is about
+    // the last answer, and leaving it up beside "Asking Ollama…" tells somebody
+    // who has just run that command that it did not work, before anything has
+    // been asked.
+    if (this.checking() || !server || server.reachable) {
+      return null;
+    }
+    return server.hint ?? null;
   });
+
+  /** What to call the server being asked about, for the pill to say while it is
+   *  being asked. Whichever of the two has arrived names it -- the status when
+   *  there is one, the defaults on the very first load, when there is not. */
+  protected readonly serverLabel = computed(() =>
+    this.labelFor(
+      this.asking()?.provider ?? this.status()?.provider ?? this.defaults()?.provider ?? '',
+    ),
+  );
 
   private run: Subscription | null = null;
   /** The two requests whose answer is about a question the page can have moved
@@ -129,17 +158,26 @@ export class App {
     // address and both ask -- and the slower one answering last would leave the
     // pill and the model list describing a server the form is not pointed at.
     this.listing?.unsubscribe();
+    // Said before the request rather than after it: this is the wait, and a
+    // superseded listing leaves it standing for the newer one to clear, which is
+    // what it is -- still asking, about a different server.
+    this.asking.set(target);
     this.listing = this.agent.models(target).subscribe({
-      next: (status) => this.status.set(status),
+      next: (status) => {
+        this.status.set(status);
+        this.asking.set(null);
+      },
       // The agent server itself did not answer, so nothing came back to name the
       // provider with -- the defaults it served earlier are where that name is.
-      error: () =>
+      error: () => {
         this.status.set({
           ...target,
           label: this.labelFor(target.provider),
           reachable: false,
           models: [],
-        }),
+        });
+        this.asking.set(null);
+      },
     });
   }
 
@@ -191,6 +229,7 @@ export class App {
     this.failure.set(null);
     this.rejected.set(null);
     this.reorderFailed.set(null);
+    this.stopped.set(false);
     this.running.set(true);
     this.started.set(true);
 
@@ -295,6 +334,11 @@ export class App {
     this.run?.unsubscribe();
     this.run = null;
     this.running.set(false);
+    // What the log panel offers its transcript on. A stopped run is not a
+    // failure and gets no banner, but it is the other run that leaves nothing on
+    // the page to look at afterwards -- and somebody who stopped one because it
+    // had gone quiet for four minutes is exactly who needs the file.
+    this.stopped.set(true);
     this.logs.update((lines) => [
       ...lines,
       // The only line the browser writes itself, so it is the only one timed off

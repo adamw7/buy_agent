@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 
 import { ProductCard } from './product-card';
-import type { RankedProduct } from '../agent.types';
+import type { RankedProduct, ScoreWeights } from '../agent.types';
 
 const SONY: RankedProduct = {
   rank: 1,
@@ -51,10 +51,18 @@ const UNKNOWN: RankedProduct = {
   rating_label: 'unrated',
 };
 
-async function render(product: RankedProduct, highlighted = false): Promise<HTMLElement> {
+/** What a run says its scores were blended by: the defaults, normalised. */
+const WEIGHTS: ScoreWeights = { rating: 0.5, popularity: 0.2, price: 0.3 };
+
+async function render(
+  product: RankedProduct,
+  highlighted = false,
+  weights: ScoreWeights | null = WEIGHTS,
+): Promise<HTMLElement> {
   const fixture = TestBed.createComponent(ProductCard);
   fixture.componentRef.setInput('product', product);
   fixture.componentRef.setInput('highlighted', highlighted);
+  fixture.componentRef.setInput('weights', weights);
   await fixture.whenStable();
   return fixture.nativeElement as HTMLElement;
 }
@@ -134,6 +142,35 @@ describe('ProductCard', () => {
       '100%',
       '32%',
     ]);
+  });
+
+  it('says how much of the score each criterion was allowed to decide', async () => {
+    /* Without it the three read as parts of the total: 94, 100 and 32 under a
+       91% is a sum that has gone wrong, and nothing says the placing turned on
+       the rating rather than the price. */
+    const shares = [...(await render(SONY)).querySelectorAll('.parts li')];
+
+    expect(shares.map((share) => share.querySelector('.weight')!.textContent!.trim())).toEqual([
+      '50% of the score',
+      '20% of the score',
+      '30% of the score',
+    ]);
+  });
+
+  it('says in words that the criteria are not slices of the total', async () => {
+    /* The numbers alone still invite adding up; one sentence is what stops it. */
+    const card = await render(SONY);
+
+    expect(card.querySelector('.parts-note')!.textContent).toContain('blended by weight');
+  });
+
+  it('draws the shares alone where no run has said what they were weighted at', async () => {
+    /* A card with no weights is one nothing has answered for yet -- so it leaves
+       the claim out rather than inventing a weight to make the row look whole. */
+    const shares = [...(await render(SONY, false, null)).querySelectorAll('.parts li')];
+
+    expect(shares.some((share) => share.querySelector('.weight'))).toBe(false);
+    expect(shares[0].querySelector('.share')!.textContent).toBe('94%');
   });
 
   it('marks the shares nobody published rather than passing them off as read', async () => {

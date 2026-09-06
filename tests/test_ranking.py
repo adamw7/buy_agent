@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from buy_agent.models import Product
-from buy_agent.ranking import NEUTRAL, RankingWeights, rank_products, score_product
+from buy_agent.ranking import CRITERIA, NEUTRAL, RankingWeights, rank_products, score_product
 
 
 def product(name: str, **kwargs: object) -> Product:
@@ -154,6 +154,33 @@ def test_zero_weights_do_not_divide_by_zero() -> None:
     weights = RankingWeights(rating=0.0, popularity=0.0, price=0.0)
     ranked = rank_products([product("anything", price=10.0)], weights=weights)
     assert ranked[0].score == 0.0
+
+
+def test_the_weights_are_reported_as_fractions_of_the_blend() -> None:
+    """How they were written is not how they are read: 3 out of 4 and 0.75 weigh
+    the same, and only the second can be shown beside a share."""
+    weights = RankingWeights(rating=3.0, popularity=1.0, price=0.0)
+
+    assert weights.fractions == {"rating": 0.75, "popularity": 0.25, "price": 0.0}
+    assert sum(RankingWeights().fractions.values()) == pytest.approx(1.0)
+
+
+def test_weights_totalling_nothing_are_fractions_of_nothing() -> None:
+    """The run whose score ``score_product`` answers 0.0 for -- so the fractions
+    beside it say the same, rather than dividing by zero to get there."""
+    weights = RankingWeights(rating=0.0, popularity=0.0, price=0.0)
+
+    assert weights.fractions == {"rating": 0.0, "popularity": 0.0, "price": 0.0}
+
+
+def test_every_criterion_a_score_has_is_one_the_weights_name() -> None:
+    """``CRITERIA`` is what lets a weight be looked up beside the share it weighs,
+    in the report and on the card alike -- a fourth criterion added to one of the
+    two classes and not the other would be drawn with somebody else's weight."""
+    scored = rank_products([product("anything")])[0].breakdown
+
+    assert set(CRITERIA) == set(RankingWeights().fractions)
+    assert set(CRITERIA) <= set(scored.model_dump())
 
 
 def popularity_of(review_count: int | None) -> float:

@@ -403,6 +403,15 @@ def test_a_score_s_parts_are_mirrored_field_for_field_in_typescript() -> None:
     assert set(ts_interface("ScoreParts")) == set(product_payload(RANKED)["breakdown"])
 
 
+def test_the_weights_a_run_reports_are_mirrored_field_for_field_in_typescript() -> None:
+    """The card draws each criterion's weight beside its share, since three shares
+    under a total they do not add up to read as parts of it. A weight added in
+    Python and forgotten here is an undefined in that percentage (ADR-0041)."""
+    ran = run_search("headphones", AgentConfig(), agent_factory=lambda _config: _StubAgent())
+
+    assert set(ts_interface("ScoreWeights")) == set(ran["weights"])
+
+
 def test_an_installed_model_is_mirrored_field_for_field_in_typescript() -> None:
     """The picker reads these to decide what to mark, so a field added on the
     Python side and forgotten here is an undefined deciding a dropdown entry."""

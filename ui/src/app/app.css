@@ -43,6 +43,29 @@ h1 {
   color: var(--good);
 }
 
+/* Neither up nor down: nothing has answered yet. A `span` and not a `button`,
+   since the question it would ask is the one already out. */
+.server.checking {
+  color: var(--text-dim);
+}
+
+.server.checking .dot {
+  color: var(--text-dim);
+  animation: blink 1.2s ease-in-out infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .server.checking .dot {
+    animation: none;
+  }
+}
+
 /* The provider's own remedy, under the pill it belongs to, with the way back
    beside it. */
 .server-reason {

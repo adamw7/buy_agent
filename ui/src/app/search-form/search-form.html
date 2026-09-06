@@ -64,14 +64,23 @@
       <label class="field">
         <span>Model</span>
         @if (modelOptions().length) {
-          <select name="model" [(ngModel)]="model" [disabled]="running()">
+          <select name="model" [(ngModel)]="model" [disabled]="running() || checking()">
             @for (option of modelOptions(); track option.name) {
               <option [value]="option.name">{{ option.name }}{{ option.note }}</option>
             }
           </select>
         } @else {
-          <input name="model" [(ngModel)]="model" [disabled]="running()" />
-          <small>{{ providerLabel() }} listed nothing to choose from, so type a name.</small>
+          <input name="model" [(ngModel)]="model" [disabled]="running() || checking()" />
+          @if (!checking()) {
+            <small>{{ providerLabel() }} listed nothing to choose from, so type a name.</small>
+          }
+        }
+        <!-- The list belongs to one server and the answer takes as long as that
+             server takes. Until it lands, what is on screen is the last server's
+             models -- so the field says what it is waiting for rather than
+             letting one of them be picked as if it were this server's. -->
+        @if (checking()) {
+          <small>Asking {{ providerLabel() }} what it is serving…</small>
         }
       </label>
 
@@ -130,7 +139,12 @@
           <!-- `[name]` and `[attr.name]` are not the same binding: the first is
                an input on `NgModel`, which swallows it, leaving the element
                itself without the attribute a label, an autofill or a test
-               selector goes looking for. Both, so both get one. -->
+               selector goes looking for. Both, so both get one.
+
+               `(input)` sits beside `(ngModelChange)` rather than instead of it:
+               a box holding `12abc` reports the empty string, so the model sees
+               the `null` a *cleared* box means, and only the element itself
+               still knows the difference. -->
           <input
             type="number"
             [name]="number.key"
@@ -141,6 +155,7 @@
             [placeholder]="placeholders()[number.key] ?? ''"
             [ngModel]="number.value()"
             (ngModelChange)="number.value.set($event)"
+            (input)="numberTyped(number.key, $event)"
             [disabled]="running() || number.off()"
             [class.invalid]="notes()[number.key]"
             [attr.aria-invalid]="notes()[number.key] ? true : null"
@@ -160,6 +175,10 @@
             <option [value]="option">{{ option }}</option>
           }
         </select>
+        <!-- Which run this one is about. A finished run has a control of its own
+             beside its results, and the two said the same two words over two
+             different questions. -->
+        <small>How the next run's results come back ordered.</small>
       </label>
 
       <label class="field">

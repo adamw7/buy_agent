@@ -29,8 +29,18 @@ import { filename, saveText } from '../save';
 export class ProgressLog {
   readonly lines = input.required<LogLine[]>();
   readonly running = input(false);
-  /** What ended the run badly, if anything -- what the offered file is for. */
+  /** What ended the run badly, if anything -- one of the two things the offered
+   *  file is for. */
   readonly failure = input<string | null>(null);
+  /** Whether the reader ended the run themselves. The other one: a stopped run
+   *  is not a failure and gets no banner, but it leaves no answer on the page
+   *  either, and somebody who stopped one because it had gone quiet for four
+   *  minutes wants the same file a failed one offers. */
+  readonly stopped = input(false);
+
+  /** Whether this run left something worth keeping. A finished one did not: it
+   *  is on the screen in front of you. */
+  protected readonly keepable = computed(() => this.failure() !== null || this.stopped());
 
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
 
@@ -154,8 +164,9 @@ export class ProgressLog {
   /**
    * Hand the whole run over as a text file.
    *
-   * The panel scrolls and is thrown away by the next search, so a run that
-   * failed leaves nothing to attach to a bug report; this is that attachment.
+   * The panel scrolls and is thrown away by the next search, so a run that failed
+   * -- or one somebody gave up on -- leaves nothing to attach to a bug report;
+   * this is that attachment.
    */
   protected download(): void {
     const when = new Date();

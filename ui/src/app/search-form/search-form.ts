@@ -119,6 +119,11 @@ export class SearchForm {
   readonly defaults = input<AgentDefaults | null>(null);
   readonly status = input<ModelStatus | null>(null);
   readonly running = input(false);
+  /** Whether the model list currently on screen is being replaced. The picker is
+   *  held shut while it is: what it holds is the last server's models, and one of
+   *  those chosen a moment before the new list lands is a model this server never
+   *  offered. */
+  readonly checking = input(false);
   /** What the server made of the sources field, last time it was asked. */
   readonly checked = input<SourcesCheck | null>(null);
   /** A value a run was refused for, to mark beside the field it came from. */
@@ -156,6 +161,30 @@ export class SearchForm {
   protected readonly thinking = signal<Thinking>('off');
   protected readonly fetchPages = signal(true);
   protected readonly advanced = signal(false);
+
+  /**
+   * The number boxes holding something that is not a number, by their key.
+   *
+   * A `<input type="number">` reports the empty string for text it cannot parse,
+   * so `12abc` reaches `ngModel` as `null` -- which is how a *cleared* box spells
+   * "use the default" (ADR-0012). Left at that, a box visibly full of nonsense
+   * was sent as absent, the run used the default, and neither the form nor the
+   * server said a word about it. The element itself is the only thing that can
+   * still tell the two apart, so it is asked as the reader types.
+   */
+  private readonly unreadable = signal<Record<string, boolean>>({});
+
+  /**
+   * The settings a run was actually started with, for as long as they stand.
+   *
+   * The server's refusal names a field but not the value it refused, and the
+   * mark it leaves is about what was *sent*: fix the region it would not take
+   * and the box stayed red, the summary went on counting a setting to look at,
+   * and neither cleared until the next run. Held here so the mark can be dropped
+   * the moment the box stops holding what was refused -- the same care
+   * `sourcesProblem` takes with an answer about text since typed over.
+   */
+  private readonly submitted = signal<SearchOptions | null>(null);
 
   /**
    * The settings that are seeded from the server, remembered, and restored.
@@ -329,12 +358,18 @@ export class SearchForm {
   protected readonly problems = computed<Record<string, string>>(() => {
     const problems: Record<string, string> = {};
     const limits = this.limits();
+    const unreadable = this.unreadable();
     for (const { key, value: held } of this.numberFields) {
       const limit = limits[key];
       const value = held();
-      // A cleared box means "use the default" (ADR-0012) rather than a number to
-      // hold to a range -- and it is the only way to ask for the server's own.
-      if (limit && value !== null && (value < limit.min || value > limit.max)) {
+      // Before the range, and before reading the value at all: what the box holds
+      // is not a number, so there is nothing to hold to a range -- and the signal
+      // says `null`, which is the one answer this must not be confused with.
+      if (unreadable[key]) {
+        problems[key] = 'That is not a number. Clear the box to use the default.';
+      } else if (limit && value !== null && (value < limit.min || value > limit.max)) {
+        // A cleared box means "use the default" (ADR-0012) rather than a number to
+        // hold to a range -- and it is the only way to ask for the server's own.
         problems[key] = `Between ${limit.min} and ${limit.max}.`;
       }
     }
@@ -368,11 +403,29 @@ export class SearchForm {
   protected readonly notes = computed<Record<string, string>>(() => {
     const problems = this.problems();
     const rejected = this.rejected();
-    if (!rejected || problems[rejected.field]) {
+    if (!rejected || problems[rejected.field] || !this.stillSent(rejected.field)) {
       return problems;
     }
     return { ...problems, [rejected.field]: rejected.message };
   });
+
+  /**
+   * Whether the field named still holds the value the run was refused for.
+   *
+   * A refusal is about what was sent, so it stops being about anything the
+   * moment the box is changed -- and a mark that outlives the mistake is a red
+   * field and a "1 setting to look at" over a form with nothing wrong with it.
+   * A key that was never sent (there is no such refusal today, but the server is
+   * free to name one) keeps its mark: unable to tell, this shows the sentence
+   * rather than swallowing it.
+   */
+  private stillSent(field: string): boolean {
+    const sent = this.submitted();
+    if (!sent || !(field in sent)) {
+      return true;
+    }
+    return this.options()[field as keyof SearchOptions] === sent[field as keyof SearchOptions];
+  }
 
   /**
    * How many settings have something to say about them, for the summary to carry.
@@ -462,7 +515,18 @@ export class SearchForm {
       return;
     }
     this.remember();
-    this.search.emit({
+    const options = this.options();
+    // Kept beside the request, so a refusal naming a field can be dropped as soon
+    // as that field stops holding what was refused.
+    this.submitted.set(options);
+    this.search.emit(options);
+  }
+
+  /** Every setting as a run would be asked for it. One place, because `notes`
+   *  compares what the boxes hold now against what was sent, and two spellings
+   *  of "what the boxes hold" would differ on the first field either forgot. */
+  private options(): SearchOptions {
+    return {
       request: this.request().trim(),
       provider: this.provider(),
       model: this.model().trim(),
@@ -480,7 +544,21 @@ export class SearchForm {
       num_ctx: this.numCtx(),
       think: fromThinking(this.thinking()),
       fetch: this.fetchPages(),
-    });
+    };
+  }
+
+  /**
+   * A number box was typed into: ask the element whether it can read it.
+   *
+   * `validity.badInput` is the only thing that can tell `12abc` from an empty
+   * box, both of which reach `ngModel` as `null`. Read defensively -- an
+   * environment without a `ValidityState` is one where nothing is unreadable, not
+   * one where everything is.
+   */
+  protected numberTyped(key: string, event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const bad = input.validity?.badInput ?? false;
+    this.unreadable.update((held) => (held[key] === bad ? held : { ...held, [key]: bad }));
   }
 
   protected useExample(example: string): void {

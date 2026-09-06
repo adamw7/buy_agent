@@ -58,9 +58,11 @@ function interceptDownload(): { saved: () => HTMLAnchorElement; blobs: Blob[] } 
   return {
     blobs,
     saved: () => {
-      // The URL is handed back as soon as the click is over: a page that keeps
-      // making these leaks the blob until it is reloaded.
-      expect(revoked).toEqual(links.map((link) => link.getAttribute('href')));
+      // Still holding the URL: it is given back a turn later, not in the one the
+      // click happened in, where revoking it can cancel the transfer. When that
+      // happens is `save.ts`'s own business and tested there; that it has not
+      // happened yet is what this panel's button depends on.
+      expect(revoked).toEqual([]);
       return links[links.length - 1];
     },
   };

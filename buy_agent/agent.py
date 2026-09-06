@@ -186,7 +186,7 @@ class BuyAgent:
         # for a run nobody is reading any more.
         checkpoint("rank")
         ranked = rank_products(products, weights=self.config.weights, sort_by=sort_by)
-        log_top_products(ranked, self.config.top_n)
+        log_top_products(ranked, self.config.top_n, weights=self.config.weights)
         return ranked
 
     def _search(self, query: str) -> list[SearchResult]:

@@ -92,11 +92,15 @@ const product = (rank: number, name: string) => ({
   rating_label: '4.5/5 (10 reviews)',
 });
 
+/** What a run reports its scores were blended by -- the defaults, normalised. */
+const WEIGHTS = { rating: 0.5, popularity: 0.2, price: 0.3 };
+
 const RESULT: SearchResult = {
   request: 'kettle',
   count: 3,
   top_n: 2,
   sort_by: 'score',
+  weights: WEIGHTS,
   products: [product(1, 'Best Kettle'), product(2, 'Good Kettle'), product(3, 'Other Kettle')],
 };
 
@@ -121,6 +125,7 @@ class FakeAgent {
       count: options.products.length,
       top_n: options.top,
       sort_by: options.sort_by,
+      weights: WEIGHTS,
       products: [...options.products].reverse().map((entry, index) => ({
         ...entry,
         rank: index + 1,
@@ -184,6 +189,53 @@ describe('App', () => {
     localStorage.clear();
     agent = new FakeAgent();
     TestBed.configureTestingModule({ providers: [{ provide: AgentService, useValue: agent }] });
+  });
+
+  it('says which server it is waiting on rather than showing the last answer', async () => {
+    /* `/api/models` is a call per pulled tag on a five-second budget, so a dead
+       server takes the whole of it. Left showing the previous answer, the pill
+       reported a server nobody had asked about and Check again did nothing
+       visible at all. */
+    const listing = new Subject<ModelStatus>();
+    agent.modelsResponse = listing;
+
+    const fixture = await render();
+    const page = fixture.nativeElement as HTMLElement;
+    expect(page.querySelector('.server')!.textContent).toContain('Asking Ollama…');
+    expect(page.querySelector('.server-reason'), 'no remedy for an unasked question').toBeNull();
+
+    listing.next(STATUS);
+    await fixture.whenStable();
+
+    expect(page.querySelector('.server')!.textContent).toContain('Ollama · 1 model');
+  });
+
+  it('names the server being asked about, not the one still on screen', async () => {
+    /* The provider picker fills in its pair and asks -- and the answer on screen
+       is the *last* server's, which is not what the wait is about. */
+    const fixture = await render();
+    const page = fixture.nativeElement as HTMLElement;
+    agent.modelsResponse = new Subject<ModelStatus>();
+
+    const picker = page.querySelector<HTMLSelectElement>('select[name="provider"]')!;
+    picker.value = 'vllm';
+    picker.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    expect(page.querySelector('.server')!.textContent).toContain('Asking vLLM…');
+  });
+
+  it('holds the model picker shut while the list is being replaced', async () => {
+    /* What it holds is the last server's models, and one of those picked a moment
+       before the new list lands is a model this server never offered. */
+    agent.modelsResponse = new Subject<ModelStatus>();
+
+    const page = (await render()).nativeElement as HTMLElement;
+    const field =
+      page.querySelector('select[name="model"]') ?? page.querySelector('input[name="model"]');
+
+    expect((field as HTMLInputElement).disabled).toBe(true);
+    expect(page.textContent).toContain('Asking Ollama what it is serving…');
   });
 
   it('seeds the form from the agent defaults and shows the model server status', async () => {
@@ -494,6 +546,35 @@ describe('App', () => {
     expect(page.querySelector('button[type="submit"]')).not.toBeNull();
   });
 
+  it('offers the log of a run somebody stopped, as it does one that failed', async () => {
+    /* A stopped run leaves no answer on the page and no banner either, and the
+       reason to stop one is usually that it had gone quiet -- which is exactly
+       the run worth attaching to a bug report. */
+    const fixture = await render();
+    await searchFor(fixture, 'kettle');
+    const page = fixture.nativeElement as HTMLElement;
+    expect(page.querySelector('.log .save'), 'nothing to keep while it runs').toBeNull();
+
+    page.querySelector<HTMLButtonElement>('.actions button')!.click();
+    await fixture.whenStable();
+
+    expect(page.querySelector('.log .save')!.textContent).toContain('Download log');
+  });
+
+  it('stops offering the log once a new run is under way', async () => {
+    /* The offer is about the run on screen, and the next search replaces it. */
+    const fixture = await render();
+    await searchFor(fixture, 'kettle');
+    const page = fixture.nativeElement as HTMLElement;
+    page.querySelector<HTMLButtonElement>('.actions button')!.click();
+    await fixture.whenStable();
+
+    agent.stream = new Subject<SearchEvent>();
+    await searchFor(fixture, 'toaster');
+
+    expect(page.querySelector('.log .save')).toBeNull();
+  });
+
   it('says the run ends at the next step rather than at the click', async () => {
     /* Closing the stream is what stops it, but the server only notices at the
        pipeline's next boundary -- so a shopper who starts another search straight
@@ -592,6 +673,34 @@ describe('App results', () => {
     select.dispatchEvent(new Event('change'));
     await fixture.whenStable();
   };
+
+  it('calls the two ordering controls two different things', async () => {
+    /* One re-orders products already on the screen and one sets the criterion the
+       next run is ranked by. Both said "Rank by", so they read as one setting
+       shown twice -- and perpetually out of step with itself, since changing
+       either leaves the other where it was. */
+    const page = (await finished()).nativeElement as HTMLElement;
+
+    const beside = page.querySelector('.resort span')!.textContent!.trim();
+    const setting = page
+      .querySelector('select[name="sortBy"]')!
+      .closest('label')!
+      .textContent!.trim();
+
+    expect(beside).toBe('Re-order these');
+    expect(setting).toContain('Rank by');
+    expect(setting).toContain("How the next run's results come back ordered.");
+  });
+
+  it('gives every card the weights the run blended its scores by', async () => {
+    /* Three shares under a total they do not add up to cannot be read at all --
+       and the ones folded away are read the same way as the ones on top. */
+    const page = (await finished()).nativeElement as HTMLElement;
+    const weights = [...page.querySelectorAll('app-product-card .parts li .weight')];
+
+    expect(weights.length).toBe(RESULT.products.length * 3);
+    expect(weights[0].textContent).toContain('50% of the score');
+  });
 
   it('offers the criteria the server named, showing the one the run used', async () => {
     const page = (await finished()).nativeElement as HTMLElement;

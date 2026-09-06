@@ -113,6 +113,21 @@ describe('SearchForm', () => {
   const problem = (name: string): string =>
     element(`input[name="${name}"]`).closest('label')!.querySelector('.problem')?.textContent ?? '';
 
+  /** Make a number box report what a box holding `12abc` reports: nothing for a
+   *  value, and a `badInput` saying why. jsdom sanitises the value away exactly
+   *  as a browser does, but has no user to have typed the rest, so the validity
+   *  is the half that has to be staged. */
+  const unreadable = async (name: string, bad = true) => {
+    const input = element<HTMLInputElement>(`input[name="${name}"]`);
+    Object.defineProperty(input, 'validity', {
+      value: { badInput: bad },
+      configurable: true,
+    });
+    input.value = '';
+    input.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+  };
+
   /** Tell the form what the server made of the sources it was asked about. */
   const checked = async (sources: string, error: string) => {
     fixture.componentRef.setInput('checked', { sources, error });
@@ -335,6 +350,82 @@ describe('SearchForm', () => {
 
     expect(problem('results')).toContain('Between 1 and 50');
     expect(problem('results')).not.toContain('99');
+  });
+
+  it('drops a refusal once the box stops holding what was refused', async () => {
+    /* The mark is about what was *sent*. Left standing, fixing the region left
+       the box red and the summary counting a setting to look at, and neither
+       cleared until the next run. */
+    await type('input[name="request"]', 'kettle');
+    await type('input[name="region"]', 'en-us');
+    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+    fixture.componentRef.setInput('rejected', {
+      field: 'region',
+      message: "'en-us' is not a search region.",
+    });
+    await fixture.whenStable();
+    expect(problem('region')).toContain('not a search region');
+
+    await type('input[name="region"]', 'us-en');
+
+    expect(problem('region')).toBe('');
+    expect(element('input[name="region"]').classList).not.toContain('invalid');
+    expect(element('summary .flagged')).toBeNull();
+  });
+
+  it('keeps a refusal while the box still holds what was refused', async () => {
+    /* Typing in another field says nothing about this one, and a mark that
+       vanished on the first keystroke anywhere would be no mark at all. */
+    await type('input[name="request"]', 'kettle');
+    await type('input[name="region"]', 'en-us');
+    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+    fixture.componentRef.setInput('rejected', {
+      field: 'region',
+      message: "'en-us' is not a search region.",
+    });
+    await fixture.whenStable();
+
+    await type('input[name="request"]', 'toaster');
+
+    expect(problem('region')).toContain('not a search region');
+  });
+
+  it('says so when a number box holds something that is not a number', async () => {
+    /* `12abc` reaches the model as `null`, which is how a *cleared* box spells
+       "use the default" -- so a box visibly full of nonsense was sent as absent
+       and the run used the default without a word from anybody. */
+    await type('input[name="request"]', 'kettle');
+
+    await unreadable('results');
+
+    expect(problem('results')).toContain('not a number');
+    expect(submit().disabled).toBe(true);
+  });
+
+  it('takes the box back once it holds a number again', async () => {
+    await type('input[name="request"]', 'kettle');
+    await unreadable('results');
+
+    await unreadable('results', false);
+    await type('input[name="results"]', '12');
+
+    expect(problem('results')).toBe('');
+    expect(submit().disabled).toBe(false);
+  });
+
+  it('reads a box no environment can judge as holding nothing wrong', async () => {
+    /* `validity` is not everywhere. Absent, nothing is unreadable -- not
+       everything, which would be a form that refuses every number. */
+    await type('input[name="request"]', 'kettle');
+    const input = element<HTMLInputElement>('input[name="results"]');
+    Object.defineProperty(input, 'validity', { value: undefined, configurable: true });
+    input.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+
+    expect(problem('results')).toBe('');
+    expect(submit().disabled).toBe(false);
   });
 
   it('sends what was typed, trimmed, along with the settings', async () => {

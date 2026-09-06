@@ -23,6 +23,19 @@ export interface ScoreParts {
   neutral: string[];
 }
 
+/** How much each criterion counts towards the blend, as a fraction of one.
+ *
+ *  A run-level fact and not a per-product one, which is why it travels on the
+ *  result rather than inside `ScoreParts`: the shares there are each scored out
+ *  of 1 on their own, so three of them drawn beside a total they do not add up
+ *  to say nothing about which criterion a placing actually turned on. Python
+ *  normalises them (`RankingWeights.fractions`); the card only draws them. */
+export interface ScoreWeights {
+  rating: number;
+  popularity: number;
+  price: number;
+}
+
 /**
  * One thing a source page said about a product, beside the page that said it.
  *
@@ -62,6 +75,9 @@ export interface SearchResult {
   count: number;
   top_n: number;
   sort_by: SortBy;
+  /** What the scores in `products` were blended by -- the same for every one of
+   *  them, so it is sent once here rather than on each. */
+  weights: ScoreWeights;
   products: RankedProduct[];
 }
 
