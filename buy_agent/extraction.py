@@ -79,12 +79,19 @@ EXTRACTION_PROMPT = Prompt(
     human="Shopper's request: {request}\n\nSearch results:\n\n{results}",
 )
 
+#: The words a roundup ranks with, shared with :mod:`buy_agent.verification` the
+#: way :data:`GENERIC_WORDS` is -- and for the same reason. Here they open a
+#: headline the model has mistaken for a product ("12 Best ..."); there they mark
+#: the figure beside them as a count of products rather than a rating ("we rated
+#: the 5 best headphones"). That is one vocabulary read two ways, so a word added
+#: to one copy and not the other used to leave a "cheapest" headline dropped as a
+#: page while the rating printed next to it still grounded.
+SUPERLATIVES = r"(?:best|top|cheapest|worst|greatest)"
+
 #: A name opening on a superlative: "12 Best ...", "The 5 Best ...", "Top ...".
 #: Named on its own as the one tell in :data:`_NOT_A_PRODUCT` a real product also
 #: trips, so :func:`looks_like_a_product` asks a second question of its matches.
-_SUPERLATIVE = re.compile(
-    r"^\s*(the\s+)?(\d+\s+)?(best|top|cheapest|worst|greatest)\b", re.IGNORECASE
-)
+_SUPERLATIVE = re.compile(rf"^\s*(the\s+)?(\d+\s+)?{SUPERLATIVES}\b", re.IGNORECASE)
 
 #: Article headlines the model mistakes for products. A real listing is named after
 #: a model ("Sony WH-1000XM5"), never after the page it was found on.

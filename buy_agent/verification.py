@@ -19,7 +19,7 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
-from buy_agent.extraction import GENERIC_WORDS, NAME_TOKENS
+from buy_agent.extraction import GENERIC_WORDS, NAME_TOKENS, SUPERLATIVES
 from buy_agent.models import QUALIFIERS
 
 if TYPE_CHECKING:
@@ -62,9 +62,12 @@ _QUOTE_COVERAGE = 0.6
 #: meaning 2.25/5; :data:`_RATING_OUT_OF_TEN` tells the lead-in form ("scored it
 #: 4.5" reads like a rating whatever the scale) that the figure is out of ten.
 #:
-#: :data:`_COUNTING` words make the figure beside them a count of products rather
-#: than a score -- "we rated the 5 best headphones" -- and are ruled out on both
-#: sides, either being able to carry the tell.
+#: :data:`~buy_agent.extraction.SUPERLATIVES` make the figure beside them a count
+#: of products rather than a score -- "we rated the 5 best headphones" -- and are
+#: ruled out on both sides, either being able to carry the tell. Imported rather
+#: than written out again, for the reason ``GENERIC_WORDS`` is: those same words
+#: are what tells a roundup's headline from a product over there.
+#:
 #: The hyphen on the ``stars`` branch is the one :mod:`buy_agent.fetch` keeps the
 #: line for: "a 4.5-star average" and "4.5 stars" are one sentence spelled two
 #: ways, and grounding a rating off the second while blanking it off the first
@@ -72,9 +75,8 @@ _QUOTE_COVERAGE = 0.6
 #: nothing -- the space form already vouches for exactly the same figures -- and
 #: it is refused on the other two branches, where no page writes one.
 _RATING_AFTER = r"(?:\s*(?:/\s*5\b|(?:out\s+of|of)\s+5\b)|[\s-]*stars?\b)"
-_COUNTING = r"(?:best|top|cheapest|worst|greatest)"
 #: The gap stays generous -- "rated a solid 4.6" is how pages write it.
-_RATING_BEFORE = rf"(?:rated|rating|score[ds]?)\b(?![^\d]{{0,12}}{_COUNTING}\b)[^\d]{{0,12}}"
+_RATING_BEFORE = rf"(?:rated|rating|score[ds]?)\b(?![^\d]{{0,12}}{SUPERLATIVES}\b)[^\d]{{0,12}}"
 _RATING_OUT_OF_TEN = r"\s*(?:/\s*10\b|(?:out\s+of|of)\s+10\b)"
 
 #: A review count is a small whole number, which is what a year, a model number
@@ -152,7 +154,7 @@ def mentions_rating(haystack: str, value: float) -> bool:
     literal = _as_literal(value)
     figure = rf"{re.escape(literal)}{_same_figure(literal)}"
     after = rf"(?<![\d.]){figure}{_RATING_AFTER}"
-    before = rf"{_RATING_BEFORE}{figure}(?!{_RATING_OUT_OF_TEN})(?!\s*{_COUNTING}\b)"
+    before = rf"{_RATING_BEFORE}{figure}(?!{_RATING_OUT_OF_TEN})(?!\s*{SUPERLATIVES}\b)"
     return bool(
         re.search(after, haystack, re.IGNORECASE)
         or re.search(before, haystack, re.IGNORECASE)
@@ -226,6 +228,20 @@ def source_urls(results: Sequence[SearchResult]) -> set[str]:
     return {result.url for result in results if result.url}
 
 
+def _page_haystacks(results: Sequence[SearchResult]) -> list[tuple[str | None, str]]:
+    """Each result on its own, as its URL and the text that page printed.
+
+    The two checks that work page by page rather than over the pool -- which page
+    a product links to, and which page printed a quote -- both need exactly this,
+    so the pooling is undone once here instead of once in each of them.
+
+    ``None`` for a result the search returned without a URL. That is not "no page
+    printed it": the page is there and its text is the haystack, it simply has
+    nothing to link to (ADR-0042).
+    """
+    return [(result.url or None, build_haystack([result])) for result in results]
+
+
 def attribute_sources(
     products: Sequence[Product], results: Sequence[SearchResult]
 ) -> list[Product]:
@@ -238,7 +254,7 @@ def attribute_sources(
     the product, and one no page mentions keeps none rather than borrowing one.
     """
     known = source_urls(results)
-    pages = [(result.url, build_haystack([result])) for result in results if result.url]
+    pages = [(url, text) for url, text in _page_haystacks(results) if url]
 
     attributed: list[Product] = []
     invented = 0
@@ -348,8 +364,7 @@ def verify_opinions(
     it" :func:`attribute_sources` links the product by. A page carrying no URL
     still supports its quote and simply links to nothing.
     """
-    haystacks = [(result.url or None, build_haystack([result])) for result in results]
-    pages = [(url, text, running_words(text)) for url, text in haystacks]
+    pages = [(url, text, running_words(text)) for url, text in _page_haystacks(results)]
     verified: list[Product] = []
     dropped = 0
 

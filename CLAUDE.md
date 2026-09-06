@@ -403,7 +403,11 @@ reported.
   conflict, and each was grounded on its own before the merge.
 - **`GENERIC_WORDS` is shared, and edits to it pull in two directions.**
   `verification.py` imports the set from `extraction.py` (with `NAME_TOKENS`, so
-  merging and grounding agree on what a name's words are). Adding a word makes
+  merging and grounding agree on what a name's words are, and `SUPERLATIVES`, the
+  words a roundup ranks with -- there they open a headline the model reported as a
+  product, here they mark the figure beside them as a count of products rather
+  than a rating, and a word in one copy only used to drop a "cheapest" headline
+  while still grounding the rating printed next to it). Adding a word makes
   `merge_variants` fold *more* names into one product and at the same time makes
   `mentions_name` stricter, ignored words leaving fewer distinctive tokens to clear
   the 0.6 coverage bar. Both sides of that bar are split by `NAME_TOKENS` and
@@ -759,7 +763,9 @@ marked before the form is first drawn. The effect fires on the marks changing an
 not on the panel's state, so closing it again stays the reader's to do.
 `placeholders()` is the smaller half of the same idea: a cleared number box means
 "use the default" (ADR-0012), an answer rather than a mistake, so each box names
-the number it falls back to.
+the number it falls back to -- read off `defaults_payload` by the same key the box
+is sent under, rather than listed a second time, so a box added to `numberFields`
+cannot be one drawn with an empty placeholder.
 
 Its model field is a `<select>` over `GET /api/models`, and its three edge cases
 are the point. A name chosen but *not* in that list (a remembered setting, or a
@@ -851,14 +857,14 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1359 tests run in about six seconds: most of that is the two that spawn an
+1360 tests run in about six seconds: most of that is the two that spawn an
 interpreter -- one checking `python -m buy_agent` still runs as a script, one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1359 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1359 collect but 13 of the 17 in
-`tests/test_start_script.py` skip, so the summary reads `1346 passed, 13 skipped`.
+reaching out. 1360 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1360 collect but 13 of the 17 in
+`tests/test_start_script.py` skip, so the summary reads `1347 passed, 13 skipped`.
 The UI's 160 tests run in about two seconds, most of which is building the app
 first. The 31 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
