@@ -941,6 +941,42 @@ def test_the_release_packages_the_tag_it_uploads_to() -> None:
     assert source.count("ref: ${{ env.TAG }}") == checkouts
 
 
+# -- the suites themselves -----------------------------------------------------
+
+#: Both suites, as directories: everything under them is a module pytest imports
+#: whole, which is what the rule below is about.
+_UNIT_TESTS = _ROOT / "tests"
+
+
+def shadowed_names(source: Path) -> list[str]:
+    """Every top-level name ``source`` binds twice, the second hiding the first."""
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    defined: list[str] = [
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    ]
+    return sorted({name for name in defined if defined.count(name) > 1})
+
+
+def test_no_test_is_hidden_by_another_of_the_same_name() -> None:
+    """A test module is imported like any other, so a second ``def`` of a name
+    replaces the first and pytest collects only what is left.
+
+    It is the one mistake in a test file that nothing else here can see. Coverage
+    cannot: the shadowed body is usually a near-copy of the one that survives, so
+    every line in it is covered by the other. The mutation run cannot either --
+    it mutates the package, not the suite. And the failure is silent in the
+    direction that matters: the cases nobody is running are the cases nobody is
+    told about, which is exactly how a rewritten test comes to be pasted in
+    rather than edited over.
+    """
+    for suite in (_UNIT_TESTS, _LIVE_TESTS):
+        for module in sorted(suite.rglob("*.py")):
+            shadowed = shadowed_names(module)
+            assert not shadowed, f"{module.relative_to(_ROOT)} defines {shadowed} twice"
+
+
 # -- the Saturday mutation run -------------------------------------------------
 
 # mutmut copies these two into the tree it tests without being asked; everything
