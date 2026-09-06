@@ -5,12 +5,26 @@
       <p>Say what you want to buy. It searches, reads the pages, and ranks what it finds.</p>
     </div>
 
-    @if (status(); as server) {
+    <!-- Asking takes as long as the model server takes to answer -- up to five
+         seconds for one that never will. Left showing the last answer, the pill
+         reported a server nobody had asked about yet and Check again looked like
+         a button that did nothing; and on the first load there was no pill at
+         all until it landed. -->
+    @if (checking()) {
+      <span class="pill server checking" role="status">
+        <span class="dot"></span>
+        Asking {{ serverLabel() }}…
+      </span>
+    } @else if (status(); as server) {
       <button
         type="button"
         class="pill server"
         [class.up]="server.reachable"
         [attr.title]="server.detail ?? server.base_url"
+        [attr.aria-label]="
+          (server.reachable ? server.label + ' answered' : server.label + ' unreachable') +
+          ' — check again'
+        "
         (click)="refreshModels()"
       >
         <span class="dot"></span>
@@ -43,6 +57,7 @@
     [defaults]="defaults()"
     [status]="status()"
     [running]="running()"
+    [checking]="checking()"
     [checked]="sourcesCheck()"
     [rejected]="rejected()"
     (search)="start($event)"
@@ -56,7 +71,12 @@
   }
 
   @if (started()) {
-    <app-progress-log [lines]="logs()" [running]="running()" [failure]="failure()" />
+    <app-progress-log
+      [lines]="logs()"
+      [running]="running()"
+      [failure]="failure()"
+      [stopped]="stopped()"
+    />
   }
 
   @if (result(); as found) {
@@ -71,7 +91,12 @@
                  the ordering is still Python's and only the search is skipped
                  (ADR-0035). -->
             <label class="resort">
-              <span>Rank by</span>
+              <!-- "Re-order these" and not "Rank by", which is what the settings
+                   call the criterion the *next* run is ranked by. Two controls
+                   with one label, one about products already on the screen and
+                   one about a run that has not happened, read as the same
+                   setting shown twice and out of step with itself. -->
+              <span>Re-order these</span>
               <select
                 name="resort"
                 [disabled]="reordering() || running()"
@@ -106,14 +131,14 @@
         }
 
         @for (product of highlighted(); track product.rank) {
-          <app-product-card [product]="product" [highlighted]="true" />
+          <app-product-card [product]="product" [highlighted]="true" [weights]="found.weights" />
         }
 
         @if (rest().length) {
           <details class="also">
             <summary>{{ rest().length }} more the agent found</summary>
             @for (product of rest(); track product.rank) {
-              <app-product-card [product]="product" />
+              <app-product-card [product]="product" [weights]="found.weights" />
             }
           </details>
         }

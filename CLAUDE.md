@@ -228,8 +228,8 @@ a new record superseding it rather than an edit to the old one -- numbers are ne
 reused, and accepted records are not rewritten. `tests/test_conventions.py` checks
 that the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0044 and every record is Accepted but ADR-0020, which ADR-0037 supersedes,
-so the next free number is 0045.
+to ADR-0045 and every record is Accepted but ADR-0020, which ADR-0037 supersedes,
+so the next free number is 0046.
 
 `.claude/skills/` holds the chores that span those files: `add-option` walks a new
 setting through `config.py`, both front doors, `agent.types.ts` and the form;
@@ -435,7 +435,11 @@ reported.
   `neutral` names the criteria that were assumed rather than read, and both front
   ends show it (ADR-0041). It is decided there and nowhere else: a share that
   *equals* 0.5 may have been measured, a product priced mid-way through the set
-  scoring exactly that.
+  scoring exactly that. The shares stay *unweighted*, so a run reports the weights
+  beside them -- `RankingWeights.fractions` on the run payload and on the score
+  line, `ranking.CRITERIA` pairing each with the share it weighs (ADR-0045). Three
+  numbers under a total they do not add up to are otherwise unreadable, and a
+  product carried by its price looks exactly like one carried by its rating.
 - **The report is output; the progress is narration.** `logging_setup` splits them
   by handler rather than by logger: `log_top_products` marks its records and they
   go to stdout, everything else to the stderr handler `basicConfig` installed, and
@@ -683,14 +687,27 @@ spaces Python puts in front of the command, and a **Check again** button sits
 beside it, since the moment someone has just run that command is the moment they
 need to say so.
 
+While a listing is in flight the pill says **Asking &lt;label&gt;…** instead, and the
+remedy under it and the model picker beside it both stand down -- `App.asking`
+holds the `ModelSource` being asked about, so the pill names *that* server rather
+than the one still on screen, and `checking` is that signal being non-null.
+`installed_models` is a call per pulled tag on a five-second budget (ADR-0032), so
+this is the one wait on the page with nothing else to say it is happening: without
+it the first load had no pill at all, Check again looked like a button that did
+nothing, and a model picked in that window was one the new server had never
+offered.
+
 **`progress-log`** follows the tail the way a terminal does, but only while the
 reader is at it: the scroll handler sets `sticking` from how far the panel is from
 the bottom, so a reader who scrolled up to re-read a finished step is left there.
-It offers **Download log** once a run has failed and only then -- a successful run
-is on the page in front of you, a failed one is a bug report. `transcript()` writes
-what the panel was showing plus the failure message, which the panel never has, a
-failure arriving as its own SSE event rather than a log line; it keeps whole logger
-names where the panel trims them. This is presentation, not judgement.
+It offers **Download log** for a run that failed and for one the reader stopped,
+and for no other -- a run that finished is on the page in front of you, while
+those two leave nothing there at all, and the reason to stop one is usually that
+it had gone quiet. `transcript()` writes what the panel was showing plus the
+failure message, which the panel never has, a failure arriving as its own SSE
+event rather than a log line; a stopped run needs no such line, `App.stop` having
+written one into the log itself. It keeps whole logger names where the panel trims
+them. This is presentation, not judgement.
 
 It also counts the wait out, beside the working pill and then as the total in place
 of it. Extraction is slow and logs nothing while it runs, so the panel is otherwise
@@ -712,7 +729,17 @@ range that came down with the defaults, and the sources field against whatever
 none of it costing anything to know. `notes()` is what is shown under each field:
 `problems()`, plus the `rejected` input for a field the page has no rule for, which
 is the `field` a `failure` event named. The server's mark does not gate the button
--- it is about what was sent -- and clears when the next run starts. The sources
+-- it is about what was sent -- and it is shown only while the box still holds what
+was sent: `submitted` keeps the payload each run went out with, and a mark that
+outlived the mistake was a red field, an `aria-invalid` and a "1 setting to look
+at" over a form with nothing wrong with it. `options()` is the one place that
+payload is built, since the comparison and the run have to agree on what a box
+holds. One check is the page's own rather than a range: a number box holding text
+that is not a number reports the empty string, which reaches `ngModel` as the
+`null` a *cleared* box means (ADR-0012), so `numberTyped` asks the element's
+`validity.badInput` on every keystroke and `problems()` marks it. Left to the
+`null`, a box visibly full of nonsense was sent as unset and the run quietly used
+the default. The sources
 check goes out on `change` rather than on every keystroke, and once more after
 `restore`, a remembered bad source being one nobody is about to retype. The
 `numberFields` table is the one place a number box is declared -- the key it is
@@ -744,7 +771,9 @@ hiding it would leave nothing to explain why the tag they remember is gone
 (ADR-0032). Which of the two an entry gets is `ModelOption.note`, filled from the
 `completion` Python sent -- the browser writes the suffix, not the judgement. An
 empty list falls back to the text box it used to be, a dropdown holding one
-unusable entry being worse than typing. Because the list belongs to one server,
+unusable entry being worse than typing. The field is disabled while `checking` is
+set, and says which server it is waiting on: what it holds until the answer lands
+is the *last* server's models. Because the list belongs to one server,
 editing the address field emits `refresh` and `App.refreshModels` asks that one
 instead; `refresh` carries a `ModelSource` -- the provider *and* the address --
 because a vLLM asked Ollama's question answers 404. Changing the provider picker
@@ -822,15 +851,15 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1343 tests run in about six seconds: most of that is the two that spawn an
+1350 tests run in about six seconds: most of that is the two that spawn an
 interpreter -- one checking `python -m buy_agent` still runs as a script, one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1343 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1343 collect but 13 of the 17 in
-`tests/test_start_script.py` skip, so the summary reads `1330 passed, 13 skipped`.
-The UI's 143 tests run in about two seconds, most of which is building the app
+reaching out. 1350 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1350 collect but 13 of the 17 in
+`tests/test_start_script.py` skip, so the summary reads `1337 passed, 13 skipped`.
+The UI's 160 tests run in about two seconds, most of which is building the app
 first. The 31 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
 

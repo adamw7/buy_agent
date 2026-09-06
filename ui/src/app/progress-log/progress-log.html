@@ -8,7 +8,7 @@
         <span class="pill">{{ summary() }}</span>
       }
 
-      @if (failure()) {
+      @if (keepable()) {
         <button type="button" class="secondary save" (click)="download()">Download log</button>
       }
     </div>

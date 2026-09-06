@@ -22,7 +22,7 @@ from buy_agent.api import (
 )
 from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.models import Product
-from buy_agent.ranking import rank_products
+from buy_agent.ranking import RankingWeights, rank_products
 from tests.conftest import ranked_product, said
 from buy_agent.providers import VLLM
 from buy_agent.search import SearchError
@@ -551,6 +551,30 @@ def test_reordering_answers_the_shape_a_finished_run_answers_with() -> None:
     ran = run_search("headphones", AgentConfig(top_n=1), agent_factory=captured["factory"])
 
     assert set(rank_again(posted())) == set(ran)
+
+
+def test_a_run_reports_the_weights_its_scores_were_blended_by() -> None:
+    """Three shares beside a total they do not add up to cannot be read at all:
+    the card draws each criterion's own score, and only the weight says which of
+    them the placing turned on (ADR-0041)."""
+    captured = agent_returning(RANKED)
+    weights = RankingWeights(rating=3.0, popularity=1.0, price=0.0)
+
+    payload = run_search(
+        "headphones",
+        AgentConfig(weights=weights),
+        agent_factory=captured["factory"],
+    )
+
+    # Fractions of the blend rather than as they were written, so the browser
+    # draws a number instead of working one out.
+    assert payload["weights"] == {"rating": 0.75, "popularity": 0.25, "price": 0.0}
+
+
+def test_a_re_sort_reports_the_weights_it_ranked_by() -> None:
+    """It ranks with the defaults, having no config to read -- so it says so,
+    rather than leaving the cards it answers with nothing to draw."""
+    assert rank_again(posted())["weights"] == RankingWeights().fractions
 
 
 def test_reordering_keeps_the_request_and_the_count_it_was_given() -> None:

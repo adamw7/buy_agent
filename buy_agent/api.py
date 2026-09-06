@@ -29,7 +29,7 @@ from buy_agent.agent import (
 from buy_agent.config import LIMITS, AgentConfig, parse_region
 from buy_agent.models import Product
 from buy_agent.providers import PROVIDERS, provider_options
-from buy_agent.ranking import SortBy, rank_products
+from buy_agent.ranking import RankingWeights, SortBy, rank_products
 from buy_agent.search import SearchError
 from buy_agent.sources import Source, format_sources, parse_sources
 
@@ -209,7 +209,7 @@ def run_search(
         status = next(status for kind, status in _STATUS.items() if isinstance(exc, kind))
         raise ApiError(str(exc), status) from exc
 
-    return _run_payload(request, ranked, config.top_n, sort_by)
+    return _run_payload(request, ranked, config.top_n, sort_by, config.weights)
 
 
 def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
@@ -238,19 +238,39 @@ def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
     request = _read(data, "request", "", _as_text)
     sort_by = _read(data, "sort_by", "score", _as_sort_by)
     top_n = _read(data, "top", defaults.top_n, _bounded(int, "top"))
-    ranked = rank_products(_read_products(data), sort_by=cast(SortBy, sort_by))
-    return _run_payload(request, ranked, top_n, sort_by)
+    # Named rather than left to ``rank_products``'s own fallback, so the weights
+    # the answer reports are the ones it was ranked by and not a second copy of
+    # the same default: a re-sort takes no config, this being the one entry point
+    # that runs no pipeline.
+    weights = RankingWeights()
+    ranked = rank_products(
+        _read_products(data), weights=weights, sort_by=cast(SortBy, sort_by)
+    )
+    return _run_payload(request, ranked, top_n, sort_by, weights)
 
 
 def _run_payload(
-    request: str, ranked: Sequence[RankedProduct], top_n: int, sort_by: str
+    request: str,
+    ranked: Sequence[RankedProduct],
+    top_n: int,
+    sort_by: str,
+    weights: RankingWeights,
 ) -> dict[str, Any]:
-    """The shape a finished run answers with, however it was finished."""
+    """The shape a finished run answers with, however it was finished.
+
+    ``weights`` travels with the products because a breakdown cannot be read
+    without it: three shares drawn beside a total invite being added up, and
+    nothing on a card says which of them the placing actually turned on. Sent as
+    fractions of the blend rather than as ``RankingWeights`` wrote them, so the
+    browser draws a number rather than working one out -- and as a fact about the
+    run, which is what it is, rather than as a fourth field on every product.
+    """
     return {
         "request": request.strip(),
         "count": len(ranked),
         "top_n": top_n,
         "sort_by": sort_by,
+        "weights": weights.fractions,
         "products": results_payload(ranked),
     }
 

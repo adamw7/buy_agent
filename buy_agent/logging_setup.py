@@ -6,6 +6,8 @@ import logging
 import sys
 from typing import TYPE_CHECKING
 
+from buy_agent.ranking import CRITERIA, RankingWeights
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -94,26 +96,40 @@ def _report(message: str, *args: object) -> None:
     logger.info(message, *args, extra={_REPORT: True})
 
 
-def _parts(breakdown: ScoreParts) -> str:
-    """The three shares behind a score, each marked where it was assumed.
+def _parts(breakdown: ScoreParts, weights: RankingWeights) -> str:
+    """The three scores behind a blend, each with the weight it went in at.
 
     On the score's own line rather than three lines of its own: it is what the
     number is made of, and a report is read down the left edge. "assumed" and not
     a blank, because ``NEUTRAL`` is a real 0.5 in the blend -- it is where the
     0.5 came from that the shopper cannot otherwise see (ADR-0041).
+
+    The ``x0.50`` is the other half of reading it. Each criterion is scored on its
+    own out of 1, so three of them beside a total they do not add up to is a sum
+    that looks wrong until the weights are there -- and which criterion a placing
+    turned on cannot be seen without them at all.
     """
+    fractions = weights.fractions
     return ", ".join(
-        f"{name} {value:.2f}" + (" assumed" if name in breakdown.neutral else "")
-        for name, value in (
-            ("rating", breakdown.rating),
-            ("popularity", breakdown.popularity),
-            ("price", breakdown.price),
-        )
+        f"{name} {getattr(breakdown, name):.2f} x{fractions[name]:.2f}"
+        + (" assumed" if name in breakdown.neutral else "")
+        for name in CRITERIA
     )
 
 
-def log_top_products(ranked: Sequence[RankedProduct], top_n: int) -> None:
-    """Log the best ``top_n`` products, one block each."""
+def log_top_products(
+    ranked: Sequence[RankedProduct],
+    top_n: int,
+    *,
+    weights: RankingWeights | None = None,
+) -> None:
+    """Log the best ``top_n`` products, one block each.
+
+    ``weights`` is what the scores were blended by, for the score line to name;
+    the run's own, or the defaults ``rank_products`` would have used -- the same
+    fallback, spelled the same way.
+    """
+    weights = weights or RankingWeights()
     if not ranked:
         # Not part of the report: there is none. It is the run saying why.
         logger.warning("No products to report.")
@@ -127,7 +143,9 @@ def log_top_products(ranked: Sequence[RankedProduct], top_n: int) -> None:
     for entry in top:
         product = entry.product
         _report("#%d  %s", entry.rank, product.name)
-        _report("     score  : %.3f  (%s)", entry.score, _parts(entry.breakdown))
+        _report(
+            "     score  : %.3f  (%s)", entry.score, _parts(entry.breakdown, weights)
+        )
         _report("     price  : %s", product.price_label())
         _report("     rating : %s", product.rating_label())
         if product.seller:
