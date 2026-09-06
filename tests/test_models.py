@@ -56,6 +56,51 @@ def test_a_currency_without_a_price_never_becomes_one() -> None:
     assert converted.currency is None
 
 
+@pytest.mark.parametrize(
+    ("named", "expected"),
+    [
+        pytest.param("USD", "USD", id="the code the schema asks for"),
+        pytest.param("usd", "USD", id="the same code shouted quietly"),
+        pytest.param("$", "USD", id="the sign the page printed"),
+        pytest.param(" US$ ", "USD", id="the sign with its country on it"),
+        pytest.param("dollars", "USD", id="the word"),
+        pytest.param("€", "EUR", id="the euro sign"),
+        pytest.param("zł", "PLN", id="a sign that is two letters"),
+        pytest.param("C$", "CAD", id="the dollar that says which one"),
+        # Not a guess: the sign belongs to the yen and to the yuan alike, so it
+        # stays as it was written -- a price this run cannot place (ADR-0043),
+        # which is the answer that reports nothing wrong.
+        pytest.param("¥", "¥", id="an ambiguous sign is left alone"),
+        pytest.param("Galactic credits", "GALACTIC CREDITS", id="an invention"),
+    ],
+)
+def test_a_currency_is_read_as_the_code_the_run_compares_by(
+    named: str, expected: str
+) -> None:
+    """The schema asks for an ISO code and a small model hands back what the page
+    printed, so "$129" comes back as "$" while the next listing says "USD".
+
+    Left alone those are two currencies: ``dominant_currency`` counts them apart
+    and ``comparable_price`` refuses to compare across them (ADR-0043), so half a
+    set's prices score ``NEUTRAL``, sink in a price sort and pass ``--max-price``
+    unjudged -- for a difference in spelling and with nothing saying so.
+    """
+    converted = ExtractedProduct(name="Thing", price=129.0, currency=named).to_product()
+
+    assert converted.currency == expected
+
+
+def test_two_spellings_of_one_currency_are_one_currency() -> None:
+    """Which is the point of the table: the set has one scale, not two."""
+    listings = [
+        ExtractedProduct(name="Cheap", price=100.0, currency="$").to_product(),
+        ExtractedProduct(name="Dear", price=200.0, currency="USD").to_product(),
+    ]
+
+    assert dominant_currency(listings) == "USD"
+    assert [comparable_price(listing, "USD") for listing in listings] == [100.0, 200.0]
+
+
 def test_out_of_range_rating_is_discarded() -> None:
     """Models sometimes report a 0-10 or percentage score despite the instruction."""
     assert ExtractedProduct(name="Thing", rating=9.2).to_product().rating is None
@@ -295,28 +340,6 @@ UNPRICED = Product(name="Unpriced", currency="EUR")
 
 
 @pytest.mark.parametrize(
-    ("products", "expected"),
-    [
-        pytest.param([DOLLAR, EURO, DOLLAR], "USD", id="the commonest one named"),
-        # Ties go to the one seen first -- the search's own order, and the
-        # tie-break every other merge here makes -- so a set is counted in the
-        # same currency twice.
-        pytest.param([EURO, DOLLAR], "EUR", id="a tie, euro first"),
-        pytest.param([DOLLAR, EURO], "USD", id="a tie, dollar first"),
-        # A currency with no price beside it describes nothing (ADR-0022), so it
-        # does not get to decide what the set is counted in.
-        pytest.param([DOLLAR, UNPRICED, UNPRICED], "USD", id="a currency qualifying nothing"),
-        pytest.param([Product(name="Bare", price=100.0)], None, id="nobody named one"),
-        pytest.param([], None, id="nothing to count"),
-    ],
-)
-def test_which_currency_a_set_is_counted_in(
-    products: list[Product], expected: str | None
-) -> None:
-    assert dominant_currency(products) == expected
-
-
-@pytest.mark.parametrize(
     ("products", "expected", "why"),
     [
         pytest.param([DOLLAR, EURO, DOLLAR], "USD", "the commonest one named", id="commonest"),
@@ -326,8 +349,7 @@ def test_which_currency_a_set_is_counted_in(
         pytest.param([EURO, DOLLAR], "EUR", "ties go to the first seen", id="tie, euro first"),
         pytest.param([DOLLAR, EURO], "USD", "ties go to the first seen", id="tie, dollar first"),
         pytest.param(
-            [DOLLAR, Product(name="Unpriced", currency="EUR"),
-             Product(name="Also unpriced", currency="EUR")],
+            [DOLLAR, UNPRICED, UNPRICED],
             "USD",
             "a currency with no price beside it describes nothing (ADR-0022), so "
             "it does not get to decide what the set is counted in",

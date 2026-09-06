@@ -31,6 +31,39 @@ MAX_OPINIONS = 3
 #: is: half a sentence attributed to a reviewer says something they did not.
 _MAX_OPINION_LENGTH = 240
 
+#: How a page's way of naming a currency reads as the ISO code the schema asks
+#: for. The field says "USD or EUR" and a small model hands back what the page
+#: printed -- "$", off a line reading "$129" -- so a set comes out split between
+#: "$" and "USD". :func:`dominant_currency` reads that as two currencies and
+#: :func:`comparable_price` refuses to compare across them (ADR-0043): half the
+#: prices score ``NEUTRAL``, sink in a price sort and pass ``--max-price``
+#: unjudged, all of it for a difference in spelling.
+#:
+#: Only the spellings that name one currency are here. ``¥`` is deliberately
+#: absent -- it is the yen's sign and the yuan's -- and so is ``kr``, which three
+#: countries print: an ambiguous sign left as it was written is a price this run
+#: cannot place, which is the answer ADR-0043 has for that, while a guess here
+#: would be a price it places wrongly. ``$`` is the one guess made, since the
+#: currencies that share it spell themselves ``C$`` and ``A$`` where it matters
+#: and the default region prints the other one.
+_CURRENCY_ALIASES = {
+    "$": "USD",
+    "US$": "USD",
+    "DOLLAR": "USD",
+    "DOLLARS": "USD",
+    "€": "EUR",
+    "EURO": "EUR",
+    "EUROS": "EUR",
+    "£": "GBP",
+    "POUND": "GBP",
+    "POUNDS": "GBP",
+    "ZŁ": "PLN",
+    "C$": "CAD",
+    "CA$": "CAD",
+    "A$": "AUD",
+    "AU$": "AUD",
+}
+
 
 class ExtractedProduct(BaseModel):
     """One product as read out of the search results by the LLM."""
@@ -83,7 +116,7 @@ class ExtractedProduct(BaseModel):
         return Product(
             name=_clean(self.name),
             price=price,
-            currency=(_clean(self.currency).upper() or None) if price is not None else None,
+            currency=_currency(self.currency) if price is not None else None,
             rating=rating,
             review_count=(
                 self.review_count if rating is not None and self.review_count > 0 else None
@@ -270,6 +303,20 @@ class RankedProduct(BaseModel):
 
 def _clean(value: str) -> str:
     return _WHITESPACE.sub(" ", value).strip()
+
+
+def _currency(value: str) -> str | None:
+    """The currency a listing named, as the code the rest of the run compares by.
+
+    Upper-cased and then read through :data:`_CURRENCY_ALIASES`, so the sign a
+    page printed and the code another one printed are one currency rather than
+    two. A spelling the table does not know is kept as it was written and not
+    blanked: an unrecognised currency is a price this run cannot place, and a
+    blank one is a price it places on the set's own scale (ADR-0043) -- so
+    dropping it would compare a figure against prices it has nothing to do with.
+    """
+    code = _clean(value).upper()
+    return _CURRENCY_ALIASES.get(code, code) or None
 
 
 def distinct_quotes(values: Iterable[Opinion]) -> list[Opinion]:

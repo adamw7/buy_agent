@@ -424,7 +424,13 @@ reported.
   scores neutral, sinks in a price sort and passes every bound (ADR-0043). A bare
   price is taken as the set's own. Both places that hold one price against another
   -- `rank_products` and `Constraints` -- go through that one function; a third
-  would have to. The cost of that rule is that
+  would have to. Which currency a listing named is settled once, in
+  `models._currency`: the schema asks for a code and a small model hands back the
+  sign the page printed, so `$` and `USD` are folded together there rather than
+  counted as two currencies half a set is then unplaceable in. Only the spellings
+  that name one currency are folded -- `¥` is the yen's and the yuan's alike, and
+  an ambiguous one left as written is a price the run cannot place, which is what
+  the rule above already has an answer for. The cost of that rule is that
   0.5 means two different things, so `score_product` answers a `ScoreParts` whose
   `neutral` names the criteria that were assumed rather than read, and both front
   ends show it (ADR-0041). It is decided there and nowhere else: a share that
@@ -816,14 +822,14 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1328 tests run in about six seconds: most of that is the two that spawn an
+1343 tests run in about six seconds: most of that is the two that spawn an
 interpreter -- one checking `python -m buy_agent` still runs as a script, one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1328 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1328 collect but 13 of the 17 in
-`tests/test_start_script.py` skip, so the summary reads `1315 passed, 13 skipped`.
+reaching out. 1343 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1343 collect but 13 of the 17 in
+`tests/test_start_script.py` skip, so the summary reads `1330 passed, 13 skipped`.
 The UI's 143 tests run in about two seconds, most of which is building the app
 first. The 31 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.

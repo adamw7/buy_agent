@@ -39,7 +39,11 @@ USER_AGENT = (
 )
 
 _CURRENCY_SIGNS = "$€£¥"  # dollar, euro, pound, yen
-_CURRENCY_CODES = r"USD|EUR|GBP|PLN|CHF|SEK|CAD|AUD"
+#: The same currencies as their ISO codes, a page being as likely to print
+#: "129 EUR" as "€129". Every sign above has its code here: a line the sign form
+#: is kept for and the code form is not is a price this run reads off one page
+#: and not off the next, for no reason a reader could work out.
+_CURRENCY_CODES = r"USD|EUR|GBP|JPY|PLN|CHF|SEK|CAD|AUD"
 
 _PRICE = re.compile(
     r"[" + re.escape(_CURRENCY_SIGNS) + r"]\s?\d"

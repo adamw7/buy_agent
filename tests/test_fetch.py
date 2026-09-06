@@ -247,7 +247,14 @@ def test_one_unreachable_page_does_not_lose_the_others(monkeypatch) -> None:
 
 @pytest.mark.parametrize(
     "line",
-    ["Sony WH-CH720N EUR 129 today", "Sony deal 4.5 stars", "Price: 250 PLN here"],
+    [
+        "Sony WH-CH720N EUR 129 today",
+        "Sony deal 4.5 stars",
+        "Price: 250 PLN here",
+        # Every sign the sweep knows has its code beside it: a page printing
+        # "129000 JPY" quotes a price as plainly as one printing "¥129000".
+        "Sony WH-CH720N 129000 JPY today",
+    ],
 )
 def test_prices_and_ratings_are_recognised_in_several_shapes(line: str) -> None:
     assert condense(line, max_chars=200) == line
