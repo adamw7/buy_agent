@@ -298,6 +298,19 @@ def test_the_form_is_shipped_a_range_for_every_number_it_holds_to_one() -> None:
     assert set(re.findall(r"field\('(\w+)'", match.group(1))) == set(limits_payload())
 
 
+def test_every_number_the_form_bounds_is_one_the_defaults_name() -> None:
+    """The other thing a number box needs from the server, under the same key.
+
+    A cleared box means "use the default" (ADR-0012), and ``placeholders()`` says
+    which number that is by reading ``defaults_payload`` at the key the box is
+    sent under -- rather than by a second list beside ``numberFields``, which went
+    stale every time a box was added. A range shipped for a key the defaults do
+    not answer is then a box whose fallback has no name, and the empty grey it
+    leaves says nothing about what a run would actually use.
+    """
+    assert set(limits_payload()) <= set(defaults_payload())
+
+
 def test_the_form_takes_its_bounds_from_the_server_rather_than_the_markup() -> None:
     """A `min="1" max="50"` written into the template is a second copy of
     ``config.LIMITS`` -- one no test of either suite would see go stale, since

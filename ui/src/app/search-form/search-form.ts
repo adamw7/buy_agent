@@ -62,7 +62,11 @@ export interface Rejection {
  * when it starts. Everything else answers the same for every run.
  */
 interface NumberField {
-  key: string;
+  /** The key the value is sent under, the range arrives under and a refusal
+   *  names -- and, because Python answers a default per setting under that same
+   *  name, the key its placeholder is read off `AgentDefaults` by. Typed as both
+   *  so a box that is drawn is a box the server has a range and a default for. */
+  key: keyof AgentDefaults & keyof SearchOptions;
   label: string;
   value: WritableSignal<number | null>;
   step: number;
@@ -72,7 +76,7 @@ interface NumberField {
 
 /** One row of the table above, with the defaults most of them take. */
 function field(
-  key: string,
+  key: NumberField['key'],
   label: string,
   value: WritableSignal<number | null>,
   extra: { step?: number; hint?: string | (() => string); off?: () => boolean } = {},
@@ -449,20 +453,23 @@ export class SearchForm {
   protected readonly placeholders = computed<Record<string, string>>(() => {
     const named: Record<string, string> = {};
     const defaults = this.defaults();
-    if (defaults) {
-      named['results'] = `${defaults.results}`;
-      named['top'] = `${defaults.top}`;
-      named['temperature'] = `${defaults.temperature}`;
-      named['cache_ttl'] = `${defaults.cache_ttl}`;
+    for (const { key } of this.numberFields) {
+      // Each box is sent under the name Python answers its default under, so the
+      // fallback is read off the defaults rather than listed here a second time:
+      // a ninth box used to be drawn with an empty placeholder until somebody
+      // remembered this list too.
+      const fallback = defaults?.[key];
+      if (typeof fallback === 'number') {
+        named[key] = `${fallback}`;
+      } else if (fallback === null) {
+        // The three bounds, whose default really is nothing: an empty box here
+        // is the whole answer rather than a stand-in for a number (ADR-0039).
+        named[key] = NO_LIMIT;
+      }
     }
     // Its own sentence rather than a bare number: cleared, this one falls back to
     // whatever the server defaults to, which is a different answer per provider.
     named['num_ctx'] = this.numCtxHint();
-    // Not off the defaults, because their default is `null`: an empty box here
-    // is the whole answer rather than a stand-in for a number, so it says so.
-    named['max_price'] = NO_LIMIT;
-    named['min_rating'] = NO_LIMIT;
-    named['min_reviews'] = NO_LIMIT;
     return named;
   });
 
