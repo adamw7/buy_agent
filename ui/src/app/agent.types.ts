@@ -51,6 +51,14 @@ export interface Opinion {
 
 /** One ranked product. The `*_label` fields are written by Python's `Product`. */
 export interface RankedProduct {
+  /** Why this product cannot be bought, or `null` where it can. Python's
+   *  judgement, made by the same check the payment itself goes through, so the
+   *  page never offers a Pay button the server would refuse (ADR-0012). It is a
+   *  sentence and not a flag because every reason is worth saying: each names
+   *  something the sources did not establish -- no price survived grounding, no
+   *  currency was printed, the price is in one this run cannot place, or no page
+   *  was linked. */
+  cannot_pay: string | null;
   rank: number;
   score: number;
   breakdown: ScoreParts;
@@ -102,6 +110,44 @@ export interface Limit {
   max: number;
 }
 
+/** One rail a payment can go through, with what goes with it. `moves_money` is
+ *  false for the dry run, which signs a real AP2 authorisation and charges
+ *  nobody -- said by Python rather than worked out from the name here, for the
+ *  reason `takes_num_ctx` is. `needs_endpoint` is what disables the address
+ *  field when there is nowhere to point it. */
+export interface RailOption {
+  name: string;
+  label: string;
+  endpoint: string;
+  needs_endpoint: boolean;
+  moves_money: boolean;
+}
+
+/** What came of a payment. Never the mandate chain: that authorises the purchase
+ *  to whoever holds it, and this reaches a browser. `reference` is the hash that
+ *  points back at it, which is what AP2 says a receipt binds by.
+ *
+ *  `paid` is whether money actually moved -- false for a dry run, whose whole
+ *  point is that it did not -- and `autonomous` whether a pre-signed open
+ *  mandate authorised it rather than a person approving the cart. `enrolled_key`
+ *  is false when the signature was made with a key the process invented, which
+ *  demonstrates the shape of an authorisation without being one. */
+export interface Receipt {
+  paid: boolean;
+  rail: string;
+  merchant: string;
+  title: string;
+  price: number;
+  currency: string;
+  amount: number;
+  price_label: string;
+  transaction_id: string;
+  reference: string;
+  autonomous: boolean;
+  enrolled_key: boolean;
+  detail: string;
+}
+
 /** The form's starting values, served from the agent's own config defaults. */
 export interface AgentDefaults {
   provider: string;
@@ -125,6 +171,20 @@ export interface AgentDefaults {
   /** Sites to take the facts from, separated by spaces or commas. Empty is the whole web. */
   sources: string;
   fetch: boolean;
+  /** Whether the agent may pay for what it found. Off by default: paying happens
+   *  after a run, to one product, on a separate decision. */
+  pay: boolean;
+  /** Whether the optional AP2 SDK is installed at all. False, and the page says
+   *  so rather than offering a button whose only outcome is a sentence about pip. */
+  pay_available: boolean;
+  rail: string;
+  rail_options: RailOption[];
+  /** The AP2-speaking endpoint a paying rail talks to. Empty for the rail's own,
+   *  which is empty for the dry run -- it has nowhere to be. */
+  merchant_url: string;
+  /** The most one payment may be, `null` for no limit. Unlike the bounds above,
+   *  a price the run cannot place fails it rather than passing. */
+  spend_limit: number | null;
   sort_by: SortBy;
   sort_options: SortBy[];
   /** Keyed by the name the value is sent under -- `results`, `top`,
@@ -192,6 +252,10 @@ export interface SearchOptions {
   min_rating?: number | null;
   min_reviews?: number | null;
   cache_ttl?: number | null;
+  spend_limit?: number | null;
+  pay?: boolean;
+  rail?: string;
+  merchant_url?: string;
   sort_by?: SortBy;
   temperature?: number | null;
   num_ctx?: number | null;
@@ -210,6 +274,23 @@ export interface RankOptions {
   products: RankedProduct[];
   sort_by: SortBy;
   top: number;
+}
+
+/** What a payment sends: the finished run, which product of it to buy, and the
+ *  approval the page was given.
+ *
+ *  `approved` is an echo and not a cart -- the cart is built on the server from
+ *  `products`, and this has to match it. So a page showing a stale price cannot
+ *  buy at that price, and the approval is witnessed rather than asserted
+ *  (ADR-0012). It is omitted where a pre-signed open mandate authorises the run,
+ *  which is the whole meaning of the autonomous mode. */
+export interface PayOptions {
+  products: RankedProduct[];
+  rank: number;
+  approved?: { title: string; price: number; currency: string };
+  rail?: string;
+  merchant_url?: string;
+  spend_limit?: number | null;
 }
 
 /** What a streamed run emits: progress, then exactly one ending. */

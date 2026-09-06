@@ -52,7 +52,9 @@ from buy_agent.__main__ import build_parser
 from buy_agent.__main__ import main as cli_main
 from buy_agent.agent import BuyAgent
 from buy_agent.api import (
+    PAY_STATUS,
     PROVIDER_OPTIONS,
+    RAIL_OPTIONS,
     SORT_OPTIONS,
     _STATUS,
     ApiError,
@@ -60,15 +62,19 @@ from buy_agent.api import (
     limits_payload,
     model_payload,
     parse_options,
+    pay_now,
     product_payload,
     rank_again,
+    receipt_payload,
     results_payload,
     run_search,
     sources_payload,
 )
 from buy_agent.config import LIMITS, AgentConfig, parse_region
 import buy_agent.providers as providers_module
+from buy_agent.payment import PaymentError
 from buy_agent.providers import PROVIDERS, InstalledModel, provider_options
+from buy_agent.rails import RAILS, rail_options
 from buy_agent.models import Product
 from tests.conftest import ranked_product, said
 from buy_agent.ranking import SortBy
@@ -1118,3 +1124,137 @@ def test_a_mutation_run_copies_everything_the_tests_reach_for() -> None:
     assert needed, "the suite reads and imports nothing; this test has outlived its rule"
     for path in needed:
         assert any(path.is_relative_to(destination) for destination in copied), path
+
+
+# -- paying --------------------------------------------------------------------
+
+
+def test_every_rail_is_offered_everywhere_it_can_be_asked_for() -> None:
+    """The same three doors onto one registry the providers have, for the same
+    reason: a rail missing from one of them is one the other two will happily
+    hand to a config that then refuses it."""
+    names = set(RAILS)
+    cli = {action.dest: action for action in build_parser()._actions}["rail"]
+
+    assert set(RAIL_OPTIONS) == names
+    assert set(cli.choices) == names
+    assert {option["name"] for option in defaults_payload()["rail_options"]} == names
+
+
+def test_a_rail_option_is_mirrored_field_for_field_in_typescript() -> None:
+    """The form reads these to fill the address field in and to say whether
+    anybody is about to be charged, so a key added in Python and forgotten here
+    is an undefined deciding that sentence."""
+    assert set(ts_interface("RailOption")) == set(rail_options()[0])
+
+
+#: A product a run really could pay for: priced, in a currency, off a page that
+#: was searched. Everything the payment side needs is something grounding would
+#: have had to leave standing.
+_PAYABLE = Product(
+    name="Sony WH-1000XM5",
+    price=329.99,
+    currency="USD",
+    seller="AudioSite",
+    url="https://audiosite.example/xm5",
+)
+
+
+def test_a_receipt_is_mirrored_field_for_field_in_typescript() -> None:
+    """The card draws what came of a payment, so a field added in Python and
+    forgotten here is an undefined on a receipt."""
+    receipt = pay_now(
+        {
+            "products": [_PAYABLE.model_dump()],
+            "approved": {"title": _PAYABLE.name, "price": _PAYABLE.price, "currency": "USD"},
+        }
+    )["receipt"]
+
+    assert set(ts_interface("Receipt")) == set(receipt)
+
+
+def test_every_key_a_payment_reads_is_one_the_page_sends() -> None:
+    """``PayOptions`` is what the browser posts; a key ``pay_now`` reads and the
+    page never sends is a refusal for a box that is not there (ADR-0033). The
+    settings it shares with a search are read by ``parse_options`` and travel on
+    ``SearchOptions``, so both interfaces count."""
+    sent = set(ts_interface("PayOptions")) | set(ts_interface("SearchOptions"))
+
+    assert _keys_read_by(pay_now) <= sent
+
+
+def test_the_payment_failures_the_cli_catches_are_the_ones_the_api_maps() -> None:
+    """A payment fails at its own door, not the run's -- so these are their own
+    table rather than three more rows in ``_STATUS``. Named in one place and not
+    the other, a failure reaches the shopper as a traceback and the browser as a
+    500."""
+    # One name on the CLI side, because every payment failure is a
+    # ``PaymentError`` -- ``RailUnreachableError`` is a subclass, which is the
+    # whole point of it: the API can answer 502 for the one failure that is
+    # nothing to do with the request, and the CLI still catches both.
+    assert _payment_handlers() == {"PaymentError"}
+    assert all(issubclass(kind, PaymentError) for kind in PAY_STATUS)
+
+
+def test_every_payment_failure_has_a_status_that_is_not_a_server_error() -> None:
+    """A 5xx in the 500 sense means "we crashed"; these are understood failures."""
+    assert set(PAY_STATUS.values()) <= {400, 409, 502, 503}
+
+
+def test_the_payment_statuses_are_ordered_subclass_first() -> None:
+    """``pay_now`` takes the first row an exception is an instance of, so a
+    parent listed above its subclass would swallow it."""
+    kinds = list(PAY_STATUS)
+    for index, kind in enumerate(kinds):
+        assert not any(issubclass(kind, earlier) for earlier in kinds[:index]), (
+            f"{kind.__name__} sits below a parent that would match it first"
+        )
+
+
+def _payment_handlers() -> set[str]:
+    """What ``main`` catches around the payment, read off the source.
+
+    Its own ``try``, and read separately from the one guarding the run: the
+    three-failure agreement (ADR-0009) is about ``BuyAgent.run``, and a payment
+    happens after it has returned.
+    """
+    tree = ast.parse((_ROOT / "buy_agent" / "__main__.py").read_text(encoding="utf-8"))
+    bought = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_bought"
+    )
+    caught: set[str] = set()
+    for guard in (node for node in ast.walk(bought) if isinstance(node, ast.Try)):
+        for handler in guard.handlers:
+            named = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+            caught.update(node.id for node in named if isinstance(node, ast.Name))
+    return caught
+
+
+def test_only_the_mandates_module_imports_the_ap2_sdk() -> None:
+    """The seam rule this project applies to a model server and a search backend,
+    applied to the protocol: everything above `mandates` deals in carts and
+    receipts. A second importer is a second place a missing optional dependency
+    becomes an ImportError."""
+    importers = {
+        path.name
+        for path in (_ROOT / "buy_agent").glob("*.py")
+        if re.search(r"^\s*(from ap2|import ap2)", path.read_text(encoding="utf-8"), re.M)
+    }
+
+    assert importers == {"mandates.py"}
+
+
+def test_the_payment_settings_are_offered_at_both_doors() -> None:
+    """The rule `.claude/skills/add-option` writes down, checked for the four
+    settings paying adds: a flag, a request key, and a default the form is
+    seeded from."""
+    flags = {action.dest for action in build_parser()._actions}
+    defaults = defaults_payload()
+
+    for field, key in (("pay", "pay"), ("rail", "rail"), ("merchant_url", "merchant_url"),
+                       ("spend_limit", "spend_limit")):
+        assert field in flags, f"--{field.replace('_', '-')} is missing from the CLI"
+        assert key in defaults, f"{key} is missing from the form's defaults"
+        assert key in ts_interface("SearchOptions"), f"{key} is missing from SearchOptions"

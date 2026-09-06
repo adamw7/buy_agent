@@ -1,6 +1,6 @@
-import { Component, computed, input } from '@angular/core';
+import { Component, computed, input, output, signal } from '@angular/core';
 
-import type { RankedProduct, ScoreWeights } from '../agent.types';
+import type { RailOption, RankedProduct, Receipt, ScoreWeights } from '../agent.types';
 
 /**
  * One criterion behind the score, as the card draws it.
@@ -56,6 +56,73 @@ export class ProductCard {
    *  A fact about the run rather than the product, so it arrives beside the
    *  products rather than inside each one. */
   readonly weights = input<ScoreWeights | null>(null);
+
+  /** Whether this run may pay at all: the shopper asked for it and the server
+   *  can. Whether *this product* may be is a separate answer and Python's --
+   *  `product().cannot_pay` -- so the button is offered only where both agree. */
+  readonly canPay = input(false);
+
+  /** The rail the payment would go through, so the confirmation can say whether
+   *  anybody is about to be charged. Python decides that, on the rail's row. */
+  readonly rail = input<RailOption | null>(null);
+
+  /** A payment already in flight, anywhere on the page: one at a time. */
+  readonly paying = input(false);
+
+  /** What came of paying for *this* product, once something did. */
+  readonly receipt = input<Receipt | null>(null);
+
+  /**
+   * The approval a person gave, emitted when they confirm.
+   *
+   * The three fields they were shown and agreed to, which the server holds
+   * against the cart it builds itself. It is an echo and not an instruction --
+   * the page is the surface that witnessed the consent, not the thing that
+   * decides what the consent was worth.
+   */
+  readonly pay = output<{ title: string; price: number; currency: string }>();
+
+  /**
+   * Whether this card is showing its confirmation.
+   *
+   * The payment is two clicks and the second one is next to the price, because
+   * this is the small Trusted Surface AP2 asks for: the place a person is shown
+   * exactly what they are agreeing to before anything is signed. A single button
+   * would be a purchase made by a misclick on a card in a list.
+   */
+  protected readonly confirming = signal(false);
+
+  /** Whether to offer the button at all: the run asked, the server can, this
+   *  product has a price a source printed, and nothing has been bought yet. */
+  protected readonly offersPayment = computed(
+    () => this.canPay() && this.product().cannot_pay === null && this.receipt() === null,
+  );
+
+  /** Why this one cannot be bought, where the run could have bought something.
+   *  Shown rather than swallowed: a card with no button beside cards that have
+   *  one is a question, and Python already wrote the answer. */
+  protected readonly refusal = computed(() =>
+    this.canPay() && this.receipt() === null ? this.product().cannot_pay : null,
+  );
+
+  protected startConfirming(): void {
+    this.confirming.set(true);
+  }
+
+  protected cancel(): void {
+    this.confirming.set(false);
+  }
+
+  protected confirm(): void {
+    const product = this.product();
+    // Narrowed by `offersPayment`, which is what draws the button: a product
+    // with no price has `cannot_pay` set and never gets one.
+    if (product.price === null || product.currency === null) {
+      return;
+    }
+    this.confirming.set(false);
+    this.pay.emit({ title: product.name, price: product.price, currency: product.currency });
+  }
 
   protected readonly percent = computed(() => Math.round(this.product().score * 100));
 

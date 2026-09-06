@@ -14,3 +14,8 @@ ddgs==9.15.0
 pydantic==2.13.4
 httpx==0.28.1
 lxml==6.1.2
+
+# Paying is optional and so is what it needs: the AP2 SDK is installed from
+# `requirements-ap2.txt` with `--no-deps`, for the reasons written down there.
+# Nothing here imports it, and `buy_agent.mandates` defers its import so a build
+# without it has a working `--help` rather than an ImportError.

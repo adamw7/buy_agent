@@ -14,6 +14,7 @@ from buy_agent.api import (
     installed_models,
     limits_payload,
     parse_options,
+    pay_now,
     product_payload,
     rank_again,
     results_payload,
@@ -357,6 +358,7 @@ def test_the_limits_are_the_ones_both_doors_hold_a_request_to() -> None:
         "min_rating",
         "min_reviews",
         "cache_ttl",
+        "spend_limit",
     }
 
 
@@ -934,3 +936,222 @@ def test_a_re_sorted_run_carries_the_parts_too() -> None:
     answer = rank_again({"request": "headphones", "products": results_payload(DISAGREEING)})
 
     assert all("breakdown" in product for product in answer["products"])
+
+
+# -- paying --------------------------------------------------------------------
+
+
+PAYABLE = Product(
+    name="Sony WH-1000XM5",
+    price=329.99,
+    currency="USD",
+    seller="AudioSite",
+    url="https://audiosite.example/xm5",
+)
+
+APPROVED = {"title": "Sony WH-1000XM5", "price": 329.99, "currency": "USD"}
+
+
+def paying(**extra: object) -> dict:
+    """A pay request the way the page sends one: the run, which product, the echo."""
+    return {
+        "products": [PAYABLE.model_dump()],
+        "rank": 1,
+        "approved": APPROVED,
+        **extra,
+    }
+
+
+def test_paying_answers_a_receipt() -> None:
+    answer = pay_now(paying())
+
+    receipt = answer["receipt"]
+    assert receipt["title"] == "Sony WH-1000XM5"
+    assert receipt["rail"] == "dry-run"
+    assert receipt["paid"] is False
+    assert receipt["reference"]
+
+
+def test_a_receipt_never_carries_the_mandate_chain() -> None:
+    """It is written to a log and handed to a browser; the chain authorises the
+    purchase to whoever holds it."""
+    receipt = pay_now(paying())["receipt"]
+
+    assert "checkout" not in receipt
+    assert "payment_mandate" not in receipt
+
+
+def test_the_default_rank_is_the_top_product() -> None:
+    """A run is already an ordering, so a request that names none wants the one
+    the report leads with."""
+    body = paying()
+    del body["rank"]
+
+    assert pay_now(body)["receipt"]["title"] == "Sony WH-1000XM5"
+
+
+def test_a_rank_past_the_end_of_the_run_is_refused() -> None:
+    with pytest.raises(ApiError) as excinfo:
+        pay_now(paying(rank=4))
+
+    assert excinfo.value.status == 400
+    assert excinfo.value.field == "rank"
+
+
+def test_paying_for_nothing_is_refused() -> None:
+    with pytest.raises(ApiError, match="no products to pay for"):
+        pay_now({"products": [], "approved": APPROVED})
+
+
+def test_an_approval_that_does_not_match_the_cart_buys_nothing() -> None:
+    """A page showing a stale price cannot buy at that price: the cart is built
+    here and the echo has to match it (ADR-0012)."""
+    with pytest.raises(ApiError) as excinfo:
+        pay_now(paying(approved={**APPROVED, "price": 29.99}))
+
+    assert excinfo.value.status == 409
+    assert excinfo.value.field == "approved"
+    assert "Nothing was paid" in str(excinfo.value)
+
+
+def test_an_approval_naming_another_product_buys_nothing() -> None:
+    with pytest.raises(ApiError, match="not what this would buy"):
+        pay_now(paying(approved={**APPROVED, "title": "Bose QC Ultra"}))
+
+
+def test_an_approval_in_another_currency_buys_nothing() -> None:
+    with pytest.raises(ApiError, match="not what this would buy"):
+        pay_now(paying(approved={**APPROVED, "currency": "EUR"}))
+
+
+def test_a_price_spelled_differently_is_the_same_approval() -> None:
+    """Compared as numbers rather than as text: a browser writing 329.990 agreed
+    to the same thing as one writing 329.99."""
+    assert pay_now(paying(approved={**APPROVED, "price": "329.990"}))["receipt"]["paid"] is False
+
+
+def test_a_price_that_is_not_a_number_is_not_an_approval() -> None:
+    with pytest.raises(ApiError, match="not what this would buy"):
+        pay_now(paying(approved={**APPROVED, "price": "about three hundred"}))
+
+
+def test_paying_with_no_approval_at_all_is_refused() -> None:
+    body = paying()
+    del body["approved"]
+
+    with pytest.raises(ApiError) as excinfo:
+        pay_now(body)
+
+    assert excinfo.value.field == "approved"
+    assert "send back the title" in str(excinfo.value)
+
+
+def test_an_open_mandate_needs_no_echo_from_the_page(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """That is the whole meaning of the autonomous mode: the mandate is the
+    authority, and its constraints are what the cart is held to."""
+    from buy_agent import mandates
+    from tests.test_mandates import open_mandate_file
+
+    agent, _issuer = open_mandate_file(tmp_path / "mandate.json", maximum=40000)
+    (tmp_path / "agent.pem").write_bytes(agent.export_to_pem(private_key=True, password=None))
+    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
+    monkeypatch.setenv(mandates.KEY_PATH, str(tmp_path / "agent.pem"))
+    body = paying()
+    del body["approved"]
+
+    assert pay_now(body)["receipt"]["autonomous"] is True
+
+
+def test_a_product_the_sources_did_not_price_is_a_400_naming_the_field() -> None:
+    unpriced = PAYABLE.model_dump() | {"price": None, "currency": None}
+
+    with pytest.raises(ApiError) as excinfo:
+        pay_now({"products": [unpriced], "rank": 1, "approved": APPROVED})
+
+    assert excinfo.value.status == 400
+    assert excinfo.value.field == "products"
+
+
+def test_a_rail_that_could_not_be_reached_is_a_502(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An endpoint that is down is nothing to do with the request, so 400 would
+    send the shopper off to fix a form with nothing wrong with it."""
+    from buy_agent import mandates, rails
+    from tests.test_mandates import write_key
+
+    monkeypatch.setenv(mandates.KEY_PATH, str(write_key(tmp_path / "agent.pem")))
+
+    def refuse(*_a: object, **_k: object) -> object:
+        raise httpx.ConnectError("refused")
+
+    monkeypatch.setattr(rails.httpx, "post", refuse)
+
+    with pytest.raises(ApiError) as excinfo:
+        pay_now(paying(rail="http", merchant_url="https://pay.example"))
+
+    assert excinfo.value.status == 502
+
+
+def test_the_spend_limit_travels_with_the_payment() -> None:
+    with pytest.raises(ApiError) as excinfo:
+        pay_now(paying(spend_limit=100))
+
+    assert excinfo.value.field == "spend_limit"
+    assert "spend limit" in str(excinfo.value)
+
+
+def test_the_products_carry_whether_each_may_be_bought() -> None:
+    """One rule, asked twice: the page never offers a button the server would
+    refuse, and the sentence is Python's (ADR-0012)."""
+    unpriced = Product(name="Anker Q30", url="https://x.example/a")
+    ranked = rank_products([PAYABLE, unpriced], weights=RankingWeights())
+
+    by_name = {entry["name"]: entry for entry in results_payload(ranked)}
+
+    assert by_name["Sony WH-1000XM5"]["cannot_pay"] is None
+    assert "nothing to authorise" in by_name["Anker Q30"]["cannot_pay"]
+
+
+def test_the_form_is_told_whether_this_server_can_pay_at_all() -> None:
+    defaults = defaults_payload()
+
+    assert defaults["pay"] is False
+    assert defaults["pay_available"] is True
+    assert defaults["rail"] == "dry-run"
+    assert [row["name"] for row in defaults["rail_options"]] == ["dry-run", "http"]
+
+
+def test_the_payment_settings_are_read_off_a_request() -> None:
+    config, _sort_by = parse_options(
+        {"pay": "true", "rail": "http", "merchant_url": "https://pay.example", "spend_limit": "250"}
+    )
+
+    assert config.pay is True
+    assert config.rail == "http"
+    assert config.merchant_url == "https://pay.example"
+    assert config.spend_limit == 250
+
+
+def test_a_rail_nothing_can_pay_through_is_refused_by_its_field() -> None:
+    with pytest.raises(ApiError) as excinfo:
+        parse_options({"rail": "paypal"})
+
+    assert excinfo.value.field == "rail"
+    assert "dry-run, http" in str(excinfo.value)
+
+
+def test_a_paying_rail_with_nowhere_to_pay_is_refused() -> None:
+    """`AgentConfig` refuses it, which is the one thing about these settings the
+    form cannot judge from a range."""
+    with pytest.raises(ValueError, match="needs an address"):
+        parse_options({"pay": "true", "rail": "http"})
+
+
+def test_a_blank_payment_setting_means_the_default() -> None:
+    config, _sort_by = parse_options({"rail": "", "merchant_url": "", "spend_limit": ""})
+
+    assert config.rail == "dry-run"
+    assert config.spend_limit is None

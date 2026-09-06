@@ -12,7 +12,10 @@ chooses, `buy_agent/providers.py` is the only module that knows the difference
 (ADR-0028), and each server's own client is called directly: there is no
 framework between the prompt and the answer, `buy_agent/chat.py` being all of one
 there is (ADR-0038). `ui/` is an Angular front end onto the same
-pipeline, served by `buy_agent.server`.
+pipeline, served by `buy_agent.server`. Optionally -- off by default, and off
+unless an extra dependency is installed -- it can also *buy* what it found,
+authorised by signed [AP2](https://ap2-protocol.org) mandates rather than a
+stored card (ADR-0046).
 
 `README.md` keeps the tour and links out to the longer sections beside it:
 `docs/models.md` (keeping Ollama's models current), `docs/docker.md` (the web tier
@@ -53,6 +56,11 @@ python -m buy_agent "running shoes" --sort-by price --json results.json
 python -m buy_agent "headphones" --max-price 200 --min-rating 4.5   # bounds, enforced
 python -m buy_agent "headphones" --cache-ttl 0                      # every page fresh
 python -m buy_agent "wireless earbuds" --source rtings.com --source @mkbhd
+
+pip install --no-deps -r requirements-ap2.txt   # the AP2 SDK, for paying only
+python -m buy_agent "headphones" --pay                       # asks, then signs; charges nobody
+python -m buy_agent "headphones" --pay --spend-limit 250      # ...and not a penny more
+python -m buy_agent "headphones" --pay --rail http --merchant-url https://pay.example
 
 python -m buy_agent.server                    # the UI and its API on :8000
 .\scripts\start.ps1                           # ...or all of it from cold, no arguments
@@ -124,6 +132,15 @@ ordinary `cache_ttl` setting, one number for both kinds, 0 meaning "read every
 page off the web and ask the model every question". A sampled run
 (`temperature` above 0) is never remembered whatever the setting says: it has no
 one answer to remember.
+
+Paying adds two settings of the same kind, and for the same reason.
+`$BUY_AGENT_AP2_KEY` is the EC P-256 key mandates are signed with -- a secret, so
+it stays out of a shell history, out of `defaults_payload` and out of any form --
+and `$BUY_AGENT_AP2_MANDATE` names a pre-signed *open* mandate, a path on the
+server's disk. That second one is not merely a setting: its presence is what puts
+a run into AP2's human-not-present mode, because the open mandate *is* the
+authorisation and a second switch saying "run unattended" would only fail without
+the file anyway (ADR-0046).
 
 `$BUY_AGENT_PROVIDER` moves which model server a run talks to, and each provider
 has its own variables behind it -- `$OLLAMA_MODEL`/`$OLLAMA_HOST` and
@@ -228,8 +245,8 @@ a new record superseding it rather than an edit to the old one -- numbers are ne
 reused, and accepted records are not rewritten. `tests/test_conventions.py` checks
 that the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0045 and every record is Accepted but ADR-0020, which ADR-0037 supersedes,
-so the next free number is 0046.
+to ADR-0046 and every record is Accepted but ADR-0020, which ADR-0037 supersedes,
+so the next free number is 0047.
 
 `.claude/skills/` holds the chores that span those files: `add-option` walks a new
 setting through `config.py`, both front doors, `agent.types.ts` and the form;
@@ -290,11 +307,14 @@ reported.
 | `search.py` | DuckDuckGo wrapper -- and nothing else (ADR-0021) |
 | `sources.py` | What a trusted source is: domain, term, `site:` query, `covers` |
 | `providers.py` | Everything that differs between Ollama and vLLM, and nothing else |
+| `payment.py` | What may be bought and for how much: a cart out of a grounded product, the spend limit, the receipt -- and one failure |
+| `mandates.py` | The AP2 seam, and the only module that imports `ap2` (ADR-0046) |
+| `rails.py` | Everything that differs between one counterparty and another, one row each |
 | `config.py`, `logging_setup.py`, `__main__.py` | Config, the report, the CLI |
 | `api.py` | Request options in, ranked products out -- the web-facing half worth testing |
 | `server.py` | A stdlib HTTP server: the JSON API, the event stream, the built UI |
 
-### Ten conventions
+### Eleven conventions
 
 - **A model server is one row in one table, reached one way.**
   `providers.PROVIDERS` holds each server whole -- its defaults (`model`,
@@ -315,6 +335,30 @@ reported.
   the other does not gets a declaration on the row rather than a branch in the CLI,
   the API and the form; a hint sentence both servers would write goes in
   `_too_slow_hint` or `_unreachable_hint` (ADR-0028, ADR-0029).
+- **A payment rail is one row in one table too, and the default one spends
+  nothing.** `rails.RAILS` is `providers.PROVIDERS` for counterparties: each row
+  carries where it listens (from its own environment variable), whether it needs
+  an address and an *enrolled* key, whether it `moves_money`, how a cart becomes
+  a merchant-signed checkout, how an authorisation is presented, the transport
+  errors meaning "not there" and the sentence one carries. AP2 secures *what* is
+  authorised and says nothing about who it is sent to, so the counterparty is a
+  choice -- and no merchant, wallet, processor or cloud is named anywhere here
+  (ADR-0046). `AgentConfig.rail_used` is the only place a rail's name becomes
+  behaviour; no `if rail == ...` above that module, and a third rail is a row
+  there and a row nowhere else. The default is `dry-run`, which plays every role,
+  signs a chain that really verifies and charges nobody, so `--pay` on its own is
+  never a way to spend money.
+- **Never pay on an unverified number, and never on one this run cannot place.**
+  The ranking rule (ADR-0006) turned around. `payment._check` refuses a product
+  whose price grounding blanked, whose currency no page printed, whose price is in
+  a currency outside the run's own (ADR-0043), or which has no source page to name
+  a merchant from -- every one of those already being the answer to "did a source
+  say so". It is the deliberate opposite of the shopper's bounds, which *keep* a
+  product they cannot judge (ADR-0039): a filter that drops a candidate over a
+  missing figure punishes the extractor's miss, while an amount nobody can place
+  is simply not an amount to send. That one function is asked by the CLI's prompt,
+  by the card's button (through `cannot_pay` on every product) and by the payment
+  itself, so a button is never offered for something the server would refuse.
 - **The sources are whatever was searched, and the shopper may narrow them.**
   `AgentConfig.sources` is empty by default, which is the whole web. Given any,
   `BuyAgent._search` runs one search per source (`site:` takes one domain), puts
@@ -461,13 +505,22 @@ reported.
 `ModelUnavailableError`, `SearchError` -- and `__main__.main()` catches exactly
 those around the run, logging them and returning 1 (130 on Ctrl-C, and
 `NOTHING_FOUND` -- 3 -- for a run that worked and found nothing, which a shell told
-1 could not tell from a stopped model server; 2 is argparse's own, so the codes a
-script branches on are the five `--help` ends by listing). `main` has a second,
+1 could not tell from a stopped model server; `PAYMENT_FAILED` -- 4 -- for a run
+that was asked to pay and did not; 2 is argparse's own, so the codes a
+script branches on are the six `--help` ends by listing). `main` has a second,
 unrelated `except` for an `OSError` from writing the `--json` file, which is why
 `tests/test_conventions.py` reads the handlers of the `try` holding the `.run()`
 call rather than every handler in the function. `api._STATUS` maps the same three
 onto HTTP statuses (400, 503, 502). A new failure mode needs handling in all three
 places, or it reaches the user as a traceback and the browser as a 500.
+
+A *payment* fails at its own door and is deliberately not a fourth row there
+(ADR-0046). `payment.PaymentError` is the one thing paying raises --
+`RailUnreachableError` subclasses it, so the API can answer 502 for the one
+failure that is nothing to do with the request while the CLI still catches both
+by catching the parent -- and it is mapped by `api.PAY_STATUS` and caught in
+`__main__._bought`, each read by a convention test of its own. Adding it to
+`_STATUS` would make `run` promise something it does not raise.
 
 Within the agent only query refinement is recoverable: it falls back to the raw
 request but lets `ModelUnavailableError` through rather than searching with a model
@@ -543,6 +596,18 @@ seeds the web form.
   in the currency the run's own prices are counted in, and a price outside it is
   a figure the bound cannot judge -- so it passes too, and the line the run logs
   names the currency (ADR-0043).
+- **The four paying settings.** `pay` is the master switch and defaults to
+  `False`, so nothing about a run changes without it. `rail` is checked against
+  `rails.RAILS` at both doors, the way `provider` is checked against
+  `PROVIDERS` -- and it is offered in *four* places for the same reason, the
+  fourth being the `rail_options()` rows the form's picker is built from.
+  `merchant_url` defaults to `""` and is resolved per rail in `__post_init__`,
+  exactly as `base_url` is resolved per provider (ADR-0012); a *paying* rail
+  that needs an address and has none is a `ValueError` there, which is the one
+  thing about these settings a range cannot say. `spend_limit` is an ordinary
+  bounded number whose range is `max_price`'s, and a different promise: that one
+  filters what is reported and admits a product it cannot judge, this one has to
+  be cleared before money moves and refuses what it cannot judge.
 - **`weights`** is the one field neither door fills in: `RankingWeights` is
   reachable only by constructing an `AgentConfig` in Python, so rebalancing the
   blended score is a code change and not a flag.
@@ -565,7 +630,8 @@ everything else to the built Angular app, unknown paths falling back to
 | `GET /api/models` | What a named server is serving, or why it could not be asked and what to do about it |
 | `GET /api/sources` | Whether a Trusted sources field names sites -- the one endpoint that runs nothing |
 | `POST /api/search` | One run, as JSON |
-| `POST /api/rank` | A finished run's products in another order -- the only endpoint that runs no pipeline |
+| `POST /api/rank` | A finished run's products in another order -- runs no pipeline |
+| `POST /api/pay` | One of those products bought, given the approval the page witnessed -- runs no pipeline either |
 | `GET /api/search/stream` | One run, as SSE: `log` lines, then `result` or `failure` |
 
 - **A run is streamed, not requested.** `GET /api/search/stream` runs the agent in
@@ -594,8 +660,9 @@ everything else to the built Angular app, unknown paths falling back to
   named `error` event would be indistinguishable from a dropped connection and the
   reconnect would silently restart the search. For the same reason
   `HEAD /api/search/stream` answers 405 rather than starting a run nobody reads.
-- **The browser decides nothing.** Ranking, grounding and even the wording of an
-  unknown price stay in Python: `product_payload` sends `price_label` and
+- **The browser decides nothing.** Ranking, grounding, whether a product may be
+  bought at all -- `cannot_pay` is Python's sentence, from the same check the
+  payment goes through -- and even the wording of an unknown price stay in Python: `product_payload` sends `price_label` and
   `rating_label` next to the raw figures; `sort_by` is a request parameter rather
   than a client-side re-sort, for a finished run too (ADR-0035); `installed_models`
   sends each model's `completion` beside its name so the dropdown marks what it
@@ -605,6 +672,18 @@ everything else to the built Angular app, unknown paths falling back to
   it with:  ollama serve" without a second wording in TypeScript.
   `ui/src/app/agent.types.ts` mirrors those payloads, so a field added to `api.py`
   is added there too.
+- **Paying is witnessed, not asserted** (ADR-0046). `POST /api/pay` runs no
+  pipeline, the way a re-sort runs none, and the products travel in the body for
+  the same reason -- the browser is already holding them. What it must not send
+  is a cart: it sends the run, which product of it, and `approved`, an echo of
+  the title, price and currency it put in front of a person. The cart is built
+  here from those products and the echo has to match it, so a page showing a
+  stale price cannot buy at that price and a page that asked nobody cannot guess
+  the right echo. Where a pre-signed open mandate authorises the run there is no
+  echo to send: the mandate is the authority, and its own constraints are what
+  the cart is held to. A receipt never carries the mandate chain -- that is a
+  credential, and this payload reaches a browser; `reference` is the hash that
+  points back at it.
 - **Re-ordering a finished run is a request, not a re-run** (ADR-0035).
   `rank_again` is `rank_products` and nothing else -- no agent built, no page
   fetched, no model asked -- and it answers the shape `run_search` answers with, so
@@ -722,9 +801,33 @@ once a second and is cleared on destroy; `duration()` writes seconds and minutes
 (`8s`, `2m 14s`) rather than a `0:08` clock, this being how long something took and
 not what time it is.
 
+**`product-card`** draws one product, and -- where the run asked to pay and the
+server can -- offers to buy it in **two** clicks. The second one is the small
+Trusted Surface AP2 asks for: it restates the *cart* (the title, the price
+label, the merchant, which rail, and whether anybody will actually be charged)
+rather than the request that found it, because the cart is what the mandates
+carry. A single button would be a purchase made by a misclick on a card in a
+list. What it emits is the three fields a person was shown, which the server
+holds against the cart it builds itself; the card decides nothing else, and a
+product it may not buy shows Python's `cannot_pay` sentence rather than no button
+and no explanation. Once something is bought the receipt replaces the button --
+"Paid" where money moved and "Authorised" where it did not, which for the dry run
+is the honest word.
+
 **`search-form`** remembers the advanced settings in `localStorage` and the request
 deliberately not -- what to shop for is a new question every time -- and every read
 and write is wrapped, so a browser that refuses storage still gets a working form.
+
+Its payment block is drawn only when `pay_available` says the server has the AP2
+SDK at all -- a switch whose only outcome is a message about pip is worse than a
+sentence -- and the rail picker, its address field and the spend limit appear
+only once paying is ticked. `moves_money` and `needs_endpoint` come off the rail's
+own row, so the warning under the picker and the disabled address box are
+Python's answers rather than a second reading of a rail's name here. One thing is
+deliberately *not* remembered: `pay` itself. The other settings are standing
+answers about this machine, and "you may spend my money" is not one of them -- a
+browser that restored it would arm the next visit's run with nobody having said
+so.
 
 It refuses what the server would, before the run rather than a minute into it
 (ADR-0033). `problems()` is what the page worked out -- each number against the
@@ -846,7 +949,21 @@ No test in `tests/` touches the network, a model server or the machine's own
 cache: `conftest.py` points `$BUY_AGENT_CACHE_DIR` at a scratch directory per
 test, autouse, so a test that builds a real `BuyAgent` gets a model that remembers
 its answers somewhere disposable (ADR-0044) and no test can answer another test's
-question. Keep all three that way.
+question. Keep all three that way. A second autouse fixture unsets
+`$BUY_AGENT_AP2_KEY`, `$BUY_AGENT_AP2_MANDATE` and `$BUY_AGENT_MERCHANT_URL`, for
+the same reason and more so: a developer who has configured paying would
+otherwise have a suite signing with their key and buying on their budget.
+
+The payment tests do sign real mandates -- keys generated in the test, read back
+through the AP2 SDK's own verifier, because a mandate that verifies only against
+a fake verifier is one nobody else would take. That needs the optional SDK
+(`pip install --no-deps -r requirements-ap2.txt`), which `ci.yml` and
+`mutation.yml` each install in a step of their own. The HTTP rail's transport is
+patched at `rails.httpx.post` -- where that module imported it, by the rule the
+provider fakes follow -- and a row of `rails.RAILS` is compared by identity only
+through the module (`rails.RAILS`, never a name imported from it), because
+`tests/test_rails.py` and `tests/test_config.py` reload it to re-read its
+environment-derived defaults.
 `integration/` is where a real model goes, outside `testpaths` so a bare `pytest`
 cannot reach it. The server tests are the one exception to "no sockets": they bind
 loopback, routing and status codes being what they are about, and pass
@@ -857,15 +974,15 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1360 tests run in about six seconds: most of that is the two that spawn an
+1498 tests run in about six seconds: most of that is the two that spawn an
 interpreter -- one checking `python -m buy_agent` still runs as a script, one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1360 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1360 collect but 13 of the 17 in
-`tests/test_start_script.py` skip, so the summary reads `1347 passed, 13 skipped`.
-The UI's 160 tests run in about two seconds, most of which is building the app
+reaching out. 1498 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1498 collect but 13 of the 17 in
+`tests/test_start_script.py` skip, so the summary reads `1485 passed, 13 skipped`.
+The UI's 186 tests run in about two seconds, most of which is building the app
 first. The 31 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
 
@@ -883,6 +1000,12 @@ that
 - every provider in `providers.PROVIDERS` is offered by `--provider`, by
   `api.PROVIDER_OPTIONS` and in the rows the form's picker is built from, and
   `ProviderOption` is mirrored in TypeScript;
+- every rail in `rails.RAILS` is offered by `--rail`, by `api.RAIL_OPTIONS` and in
+  the form's picker; `RailOption`, `Receipt` and `PayOptions` are mirrored in
+  TypeScript; every key `pay_now` reads is one the page sends; the payment's
+  failures are `api.PAY_STATUS` and what `__main__._bought` catches, ordered
+  subclass-first, and deliberately *not* the three in `_STATUS`; and
+  `buy_agent.mandates` is the only module in the package that imports `ap2`;
 - `agent.types.ts` mirrors `defaults_payload`, `product_payload`, the
   `breakdown` a product carries, the `Opinion`s it quotes and `run_search` field
   for field;

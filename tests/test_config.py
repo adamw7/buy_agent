@@ -9,7 +9,7 @@ import pytest
 
 import buy_agent.config as config_module
 import buy_agent.providers as providers_module
-from buy_agent.config import DEFAULT_REGION, AgentConfig, parse_region
+from buy_agent.config import DEFAULT_REGION, LIMITS, AgentConfig, parse_region
 from buy_agent.ranking import RankingWeights
 
 # The rows are reached through the module rather than imported by name, because
@@ -217,3 +217,66 @@ def test_the_provider_itself_can_be_set_from_the_environment(reloaded_config) ->
 
     assert reloaded.AgentConfig().provider == "vllm"
     assert reloaded.AgentConfig().base_url == providers_module.VLLM.base_url
+
+
+# -- paying --------------------------------------------------------------------
+
+
+def test_paying_is_off_and_charges_nobody_by_default() -> None:
+    config = AgentConfig()
+
+    assert config.pay is False
+    assert config.rail == "dry-run"
+    assert config.rail_used.moves_money is False
+    assert config.spend_limit is None
+
+
+def test_a_rail_nothing_can_pay_through_is_refused_where_a_provider_would_be() -> None:
+    with pytest.raises(ValueError, match="Unknown payment rail"):
+        AgentConfig(rail="paypal")
+
+
+def test_a_paying_rail_needs_an_address() -> None:
+    """The one thing about these settings a range cannot say, so it is said here
+    -- where both front doors and a Python caller all go through it."""
+    with pytest.raises(ValueError, match="needs an address"):
+        AgentConfig(pay=True, rail="http")
+
+
+def test_a_rail_that_is_not_paying_needs_no_address() -> None:
+    """The switch is off, so there is nothing to refuse yet: a config is not a
+    payment, and refusing here would make `--rail http` unusable until it was."""
+    assert AgentConfig(rail="http").merchant_url == ""
+
+
+def test_an_address_is_resolved_off_the_rail_the_way_a_base_url_is_off_a_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BUY_AGENT_MERCHANT_URL", "https://from-the-environment.example")
+    import importlib
+
+    from buy_agent import config as config_module
+    from buy_agent import rails
+
+    importlib.reload(rails)
+    importlib.reload(config_module)
+    try:
+        assert (
+            config_module.AgentConfig(pay=True, rail="http").merchant_url
+            == "https://from-the-environment.example"
+        )
+    finally:
+        monkeypatch.delenv("BUY_AGENT_MERCHANT_URL")
+        importlib.reload(rails)
+        importlib.reload(config_module)
+
+
+def test_a_trailing_slash_is_dropped_so_a_rail_never_builds_a_double_one() -> None:
+    assert (
+        AgentConfig(pay=True, rail="http", merchant_url="https://pay.example/").merchant_url
+        == "https://pay.example"
+    )
+
+
+def test_the_spend_limit_is_bounded_like_every_other_number() -> None:
+    assert LIMITS["spend_limit"] == (1, 10_000_000)

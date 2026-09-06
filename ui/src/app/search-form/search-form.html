@@ -200,6 +200,65 @@
         <input name="fetch" type="checkbox" [(ngModel)]="fetchPages" [disabled]="running()" />
         <span>Read the result pages</span>
       </label>
+
+      <!-- Paying, and only where the server can. The SDK that signs an AP2
+           mandate is an optional install, so a build without it says so once
+           here rather than offering a switch whose only outcome is a message
+           about pip -- the same choice the model field makes when a server
+           listed nothing. -->
+      @if (payAvailable()) {
+        <label class="field checkbox">
+          <input name="pay" type="checkbox" [(ngModel)]="pay" [disabled]="running()" />
+          <span>Pay for the top product</span>
+        </label>
+
+        @if (pay()) {
+          <label class="field">
+            <span>Pay through</span>
+            <select name="rail" [(ngModel)]="rail" [disabled]="running()" (change)="railChanged()">
+              @for (option of railOptions(); track option.name) {
+                <option [value]="option.name">{{ option.label }}</option>
+              }
+            </select>
+            <!-- Whether this rail can charge anybody is Python's answer, on the
+                 rail's own row: a third rail added there warns here without a
+                 second list of names in TypeScript. -->
+            <small>
+              @if (railSpends()) {
+                You will be asked to approve the exact cart, and then charged.
+              } @else {
+                Signs a real authorisation and charges nobody.
+              }
+            </small>
+          </label>
+
+          <label class="field">
+            <span>Payment endpoint</span>
+            <input
+              name="merchantUrl"
+              [(ngModel)]="merchantUrl"
+              [disabled]="running() || !railNeedsEndpoint()"
+              [class.invalid]="notes()['merchant_url']"
+              [attr.aria-invalid]="notes()['merchant_url'] ? true : null"
+            />
+            <small>
+              @if (railNeedsEndpoint()) {
+                The AP2-speaking endpoint to pay through.
+              } @else {
+                This rail has nowhere to be pointed.
+              }
+            </small>
+            @if (notes()['merchant_url']; as note) {
+              <small class="problem" role="alert">{{ note }}</small>
+            }
+          </label>
+        }
+      } @else {
+        <p class="hint">
+          Paying is not available on this server: the AP2 SDK it signs mandates with is an
+          optional install.
+        </p>
+      }
     </div>
 
     <p class="hint">

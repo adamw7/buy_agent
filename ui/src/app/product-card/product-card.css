@@ -232,3 +232,63 @@ h3 a:hover {
     padding: 4px 6px;
   }
 }
+
+/* The payment block. Deliberately not styled as the loudest thing on the card:
+   the button is an action a reader looks for, not one the page pushes at them. */
+.pay {
+  margin-block-start: 0.75rem;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--accent, #2f6f4f);
+  border-radius: 0.4rem;
+  background: var(--accent, #2f6f4f);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pay:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.confirm {
+  margin-block-start: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line, #d5d5d5);
+  border-radius: 0.4rem;
+  background: var(--raised, #fbfbfa);
+}
+
+.confirm p {
+  margin: 0 0 0.6rem;
+}
+
+.confirm .pay {
+  margin-block-start: 0;
+  margin-inline-end: 0.5rem;
+}
+
+.receipt {
+  margin-block-start: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-inline-start: 3px solid var(--accent, #2f6f4f);
+  background: var(--raised, #fbfbfa);
+}
+
+/* The reference is a hash: it has to be readable and copyable, and it must not
+   push the card wider than its column. */
+.receipt .reference {
+  display: block;
+  margin-block-start: 0.35rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8em;
+  overflow-wrap: anywhere;
+}
+
+/* Why a card has no button where its neighbours do -- Python's sentence, shown
+   rather than swallowed. */
+.cannot-pay {
+  margin-block-start: 0.75rem;
+  color: var(--muted, #666);
+  font-size: 0.9em;
+}

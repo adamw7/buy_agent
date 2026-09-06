@@ -36,6 +36,27 @@ const DEFAULTS: AgentDefaults = {
   region: 'us-en',
   sources: '',
   fetch: true,
+  pay: false,
+  pay_available: true,
+  rail: 'dry-run',
+  rail_options: [
+    {
+      name: 'dry-run',
+      label: 'Dry run',
+      endpoint: '',
+      needs_endpoint: false,
+      moves_money: false,
+    },
+    {
+      name: 'http',
+      label: 'HTTP endpoint',
+      endpoint: '',
+      needs_endpoint: true,
+      moves_money: true,
+    },
+  ],
+  merchant_url: '',
+  spend_limit: null,
   sort_by: 'score',
   sort_options: ['score', 'price', 'rating'],
   limits: {
@@ -47,6 +68,7 @@ const DEFAULTS: AgentDefaults = {
     min_rating: { min: 0, max: 5 },
     min_reviews: { min: 0, max: 10_000_000 },
     cache_ttl: { min: 0, max: 2_592_000 },
+    spend_limit: { min: 1, max: 10_000_000 },
   },
 };
 
@@ -913,5 +935,120 @@ describe('SearchForm', () => {
     const fields = next.nativeElement as HTMLElement;
     expect(fields.querySelector<HTMLInputElement>('input[name="region"]')!.value).toBe('pl-pl');
     expect(fields.querySelector<HTMLInputElement>('input[name="request"]')!.value).toBe('');
+  });
+});
+
+describe('SearchForm, paying', () => {
+  let fixture: ComponentFixture<SearchForm>;
+  let submitted: SearchOptions[];
+
+  const element = <T extends HTMLElement>(selector: string): T =>
+    fixture.nativeElement.querySelector(selector) as T;
+
+  const tick = async (name: string, on: boolean) => {
+    const box = element<HTMLInputElement>(`input[name="${name}"]`);
+    box.checked = on;
+    box.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+  };
+
+  const choose = async (selector: string, value: string) => {
+    const select = element<HTMLSelectElement>(selector);
+    select.value = value;
+    select.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+  };
+
+  const build = async (defaults = DEFAULTS) => {
+    fixture = TestBed.createComponent(SearchForm);
+    fixture.componentRef.setInput('defaults', defaults);
+    submitted = [];
+    fixture.componentInstance.search.subscribe((options) => submitted.push(options));
+    await fixture.whenStable();
+  };
+
+  beforeEach(async () => {
+    localStorage.clear();
+    await build();
+  });
+
+  it('is off until somebody asks for it', async () => {
+    expect(element<HTMLInputElement>('input[name="pay"]').checked).toBe(false);
+    expect(fixture.nativeElement.querySelector('select[name="rail"]')).toBeNull();
+  });
+
+  it('says so instead of offering a switch when the server cannot pay', async () => {
+    /* A build without the AP2 SDK: a button whose only outcome is a message
+       about pip is worse than a sentence. */
+    await build({ ...DEFAULTS, pay_available: false });
+
+    expect(fixture.nativeElement.querySelector('input[name="pay"]')).toBeNull();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('optional install');
+  });
+
+  it('reveals the rail once paying is on, and says who is charged', async () => {
+    await tick('pay', true);
+
+    expect(element('select[name="rail"]')).not.toBeNull();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('charges nobody');
+  });
+
+  it('warns where the rail can really charge somebody', async () => {
+    await tick('pay', true);
+    await choose('select[name="rail"]', 'http');
+
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('then charged');
+  });
+
+  it('fills the address in from the rail that was picked', async () => {
+    /* The same care the provider picker takes with a model and a server address:
+       left alone, the field would hold the last rail's endpoint. */
+    await tick('pay', true);
+    await choose('select[name="rail"]', 'http');
+
+    expect(element<HTMLInputElement>('input[name="merchantUrl"]').value).toBe('');
+  });
+
+  it('disables the address on a rail with nowhere to be pointed', async () => {
+    await tick('pay', true);
+
+    expect(element<HTMLInputElement>('input[name="merchantUrl"]').disabled).toBe(true);
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('nowhere to be pointed');
+  });
+
+  it('sends the payment settings with the run', async () => {
+    await tick('pay', true);
+    element<HTMLInputElement>('input[name="request"]').value = 'headphones';
+    element<HTMLInputElement>('input[name="request"]').dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+
+    expect(submitted[0].pay).toBe(true);
+    expect(submitted[0].rail).toBe('dry-run');
+    expect(submitted[0].spend_limit).toBeNull();
+  });
+
+  it('holds the spend limit to the range the server shipped', async () => {
+    await tick('pay', true);
+    const box = element<HTMLInputElement>('input[name="spend_limit"]');
+
+    expect(box.min).toBe('1');
+    expect(box.max).toBe('10000000');
+  });
+
+  it('never remembers that it was allowed to spend money', async () => {
+    /* The other settings are standing answers about this machine. "You may
+       spend my money" is not one of them. */
+    await tick('pay', true);
+    element<HTMLInputElement>('input[name="request"]').value = 'headphones';
+    element<HTMLInputElement>('input[name="request"]').dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+
+    await build();
+
+    expect(element<HTMLInputElement>('input[name="pay"]').checked).toBe(false);
   });
 });

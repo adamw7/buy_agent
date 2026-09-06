@@ -88,5 +88,43 @@
     </ul>
 
     <p class="parts-note">Each criterion is scored on its own, then blended by weight.</p>
+
+    <!-- Paying, and only ever in two steps. The confirmation restates the cart
+         rather than the request that found it, because the cart is what the
+         mandates will carry and what a person is actually agreeing to. -->
+    @if (receipt(); as paid) {
+      <p class="receipt" role="status">
+        <strong>{{ paid.paid ? 'Paid' : 'Authorised' }}</strong> {{ paid.price_label }} to
+        {{ paid.merchant }}. {{ paid.detail }}
+        <span class="reference">Reference {{ paid.reference }}</span>
+      </p>
+    } @else if (confirming()) {
+      <div class="confirm" role="group" aria-label="Confirm this purchase">
+        <p>
+          Pay <strong>{{ product().price_label }}</strong> for {{ product().name }}
+          @if (product().seller) {
+            to {{ product().seller }}
+          }
+          @if (rail(); as chosen) {
+            <br />
+            {{ chosen.label }} — you
+            <strong>{{ chosen.moves_money ? 'will be charged' : 'will NOT be charged' }}</strong
+            >.
+          }
+        </p>
+        <button type="button" class="pay" [disabled]="paying()" (click)="confirm()">
+          Yes, authorise it
+        </button>
+        <button type="button" class="secondary" [disabled]="paying()" (click)="cancel()">
+          Cancel
+        </button>
+      </div>
+    } @else if (offersPayment()) {
+      <button type="button" class="pay" [disabled]="paying()" (click)="startConfirming()">
+        Pay {{ product().price_label }}
+      </button>
+    } @else if (refusal(); as why) {
+      <p class="cannot-pay">{{ why }}</p>
+    }
   </div>
 </article>

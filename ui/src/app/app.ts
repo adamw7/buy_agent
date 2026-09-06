@@ -7,6 +7,8 @@ import type {
   LogLine,
   ModelSource,
   ModelStatus,
+  RailOption,
+  Receipt,
   SearchOptions,
   SearchResult,
   SortBy,
@@ -69,6 +71,40 @@ export class App {
    *  screen, in the order it was already in. */
   protected readonly reorderFailed = signal<string | null>(null);
 
+  /**
+   * The settings the run on screen was started with.
+   *
+   * Paying reads its rail, its endpoint and its spend limit off *the run*, not
+   * off the form as it stands now: a reader who typed a different limit after
+   * the results landed has not re-run anything, and a payment configured from
+   * the boxes would go out under settings that produced nothing on screen.
+   */
+  private readonly ranWith = signal<SearchOptions | null>(null);
+
+  /** The product being paid for, by rank -- one payment at a time, page-wide. */
+  protected readonly paying = signal<number | null>(null);
+
+  /** What came of each payment, by the rank of the product it bought. */
+  protected readonly receipts = signal<Record<number, Receipt>>({});
+
+  /** A payment that did not happen. Its own banner, beside the products: the
+   *  run itself worked, and `failure` means the run did not. */
+  protected readonly payFailed = signal<string | null>(null);
+
+  /** Whether this page may pay at all: the server can, and the run asked it to. */
+  protected readonly canPay = computed(
+    () => (this.defaults()?.pay_available ?? false) && (this.ranWith()?.pay ?? false),
+  );
+
+  /** The rail the run was started with, as the row Python sent for it -- so the
+   *  confirmation says whether anybody is about to be charged without the page
+   *  deciding that from a name. */
+  protected readonly payRail = computed<RailOption | null>(() => {
+    const name = this.ranWith()?.rail;
+    const rows = this.defaults()?.rail_options ?? [];
+    return rows.find((row) => row.name === name) ?? null;
+  });
+
   /** The best few: the same ones the CLI logs at the end of a run. */
   protected readonly highlighted = computed(() => {
     const result = this.result();
@@ -125,12 +161,17 @@ export class App {
    *  form, by comparing what was asked with what the box now holds. */
   private reorder: Subscription | null = null;
   private listing: Subscription | null = null;
+  /** A payment in flight. Never cancelled by a newer one -- `payFor` refuses to
+   *  start a second while one is running, because a purchase abandoned halfway
+   *  is not a question the page has moved on from; it is money in the air. */
+  private pay: Subscription | null = null;
 
   constructor() {
     inject(DestroyRef).onDestroy(() => {
       this.run?.unsubscribe();
       this.reorder?.unsubscribe();
       this.listing?.unsubscribe();
+      this.pay?.unsubscribe();
     });
 
     this.agent.defaults().subscribe({
@@ -232,6 +273,12 @@ export class App {
     this.stopped.set(false);
     this.running.set(true);
     this.started.set(true);
+    // A new run is a new set of products: last run's receipts belong to
+    // products that are no longer on the page.
+    this.ranWith.set(options);
+    this.receipts.set({});
+    this.paying.set(null);
+    this.payFailed.set(null);
 
     this.run = this.agent.search(options).subscribe({
       next: (event) => {
@@ -298,6 +345,47 @@ export class App {
           // to ask a second time either.
           control.value = found.sort_by;
           this.reordering.set(false);
+        },
+      });
+  }
+
+  /**
+   * Buy one of these products, having been shown that somebody approved it.
+   *
+   * The card witnessed the approval and this passes it on unchanged; everything
+   * that decides what the purchase *is* -- the cart, the price, whether that
+   * product may be bought at all -- happens in Python, which builds the cart
+   * from the same products and refuses unless the approval matches it. So a page
+   * showing a stale price cannot buy at that price (ADR-0012).
+   */
+  protected payFor(
+    rank: number,
+    approved: { title: string; price: number; currency: string },
+  ): void {
+    const found = this.result();
+    const settings = this.ranWith();
+    if (!found || !settings || this.paying() !== null) {
+      return;
+    }
+    this.paying.set(rank);
+    this.payFailed.set(null);
+    this.pay = this.agent
+      .pay({
+        products: found.products,
+        rank,
+        approved,
+        rail: settings.rail,
+        merchant_url: settings.merchant_url,
+        spend_limit: settings.spend_limit,
+      })
+      .subscribe({
+        next: ({ receipt }) => {
+          this.receipts.update((held) => ({ ...held, [rank]: receipt }));
+          this.paying.set(null);
+        },
+        error: (failure: unknown) => {
+          this.payFailed.set(`Nothing was bought. ${refusal(failure)}`);
+          this.paying.set(null);
         },
       });
   }

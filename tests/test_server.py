@@ -1492,3 +1492,79 @@ def test_a_client_that_left_before_the_headers_never_starts_a_search() -> None:
     handler.send_response = gone
 
     handler._stream_search({"request": "kettle"})
+
+
+# -- paying --------------------------------------------------------------------
+
+
+PAYABLE_PRODUCT = {
+    "name": "Sony WH-1000XM5",
+    "price": 329.99,
+    "currency": "USD",
+    "seller": "AudioSite",
+    "url": "https://audiosite.example/xm5",
+}
+
+PAY_BODY = {
+    "products": [PAYABLE_PRODUCT],
+    "rank": 1,
+    "approved": {"title": "Sony WH-1000XM5", "price": 329.99, "currency": "USD"},
+}
+
+
+def test_paying_answers_a_receipt(server: str) -> None:
+    status, body = post(f"{server}/api/pay", PAY_BODY)
+
+    assert status == 200
+    assert body["receipt"]["title"] == "Sony WH-1000XM5"
+
+
+def test_paying_runs_no_pipeline(server: str) -> None:
+    """The same line `POST /api/rank` sits on (ADR-0035): the products travel in
+    the body because the browser is already holding them."""
+    post(f"{server}/api/pay", PAY_BODY)
+
+    assert "reached" not in StubAgent.captured
+
+
+def test_an_approval_that_does_not_match_is_a_409(server: str) -> None:
+    body = {**PAY_BODY, "approved": {**PAY_BODY["approved"], "price": 1.0}}
+
+    status, answer = post(f"{server}/api/pay", body)
+
+    assert status == 409
+    assert answer["field"] == "approved"
+
+
+def test_an_unpayable_product_is_a_400_naming_the_field(server: str) -> None:
+    body = {
+        "products": [{**PAYABLE_PRODUCT, "price": None, "currency": None}],
+        "approved": PAY_BODY["approved"],
+    }
+
+    status, answer = post(f"{server}/api/pay", body)
+
+    assert status == 400
+    assert answer["field"] == "products"
+
+
+def test_paying_is_guarded_like_every_other_method(server: str) -> None:
+    """`_admits` runs at the top of `do_POST`, so a new endpoint added under it
+    is guarded by being there -- this is what says it still is."""
+    request = urllib.request.Request(
+        f"{server}/api/pay",
+        data=json.dumps(PAY_BODY).encode(),
+        headers={"Content-Type": "application/json", "Sec-Fetch-Site": "cross-site"},
+        method="POST",
+    )
+
+    status, _body = _call(request)
+
+    assert status == 403
+
+
+def test_the_form_is_told_what_this_server_can_pay_through(server: str) -> None:
+    _status, body = get(f"{server}/api/config")
+
+    assert body["pay"] is False
+    assert [row["name"] for row in body["rail_options"]] == ["dry-run", "http"]

@@ -54,6 +54,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0043](0043-compare-prices-only-within-one-currency.md) | Compare prices only within one currency, and convert nothing | Accepted |
 | [0044](0044-remember-a-deterministic-model-answer.md) | Remember a deterministic model answer on disk, beside the pages | Accepted |
 | [0045](0045-report-the-weights-a-score-was-blended-by.md) | Report the weights a score was blended by | Accepted |
+| [0046](0046-pay-on-the-shoppers-behalf-with-ap2.md) | Pay on the shopper's behalf, with AP2 mandates and a rail table | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written
