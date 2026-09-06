@@ -65,7 +65,13 @@ _QUOTE_COVERAGE = 0.6
 #: :data:`_COUNTING` words make the figure beside them a count of products rather
 #: than a score -- "we rated the 5 best headphones" -- and are ruled out on both
 #: sides, either being able to carry the tell.
-_RATING_AFTER = r"\s*(?:/\s*5\b|(?:out\s+of|of)\s+5\b|stars?\b)"
+#: The hyphen on the ``stars`` branch is the one :mod:`buy_agent.fetch` keeps the
+#: line for: "a 4.5-star average" and "4.5 stars" are one sentence spelled two
+#: ways, and grounding a rating off the second while blanking it off the first
+#: would leave the figure's fate resting on a page's punctuation. It widens
+#: nothing -- the space form already vouches for exactly the same figures -- and
+#: it is refused on the other two branches, where no page writes one.
+_RATING_AFTER = r"(?:\s*(?:/\s*5\b|(?:out\s+of|of)\s+5\b)|[\s-]*stars?\b)"
 _COUNTING = r"(?:best|top|cheapest|worst|greatest)"
 #: The gap stays generous -- "rated a solid 4.6" is how pages write it.
 _RATING_BEFORE = rf"(?:rated|rating|score[ds]?)\b(?![^\d]{{0,12}}{_COUNTING}\b)[^\d]{{0,12}}"

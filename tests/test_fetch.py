@@ -254,6 +254,15 @@ def test_one_unreachable_page_does_not_lose_the_others(monkeypatch) -> None:
         # Every sign the sweep knows has its code beside it: a page printing
         # "129000 JPY" quotes a price as plainly as one printing "¥129000".
         "Sony WH-CH720N 129000 JPY today",
+        # ...and the other way round, for the one currency whose sign is a word
+        # rather than a character. A Polish shop writes "599 zł" and hardly ever
+        # "599 PLN", so the code alone kept the price line off exactly the pages
+        # a pl-pl search returns.
+        "Sony WH-CH720N za 599 zł dzisiaj",
+        "Sony WH-CH720N zł 599 dzisiaj",
+        # A hyphen is how a review roundup writes the figure a shop writes with
+        # a space, and it is the same rating either way.
+        "Sony WH-CH720N is a 4.5-star pick",
     ],
 )
 def test_prices_and_ratings_are_recognised_in_several_shapes(line: str) -> None:
