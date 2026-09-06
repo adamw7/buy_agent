@@ -45,14 +45,33 @@ _CURRENCY_SIGNS = "$€£¥"  # dollar, euro, pound, yen
 #: and not off the next, for no reason a reader could work out.
 _CURRENCY_CODES = r"USD|EUR|GBP|JPY|PLN|CHF|SEK|CAD|AUD"
 
+#: The rule above, read the other way round: a code whose sign is *not* a single
+#: character is one :data:`_CURRENCY_SIGNS` cannot carry, and Poland's is the one
+#: of these that has one. A shop searched with ``--region pl-pl`` prints "599 zł"
+#: and almost never "599 PLN", so without this every price line on it was
+#: dropped here and the model was handed a page with no figures on it --
+#: unnoticeable afterwards, grounding blanking figures it never received in the
+#: first place. Unambiguous, which is why it is here and "kr" is not: it names
+#: one currency, and :data:`~buy_agent.models._CURRENCY_ALIASES` already folds it
+#: onto ``PLN`` for the comparison the run does later (ADR-0043).
+_CURRENCY_WORDS = _CURRENCY_CODES + r"|zł"
+
 _PRICE = re.compile(
     r"[" + re.escape(_CURRENCY_SIGNS) + r"]\s?\d"
-    r"|\b(?:" + _CURRENCY_CODES + r")\b\s*\d"
-    r"|\d\s*(?:" + _CURRENCY_CODES + r")\b",
+    r"|\b(?:" + _CURRENCY_WORDS + r")\b\s*\d"
+    r"|\d\s*(?:" + _CURRENCY_WORDS + r")\b",
     re.IGNORECASE,
 )
+#: A hyphen counts where a space does: "a 4.5-star average" is how a review
+#: roundup writes the figure a shop writes "4.5 stars", and the space form was
+#: kept while the hyphenated one was dropped -- so which of the two a page
+#: happened to use decided whether its rating reached the model at all. It says
+#: the same thing either way, and the two are told apart by nothing a reader
+#: could point at. Only the ``stars`` branch takes it: a rating written "4.5/5"
+#: or "out of 5" never has one, and letting the others through would be widening
+#: what counts as a rating rather than spelling one of them both ways.
 _RATING = re.compile(
-    r"\d(?:\.\d)?\s*(?:/\s*(?:5|10)\b|out of\s*(?:5|10)\b|stars?\b)"
+    r"\d(?:\.\d)?(?:\s*(?:/\s*(?:5|10)\b|out of\s*(?:5|10)\b)|[\s-]*stars?\b)"
     r"|\b(?:rated|rating)\b[^\d]{0,12}\d",
     re.IGNORECASE,
 )

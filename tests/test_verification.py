@@ -202,6 +202,11 @@ def test_a_price_written_with_decimals_still_matches() -> None:
         ("A solid 4.6 stars", 4.6),
         ("Rating: 4.6", 4.6),
         ("Rated 5 stars", 5.0),
+        # The same sentence hyphenated, which is how a roundup writes it. The
+        # space form already vouches for this figure, so refusing the hyphen
+        # rested a rating's fate on a page's punctuation and nothing else.
+        ("A solid 4.6-star average", 4.6),
+        ("Our 4.6-Star Pick", 4.6),
     ],
 )
 def test_ratings_are_recognised_however_they_are_written(snippet, rating) -> None:
@@ -242,6 +247,19 @@ def test_a_whole_rating_is_supported_by_the_zero_the_page_printed(snippet, ratin
     halves of the score for the page having been exact.
     """
     assert mentions_rating(build_haystack([SearchResult(snippet=snippet)]), rating)
+
+
+def test_a_hyphen_is_only_read_where_a_page_would_write_one() -> None:
+    """It joins a figure to "star" and nowhere else, so nothing new is vouched for.
+
+    A hyphen between a figure and its scale is not a shape any page writes, and
+    reading one would make a range ("4-5") say what a rating says. What the
+    figure itself may be is unchanged: "4.65-star" is no more a printed 4.6 than
+    "4.65/5" is.
+    """
+    assert not mentions_rating(build_haystack([SearchResult(snippet="Model 4.6-/5")]), 4.6)
+    assert not mentions_rating(build_haystack([SearchResult(snippet="Bundle 4-5 stars")]), 4.0)
+    assert not mentions_rating(build_haystack([SearchResult(snippet="Model 4.65-star")]), 4.6)
 
 
 def test_trailing_zeros_do_not_let_a_neighbouring_rating_vouch() -> None:
