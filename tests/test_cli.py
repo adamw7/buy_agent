@@ -728,3 +728,278 @@ def test_the_cache_lifetime_is_the_flag_s_or_the_config_s_own(fake_agent) -> Non
 
     main(["headphones"])
     assert fake_agent["config"].cache_ttl == AgentConfig().cache_ttl
+
+
+# -- paying --------------------------------------------------------------------
+
+
+PAYABLE = [
+    ranked_product(
+        Product(
+            name="Sony WH-1000XM5",
+            price=329.99,
+            currency="USD",
+            seller="AudioSite",
+            url="https://audiosite.example/xm5",
+        ),
+        score=0.9,
+        rank=1,
+    )
+]
+
+
+class Typed:
+    """A terminal somebody is sitting at, answering the approval prompt."""
+
+    def __init__(self, answer: str, *, tty: bool = True) -> None:
+        self.answer = answer
+        self.tty = tty
+
+    def isatty(self) -> bool:
+        return self.tty
+
+    def readline(self) -> str:
+        return self.answer
+
+
+def test_nothing_is_paid_for_unless_it_was_asked_for(fake_agent, monkeypatch) -> None:
+    """The switch is off, so a run is exactly the run it always was."""
+    paid = []
+    monkeypatch.setattr(main_module.payment, "pay_for", lambda *a, **k: paid.append(a))
+    fake_agent["result"] = PAYABLE
+
+    assert main(["headphones"]) == 0
+    assert paid == []
+
+
+def test_the_dry_run_pays_for_the_top_product_once_it_is_approved(
+    fake_agent, monkeypatch, capsys
+) -> None:
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("yes\n"))
+
+    assert main(["headphones", "--pay"]) == 0
+    assert "Type yes to authorise" in capsys.readouterr().err
+
+
+def test_the_prompt_restates_the_cart_and_whether_anybody_is_charged(
+    fake_agent, monkeypatch, capsys
+) -> None:
+    """This is the Trusted Surface, small: what it shows is what the mandates
+    will carry, not the request that found it."""
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("yes\n"))
+
+    main(["headphones", "--pay"])
+
+    shown = capsys.readouterr().err
+    assert "329.99 USD" in shown
+    assert "Sony WH-1000XM5" in shown
+    assert "AudioSite" in shown
+    assert "will NOT be charged" in shown
+
+
+def test_anything_but_yes_buys_nothing(fake_agent, monkeypatch, caplog) -> None:
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("no\n"))
+
+    with caplog.at_level(logging.WARNING):
+        assert main(["headphones", "--pay"]) == main_module.PAYMENT_FAILED
+
+    assert "was not approved" in caplog.text
+
+
+def test_a_run_with_nothing_to_type_into_is_refused_rather_than_assumed(
+    fake_agent, monkeypatch, caplog
+) -> None:
+    """Silence is not consent: a script that piped in nothing would otherwise
+    have bought something."""
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("", tty=False))
+
+    with caplog.at_level(logging.ERROR):
+        assert main(["headphones", "--pay"]) == main_module.PAYMENT_FAILED
+
+    assert "no terminal to ask at" in caplog.text
+
+
+def test_a_product_no_source_priced_is_refused_with_the_reason(
+    fake_agent, monkeypatch, caplog
+) -> None:
+    fake_agent["result"] = RANKED  # priced, but with no page and no currency
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("yes\n"))
+
+    with caplog.at_level(logging.ERROR):
+        assert main(["headphones", "--pay"]) == main_module.PAYMENT_FAILED
+
+    assert "not an amount" in caplog.text
+
+
+def test_an_open_mandate_pays_without_asking_anybody(
+    fake_agent, monkeypatch, tmp_path, caplog
+) -> None:
+    from buy_agent import mandates
+    from tests.test_mandates import open_mandate_file
+
+    agent, _issuer = open_mandate_file(tmp_path / "mandate.json", maximum=40000)
+    (tmp_path / "agent.pem").write_bytes(agent.export_to_pem(private_key=True, password=None))
+    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
+    monkeypatch.setenv(mandates.KEY_PATH, str(tmp_path / "agent.pem"))
+    fake_agent["result"] = PAYABLE
+    # No stdin at all: the point is that nothing asks.
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("", tty=False))
+
+    with caplog.at_level(logging.INFO):
+        assert main(["headphones", "--pay"]) == 0
+
+    assert "an open mandate" in caplog.text
+
+
+def test_the_authorisation_is_logged_with_what_it_covers(
+    fake_agent, monkeypatch, caplog
+) -> None:
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("yes\n"))
+
+    with caplog.at_level(logging.INFO):
+        main(["headphones", "--pay"])
+
+    assert "Authorisation" in caplog.text
+    assert "329.99 USD" in caplog.text
+
+
+def test_a_run_that_found_nothing_is_still_nothing_found_and_not_a_failed_payment(
+    fake_agent,
+) -> None:
+    """There was nothing to buy, and the exit code a script branches on should
+    say which of the two happened."""
+    fake_agent["result"] = []
+
+    assert main(["headphones", "--pay"]) == NOTHING_FOUND
+
+
+def test_the_report_and_the_json_survive_a_payment_that_failed(
+    fake_agent, monkeypatch, tmp_path
+) -> None:
+    """A purchase that fails must not cost the shopper the answer they already
+    paid a minute of searching for."""
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("no\n"))
+    out = tmp_path / "results.json"
+
+    assert main(["headphones", "--pay", "--json", str(out)]) == main_module.PAYMENT_FAILED
+    assert json.loads(out.read_text())[0]["name"] == "Sony WH-1000XM5"
+
+
+def test_the_spend_limit_reaches_the_config(fake_agent) -> None:
+    main(["headphones", "--spend-limit", "250"])
+
+    assert fake_agent["config"].spend_limit == 250
+
+
+def test_the_rail_and_its_address_reach_the_config(fake_agent) -> None:
+    main(["headphones", "--rail", "http", "--merchant-url", "https://pay.example/"])
+
+    config = fake_agent["config"]
+    assert config.rail == "http"
+    # The trailing slash is dropped where the address is resolved, so the rail
+    # builds `{url}/checkout` and never `{url}//checkout`.
+    assert config.merchant_url == "https://pay.example"
+
+
+def test_a_rail_nothing_can_pay_through_is_a_usage_error(capsys) -> None:
+    with pytest.raises(SystemExit):
+        main(["headphones", "--rail", "paypal"])
+
+    assert "paypal" in capsys.readouterr().err
+
+
+def test_a_spend_limit_outside_its_range_is_a_usage_error(capsys) -> None:
+    with pytest.raises(SystemExit):
+        main(["headphones", "--spend-limit", "0"])
+
+    assert "between" in capsys.readouterr().err
+
+
+def test_the_exit_codes_the_help_lists_are_the_ones_main_returns() -> None:
+    """`--help` is the CLI's only documentation, so a sixth code added without a
+    line there is one a script cannot branch on."""
+    epilog = build_parser().epilog or ""
+
+    assert f"  {main_module.PAYMENT_FAILED}  " in epilog
+    assert f"  {NOTHING_FOUND}  " in epilog
+
+
+@pytest.mark.parametrize("answer", ["y", "yes", "YES", " Yes \n"])
+def test_the_short_and_the_shouted_yes_both_authorise(
+    fake_agent, monkeypatch, answer
+) -> None:
+    """Somebody is being asked a yes/no question at a terminal, so the answers a
+    terminal gets are the answers this takes."""
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed(answer))
+
+    assert main(["headphones", "--pay"]) == 0
+
+
+@pytest.mark.parametrize("answer", ["n", "no", "", "yeah", "yes please"])
+def test_anything_that_is_not_yes_is_not_yes(fake_agent, monkeypatch, answer) -> None:
+    """Consent is the narrow reading, deliberately: "yeah" is somebody typing
+    while thinking, and this is the last chance to be sure."""
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed(answer))
+
+    assert main(["headphones", "--pay"]) == main_module.PAYMENT_FAILED
+
+
+def test_the_receipt_is_logged_with_the_merchant_and_what_became_of_it(
+    fake_agent, monkeypatch, caplog
+) -> None:
+    """The report on stdout is the products; what happened to the money goes to
+    the progress stream, and it has to say who was paid and whether they were."""
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("yes\n"))
+
+    with caplog.at_level(logging.INFO):
+        main(["headphones", "--pay"])
+
+    assert "AudioSite" in caplog.text
+    assert "Nothing was charged" in caplog.text
+
+
+def test_the_prompt_says_which_page_the_product_came_off(
+    fake_agent, monkeypatch, capsys
+) -> None:
+    """The merchant is the site the page came from, so the page is the one thing
+    that lets somebody check who they are about to pay before they say yes."""
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("no\n"))
+
+    main(["headphones", "--pay"])
+
+    assert "https://audiosite.example/xm5" in capsys.readouterr().err
+
+
+def test_a_spend_limit_the_top_product_breaks_buys_nothing(
+    fake_agent, monkeypatch, caplog
+) -> None:
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("yes\n"))
+
+    with caplog.at_level(logging.ERROR):
+        assert main(["headphones", "--pay", "--spend-limit", "100"]) == main_module.PAYMENT_FAILED
+
+    assert "spend limit" in caplog.text
+
+
+def test_nothing_is_asked_before_the_product_is_known_to_be_payable(
+    fake_agent, monkeypatch, capsys
+) -> None:
+    """The cart is built first, so a product nothing can pay for is refused with
+    its reason rather than after somebody has been made to type yes."""
+    fake_agent["result"] = RANKED
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("yes\n"))
+
+    main(["headphones", "--pay"])
+
+    assert "Type yes to authorise" not in capsys.readouterr().err

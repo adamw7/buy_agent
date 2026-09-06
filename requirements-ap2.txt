@@ -1,0 +1,21 @@
+# The Agent Payments Protocol SDK, which `buy_agent.mandates` signs and verifies
+# mandates with. Optional: everything except `--pay` works without it, and
+# `mandates.available()` is what both front doors ask before offering to.
+#
+#     pip install -r requirements-ap2-deps.txt
+#     pip install --no-deps -r requirements-ap2.txt
+#
+# Two commands, because `--no-deps` is load-bearing here and nowhere else. The
+# published metadata pins `pydantic==2.12.5` and `pytest==9.0.2` exactly, which
+# collides with the versions this project pins; the code runs fine on ours, so
+# its own resolution is skipped. It also declares `pytest` and `py` as *runtime*
+# dependencies, which no library needs and this image should not carry.
+#
+# `--no-deps` cannot be written per line, so what the SDK actually imports lives
+# in `requirements-ap2-deps.txt` and is installed normally -- listed here under
+# the flag, `cryptography` arrived without `cffi` and nothing could sign.
+#
+# Not `ap2` from PyPI -- that name belongs to an unrelated package by another
+# author. It is a direct reference to the Google repository at an exact commit,
+# there being no release of this one on PyPI yet.
+ap2 @ git+https://github.com/google-agentic-commerce/ap2@e1ea56db72a6385bce3e5c1112b3a56ce60acb43

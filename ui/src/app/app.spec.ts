@@ -9,7 +9,9 @@ import type {
   AgentDefaults,
   ModelSource,
   ModelStatus,
+  PayOptions,
   RankOptions,
+  Receipt,
   SearchEvent,
   SearchResult,
   SourcesCheck,
@@ -47,6 +49,27 @@ const DEFAULTS: AgentDefaults = {
   region: 'us-en',
   sources: '',
   fetch: true,
+  pay: false,
+  pay_available: true,
+  rail: 'dry-run',
+  rail_options: [
+    {
+      name: 'dry-run',
+      label: 'Dry run',
+      endpoint: '',
+      needs_endpoint: false,
+      moves_money: false,
+    },
+    {
+      name: 'http',
+      label: 'HTTP endpoint',
+      endpoint: '',
+      needs_endpoint: true,
+      moves_money: true,
+    },
+  ],
+  merchant_url: '',
+  spend_limit: null,
   sort_by: 'score',
   sort_options: ['score', 'price', 'rating'],
   limits: {
@@ -58,6 +81,7 @@ const DEFAULTS: AgentDefaults = {
     min_rating: { min: 0, max: 5 },
     min_reviews: { min: 0, max: 10_000_000 },
     cache_ttl: { min: 0, max: 2_592_000 },
+    spend_limit: { min: 1, max: 10_000_000 },
   },
 };
 
@@ -79,6 +103,7 @@ const product = (rank: number, name: string) => ({
     total: 1 - rank / 10,
     neutral: ['popularity'],
   },
+  cannot_pay: null,
   name,
   price: 100 * rank,
   currency: 'USD',
@@ -102,6 +127,22 @@ const RESULT: SearchResult = {
   sort_by: 'score',
   weights: WEIGHTS,
   products: [product(1, 'Best Kettle'), product(2, 'Good Kettle'), product(3, 'Other Kettle')],
+};
+
+const RECEIPT: Receipt = {
+  paid: false,
+  rail: 'dry-run',
+  merchant: 'Shop',
+  title: 'kettle 1',
+  price: 100,
+  currency: 'USD',
+  amount: 10000,
+  price_label: '100.00 USD',
+  transaction_id: 'tx',
+  reference: 'ref-abc',
+  autonomous: false,
+  enrolled_key: false,
+  detail: 'Nothing was charged.',
 };
 
 /** Stands in for the HTTP layer: no request leaves the page in these tests. */
@@ -149,6 +190,16 @@ class FakeAgent {
   rank(options: RankOptions) {
     this.ranked.push(options);
     return this.rankResponse(options);
+  }
+
+  paid: PayOptions[] = [];
+  /** What `/api/pay` answers with. A function so a test can refuse one. */
+  payResponse: (options: PayOptions) => Observable<{ receipt: Receipt }> = () =>
+    of({ receipt: RECEIPT });
+
+  pay(options: PayOptions) {
+    this.paid.push(options);
+    return this.payResponse(options);
   }
 
   search(options: unknown): Observable<SearchEvent> {
@@ -855,5 +906,123 @@ describe('App results', () => {
 
     expect(JSON.parse(await blobs[0].text())).toEqual(RESULT.products);
     expect(links[0].download).toMatch(/^buy-agent-results-\d{8}-\d{6}\.json$/);
+  });
+});
+
+describe('App paying', () => {
+  let agent: FakeAgent;
+
+  beforeEach(() => {
+    localStorage.clear();
+    agent = new FakeAgent();
+    TestBed.configureTestingModule({ providers: [{ provide: AgentService, useValue: agent }] });
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  /** A finished run, started with paying either on or off. */
+  const finished = async (pay: boolean) => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const page = fixture.nativeElement as HTMLElement;
+    if (pay) {
+      const box = page.querySelector<HTMLInputElement>('input[name="pay"]')!;
+      box.checked = true;
+      box.dispatchEvent(new Event('change'));
+      await fixture.whenStable();
+    }
+    const input = page.querySelector<HTMLInputElement>('input[name="request"]')!;
+    input.value = 'kettle';
+    input.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    page.querySelector('form')!.dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+    agent.stream.next({ kind: 'result', result: RESULT });
+    agent.stream.complete();
+    await fixture.whenStable();
+    return fixture;
+  };
+
+  /** Click Pay on the first card, then confirm it. */
+  const buyTheTopOne = async (fixture: ComponentFixture<App>) => {
+    const page = fixture.nativeElement as HTMLElement;
+    page.querySelector<HTMLButtonElement>('app-product-card .pay')!.click();
+    await fixture.whenStable();
+    page.querySelector<HTMLButtonElement>('app-product-card .confirm .pay')!.click();
+    await fixture.whenStable();
+  };
+
+  it('offers no payment on a run that did not ask to pay', async () => {
+    const page = (await finished(false)).nativeElement as HTMLElement;
+    expect(page.querySelector('app-product-card .pay')).toBeNull();
+  });
+
+  it('sends the run, the rank and the approval, and nothing else', async () => {
+    const fixture = await finished(true);
+    await buyTheTopOne(fixture);
+
+    expect(agent.paid).toHaveLength(1);
+    expect(agent.paid[0].rank).toBe(1);
+    expect(agent.paid[0].products).toHaveLength(RESULT.products.length);
+    expect(agent.paid[0].approved).toEqual({
+      title: RESULT.products[0].name,
+      price: RESULT.products[0].price,
+      currency: 'USD',
+    });
+    expect(agent.paid[0].rail).toBe('dry-run');
+  });
+
+  it('shows the receipt on the card that was bought', async () => {
+    const fixture = await finished(true);
+    await buyTheTopOne(fixture);
+
+    const page = fixture.nativeElement as HTMLElement;
+    expect(page.textContent).toContain('ref-abc');
+    expect(page.textContent).toContain('Nothing was charged.');
+  });
+
+  it('says a payment failed beside the products and not in the run banner', async () => {
+    /* The banner at the top means the *run* failed, and this run did not -- it
+       found these. */
+    agent.payResponse = () => throwError(() => ({ error: { error: 'Card declined' } }));
+    const fixture = await finished(true);
+    await buyTheTopOne(fixture);
+
+    const page = fixture.nativeElement as HTMLElement;
+    expect(page.textContent).toContain('Nothing was bought');
+    expect(page.textContent).toContain('Card declined');
+    expect(page.querySelectorAll('app-product-card').length).toBeGreaterThan(0);
+  });
+
+  it('pays for one thing at a time', async () => {
+    /* A purchase abandoned halfway is not a question the page has moved on
+       from; it is money in the air. */
+    agent.payResponse = () => new Subject<{ receipt: Receipt }>();
+    const fixture = await finished(true);
+    await buyTheTopOne(fixture);
+
+    const page = fixture.nativeElement as HTMLElement;
+    const buttons = [...page.querySelectorAll<HTMLButtonElement>('app-product-card .pay')];
+    expect(buttons.every((button) => button.disabled)).toBe(true);
+  });
+
+  it('forgets the receipts when a new run replaces the products', async () => {
+    const fixture = await finished(true);
+    await buyTheTopOne(fixture);
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('ref-abc');
+
+    agent.stream = new Subject<SearchEvent>();
+    const page = fixture.nativeElement as HTMLElement;
+    const input = page.querySelector<HTMLInputElement>('input[name="request"]')!;
+    input.value = 'toaster';
+    input.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    page.querySelector('form')!.dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+    agent.stream.next({ kind: 'result', result: RESULT });
+    agent.stream.complete();
+    await fixture.whenStable();
+
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('ref-abc');
   });
 });

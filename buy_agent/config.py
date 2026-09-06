@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from buy_agent.cache import DEFAULT_TTL
 from buy_agent.providers import Provider, provider_for
+from buy_agent.rails import Rail, rail_for
 from buy_agent.ranking import RankingWeights
 from buy_agent.sources import Source
 
@@ -16,6 +17,12 @@ from buy_agent.sources import Source
 #: (ADR-0028). The only default here that is not one server's own -- what each of
 #: them defaults to is its row in :data:`buy_agent.providers.PROVIDERS`.
 DEFAULT_PROVIDER = os.getenv("BUY_AGENT_PROVIDER", "ollama")
+
+#: Which rail a payment goes through when nothing says otherwise. The dry run,
+#: which signs a real authorisation and charges nobody -- so turning payment on
+#: is never by itself a way to spend money. What each rail defaults to is its own
+#: row in :data:`buy_agent.rails.RAILS`.
+DEFAULT_RAIL = os.getenv("BUY_AGENT_RAIL", "dry-run")
 
 #: The range each numeric setting is held to, by the name of the field it bounds.
 #: Declared here beside the fields because both front ends enforce it, and a bound
@@ -39,6 +46,11 @@ LIMITS: dict[str, tuple[int, int]] = {
     # 0 is off -- every page read fresh -- and the ceiling is 30 days, past
     # which a stored price is not evidence of anything (ADR-0040).
     "cache_ttl": (0, 2_592_000),
+    # The most one payment may be. Its range is ``max_price``'s, being the same
+    # kind of number, but it is a different promise: that one filters what is
+    # reported and admits a product it cannot judge, this one has to be cleared
+    # before money moves and refuses what it cannot judge.
+    "spend_limit": (1, 10_000_000),
 }
 
 #: Where the search looks when nothing says otherwise. Named rather than written
@@ -139,11 +151,34 @@ class AgentConfig:
             the same ten pages it opened last time (ADR-0040). Where they are
             kept is ``$BUY_AGENT_CACHE_DIR``, which has no flag and no form
             field, a path on the server's disk being nobody's to choose remotely.
+        pay: Whether the agent may pay for what it found. False, and nothing in
+            a run changes: paying happens after a run, to one product, on a
+            separate decision that a person or a pre-signed open mandate makes.
+        rail: Who a payment goes through -- ``"dry-run"`` or ``"http"``,
+            overridable with ``$BUY_AGENT_RAIL``. The default signs a real AP2
+            authorisation and charges nobody, so turning ``pay`` on is not by
+            itself a way to spend money.
+        merchant_url: The AP2-speaking endpoint a paying rail talks to, empty for
+            the rail's own default (``$BUY_AGENT_MERCHANT_URL``). No merchant is
+            named anywhere in this project; the address is the integration.
+        spend_limit: The most one payment may be, or None for no limit -- read in
+            the currency the run's prices are counted in. Unlike the shopper's
+            bounds, a price this run cannot place fails it rather than passing:
+            a bound that cannot judge a candidate keeps it (ADR-0039), but an
+            amount nobody can place is not an amount to send.
         weights: Relative importance of rating, popularity and price when ranking.
 
+    Two settings a payment needs have no field here, no flag and no form field,
+    for the reason ``$VLLM_API_KEY`` and ``$BUY_AGENT_CACHE_DIR`` have none: a
+    secret and a path on the server's disk are not a browser's to choose.
+    ``$BUY_AGENT_AP2_KEY`` is the key mandates are signed with, and
+    ``$BUY_AGENT_AP2_MANDATE`` the pre-signed open mandate whose presence is what
+    lets the agent buy unattended.
+
     Raises:
-        ValueError: if ``provider`` names a server this agent cannot talk to, or
-            ``region`` is not shaped like a region code.
+        ValueError: if ``provider`` names a server this agent cannot talk to,
+            ``rail`` names one it cannot pay through, ``region`` is not shaped
+            like a region code, or a paying rail was given no address.
     """
 
     provider: str = DEFAULT_PROVIDER
@@ -166,7 +201,21 @@ class AgentConfig:
     opinion_chars: int = 400
     fetch_timeout: float = 8.0
     cache_ttl: float = DEFAULT_TTL
+    pay: bool = False
+    rail: str = DEFAULT_RAIL
+    merchant_url: str = ""
+    spend_limit: float | None = None
     weights: RankingWeights = field(default_factory=RankingWeights)
+
+    @property
+    def rail_used(self) -> Rail:
+        """The rail this config names, and everything that differs about it.
+
+        The one place a rail name becomes behaviour -- where the checkout is
+        signed, what a settlement means, which failures mean "not there" and the
+        sentence one carries all hang off it, exactly as they do for a provider.
+        """
+        return rail_for(self.rail)
 
     @property
     def model_server(self) -> Provider:
@@ -192,3 +241,11 @@ class AgentConfig:
         self.base_url = self.base_url or server.base_url
         self.api_key = self.api_key or server.api_key
         self.region = parse_region(self.region)
+
+        rail = self.rail_used  # raises for a name nothing can pay through
+        self.merchant_url = (self.merchant_url or rail.endpoint).rstrip("/")
+        if self.pay and rail.needs_endpoint and not self.merchant_url:
+            raise ValueError(
+                f"Paying through {rail.label} needs an address: give --merchant-url "
+                f"or set $BUY_AGENT_MERCHANT_URL."
+            )

@@ -1,9 +1,10 @@
 import { TestBed } from '@angular/core/testing';
 
 import { ProductCard } from './product-card';
-import type { RankedProduct, ScoreWeights } from '../agent.types';
+import type { RailOption, RankedProduct, Receipt, ScoreWeights } from '../agent.types';
 
 const SONY: RankedProduct = {
+  cannot_pay: null,
   rank: 1,
   score: 0.912,
   breakdown: {
@@ -41,6 +42,7 @@ const UNKNOWN: RankedProduct = {
     neutral: ['rating', 'popularity', 'price'],
   },
   name: 'Anker Q30',
+  cannot_pay: 'No source printed a price for Anker Q30, so there is nothing to authorise.',
   price: null,
   rating: null,
   seller: null,
@@ -54,17 +56,71 @@ const UNKNOWN: RankedProduct = {
 /** What a run says its scores were blended by: the defaults, normalised. */
 const WEIGHTS: ScoreWeights = { rating: 0.5, popularity: 0.2, price: 0.3 };
 
+const DRY_RUN: RailOption = {
+  name: 'dry-run',
+  label: 'Dry run',
+  endpoint: '',
+  needs_endpoint: false,
+  moves_money: false,
+};
+
+const CHARGES: RailOption = { ...DRY_RUN, name: 'http', label: 'HTTP endpoint', moves_money: true };
+
+const RECEIPT: Receipt = {
+  paid: false,
+  rail: 'dry-run',
+  merchant: 'Amazon',
+  title: 'Sony WH-1000XM5',
+  price: 328,
+  currency: 'USD',
+  amount: 32800,
+  price_label: '328.00 USD',
+  transaction_id: 'tx',
+  reference: 'ref-abc',
+  autonomous: false,
+  enrolled_key: false,
+  detail: 'Nothing was charged.',
+};
+
+/** What a card was asked to do about paying, which is nothing by default. */
+interface Paying {
+  canPay?: boolean;
+  rail?: RailOption | null;
+  paying?: boolean;
+  receipt?: Receipt | null;
+}
+
 async function render(
   product: RankedProduct,
   highlighted = false,
   weights: ScoreWeights | null = WEIGHTS,
+  paying: Paying = {},
 ): Promise<HTMLElement> {
   const fixture = TestBed.createComponent(ProductCard);
   fixture.componentRef.setInput('product', product);
   fixture.componentRef.setInput('highlighted', highlighted);
   fixture.componentRef.setInput('weights', weights);
+  fixture.componentRef.setInput('canPay', paying.canPay ?? false);
+  fixture.componentRef.setInput('rail', paying.rail ?? null);
+  fixture.componentRef.setInput('paying', paying.paying ?? false);
+  fixture.componentRef.setInput('receipt', paying.receipt ?? null);
   await fixture.whenStable();
   return fixture.nativeElement as HTMLElement;
+}
+
+/** The card, plus the approvals it emitted -- what `App` would receive. */
+async function payable(product: RankedProduct, paying: Paying = { canPay: true }) {
+  const fixture = TestBed.createComponent(ProductCard);
+  fixture.componentRef.setInput('product', product);
+  fixture.componentRef.setInput('weights', WEIGHTS);
+  fixture.componentRef.setInput('canPay', paying.canPay ?? true);
+  fixture.componentRef.setInput('rail', paying.rail ?? DRY_RUN);
+  fixture.componentRef.setInput('paying', paying.paying ?? false);
+  fixture.componentRef.setInput('receipt', paying.receipt ?? null);
+  const approvals: { title: string; price: number; currency: string }[] = [];
+  fixture.componentInstance.pay.subscribe((approval) => approvals.push(approval));
+  await fixture.whenStable();
+  return { fixture, card: fixture.nativeElement as HTMLElement, approvals };
 }
 
 describe('ProductCard', () => {
@@ -242,5 +298,104 @@ describe('ProductCard', () => {
   it('marks the ones that made the top of the report', async () => {
     expect((await render(SONY, true)).classList).toContain('highlighted');
     expect((await render(SONY, false)).classList).not.toContain('highlighted');
+  });
+});
+
+describe('ProductCard, paying', () => {
+  it('offers nothing at all when the run was not asked to pay', async () => {
+    const card = await render(SONY);
+    expect(card.querySelector('.pay')).toBeNull();
+    expect(card.querySelector('.cannot-pay')).toBeNull();
+  });
+
+  it('offers the price as the button, so what is clicked is what is paid', async () => {
+    const { card } = await payable(SONY);
+    expect(card.querySelector('.pay')!.textContent).toContain('328.00 USD');
+  });
+
+  it('asks a second time before it emits anything', async () => {
+    /* This is the small Trusted Surface: a single button would be a purchase
+       made by a misclick on a card in a list. */
+    const { fixture, card, approvals } = await payable(SONY);
+    card.querySelector<HTMLButtonElement>('.pay')!.click();
+    await fixture.whenStable();
+
+    expect(approvals).toEqual([]);
+    expect(card.querySelector('.confirm')).not.toBeNull();
+  });
+
+  it('restates the cart and says whether anybody is charged', async () => {
+    const { fixture, card } = await payable(SONY, { canPay: true, rail: CHARGES });
+    card.querySelector<HTMLButtonElement>('.pay')!.click();
+    await fixture.whenStable();
+
+    const confirm = card.querySelector('.confirm')!;
+    expect(confirm.textContent).toContain('328.00 USD');
+    expect(confirm.textContent).toContain('Sony WH-1000XM5');
+    expect(confirm.textContent).toContain('HTTP endpoint');
+    expect(confirm.textContent).toContain('will be charged');
+  });
+
+  it('says plainly when the rail charges nobody', async () => {
+    const { fixture, card } = await payable(SONY);
+    card.querySelector<HTMLButtonElement>('.pay')!.click();
+    await fixture.whenStable();
+
+    expect(card.querySelector('.confirm')!.textContent).toContain('will NOT be charged');
+  });
+
+  it('emits the three fields the server holds against its own cart', async () => {
+    const { fixture, card, approvals } = await payable(SONY);
+    card.querySelector<HTMLButtonElement>('.pay')!.click();
+    await fixture.whenStable();
+    card.querySelectorAll<HTMLButtonElement>('.confirm .pay')[0].click();
+    await fixture.whenStable();
+
+    expect(approvals).toEqual([
+      { title: 'Sony WH-1000XM5', price: 328, currency: 'USD' },
+    ]);
+  });
+
+  it('cancelling puts the card back and buys nothing', async () => {
+    const { fixture, card, approvals } = await payable(SONY);
+    card.querySelector<HTMLButtonElement>('.pay')!.click();
+    await fixture.whenStable();
+    card.querySelector<HTMLButtonElement>('.confirm .secondary')!.click();
+    await fixture.whenStable();
+
+    expect(approvals).toEqual([]);
+    expect(card.querySelector('.confirm')).toBeNull();
+    expect(card.querySelector('.pay')).not.toBeNull();
+  });
+
+  it('says why a product cannot be bought rather than showing no button', async () => {
+    /* A card with no button beside cards that have one is a question, and
+       Python already wrote the answer. */
+    const { card } = await payable(UNKNOWN);
+    expect(card.querySelector('.pay')).toBeNull();
+    expect(card.querySelector('.cannot-pay')!.textContent).toContain('nothing to authorise');
+  });
+
+  it('stands down while another payment is in flight', async () => {
+    const { card } = await payable(SONY, { canPay: true, paying: true });
+    expect(card.querySelector<HTMLButtonElement>('.pay')!.disabled).toBe(true);
+  });
+
+  it('shows the receipt in place of the button once something was bought', async () => {
+    const { card } = await payable(SONY, { canPay: true, receipt: RECEIPT });
+
+    expect(card.querySelector('.pay')).toBeNull();
+    expect(card.querySelector('.receipt')!.textContent).toContain('Authorised');
+    expect(card.textContent).toContain('Nothing was charged.');
+    expect(card.textContent).toContain('ref-abc');
+  });
+
+  it('says Paid where money really moved', async () => {
+    const { card } = await payable(SONY, {
+      canPay: true,
+      receipt: { ...RECEIPT, paid: true, detail: 'Charged.' },
+    });
+
+    expect(card.querySelector('.receipt')!.textContent).toContain('Paid');
   });
 });

@@ -46,6 +46,20 @@ def cache_somewhere_disposable(
     monkeypatch.setenv("BUY_AGENT_CACHE_DIR", str(_scratch_cache / named))
 
 
+@pytest.fixture(autouse=True)
+def pay_with_nothing_of_the_developers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unset the two payment variables for every test in the suite.
+
+    ``autouse`` for the reason the cache directory is, and more so: these name a
+    signing key and a pre-signed open mandate, so a developer who has set either
+    would otherwise have a suite that signs with their key and buys on their
+    budget. Unset, every test that wants one points at a file it made itself.
+    """
+    monkeypatch.delenv("BUY_AGENT_AP2_KEY", raising=False)
+    monkeypatch.delenv("BUY_AGENT_AP2_MANDATE", raising=False)
+    monkeypatch.delenv("BUY_AGENT_MERCHANT_URL", raising=False)
+
+
 class FakeLLM:
     """Stands in for a model server: a canned object per requested schema.
 

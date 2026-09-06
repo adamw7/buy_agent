@@ -9,11 +9,21 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, get_args
 
+from buy_agent import mandates, payment
 from buy_agent.agent import BuyAgent, ModelUnavailableError
 from buy_agent.api import results_payload
-from buy_agent.config import DEFAULT_PROVIDER, LIMITS, AgentConfig, parse_region
+from buy_agent.config import (
+    DEFAULT_PROVIDER,
+    DEFAULT_RAIL,
+    LIMITS,
+    AgentConfig,
+    parse_region,
+)
 from buy_agent.logging_setup import configure_logging
+from buy_agent.models import RankedProduct
+from buy_agent.payment import PaymentError
 from buy_agent.providers import PROVIDERS, provider_for
+from buy_agent.rails import RAILS, rail_for
 from buy_agent.ranking import SortBy
 from buy_agent.search import SearchError
 from buy_agent.sources import parse_named_sources, parse_sources
@@ -41,6 +51,12 @@ _DEFAULTS = _defaults()
 #: the model answered, and no product survived. Its own code because a shell
 #: cannot otherwise tell it from a stopped model server. 2 is argparse's own.
 NOTHING_FOUND = 3
+
+#: Exit code for a run that was asked to pay and did not: the product could not
+#: be authorised, the shopper declined, or the rail refused. Its own code because
+#: the report on stdout is real either way -- a script that read 0 here would file
+#: the products and never learn that nothing was bought.
+PAYMENT_FAILED = 4
 
 #: What ``--num-ctx`` holds when it was not given. A sentinel rather than the
 #: config's default: "8192" and "the default, which is 8192" are the same number
@@ -134,6 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  1  the run failed -- the reason is the last line on stderr\n"
             "  2  the command line could not be understood\n"
             f"  {NOTHING_FOUND}  the run worked and found nothing\n"
+            f"  {PAYMENT_FAILED}  --pay was asked for and nothing was bought\n"
             "  130  interrupted with Ctrl-C\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -241,6 +258,44 @@ def build_parser() -> argparse.ArgumentParser:
         "$BUY_AGENT_CACHE_DIR says where it is all kept.",
     )
     parser.add_argument(
+        "--pay",
+        action=argparse.BooleanOptionalAction,
+        default=_DEFAULTS.pay,
+        help="Buy the top-ranked product once you have approved it (default: "
+        "--no-pay). The purchase is authorised with signed AP2 mandates rather "
+        "than a stored card, and only a product whose price a source actually "
+        "printed can be paid for. With $BUY_AGENT_AP2_MANDATE naming a pre-signed "
+        "open mandate this runs unattended, within that mandate's constraints; "
+        "without one you are asked, and a run with nothing to type into is "
+        "refused rather than assumed.",
+    )
+    parser.add_argument(
+        "--rail",
+        type=_checked(rail_for),
+        choices=tuple(RAILS),
+        default=DEFAULT_RAIL,
+        help=f"Who to pay through (default: {DEFAULT_RAIL}, override with "
+        "$BUY_AGENT_RAIL). The default signs a real authorisation and charges "
+        "nobody, so --pay on its own never spends anything.",
+    )
+    parser.add_argument(
+        "--merchant-url",
+        default="",
+        help="The AP2-speaking endpoint a paying rail talks to, empty for the "
+        "rail's own default ($BUY_AGENT_MERCHANT_URL). It is asked for a signed "
+        "checkout at {url}/checkout and presented the mandates at {url}/payment.",
+    )
+    parser.add_argument(
+        "--spend-limit",
+        type=_bounded(float, "spend_limit"),
+        default=_DEFAULTS.spend_limit,
+        metavar="AMOUNT",
+        help="Refuse to pay more than this for one product (default: no limit), "
+        "in the currency the run's prices are counted in. Unlike --max-price, a "
+        "price this run cannot place fails it: a bound that cannot judge a "
+        "candidate keeps it, but an amount nobody can place is not one to send.",
+    )
+    parser.add_argument(
         "--temperature",
         type=_bounded(float, "temperature"),
         default=_DEFAULTS.temperature,
@@ -277,6 +332,74 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _approved(cart: payment.Cart, config: AgentConfig) -> bool:
+    """Ask the shopper to approve this exact cart, and mean it.
+
+    This is AP2's Trusted Surface, small: the surface that shows a person what
+    they are agreeing to before anything is signed. So it restates the cart the
+    mandates will carry -- the title, the price, the merchant and which rail --
+    rather than the request that found it, and it says whether the rail can
+    charge anybody, since the honest answer for the default is no.
+
+    The prompt goes to stderr and the answer is read off stdin, keeping the
+    report on stdout a report. A run with nothing to type into is **refused**:
+    silence is not consent, and a script that piped in nothing would otherwise
+    have bought something.
+
+    Raises:
+        PaymentError: if nobody could have answered.
+    """
+    if not sys.stdin.isatty():
+        raise PaymentError(
+            f"Paying {cart.label()} for {cart.title} needs your approval, and this "
+            f"run has no terminal to ask at. Run it where you can answer, or "
+            f"authorise it in advance with a pre-signed open mandate at "
+            f"${mandates.MANDATE_PATH}."
+        )
+    rail = config.rail_used
+    charge = "will be charged" if rail.moves_money else "will NOT be charged"
+    sys.stderr.write(
+        f"\n  Pay {cart.label()} for {cart.title}\n"
+        f"    merchant  {cart.merchant}\n"
+        f"    page      {cart.url}\n"
+        f"    rail      {rail.label} -- you {charge}\n"
+        f"  Type yes to authorise: "
+    )
+    sys.stderr.flush()
+    return sys.stdin.readline().strip().lower() in {"y", "yes"}
+
+
+def _bought(ranked: list[RankedProduct], config: AgentConfig) -> bool:
+    """Buy the top-ranked product, and say what came of it.
+
+    The top one and not a choice of one: the report is already an ordering, and
+    a flag naming a rank would be a second way of saying what ``--sort-by``
+    already said. Everything that can go wrong here is one failure with one
+    sentence (:class:`~buy_agent.payment.PaymentError`), caught in its own place
+    rather than added to the three a *run* raises -- a payment is not a run.
+    """
+    products = [entry.product for entry in ranked]
+    try:
+        cart = payment.cart_for(products[0], products, config)
+        if not payment.unattended() and not _approved(cart, config):
+            logger.warning("Not paid: %s was not approved.", cart.title)
+            return False
+        receipt = payment.pay_for(cart, config)
+    except PaymentError as exc:
+        logger.error("%s", exc)
+        return False
+
+    logger.info("%s", receipt.detail)
+    logger.info(
+        "Authorisation %s covers %s at %s from %s",
+        receipt.reference,
+        receipt.title,
+        receipt.price_label,
+        receipt.merchant,
+    )
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     configure_logging(verbose=args.verbose)
@@ -300,6 +423,10 @@ def main(argv: list[str] | None = None) -> int:
         # the config's own default rather than an empty one written down again.
         sources=parse_sources(args.source) if args.source else _DEFAULTS.sources,
         fetch_pages=args.fetch,
+        pay=args.pay,
+        rail=args.rail,
+        merchant_url=args.merchant_url,
+        spend_limit=args.spend_limit,
     )
 
     if args.num_ctx is not _UNSET and not config.model_server.takes_num_ctx:
@@ -335,6 +462,12 @@ def main(argv: list[str] | None = None) -> int:
             logger.error("Could not write %s (%s)", args.json, exc)
             return 1
         logger.info("Wrote %d products to %s", len(payload), args.json)
+
+    # After the report and after the file: both are true whatever the payment
+    # does, and a purchase that fails must not cost the shopper the answer they
+    # already paid a minute of searching for.
+    if args.pay and ranked and not _bought(ranked, config):
+        return PAYMENT_FAILED
 
     return 0 if ranked else NOTHING_FOUND
 

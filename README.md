@@ -55,7 +55,15 @@ ollama pull gemma4:12b
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt
+
+# 3. Optional: only if you want it to pay for things (see "Letting it buy")
+pip install -r requirements-ap2-deps.txt
+pip install --no-deps -r requirements-ap2.txt
 ```
+
+`--no-deps` there is deliberate: the AP2 SDK's published metadata pins versions
+this project does not use, so its real requirements are pinned in that file
+instead. Everything except `--pay` works without it.
 
 Already running a vLLM? Skip step 1 and see
 [Running against vLLM](#running-against-vllm) -- `--provider vllm` is the whole
@@ -112,7 +120,8 @@ python -m buy_agent "gaming laptop under $1500" > top.txt
 
 The exit code says which kind of ending it was -- `0` found products, `1` failed
 (the reason is the last line on stderr), `2` is a usage error, `3` is a run that
-worked and found nothing, and `130` is Ctrl-C. Only the first is an answer, and
+worked and found nothing, `4` is a run that was asked to pay and did not, and
+`130` is Ctrl-C. Only the first is an answer, and
 only the second is a bug worth chasing. `--json` is written either way, so a
 script waiting on that file gets `[]` rather than yesterday's results.
 
@@ -259,6 +268,77 @@ The bounds are not read out of the request by the model, deliberately: a model
 that saw "under $200" in "headphones with 200 hours of battery" would drop every
 product in the run, and the report would say only that nothing was found. The
 number goes in the flag, or in the box under Settings in the browser.
+
+### Letting it buy
+
+Off by default, and off again unless you install one more thing. When it is on,
+the agent can complete the purchase itself -- authorised by signed
+[AP2](https://ap2-protocol.org) mandates rather than by a card number it holds.
+
+```powershell
+pip install -r requirements-ap2-deps.txt
+pip install --no-deps -r requirements-ap2.txt
+python -m buy_agent "wireless headphones under $200" --pay
+```
+
+That asks first:
+
+```
+  Pay 329.99 USD for Sony WH-1000XM5
+    merchant  AudioSite
+    page      https://audiosite.example/xm5
+    rail      Dry run -- you will NOT be charged
+  Type yes to authorise:
+```
+
+Two things about that prompt are the point. It restates the **cart** -- what the
+mandates will actually carry -- rather than the request that found it. And a run
+with no terminal to ask at is *refused* rather than assumed: a script that piped
+in nothing would otherwise have bought something.
+
+**The default rail charges nobody.** `--pay` on its own signs a real, verifiable
+AP2 authorisation and stops there, which is what makes the switch safe to try.
+Paying for real means naming somewhere to pay:
+
+```powershell
+python -m buy_agent "headphones" --pay --rail http --merchant-url https://pay.example
+```
+
+No merchant, wallet or processor is named anywhere in this project. The rail is a
+row in a table (`buy_agent/rails.py`), the address is the whole of the
+integration, and the endpoint is asked for a signed checkout at `{url}/checkout`
+and presented the mandates at `{url}/payment`.
+
+**Only a product the sources actually priced can be bought.** This is the
+grounding rule turned around: a price no page printed is blanked before ranking,
+so there is nothing to authorise; a price in a currency this run cannot place is
+a number and not an amount. That is deliberately the opposite of what the bounds
+above do with the same blank -- a filter that cannot judge a product keeps it,
+because dropping it would punish the extractor's miss, and money has no such
+luxury.
+
+**`--spend-limit` is the ceiling**, read in the currency the run counts in:
+
+```powershell
+python -m buy_agent "headphones" --pay --spend-limit 250
+```
+
+Signing needs a key. `$BUY_AGENT_AP2_KEY` points at an EC P-256 private key --
+`openssl ecparam -genkey -name prime256v1 -noout -out agent-key.pem` -- and the
+dry run will generate a throwaway one and say so rather than refusing, since it
+has no counterparty to have trusted anything.
+
+**Buying while you are not there** is AP2's other mode, and it needs a mandate you
+signed in advance: `$BUY_AGENT_AP2_MANDATE` names a JSON file holding an *open*
+mandate and the key it was issued under. Its constraints -- an amount range, the
+merchants allowed, an expiry -- are checked before anything is sent, by the same
+evaluator a credential provider would run, so a cart outside them is refused
+here. There is no flag for this mode: the signed mandate *is* the authorisation
+([ADR-0046](docs/adr/0046-pay-on-the-shoppers-behalf-with-ap2.md)).
+
+In the browser it is the same feature: tick **Pay for the top product** under
+Settings before the run, and each card that can be bought grows a Pay button that
+asks a second time before anything is signed.
 
 ### Running the same search twice is nearly free
 
@@ -692,6 +772,20 @@ every Saturday are in [Tests](docs/testing.md).
   returning five currencies gets a price criterion that is "assumed" for four of
   them. That is the true state of what the run knows, and the cards say so --
   but the ranking is then carried by rating and popularity alone.
+- **Paying is only as good as the page it read.** The mandates are signed
+  correctly and bind to a price a merchant signed, but *which* merchant is the
+  site the product page came from, and the product is whatever the extraction
+  filed under that name -- both of which the limitation at the top of this list
+  applies to. The approval prompt shows all three so the mistake is visible
+  before it is signed; nothing downstream can catch it.
+- **No real money has moved through the `http` rail.** It has been driven end to
+  end against a purpose-built local counterparty -- one that signs the checkout,
+  receives both mandates and checks that the Payment Mandate binds to the
+  checkout *it* signed -- and against no payment processor. AP2 deliberately says
+  nothing about the commerce protocol around it, so the two request shapes
+  (`{url}/checkout`, `{url}/payment`) are this project's choice and are the part
+  to expect to adjust for whatever you integrate with. The mandates inside them
+  are the standard's.
 - Some shops answer with JavaScript-rendered pages or a 403; those results fall
   back to their snippet rather than failing the run. Which is why the run says
   how the fetching went -- "Got usable page text from 0 of 10 result(s): 7 refused

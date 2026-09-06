@@ -20,7 +20,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-1360 Python tests and 160 UI tests. Nothing in either suite touches the network or
+1558 Python tests and 186 UI tests. Nothing in either suite touches the network or
 a model server: the model is faked through the `llm=` argument of `BuyAgent` -- a class
 with one `answer` method, which is the whole of `chat.ChatModel`, both
 the search backend and the page fetcher are monkeypatched, the two clients
@@ -30,7 +30,21 @@ only real sockets are the loopback ones the HTTP tests need in order to be about
 HTTP at all. Nor does either suite touch the machine's own cache: `conftest.py`
 points `$BUY_AGENT_CACHE_DIR` at a scratch directory per test, autouse, so a test
 building a real `BuyAgent` remembers its answers somewhere disposable (ADR-0044)
-and no test can be answered by another test's question. The 31 tests in
+and no test can be answered by another test's question. The same fixture unsets
+`$BUY_AGENT_AP2_KEY`, `$BUY_AGENT_AP2_MANDATE` and `$BUY_AGENT_MERCHANT_URL`, so
+a developer who has configured paying does not end up with a suite that signs
+with their key and buys on their budget -- every test that needs one of those
+points at a file it made itself.
+
+The payment tests do sign real mandates. `tests/test_mandates.py` builds genuine
+SD-JWTs with keys generated in the test and reads them back through the AP2
+SDK's own verifier -- the one a merchant or a credential provider runs -- because
+a mandate that verifies only against a fake verifier is a mandate nobody else
+would take. That needs the optional SDK: `pip install --no-deps -r
+requirements-ap2-deps.txt` and then `pip install --no-deps -r
+requirements-ap2.txt`, which `ci.yml` and `mutation.yml` each do in a step of
+their own. Nothing there reaches a network; the HTTP rail's transport is patched
+where `buy_agent.rails` imported it. The 31 tests in
 `integration/` are the exception that proves it, and they live outside
 `testpaths` so a bare `pytest` cannot reach them.
 

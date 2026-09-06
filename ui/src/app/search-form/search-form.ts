@@ -8,6 +8,7 @@ import type {
   ModelSource,
   ModelStatus,
   ProviderOption,
+  RailOption,
   SearchOptions,
   SortBy,
   SourcesCheck,
@@ -164,6 +165,15 @@ export class SearchForm {
   protected readonly numCtx = signal<number | null>(null);
   protected readonly thinking = signal<Thinking>('off');
   protected readonly fetchPages = signal(true);
+  // Paying, and who through. `pay` is deliberately *not* remembered below: the
+  // other settings are standing answers about this machine, and "you may spend
+  // my money" is not one of them -- a browser that restored it would arm the
+  // next visit's run without anybody saying so. The rail and its address are
+  // remembered, being configuration rather than consent.
+  protected readonly pay = signal(false);
+  protected readonly rail = signal('dry-run');
+  protected readonly merchantUrl = signal('');
+  protected readonly spendLimit = signal<number | null>(null);
   protected readonly advanced = signal(false);
 
   /**
@@ -246,6 +256,16 @@ export class SearchForm {
     numCtx: setting(this.numCtx, (d) => d.num_ctx, asNumberOrNull),
     thinking: setting(this.thinking, (d) => toThinking(d.think), asThinking),
     fetchPages: setting(this.fetchPages, (d) => d.fetch, asBoolean),
+    // Checked against the rails this server offers, for the reason `provider` is:
+    // a name remembered by a browser and since dropped leaves the picker matching
+    // nothing and the address field describing a rail nobody chose.
+    rail: setting(
+      this.rail,
+      (d) => d.rail,
+      amongst((d) => d.rail_options.map((option) => option.name)),
+    ),
+    merchantUrl: setting(this.merchantUrl, (d) => d.merchant_url, asText),
+    spendLimit: setting(this.spendLimit, (d) => d.spend_limit, asNumberOrNull),
   };
 
   protected readonly sortOptions = computed<SortBy[]>(
@@ -254,6 +274,34 @@ export class SearchForm {
 
   protected readonly providerOptions = computed<ProviderOption[]>(
     () => this.defaults()?.provider_options ?? [],
+  );
+
+  protected readonly railOptions = computed<RailOption[]>(
+    () => this.defaults()?.rail_options ?? [],
+  );
+
+  /** The row for the rail currently chosen, which carries its address and
+   *  whether it needs one. Absent before the server's defaults land. */
+  protected readonly chosenRail = computed<RailOption | undefined>(() =>
+    this.railOptions().find((option) => option.name === this.rail()),
+  );
+
+  /** Whether the optional AP2 SDK is installed on the server at all. False, and
+   *  the whole payment block stands down with a sentence rather than offering a
+   *  switch whose only outcome is a message about pip -- the same reason the
+   *  model picker falls back to a text box rather than to one unusable entry. */
+  protected readonly payAvailable = computed(() => this.defaults()?.pay_available ?? false);
+
+  /** Whether this rail can charge anybody. Python says so on the row; the page
+   *  only draws it, which is what keeps the warning true when a third rail is
+   *  added there and nowhere else. */
+  protected readonly railSpends = computed(() => this.chosenRail()?.moves_money ?? false);
+
+  /** Whether the address field is a setting on this rail at all. The dry run has
+   *  nowhere to be, so the box is disabled rather than left to be filled in and
+   *  ignored -- exactly what `takesNumCtx` does to the context window. */
+  protected readonly railNeedsEndpoint = computed(
+    () => this.chosenRail()?.needs_endpoint ?? false,
   );
 
   /** The row for the provider currently chosen, which carries its defaults and
@@ -342,6 +390,14 @@ export class SearchForm {
     }),
     field('cache_ttl', 'Cache pages for', this.cacheTtl, {
       hint: 'Seconds a page, and the answer about it, stay usable. 0 is off.',
+    }),
+    field('spend_limit', 'Spend limit', this.spendLimit, {
+      step: 0.01,
+      hint: () =>
+        this.pay()
+          ? 'The most one payment may be, in the currency most pages quote. A price in another currency is refused, not passed.'
+          : 'Only applies when Pay for the top product is on.',
+      off: () => !this.pay(),
     }),
   ];
 
@@ -551,6 +607,10 @@ export class SearchForm {
       num_ctx: this.numCtx(),
       think: fromThinking(this.thinking()),
       fetch: this.fetchPages(),
+      pay: this.pay(),
+      rail: this.rail(),
+      merchant_url: this.merchantUrl().trim(),
+      spend_limit: this.spendLimit(),
     };
   }
 
@@ -587,6 +647,20 @@ export class SearchForm {
       this.baseUrl.set(option.base_url);
     }
     this.serverChanged();
+  }
+
+  /**
+   * Another rail was picked: its address comes with it.
+   *
+   * The same care `providerChanged` takes with a model and a server address, and
+   * for the same reason: left alone, the field would hold the last rail's
+   * endpoint, which is a payment pointed somewhere nobody chose.
+   */
+  protected railChanged(): void {
+    const option = this.chosenRail();
+    if (option) {
+      this.merchantUrl.set(option.endpoint);
+    }
   }
 
   /**

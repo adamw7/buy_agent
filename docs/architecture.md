@@ -64,11 +64,12 @@ graph TB
     ollama["<b>Model server</b><br/><i>[External System]</i><br/>Ollama or vLLM"]
     ddg["<b>DuckDuckGo</b><br/><i>[External System]</i>"]
     shops["<b>Shop and review pages</b><br/><i>[External System]</i>"]
+    counterparty["<b>AP2 endpoint</b><br/><i>[External System]</i><br/>Whatever merchant or credential<br/>provider the operator names. None<br/>is named in this project"]
 
     shopper -->|"types a request<br/>[terminal]"| cli
     shopper -->|"visits localhost:8000<br/>[HTTPS/HTTP]"| spa
 
-    spa -->|"GET /api/config, /api/models, /api/sources<br/>POST /api/search, /api/rank<br/>GET /api/search/stream (SSE)<br/>[JSON over HTTP]"| server
+    spa -->|"GET /api/config, /api/models, /api/sources<br/>POST /api/search, /api/rank, /api/pay<br/>GET /api/search/stream (SSE)<br/>[JSON over HTTP]"| server
     server -->|"serves index.html and assets<br/>[HTTP]"| spa
     cli -->|"calls run()"| pipeline
     server -->|"runs a search in a worker thread,<br/>relays its log records"| pipeline
@@ -123,9 +124,16 @@ graph TB
         logsetup["<b>Report and logging</b><br/><i>[Component: logging_setup.py]</i><br/>Log format, and the top-N report<br/>the browser also reads as events"]
     end
 
+    subgraph paying["Paying -- optional, off, and after the run"]
+        payment["<b>Payment</b><br/><i>[Component: payment.py]</i><br/>What may be bought and for how<br/>much: a cart out of a grounded<br/>product, the spend limit, and the<br/>receipt. One failure, PaymentError"]
+        mandatesc["<b>Mandates</b><br/><i>[Component: mandates.py]</i><br/>The only module that imports the<br/>AP2 SDK. Signs the Checkout and<br/>Payment Mandates, bound to the<br/>merchant&#39;s signed checkout by hash,<br/>and checks an open mandate&#39;s<br/>constraints"]
+        railsc["<b>Rails</b><br/><i>[Component: rails.py]</i><br/>Who the payment goes through, one<br/>row each: where it listens, whether<br/>it needs an address and an enrolled<br/>key, whether it moves money, and<br/>what to say when it cannot be<br/>reached"]
+    end
+
     ollama["<b>Model server</b><br/><i>[External System]</i><br/>Ollama or vLLM"]
     ddg["<b>DuckDuckGo</b><br/><i>[External System]</i>"]
     shops["<b>Shop and review pages</b><br/><i>[External System]</i>"]
+    counterparty["<b>AP2 endpoint</b><br/><i>[External System]</i><br/>Whatever merchant or credential<br/>provider the operator names. None<br/>is named in this project"]
 
     cli -->|"run(request, sort_by)"| agent
     server -->|"run(request, sort_by)"| agent
@@ -153,6 +161,14 @@ graph TB
     extraction -->|"invokes the chains<br/>[JSON schema]"| ollama
     search -->|"[HTTPS]"| ddg
     fetch -->|"[HTTPS]"| shops
+    cli -->|"10. pay, once a person<br/>approved this cart"| payment
+    server -->|"POST /api/pay, with the<br/>approval the page witnessed"| payment
+    payment -.->|"signs the two mandates"| mandatesc
+    payment -.->|"config.rail_used: the<br/>checkout, then the settlement"| railsc
+    railsc -.->|"signs its own checkout<br/>on the dry run"| mandatesc
+    railsc -->|"[HTTPS]"| counterparty
+    payment -.->|"only a grounded price<br/>may be paid"| models
+    config -.->|"rail_used: where a payment<br/>goes and what it needs"| railsc
     fetch -.->|"reads what it read<br/>last time"| cache
     agent -.->|"reuses what the model<br/>answered last time"| cache
     extraction -.->|"ExtractedProduct → Product"| models
@@ -165,7 +181,8 @@ graph TB
     classDef external fill:#999,stroke:#6b6b6b,color:#fff
     class cli,server container
     class agent,config,providers,extraction,search,sources,fetch,cache,verification,constraints,ranking,models,logsetup component
-    class ollama,ddg,shops external
+    class payment,mandatesc,railsc component
+    class ollama,ddg,shops,counterparty external
 ```
 
 Three joints in that order are load-bearing, and the first two are about not
@@ -181,6 +198,16 @@ ranking a number nobody wrote down:
   judged on; before, because price scores relative to the candidate set, and
   scored against products the shopper cannot buy "the cheapest of these" names an
   option that is not on offer.
+
+Step 10 is not part of that order at all, and deliberately. `BuyAgent.run` ends
+at the report; paying happens afterwards, to one product, on a decision a person
+or a pre-signed open mandate makes (ADR-0046). Nothing about a run changes when
+`pay` is off, which is its default, and the default rail signs a real AP2
+authorisation while charging nobody. What may be paid for is the grounding rule
+turned around: a product whose price no source printed, or whose currency this
+run cannot place, is not one to send money for -- the opposite of what the
+shopper's bounds do with the same blank, because a filter that cannot judge a
+candidate keeps it and money has no such luxury.
 
 Order alone is not enough for the merge, because a merge also *pairs* figures.
 `models.QUALIFIERS` names what only qualifies another field -- price with
@@ -276,7 +303,7 @@ graph TB
     app --> card
     app -->|"search(options), rank(products)"| agentsvc
     agentsvc -->|"GET /api/search/stream<br/>[SSE: log, result, failure, ping]"| handler
-    agentsvc -->|"GET /api/config, /api/models, /api/sources<br/>POST /api/search, /api/rank<br/>[JSON]"| handler
+    agentsvc -->|"GET /api/config, /api/models, /api/sources<br/>POST /api/search, /api/rank, /api/pay<br/>[JSON]"| handler
 
     handler -->|"before any routing"| guard
     handler -->|"parse_options, run_search, rank_again"| api
@@ -292,7 +319,7 @@ graph TB
     class app,form,log,card,agentsvc,handler,guard,relay,api component
 ```
 
-Six details there are easy to get wrong and are deliberate:
+Seven details there are easy to get wrong and are deliberate:
 
 - **A run is streamed, not requested.** A search takes tens of seconds, so the UI
   uses `GET /api/search/stream` and watches the same progress the CLI prints.
@@ -301,6 +328,14 @@ Six details there are easy to get wrong and are deliberate:
   the page is already holding and answers the shape a run answers with, having
   called `rank_products` and nothing else. The ordering stays in Python; only the
   searching is skipped (ADR-0035).
+- **Paying runs nothing either, and the page witnesses the consent rather than
+  asserting it.** `POST /api/pay` takes the products the page is holding, which
+  one to buy, and an echo of the title, price and currency a person was shown.
+  The cart is built on the server from those products and the echo has to match
+  it, so a page showing a stale price cannot buy at that price and a page that
+  asked nobody cannot guess the right echo (ADR-0012, ADR-0046). Whether a
+  product may be bought at all is Python's, sent on each one as `cannot_pay`, so
+  the card never offers a button the server would refuse.
 - **Closing the stream stops the run, at its next step.** `BuyAgent.run` calls a
   `checkpoint` before each step, and the first frame the handler cannot write sets
   the flag that makes it raise. A chat call already in flight still finishes, so

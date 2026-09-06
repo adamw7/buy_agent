@@ -6,7 +6,9 @@ import type {
   AgentDefaults,
   ModelSource,
   ModelStatus,
+  PayOptions,
   RankOptions,
+  Receipt,
   SearchEvent,
   SearchOptions,
   SearchResult,
@@ -52,6 +54,19 @@ export class AgentService {
    */
   rank(options: RankOptions): Observable<SearchResult> {
     return this.http.post<SearchResult>('/api/rank', options);
+  }
+
+  /**
+   * Buy one product of a finished run, having been shown that it was approved.
+   *
+   * A POST for the reason a re-sort is one, and then some: it carries the run's
+   * products *and* the approval a person gave for one of them. Neither the cart
+   * nor the price is decided here -- the server builds the cart from the
+   * products and refuses unless the approval echoes what it built, so a page
+   * showing a stale price cannot buy at that price (ADR-0012).
+   */
+  pay(options: PayOptions): Observable<{ receipt: Receipt }> {
+    return this.http.post<{ receipt: Receipt }>('/api/pay', options);
   }
 
   /**

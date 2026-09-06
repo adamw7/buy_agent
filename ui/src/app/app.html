@@ -130,15 +130,38 @@
           <p class="card banner" role="alert">{{ problem }}</p>
         }
 
+        <!-- Beside the products rather than in the banner at the top: that one
+             means the *run* failed, and this run did not -- it found these. -->
+        @if (payFailed(); as problem) {
+          <p class="card banner" role="alert">{{ problem }}</p>
+        }
+
         @for (product of highlighted(); track product.rank) {
-          <app-product-card [product]="product" [highlighted]="true" [weights]="found.weights" />
+          <app-product-card
+            [product]="product"
+            [highlighted]="true"
+            [weights]="found.weights"
+            [canPay]="canPay()"
+            [rail]="payRail()"
+            [paying]="paying() !== null"
+            [receipt]="receipts()[product.rank] ?? null"
+            (pay)="payFor(product.rank, $event)"
+          />
         }
 
         @if (rest().length) {
           <details class="also">
             <summary>{{ rest().length }} more the agent found</summary>
             @for (product of rest(); track product.rank) {
-              <app-product-card [product]="product" [weights]="found.weights" />
+              <app-product-card
+                [product]="product"
+                [weights]="found.weights"
+                [canPay]="canPay()"
+                [rail]="payRail()"
+                [paying]="paying() !== null"
+                [receipt]="receipts()[product.rank] ?? null"
+                (pay)="payFor(product.rank, $event)"
+              />
             }
           </details>
         }

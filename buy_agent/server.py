@@ -11,8 +11,9 @@ answers in one JSON response -- the shape scripts want. ``GET
 the run: the first frame that cannot be written says the reader has gone, and the
 pipeline stops at its next step boundary (ADR-0034).
 
-Two endpoints run no pipeline at all. ``POST /api/rank`` puts a finished run's
-products in another order (ADR-0035), and ``GET /api/sources`` reads a Trusted
+Three endpoints run no pipeline at all. ``POST /api/rank`` puts a finished run's
+products in another order (ADR-0035), ``POST /api/pay`` buys one of them once the
+page has shown that a person approved it, and ``GET /api/sources`` reads a Trusted
 sources field the way a run would, so the form can refuse ``Marques Brownlee``
 before opening a stream (ADR-0033).
 
@@ -45,6 +46,7 @@ from buy_agent.api import (
     defaults_payload,
     installed_models,
     parse_options,
+    pay_now,
     rank_again,
     run_search,
     sources_payload,
@@ -391,6 +393,10 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         endpoints: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
             "/api/search": self._search,
             "/api/rank": rank_again,
+            # Runs no pipeline either, and is a POST for the same reason a
+            # re-sort is: a query string cannot carry a run's products, let
+            # alone the approval that has to travel with them.
+            "/api/pay": pay_now,
         }
         run = endpoints.get(url.path)
         if run is None:

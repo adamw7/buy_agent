@@ -62,6 +62,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      # Its own step, and two commands, for the reasons requirements-ap2.txt
+      # gives: the SDK's metadata pins versions this project does not use, so it
+      # alone is installed with `--no-deps` -- which is not a per-line option, so
+      # what it imports is a file of its own installed normally. The payment
+      # tests need it, and the coverage floor needs them.
+      - name: Install the AP2 SDK
+        run: |
+          pip install -r requirements-ap2-deps.txt
+          pip install --no-deps -r requirements-ap2.txt
+
       - name: Run tests
         run: python -m coverage run -m pytest
 

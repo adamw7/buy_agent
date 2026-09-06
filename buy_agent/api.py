@@ -14,7 +14,7 @@ carry a list of products.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import partial
 from typing import TYPE_CHECKING, Any, TypeVar, cast, get_args
 
@@ -27,14 +27,25 @@ from buy_agent.agent import (
     every_step_passes,
 )
 from buy_agent.config import LIMITS, AgentConfig, parse_region
-from buy_agent.models import Product
+from buy_agent.models import Product, dominant_currency
+from buy_agent.payment import (
+    Cart,
+    PaymentError,
+    RailUnreachableError,
+    Receipt,
+    cart_for,
+    pay_for,
+    payable,
+    unattended,
+)
 from buy_agent.providers import PROVIDERS, provider_options
+from buy_agent.rails import RAILS, rail_options
 from buy_agent.ranking import RankingWeights, SortBy, rank_products
 from buy_agent.search import SearchError
 from buy_agent.sources import Source, format_sources, parse_sources
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
     from buy_agent.models import RankedProduct
     from buy_agent.providers import InstalledModel
@@ -56,6 +67,10 @@ SORT_OPTIONS: tuple[str, ...] = get_args(SortBy)
 #: The model servers a request may name, read off the registry rather than
 #: written down again -- a provider added there is offered here on the same day.
 PROVIDER_OPTIONS: tuple[str, ...] = tuple(PROVIDERS)
+
+#: The rails a request may name, read off the registry for the reason the
+#: providers are: a rail added there is offered here on the same day.
+RAIL_OPTIONS: tuple[str, ...] = tuple(RAILS)
 
 _TRUE = frozenset({"true", "1", "yes", "on"})
 _FALSE = frozenset({"false", "0", "no", "off"})
@@ -80,6 +95,7 @@ _BOUNDED: dict[str, str] = {
             "min_rating",
             "min_reviews",
             "cache_ttl",
+            "spend_limit",
         )
     },
 }
@@ -91,6 +107,17 @@ _STATUS: dict[type[Exception], int] = {
     ValueError: 400,
     ModelUnavailableError: 503,
     SearchError: 502,
+}
+
+
+#: Which HTTP status each payment failure deserves. A table of its own and not a
+#: row added to :data:`_STATUS`: those three are what a *run* raises and the
+#: convention test holds them against ``BuyAgent.run`` and the CLI, while a
+#: payment happens after a run and fails at its own door. Ordered subclass-first,
+#: the lookup below taking the first match.
+PAY_STATUS: dict[type[Exception], int] = {
+    RailUnreachableError: 502,
+    PaymentError: 400,
 }
 
 
@@ -139,6 +166,9 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
             field="provider",
         )
 
+    # ``AgentConfig`` refuses a paying rail with nowhere to pay, which is the one
+    # thing about these settings the form cannot judge from a range. Its sentence
+    # is the useful one; the field it belongs to is this door's to name.
     config = AgentConfig(
         provider=provider,
         # Blank rather than ``defaults``, which was built for whichever provider
@@ -168,6 +198,14 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
             data, "min_reviews", defaults.min_reviews, _bounded(int, "min_reviews")
         ),
         cache_ttl=_read(data, "cache_ttl", defaults.cache_ttl, _bounded(float, "cache_ttl")),
+        # Paying is off unless a request asks for it, and the rail decides what
+        # asking costs -- the default one charges nobody.
+        pay=_read(data, "pay", defaults.pay, _as_bool),
+        rail=_read(data, "rail", defaults.rail, _as_rail),
+        merchant_url=_read(data, "merchant_url", "", _as_text),
+        spend_limit=_read(
+            data, "spend_limit", defaults.spend_limit, _bounded(float, "spend_limit")
+        ),
     )
     return config, sort_by
 
@@ -249,6 +287,127 @@ def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
     return _run_payload(request, ranked, top_n, sort_by, weights)
 
 
+def mandate_support() -> bool:
+    """Is the optional AP2 SDK installed? Imported here so nothing else asks."""
+    from buy_agent import mandates  # noqa: PLC0415 -- see mandates' module docstring
+
+    return mandates.available()
+
+
+def pay_now(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Buy one product of a finished run, having been shown that it was approved.
+
+    Runs no pipeline, the way :func:`rank_again` runs none (ADR-0035): the
+    products travel in the body because the browser is already holding them, and
+    a server-side run store would be a lifetime and an eviction policy on a
+    server that is stdlib on purpose.
+
+    The browser decides nothing here either (ADR-0012). It does not send a cart --
+    it sends the run, which product of it, and ``approved``: an echo of the
+    title, price and currency it put in front of a person. The cart is built here
+    from the products, and the echo has to match it. So a page showing a stale
+    price cannot buy at that price, and a page that never asked anybody cannot
+    guess the right echo either: the approval is witnessed, not asserted.
+
+    Where a pre-signed open mandate authorises the run, no echo is required --
+    that is the whole meaning of the autonomous mode -- and the mandate's own
+    constraints are what the cart is held to.
+
+    Args:
+        data: ``{"products", "rank", "approved", ...}`` plus the run settings,
+            which are read by :func:`parse_options` so a payment is configured
+            exactly as a search is.
+
+    Returns:
+        ``{"receipt": ...}`` -- what came of the payment.
+
+    Raises:
+        ApiError: if the request is unusable, or the payment did not happen.
+    """
+    config, _sort_by = parse_options(data)
+    products = _read_products(data)
+    if not products:
+        raise ApiError("There are no products to pay for.", field="products")
+    product = products[_rank(data, len(products))]
+
+    try:
+        cart = cart_for(product, products, config)
+        if not unattended():
+            _witnessed(data, cart)
+        receipt = pay_for(cart, config)
+    except PaymentError as exc:
+        # The clause and the mapping are one table, so this cannot come up empty.
+        status = next(status for kind, status in PAY_STATUS.items() if isinstance(exc, kind))
+        raise ApiError(str(exc), status, field=exc.field) from exc
+    return {"receipt": receipt_payload(receipt)}
+
+
+def receipt_payload(receipt: Receipt) -> dict[str, Any]:
+    """What came of a payment, as JSON.
+
+    Never the mandate chain. A chain authorises this purchase to whoever holds it
+    until it expires, and this payload is written to a log and handed to a
+    browser; ``reference`` is the hash that points back at it, which is what AP2
+    says a receipt binds by.
+    """
+    return receipt.model_dump()
+
+
+def _rank(data: Mapping[str, Any], count: int) -> int:
+    """Which product of the run to buy, as an index into the list that arrived.
+
+    One-based, because that is what a card shows and what ``rank`` means
+    everywhere else in this API. Defaults to the first: a run is already an
+    ordering, and "the top one" is the answer a request that names none wants.
+    """
+    rank = _read(data, "rank", 1, _bounded(int, "top"))
+    if rank > count:
+        raise ApiError(
+            f"rank must be between 1 and {count}; got {rank}.", field="rank"
+        )
+    return rank - 1
+
+
+def _witnessed(data: Mapping[str, Any], cart: Cart) -> None:
+    """Refuse unless the request echoes the cart the server just built.
+
+    Three fields and not the whole cart: the title, the price and the currency
+    are what a person was shown and what they agreed to, and they are the three
+    a stale page would get wrong. Compared as numbers rather than as text, so a
+    browser writing "329.99" and one writing "329.990" are the same approval.
+
+    Raises:
+        ApiError: naming what differs, so the page can show it rather than
+            silently re-asking.
+    """
+    approved = data.get("approved")
+    if not isinstance(approved, Mapping):
+        raise ApiError(
+            "Paying needs the approval the page was given: send back the title, "
+            "price and currency that were shown.",
+            field="approved",
+        )
+    shown = (
+        str(approved.get("title", "")).strip(),
+        str(approved.get("currency", "")).strip().upper(),
+    )
+    if shown != (cart.title, cart.currency) or not _same_price(approved, cart.price):
+        raise ApiError(
+            f"What was approved is not what this would buy: the cart is "
+            f"{cart.title} at {cart.label()}. Nothing was paid.",
+            status=409,
+            field="approved",
+        )
+
+
+def _same_price(approved: Mapping[str, Any], price: float) -> bool:
+    """Is the echoed price the cart's, to the nearest hundredth of a unit?"""
+    try:
+        return abs(float(approved.get("price", "nan")) - price) < 0.005  # noqa: PLR2004
+    except (TypeError, ValueError):
+        return False
+
+
 def _run_payload(
     request: str,
     ranked: Sequence[RankedProduct],
@@ -281,17 +440,27 @@ def results_payload(ranked: Sequence[RankedProduct]) -> list[dict[str, Any]]:
     One shape for every way a run leaves the process: the API's answer, the file
     ``--json`` writes, and the file Download results hands over -- that answer
     saved, so the browser composes no document of its own.
+
+    The currency is worked out once, here, and handed to every product: whether
+    one *can* be paid for is partly a fact about the set it was found in
+    (ADR-0043), so a product cannot answer it alone.
     """
-    return [product_payload(entry) for entry in ranked]
+    currency = dominant_currency(entry.product for entry in ranked)
+    return [product_payload(entry, currency) for entry in ranked]
 
 
-def product_payload(entry: RankedProduct) -> dict[str, Any]:
+def product_payload(entry: RankedProduct, currency: str | None = None) -> dict[str, Any]:
     """One ranked product as JSON.
 
     The raw fields *and* the labels ``Product`` already knows how to write, so the
-    browser never reinvents how a blank price reads.
+    browser never reinvents how a blank price reads -- ``cannot_pay`` among them:
+    the sentence saying why this product may not be bought, or ``null`` where it
+    may. The judgement is Python's, made by the same function the payment itself
+    goes through, so a Pay button is never offered for something the server would
+    then refuse (ADR-0012, ADR-0033).
     """
     return {
+        "cannot_pay": payable(entry.product, currency),
         "rank": entry.rank,
         "score": round(entry.score, 4),
         # What that score is made of, so a card can say why a product placed
@@ -341,6 +510,15 @@ def defaults_payload() -> dict[str, Any]:
         # Empty -- the default -- is the whole web.
         "sources": format_sources(defaults.sources),
         "fetch": defaults.fetch_pages,
+        # Paying, and who through. ``pay_available`` is whether the optional AP2
+        # SDK is installed at all: the page says so rather than offering a button
+        # whose only outcome is a sentence about pip.
+        "pay": defaults.pay,
+        "pay_available": mandate_support(),
+        "rail": defaults.rail,
+        "rail_options": rail_options(),
+        "merchant_url": defaults.merchant_url,
+        "spend_limit": defaults.spend_limit,
         "sort_by": "score",
         "sort_options": list(SORT_OPTIONS),
         # What each number field may hold, so the form can refuse 51 products
@@ -526,6 +704,20 @@ def _as_sort_by(key: str, text: str) -> str:
     if text not in SORT_OPTIONS:
         raise ApiError(
             f"sort_by must be one of {', '.join(SORT_OPTIONS)}; got {text!r}.", field=key
+        )
+    return text
+
+
+def _as_rail(key: str, text: str) -> str:
+    """A payment rail, checked against the ones there are.
+
+    Refused here rather than in ``AgentConfig``'s own ``ValueError`` so the
+    answer carries the field it came out of, which is what marks the box
+    (ADR-0033) -- the same reason a provider is checked in ``parse_options``.
+    """
+    if text not in RAIL_OPTIONS:
+        raise ApiError(
+            f"rail must be one of {', '.join(RAIL_OPTIONS)}; got {text!r}.", field=key
         )
     return text
 
