@@ -1155,3 +1155,110 @@ def test_a_blank_payment_setting_means_the_default() -> None:
 
     assert config.rail == "dry-run"
     assert config.spend_limit is None
+
+
+# -- which product, and what was actually approved -----------------------------
+
+
+SECOND = Product(
+    name="Bose QuietComfort Ultra",
+    price=379.0,
+    currency="USD",
+    seller="AudioSite",
+    url="https://audiosite.example/qc",
+)
+
+THIRD = Product(
+    name="Sennheiser Momentum 4",
+    price=299.0,
+    currency="USD",
+    seller="AudioSite",
+    url="https://audiosite.example/m4",
+)
+
+
+def test_the_rank_names_which_product_of_the_run_is_bought() -> None:
+    """Off by one here is a shopper charged for a product they did not choose,
+    which is the worst thing this endpoint can quietly get wrong."""
+    body = {
+        "products": [PAYABLE.model_dump(), SECOND.model_dump(), THIRD.model_dump()],
+        "rank": 2,
+        "approved": {"title": SECOND.name, "price": 379.0, "currency": "USD"},
+    }
+
+    assert pay_now(body)["receipt"]["title"] == SECOND.name
+
+
+def test_the_last_product_of_a_run_can_be_bought() -> None:
+    body = {
+        "products": [PAYABLE.model_dump(), SECOND.model_dump(), THIRD.model_dump()],
+        "rank": 3,
+        "approved": {"title": THIRD.name, "price": 299.0, "currency": "USD"},
+    }
+
+    assert pay_now(body)["receipt"]["price"] == 299.0
+
+
+def test_an_approval_for_one_product_cannot_buy_another() -> None:
+    """The echo is held against the cart the *rank* names, so approving the top
+    one and asking for the second is not a purchase either of them agreed to."""
+    body = {
+        "products": [PAYABLE.model_dump(), SECOND.model_dump()],
+        "rank": 2,
+        "approved": APPROVED,
+    }
+
+    with pytest.raises(ApiError) as excinfo:
+        pay_now(body)
+
+    assert excinfo.value.status == 409
+
+
+@pytest.mark.parametrize("missing", ["title", "price", "currency"])
+def test_an_approval_missing_any_of_the_three_buys_nothing(missing: str) -> None:
+    """All three are what a person was shown. An approval that left one out would
+    be matched against a default rather than against what they agreed to."""
+    approved = {key: value for key, value in APPROVED.items() if key != missing}
+
+    with pytest.raises(ApiError) as excinfo:
+        pay_now(paying(approved=approved))
+
+    assert excinfo.value.status == 409
+
+
+def test_an_approval_that_is_not_an_object_buys_nothing() -> None:
+    with pytest.raises(ApiError) as excinfo:
+        pay_now(paying(approved="yes"))
+
+    assert excinfo.value.field == "approved"
+    assert "send back the title" in str(excinfo.value)
+
+
+def test_an_approval_with_spaces_round_the_title_is_still_the_same_approval() -> None:
+    """A browser is free to send what a text node held; the agreement is about
+    the words."""
+    padded = {**APPROVED, "title": f"  {APPROVED['title']}  ", "currency": "usd"}
+
+    assert pay_now(paying(approved=padded))["receipt"]["title"] == PAYABLE.name
+
+
+def test_a_price_a_hundredth_out_is_not_the_same_approval() -> None:
+    """The tolerance is there for how a number was spelled, not for a different
+    price: a cent is a cent."""
+    with pytest.raises(ApiError, match="not what this would buy"):
+        pay_now(paying(approved={**APPROVED, "price": 329.98}))
+
+
+def test_paying_for_nothing_names_the_field_the_run_should_have_filled() -> None:
+    with pytest.raises(ApiError) as excinfo:
+        pay_now({"products": [], "approved": APPROVED})
+
+    assert excinfo.value.field == "products"
+
+
+def test_a_rank_below_one_is_refused() -> None:
+    """One-based, like the rank on a card: 0 is not the first one."""
+    with pytest.raises(ApiError) as excinfo:
+        pay_now(paying(rank=0))
+
+    assert excinfo.value.field == "rank"

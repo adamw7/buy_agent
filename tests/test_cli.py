@@ -928,3 +928,78 @@ def test_the_exit_codes_the_help_lists_are_the_ones_main_returns() -> None:
 
     assert f"  {main_module.PAYMENT_FAILED}  " in epilog
     assert f"  {NOTHING_FOUND}  " in epilog
+
+
+@pytest.mark.parametrize("answer", ["y", "yes", "YES", " Yes \n"])
+def test_the_short_and_the_shouted_yes_both_authorise(
+    fake_agent, monkeypatch, answer
+) -> None:
+    """Somebody is being asked a yes/no question at a terminal, so the answers a
+    terminal gets are the answers this takes."""
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed(answer))
+
+    assert main(["headphones", "--pay"]) == 0
+
+
+@pytest.mark.parametrize("answer", ["n", "no", "", "yeah", "yes please"])
+def test_anything_that_is_not_yes_is_not_yes(fake_agent, monkeypatch, answer) -> None:
+    """Consent is the narrow reading, deliberately: "yeah" is somebody typing
+    while thinking, and this is the last chance to be sure."""
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed(answer))
+
+    assert main(["headphones", "--pay"]) == main_module.PAYMENT_FAILED
+
+
+def test_the_receipt_is_logged_with_the_merchant_and_what_became_of_it(
+    fake_agent, monkeypatch, caplog
+) -> None:
+    """The report on stdout is the products; what happened to the money goes to
+    the progress stream, and it has to say who was paid and whether they were."""
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("yes\n"))
+
+    with caplog.at_level(logging.INFO):
+        main(["headphones", "--pay"])
+
+    assert "AudioSite" in caplog.text
+    assert "Nothing was charged" in caplog.text
+
+
+def test_the_prompt_says_which_page_the_product_came_off(
+    fake_agent, monkeypatch, capsys
+) -> None:
+    """The merchant is the site the page came from, so the page is the one thing
+    that lets somebody check who they are about to pay before they say yes."""
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("no\n"))
+
+    main(["headphones", "--pay"])
+
+    assert "https://audiosite.example/xm5" in capsys.readouterr().err
+
+
+def test_a_spend_limit_the_top_product_breaks_buys_nothing(
+    fake_agent, monkeypatch, caplog
+) -> None:
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("yes\n"))
+
+    with caplog.at_level(logging.ERROR):
+        assert main(["headphones", "--pay", "--spend-limit", "100"]) == main_module.PAYMENT_FAILED
+
+    assert "spend limit" in caplog.text
+
+
+def test_nothing_is_asked_before_the_product_is_known_to_be_payable(
+    fake_agent, monkeypatch, capsys
+) -> None:
+    """The cart is built first, so a product nothing can pay for is refused with
+    its reason rather than after somebody has been made to type yes."""
+    fake_agent["result"] = RANKED
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("yes\n"))
+
+    main(["headphones", "--pay"])
+
+    assert "Type yes to authorise" not in capsys.readouterr().err

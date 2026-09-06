@@ -20,7 +20,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-1498 Python tests and 186 UI tests. Nothing in either suite touches the network or
+1554 Python tests and 186 UI tests. Nothing in either suite touches the network or
 a model server: the model is faked through the `llm=` argument of `BuyAgent` -- a class
 with one `answer` method, which is the whole of `chat.ChatModel`, both
 the search backend and the page fetcher are monkeypatched, the two clients

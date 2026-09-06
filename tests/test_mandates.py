@@ -378,3 +378,177 @@ def test_a_chain_replayed_with_another_nonce_does_not_verify(
 
 def test_a_challenge_is_not_the_same_twice() -> None:
     assert mandates.challenge() != mandates.challenge()
+
+
+# -- what a mandate is worth, and for how long ---------------------------------
+
+
+def test_both_mandates_expire() -> None:
+    """A chain is a credential: it authorises this purchase to whoever holds it.
+    Without an expiry, one left in a log is a bearer token for the afternoon --
+    which is why ``TTL_SECONDS`` exists and why it has to reach the payload."""
+    from ap2.sdk.generated.checkout_mandate import CheckoutMandate
+    from ap2.sdk.generated.payment_mandate import PaymentMandate
+    from ap2.sdk.mandate import MandateClient
+
+    key = mandates.generate_key("agent")
+    before = int(time.time())
+
+    authorisation = mandates.authorise(CART, signed_checkout(), key=key, nonce="n")
+
+    client = MandateClient()
+    for token, kind in (
+        (authorisation.payment, PaymentMandate),
+        (authorisation.checkout, CheckoutMandate),
+    ):
+        payload = client.verify(
+            token=token, key_or_provider=key, payload_type=kind
+        ).mandate_payload
+        assert payload.iat is not None
+        assert payload.iat >= before
+        assert payload.exp == payload.iat + mandates.TTL_SECONDS
+
+
+def test_the_ttl_is_minutes_rather_than_hours() -> None:
+    """A price is not evidence of anything for long, and this authorises one."""
+    assert 0 < mandates.TTL_SECONDS <= 3600
+
+
+def test_the_checkout_is_for_one_of_the_thing() -> None:
+    """Nothing upstream can ask for two, so a quantity that was not 1 would be a
+    shopper charged twice for a cart they approved once."""
+    document = mandates.checkout_document(CART, order_id="order-1")
+
+    assert document["line_items"][0]["quantity"] == 1
+    assert len(document["line_items"]) == 1
+
+
+def test_the_totals_and_the_line_item_agree_with_the_cart() -> None:
+    document = mandates.checkout_document(CART, order_id="order-1")
+
+    assert {total["amount"] for total in document["totals"]} == {CART.amount}
+    assert document["line_items"][0]["totals"] == document["totals"]
+
+
+def test_the_order_id_is_the_one_it_was_given() -> None:
+    assert mandates.checkout_document(CART, order_id="order-77")["id"] == "order-77"
+
+
+def test_a_signing_key_read_off_disk_is_identified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every signature here is traceable to a key id; a key with none leaves a
+    verifier with a signature and no way to say whose it was."""
+    monkeypatch.setenv(mandates.KEY_PATH, str(write_key(tmp_path / "agent.pem")))
+
+    key, _enrolled = mandates.load_key(required=True)
+
+    assert key.get("kid") == "agent"
+
+
+def test_a_generated_key_is_identified_by_the_name_it_was_asked_for() -> None:
+    """The dry run signs as two parties with two throwaway keys, so the key id is
+    what tells one signature from the other when reading a chain back."""
+    assert mandates.generate_key("dry-run-merchant").get("kid") == "dry-run-merchant"
+
+
+def test_the_instrument_says_who_holds_it_and_never_what_it_is() -> None:
+    """AP2 exists so the agent does not carry the funding instrument. The mandate
+    references one; what it actually is stays with the credential provider."""
+    from ap2.sdk.generated.payment_mandate import PaymentMandate
+    from ap2.sdk.mandate import MandateClient
+
+    key = mandates.generate_key("agent")
+    authorisation = mandates.authorise(CART, signed_checkout(), key=key, nonce="n")
+
+    instrument = (
+        MandateClient()
+        .verify(token=authorisation.payment, key_or_provider=key, payload_type=PaymentMandate)
+        .mandate_payload.payment_instrument
+    )
+
+    assert instrument.description == "Held by the credential provider"
+    assert instrument.type == "card"
+
+
+def test_a_generated_key_is_a_different_key_every_time() -> None:
+    """Ephemeral means ephemeral: two dry runs are two authorisations, and one
+    that reused a key would let the first be replayed as the second."""
+    first = mandates.generate_key("one")
+    second = mandates.generate_key("one")
+
+    assert first.export_public() != second.export_public()
+
+
+# -- verification, asked the questions it exists to answer ---------------------
+
+
+def test_a_chain_bound_to_another_checkout_reports_a_violation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Payment Mandate's ``transaction_id`` *is* the checkout hash, so asking
+    about a different one is asking whether this payment pays for that cart --
+    and the answer has to be no."""
+    agent, issuer = open_mandate_file(tmp_path / "mandate.json", maximum=40000)
+    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
+    authorisation = mandates.authorise(CART, signed_checkout(), key=agent, nonce="n")
+
+    violations = mandates.verify(
+        authorisation.payment,
+        issuer=issuer,
+        audience=mandates.CREDENTIAL_PROVIDER_AUDIENCE,
+        nonce="n",
+        transaction_id="some-other-checkout",
+    )
+
+    assert violations
+    assert any("transaction_id" in violation for violation in violations)
+
+
+def test_a_chain_asked_about_its_own_checkout_reports_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    agent, issuer = open_mandate_file(tmp_path / "mandate.json", maximum=40000)
+    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
+    authorisation = mandates.authorise(CART, signed_checkout(), key=agent, nonce="n")
+
+    assert (
+        mandates.verify(
+            authorisation.payment,
+            issuer=issuer,
+            audience=mandates.CREDENTIAL_PROVIDER_AUDIENCE,
+            nonce="n",
+            transaction_id=authorisation.transaction_id,
+        )
+        == []
+    )
+
+
+def test_an_autonomous_authorisation_carries_two_real_mandates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both halves are what a counterparty is handed, so both have to be tokens
+    that verify -- not just the one the constraints were checked on."""
+    from ap2.sdk.generated.checkout_mandate import CheckoutMandate
+    from ap2.sdk.mandate import MandateClient
+
+    agent, issuer = open_mandate_file(tmp_path / "mandate.json", maximum=40000)
+    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
+    checkout = signed_checkout()
+
+    authorisation = mandates.authorise(CART, checkout, key=agent, nonce="n")
+
+    assert (
+        mandates.verify(
+            authorisation.payment,
+            issuer=issuer,
+            audience=mandates.CREDENTIAL_PROVIDER_AUDIENCE,
+            nonce="n",
+            transaction_id=checkout.hash,
+        )
+        == []
+    )
+    signed = MandateClient().verify(
+        token=authorisation.checkout, key_or_provider=agent, payload_type=CheckoutMandate
+    )
+    assert signed.mandate_payload.checkout_hash == checkout.hash

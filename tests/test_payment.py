@@ -340,9 +340,13 @@ def test_a_rail_that_goes_away_between_the_price_and_the_payment_says_so(
     monkeypatch.setattr(rails.httpx, "post", post)
     config = AgentConfig(pay=True, rail="http", merchant_url="https://pay.example")
 
-    with pytest.raises(RailUnreachableError, match="Could not reach the payment endpoint"):
+    with pytest.raises(RailUnreachableError) as excinfo:
         pay_for(cart_for(SONY, [SONY], config), config)
 
+    # The endpoint *and* the transport's own words: which of a refused
+    # connection, a bad name and a timeout it was is what says what to fix.
+    assert "Could not reach the payment endpoint" in str(excinfo.value)
+    assert "gone" in str(excinfo.value)
     assert calls == ["https://pay.example/checkout", "https://pay.example/payment"]
 
 
@@ -365,3 +369,111 @@ def test_a_page_with_no_scheme_names_no_merchant_of_its_own() -> None:
     odd = SONY.model_copy(update={"seller": None, "url": "audiosite.example/xm5"})
 
     assert cart_for(odd, [odd], AgentConfig(pay=True)).merchant == "unknown merchant"
+
+
+# -- the edges the ranges and the rounding meet --------------------------------
+
+
+def test_a_cart_priced_exactly_at_the_spend_limit_is_allowed() -> None:
+    """The bound is a *limit*, so the number itself is inside it. Off by one the
+    other way, a shopper who set their budget to the price they had in mind could
+    never buy the thing they set it for."""
+    cart = cart_for(SONY, [SONY], AgentConfig(pay=True, spend_limit=329.99))
+
+    assert cart.amount == 32999
+
+
+def test_a_penny_over_the_spend_limit_is_refused() -> None:
+    with pytest.raises(PaymentError, match="over the"):
+        cart_for(SONY, [SONY], AgentConfig(pay=True, spend_limit=329.98))
+
+
+def test_a_cart_is_counted_in_the_currencys_own_units_and_not_always_hundredths() -> None:
+    """`minor_units` knows JPY has no minor unit; this is what says `cart_for`
+    actually tells it which currency. Told nothing, a 4,980 yen pair of
+    headphones becomes an authorisation for 498,000."""
+    yen = Product(
+        name="Sony WH-1000XM5",
+        price=4980.0,
+        currency="JPY",
+        seller="AudioSite",
+        url="https://audiosite.example/xm5",
+    )
+
+    assert cart_for(yen, [yen], AgentConfig(pay=True)).amount == 4980
+
+
+def test_an_item_id_is_the_dedup_key_with_no_spaces_in_it() -> None:
+    """It goes into the merchant's checkout as a line item id, so it is the
+    product's identity spelled the way an id is spelled."""
+    cart = cart_for(SONY, [SONY], AgentConfig(pay=True))
+
+    assert cart.item_id == "sony-wh-1000xm5"
+    assert " " not in cart.item_id
+
+
+def test_a_very_long_name_is_cut_to_an_id_a_merchant_can_hold() -> None:
+    long_name = Product(
+        name="Sony " + "Extremely " * 40 + "Long",
+        price=10.0,
+        currency="USD",
+        url="https://audiosite.example/x",
+    )
+
+    item_id = cart_for(long_name, [long_name], AgentConfig(pay=True)).item_id
+
+    assert len(item_id) == 120
+
+
+@pytest.mark.parametrize(
+    ("product", "expected"),
+    [
+        (SONY.model_copy(update={"price": None}), "products"),
+        (SONY.model_copy(update={"currency": None}), "products"),
+        (SONY.model_copy(update={"url": None}), "products"),
+    ],
+    ids=["unpriced", "no currency", "no page"],
+)
+def test_every_refusal_names_the_field_the_browser_should_mark(
+    product: Product, expected: str
+) -> None:
+    """`field` is what marks the box (ADR-0033). A refusal that names none is a
+    sentence in a banner with nothing on the page to attach it to."""
+    with pytest.raises(PaymentError) as excinfo:
+        cart_for(product, [product], AgentConfig(pay=True))
+
+    assert excinfo.value.field == expected
+
+
+def test_a_price_off_the_runs_scale_names_the_field_too() -> None:
+    euros = [
+        SONY.model_copy(update={"currency": "EUR"}),
+        BOSE.model_copy(update={"currency": "EUR"}),
+    ]
+    odd = SONY.model_copy(update={"currency": "USD", "name": "Odd"})
+
+    with pytest.raises(PaymentError) as excinfo:
+        cart_for(odd, [*euros, odd], AgentConfig(pay=True))
+
+    assert excinfo.value.field == "products"
+
+
+def test_an_unreachable_rail_carries_the_transports_own_words(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """"Could not reach it" with no reason is a sentence nobody can act on: which
+    of a refused connection, a DNS failure and a timeout it was is the whole of
+    what tells someone what to fix."""
+    import httpx
+
+    from buy_agent import rails
+    from tests.test_mandates import write_key
+
+    monkeypatch.setenv(mandates.KEY_PATH, str(write_key(tmp_path / "agent.pem")))
+    monkeypatch.setattr(
+        rails.httpx, "post", lambda *a, **k: (_ for _ in ()).throw(httpx.ConnectError("nowhere"))
+    )
+    config = AgentConfig(pay=True, rail="http", merchant_url="https://pay.example")
+
+    with pytest.raises(RailUnreachableError, match="nowhere"):
+        pay_for(cart_for(SONY, [SONY], config), config)

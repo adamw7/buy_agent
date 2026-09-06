@@ -330,3 +330,90 @@ def test_a_cart_with_no_scheme_still_names_something() -> None:
     )
 
     assert cart.merchant_payload()["id"] == "shop.example"
+
+
+# -- what a counterparty can answer that is not an answer ----------------------
+
+
+def test_an_empty_signed_checkout_is_refused_like_a_missing_one(posted: Endpoint) -> None:
+    """An empty string is a string, so the check has to be about the *value* and
+    not only the type -- otherwise the mandates bind to a hash of nothing."""
+    posted.answers.append(FakeResponse({"checkout_jwt": ""}))
+
+    with pytest.raises(PaymentError, match="no 'checkout_jwt'"):
+        rails.HTTP.checkout(CART, http_config())
+
+
+def test_a_signed_checkout_that_is_not_text_is_refused(posted: Endpoint) -> None:
+    posted.answers.append(FakeResponse({"checkout_jwt": {"jwt": "..."}}))
+
+    with pytest.raises(PaymentError, match="no 'checkout_jwt'"):
+        rails.HTTP.checkout(CART, http_config())
+
+
+@pytest.mark.parametrize("offered", [123, "", None, {"nonce": "x"}], ids=str)
+def test_a_nonce_that_is_not_usable_text_is_replaced_with_one_of_ours(
+    posted: Endpoint, offered: Any
+) -> None:
+    """The nonce is what stops a presentation being replayed, so a counterparty
+    that answers with nothing usable does not get to leave the run without one."""
+    posted.answers.append(
+        FakeResponse({"checkout_jwt": signed_checkout().jwt, "nonce": offered})
+    )
+
+    _signed, nonce = rails.HTTP.checkout(CART, http_config())
+
+    assert isinstance(nonce, str)
+    assert nonce not in ("", str(offered))
+
+
+def test_a_counterpartys_own_challenge_is_used_as_it_stands(posted: Endpoint) -> None:
+    posted.answers.append(
+        FakeResponse({"checkout_jwt": signed_checkout().jwt, "nonce": "theirs"})
+    )
+
+    assert rails.HTTP.checkout(CART, http_config())[1] == "theirs"
+
+
+def test_a_payment_is_never_sent_without_a_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The one timeout in this project worth being patient about, and the one it
+    would be worst to leave off: a request this side waits on forever is a
+    payment nobody can say happened or not."""
+    timeouts: list[float] = []
+
+    def record(url: str, *, json: dict[str, Any], timeout: float) -> FakeResponse:
+        del url, json
+        timeouts.append(timeout)
+        return FakeResponse({"checkout_jwt": signed_checkout().jwt})
+
+    monkeypatch.setattr(rails.httpx, "post", record)
+    rails.HTTP.checkout(CART, http_config())
+
+    assert timeouts == [rails._TIMEOUT]
+    assert rails._TIMEOUT > 0
+
+
+def test_an_answer_of_the_wrong_shape_says_what_shape_it_was(posted: Endpoint) -> None:
+    """Naming what came back is what tells an integrator they are pointed at the
+    wrong endpoint rather than at a broken one."""
+    posted.answers.append(FakeResponse([1, 2, 3]))
+
+    with pytest.raises(PaymentError, match="answered with list"):
+        rails.HTTP.checkout(CART, http_config())
+
+
+def test_the_dry_run_stamps_its_own_order_on_the_checkout_it_signs() -> None:
+    """It is standing in for the merchant, and a merchant's checkout has an order
+    id -- so the document it signs is the shape a real one would be."""
+    import base64
+    import json as jsonlib
+
+    signed, _nonce = rails.DRY_RUN.checkout(CART, AgentConfig())
+
+    # Read straight out of the token rather than off what was signed: what
+    # matters is what a merchant would receive.
+    payload = signed.jwt.split(".")[1]
+    decoded = jsonlib.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+
+    assert decoded["id"] == rails._DRY_RUN_ORDER
+    assert decoded["totals"][-1] == {"type": "total", "amount": CART.amount}
