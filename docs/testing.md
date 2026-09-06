@@ -20,7 +20,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-1554 Python tests and 186 UI tests. Nothing in either suite touches the network or
+1558 Python tests and 186 UI tests. Nothing in either suite touches the network or
 a model server: the model is faked through the `llm=` argument of `BuyAgent` -- a class
 with one `answer` method, which is the whole of `chat.ChatModel`, both
 the search backend and the page fetcher are monkeypatched, the two clients
@@ -41,6 +41,7 @@ SD-JWTs with keys generated in the test and reads them back through the AP2
 SDK's own verifier -- the one a merchant or a credential provider runs -- because
 a mandate that verifies only against a fake verifier is a mandate nobody else
 would take. That needs the optional SDK: `pip install --no-deps -r
+requirements-ap2-deps.txt` and then `pip install --no-deps -r
 requirements-ap2.txt`, which `ci.yml` and `mutation.yml` each do in a step of
 their own. Nothing there reaches a network; the HTTP rail's transport is patched
 where `buy_agent.rails` imported it. The 31 tests in

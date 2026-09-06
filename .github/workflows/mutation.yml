@@ -44,7 +44,9 @@ jobs:
       # As in ci.yml, and for the same reasons requirements-ap2.txt gives: the
       # payment tests need the SDK, and a mutation run tests what the suite tests.
       - name: Install the AP2 SDK
-        run: pip install --no-deps -r requirements-ap2.txt
+        run: |
+          pip install -r requirements-ap2-deps.txt
+          pip install --no-deps -r requirements-ap2.txt
 
       # Settings, including what to mutate, come from setup.cfg. mutmut exits 0
       # whatever the mutants do; what fails this job is the floor in

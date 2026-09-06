@@ -57,7 +57,8 @@ python -m buy_agent "headphones" --max-price 200 --min-rating 4.5   # bounds, en
 python -m buy_agent "headphones" --cache-ttl 0                      # every page fresh
 python -m buy_agent "wireless earbuds" --source rtings.com --source @mkbhd
 
-pip install --no-deps -r requirements-ap2.txt   # the AP2 SDK, for paying only
+pip install -r requirements-ap2-deps.txt        # what the AP2 SDK imports
+pip install --no-deps -r requirements-ap2.txt   # ...and the SDK, for paying only
 python -m buy_agent "headphones" --pay                       # asks, then signs; charges nobody
 python -m buy_agent "headphones" --pay --spend-limit 250      # ...and not a penny more
 python -m buy_agent "headphones" --pay --rail http --merchant-url https://pay.example
@@ -957,7 +958,9 @@ otherwise have a suite signing with their key and buying on their budget.
 The payment tests do sign real mandates -- keys generated in the test, read back
 through the AP2 SDK's own verifier, because a mandate that verifies only against
 a fake verifier is one nobody else would take. That needs the optional SDK
-(`pip install --no-deps -r requirements-ap2.txt`), which `ci.yml` and
+(`pip install -r requirements-ap2-deps.txt` and then `pip install --no-deps -r
+requirements-ap2.txt` -- the flag is not a per-line option, so the SDK's own
+imports are a file of their own), which `ci.yml` and
 `mutation.yml` each install in a step of their own. The HTTP rail's transport is
 patched at `rails.httpx.post` -- where that module imported it, by the rule the
 provider fakes follow -- and a row of `rails.RAILS` is compared by identity only
@@ -974,14 +977,14 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1554 tests run in about six seconds: most of that is the two that spawn an
+1558 tests run in about six seconds: most of that is the two that spawn an
 interpreter -- one checking `python -m buy_agent` still runs as a script, one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1554 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1554 collect but 13 of the 17 in
-`tests/test_start_script.py` skip, so the summary reads `1541 passed, 13 skipped`.
+reaching out. 1558 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1558 collect but 13 of the 17 in
+`tests/test_start_script.py` skip, so the summary reads `1545 passed, 13 skipped`.
 The UI's 186 tests run in about two seconds, most of which is building the app
 first. The 31 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.

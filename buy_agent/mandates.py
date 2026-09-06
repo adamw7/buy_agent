@@ -63,7 +63,10 @@ MANDATE_PATH = "BUY_AGENT_AP2_MANDATE"
 
 #: What to type when the SDK is not installed. One line, so it can be pasted;
 #: ``--no-deps`` is load-bearing and the requirements file says why.
-INSTALL = "pip install --no-deps -r requirements-ap2.txt"
+INSTALL = (
+    "pip install -r requirements-ap2-deps.txt && "
+    "pip install --no-deps -r requirements-ap2.txt"
+)
 
 #: How long a mandate signed here stays valid. Minutes, not hours: it authorises
 #: one cart at one price, and a price is not evidence of anything for long. Long
@@ -141,9 +144,40 @@ def _sdk() -> Any:
 
         return ap2.sdk
     except ImportError as exc:
-        raise MandateError(
-            f"Paying needs the AP2 SDK, which is not installed. Install it with:  {INSTALL}"
-        ) from exc
+        raise MandateError(_missing(exc)) from exc
+
+
+def _jwk_class() -> Any:
+    """jwcrypto's key type, imported through the same translation the SDK is.
+
+    Its own helper because the signing stack is reached from four functions that
+    do not otherwise touch the SDK, and an ``ImportError`` escaping one of them
+    is a traceback where every other missing piece is a sentence. A half-installed
+    stack -- ``cryptography`` present but built on a ``cffi`` that is not -- fails
+    exactly here, and it is not the shopper's job to know that.
+    """
+    try:
+        from jwcrypto.jwk import JWK  # noqa: PLC0415 -- part of the deferred SDK stack
+    except ImportError as exc:
+        raise MandateError(_missing(exc)) from exc
+    return JWK
+
+
+def _missing(exc: ImportError) -> str:
+    """What to say when part of the signing stack will not import.
+
+    Names the module that actually failed rather than only "the SDK": installed
+    with ``--no-deps`` over the wrong file, ``cryptography`` arrives without the
+    ``cffi`` it is built on, and "the AP2 SDK is not installed" then sends
+    somebody to re-run the command that just broke it.
+    """
+    # ``name`` is what a ``ModuleNotFoundError`` carries and a bare
+    # ``ImportError`` does not, so the sentence still reads without one.
+    missing = repr(exc.name) if exc.name else "part of it"
+    return (
+        f"Paying needs the AP2 SDK and what it imports, and {missing} is not "
+        f"there. Install them with:  {INSTALL}"
+    )
 
 
 def available() -> bool:
@@ -157,7 +191,7 @@ def available() -> bool:
 
 def _jwk(private_key: Any, kid: str) -> Any:
     """A jwcrypto key carrying a key id, which every signature here is traced by."""
-    from jwcrypto.jwk import JWK  # noqa: PLC0415 -- part of the deferred SDK stack
+    JWK = _jwk_class()  # noqa: N806 -- a class, named as the SDK names it
 
     material = json.loads(JWK.from_pyca(private_key).export())
     material["kid"] = kid
@@ -166,8 +200,10 @@ def _jwk(private_key: Any, kid: str) -> Any:
 
 def generate_key(kid: str = "agent-ephemeral") -> Any:
     """A fresh P-256 key, living exactly as long as this process does."""
-    from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415
-
+    try:
+        from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415
+    except ImportError as exc:
+        raise MandateError(_missing(exc)) from exc
     return _jwk(ec.generate_private_key(ec.SECP256R1()), kid)
 
 
@@ -188,7 +224,7 @@ def load_key(*, required: bool) -> tuple[Any, bool]:
             file that is not a private key this can sign with.
     """
     _sdk()  # jwcrypto is the SDK's own stack: fail with its sentence, not an ImportError
-    from jwcrypto.jwk import JWK  # noqa: PLC0415
+    JWK = _jwk_class()  # noqa: N806 -- a class, named as the SDK names it
 
     location = os.getenv(KEY_PATH, "").strip()
     if not location:
@@ -288,7 +324,7 @@ def open_mandate() -> tuple[str, Any] | None:
     if not location:
         return None
 
-    from jwcrypto.jwk import JWK  # noqa: PLC0415
+    JWK = _jwk_class()  # noqa: N806 -- a class, named as the SDK names it
 
     try:
         document = json.loads(Path(location).read_text(encoding="utf-8"))

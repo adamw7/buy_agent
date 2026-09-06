@@ -552,3 +552,64 @@ def test_an_autonomous_authorisation_carries_two_real_mandates(
         token=authorisation.checkout, key_or_provider=agent, payload_type=CheckoutMandate
     )
     assert signed.mandate_payload.checkout_hash == checkout.hash
+
+
+@pytest.mark.parametrize("broken", ["jwcrypto", "cryptography"])
+def test_a_half_installed_signing_stack_names_what_is_missing(
+    monkeypatch: pytest.MonkeyPatch, broken: str
+) -> None:
+    """`--no-deps` over the wrong file leaves `cryptography` without the `cffi`
+    it is built on. Reported as "the AP2 SDK is not installed" that sends
+    somebody to re-run the command that just broke it, so the module that
+    actually failed is what the sentence names -- and both halves of the signing
+    stack are reached from functions that never touch the SDK itself."""
+    import builtins
+
+    real = builtins.__import__
+
+    def refuse(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name.startswith(broken):
+            raise ModuleNotFoundError("No module named '_cffi_backend'", name="_cffi_backend")
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", refuse)
+    for module in list(__import__("sys").modules):
+        if module.startswith(broken):
+            monkeypatch.delitem(__import__("sys").modules, module, raising=False)
+
+    with pytest.raises(MandateError) as excinfo:
+        mandates.generate_key("agent")
+
+    assert "_cffi_backend" in str(excinfo.value)
+    assert "requirements-ap2-deps.txt" in str(excinfo.value)
+
+
+def test_an_import_failure_with_no_module_name_still_reads(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bare `ImportError` carries no `name`; the sentence has to survive that."""
+    import builtins
+
+    real = builtins.__import__
+
+    def refuse(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name.startswith("jwcrypto"):
+            raise ImportError("something went wrong")
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", refuse)
+    monkeypatch.delitem(__import__("sys").modules, "jwcrypto.jwk", raising=False)
+    monkeypatch.delitem(__import__("sys").modules, "jwcrypto", raising=False)
+
+    with pytest.raises(MandateError, match="part of it is not there"):
+        mandates.generate_key("agent")
+
+
+def test_the_install_command_installs_the_deps_before_the_sdk() -> None:
+    """Two commands in the right order: `--no-deps` is what the SDK needs and
+    what its dependencies must not get, so the file that resolves normally goes
+    first. Reversed, the flag is applied to the thing that needs resolving."""
+    deps = mandates.INSTALL.index("requirements-ap2-deps.txt")
+    sdk = mandates.INSTALL.index("--no-deps")
+
+    assert deps < sdk

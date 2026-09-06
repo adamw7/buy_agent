@@ -57,6 +57,7 @@ python -m venv .venv
 pip install -r requirements-dev.txt
 
 # 3. Optional: only if you want it to pay for things (see "Letting it buy")
+pip install -r requirements-ap2-deps.txt
 pip install --no-deps -r requirements-ap2.txt
 ```
 
@@ -275,6 +276,7 @@ the agent can complete the purchase itself -- authorised by signed
 [AP2](https://ap2-protocol.org) mandates rather than by a card number it holds.
 
 ```powershell
+pip install -r requirements-ap2-deps.txt
 pip install --no-deps -r requirements-ap2.txt
 python -m buy_agent "wireless headphones under $200" --pay
 ```

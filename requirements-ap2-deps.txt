@@ -1,0 +1,13 @@
+# What the AP2 SDK imports. An ordinary requirements file, installed ordinarily,
+# so pip resolves what these need in turn (cffi, pycparser, PyYAML,
+# typing_extensions) the way it resolves the rest of this project's transitives.
+#
+#     pip install -r requirements-ap2-deps.txt
+#
+# Separate from `requirements-ap2.txt` because only the *SDK* needs `--no-deps`,
+# and that flag is not a per-line option: applied to one file it applies to every
+# line in it, which left `cryptography` here without the `cffi` it is built on
+# and every payment test failing on `No module named '_cffi_backend'`.
+cryptography==46.0.5
+jwcrypto==1.5.6
+sd-jwt==0.10.4
