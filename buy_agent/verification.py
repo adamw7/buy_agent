@@ -46,8 +46,8 @@ NAME_COVERAGE = 0.6
 #: How a quote is compared with the sources: as overlapping runs of this many
 #: consecutive words, of which :data:`_QUOTE_COVERAGE` must be found. A
 #: word-by-word check would pass any sentence assembled out of vocabulary the
-#: pages share -- "great sound, very comfortable" is five words every headphone
-#: page contains and none need have printed in that order.
+#: pages share -- every headphone page contains the five words of "great sound,
+#: very comfortable" and none need have printed them in that order.
 #:
 #: Not all the runs, so a model topping or tailing a real quote with a word of its
 #: own is still quoting: that damages only the runs at one end. A word changed in
@@ -64,16 +64,15 @@ _QUOTE_COVERAGE = 0.6
 #:
 #: :data:`~buy_agent.extraction.SUPERLATIVES` make the figure beside them a count
 #: of products rather than a score -- "we rated the 5 best headphones" -- and are
-#: ruled out on both sides, either being able to carry the tell. Imported rather
-#: than written out again, for the reason ``GENERIC_WORDS`` is: those same words
-#: are what tells a roundup's headline from a product over there.
+#: ruled out on both sides, either being able to carry the tell. Imported for the
+#: reason ``GENERIC_WORDS`` is: over there those same words tell a roundup's
+#: headline from a product.
 #:
 #: The hyphen on the ``stars`` branch is the one :mod:`buy_agent.fetch` keeps the
 #: line for: "a 4.5-star average" and "4.5 stars" are one sentence spelled two
-#: ways, and grounding a rating off the second while blanking it off the first
-#: would leave the figure's fate resting on a page's punctuation. It widens
-#: nothing -- the space form already vouches for exactly the same figures -- and
-#: it is refused on the other two branches, where no page writes one.
+#: ways, and a figure's fate should not rest on a page's punctuation. It widens
+#: nothing -- the space form vouches for exactly the same figures -- and the
+#: other two branches refuse it, no page writing one there.
 _RATING_AFTER = r"(?:\s*(?:/\s*5\b|(?:out\s+of|of)\s+5\b)|[\s-]*stars?\b)"
 #: The gap stays generous -- "rated a solid 4.6" is how pages write it.
 _RATING_BEFORE = rf"(?:rated|rating|score[ds]?)\b(?![^\d]{{0,12}}{SUPERLATIVES}\b)[^\d]{{0,12}}"
@@ -82,11 +81,10 @@ _RATING_OUT_OF_TEN = r"\s*(?:/\s*10\b|(?:out\s+of|of)\s+10\b)"
 #: A review count is a small whole number, which is what a year, a model number
 #: and a price all are too -- so checked as a bare figure it grounds on any of
 #: them: "720" out of "WH-CH720N", "2023" out of a release date, "148" out of the
-#: price beside it. That is the mistake :data:`_RATING_AFTER` exists to refuse,
-#: on the other figure that feeds the score (the popularity half of it), so it is
-#: refused the same way: the number counts only where it is written as a count of
-#: somebody. The nouns are who does the reviewing, not what a page is about --
-#: "headphones" or "products" would take every figure on it.
+#: price beside it. Refused the way :data:`_RATING_AFTER` refuses it on the score's
+#: other half: the number counts only where it is written as a count of somebody.
+#: The nouns are who does the reviewing, not what a page is about -- "headphones"
+#: or "products" would take every figure on it.
 _COUNTED = (
     r"(?:reviews?|ratings?|reviewers?|shoppers?|customers?|buyers?|owners?|users?|votes?)"
 )
@@ -216,10 +214,9 @@ def drop_ungrounded(products: Sequence[Product], haystack: str) -> list[Product]
             dropped.append(product.name)
 
     if dropped:
-        # The count at INFO and the names at DEBUG, the pairing every heuristic
-        # that removes a product uses. This is the one most worth naming:
-        # ``mentions_name`` decides whether a product is real at all, and a real
-        # one it happens to fail leaves nothing behind but a number one smaller.
+        # The count at INFO and the names at DEBUG, as everywhere a product is
+        # removed -- and most worth naming here: ``mentions_name`` decides whether
+        # a product is real at all, and a real one it fails leaves nothing behind.
         logger.info("Dropped %d product(s) absent from the search results", len(dropped))
         logger.debug(
             "Absent from the search results: %s", ", ".join(repr(name) for name in dropped)
@@ -292,12 +289,11 @@ def attribute_sources(
 
 
 #: Each figure that has to be found in the sources, and how it is written when it
-#: is -- a price as a number, a rating and a review count as themselves, both of
-#: those being small figures a page prints for a hundred other reasons. A
-#: rejected figure takes its :data:`~buy_agent.models.QUALIFIERS` down with it --
-#: ADR-0022's grouping, one stage earlier than the merge it was written for.
-#: ``rating`` comes before ``review_count`` so a rejected rating blanks the count
-#: before the count is judged alone; blanking only adds, so nothing brings it back.
+#: is -- a price as a number, a rating and a review count as themselves, those two
+#: being small figures a page prints for a hundred other reasons. A rejected figure
+#: takes its :data:`~buy_agent.models.QUALIFIERS` down with it: ADR-0022's grouping,
+#: one stage earlier than the merge it was written for. ``rating`` comes first so a
+#: rejected rating blanks the count before the count is judged alone.
 _GROUNDED_FIGURES: tuple[tuple[str, Callable[[str, float], bool]], ...] = (
     ("price", mentions_number),
     ("rating", mentions_rating),
@@ -391,10 +387,9 @@ def verify_opinions(
         ]
         kept: list[Opinion] = []
         for opinion in product.opinions:
-            # Written out rather than as a comprehension because the loop answers
-            # two things at once -- whether any page printed the quote, and which
-            # was the first that did -- and ``None`` is already taken: it is the
-            # answer for a page that printed it and carries no URL.
+            # A loop rather than a comprehension because it answers two things at
+            # once -- whether any page printed the quote, and which was the first
+            # -- and ``None`` is taken: a page that printed it and has no URL.
             for url, words in mine:
                 if quotes_sources(words, opinion.text):
                     kept.append(opinion.model_copy(update={"url": url}))

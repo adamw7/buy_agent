@@ -103,18 +103,16 @@ export class ProgressLog {
 
     // Follow the tail, the way a terminal does -- but only while the reader is
     // still at the tail. A run logs for a minute, so scrolling up to re-read the
-    // refined query used to last until the next line arrived and yanked the panel
-    // back down; there is no reading a finished step out of a live run that way.
+    // refined query used to last until the next line yanked the panel back down.
     //
     // After the render and not during it. A plain `effect` runs before the DOM
-    // holds the lines it was woken for, so `scrollHeight` is still the height
-    // from before them and the panel is left one batch short of the bottom every
-    // time. Worse, the scroll event for that stale position arrives *after* the
-    // render, when the gap it measures is a whole batch of new lines -- past
-    // STICK_MARGIN, so `follow` reads it as the reader having scrolled away and
-    // the panel stops following for the rest of the run. Which is what it did:
-    // eleven of a run's forty-four lines, frozen, through the step it exists to
-    // narrate.
+    // holds the lines it was woken for, so `scrollHeight` is still the height from
+    // before them and the panel is left one batch short of the bottom every time.
+    // Worse, the scroll event for that stale position arrives *after* the render,
+    // when the gap it measures is a whole batch of new lines -- past STICK_MARGIN,
+    // so `follow` reads it as the reader having scrolled away and the panel stops
+    // following for the rest of the run. Which is what it did: eleven of a run's
+    // forty-four lines, frozen, through the step it exists to narrate.
     afterRenderEffect(() => {
       this.lines();
       const element = this.scroller()?.nativeElement;

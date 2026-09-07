@@ -51,7 +51,7 @@ _NO_KEY = "EMPTY"
 #: Short on purpose: it is asked for while a form is rendering, and
 #: "unreachable" is an answer worth giving quickly. The number is a per-request
 #: timeout on the client *and* the deadline the capability probes share, since
-#: the client's own bounds one question and Ollama's listing asks one per tag
+#: the client's own bounds one question while Ollama's listing asks one per tag
 #: (ADR-0032): fifty tags on a slow server is fifty timeouts, eight at a time,
 #: with the form waiting on every one of them.
 _LIST_TIMEOUT = 5.0
@@ -453,9 +453,9 @@ OLLAMA = Provider(
     # its transport failures: a refused connection becomes a builtin
     # ``ConnectionError`` -- an ``OSError`` -- while a model too slow to answer and
     # a stream the server drops mid-object arrive as raw ``httpx`` errors, neither
-    # of them one. A status vLLM or Ollama answers with is ``ResponseError``, and
-    # ``RequestError`` is ollama's own for a request it will not send, a different
-    # class from httpx's identically named one.
+    # of them one. ``ResponseError`` is a status the server answered with, and
+    # ``RequestError`` is ollama's own for a request it will not send -- a
+    # different class from httpx's identically named one.
     transport_errors=(ResponseError, RequestError, OSError, httpx.HTTPError),
     hint=_ollama_hint,
 )

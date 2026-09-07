@@ -213,10 +213,9 @@ export class SearchForm {
     // a browser that switched to vLLM saved that provider's model and address in
     // the same blob, so restoring them together can never pair one with the other.
     // Checked against what this server offers rather than taken as text, for the
-    // reason `asThinking` is: a name remembered by a browser and since dropped --
-    // a build without vLLM, a provider renamed -- leaves the picker matching
-    // nothing, `chosenProvider` undefined, and the model and context fields
-    // describing a server nobody chose.
+    // reason `asThinking` is: a name since dropped -- a build without vLLM, a
+    // provider renamed -- leaves the picker matching nothing, `chosenProvider`
+    // undefined, and the model and context fields describing a server nobody chose.
     provider: setting(
       this.provider,
       (d) => d.provider,
@@ -249,10 +248,10 @@ export class SearchForm {
     ),
     temperature: setting(this.temperature, (d) => d.temperature, asNumber),
     // The one field a remembered `null` has to win on. Cleared, this box means
-    // "whatever the server defaults to" -- what `numCtxHint` names -- which is a
-    // choice and not an absence, so `null` is a value its parser accepts rather
-    // than rejects. Settings saved before the field existed carry no key at all,
-    // and `restore` leaves those to the seeded default.
+    // "whatever the server defaults to" -- what `numCtxHint` names -- a choice and
+    // not an absence, so `null` is a value its parser accepts rather than rejects.
+    // Settings saved before the field existed carry no key, and `restore` leaves
+    // those to the seeded default.
     numCtx: setting(this.numCtx, (d) => d.num_ctx, asNumberOrNull),
     thinking: setting(this.thinking, (d) => toThinking(d.think), asThinking),
     fetchPages: setting(this.fetchPages, (d) => d.fetch, asBoolean),
@@ -548,12 +547,12 @@ export class SearchForm {
       }
     });
 
-    // Open the settings the first time there is something in them to read. A
-    // mark on a box inside a closed panel is a mark nobody sees, which is the
-    // whole of what ADR-0033 asks the form to do with a refusal -- and where the
-    // mark is also what disables the button, leaving it shut is a dead end: a
-    // page that will not search and will not say why. Closing it again is the
-    // reader's to do, since this fires only when the marks themselves change.
+    // Open the settings the first time there is something in them to read. A mark
+    // on a box inside a closed panel is a mark nobody sees, which is the whole of
+    // what ADR-0033 asks the form to do with a refusal -- and where the mark also
+    // disables the button, leaving it shut is a page that will not search and will
+    // not say why. Closing it again is the reader's to do, this firing only when
+    // the marks themselves change.
     effect(() => {
       if (this.flagged()) {
         this.advanced.set(true);

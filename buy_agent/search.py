@@ -11,14 +11,14 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-#: What ddgs says when every engine answered and none had anything. Its search
+#: What ddgs says when every engine answered and none had anything: its search
 #: path ends in ``raise DDGSException(err or "No results found.")``, so a query
-#: that matched nothing arrives as an exception like any other -- and calling that
-#: a :class:`SearchError` would report "the backend could not be reached" (a 502
-#: in the browser) for a search that worked. Every other ``DDGSException`` carries
-#: the failing engine's own text, so the message is the discriminator ddgs itself
-#: uses. Pinned to ``ddgs==9.15.0``: a later rewording shows up as the old 502
-#: rather than a wrong answer, and ``tests/test_search.py`` says what to look at.
+#: that matched nothing arrives as an exception like any other. Calling that a
+#: :class:`SearchError` would report "the backend could not be reached" for a
+#: search that worked, and the message is the only discriminator ddgs offers --
+#: every other ``DDGSException`` carries the failing engine's own text. Pinned to
+#: ``ddgs==9.15.0``, so a later rewording shows up as the old 502 rather than a
+#: wrong answer; ``tests/test_search.py`` says what to look at.
 _NO_RESULTS = "No results found."
 
 

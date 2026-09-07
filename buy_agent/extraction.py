@@ -83,9 +83,9 @@ EXTRACTION_PROMPT = Prompt(
 #: way :data:`GENERIC_WORDS` is -- and for the same reason. Here they open a
 #: headline the model has mistaken for a product ("12 Best ..."); there they mark
 #: the figure beside them as a count of products rather than a rating ("we rated
-#: the 5 best headphones"). That is one vocabulary read two ways, so a word added
-#: to one copy and not the other used to leave a "cheapest" headline dropped as a
-#: page while the rating printed next to it still grounded.
+#: the 5 best headphones"). One vocabulary read two ways: a word added to one copy
+#: and not the other used to leave a "cheapest" headline dropped as a page while
+#: the rating printed next to it still grounded.
 SUPERLATIVES = r"(?:best|top|cheapest|worst|greatest)"
 
 #: A name opening on a superlative: "12 Best ...", "The 5 Best ...", "Top ...".
@@ -256,10 +256,9 @@ def merge_variants(products: Sequence[Product]) -> list[Product]:
     for product in products:
         for index, existing in enumerate(merged):
             if _same_product(existing.name, product.name):
-                # The other way a product leaves the report without being
-                # dropped, and the one a reader cannot reconstruct from what
-                # survived: the merged entry keeps the shorter of the two names,
-                # so the other is gone from every line after this.
+                # The other way a product leaves the report without being dropped,
+                # and the one a reader cannot reconstruct: the merged entry keeps
+                # the shorter of the two names, so the other is simply gone.
                 logger.debug("Folded %r together with %r", existing.name, product.name)
                 merged[index] = _combine(existing, product)
                 break

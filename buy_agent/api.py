@@ -110,11 +110,10 @@ _STATUS: dict[type[Exception], int] = {
 }
 
 
-#: Which HTTP status each payment failure deserves. A table of its own and not a
-#: row added to :data:`_STATUS`: those three are what a *run* raises and the
-#: convention test holds them against ``BuyAgent.run`` and the CLI, while a
-#: payment happens after a run and fails at its own door. Ordered subclass-first,
-#: the lookup below taking the first match.
+#: Which HTTP status each payment failure deserves. A table of its own rather than
+#: rows in :data:`_STATUS`: those three are what a *run* raises, held against
+#: ``BuyAgent.run`` and the CLI by a convention test, while a payment fails at its
+#: own door. Ordered subclass-first, the lookup below taking the first match.
 PAY_STATUS: dict[type[Exception], int] = {
     RailUnreachableError: 502,
     PaymentError: 400,
@@ -277,9 +276,8 @@ def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
     sort_by = _read(data, "sort_by", "score", _as_sort_by)
     top_n = _read(data, "top", defaults.top_n, _bounded(int, "top"))
     # Named rather than left to ``rank_products``'s own fallback, so the weights
-    # the answer reports are the ones it was ranked by and not a second copy of
-    # the same default: a re-sort takes no config, this being the one entry point
-    # that runs no pipeline.
+    # the answer reports are the ones it was ranked by: a re-sort takes no config,
+    # being the one entry point that runs no pipeline.
     weights = RankingWeights()
     ranked = rank_products(
         _read_products(data), weights=weights, sort_by=cast(SortBy, sort_by)
@@ -463,10 +461,10 @@ def product_payload(entry: RankedProduct, currency: str | None = None) -> dict[s
         "cannot_pay": payable(entry.product, currency),
         "rank": entry.rank,
         "score": round(entry.score, 4),
-        # What that score is made of, so a card can say why a product placed
-        # where it did and which criteria it was placed on nothing at all
-        # (ADR-0041). Sent whole rather than pre-formatted: how to draw three
-        # shares is the page's business, what they are is Python's.
+        # What that score is made of, so a card can say why a product placed where
+        # it did and which criteria it was placed on nothing at all (ADR-0041).
+        # Sent whole: drawing three shares is the page's business, what they are
+        # is Python's.
         "breakdown": entry.breakdown.model_dump(),
         **entry.product.model_dump(),
         "price_label": entry.product.price_label(),

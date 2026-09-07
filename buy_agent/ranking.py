@@ -93,10 +93,9 @@ def score_product(
     the two are one number until something names the difference. ``neutral`` is
     that name, and the one thing here nothing else could work out afterwards.
     """
-    # ``None`` is "nothing was read", carried as its own value and turned into
-    # ``NEUTRAL`` once, below, rather than by testing a share against 0.5
-    # afterwards -- a product priced exactly mid-way through the set scores that
-    # on the evidence.
+    # ``None`` is "nothing was read", turned into ``NEUTRAL`` once, below, rather
+    # than by testing a share against 0.5 afterwards: a product priced mid-way
+    # through the set scores that on the evidence.
     placed = comparable_price(product, currency)
     read = {
         "rating": None if product.rating is None else product.rating / 5,
@@ -107,10 +106,10 @@ def score_product(
             if product.review_count
             else None
         ),
-        # ``placed`` is None for a price nobody published *and* for one printed
-        # in a currency this set is not counted in: neither has a place between
-        # the cheapest and the priciest. The last clause is a set with one
-        # distinct price, where nothing separates any product from any other.
+        # ``placed`` is None both for a price nobody published and for one in a
+        # currency this set is not counted in -- neither has a place between the
+        # cheapest and the priciest. The last clause is a set with one distinct
+        # price, where nothing separates any product from any other.
         "price": (
             None
             if placed is None or cheapest is None or priciest is None
@@ -143,8 +142,8 @@ def rank_products(
     weights = weights or RankingWeights()
     # The scale is the run's own currency and the prices on it: one price in yen
     # would otherwise put every dollar price at the cheap end of a range five
-    # orders of magnitude wide (ADR-0043). A fact about the set, like ``cheapest``
-    # and ``priciest``, so it is worked out here and passed down.
+    # orders of magnitude wide (ADR-0043). A fact about the set, like the two
+    # below, so it is worked out here and passed down.
     currency = dominant_currency(products)
     prices = [comparable_price(product, currency) for product in products]
     on_the_scale = [price for price in prices if price is not None]

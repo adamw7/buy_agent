@@ -34,18 +34,16 @@ _MAX_OPINION_LENGTH = 240
 #: How a page's way of naming a currency reads as the ISO code the schema asks
 #: for. The field says "USD or EUR" and a small model hands back what the page
 #: printed -- "$", off a line reading "$129" -- so a set comes out split between
-#: "$" and "USD". :func:`dominant_currency` reads that as two currencies and
-#: :func:`comparable_price` refuses to compare across them (ADR-0043): half the
-#: prices score ``NEUTRAL``, sink in a price sort and pass ``--max-price``
-#: unjudged, all of it for a difference in spelling.
+#: "$" and "USD", which :func:`comparable_price` then refuses to compare across
+#: (ADR-0043): half the prices score ``NEUTRAL``, sink in a price sort and pass
+#: ``--max-price`` unjudged, all for a difference in spelling.
 #:
-#: Only the spellings that name one currency are here. ``¥`` is deliberately
-#: absent -- it is the yen's sign and the yuan's -- and so is ``kr``, which three
-#: countries print: an ambiguous sign left as it was written is a price this run
-#: cannot place, which is the answer ADR-0043 has for that, while a guess here
-#: would be a price it places wrongly. ``$`` is the one guess made, since the
-#: currencies that share it spell themselves ``C$`` and ``A$`` where it matters
-#: and the default region prints the other one.
+#: Only the spellings that name one currency are here. ``¥`` is the yen's sign and
+#: the yuan's, ``kr`` is printed by three countries: an ambiguous sign left as
+#: written is a price this run cannot place, which is ADR-0043's answer for it,
+#: while a guess here would place it wrongly. ``$`` is the one guess made, the
+#: currencies that share it spelling themselves ``C$`` and ``A$`` where it matters
+#: and the default region printing the other one.
 _CURRENCY_ALIASES = {
     "$": "USD",
     "US$": "USD",
@@ -109,9 +107,9 @@ class ExtractedProduct(BaseModel):
         # off a page and no price to go with it has read a fact about nothing.
         rating = self.rating if 0 <= self.rating <= 5 else None
         # ``> 0`` rather than ``>= 0``, matching ``review_count``: zero is the
-        # other thing a model writes for "unknown", and kept it is worse than a
-        # blank -- grounding need only find a bare "0" in ten pages of "$0
-        # shipping", and ranking then calls it the cheapest and tops the report.
+        # other thing a model writes for "unknown", and grounding need only find a
+        # bare "0" in ten pages of "$0 shipping" for ranking to call it the
+        # cheapest and top the report.
         price = self.price if self.price > 0 else None
         return Product(
             name=_clean(self.name),
@@ -174,10 +172,9 @@ class Product(BaseModel):
     seller: str | None = None
     url: str | None = None
     #: What the sources say about it, in their words, each beside the page that
-    #: said it. A list rather than a nullable field: "nobody said anything" and
-    #: "no opinion survived grounding" are one empty answer, and a second
-    #: spelling of it -- ``None`` beside ``[]`` -- would be one every caller had
-    #: to handle.
+    #: said it. A list rather than a nullable field: "nobody said anything" and "no
+    #: opinion survived grounding" are one empty answer, and ``None`` beside ``[]``
+    #: would be a second spelling of it for every caller to handle.
     opinions: list[Opinion] = []
     notes: str | None = None
 
@@ -202,10 +199,10 @@ class Product(BaseModel):
 #: Fields that describe another field rather than the product (ADR-0022). A
 #: currency is a fact about *that listing's* price and a review count is what
 #: *that listing's* rating was averaged over, so a figure carries its qualifiers
-#: wherever it moves and takes them down wherever it is rejected. Left standing
-#: alone either describes a figure it was never printed against: "129.00 EUR" out
-#: of a page saying 129 and a page saying "249 EUR", or a count reading "unrated"
-#: beside nothing while still feeding the popularity half of the score.
+#: wherever it moves and takes them down wherever it is rejected. Left alone,
+#: either describes a figure it was never printed against: "129.00 EUR" out of one
+#: page saying 129 and another "249 EUR", or a count reading "unrated" beside
+#: nothing while still feeding the popularity half of the score.
 #:
 #: Declared beside the fields it names, because both places that move a figure
 #: need it (:func:`buy_agent.extraction._fill_gaps`,

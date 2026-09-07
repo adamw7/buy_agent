@@ -55,10 +55,8 @@ DEFAULT_TTL = 86_400.0
 _DIRECTORY = "buy-agent"
 
 #: The two kinds of entry, each in its own directory under the root. Separate
-#: because they are pruned, counted and reasoned about separately, and because a
-#: page's key is a URL while an answer's is a whole request: one directory holding
-#: both would make "how much of this run came off disk" two questions with one
-#: answer.
+#: because they are pruned and counted separately, and because a page's key is a
+#: URL while an answer's is a whole request.
 PAGES = "pages"
 ANSWERS = "answers"
 
@@ -158,10 +156,9 @@ class DiskCache:
         """
         cutoff = time.time() - self.ttl
         removed = 0
-        # ``glob`` answers an empty iterator for a directory that is missing or
-        # cannot be listed rather than raising, so the listing needs no guard of
-        # its own -- and with the two calls below guarded, this cannot raise at
-        # all, which is what lets ``open_cache`` call it without one either.
+        # ``glob`` answers an empty iterator for a directory it cannot list
+        # rather than raising, so with the two calls below guarded this cannot
+        # raise at all -- which is what lets ``open_cache`` call it unguarded.
         for path in self.directory.glob("*.json"):
             try:
                 if path.stat().st_mtime < cutoff:
@@ -219,9 +216,9 @@ class RememberedAnswers:
             try:
                 remembered = read_answer(stored, schema)
             except UnreadableAnswerError:
-                # An entry that will not read back as the schema asked for is a
-                # miss like any other. It should not happen -- the schema itself
-                # is in the key -- and it costs a model call rather than a run.
+                # An entry that will not read back as the schema is a miss like
+                # any other: it should not happen, the schema being part of the
+                # key, and it costs a model call rather than a run.
                 logger.debug("A remembered answer could not be read back")
             else:
                 logger.info("Reused a remembered %s answer", schema.__name__)

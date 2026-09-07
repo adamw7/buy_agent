@@ -74,14 +74,13 @@ _MAX_BODY_BYTES = 64 * 1024
 
 #: How long one blocking read or write on a connection may take before it is
 #: dropped. Without it a client that announces a body and never sends it parks a
-#: handler thread for the life of the process -- three such connections park
-#: three, and nothing ever reclaims them. It bounds a single socket operation and
-#: not a request, so it costs the slow paths nothing: a run that takes a minute
-#: blocks on no socket while it works, and the stream's own frames are small and
-#: sent at worst :data:`_KEEPALIVE_SECONDS` apart. A write that does time out
-#: arrives as the ``OSError`` :meth:`BuyAgentHandler._send_event` already reads as
-#: a reader who has gone (ADR-0034), and an idle keep-alive connection is closed
-#: by ``handle_one_request``, which answers ``TimeoutError`` by hanging up.
+#: handler thread for the life of the process, and nothing ever reclaims it. It
+#: bounds a single socket operation and not a request, so the slow paths pay
+#: nothing: a run that takes a minute blocks on no socket, and the stream's frames
+#: are small and sent at worst :data:`_KEEPALIVE_SECONDS` apart. A write that does
+#: time out arrives as the ``OSError`` :meth:`BuyAgentHandler._send_event` already
+#: reads as a reader who has gone (ADR-0034), and an idle keep-alive connection is
+#: closed by ``handle_one_request``, which answers ``TimeoutError`` by hanging up.
 _REQUEST_TIMEOUT = 30.0
 
 #: Host names that mean "this machine". A ``Host`` outside the allowed set is a
@@ -97,7 +96,7 @@ _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 #: and is judged on ``Origin`` and ``Host``. ``same-site`` is deliberately not
 #: here: a site is a domain and not a port, so the Angular dev server on
 #: ``localhost:4200`` counts as one, and refusing it would break ``npm start`` to
-#: close a hole nobody on the internet can reach through.
+#: close a hole nobody remote can reach through.
 _CROSS_SITE = "cross-site"
 
 #: Headers on every response. The app loads everything from its own origin, so
@@ -331,10 +330,9 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         # Deliberately terse and deliberately not CORS-negotiable: there is
         # nothing here another site is meant to be able to ask for.
         self.close_connection = True
-        # All three headers the checks read, logged as they arrived -- None where
-        # one was not sent. Fetch metadata can refuse a request carrying no Origin
-        # at all, so a line naming only the Origin sends the reader after the
-        # wrong header.
+        # All three headers the checks read, as they arrived -- None where one was
+        # not sent. Fetch metadata can refuse a request carrying no Origin at all,
+        # so a line naming only the Origin sends the reader to the wrong header.
         logger.warning(
             "Refused a %s %s from origin %r with host %r and fetch site %r",
             self.command,
@@ -373,13 +371,12 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             else:
                 self._serve_static(url.path)
         except Exception as exc:  # noqa: BLE001 -- a 500 beats a dropped connection
-            # The reason both handlers have one of these: an exception here escapes
-            # to socketserver, which closes the socket unanswered, and the page reads
-            # that as the agent server being down -- "Could not reach the agent
-            # server" for a server that is up and answered every other request.
-            # ``$BUY_AGENT_PROVIDER=olama`` did exactly that to ``/api/config``,
-            # where ``AgentConfig()`` raises and the sentence naming the servers
-            # that do exist never reached anybody.
+            # The reason both handlers have one: an exception here escapes to
+            # socketserver, which closes the socket unanswered, and the page reads
+            # that as the agent server being down -- for a server that answered
+            # every other request. ``$BUY_AGENT_PROVIDER=olama`` did exactly that
+            # to ``/api/config``, where ``AgentConfig()`` raises and the sentence
+            # naming the servers that do exist never reached anybody.
             logger.exception("Unexpected failure answering %s", url.path)
             self._send_json(500, {"error": f"Unexpected failure: {exc}"})
 
@@ -629,11 +626,11 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         try:
             raw = self.rfile.read(length)
         except TimeoutError as exc:
-            # A body announced and never sent: what :data:`_REQUEST_TIMEOUT` is
-            # there to end. Named rather than left to the catch-all in ``do_POST``,
-            # which would log a traceback for a slow client and call it an
-            # "Unexpected failure during a search" -- and a socket that has timed
-            # out refuses every later read outright, so the connection goes too.
+            # A body announced and never sent: what :data:`_REQUEST_TIMEOUT` ends.
+            # Named rather than left to ``do_POST``'s catch-all, which would log a
+            # traceback for a slow client and call it an "Unexpected failure during
+            # a search" -- and a socket that has timed out refuses every later read,
+            # so the connection goes too.
             self.close_connection = True
             raise ApiError("The request body did not arrive in time.", 408) from exc
         try:
@@ -671,11 +668,10 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             if self.command != "HEAD":
                 self.wfile.write(body)
         except OSError:
-            # And nothing more goes over it. A connection whose response could not
-            # be written is not one to read the next request off: after a write
-            # that timed out the socket refuses reads as well, so leaving it open
-            # sends that failure to ``socketserver``, which is the dropped, silent
-            # close every catch-all in here exists to avoid.
+            # And nothing more goes over it: after a write that timed out the
+            # socket refuses reads as well, so leaving it open sends that failure
+            # to ``socketserver`` -- the dropped, silent close every catch-all in
+            # here exists to avoid.
             self.close_connection = True
             logger.debug("Client went away before the response was written")
 
@@ -842,9 +838,8 @@ def main(argv: list[str] | None = None) -> int:
         provider_for(DEFAULT_PROVIDER)
     except ValueError as exc:
         # Every page load resolves this name -- the form's own defaults are an
-        # ``AgentConfig`` -- so a misspelt ``$BUY_AGENT_PROVIDER`` is not worth a
-        # server that starts and then answers 500 to everything it serves. Said
-        # here, where the shell that set it is still on screen.
+        # ``AgentConfig`` -- so a misspelt ``$BUY_AGENT_PROVIDER`` is said here,
+        # to the shell that is still on screen, rather than as a 500 per page.
         logger.error("%s", exc)
         return 1
 

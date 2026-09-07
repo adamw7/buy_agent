@@ -212,10 +212,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         metavar="SITE",
         # ``parse_named_sources`` rather than ``parse_sources``: on a command line
-        # there is no way to spell "unset" other than leaving the flag off, so a
-        # flag that names nothing -- ``--source ""`` -- is a mistake and not an
-        # answer. Left to parse, it came back empty and the run searched the whole
-        # web, which is the opposite of what was asked for and said so nowhere.
+        # "unset" is spelled by leaving the flag off, so ``--source ""`` is a
+        # mistake and not an answer. Left to parse, it came back empty and the run
+        # searched the whole web -- the opposite of what was asked for, and said
+        # so nowhere.
         type=_checked(parse_named_sources),
         help="Take the facts from this source only; repeat for several. A site "
         "(rtings.com), a section of one (rtings.com/headphones) or a YouTube "
@@ -451,8 +451,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         # Written even when the run found nothing, and so before the exit code is
         # decided: skipped, a script waiting on this file finds the last run's
-        # results sitting there looking current. The API's own shaping, not a
-        # second one -- the file the page hands over is that same answer saved.
+        # results looking current. The API's own shaping, not a second one -- the
+        # file the page hands over is that same answer saved.
         payload = results_payload(ranked)
         try:
             args.json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
