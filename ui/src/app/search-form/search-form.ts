@@ -219,7 +219,7 @@ export class SearchForm {
     provider: setting(
       this.provider,
       (d) => d.provider,
-      amongst((d) => providerNames(d)),
+      amongst((d) => d.provider_options.map((option) => option.name)),
     ),
     model: setting(this.model, (d) => d.model, asText),
     baseUrl: setting(this.baseUrl, (d) => d.base_url, asText),
@@ -299,9 +299,7 @@ export class SearchForm {
   /** Whether the address field is a setting on this rail at all. The dry run has
    *  nowhere to be, so the box is disabled rather than left to be filled in and
    *  ignored -- exactly what `takesNumCtx` does to the context window. */
-  protected readonly railNeedsEndpoint = computed(
-    () => this.chosenRail()?.needs_endpoint ?? false,
-  );
+  protected readonly railNeedsEndpoint = computed(() => this.chosenRail()?.needs_endpoint ?? false);
 
   /** The row for the provider currently chosen, which carries its defaults and
    *  what it can be told per request. Absent before the server's defaults land. */
@@ -773,11 +771,6 @@ function amongst<T extends string>(
 ): Parser<T> {
   return (raw, defaults) =>
     typeof raw === 'string' && offered(defaults).includes(raw) ? (raw as T) : undefined;
-}
-
-/** The providers this server offers, by name. */
-function providerNames(defaults: AgentDefaults): string[] {
-  return defaults.provider_options.map((option) => option.name);
 }
 
 /** Validated rather than taken as text, so a `'default'` remembered by a browser

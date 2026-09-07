@@ -139,6 +139,16 @@ class ApiError(Exception):
         return {"error": str(self), "field": self.field}
 
 
+def _status_for(exc: Exception, table: Mapping[type[Exception], int]) -> int:
+    """The status ``table`` gives this failure, taking the first row it matches.
+
+    Both tables are ordered subclass-first and each is the same tuple its
+    ``except`` clause catches, so a caught exception always matches a row and this
+    cannot come up empty.
+    """
+    return next(status for kind, status in table.items() if isinstance(exc, kind))
+
+
 def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
     """Read an :class:`AgentConfig` and a sort criterion out of request data.
 
@@ -265,9 +275,7 @@ def run_search(
             request, sort_by=sort_by, checkpoint=checkpoint
         )
     except tuple(_STATUS) as exc:
-        # The clause and the mapping are one table, so this cannot come up empty.
-        status = next(status for kind, status in _STATUS.items() if isinstance(exc, kind))
-        raise ApiError(str(exc), status) from exc
+        raise ApiError(str(exc), _status_for(exc, _STATUS)) from exc
 
     return _run_payload(request, ranked, config.top_n, sort_by, config.weights)
 
@@ -357,9 +365,7 @@ def pay_now(data: Mapping[str, Any]) -> dict[str, Any]:
             _witnessed(data, cart)
         receipt = pay_for(cart, config)
     except PaymentError as exc:
-        # The clause and the mapping are one table, so this cannot come up empty.
-        status = next(status for kind, status in PAY_STATUS.items() if isinstance(exc, kind))
-        raise ApiError(str(exc), status, field=exc.field) from exc
+        raise ApiError(str(exc), _status_for(exc, PAY_STATUS), field=exc.field) from exc
     return {"receipt": receipt_payload(receipt)}
 
 
@@ -578,11 +584,12 @@ def sources_payload(spec: str) -> dict[str, Any]:
         wrong with it; ``sources`` is the spec as given, so a form typed into
         since can drop an answer about what it held a keystroke ago.
     """
+    error = ""
     try:
         parse_sources(spec)
     except ValueError as exc:
-        return {"sources": spec, "error": str(exc)}
-    return {"sources": spec, "error": ""}
+        error = str(exc)
+    return {"sources": spec, "error": error}
 
 
 def installed_models(provider: str, base_url: str) -> dict[str, Any]:

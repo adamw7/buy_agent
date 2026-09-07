@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from buy_agent.models import (
     RankedProduct,
@@ -126,6 +126,23 @@ def score_product(
     )
 
 
+class _Scored(NamedTuple):
+    """One product on its way through :func:`rank_products`, mid-sort.
+
+    A name per part rather than a bare triple: the three sort keys below reach
+    into it three different ways, and ``item[0]``/``item[1]``/``item[2]`` says
+    nothing about which of them a criterion is being ordered on.
+
+    ``price`` is :func:`~buy_agent.models.comparable_price`'s answer and not the
+    product's own -- ``None`` for a price this run cannot place as well as for one
+    nobody published -- which is what a price sort sinks to the bottom.
+    """
+
+    product: Product
+    price: float | None
+    parts: ScoreParts
+
+
 def rank_products(
     products: Sequence[Product],
     *,
@@ -151,7 +168,7 @@ def rank_products(
     priciest = max(on_the_scale) if on_the_scale else None
 
     scored = [
-        (
+        _Scored(
             product,
             price,
             score_product(
@@ -166,14 +183,16 @@ def rank_products(
     ]
 
     if sort_by == "price":
-        scored.sort(key=lambda item: (item[1] is None, item[1] or 0.0))
+        scored.sort(key=lambda item: (item.price is None, item.price or 0.0))
     elif sort_by == "rating":
-        scored.sort(key=lambda item: (item[0].rating is None, -(item[0].rating or 0.0)))
+        scored.sort(
+            key=lambda item: (item.product.rating is None, -(item.product.rating or 0.0))
+        )
     else:
         # Name breaks ties, so equal scores come out in a reproducible order.
-        scored.sort(key=lambda item: (-item[2].total, item[0].name.lower()))
+        scored.sort(key=lambda item: (-item.parts.total, item.product.name.lower()))
 
     return [
-        RankedProduct(product=product, breakdown=parts, rank=index)
-        for index, (product, _price, parts) in enumerate(scored, start=1)
+        RankedProduct(product=item.product, breakdown=item.parts, rank=index)
+        for index, item in enumerate(scored, start=1)
     ]

@@ -104,7 +104,9 @@ class Constraints:
         for" and "everything passed" is worth keeping: only the second is worth a
         line in the report.
         """
-        return any(True for _ in self._set())
+        # Every row ``_set`` yields is a non-empty tuple, so the rows themselves
+        # are the truthy thing to ask about.
+        return any(self._set())
 
     def admits(self, product: Product, currency: str | None = None) -> bool:
         """Whether this product is inside every bound that was set.
