@@ -162,7 +162,22 @@ class Constraints:
         # works it out: it is a fact about the set, and this is the one place that
         # has the set (ADR-0043).
         currency = dominant_currency(products)
-        kept = [product for product in products if self.admits(product, currency)]
+        kept: list[Product] = []
+        excluded: list[str] = []
+        for product in products:
+            if self.admits(product, currency):
+                kept.append(product)
+            else:
+                excluded.append(product.name)
+
+        if excluded:
+            # The names at DEBUG under the count, as everywhere a product is
+            # removed. "Why is the one I had in mind not in there?" is the
+            # question a bound provokes more than anything else in a run, and a
+            # count on its own answers it with a number.
+            logger.debug(
+                "Outside the limits: %s", ", ".join(repr(name) for name in excluded)
+            )
         logger.log(
             # Nothing left is the one case worth interrupting for: the run found
             # products and is about to report none of them, and without this line

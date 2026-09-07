@@ -7,7 +7,12 @@ import sys
 
 import pytest
 
-from buy_agent.logging_setup import _NOISY_LIBRARIES, configure_logging, log_top_products
+from buy_agent.logging_setup import (
+    _NOISY_LIBRARIES,
+    _TRACE_LIBRARIES,
+    configure_logging,
+    log_top_products,
+)
 from buy_agent.models import Product, RankedProduct
 from buy_agent.ranking import RankingWeights, rank_products
 from tests.conftest import ranked_product, said
@@ -19,15 +24,6 @@ def ranked(*products: Product) -> list[RankedProduct]:
         ranked_product(product, score=1.0 - index / 10, rank=index + 1)
         for index, product in enumerate(products)
     ]
-
-
-@pytest.fixture(autouse=True)
-def restore_httpx_level():
-    """configure_logging() reaches into a global logger; put it back afterwards."""
-    httpx_logger = logging.getLogger("httpx")
-    level = httpx_logger.level
-    yield
-    httpx_logger.setLevel(level)
 
 
 @pytest.fixture
@@ -159,6 +155,45 @@ def test_verbose_leaves_them_alone(basic_config, library: str) -> None:
     configure_logging(verbose=True)
 
     assert logging.getLogger(library).level == logging.NOTSET
+
+
+@pytest.mark.parametrize("verbose", [False, True], ids=["quiet", "verbose"])
+@pytest.mark.parametrize("library", _TRACE_LIBRARIES)
+def test_the_transport_trace_is_held_down_at_verbose_too(
+    basic_config, library: str, verbose: bool
+) -> None:
+    """The tier above is quietened only until somebody asks for detail; this one
+    is held either way, because it is what asking for detail would cost.
+
+    httpcore traces every request at DEBUG in a dozen lines, so the twelve HTTP
+    calls of an ordinary run bury the handful of lines the agent writes about its
+    own heuristics -- which are what ``-v`` was asked for. INFO and not WARNING:
+    httpcore says nothing at INFO, so this silences the trace and nothing else.
+    """
+    logging.getLogger(library).setLevel(logging.NOTSET)
+
+    configure_logging(verbose=verbose)
+
+    assert logging.getLogger(library).level == logging.INFO
+
+
+@pytest.mark.parametrize(
+    ("verbose", "expected"), [(False, logging.INFO), (True, logging.DEBUG)]
+)
+def test_the_level_is_set_even_where_basicconfig_declines_to(
+    monkeypatch, verbose: bool, expected: int
+) -> None:
+    """``basicConfig`` does nothing at all where the root logger already has a
+    handler -- an embedder's, or the one pytest installs around every test -- and
+    the level is what it silently skips. Left to it, ``--verbose`` asked for DEBUG
+    and got INFO with nothing said about it.
+    """
+    monkeypatch.setattr(logging, "basicConfig", lambda **kwargs: None)
+    logging.getLogger().setLevel(logging.CRITICAL)
+
+    configure_logging(verbose=verbose)
+
+    assert logging.getLogger().level == expected
 
 
 @pytest.fixture

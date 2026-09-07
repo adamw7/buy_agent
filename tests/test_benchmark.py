@@ -52,19 +52,6 @@ from benchmark.scripted import PERFECT, SCRIPTS, SLOPPY, ScriptedLLM
 SONY, BOSE, SENNHEISER, AIRPODS, ANKER, LIFE, JLAB = ANSWER_KEY
 
 
-@pytest.fixture(autouse=True)
-def restore_agent_log_level():
-    """``python -m benchmark`` quiets the agent's own logger, which is global.
-
-    Put back, or later tests run against a ``buy_agent`` logger somebody else
-    silenced -- and a ``caplog`` assertion failing three files on says nothing
-    about where."""
-    agent_log = logging.getLogger("buy_agent")
-    level = agent_log.level
-    yield
-    agent_log.setLevel(level)
-
-
 @pytest.fixture(scope="module")
 def perfect() -> Scorecard:
     """The reference run: the answer key copied out, through the whole pipeline."""
