@@ -27,19 +27,18 @@ DEFAULT_RAIL = os.getenv("BUY_AGENT_RAIL", "dry-run")
 #: The range each numeric setting is held to, by the name of the field it bounds.
 #: Declared here beside the fields because both front ends enforce it, and a bound
 #: written down twice is a CLI that accepts what the API refuses -- ``--results 0``
-#: searching the web and reading ten pages to ask the model for no products at
-#: all. Whole even where the field is decimal, the rejection quoting them back:
-#: "between 0 and 2" is what a temperature is.
+#: reading ten pages to ask the model for no products at all. Whole even where the
+#: field is decimal, the rejection quoting them back: "between 0 and 2" is what a
+#: temperature is.
 LIMITS: dict[str, tuple[int, int]] = {
     "num_products": (1, 50),
     "top_n": (1, 50),
     "temperature": (0, 2),
     "num_ctx": (1, 1_000_000),
-    # The shopper's own three (ADR-0039). Their ranges are what a *number* may
-    # be rather than what a sensible bound is: 1 is a real budget on something
-    # cheap, and 0 stars is the bound that admits everything, which is what
-    # leaving the box empty already means. The ceilings are there so a slip on
-    # the keyboard is a usage error rather than a filter that drops the lot.
+    # The shopper's own three (ADR-0039). Their ranges are what a *number* may be
+    # rather than what a sensible bound is: 1 is a real budget on something cheap,
+    # and 0 stars admits everything, which is what an empty box already means. The
+    # ceilings make a slip on the keyboard a usage error, not an empty report.
     "max_price": (1, 10_000_000),
     "min_rating": (0, 5),
     "min_reviews": (0, 10_000_000),
@@ -47,9 +46,9 @@ LIMITS: dict[str, tuple[int, int]] = {
     # which a stored price is not evidence of anything (ADR-0040).
     "cache_ttl": (0, 2_592_000),
     # The most one payment may be. Its range is ``max_price``'s, being the same
-    # kind of number, but it is a different promise: that one filters what is
-    # reported and admits a product it cannot judge, this one has to be cleared
-    # before money moves and refuses what it cannot judge.
+    # kind of number, but a different promise: that one filters what is reported
+    # and admits a product it cannot judge, this one has to be cleared before
+    # money moves and refuses what it cannot judge.
     "spend_limit": (1, 10_000_000),
 }
 

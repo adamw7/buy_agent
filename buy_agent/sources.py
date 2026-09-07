@@ -53,11 +53,10 @@ _ROUTING = frozenset({"c", "user", "channel", "r", "u"})
 #: is a person rather than a site, and there is only one site it could mean.
 _HANDLE_HOST = "youtube.com"
 
-#: What has to follow that ``@``. Checked for the reason a host is: this was the
-#: one shape that named its site without naming anything *on* it, so ``--source
-#: @`` parsed and searched YouTube for the literal phrase "@" -- and since named
-#: sources have no fall back to the wider web (ADR-0027), the run then reported
-#: nothing found with nothing to say about why.
+#: What has to follow that ``@``. Checked for the reason a host is: ``--source @``
+#: named its site without naming anything *on* it, so the run searched YouTube for
+#: the literal phrase "@" and -- named sources having no fall back to the wider web
+#: (ADR-0027) -- reported nothing found with nothing to say about why.
 _HANDLE = re.compile(r"@[a-z0-9][a-z0-9._-]*", re.IGNORECASE)
 
 #: Stripped off a host before it is compared: ``www.rtings.com`` and

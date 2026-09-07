@@ -35,10 +35,9 @@ Message: TypeAlias = dict[str, str]
 #: for the refining step, ``ProductList`` for the extracting one (ADR-0004).
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
-#: How much of an unreadable answer the failure carries. Enough to recognise a
-#: half-finished object by, and short enough that a hint written around it stays
-#: one line -- the whole of it is a prompt's worth of JSON, and is logged at DEBUG
-#: where it was caught.
+#: How much of an unreadable answer the failure carries: enough to recognise a
+#: half-finished object by, short enough to keep a hint around it to one line. The
+#: whole of it is a prompt's worth of JSON, logged at DEBUG where it was caught.
 _QUOTED = 200
 
 

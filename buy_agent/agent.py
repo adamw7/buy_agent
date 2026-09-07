@@ -173,17 +173,15 @@ class BuyAgent:
             logger.warning("No products could be extracted from the search results.")
             return []
 
-        # After the merging rather than before it: ``deduplicate`` fills a
-        # listing's gaps from another listing of the same product, so a product
-        # whose price is only known once the two are merged would be judged here
-        # on a blank and kept for the wrong reason (ADR-0039).
+        # After the merging: ``deduplicate`` fills a listing's gaps from another
+        # listing of the same product, so a price known only once the two are
+        # merged would be judged here on a blank (ADR-0039).
         products = Constraints.from_config(self.config).apply(products)
         if not products:
             return []
 
-        # Before ranking rather than only before the slow steps: ranking is cheap,
-        # but it ends in ``log_top_products``, and a report is worth not writing
-        # for a run nobody is reading any more.
+        # Ranking is cheap, but it ends in ``log_top_products``, and a report is
+        # worth not writing for a run nobody is reading any more.
         checkpoint("rank")
         ranked = rank_products(products, weights=self.config.weights, sort_by=sort_by)
         log_top_products(ranked, self.config.top_n, weights=self.config.weights)
@@ -276,11 +274,10 @@ class BuyAgent:
             extracted = self._invoke(self.extraction_chain, payload)
         except UnreadableAnswerError as exc:
             # Caught here rather than in ``_invoke``, which the recoverable step
-            # goes through too: a query the model fumbles falls back to the raw
-            # request, while an extraction that comes back unreadable has nothing
-            # to fall back to. It is a ``ValueError`` -- which the API answers 400
-            # to and the CLI reports as the run's own fault -- so it is turned
-            # into the failure it actually is, carrying what to do about it.
+            # goes through too: a fumbled query falls back to the raw request,
+            # while an unreadable extraction has nothing to. Left as the
+            # ``ValueError`` it is, it would blame the shopper's request, so it
+            # becomes the failure it actually is, carrying what to do about it.
             logger.debug("The model's answer could not be read", exc_info=True)
             server = self.config.model_server
             raise ModelUnavailableError(server.hint(self.config, exc)) from exc

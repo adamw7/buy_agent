@@ -24,9 +24,8 @@ logger = logging.getLogger("buy_agent")
 _NOISY_LIBRARIES = ("httpx", "openai", "ddgs")
 
 #: The transport underneath those, held down at ``--verbose`` too. httpcore traces
-#: every request at DEBUG in a dozen lines -- ``send_request_headers.started``,
-#: ``receive_response_body.complete`` -- so the twelve HTTP calls of an ordinary
-#: run bury the handful of DEBUG lines the agent writes about its own heuristics,
+#: every request at DEBUG in a dozen lines, so an ordinary run's twelve HTTP calls
+#: bury the handful of DEBUG lines the agent writes about its own heuristics --
 #: which are what ``-v`` was asked for. INFO rather than WARNING: httpcore says
 #: nothing at INFO, so what this silences is the trace and nothing else.
 _TRACE_LIBRARIES = ("httpcore",)
@@ -55,11 +54,10 @@ def configure_logging(*, verbose: bool = False) -> None:
     """
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(level=level, format=_FORMAT, datefmt=_DATEFMT)
-    # ``basicConfig`` does nothing whatever where the root logger already has a
-    # handler -- an embedder's, or the one pytest installs around every test --
-    # and the level is what it silently skips, so ``--verbose`` asked for DEBUG
-    # and got INFO with nothing said. Set here instead: this function is an entry
-    # point's own call about how loud the process is, not a suggestion.
+    # ``basicConfig`` does nothing where the root logger already has a handler --
+    # an embedder's, or the one pytest installs around every test -- and the level
+    # is what it silently skips, so ``--verbose`` asked for DEBUG and got INFO.
+    # Set here instead: an entry point's own call about how loud the process is.
     logging.getLogger().setLevel(level)
     _split_report_from_progress()
     for plumbing in _TRACE_LIBRARIES:
@@ -95,10 +93,9 @@ def _split_report_from_progress() -> None:
 
     # The record still propagates to whatever basicConfig put on the root, so the
     # other half of the split is telling that handler to leave the report alone.
-    # Only the console one: a handler writing anywhere else -- a file, a test's
-    # capture buffer -- is nobody's stream to take lines out of. A named function
-    # rather than a lambda, so repeated calls re-add the same filter instead of
-    # stacking a new one each time.
+    # Only the console one: a handler writing anywhere else is nobody's stream to
+    # take lines out of. A named function rather than a lambda, so repeated calls
+    # re-add the same filter instead of stacking a new one each time.
     for console in logging.getLogger().handlers:
         if getattr(console, "stream", None) is sys.stderr and _not_report not in console.filters:
             console.addFilter(_not_report)
@@ -176,9 +173,8 @@ def log_top_products(
         if product.notes:
             _report("     note   : %s", product.notes)
         # Quoted rather than summarised, and last: the longer read. The page is
-        # named only where it is not the product's own link (ADR-0042) -- a quote
-        # off the page already printed two lines up is the ordinary case, and
-        # repeating the URL under every one of three quotes says nothing.
+        # named only where it is not the product's own link (ADR-0042): repeating
+        # that URL under every one of three quotes says nothing.
         for opinion in product.opinions:
             elsewhere = opinion.url and opinion.url != product.url
             _report(

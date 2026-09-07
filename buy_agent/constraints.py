@@ -42,20 +42,16 @@ logger = logging.getLogger(__name__)
 #: the run's prices are counted in, which only the price cares about.
 Reader: TypeAlias = "Callable[[Product, str | None], float | None]"
 
-#: One row per bound: the field holding it -- named the same on this class and on
+#: One row per bound: the field holding it -- named the same here and on
 #: :class:`~buy_agent.config.AgentConfig`, which is what lets ``from_config`` be a
-#: comprehension -- how the figure it judges is read off a product, what "outside"
-#: means for it, and how it reads in the line a run logs. A fourth bound is a row
-#: here and nothing else: everything below reads the table rather than the fields,
-#: so a bound that is added cannot be one that is applied and never mentioned, or
-#: mentioned and never applied (ADR-0039).
+#: comprehension -- how the figure is read off a product, what "outside" means, and
+#: how it reads in the line a run logs. Everything below reads this table, so a
+#: fourth bound is a row here and nothing else (ADR-0039).
 #:
-#: The price is read by :func:`~buy_agent.models.comparable_price` rather than off
-#: the product, which is the whole of ADR-0043 here: a budget is a number in one
-#: currency, and a price in another is not a figure it can be held against. Such a
-#: price reads as unknown, and an unknown figure passes every bound. The other two
-#: ignore the currency they are handed: a rating is out of five wherever it was
-#: printed.
+#: The price is read by :func:`~buy_agent.models.comparable_price`: a budget is a
+#: number in one currency, so a price in another reads as unknown and passes, the
+#: way any unknown figure does (ADR-0043). The other two ignore the currency -- a
+#: rating is out of five wherever it was printed.
 _BOUNDS: tuple[tuple[str, Reader, Callable[[float, float], bool], str], ...] = (
     ("max_price", comparable_price, operator.gt, "at most {:,.2f}"),
     ("min_rating", lambda p, _: p.rating, operator.lt, "rated at least {:g}"),
@@ -134,9 +130,8 @@ class Constraints:
         one, because that is the part of it nobody typed: the number came from the
         shopper and the currency from whatever the pages were printing.
         """
-        # The budget is the one bound whose figure carries a unit, which is why it
-        # is the one read by ``comparable_price``: said here rather than as a
-        # column repeating what the reader already is.
+        # The budget is the one bound whose figure carries a unit, so its reader
+        # being ``comparable_price`` is what identifies it -- no extra column.
         unit = f" {currency}" if currency else ""
         return ", ".join(
             phrase.format(bound) + (unit if read is comparable_price else "")
@@ -158,9 +153,8 @@ class Constraints:
         if not self.given:
             return list(products)
 
-        # The run's own currency, worked out here for the reason ``rank_products``
-        # works it out: it is a fact about the set, and this is the one place that
-        # has the set (ADR-0043).
+        # A fact about the set, worked out here because this is the one place that
+        # has the set -- the reason ``rank_products`` works it out too (ADR-0043).
         currency = dominant_currency(products)
         kept: list[Product] = []
         excluded: list[str] = []
@@ -172,16 +166,14 @@ class Constraints:
 
         if excluded:
             # The names at DEBUG under the count, as everywhere a product is
-            # removed. "Why is the one I had in mind not in there?" is the
-            # question a bound provokes more than anything else in a run, and a
-            # count on its own answers it with a number.
+            # removed: "why is the one I had in mind not in there?" is what a
+            # bound provokes, and a count alone answers it with a number.
             logger.debug(
                 "Outside the limits: %s", ", ".join(repr(name) for name in excluded)
             )
         logger.log(
-            # Nothing left is the one case worth interrupting for: the run found
-            # products and is about to report none of them, and without this line
-            # the only difference from an empty web is a warning that never came.
+            # Nothing left is worth interrupting for: the run found products and
+            # is about to report none of them, which an empty web looks like too.
             logging.WARNING if not kept else logging.INFO,
             "%d of %d product(s) are within the limits (%s)",
             len(kept),

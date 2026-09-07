@@ -339,10 +339,9 @@ export class App {
           // Put the control back to the order these products are actually in.
           // Angular cannot: the reader moved the select, `found.sort_by` never
           // moved with it, so every `selected` binding still evaluates to what it
-          // did and nothing is written. Left alone, the one control on the page
-          // saying what these are sorted by names an order they are not in -- and
-          // choosing that criterion again fires no `change`, so there was no way
-          // to ask a second time either.
+          // did and nothing is written. Left alone, the one control saying what
+          // these are sorted by names an order they are not in -- and choosing
+          // that criterion again fires no `change`, so there is no asking twice.
           control.value = found.sort_by;
           this.reordering.set(false);
         },
@@ -422,10 +421,10 @@ export class App {
     this.run?.unsubscribe();
     this.run = null;
     this.running.set(false);
-    // What the log panel offers its transcript on. A stopped run is not a
-    // failure and gets no banner, but it is the other run that leaves nothing on
-    // the page to look at afterwards -- and somebody who stopped one because it
-    // had gone quiet for four minutes is exactly who needs the file.
+    // What the log panel offers its transcript on. A stopped run is not a failure
+    // and gets no banner, but it is the other run that leaves nothing on the page
+    // to look at -- and somebody who stopped one because it had gone quiet for
+    // four minutes is exactly who needs the file.
     this.stopped.set(true);
     this.logs.update((lines) => [
       ...lines,

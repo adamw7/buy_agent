@@ -48,12 +48,11 @@ _CURRENCY_CODES = r"USD|EUR|GBP|JPY|PLN|CHF|SEK|CAD|AUD"
 #: The rule above, read the other way round: a code whose sign is *not* a single
 #: character is one :data:`_CURRENCY_SIGNS` cannot carry, and Poland's is the one
 #: of these that has one. A shop searched with ``--region pl-pl`` prints "599 zł"
-#: and almost never "599 PLN", so without this every price line on it was
-#: dropped here and the model was handed a page with no figures on it --
-#: unnoticeable afterwards, grounding blanking figures it never received in the
-#: first place. Unambiguous, which is why it is here and "kr" is not: it names
-#: one currency, and :data:`~buy_agent.models._CURRENCY_ALIASES` already folds it
-#: onto ``PLN`` for the comparison the run does later (ADR-0043).
+#: and almost never "599 PLN", so without this every price line on it was dropped
+#: here -- invisibly, grounding blanking figures it never received. Unambiguous,
+#: which is why it is here and "kr" is not: it names one currency, and
+#: :data:`~buy_agent.models._CURRENCY_ALIASES` already folds it onto ``PLN`` for
+#: the comparison the run does later (ADR-0043).
 _CURRENCY_WORDS = _CURRENCY_CODES + r"|zł"
 
 _PRICE = re.compile(
@@ -63,13 +62,11 @@ _PRICE = re.compile(
     re.IGNORECASE,
 )
 #: A hyphen counts where a space does: "a 4.5-star average" is how a review
-#: roundup writes the figure a shop writes "4.5 stars", and the space form was
-#: kept while the hyphenated one was dropped -- so which of the two a page
-#: happened to use decided whether its rating reached the model at all. It says
-#: the same thing either way, and the two are told apart by nothing a reader
-#: could point at. Only the ``stars`` branch takes it: a rating written "4.5/5"
-#: or "out of 5" never has one, and letting the others through would be widening
-#: what counts as a rating rather than spelling one of them both ways.
+#: roundup writes the figure a shop writes "4.5 stars", and keeping the space form
+#: while dropping the hyphenated one let a page's punctuation decide whether its
+#: rating reached the model at all. Only the ``stars`` branch takes it: a rating
+#: written "4.5/5" or "out of 5" never has one, so letting the others through
+#: would widen what counts as a rating rather than spell one of them both ways.
 _RATING = re.compile(
     r"\d(?:\.\d)?(?:\s*(?:/\s*(?:5|10)\b|out of\s*(?:5|10)\b)|[\s-]*stars?\b)"
     r"|\b(?:rated|rating)\b[^\d]{0,12}\d",
@@ -104,11 +101,11 @@ _SEGMENT_BREAK = re.compile(r"[\n\r]+")
 _WHITESPACE = re.compile(r"\s+")
 
 #: The XML declaration an XHTML page opens with. Taken off before parsing because
-#: ``lxml`` refuses a *str* that carries an encoding declaration outright -- the
-#: bytes it describes were decoded by :func:`_read_capped` off the header httpx
-#: read, so by here the declaration names an encoding nothing is in any more.
-#: Left in, every such page raised ``ValueError`` and was reported as one that
-#: "quoted no prices and no verdicts", which is a page that parsed and had none.
+#: ``lxml`` refuses a *str* carrying an encoding declaration outright, and by here
+#: it names an encoding nothing is in any more -- :func:`_read_capped` decoded the
+#: bytes off the header httpx read. Left in, every such page raised ``ValueError``
+#: and was reported as one that "quoted no prices and no verdicts", which is a
+#: page that parsed and had none.
 _XML_DECLARATION = re.compile(r"^\s*<\?xml[^>]*\?>")
 
 #: A bare "$129" line is short but is what shop pages contain, so the floor only
@@ -121,12 +118,11 @@ _MAX_SEGMENT = 300
 #: of the prompt.
 _MIN_OPINION = 25
 
-#: How much of one page is read before the rest is dropped on the floor. A
-#: ceiling is needed because neither of the other two bounds is one: ``timeout``
-#: is the wait between chunks rather than for the transfer, so a large, steady
-#: response never trips it, and ``condense`` runs on text that is already in
-#: memory -- with eight of these in flight at once. Far past any page worth
-#: reading: ``page_chars`` keeps 1200 characters of what arrives.
+#: How much of one page is read before the rest is dropped on the floor. Needed
+#: because neither other bound is a ceiling: ``timeout`` is the wait between
+#: chunks rather than for the transfer, so a large, steady response never trips
+#: it, and ``condense`` runs on text already in memory -- eight pages at once.
+#: Far past any page worth reading: ``page_chars`` keeps 1200 characters of it.
 _MAX_PAGE_BYTES = 4 * 1024 * 1024
 
 
@@ -329,9 +325,9 @@ def read_page(client: httpx.Client, url: str) -> PageText:
 
     text = html_to_text(markup)
     if not text:
-        # Markup nothing could parse. Named here rather than left as empty text,
-        # so this answers ``PageText``'s own rule -- text empty exactly when a
-        # problem says why -- and so nothing empty is ever handed to the cache.
+        # Markup nothing could parse, named rather than left as empty text: it
+        # keeps ``PageText``'s own rule -- text empty exactly when a problem says
+        # why -- and nothing empty ever reaches the cache.
         logger.debug("Nothing could be read out of %s", url)
         return PageText("", _NOTHING_KEPT)
     return PageText(text)
