@@ -292,6 +292,38 @@ def test_it_only_starts_the_server_it_can_install() -> None:
         assert source.index(line) > guard.start(), f"{line} runs whatever the provider is"
 
 
+def test_it_installs_the_payment_sdk_only_where_paying_is_configured() -> None:
+    """The AP2 SDK is optional, and a git checkout of somebody else's repository:
+    fetched on every run it is a download nobody who is not paying asked for, and
+    fetched on none the form's payment block is permanently absent with nothing on
+    the console to say why. So the two pip commands sit behind the environment
+    naming a rail, a merchant, a key or a mandate -- the settings only a payment
+    reads -- and the branch that skips them says which one to set."""
+    source = start_script()
+    guard = re.search(r"^\s+\} elseif \(\$paying\) \{$", source, re.M)
+    assert guard, "the AP2 install is not behind what the environment says about paying"
+
+    installs = list(re.finditer(r"'(requirements-ap2[\w.-]*)'", source))
+    assert len(installs) == 2, "the AP2 requirements are not both installed here"
+    for install in installs:
+        assert install.start() > guard.start(), f"{install.group(1)} is installed on every run"
+    skipped = source[source.index("} else {", guard.end()) :]
+    assert "BUY_AGENT_RAIL" in skipped, "the run that will not offer to pay says nothing"
+
+
+def test_it_checks_the_payment_sdk_imports_after_installing_it() -> None:
+    """pip exits 0 for an install that cannot be imported -- which is the documented
+    failure of this particular one, ``--no-deps`` over the wrong file leaving
+    ``cryptography`` without ``cffi``. Asked once, the script would report the SDK
+    installed and the page would still refuse to offer a button, so it is asked
+    again afterwards and the run stops on the answer."""
+    source = start_script()
+    asked = [match.start() for match in re.finditer(r"Run \$python \$asked", source)]
+
+    assert len(asked) == 2, "the SDK is asked about once; an install nothing verified"
+    assert "throw 'the AP2 SDK still will not import" in source
+
+
 def test_it_probes_the_endpoint_the_other_provider_actually_answers() -> None:
     """vLLM's API root is a 404 on a server that is working perfectly; ``/models``
     is the listing the form's model picker calls anyway. Probing the root would

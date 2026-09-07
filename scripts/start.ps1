@@ -16,6 +16,13 @@
     choosing -- so with $env:BUY_AGENT_PROVIDER set to vllm this waits for one to
     be answering and says where, rather than trying to launch it.
 
+    Paying is the one thing it sets up only when asked. The AP2 SDK is an
+    optional install and a git checkout of somebody else's repository, so it is
+    fetched where the environment already says a payment is meant -- any of
+    $env:BUY_AGENT_RAIL, $env:BUY_AGENT_MERCHANT_URL, $env:BUY_AGENT_AP2_KEY and
+    $env:BUY_AGENT_AP2_MANDATE -- and otherwise skipped out loud, since a page
+    that silently never offers to buy anything is the confusing half of optional.
+
     Deliberately without parameters: everything it could ask is already a
     setting somewhere the rest of the project reads it from. The provider, the
     model and the server address come from buy_agent.config -- which is to say
@@ -99,6 +106,42 @@ try {
         '-m', 'pip', 'install', '--quiet', '--disable-pip-version-check',
         '-r', 'requirements.txt'
     ) 'could not install requirements.txt'
+
+    # Paying needs an SDK the rest of this project does without, so it is
+    # installed here only where something in the environment says a payment is
+    # meant. `mandates.available()` is the same question both front doors ask
+    # before offering to pay at all, so what is reported here is what the page
+    # will do, and a pip that succeeded while nothing can still import is caught
+    # now rather than at the button. Two commands and a `--no-deps` on the
+    # second, for the reasons requirements-ap2.txt gives.
+    Step 'Paying'
+    $asked = @('-c', 'from buy_agent.mandates import available; print(available())')
+    $paying = @(
+        $env:BUY_AGENT_RAIL
+        $env:BUY_AGENT_MERCHANT_URL
+        $env:BUY_AGENT_AP2_KEY
+        $env:BUY_AGENT_AP2_MANDATE
+    ) | Where-Object { $_ }
+    if ((Run $python $asked 'could not ask whether the AP2 SDK is installed') -eq 'True') {
+        Note 'the AP2 SDK is here -- the page will offer to buy what it finds'
+    } elseif ($paying) {
+        Note 'an AP2 setting is set, so this run means to pay -- installing what that needs'
+        Run $python @(
+            '-m', 'pip', 'install', '--quiet', '--disable-pip-version-check',
+            '-r', 'requirements-ap2-deps.txt'
+        ) 'could not install requirements-ap2-deps.txt'
+        Run $python @(
+            '-m', 'pip', 'install', '--quiet', '--disable-pip-version-check',
+            '--no-deps', '-r', 'requirements-ap2.txt'
+        ) 'could not install requirements-ap2.txt'
+        if ((Run $python $asked 'could not ask whether the AP2 SDK is installed') -ne 'True') {
+            throw 'the AP2 SDK still will not import; the pip output is above'
+        }
+        Note 'installed -- the page will offer to buy what it finds'
+    } else {
+        Note "not set up, so nothing here offers to buy -- set `$env:BUY_AGENT_RAIL = 'dry-run'"
+        Note 'and run this again; that rail signs a real authorisation and charges nobody'
+    }
 
     # The defaults live in one place and are read whole, off an AgentConfig, so
     # that $BUY_AGENT_PROVIDER picks the pair it decides -- $OLLAMA_MODEL and
