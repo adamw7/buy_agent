@@ -33,16 +33,19 @@ logger = logging.getLogger("buy_agent")
 def _defaults() -> AgentConfig:
     """Every flag's default, off one config so the two cannot drift apart.
 
-    Built on a provider that exists rather than on ``$BUY_AGENT_PROVIDER``
-    itself, which is a shopper's to misspell: resolved at import time, a bad one
-    was a ``ValueError`` out of importing this module -- a traceback before
-    ``main`` had run, with ``--help`` and its list of the servers there are
-    unreachable too. The name is still read below, where :func:`_provider` turns
-    it into the usage error it deserves; every other field here is a plain
-    default that no environment variable can make unusable.
+    Built on a provider and a rail that exist rather than on
+    ``$BUY_AGENT_PROVIDER`` and ``$BUY_AGENT_RAIL`` themselves, which are a
+    shopper's to misspell: resolved at import time, a bad one was a
+    ``ValueError`` out of importing this module -- a traceback before ``main``
+    had run, with ``--help`` and its list of the names there are unreachable too.
+    Both names are still read below, where ``_checked`` turns either into the
+    usage error it deserves; every other field here is a plain default that no
+    environment variable can make unusable.
     """
-    known = DEFAULT_PROVIDER in PROVIDERS
-    return AgentConfig(provider=DEFAULT_PROVIDER if known else next(iter(PROVIDERS)))
+    return AgentConfig(
+        provider=DEFAULT_PROVIDER if DEFAULT_PROVIDER in PROVIDERS else next(iter(PROVIDERS)),
+        rail=DEFAULT_RAIL if DEFAULT_RAIL in RAILS else next(iter(RAILS)),
+    )
 
 
 _DEFAULTS = _defaults()
@@ -103,21 +106,21 @@ def _bounded(kind: Callable[[str], Any], field: str) -> Callable[[str], Any]:
 def _checked(check: Callable[[str], object]) -> Callable[[str], str]:
     """A flag's value as argparse takes it: refused here, and kept as written.
 
-    Three settings are judged before the run rather than after parsing -- a
-    source, a provider and a region -- and each is judged by the same function a
-    run would have used, so there is no second rule to keep true. The wrapper is
-    what argparse needs: a ``ValueError`` out of a ``type`` function becomes
-    "invalid value" with the sentence thrown away, and the sentence is the whole
-    message -- the shapes a source can have, the providers there are, the two
-    halves of a region code.
+    Four settings are judged before the run rather than after parsing -- a
+    source, a provider, a rail and a region -- and each is judged by the same
+    function a run would have used, so there is no second rule to keep true. The
+    wrapper is what argparse needs: a ``ValueError`` out of a ``type`` function
+    becomes "invalid value" with the sentence thrown away, and the sentence is
+    the whole message -- the shapes a source can have, the providers there are,
+    the rails there are, the two halves of a region code.
 
-    Checked *here* because two of the three otherwise fail quietly. A source that
+    Checked *here* because two of the four otherwise fail quietly. A source that
     names no site and a region no engine knows both search for nothing and come
     back as an empty report with nothing to explain it (ADR-0027, ADR-0031). The
-    third is checked here because a ``type`` function also runs over a string
-    *default*, where ``choices`` does not: ``$BUY_AGENT_PROVIDER=olama`` sailed
-    past ``choices`` and reached ``AgentConfig`` in :func:`main`, outside the
-    ``try`` that names the three failures a run has.
+    other two are checked here because a ``type`` function also runs over a
+    string *default*, where ``choices`` does not: ``$BUY_AGENT_PROVIDER=olama``
+    and ``$BUY_AGENT_RAIL=dryrun`` sailed past ``choices`` and reached
+    ``AgentConfig``, outside the ``try`` that names the three failures a run has.
 
     The text comes back as it was typed rather than as ``check`` read it, so
     ``main`` parses every ``--source`` together -- two flags naming one site are
@@ -400,11 +403,32 @@ def _bought(ranked: list[RankedProduct], config: AgentConfig) -> bool:
     return True
 
 
+def _configured(parser: argparse.ArgumentParser, **settings: Any) -> AgentConfig:
+    """The run's config, with the one thing it refuses said the way a flag is.
+
+    ``AgentConfig`` checks what no single flag can: a rail that moves money and
+    has nowhere to send it, which is two flags and an environment variable
+    between them. Every other setting judged before the run is refused by a
+    ``type`` function, so it reads as a usage error carrying its own sentence
+    (:func:`_checked`); left to escape, this one came out of ``main`` as a
+    traceback, which is what that whole arrangement exists to avoid.
+
+    Raises:
+        SystemExit: argparse's own, code 2, carrying the config's sentence.
+    """
+    try:
+        return AgentConfig(**settings)
+    except ValueError as exc:
+        parser.error(str(exc))
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     configure_logging(verbose=args.verbose)
 
-    config = AgentConfig(
+    config = _configured(
+        parser,
         provider=args.provider,
         model=args.model,
         base_url=args.base_url,

@@ -1145,9 +1145,19 @@ def test_a_rail_nothing_can_pay_through_is_refused_by_its_field() -> None:
 
 def test_a_paying_rail_with_nowhere_to_pay_is_refused() -> None:
     """`AgentConfig` refuses it, which is the one thing about these settings the
-    form cannot judge from a range."""
-    with pytest.raises(ValueError, match="needs an address"):
+    form cannot judge from a range.
+
+    Refused the way every other unusable value is, and not as the bare
+    ``ValueError`` the config raises: that escaped `parse_options` altogether and
+    reached the browser as a 500 reading "Unexpected failure", with a traceback
+    in the server's log and no box marked -- for a mistake the form can make by
+    picking a rail and leaving its address empty.
+    """
+    with pytest.raises(ApiError, match="needs an address") as refusal:
         parse_options({"pay": "true", "rail": "http"})
+
+    assert refusal.value.status == 400, "the request is wrong, not the server"
+    assert refusal.value.field == "merchant_url", "so the form can mark the box (ADR-0033)"
 
 
 def test_a_blank_payment_setting_means_the_default() -> None:

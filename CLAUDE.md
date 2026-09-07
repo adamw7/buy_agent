@@ -621,7 +621,13 @@ seeds the web form.
   `merchant_url` defaults to `""` and is resolved per rail in `__post_init__`,
   exactly as `base_url` is resolved per provider (ADR-0012); a *paying* rail
   that needs an address and has none is a `ValueError` there, which is the one
-  thing about these settings a range cannot say. `spend_limit` is an ordinary
+  thing about these settings a range cannot say -- and the only one a config
+  raises that neither door has already refused, so each door translates it
+  rather than letting it out: an `ApiError` naming `merchant_url`, so the form
+  marks that box (ADR-0033), and argparse's own exit 2, so it reads like the
+  refusals `_checked` writes. Both doors build the config outside every guard
+  they have, so an escaping one is a 500 and a traceback for a mistake the form
+  can make. `spend_limit` is an ordinary
   bounded number whose range is `max_price`'s, and a different promise: that one
   filters what is reported and admits a product it cannot judge, this one has to
   be cleared before money moves and refuses what it cannot judge.
@@ -746,8 +752,9 @@ everything else to the built Angular app, unknown paths falling back to
   one thing it did not do. `GET /api/config` is the reminder: it builds an
   `AgentConfig`, so `$BUY_AGENT_PROVIDER=olama` made every page load a dropped
   connection under a banner blaming the agent server. `server.main` refuses that
-  name before it binds a port, for the same reason `__main__` makes it a usage
-  error: it is not worth a server that starts and then 500s at its own form. The
+  name before it binds a port -- and `$BUY_AGENT_RAIL` beside it, a config
+  resolving both -- for the same reason `__main__` makes either a usage error: it
+  is not worth a server that starts and then 500s at its own form. The
   stream sits outside the guard and answers its own failures with a `failure`
   event, having spent the status line already.
 
@@ -993,14 +1000,15 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1575 tests run in about six seconds: most of that is the two that spawn an
-interpreter -- one checking `python -m buy_agent` still runs as a script, one
+1581 tests run in about seven seconds: most of that is the three that spawn an
+interpreter -- two for what only a real import can answer (`python -m buy_agent`
+still runs as a script, and still imports with `$BUY_AGENT_RAIL` misspelt), one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1575 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1575 collect but 13 of the 19 in
-`tests/test_start_script.py` skip, so the summary reads `1562 passed, 13 skipped`.
+reaching out. 1581 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1581 collect but 13 of the 19 in
+`tests/test_start_script.py` skip, so the summary reads `1568 passed, 13 skipped`.
 The UI's 186 tests run in about two seconds, most of which is building the app
 first. The 31 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
