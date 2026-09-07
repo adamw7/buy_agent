@@ -219,7 +219,7 @@ export class SearchForm {
     provider: setting(
       this.provider,
       (d) => d.provider,
-      amongst((d) => providerNames(d)),
+      amongst((d) => d.provider_options.map((option) => option.name)),
     ),
     model: setting(this.model, (d) => d.model, asText),
     baseUrl: setting(this.baseUrl, (d) => d.base_url, asText),
@@ -773,11 +773,6 @@ function amongst<T extends string>(
 ): Parser<T> {
   return (raw, defaults) =>
     typeof raw === 'string' && offered(defaults).includes(raw) ? (raw as T) : undefined;
-}
-
-/** The providers this server offers, by name. */
-function providerNames(defaults: AgentDefaults): string[] {
-  return defaults.provider_options.map((option) => option.name);
 }
 
 /** Validated rather than taken as text, so a `'default'` remembered by a browser
