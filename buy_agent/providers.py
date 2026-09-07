@@ -176,10 +176,12 @@ def _ollama_chat_model(config: AgentConfig) -> ChatModel:
 def _ollama_installed(config: AgentConfig) -> list[InstalledModel]:
     """Every model tag Ollama has pulled, and whether each one can be run.
 
-    Two questions, Ollama answering them in two places: ``list`` gives the tags and
-    nothing about what they do, ``show`` gives one tag's capabilities. The second
-    goes out once per tag, together rather than in turn, :data:`_LIST_TIMEOUT`
-    being the budget for the whole listing with a form waiting on it (ADR-0032).
+    Two questions, Ollama answering them in two places: ``/api/tags`` gives the
+    tags and nothing about what they do, ``show`` gives one tag's capabilities.
+    The second goes out once per tag, together rather than in turn,
+    :data:`_LIST_TIMEOUT` being the budget for the whole listing with a form
+    waiting on it (ADR-0032) -- so the deadline starts before the first question,
+    not after it.
 
     A tag that will not say what it can do counts as able to answer: keeping an
     unusable model out of the way is the point, but hiding a working one on a
@@ -188,11 +190,51 @@ def _ollama_installed(config: AgentConfig) -> list[InstalledModel]:
     the whole listing inside :data:`_LIST_TIMEOUT` rather than inside it per tag.
     """
     deadline = time.monotonic() + _LIST_TIMEOUT
-    client = Client(config.base_url, timeout=_LIST_TIMEOUT)
-    names = [model.model for model in client.list().models if model.model]
+    names = _ollama_tags(config)
     if not names:
         return []
-    return _probe(client, names, deadline)
+    return _probe(Client(config.base_url, timeout=_LIST_TIMEOUT), names, deadline)
+
+
+def _ollama_tags(config: AgentConfig) -> list[str]:
+    """What Ollama says it is holding, each tag named the way Ollama named it.
+
+    Read off ``/api/tags`` itself rather than through the client's typed listing,
+    which is the one call here that cannot afford a translation: the endpoint
+    spells a tag two ways, ``model`` and ``name``, and ``ollama.ListResponse``
+    declares only the first. Pydantic keeps what a model declares and discards the
+    rest, so an entry carrying ``name`` alone arrives with nothing to call it by
+    and used to be dropped -- which is not a tag missing from a listing but a
+    pulled model missing from the picker, marked *not served* on the very form
+    that lost it while ``ollama list`` goes on printing it. Reading the answer as
+    it comes also keeps one entry this client cannot parse from failing the whole
+    listing, which reaches the page as "Ollama unreachable" over a running Ollama.
+
+    An entry that carries neither spelling is skipped: there is nothing to offer
+    a shopper, which is what ``/v1/models`` without an ``id`` is on the other row.
+    """
+    response = httpx.get(
+        _ollama_url(config.base_url, "/api/tags"), timeout=_LIST_TIMEOUT
+    )
+    response.raise_for_status()
+    return [
+        name
+        for entry in response.json().get("models", [])
+        if (name := entry.get("model") or entry.get("name"))
+    ]
+
+
+def _ollama_url(base_url: str, path: str) -> str:
+    """An address of Ollama's, joined the way its own client would have joined it.
+
+    ``$OLLAMA_HOST`` is written both ways -- ``http://localhost:11434`` and the
+    bare ``localhost:11434`` Ollama's own documentation uses -- and the chat goes
+    through a client that fills in the missing scheme. The listing asks httpx
+    directly, so it fills in the same one rather than handing over a URL httpx
+    will not take and reporting a running server as unreachable.
+    """
+    base = base_url if "://" in base_url else f"http://{base_url}"
+    return f"{base.rstrip('/')}{path}"
 
 
 def _probe(client: Client, names: list[str], deadline: float) -> list[InstalledModel]:

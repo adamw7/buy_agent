@@ -960,11 +960,14 @@ rest of `sources.py`: a second call site elsewhere would be a second thing to
 patch, and a test that forgot it would reach the real DuckDuckGo silently.
 
 Both model clients are patched where `buy_agent.providers` imported them --
-`providers.Client` for Ollama's chat *and* its listing (that fake answers `chat`,
-`list` and `show`, a listing being a call per tag), `providers.openai.OpenAI` for
-vLLM's chat and `providers.httpx.get` for its `/v1/models`. What a setting reaches
-is asserted on the *request*, not on a wrapper read back: since ADR-0038 the
-window, the thinking switch and the schema travel per call. Patching `ollama.Client` no longer works: `providers.py` imports the
+`providers.Client` for Ollama's chat and for the `show` a listing asks per tag,
+`providers.openai.OpenAI` for vLLM's chat -- and both listings are patched at
+`providers.httpx.get`, Ollama's `/api/tags` beside vLLM's `/v1/models`: the tags
+are read off the endpoint rather than through the client's typed listing, which
+declares one of the two spellings that endpoint names a model by and discards the
+other, so a tag arriving as `name` alone reached the picker as nothing at all.
+What a setting reaches is asserted on the *request*, not on a wrapper read back:
+since ADR-0038 the window, the thinking switch and the schema travel per call. Patching `ollama.Client` no longer works: `providers.py` imports the
 name at module level, which is also the only place either client is named. A row of
 `providers.PROVIDERS` is compared by identity only through the module --
 `providers_module.OLLAMA`, never a name imported from it -- because
@@ -1006,15 +1009,15 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1597 tests run in about seven seconds: most of that is the three that spawn an
+1602 tests run in about seven seconds: most of that is the three that spawn an
 interpreter -- two for what only a real import can answer (`python -m buy_agent`
 still runs as a script, and still imports with `$BUY_AGENT_RAIL` misspelt), one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1597 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1597 collect but 13 of the 19 in
-`tests/test_start_script.py` skip, so the summary reads `1584 passed, 13 skipped`.
+reaching out. 1602 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1602 collect but 13 of the 19 in
+`tests/test_start_script.py` skip, so the summary reads `1589 passed, 13 skipped`.
 The UI's 186 tests run in about two seconds, most of which is building the app
 first. The 31 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.

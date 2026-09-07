@@ -727,25 +727,28 @@ def test_installed_models_lists_what_ollama_has(monkeypatch) -> None:
     """Each model with what it can do beside it: Ollama holds embedding-only tags
     and a listing of bare names offers them as if a run could use one (ADR-0032)."""
 
-    class FakeModel:
-        def __init__(self, model):
-            self.model = model
+    tags = [
+        {"model": "llama3.2", "name": "llama3.2"},
+        {"model": "nomic-embed-text", "name": "nomic-embed-text"},
+        {"size": 1},
+    ]
 
-    class FakeList:
-        models = [FakeModel("llama3.2"), FakeModel("nomic-embed-text"), FakeModel("")]
+    def get(url, **_kwargs):
+        assert url.endswith("/api/tags"), url
+        return SimpleNamespace(
+            raise_for_status=lambda: None, json=lambda: {"models": tags}
+        )
 
     class FakeClient:
         def __init__(self, base_url, **_kwargs):
             self.base_url = base_url
-
-        def list(self):
-            return FakeList()
 
         @staticmethod
         def show(name):
             capability = "embedding" if "embed" in name else "completion"
             return SimpleNamespace(capabilities=[capability])
 
+    monkeypatch.setattr("buy_agent.providers.httpx.get", get)
     monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
     assert installed_models("ollama", "http://localhost:11434") == {
         "provider": "ollama",
@@ -807,10 +810,10 @@ def _serving(models: list[str]):
 def test_an_unreachable_ollama_is_a_status_not_an_error(monkeypatch) -> None:
     """The form still renders when Ollama is down; it just says so."""
 
-    def explode(base_url, **_kwargs):
+    def explode(url, **_kwargs):
         raise ConnectionError("connection refused")
 
-    monkeypatch.setattr("buy_agent.providers.Client", explode)
+    monkeypatch.setattr("buy_agent.providers.httpx.get", explode)
     payload = installed_models("ollama", "http://localhost:11434")
     assert payload["reachable"] is False
     assert payload["models"] == []
@@ -822,10 +825,10 @@ def test_an_unreachable_server_says_how_to_start_it(monkeypatch) -> None:
     moment where the fix is a single command, and the provider already writes it.
     The sentence is Python's so the browser keeps deciding nothing."""
 
-    def explode(base_url, **_kwargs):
+    def explode(url, **_kwargs):
         raise ConnectionError("connection refused")
 
-    monkeypatch.setattr("buy_agent.providers.Client", explode)
+    monkeypatch.setattr("buy_agent.providers.httpx.get", explode)
     hint = installed_models("ollama", "http://localhost:11434")["hint"]
 
     assert "http://localhost:11434" in hint, "the address it could not reach"
