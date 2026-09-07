@@ -167,6 +167,27 @@ def raw(base: str, request: bytes) -> str:
     return (head + b"\r\n\r\n" + body).decode("utf-8", "replace")
 
 
+def smuggled(base: str, request: bytes, expected: str, note: str) -> None:
+    """Send a request whose body this server will never read, and check it stopped.
+
+    The three shapes that reach it -- a chunked body, a negative length, a length
+    too long or unparseable -- are all answered without the body being read, so on
+    a kept-alive HTTP/1.1 connection whatever is left in the socket becomes the
+    next request line. What each of them has to show is the same three things: the
+    status it deserves, a connection that ends rather than guessing, and exactly
+    one reply on the wire -- a second means the leftovers were answered as a
+    request of their own.
+    """
+    parsed = urlparse(base)
+    with socket.create_connection((parsed.hostname, parsed.port), timeout=10) as sock:
+        sock.sendall(request)
+        text = read_all(sock).decode("utf-8", "replace")
+
+    assert expected in text.splitlines()[0]
+    assert "Connection: close" in text
+    assert text.count("HTTP/1.1 ") == 1, note
+
+
 def ask(base: str, path: str = "/api/config", **headers: str) -> str:
     """Send a GET with exactly the headers given, and read the whole reply.
 
@@ -651,24 +672,14 @@ def test_a_chunked_body_does_not_desync_the_connection(server: str) -> None:
     next on a connection this server had just said it would keep. 411 is what
     says a length is required, and the connection ends rather than guessing.
     """
-    parsed = urlparse(server)
-    with socket.create_connection((parsed.hostname, parsed.port), timeout=10) as sock:
-        sock.sendall(
-            b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\n"
-            b"Transfer-Encoding: chunked\r\n\r\n"
-            b"27\r\nGET /api/config HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n0\r\n\r\n"
-        )
-        reply = b""
-        while True:
-            chunk = sock.recv(4096)
-            if not chunk:
-                break
-            reply += chunk
-
-    text = reply.decode("utf-8", "replace")
-    assert "411" in text.splitlines()[0]
-    assert "Connection: close" in text
-    assert text.count("HTTP/1.1 ") == 1, "the smuggled request was answered"
+    smuggled(
+        server,
+        b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+        b"Transfer-Encoding: chunked\r\n\r\n"
+        b"27\r\nGET /api/config HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n0\r\n\r\n",
+        "411",
+        "the smuggled request was answered",
+    )
 
 
 def test_a_chunked_request_never_reaches_the_agent(server: str) -> None:
@@ -695,23 +706,13 @@ def test_a_negative_content_length_does_not_desync_the_connection(server: str) -
     this reason; a negative one parses as an integer and used to slip past into
     "no body at all", leaving the bytes to be read as the next request line.
     """
-    parsed = urlparse(server)
-    with socket.create_connection((parsed.hostname, parsed.port), timeout=10) as sock:
-        sock.sendall(
-            b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: -1\r\n\r\n"
-            b"GET /api/config HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
-        )
-        reply = b""
-        while True:
-            chunk = sock.recv(4096)
-            if not chunk:
-                break
-            reply += chunk
-
-    text = reply.decode("utf-8", "replace")
-    assert "400" in text.splitlines()[0]
-    assert "Connection: close" in text
-    assert text.count("HTTP/1.1 ") == 1, "the smuggled request was answered"
+    smuggled(
+        server,
+        b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: -1\r\n\r\n"
+        b"GET /api/config HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
+        "400",
+        "the smuggled request was answered",
+    )
 
 
 def read_all(sock: socket.socket) -> bytes:
@@ -1027,22 +1028,14 @@ def test_a_rejected_body_ends_the_connection_rather_than_desyncing_it(
     connection the leftover bytes become the next request line -- the client asks
     for /api/config and gets a 414 off its own JSON.
     """
-    parsed = urlparse(server)
-    with socket.create_connection((parsed.hostname, parsed.port), timeout=10) as sock:
-        sock.sendall(
-            b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: " + length + b"\r\n\r\n{}"
-        )
-        reply = b""
-        while True:
-            chunk = sock.recv(4096)
-            if not chunk:
-                break
-            reply += chunk
-
-    text = reply.decode("utf-8", "replace")
-    assert expected in text.splitlines()[0]
-    assert "Connection: close" in text
-    assert text.count("HTTP/1.1 ") == 1, "the leftover body was parsed as a request"
+    smuggled(
+        server,
+        b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: "
+        + length
+        + b"\r\n\r\n{}",
+        expected,
+        "the leftover body was parsed as a request",
+    )
 
 
 def test_two_streams_do_not_see_each_others_progress(server: str) -> None:

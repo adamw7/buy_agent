@@ -24,7 +24,7 @@ from buy_agent.api import (
 from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.models import Product
 from buy_agent.ranking import RankingWeights, rank_products
-from tests.conftest import ranked_product, said
+from tests.conftest import payable_product, ranked_product, said
 from buy_agent.providers import VLLM
 from buy_agent.search import SearchError
 from buy_agent.sources import Source
@@ -941,15 +941,9 @@ def test_a_re_sorted_run_carries_the_parts_too() -> None:
 # -- paying --------------------------------------------------------------------
 
 
-PAYABLE = Product(
-    name="Sony WH-1000XM5",
-    price=329.99,
-    currency="USD",
-    seller="AudioSite",
-    url="https://audiosite.example/xm5",
-)
+PAYABLE = payable_product()
 
-APPROVED = {"title": "Sony WH-1000XM5", "price": 329.99, "currency": "USD"}
+APPROVED = {"title": PAYABLE.name, "price": PAYABLE.price, "currency": PAYABLE.currency}
 
 
 def paying(**extra: object) -> dict:

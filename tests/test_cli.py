@@ -21,7 +21,7 @@ from buy_agent.providers import PROVIDERS, VLLM
 from buy_agent.rails import RAILS
 from buy_agent.search import SearchError
 from buy_agent.sources import Source
-from tests.conftest import ranked_product
+from tests.conftest import payable_product, ranked_product
 
 RANKED = [
     ranked_product(Product(name="Sony WH-1000XM5", price=328.0), score=0.9, rank=1),
@@ -735,19 +735,7 @@ def test_the_cache_lifetime_is_the_flag_s_or_the_config_s_own(fake_agent) -> Non
 # -- paying --------------------------------------------------------------------
 
 
-PAYABLE = [
-    ranked_product(
-        Product(
-            name="Sony WH-1000XM5",
-            price=329.99,
-            currency="USD",
-            seller="AudioSite",
-            url="https://audiosite.example/xm5",
-        ),
-        score=0.9,
-        rank=1,
-    )
-]
+PAYABLE = [ranked_product(payable_product(), score=0.9, rank=1)]
 
 
 class Typed:

@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 
 import { ProductCard } from './product-card';
+import { CHARGES, DRY_RUN, WEIGHTS, receipt } from '../testing';
 import type { RailOption, RankedProduct, Receipt, ScoreWeights } from '../agent.types';
 
 const SONY: RankedProduct = {
@@ -53,34 +54,7 @@ const UNKNOWN: RankedProduct = {
   rating_label: 'unrated',
 };
 
-/** What a run says its scores were blended by: the defaults, normalised. */
-const WEIGHTS: ScoreWeights = { rating: 0.5, popularity: 0.2, price: 0.3 };
-
-const DRY_RUN: RailOption = {
-  name: 'dry-run',
-  label: 'Dry run',
-  endpoint: '',
-  needs_endpoint: false,
-  moves_money: false,
-};
-
-const CHARGES: RailOption = { ...DRY_RUN, name: 'http', label: 'HTTP endpoint', moves_money: true };
-
-const RECEIPT: Receipt = {
-  paid: false,
-  rail: 'dry-run',
-  merchant: 'Amazon',
-  title: 'Sony WH-1000XM5',
-  price: 328,
-  currency: 'USD',
-  amount: 32800,
-  price_label: '328.00 USD',
-  transaction_id: 'tx',
-  reference: 'ref-abc',
-  autonomous: false,
-  enrolled_key: false,
-  detail: 'Nothing was charged.',
-};
+const RECEIPT = receipt();
 
 /** What a card was asked to do about paying, which is nothing by default. */
 interface Paying {

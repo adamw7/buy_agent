@@ -79,7 +79,7 @@ from buy_agent.payment import PaymentError
 from buy_agent.providers import PROVIDERS, InstalledModel, provider_options
 from buy_agent.rails import RAILS, rail_options
 from buy_agent.models import Product
-from tests.conftest import ranked_product, said
+from tests.conftest import payable_product, ranked_product, said
 from buy_agent.ranking import SortBy
 from buy_agent.server import DEFAULT_UI_DIR
 from buy_agent.server import build_parser as build_server_parser
@@ -1220,16 +1220,7 @@ def test_a_rail_option_is_mirrored_field_for_field_in_typescript() -> None:
     assert set(ts_interface("RailOption")) == set(rail_options()[0])
 
 
-#: A product a run really could pay for: priced, in a currency, off a page that
-#: was searched. Everything the payment side needs is something grounding would
-#: have had to leave standing.
-_PAYABLE = Product(
-    name="Sony WH-1000XM5",
-    price=329.99,
-    currency="USD",
-    seller="AudioSite",
-    url="https://audiosite.example/xm5",
-)
+_PAYABLE = payable_product()
 
 
 def test_a_receipt_is_mirrored_field_for_field_in_typescript() -> None:

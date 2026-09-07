@@ -1,76 +1,14 @@
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 
 import { SearchForm } from './search-form';
+import { OLLAMA, VLLM, defaults, status } from '../testing';
 import type { AgentDefaults, InstalledModel, ModelSource, SearchOptions } from '../agent.types';
 
-const OLLAMA = {
-  name: 'ollama',
-  label: 'Ollama',
-  model: 'llama3.2',
-  base_url: 'http://localhost:11434',
-  takes_num_ctx: true,
-};
+const DEFAULTS = defaults();
 
-const VLLM = {
-  name: 'vllm',
-  label: 'vLLM',
-  model: 'Qwen/Qwen3-8B',
-  base_url: 'http://localhost:8000/v1',
-  takes_num_ctx: false,
-};
-
-const DEFAULTS: AgentDefaults = {
-  provider: 'ollama',
-  provider_options: [OLLAMA, VLLM],
-  model: 'llama3.2',
-  base_url: 'http://localhost:11434',
-  temperature: 0,
-  num_ctx: null,
-  think: null,
-  results: 10,
-  top: 3,
-  max_price: null,
-  min_rating: null,
-  min_reviews: null,
-  cache_ttl: 86400,
-  region: 'us-en',
-  sources: '',
-  fetch: true,
-  pay: false,
-  pay_available: true,
-  rail: 'dry-run',
-  rail_options: [
-    {
-      name: 'dry-run',
-      label: 'Dry run',
-      endpoint: '',
-      needs_endpoint: false,
-      moves_money: false,
-    },
-    {
-      name: 'http',
-      label: 'HTTP endpoint',
-      endpoint: '',
-      needs_endpoint: true,
-      moves_money: true,
-    },
-  ],
-  merchant_url: '',
-  spend_limit: null,
-  sort_by: 'score',
-  sort_options: ['score', 'price', 'rating'],
-  limits: {
-    results: { min: 1, max: 50 },
-    top: { min: 1, max: 50 },
-    temperature: { min: 0, max: 2 },
-    num_ctx: { min: 1, max: 1_000_000 },
-    max_price: { min: 1, max: 10_000_000 },
-    min_rating: { min: 0, max: 5 },
-    min_reviews: { min: 0, max: 10_000_000 },
-    cache_ttl: { min: 0, max: 2_592_000 },
-    spend_limit: { min: 1, max: 10_000_000 },
-  },
-};
+/** What the server answers a region of the right shape the wrong way round with:
+ *  a sentence and the box it came out of (ADR-0033). */
+const REJECTED = { field: 'region', message: "'en-us' is not a search region." };
 
 describe('SearchForm', () => {
   let fixture: ComponentFixture<SearchForm>;
@@ -78,6 +16,12 @@ describe('SearchForm', () => {
 
   const element = <T extends HTMLElement>(selector: string): T =>
     fixture.nativeElement.querySelector(selector) as T;
+
+  /** Submit the form, the way clicking Find products does. */
+  const send = async () => {
+    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+  };
 
   /** A second form, rendered after storage has been set up by the test. */
   const seeded = async (): Promise<HTMLElement> => {
@@ -105,15 +49,14 @@ describe('SearchForm', () => {
    *  A name alone is a model that can answer a prompt; the ones that cannot are
    *  given as objects, since that is the half the picker has to mark. */
   const pulled = async (models: (string | InstalledModel)[]) => {
-    fixture.componentRef.setInput('status', {
-      provider: 'ollama',
-      label: 'Ollama',
-      base_url: 'http://localhost:11434',
-      reachable: true,
-      models: models.map((model) =>
-        typeof model === 'string' ? { name: model, completion: true } : model,
-      ),
-    });
+    fixture.componentRef.setInput(
+      'status',
+      status({
+        models: models.map((model) =>
+          typeof model === 'string' ? { name: model, completion: true } : model,
+        ),
+      }),
+    );
     await fixture.whenStable();
   };
 
@@ -191,8 +134,7 @@ describe('SearchForm', () => {
     await type('input[name="request"]', 'headphones');
     await type('input[name="max_price"]', '200');
     await type('input[name="min_rating"]', '4.5');
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
+    await send();
 
     expect(submitted[0].max_price).toBe(200);
     expect(submitted[0].min_rating).toBe(4.5);
@@ -202,8 +144,7 @@ describe('SearchForm', () => {
   it('sends how long pages may be cached for', async () => {
     await type('input[name="request"]', 'headphones');
     await type('input[name="cache_ttl"]', '0');
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
+    await send();
 
     expect(submitted[0].cache_ttl).toBe(0);
   });
@@ -237,8 +178,7 @@ describe('SearchForm', () => {
        retyped per search. */
     await type('input[name="request"]', 'headphones');
     await type('input[name="max_price"]', '200');
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
+    await send();
 
     const next = await seeded();
 
@@ -261,8 +201,7 @@ describe('SearchForm', () => {
     expect(problem('results')).toContain('Between 1 and 50');
     expect(submit().disabled).toBe(true);
 
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
+    await send();
     expect(submitted).toHaveLength(0);
   });
 
@@ -380,12 +319,8 @@ describe('SearchForm', () => {
        cleared until the next run. */
     await type('input[name="request"]', 'kettle');
     await type('input[name="region"]', 'en-us');
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
-    fixture.componentRef.setInput('rejected', {
-      field: 'region',
-      message: "'en-us' is not a search region.",
-    });
+    await send();
+    fixture.componentRef.setInput('rejected', REJECTED);
     await fixture.whenStable();
     expect(problem('region')).toContain('not a search region');
 
@@ -401,12 +336,8 @@ describe('SearchForm', () => {
        vanished on the first keystroke anywhere would be no mark at all. */
     await type('input[name="request"]', 'kettle');
     await type('input[name="region"]', 'en-us');
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
-    fixture.componentRef.setInput('rejected', {
-      field: 'region',
-      message: "'en-us' is not a search region.",
-    });
+    await send();
+    fixture.componentRef.setInput('rejected', REJECTED);
     await fixture.whenStable();
 
     await type('input[name="request"]', 'toaster');
@@ -453,8 +384,7 @@ describe('SearchForm', () => {
   it('sends what was typed, trimmed, along with the settings', async () => {
     await type('input[name="request"]', '  kettle  ');
     await type('input[name="model"]', 'qwen2.5');
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
+    await send();
 
     expect(submitted).toHaveLength(1);
     expect(submitted[0].request).toBe('kettle');
@@ -470,8 +400,7 @@ describe('SearchForm', () => {
     select.dispatchEvent(new Event('change'));
     await fixture.whenStable();
 
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
+    await send();
     expect(submitted[0].think).toBe(true);
   });
 
@@ -550,8 +479,7 @@ describe('SearchForm', () => {
     await type('input[name="request"]', 'kettle');
     await choose('select[name="model"]', 'lfm2.5');
 
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
+    await send();
 
     expect(submitted[0].model).toBe('lfm2.5');
   });
@@ -635,8 +563,7 @@ describe('SearchForm', () => {
   it('sends the provider along with the request', async () => {
     await choose('select[name="provider"]', 'vllm');
     await type('input[name="request"]', 'kettle');
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
+    await send();
 
     expect(submitted[0].provider).toBe('vllm');
     expect(submitted[0].model).toBe(VLLM.model);
@@ -668,8 +595,7 @@ describe('SearchForm', () => {
        the other one's address. */
     await choose('select[name="provider"]', 'vllm');
     await type('input[name="request"]', 'kettle');
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
+    await send();
 
     const form = await seeded();
 
@@ -799,8 +725,7 @@ describe('SearchForm', () => {
 
     try {
       await type('input[name="request"]', 'kettle');
-      element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-      await fixture.whenStable();
+      await send();
     } finally {
       Storage.prototype.setItem = setItem;
     }
@@ -814,8 +739,7 @@ describe('SearchForm', () => {
     fixture.componentRef.setInput('running', true);
     await fixture.whenStable();
 
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
+    await send();
 
     expect(submitted).toHaveLength(0);
   });
@@ -862,10 +786,7 @@ describe('SearchForm', () => {
   it('opens them for the field a refused run named', async () => {
     /* Marking the box a refusal came out of is the whole of what ADR-0033 asks
        the form to do with one, and a mark inside a closed panel is no mark. */
-    fixture.componentRef.setInput('rejected', {
-      field: 'region',
-      message: "'en-us' is not a search region.",
-    });
+    fixture.componentRef.setInput('rejected', REJECTED);
     await fixture.whenStable();
 
     expect(element<HTMLDetailsElement>('details.advanced').open).toBe(true);
@@ -896,8 +817,7 @@ describe('SearchForm', () => {
     expect(element<HTMLInputElement>('input[name="sources"]').value).toBe('');
 
     await type('input[name="request"]', 'kettle');
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
+    await send();
 
     expect(submitted[0].sources).toBe('');
   });
@@ -905,8 +825,7 @@ describe('SearchForm', () => {
   it('sends the trusted sources as typed, for Python to make sense of', async () => {
     await type('input[name="request"]', 'kettle');
     await type('input[name="sources"]', '  rtings.com @mkbhd  ');
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
+    await send();
 
     expect(submitted[0].sources).toBe('rtings.com @mkbhd');
   });
@@ -914,8 +833,7 @@ describe('SearchForm', () => {
   it('remembers the trusted sources, which are a standing answer', async () => {
     await type('input[name="request"]', 'kettle');
     await type('input[name="sources"]', 'rtings.com');
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
+    await send();
 
     const fields = await seeded();
     expect(fields.querySelector<HTMLInputElement>('input[name="sources"]')!.value).toBe(
@@ -926,8 +844,7 @@ describe('SearchForm', () => {
   it('remembers the settings but not the request', async () => {
     await type('input[name="request"]', 'kettle');
     await type('input[name="region"]', 'pl-pl');
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
+    await send();
 
     const next = TestBed.createComponent(SearchForm);
     next.componentRef.setInput('defaults', DEFAULTS);
@@ -944,6 +861,12 @@ describe('SearchForm, paying', () => {
 
   const element = <T extends HTMLElement>(selector: string): T =>
     fixture.nativeElement.querySelector(selector) as T;
+
+  /** Submit the form, the way clicking Find products does. */
+  const send = async () => {
+    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+  };
 
   const tick = async (name: string, on: boolean) => {
     const box = element<HTMLInputElement>(`input[name="${name}"]`);
@@ -1021,8 +944,7 @@ describe('SearchForm, paying', () => {
     element<HTMLInputElement>('input[name="request"]').value = 'headphones';
     element<HTMLInputElement>('input[name="request"]').dispatchEvent(new Event('input'));
     await fixture.whenStable();
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
+    await send();
 
     expect(submitted[0].pay).toBe(true);
     expect(submitted[0].rail).toBe('dry-run');
@@ -1044,8 +966,7 @@ describe('SearchForm, paying', () => {
     element<HTMLInputElement>('input[name="request"]').value = 'headphones';
     element<HTMLInputElement>('input[name="request"]').dispatchEvent(new Event('input'));
     await fixture.whenStable();
-    element<HTMLFormElement>('form').dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
+    await send();
 
     await build();
 
