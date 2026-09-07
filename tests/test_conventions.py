@@ -40,9 +40,11 @@ from __future__ import annotations
 import ast
 import inspect
 import json
+import os
 import re
 import sys
 from configparser import ConfigParser
+from functools import cache
 from pathlib import Path, PurePosixPath
 from typing import get_args
 
@@ -1328,3 +1330,193 @@ def test_the_payment_settings_are_offered_at_both_doors() -> None:
         assert field in flags, f"--{field.replace('_', '-')} is missing from the CLI"
         assert key in defaults, f"{key} is missing from the form's defaults"
         assert key in ts_interface("SearchOptions"), f"{key} is missing from SearchOptions"
+
+
+# -- the skills ----------------------------------------------------------------
+
+_SKILLS = _ROOT / ".claude" / "skills"
+
+#: What a path in a skill's prose looks like: a directory, or a file of a kind
+#: this project has. Anything else in backticks is an identifier or a command.
+_PATH_SUFFIXES = (
+    ".md", ".py", ".ts", ".html", ".css", ".json", ".yml", ".cfg", ".ini",
+    ".ps1", ".mjs", ".png", ".txt", ".sh",
+)
+
+#: Placeholders a skill writes into a path it is telling somebody to create:
+#: `docs/adr/NNNN-slug.md` names no file and is not meant to.
+_PLACEHOLDERS = ("NNNN", "<", "*", "[")
+
+
+def skills() -> list[Path]:
+    """Every skill in `.claude/skills`, found rather than listed.
+
+    A fourth skill is then held to the rules below on the day it is added, which
+    is the only time anybody would think to check them.
+    """
+    found = sorted(_SKILLS.glob("*/SKILL.md"))
+    assert found, "no skills; this section has outlived its rule"
+    return found
+
+
+def skill_body(path: Path) -> str:
+    """A skill's prose, with its fenced code blocks removed.
+
+    The blocks are commands rather than references -- `ls docs/adr/[0-9]...` names
+    a glob, not a file -- and the one place a command matters is checked against
+    the workflow that runs it instead.
+    """
+    return re.sub(r"^```.*?^```", "", path.read_text(encoding="utf-8"), flags=re.M | re.S)
+
+
+def frontmatter(path: Path) -> dict[str, str]:
+    """The `key: value` lines of a skill's YAML header."""
+    header = re.match(r"---\n(.*?)\n---\n", path.read_text(encoding="utf-8"), re.S)
+    assert header, f"{path} has no frontmatter"
+    return dict(
+        re.findall(r"^([a-z-]+): (.+)$", header.group(1), re.M),
+    )
+
+
+def quoted(text: str) -> list[str]:
+    """Everything in backticks, which is how these files name a thing in the code."""
+    return re.findall(r"`([^`\n]+)`", text)
+
+
+#: Directories a walk of this repository has no business entering: a virtual
+#: environment and an npm tree are somebody else's files, and the other three are
+#: this project's own output. Pruned as the walk goes rather than filtered after,
+#: `.venv` alone being tens of thousands of paths and this suite being fast on
+#: purpose.
+_NOT_THE_REPOSITORY = frozenset(
+    {".git", ".venv", "node_modules", "mutants", "__pycache__", ".angular", "dist"}
+)
+
+
+@cache
+def repo_filenames() -> frozenset[str]:
+    """The name of every file this repository keeps, for a skill that names one
+    without its directory (`api.py`, `agent.ts`) because the section it sits in
+    already said where."""
+    found: set[str] = set()
+    for _, subdirectories, files in os.walk(_ROOT):
+        subdirectories[:] = [name for name in subdirectories if name not in _NOT_THE_REPOSITORY]
+        found.update(files)
+    return frozenset(found)
+
+
+@cache
+def suite_test_names() -> frozenset[str]:
+    """Every test the Python suite defines, by name."""
+    found = frozenset(
+        name
+        for path in (_ROOT / "tests").glob("test_*.py")
+        for name in re.findall(r"^def (test_\w+)", path.read_text(encoding="utf-8"), re.M)
+    )
+    assert found, "no tests found; this section cannot check what a skill names"
+    return found
+
+
+@pytest.mark.parametrize("path", skills(), ids=lambda path: path.parent.name)
+def test_every_skill_is_named_after_the_directory_it_is_in(path: Path) -> None:
+    """A skill is invoked by the name in its frontmatter and edited by its path, so
+    a mismatch is a file somebody corrects while the thing that runs goes on
+    saying what it said. The description is the whole of what decides whether it
+    is reached for at all, so an empty one is a skill nobody finds."""
+    header = frontmatter(path)
+
+    assert header.get("name") == path.parent.name, path
+    assert len(header.get("description", "")) > 40, f"{path} barely describes itself"
+
+
+@pytest.mark.parametrize("path", skills(), ids=lambda path: path.parent.name)
+def test_every_file_a_skill_names_exists(path: Path) -> None:
+    """A skill is a checklist over files, and a renamed file turns one step of it
+    into a search for something that is not there. Nothing else in either suite
+    reads these, so a move that updates every import leaves them pointing at the
+    old tree and the run stays green."""
+    names = repo_filenames()
+
+    for token in quoted(skill_body(path)):
+        if " " in token or any(mark in token for mark in _PLACEHOLDERS):
+            continue
+        if not (token.endswith("/") or token.endswith(_PATH_SUFFIXES)):
+            continue
+        if "/" in token:
+            assert (_ROOT / token).exists(), f"{path.parent.name} names {token}, which is gone"
+        else:
+            assert token in names, f"{path.parent.name} names {token}, which is gone"
+
+
+@pytest.mark.parametrize("path", skills(), ids=lambda path: path.parent.name)
+def test_every_test_a_skill_names_exists(path: Path) -> None:
+    """The step a skill ends on is usually "and this test will fail if you skipped
+    it". A renamed test makes that a promise about nothing, which is worse than no
+    promise: the reader stops looking for what would have caught them."""
+    body = skill_body(path)
+    names = suite_test_names()
+
+    # Not a module: `tests/test_conventions.py` is a path, checked as one above.
+    for named in re.findall(r"\btest_[a-z_]+\b(?!\.)", body):
+        assert named in names, f"{path.parent.name} names {named}, which no longer exists"
+    for selector in re.findall(r"-k (\w+)", body):
+        assert any(selector in name for name in names), (
+            f"{path.parent.name} selects tests with -k {selector}, which now matches none"
+        )
+
+
+def test_the_option_skill_names_the_tables_a_new_setting_joins() -> None:
+    """The form declares one table of number boxes and one of remembered settings,
+    and `.claude/skills/add-option` is a walk through both. It named `numbers`
+    long after the table became `numberFields` -- so the step said to add a row to
+    a table that is not there, and then to write markup the template had stopped
+    needing. Read the names off the declarations, which is the only copy that
+    cannot be wrong."""
+    form = _FORM_TS.read_text(encoding="utf-8")
+    body = skill_body(_SKILLS / "add-option" / "SKILL.md")
+
+    declarations = (r"readonly (\w+): NumberField\[\]", r"readonly (\w+): Record<string, Setting>")
+    for pattern in declarations:
+        match = re.search(pattern, form)
+        assert match, f"the form no longer declares {pattern}; this rule has moved"
+        assert f"`{match.group(1)}`" in body, (
+            f"add-option does not name the form's {match.group(1)} table"
+        )
+
+
+def test_the_preflight_skill_runs_what_ci_runs() -> None:
+    """`.claude/skills/preflight` claims to be the CI gate, locally. A step added to
+    ci.yml and not to it is a check that first runs on a pushed branch, which is
+    the whole thing the skill exists to avoid. Installing dependencies is not a
+    gate -- it is what a `.venv` already did -- so it is the checking steps that
+    have to agree."""
+    steps = re.findall(
+        r"^      - name: (.+)\n        run: (.+)$", _CI.read_text(encoding="utf-8"), re.M
+    )
+    checks = [command for name, command in steps if not name.startswith("Install")]
+    written = (_SKILLS / "preflight" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert checks, "no checking step in ci.yml; this test has outlived its rule"
+    for command in checks:
+        assert command in written, f"preflight does not run `{command}`, which ci.yml does"
+
+
+def test_the_preflight_skill_names_the_toolchains_ci_pins() -> None:
+    """It says which Python and which Node it is the gate for, and a version named
+    there is another copy of ci.yml's pin -- the one the startup script, the
+    Dockerfile and docs/testing.md already chase."""
+    written = (_SKILLS / "preflight" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert f"Python {ci_version('python-version')}" in written
+    assert f"Node {ci_version('node-version')}" in written
+
+
+def test_every_skill_is_one_the_project_documents() -> None:
+    """CLAUDE.md introduces `.claude/skills/` by naming what is in it, which is
+    where anybody reads about them before there is a reason to invoke one. A skill
+    added and not named there is one nothing points at; a skill named there and
+    since deleted is an instruction to run something that is gone."""
+    described = (_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+
+    for path in skills():
+        assert f"`{path.parent.name}`" in described, f"CLAUDE.md does not name {path.parent.name}"

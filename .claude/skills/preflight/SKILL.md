@@ -17,16 +17,15 @@ python -m coverage run -m pytest
 python -m coverage report
 ```
 
-- `.coveragerc` sets `branch = true` and `fail_under = 99`. The suite covers
-  essentially every line and branch, so a drop means a new branch with no test,
-  not slack in the floor.
-- `pytest.ini` sets `testpaths = tests`, so a bare run cannot reach
-  `integration/`. That is deliberate -- see below.
+- The floor is `fail_under = 99` over branches as well as lines. The suite covers
+  essentially every line, so a drop is a new branch with no test, not slack.
 - Expect a few seconds. A run that takes much longer means something is reaching
   the network; find it rather than waiting it out.
 - With neither `pwsh` nor `powershell` on PATH, 13 tests in
   `tests/test_start_script.py` skip. That is expected off Windows and not a
   failure.
+- `pytest.ini` sets `testpaths = tests`, so a bare run cannot reach
+  `integration/`. That is deliberate -- see below.
 
 ## UI (Node 22.22.3)
 
@@ -37,8 +36,7 @@ npm run build
 ```
 
 - The floor is in `ui/scripts/check-coverage.mjs`: 98% of statements and lines,
-  and deliberately no branch floor (v8 attributes template branches to positions
-  no test can reach). Do not add one.
+  and deliberately no branch floor. Do not add one.
 - `npm run build` is part of the gate, not an extra: a template error is
   invisible to the unit tests.
 - Formatting: `npx prettier --write "src/**/*"`. There is no Python linter.
