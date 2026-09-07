@@ -977,14 +977,14 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1558 tests run in about six seconds: most of that is the two that spawn an
+1563 tests run in about six seconds: most of that is the two that spawn an
 interpreter -- one checking `python -m buy_agent` still runs as a script, one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1558 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1558 collect but 13 of the 17 in
-`tests/test_start_script.py` skip, so the summary reads `1545 passed, 13 skipped`.
+reaching out. 1563 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1563 collect but 13 of the 19 in
+`tests/test_start_script.py` skip, so the summary reads `1550 passed, 13 skipped`.
 The UI's 186 tests run in about two seconds, most of which is building the app
 first. The 31 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
@@ -1133,11 +1133,20 @@ one config rather than three constants, because the pair belongs to the provider
 Ollama is the only server it starts -- the install-and-pull half is behind a
 provider check, and anything else is waited for at `/models` and named rather than
 launched, a vLLM needing a GPU, a served model and flags this script has no business
-choosing. Its four agreements with the rest of the project are in
-`tests/test_conventions.py`: no default's value appears in the script, the URL it
-opens a browser at is the one `server.build_parser` binds, the build it probes for
-is the one `server.DEFAULT_UI_DIR` serves, and the Python and Node it sends you to
-install are the ones `ci.yml` pins.
+choosing. Paying is the same shape one step further: the AP2 SDK is an optional
+install and somebody else's git repository, so it is fetched only where the
+environment already names a rail, a merchant, a key or a mandate -- the settings
+nothing but a payment reads -- installed with the two commands `mandates.INSTALL`
+spells out, and then asked for again, pip exiting 0 for an install that cannot be
+imported being this dependency's documented failure. A run that skips it says which
+variable to set, since a page that silently never offers to buy anything is the
+confusing half of optional. Its seven agreements with the rest of the project are
+in `tests/test_conventions.py`: no default's value appears in the script, the URL
+it opens a browser at is the one `server.build_parser` binds, the build it probes
+for is the one `server.DEFAULT_UI_DIR` serves, the Python and Node it sends you to
+install are the ones `ci.yml` pins, the SDK is installed the way `mandates.INSTALL`
+says and reported by asking `mandates.available()` rather than by looking, and
+every `$BUY_AGENT_*` it reads is one the package reads too.
 
 `tests/test_start_script.py` cannot run the script -- it installs, downloads, starts
 two servers and opens a browser -- so it does everything short of that through

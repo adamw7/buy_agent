@@ -450,8 +450,20 @@ Ollama is the only model server it starts for you: with `$env:BUY_AGENT_PROVIDER
 set to `vllm` it waits for one to answer and says where instead of launching it,
 a vLLM wanting a GPU, a served model and flags this script has no business
 choosing. Node is the one thing it will not install -- without `npm` on PATH it
-says so and serves the API anyway, so the page is the 503 until a build exists. A
-PowerShell that refuses unsigned scripts takes the same file the long way round:
+says so and serves the API anyway, so the page is the 503 until a build exists.
+
+[Paying](#letting-it-buy) needs one more install, and the script does that one
+only when asked -- where `$env:BUY_AGENT_RAIL`, `$env:BUY_AGENT_MERCHANT_URL`,
+`$env:BUY_AGENT_AP2_KEY` or `$env:BUY_AGENT_AP2_MANDATE` is set, which is the
+environment saying a payment is meant. Set none and it says so and carries on, and
+the page offers no Buy button; the smallest way to ask for one is:
+
+```powershell
+$env:BUY_AGENT_RAIL = 'dry-run'      # the default rail, which charges nobody
+.\scripts\start.ps1
+```
+
+A PowerShell that refuses unsigned scripts takes the same file the long way round:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1

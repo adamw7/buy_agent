@@ -71,6 +71,7 @@ from buy_agent.api import (
     sources_payload,
 )
 from buy_agent.config import LIMITS, AgentConfig, parse_region
+import buy_agent.mandates as mandates_module
 import buy_agent.providers as providers_module
 from buy_agent.payment import PaymentError
 from buy_agent.providers import PROVIDERS, InstalledModel, provider_options
@@ -851,6 +852,75 @@ def test_the_startup_script_names_the_toolchains_ci_pins() -> None:
 
     assert f"Python {ci_version('python-version')}" in source
     assert f"Node {ci_version('node-version')}" in source
+
+
+#: The flags the startup script adds to every pip command of its own and
+#: ``mandates.INSTALL`` does not: one quietens a step whose output is noise
+#: beside the rest of the console, the other a message about pip itself.
+_PIP_NOISE = {"--quiet", "--disable-pip-version-check"}
+
+
+def script_pip_installs() -> list[list[str]]:
+    """Every ``pip install`` the startup script runs, as its own argument list."""
+    blocks = re.findall(r"Run \$python @\((.*?)\)", start_script(), re.S)
+    quoted = [re.findall(r"'([^']*)'", block) for block in blocks]
+    return [
+        [word for word in call[3:] if word not in _PIP_NOISE]
+        for call in quoted
+        if call[:3] == ["-m", "pip", "install"]
+    ]
+
+
+def test_the_startup_script_installs_the_ap2_sdk_the_way_mandates_says_to() -> None:
+    """``mandates.INSTALL`` is the one line this project tells anybody to type when
+    paying will not import, and it is two commands rather than one because
+    ``--no-deps`` is not a per-line option: applied to the file naming the SDK it
+    skips a pydantic pin that collides with this project's, and applied to the file
+    naming what the SDK imports it leaves ``cryptography`` without ``cffi`` and
+    nothing able to sign. A script that installed those files its own way would be
+    a second reading of a flag whose whole point is where it does and does not go
+    -- and the failure is a form that offers a button which cannot be pressed."""
+    wanted = [command.split()[2:] for command in mandates_module.INSTALL.split(" && ")]
+    ran = script_pip_installs()
+
+    assert wanted, "mandates.INSTALL no longer names anything to install"
+    for command in wanted:
+        assert command in ran, f"the startup script never runs: pip install {' '.join(command)}"
+
+
+def test_the_startup_script_asks_python_whether_paying_is_available() -> None:
+    """``mandates.available()`` is what both front doors ask before offering to pay,
+    so it is what the script reports too. Answered here instead -- a ``pip show``, a
+    directory on disk -- the console would say the page offers to buy something
+    while the page itself, asking the one question that counts, does not."""
+    assert "from buy_agent.mandates import available" in start_script()
+
+
+def environment_settings_the_package_reads() -> set[str]:
+    """Every ``$BUY_AGENT_*`` the package actually reads: those named where they are
+    read, plus the two ``mandates`` holds as constants because a secret's variable is
+    quoted in the sentence about it as often as it is read."""
+    package = Path(mandates_module.__file__).resolve().parent
+    named = {
+        name
+        for module in sorted(package.glob("*.py"))
+        for name in re.findall(
+            r'os\.(?:getenv|environ(?:\.get)?)\(\s*"(BUY_AGENT_[A-Z0-9_]+)"',
+            module.read_text(encoding="utf-8"),
+        )
+    }
+    return named | {mandates_module.KEY_PATH, mandates_module.MANDATE_PATH}
+
+
+def test_the_startup_script_names_settings_that_exist() -> None:
+    """It reads the environment for one thing only -- whether this machine means to
+    pay, which is what decides the optional install -- and a variable misspelled
+    there is not an error: it is a run that quietly decides paying was not wanted,
+    every time, with the console saying to set the name it is already set to."""
+    named = set(re.findall(r"\$env:(BUY_AGENT_[A-Z0-9_]+)", start_script()))
+
+    assert named, "the startup script names no setting of this project's at all"
+    assert named <= environment_settings_the_package_reads()
 
 
 # -- the nightly integration run -----------------------------------------------
