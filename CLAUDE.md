@@ -115,12 +115,13 @@ pins, its copy destination and its `EXPOSE` in step.
 
 `.dockerignore` narrows what the build sees: `tests/`, `integration/`,
 `benchmark/`, `docs/`, `scripts/`, `demo/`, `.github/`, `.claude/`, every Markdown
-file, the dev and mutation requirements with `setup.cfg`, and every local build
-artefact (`.venv/`, `ui/node_modules/`, `ui/dist/`, `ui/.angular/`, `mutants/`,
-`__pycache__/`). So the Node stage builds from source rather than copying a stale
-local `dist/`, and `demo/` -- a video the size of the rest put together -- never
-reaches the daemon. Nothing tests that file, so a path added to one of those
-directories is only kept out of the image by keeping this list current.
+file, the dev and mutation requirements with `setup.cfg`, whatever working here
+leaves behind -- `.gitignore`'s own list, every spelling of the virtualenv
+included -- and `.env`, which is the one thing kept out on purpose rather than for
+its size. So the Node stage builds from source rather than copying a stale local
+`dist/`, and `demo/` -- a video the size of the rest put together -- never reaches
+the daemon. Nothing tests that file, so a path added to one of those directories
+is only kept out of the image by keeping this list current.
 
 ### Settings and their environment
 

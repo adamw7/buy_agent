@@ -559,9 +559,13 @@ def limits_payload() -> dict[str, dict[str, int]]:
 
     Shipped rather than written into the form (:data:`_BOUNDED`): the browser
     applies these and does not choose them, which is the line ADR-0033 draws.
+
+    Paired strictly, because a range is exactly two numbers: a row of
+    :data:`~buy_agent.config.LIMITS` that grew a third would otherwise ship a
+    bound the form silently never applies.
     """
     return {
-        key: dict(zip(("min", "max"), LIMITS[field]))
+        key: dict(zip(("min", "max"), LIMITS[field], strict=True))
         for key, field in _BOUNDED.items()
     }
 

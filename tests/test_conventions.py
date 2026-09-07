@@ -67,7 +67,6 @@ from buy_agent.api import (
     pay_now,
     product_payload,
     rank_again,
-    receipt_payload,
     results_payload,
     run_search,
     sources_payload,

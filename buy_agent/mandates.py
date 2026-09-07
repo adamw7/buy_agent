@@ -264,7 +264,7 @@ def checkout_document(cart: Cart, *, order_id: str) -> dict[str, Any]:
     document: the dry run signs it itself, standing in for the merchant, and the
     HTTP rail sends it to one to be signed. Amounts are minor units throughout --
     that is what the schema means by "signed amount in minor currency units", and
-    why :func:`buy_agent.rails.minor_units` exists rather than a float going on
+    why :func:`buy_agent.payment.minor_units` exists rather than a float going on
     the wire.
     """
     totals = [
