@@ -20,7 +20,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-1602 Python tests and 186 UI tests. Nothing in either suite touches the network or
+1741 Python tests and 186 UI tests. Nothing in either suite touches the network or
 a model server: the model is faked through the `llm=` argument of `BuyAgent` -- a class
 with one `answer` method, which is the whole of `chat.ChatModel`, both
 the search backend and the page fetcher are monkeypatched, the two clients
@@ -72,7 +72,15 @@ provider agreeing about which providers exist; the payloads
 server's own defaults; the four workflows agreeing on the version of every action
 they share and on the Python and Node they run; the release archive carrying the
 UI build where the server looks for it; the nightly run pulling the model the live
-tests ask for; and the decision log agreeing with its own index.
+tests ask for; the decision log agreeing with its own index; and every module in
+the package logging under the package's own name, in the deferred form a handler
+can still read, leaving stdout to the report.
+
+The rule those last ones are the declared half of is exercised in
+`tests/test_logging_contract.py`: the eight steps that take something away each
+say how many at INFO and which at DEBUG. Each step's own file pins its wording;
+what neither they nor coverage can see is the set, so a step that quietly stopped
+saying anything leaves every other file green.
 
 Both suites run on Windows and on Linux, on different triggers.
 `.github/workflows/ci.yml` spreads its two jobs -- `coverage run -m pytest` on
