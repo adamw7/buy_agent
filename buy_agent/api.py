@@ -164,8 +164,8 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         ApiError: if a value is present but not usable.
     """
     defaults = AgentConfig()
-    num_products = _read(data, "results", defaults.num_products, _bounded(int, "results"))
-    top_n = _read(data, "top", defaults.top_n, _bounded(int, "top"))
+    num_products = _read(data, "results", defaults.num_products, _bounded(int))
+    top_n = _read(data, "top", defaults.top_n, _bounded(int))
     sort_by = _read(data, "sort_by", "score", _as_sort_by)
 
     provider = _read(data, "provider", defaults.provider, _as_text)
@@ -189,10 +189,8 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         # per provider, so a form that chose one and left these alone gets its pair.
         model=_read(data, "model", "", _as_text),
         base_url=_read(data, "base_url", "", _as_text),
-        temperature=_read(
-            data, "temperature", defaults.temperature, _bounded(float, "temperature")
-        ),
-        num_ctx=_read(data, "num_ctx", defaults.num_ctx, _bounded(int, "num_ctx")),
+        temperature=_read(data, "temperature", defaults.temperature, _bounded(float)),
+        num_ctx=_read(data, "num_ctx", defaults.num_ctx, _bounded(int)),
         reasoning=_read(data, "think", defaults.reasoning, _as_bool),
         # Searching fewer pages than we report would cap the report -- as in the CLI.
         search_results=max(num_products, top_n),
@@ -203,22 +201,16 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         fetch_pages=_read(data, "fetch", defaults.fetch_pages, _as_bool),
         # A blank is "no bound" here rather than "the default" -- which is the
         # same thing, these three defaulting to None (ADR-0012, ADR-0039).
-        max_price=_read(data, "max_price", defaults.max_price, _bounded(float, "max_price")),
-        min_rating=_read(
-            data, "min_rating", defaults.min_rating, _bounded(float, "min_rating")
-        ),
-        min_reviews=_read(
-            data, "min_reviews", defaults.min_reviews, _bounded(int, "min_reviews")
-        ),
-        cache_ttl=_read(data, "cache_ttl", defaults.cache_ttl, _bounded(float, "cache_ttl")),
+        max_price=_read(data, "max_price", defaults.max_price, _bounded(float)),
+        min_rating=_read(data, "min_rating", defaults.min_rating, _bounded(float)),
+        min_reviews=_read(data, "min_reviews", defaults.min_reviews, _bounded(int)),
+        cache_ttl=_read(data, "cache_ttl", defaults.cache_ttl, _bounded(float)),
         # Paying is off unless a request asks for it, and the rail decides what
         # asking costs -- the default one charges nobody.
         pay=_read(data, "pay", defaults.pay, _as_bool),
         rail=_read(data, "rail", defaults.rail, _as_rail),
         merchant_url=_read(data, "merchant_url", "", _as_text),
-        spend_limit=_read(
-            data, "spend_limit", defaults.spend_limit, _bounded(float, "spend_limit")
-        ),
+        spend_limit=_read(data, "spend_limit", defaults.spend_limit, _bounded(float)),
     )
     return config, sort_by
 
@@ -305,7 +297,7 @@ def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
     defaults = AgentConfig()
     request = _read(data, "request", "", _as_text)
     sort_by = _read(data, "sort_by", "score", _as_sort_by)
-    top_n = _read(data, "top", defaults.top_n, _bounded(int, "top"))
+    top_n = _read(data, "top", defaults.top_n, _bounded(int))
     # Named rather than left to ``rank_products``'s own fallback, so the weights
     # the answer reports are the ones it was ranked by: a re-sort takes no config,
     # being the one entry point that runs no pipeline.
@@ -386,13 +378,18 @@ def _rank(data: Mapping[str, Any], count: int) -> int:
     One-based, because that is what a card shows and what ``rank`` means
     everywhere else in this API. Defaults to the first: a run is already an
     ordering, and "the top one" is the answer a request that names none wants.
+
+    The bound is the run's own length and not a row of :data:`_BOUNDED`: this is
+    the one number a request carries that bounds nothing on ``AgentConfig``, and
+    holding it to ``top``'s 1..50 as well only meant two refusals for one
+    mistake, the wider of which quoted a ceiling nothing here has -- "between 1
+    and 50" for a run of three products.
+
+    Raises:
+        ApiError: if it is not a whole number naming one of the products that
+            arrived.
     """
-    rank = _read(data, "rank", 1, _bounded(int, "top"))
-    if rank > count:
-        raise ApiError(
-            f"rank must be between 1 and {count}; got {rank}.", field="rank"
-        )
-    return rank - 1
+    return _read(data, "rank", 1, partial(_as_number, int, 1, count)) - 1
 
 
 def _witnessed(data: Mapping[str, Any], cart: Cart) -> None:
@@ -778,16 +775,25 @@ def _as_bool(key: str, text: str) -> bool:
     raise ApiError(f"{key} must be true or false; got {text!r}.", field=key)
 
 
-def _bounded(kind: Callable[[str], _Number], key: str) -> Callable[[str, str], _Number]:
-    """A parser for a number within the bounds the value arriving as ``key`` has.
+def _bounded(kind: Callable[[str], _Number]) -> Callable[[str, str], _Number]:
+    """A parser for a number within the bounds whatever key it arrives under has.
 
-    Read off :data:`buy_agent.config.LIMITS` through :data:`_BOUNDED` rather than
-    written down here, so the CLI, this and the form -- shipped the same table --
-    cannot disagree about what a request may ask for. The bounds are quoted back
-    as declared: "between 0 and 2" is what a temperature is.
+    The key is not an argument because :func:`_read` already hands it to the
+    parser, and one named here too is a key written twice on one line: two
+    chances to disagree, and the way they disagree is a value silently held to
+    another setting's range. The range itself is read off
+    :data:`buy_agent.config.LIMITS` through :data:`_BOUNDED` rather than written
+    down here, so the CLI, this and the form -- shipped the same table -- cannot
+    disagree about what a request may ask for. The bounds are quoted back as
+    declared: "between 0 and 2" is what a temperature is.
     """
+    return partial(_declared_number, kind)
+
+
+def _declared_number(kind: Callable[[str], _Number], key: str, text: str) -> _Number:
+    """A number held to the range :data:`_BOUNDED` declares for this key."""
     minimum, maximum = LIMITS[_BOUNDED[key]]
-    return partial(_as_number, kind, minimum, maximum)
+    return _as_number(kind, minimum, maximum, key, text)
 
 
 def _as_number(
