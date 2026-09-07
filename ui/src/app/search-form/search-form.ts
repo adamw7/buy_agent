@@ -299,9 +299,7 @@ export class SearchForm {
   /** Whether the address field is a setting on this rail at all. The dry run has
    *  nowhere to be, so the box is disabled rather than left to be filled in and
    *  ignored -- exactly what `takesNumCtx` does to the context window. */
-  protected readonly railNeedsEndpoint = computed(
-    () => this.chosenRail()?.needs_endpoint ?? false,
-  );
+  protected readonly railNeedsEndpoint = computed(() => this.chosenRail()?.needs_endpoint ?? false);
 
   /** The row for the provider currently chosen, which carries its defaults and
    *  what it can be told per request. Absent before the server's defaults land. */

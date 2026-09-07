@@ -325,9 +325,7 @@ describe('ProductCard, paying', () => {
     card.querySelectorAll<HTMLButtonElement>('.confirm .pay')[0].click();
     await fixture.whenStable();
 
-    expect(approvals).toEqual([
-      { title: 'Sony WH-1000XM5', price: 328, currency: 'USD' },
-    ]);
+    expect(approvals).toEqual([{ title: 'Sony WH-1000XM5', price: 328, currency: 'USD' }]);
   });
 
   it('cancelling puts the card back and buys nothing', async () => {
