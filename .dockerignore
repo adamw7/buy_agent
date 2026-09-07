@@ -9,13 +9,29 @@
 .dockerignore
 Dockerfile
 
-# Built or installed locally: the image builds its own copies from source.
+# Built or installed locally: the image builds its own copies from source. Read
+# off `.gitignore`, which is the list of what working in this repository leaves
+# behind -- and what is left behind is what the build has least use for. Every
+# spelling of the virtualenv, not just the one the README makes, since the build
+# context is uploaded whole and a stray `venv/` is the largest thing here.
 .venv/
+venv/
+env/
+ENV/
 ui/node_modules/
 ui/dist/
 ui/.angular/
 **/__pycache__/
 *.py[codz]
+.pytest_cache/
+mutation-results.txt
+*.log
+
+# Never built, never copied, and the one thing here worth keeping out of a build
+# context on purpose: the image gets its settings from the environment it is run
+# in (`docs/docker.md`), never from a file somebody left in the checkout.
+.env
+.envrc
 
 # Tests, the benchmark, coverage, mutation testing, docs and the recorded demo:
 # none of them run in the image, and demo/ carries a video the size of the rest
@@ -34,6 +50,8 @@ requirements-mutation.txt
 requirements-ap2.txt
 requirements-ap2-deps.txt
 .coverage
+.coverage.*
+coverage.xml
 .coveragerc
 coverage/
 htmlcov/
