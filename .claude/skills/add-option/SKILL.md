@@ -68,12 +68,20 @@ convention test that fails if it is skipped.
 
 - A signal for the field, a row in the `settings` table -- `setting(signal,
   (d) => d.<key>, asText|asNumber)`, which is what seeds it from the defaults and
-  remembers and restores it -- and the key in what `submit()` emits. The request
-  itself is deliberately not remembered; `agent.ts`'s `toQuery` drops blanks on
-  the way out.
-- Numeric -> add it to the `numbers` table keyed by the *request key*, and bind
-  `[min]="limits()['<key>']?.min"` / `[max]` in the template. Never write a
-  literal `min="1"` into the markup.
+  remembers and restores it -- and the key in `options()`, the one place the
+  request payload is built. The request itself is deliberately not remembered;
+  `agent.ts`'s `toQuery` drops blanks on the way out.
+- Numeric -> one `field('<request key>', 'Label', signal, {step, hint, off})` row
+  in the `numberFields` table, and **nothing in the template**: it loops over
+  that table, so the row is what draws the box, binds `[min]`/`[max]` from the
+  range the server shipped, takes its placeholder off `defaults_payload` under
+  the same key, and carries the refusal mark. A literal `min="1"` in the markup,
+  or a second block of number-box markup beside the loop, is the mistake this
+  table exists to make impossible.
+- That key is typed `keyof AgentDefaults & keyof SearchOptions`, so a box the
+  server has no default and no range for does not compile. `placeholders()`
+  needs nothing: a `null` default reads "No limit" (ADR-0039), a number reads
+  itself.
 - The page applies rules; it never invents one. If the page cannot judge the
   value without a model, a network or a minute of waiting, either ship it a rule
   from Python (a range) or ask the server for a verdict (`GET /api/sources`) --
@@ -84,9 +92,10 @@ convention test that fails if it is skipped.
 - Add the `(field, flag, key)` row to
   `test_both_front_doors_hold_a_number_to_the_same_range` for a numeric setting.
 - The rest is automatic and will fail on its own if a step above was skipped:
-  the shipped ranges against the form's `numbers` table, every key
-  `parse_options` reads against `SearchOptions`, and `AgentDefaults` against
-  `defaults_payload` field for field.
+  the shipped ranges against the form's `numberFields` table, every key
+  `parse_options` reads against `SearchOptions`, `AgentDefaults` against
+  `defaults_payload` field for field, and this file's own name for both of the
+  form's tables against what `search-form.ts` declares.
 
 ## 7. Tests and docs
 

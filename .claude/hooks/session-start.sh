@@ -71,13 +71,23 @@ if [ -n "$node_bin" ] && [ -n "${CLAUDE_ENV_FILE:-}" ] \
 fi
 
 # ui/ is an ordinary npm workspace; nothing on the Python side needs it.
+#
+# npm writes ui/node_modules/.package-lock.json as the last step of an install, so
+# a copy of it newer than the lockfile is a tree already installed from that
+# lockfile -- which is a resumed session, where a reinstall is half a minute spent
+# to change nothing. A missing marker is the cold container this hook is for.
 ui="ui/ has no package.json"
+installed="$root/ui/node_modules/.package-lock.json"
 if [ -f "$root/ui/package.json" ]; then
-  say "session-start: installing ui/ dependencies."
-  if (cd "$root/ui" && npm install --no-audit --no-fund >&2); then
+  if [ -f "$installed" ] && [ ! "$root/ui/package-lock.json" -nt "$installed" ]; then
     ui="ui/node_modules is installed"
   else
-    ui="npm install in ui/ FAILED -- run it by hand before trusting a UI test run"
+    say "session-start: installing ui/ dependencies."
+    if (cd "$root/ui" && npm install --no-audit --no-fund >&2); then
+      ui="ui/node_modules is installed"
+    else
+      ui="npm install in ui/ FAILED -- run it by hand before trusting a UI test run"
+    fi
   fi
   say "session-start: $ui."
 fi

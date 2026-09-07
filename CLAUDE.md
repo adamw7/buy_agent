@@ -251,11 +251,16 @@ so the next free number is 0047.
 
 `.claude/skills/` holds the chores that span those files: `add-option` walks a new
 setting through `config.py`, both front doors, `agent.types.ts` and the form;
-`add-adr` takes the next number off the directory rather than off the sentence
-above, which has gone stale before; `preflight` is the gate `ci.yml` applies. They
-are checklists over the rules written down here, not new rules -- a rule belongs in
-this file or in a convention test, where it holds whether or not anybody invoked a
-skill.
+`add-row` is that walk for a model server or a payment rail, each of which is one
+row in one table and a row nowhere else; `add-adr` takes the next number off the
+directory rather than off the sentence above, which has gone stale before;
+`preflight` is the gate `ci.yml` applies. They are checklists over the rules
+written down here, not new rules -- a rule belongs in this file or in a convention
+test, where it holds whether or not anybody invoked a skill. They are checked like
+everything else that names the code from outside it: `tests/test_conventions.py`
+holds every file, test and table a skill names against what is there, since
+nothing else in either suite reads them and a step pointing at a renamed table
+stays green for as long as nobody follows it.
 
 `.claude/hooks/session-start.sh` is the other thing in there, and it runs rather
 than being read: the images Claude Code on the web starts a session in ship a Node
@@ -1000,15 +1005,15 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1581 tests run in about seven seconds: most of that is the three that spawn an
+1597 tests run in about seven seconds: most of that is the three that spawn an
 interpreter -- two for what only a real import can answer (`python -m buy_agent`
 still runs as a script, and still imports with `$BUY_AGENT_RAIL` misspelt), one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1581 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1581 collect but 13 of the 19 in
-`tests/test_start_script.py` skip, so the summary reads `1568 passed, 13 skipped`.
+reaching out. 1597 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1597 collect but 13 of the 19 in
+`tests/test_start_script.py` skip, so the summary reads `1584 passed, 13 skipped`.
 The UI's 186 tests run in about two seconds, most of which is building the app
 first. The 31 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
@@ -1064,6 +1069,10 @@ that
   Python `ci.yml` pins, with every file these tests open -- or import from outside
   `buy_agent`, `benchmark/` and `integration/` included -- named in mutmut's
   `also_copy`.
+- every skill in `.claude/skills/` is named after its own directory, is described
+  where this file introduces them, and names only files, tests and tables that
+  exist -- `add-option` the two the form declares, `preflight` the checking
+  commands `ci.yml` runs and the toolchains it pins.
 
 A field added on one side of the language boundary and forgotten on the other is
 otherwise invisible to both suites.

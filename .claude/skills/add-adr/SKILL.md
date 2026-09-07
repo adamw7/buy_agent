@@ -29,38 +29,26 @@ the decision in the imperative, lower-cased and hyphenated -- match the voice of
 the existing filenames (`0027-let-the-shopper-name-the-sources.md`), not a noun
 phrase.
 
-`tests/test_conventions.py` reads the shape, so it must be exactly:
+The template *is* the shape `tests/test_conventions.py` reads -- the heading, the
+status vocabulary, the ISO date, the three sections -- and its prompts are the
+brief for what goes in each. Keep them all; replace the prose. Two things it
+cannot say for itself:
 
-- First line: `# ADR-NNNN: Title`, the number matching the filename, the title
-  matching the index row exactly.
-- `- **Status:** Accepted` (or `Proposed`, or
-  `Superseded by [ADR-NNNN](NNNN-slug.md)` -- nothing else parses).
-- `- **Date:** YYYY-MM-DD`, ISO.
-- All three sections, spelled `## Context`, `## Decision`, `## Consequences`.
-- Every `ADR-NNNN` it cites must exist.
+- The number in the heading must match the filename, and the title must match
+  the index row character for character.
+- Every `ADR-NNNN` the record cites must exist.
 
-What goes in them:
-
-- **Context** -- the forces that made this a decision rather than a default, and
-  what was actually observed to go wrong. Not what might in principle.
-- **Decision** -- present tense, as a rule someone changing the code can apply:
-  "extraction fields are non-nullable with a sentinel", not "we looked at
-  sentinels".
-- **Consequences** -- above all the *obligations*: which other place has to be
-  edited in step, which invariant a future change must not break, and which
-  failure returns if it does. Name the convention test that guards it, if there
-  is one.
+Of the three sections, **Consequences** is the one that earns the record: the
+*obligations*. Which other place has to be edited in step, which invariant a
+future change must not break, which failure returns if it does, and the name of
+the convention test that guards it.
 
 ## 3. Index it
 
-Add the row to the table in `docs/adr/README.md`, in numbered order:
-
-```
-| [NNNN](NNNN-slug.md) | Title, as the decision in the imperative | Accepted |
-```
-
-The title and status must match the record character for character --
-`test_each_index_row_says_what_the_record_says` compares them.
+Add the row to the table in `docs/adr/README.md`, in numbered order and in the
+shape the rows above it already have.
+`test_each_index_row_says_what_the_record_says` compares the title and the
+status against the record character for character.
 
 ## 4. Keep the prose in step
 
