@@ -1,13 +1,15 @@
 """Shared fakes. No test in this suite touches the network, Ollama or the
-developer's own cache directory."""
+developer's own cache directory, and none of them leaves a logger set."""
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from buy_agent.logging_setup import _NOISY_LIBRARIES, _TRACE_LIBRARIES
 from buy_agent.models import (
     ExtractedProduct,
     Opinion,
@@ -20,6 +22,7 @@ from buy_agent.models import (
 from buy_agent.search import SearchResult
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 
@@ -58,6 +61,35 @@ def pay_with_nothing_of_the_developers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("BUY_AGENT_AP2_KEY", raising=False)
     monkeypatch.delenv("BUY_AGENT_AP2_MANDATE", raising=False)
     monkeypatch.delenv("BUY_AGENT_MERCHANT_URL", raising=False)
+
+
+#: Every logger ``configure_logging`` sets a level on, which is every logger a
+#: test can leave changed for the ones after it. The root is on the list because
+#: that function sets it itself rather than leaving it to ``basicConfig``, which
+#: does nothing where a handler is already installed -- and under pytest one
+#: always is.
+_LEVELS_CONFIGURE_LOGGING_SETS = ("", "buy_agent", *_NOISY_LIBRARIES, *_TRACE_LIBRARIES)
+
+
+@pytest.fixture(autouse=True)
+def leave_every_logger_as_it_was() -> Iterator[None]:
+    """Put back every level ``configure_logging`` sets, after every test.
+
+    ``autouse`` for the reason the cache directory is: three entry points call
+    that function -- the CLI, the server and the benchmark -- and a test that
+    runs one of them is otherwise deciding how loud every later test is. What
+    that costs is not a failure where it happened but a ``caplog`` assertion
+    going quiet three files further on, or a branch that only runs at a level
+    somebody else already set. A level and not the handlers: those are installed
+    per-test where they matter, and ``caplog`` manages its own.
+    """
+    kept = [
+        (logger, logger.level)
+        for logger in map(logging.getLogger, _LEVELS_CONFIGURE_LOGGING_SETS)
+    ]
+    yield
+    for logger, level in kept:
+        logger.setLevel(level)
 
 
 class FakeLLM:

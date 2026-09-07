@@ -315,7 +315,7 @@ reported.
 | `api.py` | Request options in, ranked products out -- the web-facing half worth testing |
 | `server.py` | A stdlib HTTP server: the JSON API, the event stream, the built UI |
 
-### Eleven conventions
+### Fourteen conventions
 
 - **A model server is one row in one table, reached one way.**
   `providers.PROVIDERS` holds each server whole -- its defaults (`model`,
@@ -495,7 +495,23 @@ reported.
   both still reach every other handler -- which keeps the browser's progress panel
   showing one stream and a `caplog` seeing the whole run. Only the *console*
   handler is told to skip the report; a handler writing anywhere else is nobody's
-  stream to take lines out of.
+  stream to take lines out of. `configure_logging` sets the level itself rather
+  than leaving it to `basicConfig`, which does nothing at all where the root
+  logger already has a handler -- and the level is what it silently skips, so
+  `--verbose` asked for DEBUG and got INFO. It quietens libraries in two tiers:
+  `_NOISY_LIBRARIES` log a line per call and go quiet until somebody asks for
+  detail, while `_TRACE_LIBRARIES` -- httpcore, a dozen DEBUG lines per request
+  -- are held down at `--verbose` too, being what asking for detail would
+  otherwise be spent on.
+- **A heuristic that takes something away says how many at INFO and which at
+  DEBUG.** All eight do: `clean_products`, `drop_ungrounded`, `merge_variants`,
+  `deduplicate`'s nameless drop and `Constraints.apply` drop a whole product;
+  `verify_numbers` blanks a figure, `verify_opinions` a quote and
+  `attribute_sources` a link. The count is what says a short report is a
+  filtered one rather than a thin web; the name is what makes a wrong drop
+  arguable, and `-v` is the only place a name per product can be afforded. The
+  merge is the case to remember, since nothing was dropped at all: the folded
+  entry keeps the shorter of the two names and the other is simply gone.
 - **Model output is never trusted as judgement.** The model reports article
   headlines as products; `clean_products` filters them. Anything that decides the
   answer -- filtering, scoring, ordering -- belongs in Python, where it is testable.
@@ -977,14 +993,14 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1563 tests run in about six seconds: most of that is the two that spawn an
+1575 tests run in about six seconds: most of that is the two that spawn an
 interpreter -- one checking `python -m buy_agent` still runs as a script, one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1563 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1563 collect but 13 of the 19 in
-`tests/test_start_script.py` skip, so the summary reads `1550 passed, 13 skipped`.
+reaching out. 1575 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1575 collect but 13 of the 19 in
+`tests/test_start_script.py` skip, so the summary reads `1562 passed, 13 skipped`.
 The UI's 186 tests run in about two seconds, most of which is building the app
 first. The 31 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.

@@ -229,8 +229,14 @@ def deduplicate(products: Sequence[Product], limit: int) -> list[Product]:
     """
     named = [product for product in products if product.dedup_key]
     if len(named) != len(products):
+        # Count then names, as everywhere a product is removed: "identifies
+        # nothing" is a verdict on a name, and the name is what argues with it.
         logger.info(
             "Dropped %d result(s) whose name identifies nothing", len(products) - len(named)
+        )
+        logger.debug(
+            "Nothing to identify them by: %s",
+            ", ".join(repr(item.name) for item in products if not item.dedup_key),
         )
     deduped = merge_variants(named)
     merged = len(named) - len(deduped)
@@ -250,6 +256,11 @@ def merge_variants(products: Sequence[Product]) -> list[Product]:
     for product in products:
         for index, existing in enumerate(merged):
             if _same_product(existing.name, product.name):
+                # The other way a product leaves the report without being
+                # dropped, and the one a reader cannot reconstruct from what
+                # survived: the merged entry keeps the shorter of the two names,
+                # so the other is gone from every line after this.
+                logger.debug("Folded %r together with %r", existing.name, product.name)
                 merged[index] = _combine(existing, product)
                 break
         else:

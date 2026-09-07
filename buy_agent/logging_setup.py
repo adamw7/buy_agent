@@ -15,8 +15,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("buy_agent")
 
-#: Libraries that log a line per HTTP call, one per model server (ADR-0028).
-_NOISY_LIBRARIES = ("httpx", "openai")
+#: Libraries that log a line per call: one per model server (ADR-0028), plus the
+#: search backend, which logs an INFO line naming each of the several engines it
+#: fans a query out to that failed -- a search that answered from the rest still
+#: prints "Error in engine ...", which reads as the run's own failure and is not
+#: one. Quietened by default and deliberately left alone by ``--verbose``: a line
+#: per request is exactly what somebody debugging wants to see.
+_NOISY_LIBRARIES = ("httpx", "openai", "ddgs")
+
+#: The transport underneath those, held down at ``--verbose`` too. httpcore traces
+#: every request at DEBUG in a dozen lines -- ``send_request_headers.started``,
+#: ``receive_response_body.complete`` -- so the twelve HTTP calls of an ordinary
+#: run bury the handful of DEBUG lines the agent writes about its own heuristics,
+#: which are what ``-v`` was asked for. INFO rather than WARNING: httpcore says
+#: nothing at INFO, so what this silences is the trace and nothing else.
+_TRACE_LIBRARIES = ("httpcore",)
 
 _FORMAT = "%(asctime)s %(levelname)-7s %(name)s | %(message)s"
 _DATEFMT = "%H:%M:%S"
@@ -36,18 +49,26 @@ _REPORT_HANDLER = "buy_agent-report"
 def configure_logging(*, verbose: bool = False) -> None:
     """Send agent logs to stderr and the report to stdout.
 
-    ``verbose`` also turns on DEBUG from libraries.
+    ``verbose`` also turns on DEBUG from libraries -- all but the transport trace
+    :data:`_TRACE_LIBRARIES` names, which is what ``-v`` would otherwise be spent
+    on.
     """
-    logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
-        format=_FORMAT,
-        datefmt=_DATEFMT,
-    )
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(level=level, format=_FORMAT, datefmt=_DATEFMT)
+    # ``basicConfig`` does nothing whatever where the root logger already has a
+    # handler -- an embedder's, or the one pytest installs around every test --
+    # and the level is what it silently skips, so ``--verbose`` asked for DEBUG
+    # and got INFO with nothing said. Set here instead: this function is an entry
+    # point's own call about how loud the process is, not a suggestion.
+    logging.getLogger().setLevel(level)
     _split_report_from_progress()
+    for plumbing in _TRACE_LIBRARIES:
+        logging.getLogger(plumbing).setLevel(logging.INFO)
     if not verbose:
-        # Both narrate at INFO and drown out the report: httpx logs every request
-        # the ollama client makes, and the OpenAI client a line per retry -- so a
-        # stopped vLLM prints its retries above the message saying what to do.
+        # All three narrate at INFO and drown out the report: httpx logs every
+        # request the ollama client makes, the OpenAI client a line per retry --
+        # so a stopped vLLM prints its retries above the message saying what to
+        # do -- and ddgs a line per search engine that did not answer.
         for chatty in _NOISY_LIBRARIES:
             logging.getLogger(chatty).setLevel(logging.WARNING)
 

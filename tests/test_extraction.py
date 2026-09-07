@@ -128,6 +128,22 @@ def test_deduplicate_counts_merges_and_nameless_drops_apart(caplog) -> None:
     assert "Dropped 1 result(s) whose name identifies nothing" in caplog.text
 
 
+def test_both_of_those_name_what_they_took_for_the_reader_who_asked(caplog) -> None:
+    """A merge is the other way a product leaves the report, and the only one a
+    reader cannot reconstruct from what survived: the longer name is gone."""
+    products = [
+        Product(name="Sony WH-1000XM5"),
+        Product(name="Sony WH-1000XM5 Wireless"),
+        Product(name="   "),
+    ]
+
+    with caplog.at_level(logging.DEBUG, logger="buy_agent.extraction"):
+        deduplicate(products, limit=10)
+
+    assert "Folded 'Sony WH-1000XM5' together with 'Sony WH-1000XM5 Wireless'" in caplog.text
+    assert "Nothing to identify them by: '   '" in caplog.text
+
+
 def test_a_product_named_after_a_superlative_is_kept() -> None:
     """A brand may open on the word a headline opens on.
 

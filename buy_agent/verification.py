@@ -207,10 +207,23 @@ def drop_ungrounded(products: Sequence[Product], haystack: str) -> list[Product]
 
     A name absent from every result cannot have been read from one.
     """
-    kept = [product for product in products if mentions_name(haystack, product.name)]
-    dropped = len(products) - len(kept)
+    kept: list[Product] = []
+    dropped: list[str] = []
+    for product in products:
+        if mentions_name(haystack, product.name):
+            kept.append(product)
+        else:
+            dropped.append(product.name)
+
     if dropped:
-        logger.info("Dropped %d product(s) absent from the search results", dropped)
+        # The count at INFO and the names at DEBUG, the pairing every heuristic
+        # that removes a product uses. This is the one most worth naming:
+        # ``mentions_name`` decides whether a product is real at all, and a real
+        # one it happens to fail leaves nothing behind but a number one smaller.
+        logger.info("Dropped %d product(s) absent from the search results", len(dropped))
+        logger.debug(
+            "Absent from the search results: %s", ", ".join(repr(name) for name in dropped)
+        )
     return kept
 
 
@@ -261,7 +274,11 @@ def attribute_sources(
     for product in products:
         url = product.url if product.url in known else None
         if url is None:
-            invented += bool(product.url)
+            if product.url:
+                invented += 1
+                # A link is the field the model is worst at and the one the
+                # shopper clicks, so which page it invented is worth having.
+                logger.debug("Never searched: %r for %r", product.url, product.name)
             url = next(
                 (page for page, text in pages if mentions_name(text, product.name)), None
             )

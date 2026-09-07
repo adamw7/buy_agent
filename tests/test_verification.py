@@ -470,6 +470,24 @@ def test_grounding_reports_what_it_dropped(caplog) -> None:
     assert "Dropped 1 product(s) absent from the search results" in caplog.text
 
 
+def test_the_products_grounding_dropped_are_named_for_the_reader_who_asked(caplog) -> None:
+    """``mentions_name`` decides whether a product is real at all, so a real one
+    it happens to fail is the run's worst miss -- and the count alone leaves
+    nothing to find it by. The count at INFO and the names at DEBUG, as
+    everywhere else a product is taken away."""
+    with caplog.at_level(logging.DEBUG, logger="buy_agent.verification"):
+        ground([Product(name="Bonavita Gooseneck Kettle", price=80.0)], SOURCES)
+
+    assert "Absent from the search results: 'Bonavita Gooseneck Kettle'" in caplog.text
+
+
+def test_nothing_dropped_says_nothing_at_either_level(caplog) -> None:
+    with caplog.at_level(logging.DEBUG, logger="buy_agent.verification"):
+        ground([Product(name="Sony WH-CH720N")], SOURCES)
+
+    assert "Absent from the search results" not in caplog.text
+
+
 def test_a_slash_rating_needs_no_lead_in_word() -> None:
     """"4.6/5" is a rating on its own; nothing has to introduce it."""
     haystack = build_haystack([SearchResult(snippet="The Sony sits at 4.6/5 overall")])
@@ -661,6 +679,17 @@ def test_a_replaced_link_is_reported(caplog) -> None:
         attribute_sources([product], PAGES)
 
     assert "1 link(s)" in caplog.text
+
+
+def test_the_link_that_was_replaced_is_named_for_the_reader_who_asked(caplog) -> None:
+    """A link is the field the model is worst at and the one the shopper clicks
+    (ADR-0017), so which page it invented is worth being able to see."""
+    product = Product(name="Sony WH-CH720N", url="https://invented.example")
+
+    with caplog.at_level(logging.DEBUG, logger="buy_agent.verification"):
+        attribute_sources([product], PAGES)
+
+    assert "Never searched: 'https://invented.example' for 'Sony WH-CH720N'" in caplog.text
 
 
 def test_a_missing_link_is_not_reported_as_dropped(caplog) -> None:

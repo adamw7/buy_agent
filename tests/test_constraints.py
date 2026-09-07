@@ -117,6 +117,24 @@ def test_the_count_is_logged_whenever_bounds_were_set(caplog) -> None:
     assert "1 of 2 product(s) are within the limits (at most 200.00)" in caplog.text
 
 
+def test_what_fell_outside_is_named_for_the_reader_who_asked(caplog) -> None:
+    """"Why is the one I had in mind not in there?" is what a bound provokes more
+    than anything else in a run, and a count on its own answers it with a number."""
+    with caplog.at_level(logging.DEBUG, logger="buy_agent.constraints"):
+        Constraints(max_price=200.0).apply(
+            [product("cheap", price=99.0), product("dear", price=900.0)]
+        )
+
+    assert "Outside the limits: 'dear'" in caplog.text
+
+
+def test_a_bound_that_dropped_nothing_names_nobody(caplog) -> None:
+    with caplog.at_level(logging.DEBUG, logger="buy_agent.constraints"):
+        Constraints(max_price=200.0).apply([product("cheap", price=99.0)])
+
+    assert "Outside the limits" not in caplog.text
+
+
 def test_a_bound_that_dropped_nothing_still_says_so(caplog) -> None:
     """"10 of 10" is the answer that says the bound did nothing, which is not the
     same answer as silence."""
