@@ -510,7 +510,8 @@ reported.
   -- are held down at `--verbose` too, being what asking for detail would
   otherwise be spent on.
 - **A heuristic that takes something away says how many at INFO and which at
-  DEBUG.** All eight do: `clean_products`, `drop_ungrounded`, `merge_variants`,
+  DEBUG**, and `tests/test_logging_contract.py` drives all eight to say so, each
+  step's own file pinning its wording. All eight do: `clean_products`, `drop_ungrounded`, `merge_variants`,
   `deduplicate`'s nameless drop and `Constraints.apply` drop a whole product;
   `verify_numbers` blanks a figure, `verify_opinions` a quote and
   `attribute_sources` a link. The count is what says a short report is a
@@ -1009,15 +1010,15 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1602 tests run in about seven seconds: most of that is the three that spawn an
+1741 tests run in about eight seconds: most of that is the three that spawn an
 interpreter -- two for what only a real import can answer (`python -m buy_agent`
 still runs as a script, and still imports with `$BUY_AGENT_RAIL` misspelt), one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1602 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1602 collect but 13 of the 19 in
-`tests/test_start_script.py` skip, so the summary reads `1589 passed, 13 skipped`.
+reaching out. 1741 is what a machine with PowerShell collects *and* runs; with
+neither `pwsh` nor `powershell` the same 1741 collect but 13 of the 19 in
+`tests/test_start_script.py` skip, so the summary reads `1728 passed, 13 skipped`.
 The UI's 186 tests run in about two seconds, most of which is building the app
 first. The 31 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
@@ -1076,7 +1077,13 @@ that
 - every skill in `.claude/skills/` is named after its own directory, is described
   where this file introduces them, and names only files, tests and tables that
   exist -- `add-option` the two the form declares, `preflight` the checking
-  commands `ci.yml` runs and the toolchains it pins.
+  commands `ci.yml` runs and the toolchains it pins;
+- every module in the package takes its logger off the package's own name, leaves
+  its formatting to the logger, marks nothing as the report, configures logging
+  nowhere but `logging_setup`, and writes to stdout not at all -- and each entry
+  point wires its `--verbose` flag to the level. Every one of those is invisible
+  where it is broken: the line still reaches a terminal, and only the browser's
+  progress panel, a `> top.txt` or a `-v` nobody ran is any the wiser.
 
 A field added on one side of the language boundary and forgotten on the other is
 otherwise invisible to both suites.

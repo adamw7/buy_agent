@@ -1078,8 +1078,9 @@ def test_no_test_is_hidden_by_another_of_the_same_name() -> None:
 
 # -- the Saturday mutation run -------------------------------------------------
 
-# mutmut copies these two into the tree it tests without being asked; everything
-# else the suite reaches for has to be named in ``also_copy``.
+# mutmut copies these two into the tree it tests without being asked, as it does
+# the package it is mutating; everything else the suite reaches for has to be
+# named in ``also_copy``.
 _COPIED_ANYWAY = ("tests", "setup.cfg")
 
 
@@ -1188,7 +1189,12 @@ def test_a_mutation_run_copies_everything_the_tests_reach_for() -> None:
     being mutated. Whatever ``also_copy`` leaves behind is missing only there, so
     the whole Saturday run dies at collection -- and nothing in a normal run,
     where every path resolves, can see it coming."""
-    also_copy = ini_values(_MUTMUT, "mutmut", "also_copy") + list(_COPIED_ANYWAY)
+    also_copy = (
+        ini_values(_MUTMUT, "mutmut", "also_copy")
+        + list(_COPIED_ANYWAY)
+        # The package being mutated is the one thing a run cannot be missing.
+        + ini_values(_MUTMUT, "mutmut", "source_paths")
+    )
     copied = [_ROOT / name for name in also_copy]
     needed = files_read() + files_imported()
 
@@ -1510,3 +1516,207 @@ def test_every_skill_is_one_the_project_documents() -> None:
 
     for path in skills():
         assert f"`{path.parent.name}`" in described, f"CLAUDE.md does not name {path.parent.name}"
+
+
+# -- what the run says, and where it says it -----------------------------------
+
+_PACKAGE = _ROOT / "buy_agent"
+
+#: The methods a logger answers to. ``warn`` is the deprecated spelling and is on
+#: the list so a call to it is held to these rules rather than slipping past them.
+_LEVELS = ("debug", "info", "warning", "error", "exception", "critical", "warn")
+
+#: The one whose message is its *second* argument, the first being the level.
+_LEVEL_FIRST = "log"
+
+
+def package_modules() -> list[Path]:
+    """Every module in the package, found rather than listed.
+
+    A module added is then held to the rules below on the day it arrives, which is
+    the only day anybody would think to check them.
+    """
+    found = sorted(_PACKAGE.glob("*.py"))
+    assert found, "no package modules; this section has outlived its rule"
+    return found
+
+
+@cache
+def module_tree(path: Path) -> ast.Module:
+    return ast.parse(path.read_text(encoding="utf-8"))
+
+
+def logging_calls(path: Path) -> list[ast.Call]:
+    """Every ``logger.<level>(...)`` in one module.
+
+    Matched on the receiver as well as the method, because ``error`` is also what
+    an ``ArgumentParser`` answers to -- ``parser.error(str(exc))`` in ``__main__``
+    is a usage message and not a log line, and the message rule below would fail
+    it for the one thing it is right to do.
+    """
+    return [
+        node
+        for node in ast.walk(module_tree(path))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in (*_LEVELS, _LEVEL_FIRST)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "logger"
+    ]
+
+
+def module_logger(path: Path) -> ast.Call | None:
+    """What a module's own ``logger = ...`` was got from, if it has one."""
+    for node in module_tree(path).body:
+        if (
+            isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "logger"
+                for target in node.targets
+            )
+            and isinstance(node.value, ast.Call)
+        ):
+            return node.value
+    return None
+
+
+def names_attribute(node: ast.AST, attribute: str) -> bool:
+    return any(
+        isinstance(child, ast.Attribute) and child.attr == attribute
+        for child in ast.walk(node)
+    )
+
+
+@pytest.mark.parametrize("path", package_modules(), ids=lambda path: path.name)
+def test_every_module_logs_under_the_package_name(path: Path) -> None:
+    """Every line a run writes has to reach the ``buy_agent`` logger.
+
+    Both halves of what the report is hang off that one name: the stdout/stderr
+    split installs its handler there, and so does the relay behind the browser's
+    progress panel. A module that got its logger from anywhere else would keep
+    working -- the root logger still prints it -- while vanishing from the panel
+    and from the ``> top.txt`` split, which no test of that module would see.
+    """
+    got_from = module_logger(path)
+    if got_from is None:
+        assert not logging_calls(path), f"{path.name} logs without a logger of its own"
+        return
+
+    assert names_attribute(got_from, "getLogger"), f"{path.name}'s logger is not one"
+    named = got_from.args[0] if got_from.args else None
+    assert (isinstance(named, ast.Name) and named.id == "__name__") or (
+        isinstance(named, ast.Constant) and named.value == "buy_agent"
+    ), f"{path.name} names its logger something outside the package"
+
+
+@pytest.mark.parametrize("path", package_modules(), ids=lambda path: path.name)
+def test_every_log_line_leaves_its_formatting_to_the_logger(path: Path) -> None:
+    """A message is a format string with its arguments beside it, never an f-string.
+
+    Two things rest on that. A record's ``args`` survive to whoever handles it, so
+    a filter or the SSE relay can read the line the run meant rather than one
+    already flattened; and a DEBUG line inside a loop over ten pages costs nothing
+    on a run that did not ask for DEBUG, which is what makes it affordable to write
+    one per dropped product.
+    """
+    for call in logging_calls(path):
+        assert call.args, f"{path.name}:{call.lineno} logs nothing"
+        message = call.args[1] if call.func.attr == _LEVEL_FIRST else call.args[0]
+        if isinstance(message, ast.Name) and any(
+            isinstance(argument, ast.Starred) for argument in call.args
+        ):
+            # A message passed on with its own ``*args`` behind it -- which is
+            # ``_report``, the one function whose whole job is to hand a caller's
+            # line to the logger with the mark on it. Nothing is formatted here
+            # either; it is the same deferral one call further out.
+            continue
+        assert isinstance(message, ast.Constant) and isinstance(message.value, str), (
+            f"{path.name}:{call.lineno} formats its own message"
+        )
+
+
+@pytest.mark.parametrize("path", package_modules(), ids=lambda path: path.name)
+def test_nothing_but_the_report_handler_writes_to_stdout(path: Path) -> None:
+    """stdout is the report's, and a ``> top.txt`` catches whatever else lands there.
+
+    That is the whole of what the split promises, and it is a promise about the
+    stream rather than about any one logger -- so a ``print`` anywhere in the
+    package breaks it whether or not the report is even running. The prompt
+    ``--pay`` writes goes to stderr for the same reason: it is a question, and a
+    redirect asking for the answer should not catch it.
+    """
+    for node in ast.walk(module_tree(path)):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            assert node.func.id != "print", f"{path.name}:{node.lineno} prints"
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr == "stdout"
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "sys"
+        ):
+            assert path.name == "logging_setup.py", (
+                f"{path.name}:{node.lineno} names the stream the report is redirected off"
+            )
+
+
+@pytest.mark.parametrize("path", package_modules(), ids=lambda path: path.name)
+def test_only_the_report_marks_a_record_as_the_report(path: Path) -> None:
+    """``extra={"report": True}`` is what sends a line to stdout instead of stderr.
+
+    It is set in exactly one function, and the reason to keep it there is that the
+    mark is invisible: a narration line marked by mistake reads the same on a
+    terminal, where both streams land together, and lands in the redirect anyway.
+    """
+    for call in logging_calls(path):
+        marked = [keyword for keyword in call.keywords if keyword.arg == "extra"]
+        assert not marked or path.name == "logging_setup.py", (
+            f"{path.name}:{call.lineno} marks a record itself"
+        )
+
+
+@pytest.mark.parametrize("path", package_modules(), ids=lambda path: path.name)
+def test_only_the_logging_module_configures_logging(path: Path) -> None:
+    """One function decides how loud a process is, and it is not a library's call.
+
+    ``basicConfig`` installs a handler on the root logger and sets a level for
+    everything in the process, so a module doing it at import would decide that
+    for an embedder who imported ``BuyAgent`` -- and quietly do nothing where the
+    embedder had already configured logging themselves.
+    """
+    if path.name == "logging_setup.py":
+        return
+
+    tree = module_tree(path)
+    assert not names_attribute(tree, "basicConfig"), f"{path.name} configures logging"
+
+
+@pytest.mark.parametrize("entry_point", ["__main__.py", "server.py"])
+def test_every_entry_point_wires_its_verbose_flag_to_the_level(entry_point: str) -> None:
+    """``-v`` is a flag on two parsers and a level in one function, and the wiring
+    between them is a line each that nothing else would miss.
+
+    Left out, the flag parses, the help still advertises it, and the run is as
+    quiet as it was -- which is the failure ``configure_logging`` already guards
+    against from the other end, where ``basicConfig`` silently declines to set the
+    level it was given.
+    """
+    tree = module_tree(_PACKAGE / entry_point)
+    main = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "main"
+    )
+    configured = [
+        node
+        for node in ast.walk(main)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "configure_logging"
+    ]
+
+    assert configured, f"{entry_point} never configures logging"
+    assert any(
+        keyword.arg == "verbose" and names_attribute(keyword.value, "verbose")
+        for call in configured
+        for keyword in call.keywords
+    ), f"{entry_point} has a --verbose flag that changes nothing"
