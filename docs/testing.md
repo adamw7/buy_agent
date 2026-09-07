@@ -232,7 +232,7 @@ covered and unchecked.
 
 `.github/workflows/mutation.yml` runs it against `buy_agent/` every Saturday
 morning and on demand, never on a pull request: it takes a couple of minutes where
-the suite takes three seconds, and it is a report rather than a gate (ADR-0016).
+the suite takes six seconds, and it is a report rather than a gate (ADR-0016).
 The job summary carries the score, a row per module worst first, and the functions
 the survivors cluster in; the full list is uploaded as an artifact. The run fails
 only if the score drops under 75% -- a guard against a module arriving with thin

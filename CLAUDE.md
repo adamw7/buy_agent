@@ -38,7 +38,7 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt          # runtime deps: requirements.txt
 
-python -m pytest                              # whole suite (~2s)
+python -m pytest                              # whole suite (~6s)
 python -m pytest tests/test_ranking.py        # one file
 python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
 python -m pytest -k verification              # by name
