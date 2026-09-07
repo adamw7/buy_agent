@@ -563,28 +563,32 @@ def test_a_setting_the_server_never_sees_is_not_part_of_the_question() -> None:
 
 @pytest.fixture
 def installed_models(monkeypatch):
-    """Stand in for ollama's Client, so listing models never opens a socket.
+    """Stand in for an Ollama being asked what it holds, so nothing opens a socket.
 
-    Both calls it makes: the tags, and what each of them can do. Everything here
-    can answer a prompt -- which of them cannot is ``tests/test_providers.py``'s
-    question, not this module's.
+    Both calls it makes: ``GET /api/tags`` for the tags, and ollama's client per
+    tag for what each of them can do. Everything here can answer a prompt --
+    which of them cannot is ``tests/test_providers.py``'s question, not this
+    module's.
     """
 
     def install(models: list[str] | None, *, error: Exception | None = None) -> None:
+        def get(_url, **_kwargs):
+            if error is not None:
+                raise error
+            return SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: {"models": [{"model": name} for name in models or []]},
+            )
+
         class FakeClient:
             def __init__(self, base_url: str, **_kwargs) -> None:
-                if error is not None:
-                    raise error
-
-            def list(self):
-                return SimpleNamespace(
-                    models=[SimpleNamespace(model=name) for name in models or []]
-                )
+                self.base_url = base_url
 
             @staticmethod
             def show(_name: str):
                 return SimpleNamespace(capabilities=["completion"])
 
+        monkeypatch.setattr("buy_agent.providers.httpx.get", get)
         monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
 
     return install

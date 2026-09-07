@@ -171,33 +171,51 @@ def completing(monkeypatch):
 
 @pytest.fixture
 def pulled(monkeypatch):
-    """Stand in for ollama's ``Client``, so a listing never opens a socket.
+    """Stand in for an Ollama being asked what it holds, so a listing opens no socket.
 
-    Both of the calls a listing makes: ``list`` for the tags, and ``show`` per
-    tag for what it can do. ``capabilities`` maps a tag to what ``ollama show``
-    would report -- a tag missing from it is one the probe fails on, which is the
-    third answer that call can give and the one nothing can be concluded from.
+    Both of the calls a listing makes: ``GET /api/tags`` for the tags, answered
+    the way that endpoint answers -- every entry carrying *both* spellings of its
+    name -- and ollama's ``Client.show`` per tag for what each one can do.
+    ``entries`` replaces that answer with raw ones, which is how a tag spelled
+    only one of the two ways is written down. ``capabilities`` maps a tag to what
+    ``ollama show`` would report -- a tag missing from it is one the probe fails
+    on, which is the third answer that call can give and the one nothing can be
+    concluded from.
     """
 
     def install(
         models: list[str],
         *,
+        entries: list[dict] | None = None,
         capabilities: dict[str, list[str] | None] | None = None,
         error: Exception | None = None,
     ) -> dict:
-        asked: dict = {"shown": [], "opened": {}}
+        asked: dict = {"shown": [], "opened": {}, "tags": {}}
         reported = {} if capabilities is None else capabilities
+        listing = (
+            entries
+            if entries is not None
+            else [{"model": name, "name": name} for name in models]
+        )
+
+        class Response:
+            @staticmethod
+            def raise_for_status() -> None:
+                return None
+
+            @staticmethod
+            def json() -> dict:
+                return {"models": listing}
+
+        def get(url, **kwargs):
+            if error is not None:
+                raise error
+            asked["tags"] = {"url": url, **kwargs}
+            return Response()
 
         class FakeClient:
             def __init__(self, base_url: str, **kwargs) -> None:
-                if error is not None:
-                    raise error
                 asked["opened"] = {"base_url": base_url, **kwargs}
-
-            def list(self):
-                return SimpleNamespace(
-                    models=[SimpleNamespace(model=name) for name in models]
-                )
 
             def show(self, name: str):
                 asked["shown"].append(name)
@@ -205,6 +223,7 @@ def pulled(monkeypatch):
                     raise ResponseError(f"model {name!r} not found", 404)
                 return SimpleNamespace(capabilities=reported.get(name, [_COMPLETION]))
 
+        monkeypatch.setattr("buy_agent.providers.httpx.get", get)
         monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
         return asked
 
@@ -422,6 +441,58 @@ def test_ollama_lists_every_tag_it_has_pulled(pulled) -> None:
     assert names(OLLAMA_CONFIG) == ["gemma4:12b", "qwen3:8b"]
 
 
+def test_a_tag_spelled_only_the_way_ollama_list_prints_it_is_still_offered(
+    pulled,
+) -> None:
+    """``/api/tags`` names a model twice, ``model`` and ``name``, and an entry
+    carrying only the second used to vanish: the client's typed listing declares
+    the first and pydantic discards what it does not declare. What that costs is
+    not a tag missing from a listing -- it is a pulled model missing from the
+    picker, with the shopper's own choice marked "not served" beside the models
+    that survived, while ``ollama list`` goes on printing it."""
+    pulled(
+        [],
+        entries=[
+            {"name": "gemma4:12b", "size": 8149190253},
+            {"model": "qwen3:8b", "name": "qwen3:8b"},
+        ],
+    )
+
+    assert names(OLLAMA_CONFIG) == ["gemma4:12b", "qwen3:8b"]
+
+
+def test_an_entry_that_names_nothing_is_left_out(pulled) -> None:
+    """The other end of that: an entry with neither spelling is nothing to offer
+    a shopper, which is what a ``/v1/models`` entry with no ``id`` is on the
+    other row -- and it takes only itself out, not the listing around it."""
+    pulled([], entries=[{"size": 1}, {"model": "qwen3:8b"}])
+
+    assert names(OLLAMA_CONFIG) == ["qwen3:8b"]
+
+
+def test_the_tags_are_read_off_ollamas_own_endpoint(pulled) -> None:
+    """Where the answer comes from, since it is no longer the client's listing:
+    the address the run itself would chat to, and Ollama's own path on it."""
+    asked = pulled(["gemma4:12b"])
+
+    listed(OLLAMA_CONFIG)
+
+    assert asked["tags"]["url"] == f"{OLLAMA_CONFIG.base_url}/api/tags"
+
+
+@pytest.mark.parametrize("base_url", ["localhost:11434", "http://localhost:11434/"])
+def test_the_address_is_asked_however_it_was_written(pulled, base_url: str) -> None:
+    """``$OLLAMA_HOST`` is written every way -- with the scheme and without it,
+    with a trailing slash and without -- and ollama's client takes all of them for
+    the chat. The listing asks httpx directly, so it has to take them too, rather
+    than reporting a running server as unreachable over the shape of its URL."""
+    asked = pulled(["gemma4:12b"])
+
+    listed(AgentConfig(provider="ollama", base_url=base_url))
+
+    assert asked["tags"]["url"] == "http://localhost:11434/api/tags"
+
+
 def test_a_tag_with_no_completion_to_give_is_listed_as_one(pulled) -> None:
     """The whole point of asking twice: an embedding model is pulled the same way
     a chat model is, sits in the same listing, and cannot answer a prompt. Hidden,
@@ -453,11 +524,12 @@ def test_every_tag_is_asked_what_it_can_do(pulled) -> None:
 
 def test_the_whole_listing_is_held_to_the_one_short_timeout(pulled) -> None:
     """It is asked for while a form renders, and it is now several calls rather
-    than one -- a client with no timeout would hang the picker on a slow server."""
+    than one -- a call with no timeout would hang the picker on a slow server."""
     asked = pulled(["gemma4:12b"])
 
     listed(OLLAMA_CONFIG)
 
+    assert asked["tags"]["timeout"] == providers_module._LIST_TIMEOUT
     assert asked["opened"]["timeout"] == providers_module._LIST_TIMEOUT
 
 
@@ -851,16 +923,18 @@ def test_the_listing_budget_covers_the_listing_and_not_each_tag(monkeypatch) -> 
         def __init__(self, base_url: str, **kwargs) -> None:
             pass
 
-        def list(self):
-            return SimpleNamespace(
-                models=[SimpleNamespace(model=name) for name in ("a:1", "b:1", "c:1")]
-            )
-
         def show(self, name: str):
             started.set()
             release.wait(timeout=5.0)
             return SimpleNamespace(capabilities=[_COMPLETION])
 
+    def tags(url, **kwargs):
+        return SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {"models": [{"model": name} for name in ("a:1", "b:1", "c:1")]},
+        )
+
+    monkeypatch.setattr("buy_agent.providers.httpx.get", tags)
     monkeypatch.setattr("buy_agent.providers.Client", Slow)
     monkeypatch.setattr(providers_module, "_LIST_TIMEOUT", 0.05)
     try:
