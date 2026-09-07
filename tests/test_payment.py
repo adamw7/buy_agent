@@ -26,16 +26,9 @@ from buy_agent.payment import (
     pay_for,
     unattended,
 )
+from tests.conftest import payable_product
 
-SONY = Product(
-    name="Sony WH-1000XM5",
-    price=329.99,
-    currency="USD",
-    rating=4.6,
-    review_count=1200,
-    seller="AudioSite",
-    url="https://audiosite.example/xm5",
-)
+SONY = payable_product(rating=4.6, review_count=1200)
 
 BOSE = Product(name="Bose QC Ultra", price=379.0, currency="USD", url="https://x.example/b")
 
@@ -392,13 +385,7 @@ def test_a_cart_is_counted_in_the_currencys_own_units_and_not_always_hundredths(
     """`minor_units` knows JPY has no minor unit; this is what says `cart_for`
     actually tells it which currency. Told nothing, a 4,980 yen pair of
     headphones becomes an authorisation for 498,000."""
-    yen = Product(
-        name="Sony WH-1000XM5",
-        price=4980.0,
-        currency="JPY",
-        seller="AudioSite",
-        url="https://audiosite.example/xm5",
-    )
+    yen = payable_product(price=4980.0, currency="JPY")
 
     assert cart_for(yen, [yen], AgentConfig(pay=True)).amount == 4980
 

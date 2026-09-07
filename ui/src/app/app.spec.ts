@@ -5,8 +5,8 @@ import { afterEach, vi } from 'vitest';
 
 import { App } from './app';
 import { AgentService } from './agent';
+import { WEIGHTS, defaults, receipt, status } from './testing';
 import type {
-  AgentDefaults,
   ModelSource,
   ModelStatus,
   PayOptions,
@@ -17,81 +17,10 @@ import type {
   SourcesCheck,
 } from './agent.types';
 
-const DEFAULTS: AgentDefaults = {
-  provider: 'ollama',
-  provider_options: [
-    {
-      name: 'ollama',
-      label: 'Ollama',
-      model: 'llama3.2',
-      base_url: 'http://localhost:11434',
-      takes_num_ctx: true,
-    },
-    {
-      name: 'vllm',
-      label: 'vLLM',
-      model: 'Qwen/Qwen3-8B',
-      base_url: 'http://localhost:8000/v1',
-      takes_num_ctx: false,
-    },
-  ],
-  model: 'llama3.2',
-  base_url: 'http://localhost:11434',
-  temperature: 0,
-  num_ctx: null,
-  think: null,
-  results: 10,
-  top: 2,
-  max_price: null,
-  min_rating: null,
-  min_reviews: null,
-  cache_ttl: 86400,
-  region: 'us-en',
-  sources: '',
-  fetch: true,
-  pay: false,
-  pay_available: true,
-  rail: 'dry-run',
-  rail_options: [
-    {
-      name: 'dry-run',
-      label: 'Dry run',
-      endpoint: '',
-      needs_endpoint: false,
-      moves_money: false,
-    },
-    {
-      name: 'http',
-      label: 'HTTP endpoint',
-      endpoint: '',
-      needs_endpoint: true,
-      moves_money: true,
-    },
-  ],
-  merchant_url: '',
-  spend_limit: null,
-  sort_by: 'score',
-  sort_options: ['score', 'price', 'rating'],
-  limits: {
-    results: { min: 1, max: 50 },
-    top: { min: 1, max: 50 },
-    temperature: { min: 0, max: 2 },
-    num_ctx: { min: 1, max: 1_000_000 },
-    max_price: { min: 1, max: 10_000_000 },
-    min_rating: { min: 0, max: 5 },
-    min_reviews: { min: 0, max: 10_000_000 },
-    cache_ttl: { min: 0, max: 2_592_000 },
-    spend_limit: { min: 1, max: 10_000_000 },
-  },
-};
-
-const STATUS: ModelStatus = {
-  provider: 'ollama',
-  label: 'Ollama',
-  base_url: 'http://localhost:11434',
-  reachable: true,
-  models: [{ name: 'llama3.2', completion: true }],
-};
+/** Two products highlighted rather than the server's three: these tests are
+ *  about what the page does with the split, so the rest is `defaults()`. */
+const DEFAULTS = defaults({ top: 2 });
+const STATUS = status();
 
 const product = (rank: number, name: string) => ({
   rank,
@@ -117,9 +46,6 @@ const product = (rank: number, name: string) => ({
   rating_label: '4.5/5 (10 reviews)',
 });
 
-/** What a run reports its scores were blended by -- the defaults, normalised. */
-const WEIGHTS = { rating: 0.5, popularity: 0.2, price: 0.3 };
-
 const RESULT: SearchResult = {
   request: 'kettle',
   count: 3,
@@ -129,21 +55,13 @@ const RESULT: SearchResult = {
   products: [product(1, 'Best Kettle'), product(2, 'Good Kettle'), product(3, 'Other Kettle')],
 };
 
-const RECEIPT: Receipt = {
-  paid: false,
-  rail: 'dry-run',
+const RECEIPT = receipt({
   merchant: 'Shop',
   title: 'kettle 1',
   price: 100,
-  currency: 'USD',
   amount: 10000,
   price_label: '100.00 USD',
-  transaction_id: 'tx',
-  reference: 'ref-abc',
-  autonomous: false,
-  enrolled_key: false,
-  detail: 'Nothing was charged.',
-};
+});
 
 /** Stands in for the HTTP layer: no request leaves the page in these tests. */
 class FakeAgent {
@@ -216,25 +134,53 @@ class FakeAgent {
   }
 }
 
+/** A rendered page, settled -- which is the App every one of these starts from. */
+const render = async (): Promise<ComponentFixture<App>> => {
+  const fixture = TestBed.createComponent(App);
+  await fixture.whenStable();
+  return fixture;
+};
+
+/** Type into a named field. `left` also fires `change`, which is what the fields
+ *  that ask the server something wait for rather than a keystroke. */
+const fill = async (fixture: ComponentFixture<App>, name: string, value: string, left = false) => {
+  const field = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+    `input[name="${name}"]`,
+  )!;
+  field.value = value;
+  field.dispatchEvent(new Event('input'));
+  if (left) {
+    field.dispatchEvent(new Event('change'));
+  }
+  await fixture.whenStable();
+};
+
+/** Type a request into the form and submit it, the way a shopper would. */
+const searchFor = async (fixture: ComponentFixture<App>, request: string) => {
+  await fill(fixture, 'request', request);
+  (fixture.nativeElement as HTMLElement).querySelector('form')!.dispatchEvent(new Event('submit'));
+  await fixture.whenStable();
+};
+
+/** One whole run on the page: ask for something, and let the stream answer.
+ *  All three blocks below need it, so it takes the fake rather than closing over
+ *  one -- each `describe` builds its own in `beforeEach`. */
+const ran = async (
+  agent: FakeAgent,
+  request: string,
+  result: SearchResult,
+  fixture?: ComponentFixture<App>,
+): Promise<ComponentFixture<App>> => {
+  const page = fixture ?? (await render());
+  await searchFor(page, request);
+  agent.stream.next({ kind: 'result', result });
+  agent.stream.complete();
+  await page.whenStable();
+  return page;
+};
+
 describe('App', () => {
   let agent: FakeAgent;
-
-  const render = async () => {
-    const fixture = TestBed.createComponent(App);
-    await fixture.whenStable();
-    return fixture;
-  };
-
-  /** Type a request into the form and submit it, the way a shopper would. */
-  const searchFor = async (fixture: ComponentFixture<App>, request: string) => {
-    const page = fixture.nativeElement as HTMLElement;
-    const input = page.querySelector<HTMLInputElement>('input[name="request"]')!;
-    input.value = request;
-    input.dispatchEvent(new Event('input'));
-    await fixture.whenStable();
-    page.querySelector('form')!.dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
-  };
 
   beforeEach(() => {
     localStorage.clear();
@@ -312,11 +258,7 @@ describe('App', () => {
     const fixture = await render();
     const page = fixture.nativeElement as HTMLElement;
 
-    const server = page.querySelector<HTMLInputElement>('input[name="baseUrl"]')!;
-    server.value = 'http://10.0.0.5:11434';
-    server.dispatchEvent(new Event('input'));
-    server.dispatchEvent(new Event('change'));
-    await fixture.whenStable();
+    await fill(fixture, 'baseUrl', 'http://10.0.0.5:11434', true);
 
     expect(agent.modelsAsked).toEqual([
       { provider: 'ollama', base_url: DEFAULTS.base_url },
@@ -558,11 +500,7 @@ describe('App', () => {
     const fixture = await render();
     const page = fixture.nativeElement as HTMLElement;
 
-    const field = page.querySelector<HTMLInputElement>('input[name="sources"]')!;
-    field.value = 'Marques Brownlee';
-    field.dispatchEvent(new Event('input'));
-    field.dispatchEvent(new Event('change'));
-    await fixture.whenStable();
+    await fill(fixture, 'sources', 'Marques Brownlee', true);
 
     expect(agent.sourcesAsked).toContain('Marques Brownlee');
     expect(page.querySelector('.problem')!.textContent).toContain('does not name a source');
@@ -575,11 +513,7 @@ describe('App', () => {
     const fixture = await render();
     const page = fixture.nativeElement as HTMLElement;
 
-    const field = page.querySelector<HTMLInputElement>('input[name="sources"]')!;
-    field.value = 'rtings.com';
-    field.dispatchEvent(new Event('input'));
-    field.dispatchEvent(new Event('change'));
-    await fixture.whenStable();
+    await fill(fixture, 'sources', 'rtings.com', true);
 
     expect(page.querySelector('.problem')).toBeNull();
   });
@@ -654,11 +588,7 @@ describe('App', () => {
     const page = fixture.nativeElement as HTMLElement;
 
     agent.modelsResponse = second;
-    const server = page.querySelector<HTMLInputElement>('input[name="baseUrl"]')!;
-    server.value = 'http://10.0.0.5:11434';
-    server.dispatchEvent(new Event('input'));
-    server.dispatchEvent(new Event('change'));
-    await fixture.whenStable();
+    await fill(fixture, 'baseUrl', 'http://10.0.0.5:11434', true);
 
     second.next({ ...STATUS, base_url: 'http://10.0.0.5:11434', models: [] });
     first.next({ ...STATUS, models: [{ name: 'llama3.2', completion: true }] });
@@ -687,32 +617,12 @@ describe('App results', () => {
   afterEach(() => vi.restoreAllMocks());
 
   /** A finished run on the page, which is what both of these are about. */
-  const finished = async (result: SearchResult = RESULT) => {
-    const fixture = TestBed.createComponent(App);
-    await fixture.whenStable();
-    const page = fixture.nativeElement as HTMLElement;
-    const input = page.querySelector<HTMLInputElement>('input[name="request"]')!;
-    input.value = 'kettle';
-    input.dispatchEvent(new Event('input'));
-    await fixture.whenStable();
-    page.querySelector('form')!.dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
-    agent.stream.next({ kind: 'result', result });
-    agent.stream.complete();
-    await fixture.whenStable();
-    return fixture;
-  };
+  const finished = (result: SearchResult = RESULT) => ran(agent, 'kettle', result);
 
   /** Ask for something else, with a stream of its own for the new run. */
   const searchAgain = async (fixture: ComponentFixture<App>, request: string) => {
     agent.stream = new Subject<SearchEvent>();
-    const page = fixture.nativeElement as HTMLElement;
-    const input = page.querySelector<HTMLInputElement>('input[name="request"]')!;
-    input.value = request;
-    input.dispatchEvent(new Event('input'));
-    await fixture.whenStable();
-    page.querySelector('form')!.dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
+    await searchFor(fixture, request);
   };
 
   /** Pick a criterion out of the Rank by control beside the results. */
@@ -922,25 +832,16 @@ describe('App paying', () => {
 
   /** A finished run, started with paying either on or off. */
   const finished = async (pay: boolean) => {
-    const fixture = TestBed.createComponent(App);
-    await fixture.whenStable();
-    const page = fixture.nativeElement as HTMLElement;
+    const fixture = await render();
     if (pay) {
-      const box = page.querySelector<HTMLInputElement>('input[name="pay"]')!;
+      const box = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+        'input[name="pay"]',
+      )!;
       box.checked = true;
       box.dispatchEvent(new Event('change'));
       await fixture.whenStable();
     }
-    const input = page.querySelector<HTMLInputElement>('input[name="request"]')!;
-    input.value = 'kettle';
-    input.dispatchEvent(new Event('input'));
-    await fixture.whenStable();
-    page.querySelector('form')!.dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
-    agent.stream.next({ kind: 'result', result: RESULT });
-    agent.stream.complete();
-    await fixture.whenStable();
-    return fixture;
+    return ran(agent, 'kettle', RESULT, fixture);
   };
 
   /** Click Pay on the first card, then confirm it. */
@@ -1012,16 +913,7 @@ describe('App paying', () => {
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('ref-abc');
 
     agent.stream = new Subject<SearchEvent>();
-    const page = fixture.nativeElement as HTMLElement;
-    const input = page.querySelector<HTMLInputElement>('input[name="request"]')!;
-    input.value = 'toaster';
-    input.dispatchEvent(new Event('input'));
-    await fixture.whenStable();
-    page.querySelector('form')!.dispatchEvent(new Event('submit'));
-    await fixture.whenStable();
-    agent.stream.next({ kind: 'result', result: RESULT });
-    agent.stream.complete();
-    await fixture.whenStable();
+    await ran(agent, 'toaster', RESULT, fixture);
 
     expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('ref-abc');
   });

@@ -153,6 +153,28 @@ def ranked_product(product: Product, *, score: float, rank: int) -> RankedProduc
     )
 
 
+def payable_product(**extra: Any) -> Product:
+    """A product a run really could pay for, and the one four files needed.
+
+    Priced, in a currency, off a page that was searched: every one of the things
+    ``payment._check`` refuses a product for missing, and every one of them
+    something grounding would have had to leave standing. Written out once
+    because four files were carrying the same seven lines, and a rule added to
+    that check would have had to be answered in all four. ``extra`` overrides as
+    well as adds, so a test about one field says that field and nothing else.
+    """
+    return Product(
+        **{
+            "name": "Sony WH-1000XM5",
+            "price": 329.99,
+            "currency": "USD",
+            "seller": "AudioSite",
+            "url": "https://audiosite.example/xm5",
+        }
+        | extra
+    )
+
+
 @pytest.fixture
 def search_results() -> list[SearchResult]:
     return [
