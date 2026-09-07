@@ -971,6 +971,26 @@ def test_a_bad_option_ends_the_stream_before_the_agent_runs(server: str) -> None
     assert "request" not in StubAgent.captured
 
 
+def test_a_paying_rail_with_no_address_is_refused_at_the_box_it_came_from(
+    server: str,
+) -> None:
+    """The form can make this one: pick the rail, leave the address empty.
+
+    It is the config's own refusal rather than a range's, and left to escape
+    ``parse_options`` it reached the page as a 500 reading "Unexpected failure"
+    with a traceback in the log -- a banner about the *server* for a value the
+    request carried, and no box marked (ADR-0033).
+    """
+    name, data = events(
+        f"{server}/api/search/stream?request=headphones&pay=true&rail=http"
+    )[-1]
+
+    assert (name, data["status"]) == ("failure", 400)
+    assert data["field"] == "merchant_url"
+    assert "needs an address" in data["error"]
+    assert "request" not in StubAgent.captured, "nothing was run for a setting like this"
+
+
 def test_an_unexpected_failure_still_ends_the_stream(server: str) -> None:
     """The stream reports; it never leaves the browser waiting on a dead run."""
     StubAgent.result = RuntimeError("something nobody predicted")
@@ -1476,6 +1496,25 @@ def test_the_server_refuses_to_start_on_a_provider_nothing_can_serve(
 
     assert "olama" in caplog.text
     assert "ollama, vllm" in caplog.text, "the servers that do exist are the whole message"
+
+
+def test_the_server_refuses_to_start_on_a_rail_nothing_can_pay_through(
+    monkeypatch, caplog
+) -> None:
+    """The rail's half of the check above, and there for the same reason.
+
+    ``AgentConfig`` resolves a provider *and* a rail, and ``GET /api/config``
+    builds one on every page load -- so a misspelt ``$BUY_AGENT_RAIL`` was a
+    server that bound its port and then answered 500 to its own form, with the
+    sentence naming the rails that do exist never reaching anybody.
+    """
+    monkeypatch.setattr(server_module, "DEFAULT_RAIL", "dryrun")
+
+    with caplog.at_level(logging.ERROR):
+        assert main([]) == 1
+
+    assert "dryrun" in caplog.text
+    assert "dry-run, http" in caplog.text, "the rails that do exist are the whole message"
 
 
 def test_a_client_that_left_before_the_headers_never_starts_a_search() -> None:

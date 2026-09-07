@@ -167,8 +167,12 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
 
     # ``AgentConfig`` refuses a paying rail with nowhere to pay, which is the one
     # thing about these settings the form cannot judge from a range. Its sentence
-    # is the useful one; the field it belongs to is this door's to name.
-    config = AgentConfig(
+    # is the useful one; the field it belongs to is this door's to name -- and the
+    # address is the only one left, the provider, the rail and the region each
+    # being refused above with a field of their own. Uncaught it left the form's
+    # own mistake as a 500 reading "Unexpected failure", with a traceback in the
+    # log and no box marked (ADR-0033).
+    config = _configured(
         provider=provider,
         # Blank rather than ``defaults``, which was built for whichever provider
         # the server starts on: an empty string is what ``AgentConfig`` resolves
@@ -207,6 +211,25 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         ),
     )
     return config, sort_by
+
+
+def _configured(**settings: Any) -> AgentConfig:
+    """An :class:`AgentConfig`, with its own refusal answered like every other.
+
+    The config checks one thing no range can: a rail that moves money and has
+    nowhere to send it. That is a value a request carried, so it deserves the
+    status and the field every other unusable value gets rather than the 500 an
+    escaping ``ValueError`` becomes -- which is the one refusal here that read as
+    the server having broken.
+
+    Raises:
+        ApiError: naming ``merchant_url``, the only setting left for the config
+            to refuse once this door has checked the rest.
+    """
+    try:
+        return AgentConfig(**settings)
+    except ValueError as exc:
+        raise ApiError(str(exc), field="merchant_url") from exc
 
 
 def run_search(

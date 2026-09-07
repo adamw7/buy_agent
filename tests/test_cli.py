@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +18,7 @@ from buy_agent.api import results_payload
 from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.models import Product
 from buy_agent.providers import PROVIDERS, VLLM
+from buy_agent.rails import RAILS
 from buy_agent.search import SearchError
 from buy_agent.sources import Source
 from tests.conftest import ranked_product
@@ -912,6 +914,76 @@ def test_a_rail_nothing_can_pay_through_is_a_usage_error(capsys) -> None:
         main(["headphones", "--rail", "paypal"])
 
     assert "paypal" in capsys.readouterr().err
+
+
+def test_a_paying_rail_with_nowhere_to_pay_is_a_usage_error(capsys) -> None:
+    """The one refusal no single flag can make, said the way every other is.
+
+    ``AgentConfig`` checks it, because it is two flags and an environment
+    variable between them and a ``type`` function sees one value at a time. Left
+    to escape ``main``, which builds that config outside every guard it has, it
+    came out as a traceback -- for a mistake that is ``--pay --rail http`` and a
+    ``$BUY_AGENT_MERCHANT_URL`` nobody set.
+    """
+    with pytest.raises(SystemExit) as exit_code:
+        main(["headphones", "--pay", "--rail", "http", "--merchant-url", ""])
+
+    assert exit_code.value.code == 2, "a setting is wrong, not the run"
+    said = capsys.readouterr().err
+    assert "needs an address" in said
+    assert "Traceback" not in said
+
+
+def test_a_misspelt_rail_environment_is_a_usage_error(monkeypatch, capsys) -> None:
+    """The rail's half of the provider mistake above, and the same answer.
+
+    ``$BUY_AGENT_RAIL=dryrun`` walked past ``choices`` and reached
+    ``AgentConfig`` in the module-level defaults, so importing this module was a
+    traceback -- which took ``--help`` and its list of the rails there are with
+    it, and every other flag besides.
+    """
+    monkeypatch.setattr(main_module, "DEFAULT_RAIL", "dryrun")
+    parser = main_module.build_parser()
+
+    with pytest.raises(SystemExit) as exit_code:
+        parser.parse_args(["headphones"])
+
+    assert exit_code.value.code == 2
+    assert "dry-run, http" in capsys.readouterr().err
+
+
+def test_the_module_still_imports_on_a_rail_the_environment_got_wrong() -> None:
+    """The other half, and the only way to ask it: a real variable, a real import.
+
+    ``$BUY_AGENT_RAIL`` is read when ``buy_agent.config`` is imported and
+    ``_DEFAULTS`` is built when this module is, so a misspelt one raised before
+    ``main`` existed -- taking ``--help``, its list of the rails there are and
+    every other flag with it. Monkeypatching cannot reach that: the module is
+    already imported by then.
+    """
+    completed = subprocess.run(
+        [sys.executable, "-m", "buy_agent", "--help"],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "BUY_AGENT_RAIL": "dryrun"},
+        timeout=60,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "Traceback" not in completed.stderr
+    assert "--rail" in completed.stdout, "the help still lists the flag that would fix it"
+
+
+def test_a_rail_the_environment_got_right_is_the_one_the_flags_default_to(
+    monkeypatch,
+) -> None:
+    """The half the fallback above must not swallow: ``$BUY_AGENT_RAIL`` is how
+    an operator points a whole machine at their own counterparty."""
+    other = next(name for name in RAILS if name != next(iter(RAILS)))
+    monkeypatch.setattr(main_module, "DEFAULT_RAIL", other)
+
+    assert main_module._defaults().rail == other
 
 
 def test_a_spend_limit_outside_its_range_is_a_usage_error(capsys) -> None:

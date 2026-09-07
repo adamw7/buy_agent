@@ -51,9 +51,10 @@ from buy_agent.api import (
     run_search,
     sources_payload,
 )
-from buy_agent.config import DEFAULT_PROVIDER
+from buy_agent.config import DEFAULT_PROVIDER, DEFAULT_RAIL
 from buy_agent.logging_setup import configure_logging
 from buy_agent.providers import PROVIDERS, provider_for
+from buy_agent.rails import rail_for
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -836,10 +837,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         provider_for(DEFAULT_PROVIDER)
+        rail_for(DEFAULT_RAIL)
     except ValueError as exc:
-        # Every page load resolves this name -- the form's own defaults are an
-        # ``AgentConfig`` -- so a misspelt ``$BUY_AGENT_PROVIDER`` is said here,
-        # to the shell that is still on screen, rather than as a 500 per page.
+        # Every page load resolves both names -- the form's own defaults are an
+        # ``AgentConfig``, which reads a provider and a rail -- so a misspelt
+        # ``$BUY_AGENT_PROVIDER`` or ``$BUY_AGENT_RAIL`` is said here, to the
+        # shell that is still on screen, rather than as a 500 per page.
         logger.error("%s", exc)
         return 1
 
