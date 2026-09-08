@@ -129,13 +129,19 @@ export class ProductCard {
 
   protected confirm(): void {
     const product = this.product();
+    // `pay_currency` and not `currency`: the money a purchase is in is the
+    // run's, so a page that printed a bare "329.00" leaves the product's own
+    // `null` while the cart is in USD all the same (ADR-0043). Read off the
+    // product, this returned before emitting anything -- a confirm button that
+    // did nothing at all, on every product whose page named no currency.
+    //
     // Narrowed by `offersPayment`, which is what draws the button: a product
     // with no price has `cannot_pay` set and never gets one.
-    if (product.price === null || product.currency === null) {
+    if (product.price === null || product.pay_currency === null) {
       return;
     }
     this.confirming.set(false);
-    this.pay.emit({ title: product.name, price: product.price, currency: product.currency });
+    this.pay.emit({ title: product.name, price: product.price, currency: product.pay_currency });
   }
 
   protected readonly percent = computed(() => Math.round(this.product().score * 100));

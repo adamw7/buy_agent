@@ -220,6 +220,24 @@ def test_clean_name_strips_publisher_and_trailing_noise() -> None:
     assert clean_name("Anker Soundcore Q30 - price") == "Anker Soundcore Q30"
 
 
+def test_the_plural_of_a_page_word_comes_off_the_name_too() -> None:
+    """"Deals" is what a heading actually says, and ``_NOT_A_PRODUCT`` knows only
+    that spelling -- so with the singular alone on the stripping side, "... -
+    Deal" left a product and "... - Deals" had the whole product discarded as a
+    page. The same asymmetry sat under "price"."""
+    assert clean_name("Sony WH-1000XM5 - Deals") == "Sony WH-1000XM5"
+    assert clean_name("Sony WH-1000XM5 | Prices") == "Sony WH-1000XM5"
+
+    kept = clean_products([Product(name="Sony WH-1000XM5 - Deals", price=328.0)])
+
+    assert [product.name for product in kept] == ["Sony WH-1000XM5"]
+
+
+def test_a_roundup_of_deals_is_still_not_a_product() -> None:
+    """What comes off is a word trailing a name, never one carrying the headline."""
+    assert not looks_like_a_product(clean_name("Best Headphone Deals of 2026"))
+
+
 def test_clean_name_leaves_a_genuine_variant_alone() -> None:
     assert clean_name("Sony WH-1000XM5 - Black") == "Sony WH-1000XM5 - Black"
 

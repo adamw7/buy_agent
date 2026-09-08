@@ -164,6 +164,21 @@ def test_a_json_body_may_send_them_as_an_array_instead() -> None:
     assert [source.domain for source in config.sources] == ["rtings.com", "youtube.com"]
 
 
+def test_an_array_holding_something_that_is_not_text_is_refused_not_a_traceback() -> None:
+    """A JSON array is whatever was posted, so its entries are rendered with
+    ``str`` the way ``_present`` already reads them. Taken as written, ``5``
+    was asked for its ``strip`` and the ``AttributeError`` walked out of the
+    door: a 500 reading "Unexpected failure", with a traceback in the log and no
+    box marked, for exactly the kind of value every other option answers with a
+    400 (ADR-0033)."""
+    with pytest.raises(ApiError) as failure:
+        parse_options({"sources": ["rtings.com", 5]})
+
+    assert failure.value.status == 400
+    assert failure.value.field == "sources"
+    assert "'5'" in str(failure.value)
+
+
 def test_a_source_that_names_no_site_is_a_400_saying_what_would_work() -> None:
     with pytest.raises(ApiError) as failure:
         parse_options({"sources": "Marques Brownlee"})
@@ -1116,6 +1131,36 @@ def test_the_products_carry_whether_each_may_be_bought() -> None:
 
     assert by_name["Sony WH-1000XM5"]["cannot_pay"] is None
     assert "nothing to authorise" in by_name["Anker Q30"]["cannot_pay"]
+
+
+def test_the_products_carry_the_money_a_purchase_would_be_in() -> None:
+    """Which is frequently not the product's own: a page that printed a bare
+    "179.00" is priced in the run's currency (ADR-0043), so ``currency`` is null
+    while the cart is in USD. Sent because the card restates the cart and echoes
+    its currency back -- left to read the product's own, it showed an amount with
+    no unit on it and emitted nothing at all when the button was pressed."""
+    bare = Product(name="Sennheiser Accentum", price=179.0, url="https://x.example/s")
+    ranked = rank_products([PAYABLE, bare], weights=RankingWeights())
+
+    by_name = {entry["name"]: entry for entry in results_payload(ranked)}
+    accentum = by_name["Sennheiser Accentum"]
+
+    assert accentum["currency"] is None
+    assert accentum["price_label"] == "179.00"
+    assert accentum["pay_currency"] == "USD"
+    assert accentum["pay_label"] == "179.00 USD"
+
+
+def test_a_product_that_cannot_be_bought_names_no_amount_either() -> None:
+    """Both come out of the same check ``cannot_pay`` does, so there is never a
+    button drawn on an amount nothing would authorise."""
+    unpriced = Product(name="Anker Q30", url="https://x.example/a")
+
+    payload = results_payload(rank_products([unpriced], weights=RankingWeights()))[0]
+
+    assert payload["cannot_pay"] is not None
+    assert payload["pay_currency"] is None
+    assert payload["pay_label"] is None
 
 
 @needs_ap2

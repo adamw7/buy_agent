@@ -692,7 +692,11 @@ everything else to the built Angular app, unknown paths falling back to
   `HEAD /api/search/stream` answers 405 rather than starting a run nobody reads.
 - **The browser decides nothing.** Ranking, grounding, whether a product may be
   bought at all -- `cannot_pay` is Python's sentence, from the same check the
-  payment goes through -- and even the wording of an unknown price stay in Python: `product_payload` sends `price_label` and
+  payment goes through, and `pay_currency` and `pay_label` beside it are what
+  that purchase would be *for*, which is frequently not the product's own figures:
+  a page that printed a bare "329.00" is priced in the run's currency
+  (ADR-0043), so `currency` is null while the cart is in USD -- and even the
+  wording of an unknown price stay in Python: `product_payload` sends `price_label` and
   `rating_label` next to the raw figures; `sort_by` is a request parameter rather
   than a client-side re-sort, for a finished run too (ADR-0035); `installed_models`
   sends each model's `completion` beside its name so the dropdown marks what it
@@ -706,7 +710,9 @@ everything else to the built Angular app, unknown paths falling back to
   pipeline, the way a re-sort runs none, and the products travel in the body for
   the same reason -- the browser is already holding them. What it must not send
   is a cart: it sends the run, which product of it, and `approved`, an echo of
-  the title, price and currency it put in front of a person. The cart is built
+  the title, price and currency it put in front of a person -- the `pay_label`
+  and `pay_currency` that came down with the product, since what a person is
+  shown has to be the cart and not the listing. The cart is built
   here from those products and the echo has to match it, so a page showing a
   stale price cannot buy at that price and a page that asked nobody cannot guess
   the right echo. Where a pre-signed open mandate authorises the run there is no
@@ -834,10 +840,13 @@ not what time it is.
 
 **`product-card`** draws one product, and -- where the run asked to pay and the
 server can -- offers to buy it in **two** clicks. The second one is the small
-Trusted Surface AP2 asks for: it restates the *cart* (the title, the price
-label, the merchant, which rail, and whether anybody will actually be charged)
-rather than the request that found it, because the cart is what the mandates
-carry. A single button would be a purchase made by a misclick on a card in a
+Trusted Surface AP2 asks for: it restates the *cart* (the title, the cart's own
+`pay_label`, the merchant, which rail, and whether anybody will actually be
+charged) rather than the request that found it, because the cart is what the
+mandates carry. The cart's label and not the product's: a page that printed a
+bare "329.00" leaves `price_label` with no unit on it while the purchase is in
+the run's currency all the same (ADR-0043), and a surface that names no money is
+not one. A single button would be a purchase made by a misclick on a card in a
 list. What it emits is the three fields a person was shown, which the server
 holds against the cart it builds itself; the card decides nothing else, and a
 product it may not buy shows Python's `cannot_pay` sentence rather than no button
@@ -1010,7 +1019,7 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1753 tests run in about eight seconds: most of that is the three that spawn an
+1764 tests run in about eight seconds: most of that is the three that spawn an
 interpreter -- two for what only a real import can answer (`python -m buy_agent`
 still runs as a script, and still imports with `$BUY_AGENT_RAIL` misspelt), one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
@@ -1018,19 +1027,19 @@ PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliber
 Nothing else should sleep, so a run that takes much longer still means something is
 reaching out.
 
-Two optional prerequisites decide how many of those 1753 *run*, and neither is a
+Two optional prerequisites decide how many of those 1764 *run*, and neither is a
 failure when it is absent. With neither `pwsh` nor `powershell`, 13 of the 19 in
-`tests/test_start_script.py` skip. Without the optional AP2 SDK, the 69 that sign
+`tests/test_start_script.py` skip. Without the optional AP2 SDK, the 74 that sign
 or verify a mandate skip on `needs_ap2` -- the marker in `tests/conftest.py`,
 which is `needs_powershell` for the other one and asks `mandates.available()`
-once at import. So a machine with both reads `1740 passed, 13 skipped`, and a
-checkout set up with `requirements-dev.txt` alone reads `1671 passed, 82
-skipped` rather than 69 red tests saying the project is broken when one optional
+once at import. So a machine with both reads `1751 passed, 13 skipped`, and a
+checkout set up with `requirements-dev.txt` alone reads `1677 passed, 87
+skipped` rather than 74 red tests saying the project is broken when one optional
 feature is not installed. Skipping is only ever the local convenience: `ci.yml`
 and `mutation.yml` each install the SDK in a step of their own, and the 100%
-the coverage floor is set just under cannot be reached with 69 tests sitting
+the coverage floor is set just under cannot be reached with 74 tests sitting
 out -- so a marker put on a test that does *not* need the SDK fails the run
-that matters. The UI's 186 tests run in about two seconds, most of which is
+that matters. The UI's 187 tests run in about two seconds, most of which is
 building the app first. The 31 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
 

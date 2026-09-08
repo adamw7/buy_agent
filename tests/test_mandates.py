@@ -344,6 +344,21 @@ def test_a_mandate_file_that_is_not_one_is_refused_rather_than_read_as_absent(
         mandates.open_mandate()
 
 
+def test_the_mandate_file_is_read_before_the_signing_stack_is_asked_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reading a JSON document needs none of the signing stack, and asked for it
+    first this answered a path that is simply wrong with the sentence about
+    installing the SDK -- which sends somebody to pip over a typo."""
+    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "gone.json"))
+    monkeypatch.setattr(
+        mandates, "_jwk_class", lambda: pytest.fail("asked for the signing stack")
+    )
+
+    with pytest.raises(MandateError, match="Could not read the open mandate"):
+        mandates.open_mandate()
+
+
 def test_a_mandate_file_that_is_missing_is_refused_by_its_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -466,6 +481,7 @@ def test_a_signing_key_read_off_disk_is_identified(
     assert key.get("kid") == "agent"
 
 
+@needs_ap2
 def test_a_generated_key_is_identified_by_the_name_it_was_asked_for() -> None:
     """The dry run signs as two parties with two throwaway keys, so the key id is
     what tells one signature from the other when reading a chain back."""
@@ -492,6 +508,7 @@ def test_the_instrument_says_who_holds_it_and_never_what_it_is() -> None:
     assert instrument.type == "card"
 
 
+@needs_ap2
 def test_a_generated_key_is_a_different_key_every_time() -> None:
     """Ephemeral means ephemeral: two dry runs are two authorisations, and one
     that reused a key would let the first be replayed as the second."""
@@ -578,6 +595,7 @@ def test_an_autonomous_authorisation_carries_two_real_mandates(
     assert signed.mandate_payload.checkout_hash == checkout.hash
 
 
+@needs_ap2
 @pytest.mark.parametrize("broken", ["jwcrypto", "cryptography"])
 def test_a_half_installed_signing_stack_names_what_is_missing(
     monkeypatch: pytest.MonkeyPatch, broken: str
@@ -608,6 +626,7 @@ def test_a_half_installed_signing_stack_names_what_is_missing(
     assert "requirements-ap2-deps.txt" in str(excinfo.value)
 
 
+@needs_ap2
 def test_an_import_failure_with_no_module_name_still_reads(
     monkeypatch: pytest.MonkeyPatch
 ) -> None:

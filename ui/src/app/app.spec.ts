@@ -33,6 +33,8 @@ const product = (rank: number, name: string) => ({
     neutral: ['popularity'],
   },
   cannot_pay: null,
+  pay_currency: 'USD',
+  pay_label: `${100 * rank}.00 USD`,
   name,
   price: 100 * rank,
   currency: 'USD',

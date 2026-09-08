@@ -229,6 +229,20 @@ def test_every_criterion_a_score_has_is_one_the_weights_name() -> None:
     assert set(CRITERIA) <= set(scored.model_dump())
 
 
+def test_a_review_count_that_is_not_a_count_scores_neutral() -> None:
+    """A run never makes one -- ``to_product`` blanks anything at or below zero
+    -- but a re-sort ranks whatever products a request carried (ADR-0035), and
+    ``-5`` reviews took ``log10`` outside its domain: a 500 and a traceback for
+    a figure that is simply not a count. Nothing was read, which is what
+    ``NEUTRAL`` says."""
+    scored = score_product(
+        product("x", review_count=-5), cheapest=None, priciest=None, weights=RankingWeights()
+    )
+
+    assert scored.popularity == NEUTRAL
+    assert "popularity" in scored.neutral
+
+
 def popularity_of(review_count: int | None) -> float:
     """The popularity term on its own, with the other criteria weighted out."""
     return score_product(

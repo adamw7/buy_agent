@@ -108,9 +108,13 @@ _NOT_A_PRODUCT = re.compile(
 #: Publisher credit at the end of a headline: "Sony WH-1000XM5 | AudioSite".
 _SITE_SUFFIX = re.compile(r"\s+\|\s+")
 
-#: Words models tack onto a name when copying it off a review page.
+#: Words models tack onto a name when copying it off a review page. Plurals where
+#: a page writes one -- ``deals?`` and not ``deal``, because "Deals" is what the
+#: heading actually says and :data:`_NOT_A_PRODUCT` knows only that spelling: the
+#: singular came off a name and left a product, while the plural stayed on it and
+#: had the whole product discarded as a page.
 _TRAILING_NOISE = re.compile(
-    r"\s*[-|:,]?\s*\b(reviews?|price|deal|on sale|tested|hands[- ]on)\b\s*$",
+    r"\s*[-|:,]?\s*\b(reviews?|prices?|deals?|on sale|tested|hands[- ]on)\b\s*$",
     re.IGNORECASE,
 )
 

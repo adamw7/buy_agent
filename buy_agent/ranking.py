@@ -131,9 +131,15 @@ def score_product(
         "rating": None if product.rating is None else product.rating / 5,
         # log10 so the 10th review counts for far more than the 10_000th;
         # saturates at 1_000 reviews, past which extra reviews say nothing new.
+        # Asked whether the count is *positive* and not merely truthy: a run
+        # never makes a negative one (``to_product`` blanks it), but a re-sort
+        # scores whatever products a request carried (ADR-0035), and ``-5``
+        # reviews took ``log10`` outside its domain -- a 500 and a traceback for
+        # a figure that is simply not a count. Nothing was read, which is what
+        # ``NEUTRAL`` is for.
         "popularity": (
             min(1.0, math.log10(product.review_count + 1) / 3)
-            if product.review_count
+            if product.review_count and product.review_count > 0
             else None
         ),
         "price": _price_share(placed, cheapest, priciest),

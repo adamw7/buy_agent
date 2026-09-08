@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from collections.abc import Iterable
+from math import isfinite
 from typing import Annotated
 
 from pydantic import BaseModel, Field
@@ -109,8 +110,13 @@ class ExtractedProduct(BaseModel):
         # ``> 0`` rather than ``>= 0``, matching ``review_count``: zero is the
         # other thing a model writes for "unknown", and grounding need only find a
         # bare "0" in ten pages of "$0 shipping" for ranking to call it the
-        # cheapest and top the report.
-        price = self.price if self.price > 0 else None
+        # cheapest and top the report. Finite as well as positive: JSON has no
+        # ceiling on an exponent and a model that runs away on digits answers
+        # ``1e400``, which is ``inf`` as a float -- and ``inf`` grounds on the
+        # "inf" in "information", prints as "inf", and turns every price share in
+        # the set into a NaN the browser cannot even parse. A number that is not
+        # one is unknown, which is what the sentinels already mean.
+        price = self.price if isfinite(self.price) and self.price > 0 else None
         return Product(
             name=_clean(self.name),
             price=price,

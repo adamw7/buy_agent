@@ -324,12 +324,14 @@ def open_mandate() -> tuple[str, Any] | None:
     if not location:
         return None
 
-    JWK = _jwk_class()  # noqa: N806 -- a class, named as the SDK names it
-
     try:
         document = json.loads(Path(location).read_text(encoding="utf-8"))
         token = str(document["mandate"])
-        issuer = JWK(**document["issuer_jwk"])
+        # Asked for after the file has been read, not before: reading a JSON
+        # document needs none of the signing stack, and asked first it answered
+        # a missing or malformed mandate with the sentence about installing the
+        # SDK -- which sends somebody to pip over a path that is simply wrong.
+        issuer = _jwk_class()(**document["issuer_jwk"])
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise MandateError(
             f"Could not read the open mandate at {location} ({exc}). It is a JSON "
