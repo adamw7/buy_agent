@@ -59,6 +59,15 @@ export interface RankedProduct {
    *  currency was printed, the price is in one this run cannot place, or no page
    *  was linked. */
   cannot_pay: string | null;
+  /** The currency a payment for this one would actually be made in, and what
+   *  that amount says on a button -- Python's, out of the same check
+   *  `cannot_pay` comes from, so both are `null` for a product that cannot be
+   *  bought. Not the product's own figures: a page that printed a bare "329.00"
+   *  is priced in the run's currency (ADR-0043), so `currency` is `null` while
+   *  the cart is in USD. The card shows `pay_label` on its Pay button and its
+   *  confirmation, and echoes `pay_currency` back as part of the approval. */
+  pay_currency: string | null;
+  pay_label: string | null;
   rank: number;
   score: number;
   breakdown: ScoreParts;

@@ -20,6 +20,8 @@ from buy_agent.payment import (
     Cart,
     PaymentError,
     RailUnreachableError,
+    amount_for,
+    amount_label,
     cart_for,
     minor_units,
     payable,
@@ -100,6 +102,32 @@ def test_a_product_with_no_source_page_has_no_merchant_to_pay() -> None:
     unlinked = SONY.model_copy(update={"url": None})
 
     assert "no source page" in (payable(unlinked, "USD") or "")
+
+
+def test_what_a_purchase_would_be_for_is_asked_the_same_way_as_whether() -> None:
+    """``amount_for`` is ``payable``'s other half, off the same check: a front
+    door needs the amount as well as the verdict, because the currency a cart
+    carries is frequently not the product's own -- a page that printed a bare
+    figure is priced in the run's (ADR-0043)."""
+    bare = SONY.model_copy(update={"currency": None})
+
+    assert amount_for(SONY, "USD") == (329.99, "USD")
+    assert amount_for(bare, "USD") == (329.99, "USD")
+    assert bare.currency is None
+
+
+def test_a_product_that_may_not_be_paid_for_is_worth_no_amount() -> None:
+    assert amount_for(SONY.model_copy(update={"price": None}), "USD") is None
+    assert amount_for(SONY, "EUR") is None
+
+
+def test_every_surface_says_an_amount_the_same_way() -> None:
+    """One wording for the CLI's prompt, the card's button and the receipt: the
+    cart's label *is* this function, so a second spelling cannot appear."""
+    cart = cart_for(SONY, [SONY, BOSE], AgentConfig(pay=True))
+
+    assert amount_label(329.99, "USD") == "329.99 USD"
+    assert cart.label() == amount_label(cart.price, cart.currency)
 
 
 # -- the cart ------------------------------------------------------------------

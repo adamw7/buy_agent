@@ -33,6 +33,8 @@ from buy_agent.payment import (
     PaymentError,
     RailUnreachableError,
     Receipt,
+    amount_for,
+    amount_label,
     cart_for,
     pay_for,
     payable,
@@ -482,9 +484,21 @@ def product_payload(entry: RankedProduct, currency: str | None = None) -> dict[s
     may. The judgement is Python's, made by the same function the payment itself
     goes through, so a Pay button is never offered for something the server would
     then refuse (ADR-0012, ADR-0033).
+
+    ``pay_currency`` and ``pay_label`` are what that purchase would actually be
+    for, and they are here because they are frequently *not* the product's own
+    figures: a page that printed a bare "329.00" is priced in the run's currency
+    (ADR-0043), so ``currency`` is ``null`` and the cart is in USD all the same.
+    A card restating ``price_label`` showed a person "329.00" of unnamed money
+    and then echoed a ``null`` currency back, which no approval can match -- so
+    the confirm button did nothing whatever. Both are ``null`` exactly when
+    ``cannot_pay`` is a sentence: there is no purchase to name.
     """
+    terms = amount_for(entry.product, currency)
     return {
         "cannot_pay": payable(entry.product, currency),
+        "pay_currency": terms[1] if terms else None,
+        "pay_label": amount_label(*terms) if terms else None,
         "rank": entry.rank,
         "score": round(entry.score, 4),
         # What that score is made of, so a card can say why a product placed where
@@ -639,11 +653,19 @@ def _read_sources(
     Not through :func:`_read`, which renders every value with ``str`` and would
     turn a JSON array into its Python repr. A query string spells several as one
     separated string; a JSON body may send either.
+
+    Each entry is rendered with ``str`` all the same, exactly as :func:`_present`
+    already reads them: a JSON array is whatever was posted, so ``["rtings.com",
+    5]`` reached ``parse_sources`` and asked an ``int`` for its ``strip`` --
+    an ``AttributeError`` out of the door, which is the 500 and the traceback
+    that every other unusable value here is spared (ADR-0033).
     """
     if not _present(data, "sources"):
         return default
     value = data["sources"]
-    specs = value if isinstance(value, (list, tuple)) else str(value)
+    specs = (
+        [str(entry) for entry in value] if isinstance(value, (list, tuple)) else str(value)
+    )
     try:
         return parse_sources(specs)
     except ValueError as exc:

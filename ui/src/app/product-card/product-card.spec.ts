@@ -6,6 +6,8 @@ import type { RailOption, RankedProduct, Receipt, ScoreWeights } from '../agent.
 
 const SONY: RankedProduct = {
   cannot_pay: null,
+  pay_currency: 'USD',
+  pay_label: '328.00 USD',
   rank: 1,
   score: 0.912,
   breakdown: {
@@ -44,6 +46,8 @@ const UNKNOWN: RankedProduct = {
   },
   name: 'Anker Q30',
   cannot_pay: 'No source printed a price for Anker Q30, so there is nothing to authorise.',
+  pay_currency: null,
+  pay_label: null,
   price: null,
   rating: null,
   seller: null,
@@ -52,6 +56,19 @@ const UNKNOWN: RankedProduct = {
   opinions: [],
   price_label: 'price unknown',
   rating_label: 'unrated',
+};
+
+/** A product off a page that printed a bare "179.00": no currency of its own,
+ *  and payable all the same, in whatever the run is counted in (ADR-0043). */
+const BARE: RankedProduct = {
+  ...SONY,
+  rank: 2,
+  name: 'Sennheiser Accentum',
+  price: 179,
+  currency: null,
+  price_label: '179.00',
+  pay_currency: 'USD',
+  pay_label: '179.00 USD',
 };
 
 const RECEIPT = receipt();
@@ -326,6 +343,25 @@ describe('ProductCard, paying', () => {
     await fixture.whenStable();
 
     expect(approvals).toEqual([{ title: 'Sony WH-1000XM5', price: 328, currency: 'USD' }]);
+  });
+
+  it("buys a product whose page printed no currency, in the run's own", async () => {
+    /* The money a purchase is in is the run's, so `currency` is null on a page
+       that printed a bare figure while the cart is in USD (ADR-0043). Read off
+       the product, the confirm button emitted nothing at all -- it returned on
+       the null and left the panel open, on a card Python had said was payable. */
+    const { fixture, card, approvals } = await payable(BARE);
+    expect(card.querySelector('.pay')!.textContent).toContain('179.00 USD');
+
+    card.querySelector<HTMLButtonElement>('.pay')!.click();
+    await fixture.whenStable();
+    expect(card.querySelector('.confirm')!.textContent).toContain('179.00 USD');
+
+    card.querySelectorAll<HTMLButtonElement>('.confirm .pay')[0].click();
+    await fixture.whenStable();
+
+    expect(approvals).toEqual([{ title: 'Sennheiser Accentum', price: 179, currency: 'USD' }]);
+    expect(card.querySelector('.confirm')).toBeNull();
   });
 
   it('cancelling puts the card back and buys nothing', async () => {

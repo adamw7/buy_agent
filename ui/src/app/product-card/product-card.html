@@ -101,7 +101,11 @@
     } @else if (confirming()) {
       <div class="confirm" role="group" aria-label="Confirm this purchase">
         <p>
-          Pay <strong>{{ product().price_label }}</strong> for {{ product().name }}
+          <!-- `pay_label` and not `price_label`: this is the cart's amount, in
+               the currency the payment will actually be made in, which for a
+               page that printed a bare figure is the run's rather than none at
+               all (ADR-0043). A Trusted Surface that names no unit is not one. -->
+          Pay <strong>{{ product().pay_label }}</strong> for {{ product().name }}
           @if (product().seller) {
             to {{ product().seller }}
           }
@@ -121,7 +125,7 @@
       </div>
     } @else if (offersPayment()) {
       <button type="button" class="pay" [disabled]="paying()" (click)="startConfirming()">
-        Pay {{ product().price_label }}
+        Pay {{ product().pay_label }}
       </button>
     } @else if (refusal(); as why) {
       <p class="cannot-pay">{{ why }}</p>

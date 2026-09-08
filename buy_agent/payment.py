@@ -138,7 +138,7 @@ class Cart(BaseModel):
 
     def label(self) -> str:
         """The price as a person reads it -- the wording Python owns, not the page."""
-        return f"{self.price:,.2f} {self.currency}"
+        return amount_label(self.price, self.currency)
 
 
 class Receipt(BaseModel):
@@ -253,6 +253,38 @@ def payable(product: Product, currency: str | None) -> str | None:
     except PaymentError as exc:
         return str(exc)
     return None
+
+
+def amount_for(product: Product, currency: str | None) -> tuple[float, str] | None:
+    """What a cart for this product would be worth, or ``None`` where there is none.
+
+    The other half of :func:`payable`: that one says why a product may not be
+    bought, this one says in what money it would be if it may. Both are
+    :func:`_check`, because the amount a purchase is *for* is decided by the same
+    reasoning that decides whether there is one at all (ADR-0043).
+
+    A front door needs it because the currency a cart carries is frequently not
+    the product's own: a page that printed a bare "329.00" is priced in the
+    run's currency, so ``Product.currency`` is ``None`` while the cart is in
+    USD. A surface restating the product's own figure showed a person an amount
+    with no unit on it, and echoed a ``null`` currency back -- which is not an
+    approval of anything, and the browser's own guard against sending one left
+    the confirm button doing nothing at all.
+    """
+    try:
+        return _check(product, currency)
+    except PaymentError:
+        return None
+
+
+def amount_label(price: float, currency: str) -> str:
+    """An amount as a person reads it, which is how every surface must write it.
+
+    One wording for the CLI's prompt, the card's confirmation and the receipt:
+    :meth:`Cart.label` is this, and so is what :func:`~buy_agent.api.product_payload`
+    sends the page to put on its Pay button.
+    """
+    return f"{price:,.2f} {currency}"
 
 
 def cart_for(product: Product, products: Sequence[Product], config: AgentConfig) -> Cart:

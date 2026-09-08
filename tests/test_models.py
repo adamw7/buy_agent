@@ -200,6 +200,24 @@ def test_a_negative_review_count_is_treated_as_unknown() -> None:
     assert ExtractedProduct(name="Thing", review_count=-4).to_product().review_count is None
 
 
+def test_a_price_that_overflowed_a_float_is_not_a_price() -> None:
+    """JSON puts no ceiling on an exponent, so a model that runs away on digits
+    answers ``1e400`` -- which is ``inf`` once it is a float, and ``inf`` is a
+    figure nothing downstream can hold: it grounds on the "inf" in
+    "information", it prints as "inf", and it turns every price share in the set
+    into a NaN, which is not even JSON the browser can parse. Unknown, like every
+    other answer that is not a number."""
+    overflowed = ProductList.model_validate_json(
+        '{"products": [{"name": "Sony WH-1000XM5", "price": 1e400, "currency": "USD"}]}'
+    ).products[0]
+
+    assert overflowed.price == float("inf")
+    assert overflowed.to_product().price is None
+    # The currency goes with it, being the qualifier of a figure that is gone.
+    assert overflowed.to_product().currency is None
+    assert overflowed.to_product().price_label() == "price unknown"
+
+
 def test_only_the_name_is_required() -> None:
     """Every other field has a sentinel default, so a sparse answer still parses."""
     converted = ExtractedProduct(name="Thing").to_product()

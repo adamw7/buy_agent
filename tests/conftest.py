@@ -31,12 +31,18 @@ if TYPE_CHECKING:
 #: ``tests/test_start_script.py`` skips what cannot run without a PowerShell.
 #: Paying is an optional feature and its SDK is an optional install (two
 #: commands, and somebody else's git repository), so a checkout set up with
-#: ``requirements-dev.txt`` alone has to come back green: sixty-nine *failures*
-#: say this project is broken, where sixty-nine skips say one feature was not
+#: ``requirements-dev.txt`` alone has to come back green: seventy-four *failures*
+#: say this project is broken, where seventy-four skips say one feature was not
 #: installed. What the marker must never become is a way of not noticing the
 #: SDK is missing where it is meant to be there -- ``ci.yml`` and
 #: ``mutation.yml`` each install it in a step of their own, so on the runs that
 #: matter nothing here is skipped and the coverage floor still has to be met.
+#:
+#: It covers the whole signing stack and not only the ``ap2`` package: the SDK
+#: imports ``jwcrypto`` and ``cryptography``, the two files install together, and
+#: a test that generates a key needs them whether or not it names ``ap2`` itself.
+#: Four such tests were left unmarked and failed on the very checkout the marker
+#: exists for.
 #:
 #: Asked once, at import: ``mandates.available()`` defers the ``ap2`` import, so
 #: this costs one attempted import for the whole session.

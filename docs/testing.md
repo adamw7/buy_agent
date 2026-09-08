@@ -20,7 +20,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-1753 Python tests and 186 UI tests. Nothing in either suite touches the network or
+1764 Python tests and 187 UI tests. Nothing in either suite touches the network or
 a model server: the model is faked through the `llm=` argument of `BuyAgent` -- a class
 with one `answer` method, which is the whole of `chat.ChatModel`, both
 the search backend and the page fetcher are monkeypatched, the two clients
@@ -50,15 +50,15 @@ Nothing there reaches a network; the HTTP rail's transport is patched where
 that proves it, and they live outside `testpaths` so a bare `pytest` cannot
 reach them.
 
-Without that SDK the 69 tests that need it **skip**, the way
+Without that SDK the 74 tests that need it **skip**, the way
 `tests/test_start_script.py` skips where there is no PowerShell: `needs_ap2` in
 `tests/conftest.py` is the marker, and it asks `mandates.available()` once at
 import. So a checkout set up with `requirements-dev.txt` alone reads
-`1671 passed, 82 skipped` rather than 69 failures claiming the project is
+`1677 passed, 87 skipped` rather than 74 failures claiming the project is
 broken when one optional feature is simply not installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide
 anything nothing here is skipped and the coverage floor still has to be met --
-which it cannot be with 69 tests sitting out.
+which it cannot be with 74 tests sitting out.
 
 A deprecation warning fails the Python suite. `pytest.ini` sets `filterwarnings` to
 turn `DeprecationWarning` and `PendingDeprecationWarning` into errors, in both the
