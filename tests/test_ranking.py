@@ -61,6 +61,19 @@ def test_missing_data_scores_neutral_not_last() -> None:
 
 
 def test_single_price_ties_on_the_price_criterion() -> None:
+    """One distinct price scores ``NEUTRAL`` and is not an assumption.
+
+    ADR-0041 defines ``neutral`` as the criteria a product "published nothing
+    for, which therefore scored ``NEUTRAL`` rather than being read off a page",
+    and ends by warning against the mistake in the other direction: "wrong in the
+    direction of calling a real measurement a guess". A price every candidate
+    shares was published and was read -- it simply separates nothing -- so the
+    0.5 is the scale's answer and not a stand-in for a figure nobody printed.
+
+    It is the single-product run every time, which is where it read worst: the
+    report printed ``price : 42.00`` and then ``price 0.50 assumed`` underneath
+    it, about the same figure.
+    """
     score = score_product(
         product("only one", price=42.0),
         cheapest=42.0,
@@ -69,8 +82,41 @@ def test_single_price_ties_on_the_price_criterion() -> None:
     )
     assert score.total == pytest.approx(NEUTRAL)
     assert score.price == pytest.approx(NEUTRAL)
-    # Nothing in the set separates it from anything else, which is an assumption
-    # and not a reading -- so it is named as one (ADR-0041).
+    assert "price" not in score.neutral
+
+
+def test_a_price_nobody_published_is_still_an_assumption() -> None:
+    """The other half of the split, and the one ``neutral`` exists for.
+
+    A blank price scores the same 0.5 as the tie above and means something else
+    entirely: grounding blanked it, or no page ever printed it. That one is named.
+    """
+    score = score_product(
+        product("unpriced"),
+        cheapest=42.0,
+        priciest=99.0,
+        weights=RankingWeights(),
+    )
+
+    assert score.price == pytest.approx(NEUTRAL)
+    assert "price" in score.neutral
+
+
+def test_a_price_this_run_cannot_place_is_an_assumption_too() -> None:
+    """A figure outside the run's own currency is one it did not read (ADR-0043).
+
+    It has no place between the cheapest and the priciest, the way a blank has
+    none -- so it scores ``NEUTRAL`` and says so, unlike the tie above.
+    """
+    score = score_product(
+        product("in yen", price=42_000.0, currency="JPY"),
+        cheapest=42.0,
+        priciest=99.0,
+        weights=RankingWeights(),
+        currency="USD",
+    )
+
+    assert score.price == pytest.approx(NEUTRAL)
     assert "price" in score.neutral
 
 

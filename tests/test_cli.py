@@ -21,7 +21,7 @@ from buy_agent.providers import PROVIDERS, VLLM
 from buy_agent.rails import RAILS
 from buy_agent.search import SearchError
 from buy_agent.sources import Source
-from tests.conftest import payable_product, ranked_product
+from tests.conftest import needs_ap2, payable_product, ranked_product
 
 RANKED = [
     ranked_product(Product(name="Sony WH-1000XM5", price=328.0), score=0.9, rank=1),
@@ -762,6 +762,7 @@ def test_nothing_is_paid_for_unless_it_was_asked_for(fake_agent, monkeypatch) ->
     assert paid == []
 
 
+@needs_ap2
 def test_the_dry_run_pays_for_the_top_product_once_it_is_approved(
     fake_agent, monkeypatch, capsys
 ) -> None:
@@ -825,6 +826,7 @@ def test_a_product_no_source_priced_is_refused_with_the_reason(
     assert "not an amount" in caplog.text
 
 
+@needs_ap2
 def test_an_open_mandate_pays_without_asking_anybody(
     fake_agent, monkeypatch, tmp_path, caplog
 ) -> None:
@@ -845,6 +847,7 @@ def test_an_open_mandate_pays_without_asking_anybody(
     assert "an open mandate" in caplog.text
 
 
+@needs_ap2
 def test_the_authorisation_is_logged_with_what_it_covers(
     fake_agent, monkeypatch, caplog
 ) -> None:
@@ -990,6 +993,7 @@ def test_the_exit_codes_the_help_lists_are_the_ones_main_returns() -> None:
     assert f"  {NOTHING_FOUND}  " in epilog
 
 
+@needs_ap2
 @pytest.mark.parametrize("answer", ["y", "yes", "YES", " Yes \n"])
 def test_the_short_and_the_shouted_yes_both_authorise(
     fake_agent, monkeypatch, answer
@@ -1012,6 +1016,7 @@ def test_anything_that_is_not_yes_is_not_yes(fake_agent, monkeypatch, answer) ->
     assert main(["headphones", "--pay"]) == main_module.PAYMENT_FAILED
 
 
+@needs_ap2
 def test_the_receipt_is_logged_with_the_merchant_and_what_became_of_it(
     fake_agent, monkeypatch, caplog
 ) -> None:

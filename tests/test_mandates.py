@@ -17,6 +17,7 @@ import pytest
 from buy_agent import mandates
 from buy_agent.mandates import MandateError
 from buy_agent.payment import Cart
+from tests.conftest import needs_ap2
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -91,6 +92,7 @@ def open_mandate_file(path: Path, *, maximum: int, payee: str = "audiosite.examp
 # -- the SDK, and doing without it ---------------------------------------------
 
 
+@needs_ap2
 def test_the_sdk_is_reported_as_available_when_it_imports() -> None:
     assert mandates.available() is True
 
@@ -122,6 +124,7 @@ def test_a_missing_sdk_is_one_command_and_not_an_import_error(
 # -- keys ----------------------------------------------------------------------
 
 
+@needs_ap2
 def test_a_key_is_read_off_the_path_the_environment_names(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -133,6 +136,7 @@ def test_a_key_is_read_off_the_path_the_environment_names(
     assert key.has_private
 
 
+@needs_ap2
 def test_a_rail_that_moves_money_refuses_to_sign_without_an_enrolled_key() -> None:
     """An ephemeral key authorises nothing a counterparty could have agreed to
     trust, so a rail with a counterparty must not be handed one."""
@@ -140,6 +144,7 @@ def test_a_rail_that_moves_money_refuses_to_sign_without_an_enrolled_key() -> No
         mandates.load_key(required=True)
 
 
+@needs_ap2
 def test_the_dry_run_generates_a_key_rather_than_refusing() -> None:
     key, enrolled = mandates.load_key(required=False)
 
@@ -147,6 +152,7 @@ def test_the_dry_run_generates_a_key_rather_than_refusing() -> None:
     assert key.has_private
 
 
+@needs_ap2
 def test_a_key_that_is_not_there_is_refused_by_its_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -156,6 +162,7 @@ def test_a_key_that_is_not_there_is_refused_by_its_path(
         mandates.load_key(required=True)
 
 
+@needs_ap2
 def test_a_public_key_is_refused_since_signing_needs_the_private_half(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -183,12 +190,14 @@ def test_the_checkout_document_counts_in_minor_units_and_names_the_merchant() ->
     assert document["links"][0]["url"] == CART.url
 
 
+@needs_ap2
 def test_a_signed_checkout_carries_the_hash_the_mandates_bind_to() -> None:
     signed = signed_checkout()
 
     assert signed.hash == mandates.checkout_hash(signed.jwt)
 
 
+@needs_ap2
 def test_the_checkout_is_a_ucp_checkout_the_sdk_validates() -> None:
     """The document is hand-built rather than constructed through the model, so
     this is what says it is still the shape the schema describes."""
@@ -200,6 +209,7 @@ def test_the_checkout_is_a_ucp_checkout_the_sdk_validates() -> None:
 # -- human present -------------------------------------------------------------
 
 
+@needs_ap2
 def test_approving_in_person_signs_both_mandates_directly() -> None:
     key = mandates.generate_key("agent")
     checkout = signed_checkout()
@@ -211,6 +221,7 @@ def test_approving_in_person_signs_both_mandates_directly() -> None:
     assert authorisation.reference
 
 
+@needs_ap2
 def test_the_payment_mandate_is_bound_to_the_checkout_by_its_hash() -> None:
     """AP2 binds the two by making the Payment Mandate's ``transaction_id`` the
     Checkout Mandate's ``checkout_hash``, so neither half can be paired with
@@ -238,6 +249,7 @@ def test_the_payment_mandate_is_bound_to_the_checkout_by_its_hash() -> None:
     assert signed.mandate_payload.checkout_hash == checkout.hash
 
 
+@needs_ap2
 def test_the_payment_mandate_carries_the_amount_and_never_an_instrument_number() -> None:
     from ap2.sdk.generated.payment_mandate import PaymentMandate
     from ap2.sdk.mandate import MandateClient
@@ -260,6 +272,7 @@ def test_the_payment_mandate_carries_the_amount_and_never_an_instrument_number()
 # -- human not present ---------------------------------------------------------
 
 
+@needs_ap2
 def test_an_open_mandate_authorises_a_cart_inside_its_constraints(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -272,6 +285,7 @@ def test_an_open_mandate_authorises_a_cart_inside_its_constraints(
     assert authorisation.reference
 
 
+@needs_ap2
 def test_an_open_mandate_refuses_a_cart_over_its_amount_range(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -285,6 +299,7 @@ def test_an_open_mandate_refuses_a_cart_over_its_amount_range(
         mandates.authorise(CART, signed_checkout(), key=agent, nonce="n")
 
 
+@needs_ap2
 def test_an_open_mandate_refuses_a_merchant_it_does_not_allow(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -297,6 +312,7 @@ def test_an_open_mandate_refuses_a_merchant_it_does_not_allow(
         mandates.authorise(CART, signed_checkout(), key=agent, nonce="n")
 
 
+@needs_ap2
 def test_an_open_mandate_cannot_be_closed_with_the_wrong_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -340,6 +356,7 @@ def test_a_mandate_file_that_is_missing_is_refused_by_its_path(
 # -- verification --------------------------------------------------------------
 
 
+@needs_ap2
 def test_a_chain_presented_to_the_wrong_audience_does_not_verify(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -359,6 +376,7 @@ def test_a_chain_presented_to_the_wrong_audience_does_not_verify(
         )
 
 
+@needs_ap2
 def test_a_chain_replayed_with_another_nonce_does_not_verify(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -383,6 +401,7 @@ def test_a_challenge_is_not_the_same_twice() -> None:
 # -- what a mandate is worth, and for how long ---------------------------------
 
 
+@needs_ap2
 def test_both_mandates_expire() -> None:
     """A chain is a credential: it authorises this purchase to whoever holds it.
     Without an expiry, one left in a log is a bearer token for the afternoon --
@@ -434,6 +453,7 @@ def test_the_order_id_is_the_one_it_was_given() -> None:
     assert mandates.checkout_document(CART, order_id="order-77")["id"] == "order-77"
 
 
+@needs_ap2
 def test_a_signing_key_read_off_disk_is_identified(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -452,6 +472,7 @@ def test_a_generated_key_is_identified_by_the_name_it_was_asked_for() -> None:
     assert mandates.generate_key("dry-run-merchant").get("kid") == "dry-run-merchant"
 
 
+@needs_ap2
 def test_the_instrument_says_who_holds_it_and_never_what_it_is() -> None:
     """AP2 exists so the agent does not carry the funding instrument. The mandate
     references one; what it actually is stays with the credential provider."""
@@ -483,6 +504,7 @@ def test_a_generated_key_is_a_different_key_every_time() -> None:
 # -- verification, asked the questions it exists to answer ---------------------
 
 
+@needs_ap2
 def test_a_chain_bound_to_another_checkout_reports_a_violation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -505,6 +527,7 @@ def test_a_chain_bound_to_another_checkout_reports_a_violation(
     assert any("transaction_id" in violation for violation in violations)
 
 
+@needs_ap2
 def test_a_chain_asked_about_its_own_checkout_reports_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -524,6 +547,7 @@ def test_a_chain_asked_about_its_own_checkout_reports_nothing(
     )
 
 
+@needs_ap2
 def test_an_autonomous_authorisation_carries_two_real_mandates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -17,6 +17,7 @@ import pytest
 from buy_agent import mandates, rails
 from buy_agent.config import AgentConfig
 from buy_agent.payment import Cart, PaymentError
+from tests.conftest import needs_ap2
 from tests.test_mandates import CART, signed_checkout
 
 
@@ -131,6 +132,7 @@ def test_the_http_rail_reads_its_address_off_its_own_variable(
 # -- the dry run ---------------------------------------------------------------
 
 
+@needs_ap2
 def test_the_dry_run_signs_a_checkout_of_its_own() -> None:
     """It plays every role there is, so the mandates are signed against a real
     hash of a really signed document rather than a placeholder."""
@@ -140,6 +142,7 @@ def test_the_dry_run_signs_a_checkout_of_its_own() -> None:
     assert nonce
 
 
+@needs_ap2
 def test_the_dry_run_settles_by_charging_nobody() -> None:
     authorisation = mandates.authorise(
         CART, signed_checkout(), key=mandates.generate_key("agent"), nonce="n"
@@ -160,6 +163,7 @@ def test_the_dry_run_has_no_transport_to_fail() -> None:
 # -- the HTTP rail -------------------------------------------------------------
 
 
+@needs_ap2
 def test_the_http_rail_asks_the_merchant_to_sign_the_checkout(
     posted: Endpoint,
 ) -> None:
@@ -177,6 +181,7 @@ def test_the_http_rail_asks_the_merchant_to_sign_the_checkout(
     assert nonce == "from-the-merchant"
 
 
+@needs_ap2
 def test_the_checkout_hash_is_computed_here_and_never_taken_from_the_answer(
     posted: Endpoint,
 ) -> None:
@@ -192,6 +197,7 @@ def test_the_checkout_hash_is_computed_here_and_never_taken_from_the_answer(
     assert signed.hash == mandates.checkout_hash(merchant_signed.jwt)
 
 
+@needs_ap2
 def test_a_counterparty_that_issues_no_challenge_is_given_one(
     posted: Endpoint,
 ) -> None:
@@ -231,6 +237,7 @@ def test_an_answer_that_is_not_an_object_is_refused(
         rails.HTTP.checkout(CART, http_config())
 
 
+@needs_ap2
 def test_settling_presents_both_mandates_and_the_transaction_they_share(
     posted: Endpoint,
 ) -> None:
@@ -250,6 +257,7 @@ def test_settling_presents_both_mandates_and_the_transaction_they_share(
     assert settlement.detail == "Charged."
 
 
+@needs_ap2
 def test_a_refused_payment_carries_the_far_ends_own_reason(
     posted: Endpoint,
 ) -> None:
@@ -264,6 +272,7 @@ def test_a_refused_payment_carries_the_far_ends_own_reason(
         rails.HTTP.settle(CART, authorisation, http_config())
 
 
+@needs_ap2
 def test_a_refusal_with_no_reason_still_says_what_did_not_happen(
     posted: Endpoint,
 ) -> None:
@@ -276,6 +285,7 @@ def test_a_refusal_with_no_reason_still_says_what_did_not_happen(
         rails.HTTP.settle(CART, authorisation, http_config())
 
 
+@needs_ap2
 def test_a_settlement_that_says_nothing_about_the_detail_still_reads(
     posted: Endpoint,
 ) -> None:
@@ -351,6 +361,7 @@ def test_a_signed_checkout_that_is_not_text_is_refused(posted: Endpoint) -> None
         rails.HTTP.checkout(CART, http_config())
 
 
+@needs_ap2
 @pytest.mark.parametrize("offered", [123, "", None, {"nonce": "x"}], ids=str)
 def test_a_nonce_that_is_not_usable_text_is_replaced_with_one_of_ours(
     posted: Endpoint, offered: Any
@@ -367,6 +378,7 @@ def test_a_nonce_that_is_not_usable_text_is_replaced_with_one_of_ours(
     assert nonce not in ("", str(offered))
 
 
+@needs_ap2
 def test_a_counterpartys_own_challenge_is_used_as_it_stands(posted: Endpoint) -> None:
     posted.answers.append(
         FakeResponse({"checkout_jwt": signed_checkout().jwt, "nonce": "theirs"})
@@ -375,6 +387,7 @@ def test_a_counterpartys_own_challenge_is_used_as_it_stands(posted: Endpoint) ->
     assert rails.HTTP.checkout(CART, http_config())[1] == "theirs"
 
 
+@needs_ap2
 def test_a_payment_is_never_sent_without_a_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
     """The one timeout in this project worth being patient about, and the one it
     would be worst to leave off: a request this side waits on forever is a
@@ -402,6 +415,7 @@ def test_an_answer_of_the_wrong_shape_says_what_shape_it_was(posted: Endpoint) -
         rails.HTTP.checkout(CART, http_config())
 
 
+@needs_ap2
 def test_the_dry_run_stamps_its_own_order_on_the_checkout_it_signs() -> None:
     """It is standing in for the merchant, and a merchant's checkout has an order
     id -- so the document it signs is the shape a real one would be."""

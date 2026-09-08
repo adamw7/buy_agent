@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from buy_agent import mandates
 from buy_agent.logging_setup import _NOISY_LIBRARIES, _TRACE_LIBRARIES
 from buy_agent.models import (
     ExtractedProduct,
@@ -24,6 +25,25 @@ from buy_agent.search import SearchResult
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
+
+
+#: Skips a test that cannot run without the optional AP2 SDK, the way
+#: ``tests/test_start_script.py`` skips what cannot run without a PowerShell.
+#: Paying is an optional feature and its SDK is an optional install (two
+#: commands, and somebody else's git repository), so a checkout set up with
+#: ``requirements-dev.txt`` alone has to come back green: sixty-nine *failures*
+#: say this project is broken, where sixty-nine skips say one feature was not
+#: installed. What the marker must never become is a way of not noticing the
+#: SDK is missing where it is meant to be there -- ``ci.yml`` and
+#: ``mutation.yml`` each install it in a step of their own, so on the runs that
+#: matter nothing here is skipped and the coverage floor still has to be met.
+#:
+#: Asked once, at import: ``mandates.available()`` defers the ``ap2`` import, so
+#: this costs one attempted import for the whole session.
+needs_ap2 = pytest.mark.skipif(
+    not mandates.available(),
+    reason=f"the optional AP2 SDK is not installed -- add it with:  {mandates.INSTALL}",
+)
 
 
 @pytest.fixture(scope="session")

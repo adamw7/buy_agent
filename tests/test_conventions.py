@@ -78,7 +78,7 @@ from buy_agent.payment import PaymentError
 from buy_agent.providers import PROVIDERS, InstalledModel, provider_options
 from buy_agent.rails import RAILS, rail_options
 from buy_agent.models import Product
-from tests.conftest import payable_product, ranked_product, said
+from tests.conftest import needs_ap2, payable_product, ranked_product, said
 from buy_agent.ranking import SortBy
 from buy_agent.server import DEFAULT_UI_DIR
 from buy_agent.server import build_parser as build_server_parser
@@ -1228,6 +1228,7 @@ def test_a_rail_option_is_mirrored_field_for_field_in_typescript() -> None:
 _PAYABLE = payable_product()
 
 
+@needs_ap2
 def test_a_receipt_is_mirrored_field_for_field_in_typescript() -> None:
     """The card draws what came of a payment, so a field added in Python and
     forgotten here is an undefined on a receipt."""

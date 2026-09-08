@@ -1010,17 +1010,28 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1741 tests run in about eight seconds: most of that is the three that spawn an
+1753 tests run in about eight seconds: most of that is the three that spawn an
 interpreter -- two for what only a real import can answer (`python -m buy_agent`
 still runs as a script, and still imports with `$BUY_AGENT_RAIL` misspelt), one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
 `StubAgent.delay` in the three server tests that need a run to still be going.
 Nothing else should sleep, so a run that takes much longer still means something is
-reaching out. 1741 is what a machine with PowerShell collects *and* runs; with
-neither `pwsh` nor `powershell` the same 1741 collect but 13 of the 19 in
-`tests/test_start_script.py` skip, so the summary reads `1728 passed, 13 skipped`.
-The UI's 186 tests run in about two seconds, most of which is building the app
-first. The 31 in `integration/` are counted separately and collected only by being
+reaching out.
+
+Two optional prerequisites decide how many of those 1753 *run*, and neither is a
+failure when it is absent. With neither `pwsh` nor `powershell`, 13 of the 19 in
+`tests/test_start_script.py` skip. Without the optional AP2 SDK, the 69 that sign
+or verify a mandate skip on `needs_ap2` -- the marker in `tests/conftest.py`,
+which is `needs_powershell` for the other one and asks `mandates.available()`
+once at import. So a machine with both reads `1740 passed, 13 skipped`, and a
+checkout set up with `requirements-dev.txt` alone reads `1671 passed, 82
+skipped` rather than 69 red tests saying the project is broken when one optional
+feature is not installed. Skipping is only ever the local convenience: `ci.yml`
+and `mutation.yml` each install the SDK in a step of their own, and the 100%
+the coverage floor is set just under cannot be reached with 69 tests sitting
+out -- so a marker put on a test that does *not* need the SDK fails the run
+that matters. The UI's 186 tests run in about two seconds, most of which is
+building the app first. The 31 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
 
 ### The convention tests

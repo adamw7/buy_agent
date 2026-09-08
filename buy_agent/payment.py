@@ -27,6 +27,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel
 
@@ -125,8 +126,14 @@ class Cart(BaseModel):
         The id is the site the page came from, because that is the only identity
         this pipeline actually knows -- a seller's name is what a page printed,
         and two pages print two spellings of it.
+
+        Read by :func:`_site`, so an address carrying a user and a password does
+        not put them in a payload that is signed and sent to a counterparty. A
+        URL this cannot read a site out of is used as it stands, which is what it
+        has always done: the address is the identity, and half of one is better
+        than none.
         """
-        host = self.url.split("/")[2] if "//" in self.url else self.url
+        host = _site(self.url) or self.url
         return {"id": host, "name": self.merchant, "website": f"https://{host}"}
 
     def label(self) -> str:
@@ -364,6 +371,34 @@ def pay_for(cart: Cart, config: AgentConfig) -> Receipt:
 
 def _host(url: str | None) -> str:
     """The site a page came from, which is the only seller identity a run knows."""
-    if not url or "//" not in url:
-        return "unknown merchant"
-    return url.split("/")[2]
+    return _site(url) or "unknown merchant"
+
+
+def _site(url: str | None) -> str:
+    """A page's host and port, without the credentials some addresses carry.
+
+    Read with :func:`~urllib.parse.urlsplit` rather than by counting slashes.
+    ``https://user:pw@shop.com/p`` split on ``/`` hands back
+    ``user:pw@shop.com`` -- which became the merchant on the surface a person
+    approves, the merchant in a *signed* AP2 payload, and the merchant written
+    into a receipt that is logged and handed to a browser. A password is none of
+    those things' business.
+
+    The port stays: it is part of where a site is, and only the credentials are
+    a secret. The case stays too -- a host is what the page said it was, and
+    folding it here would be this function deciding a merchant's identity.
+
+    ``""`` for an address with no host to read: nothing at all, one with no
+    scheme -- which ``urlsplit`` gives an empty ``netloc`` -- and one malformed
+    enough to make ``urlsplit`` itself raise, which an unclosed IPv6 bracket
+    (``https://[::1/p``) does. All of them are "there is no site here", which is
+    the answer each caller already has a word for.
+    """
+    if not url:
+        return ""
+    try:
+        netloc = urlsplit(url).netloc
+    except ValueError:
+        return ""
+    # Everything up to the last "@" is userinfo; a host cannot contain one.
+    return netloc.rpartition("@")[2]

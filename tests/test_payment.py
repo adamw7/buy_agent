@@ -26,7 +26,7 @@ from buy_agent.payment import (
     pay_for,
     unattended,
 )
-from tests.conftest import payable_product
+from tests.conftest import needs_ap2, payable_product
 
 SONY = payable_product(rating=4.6, review_count=1200)
 
@@ -154,6 +154,7 @@ def test_a_cart_inside_the_spend_limit_is_built() -> None:
 # -- paying --------------------------------------------------------------------
 
 
+@needs_ap2
 def test_the_dry_run_signs_a_real_authorisation_and_charges_nobody(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -172,6 +173,7 @@ def test_the_dry_run_signs_a_real_authorisation_and_charges_nobody(
     assert "Nothing was charged" in receipt.detail
 
 
+@needs_ap2
 def test_an_ephemeral_signature_says_so_rather_than_passing_for_one(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -186,6 +188,7 @@ def test_an_ephemeral_signature_says_so_rather_than_passing_for_one(
     assert mandates.KEY_PATH in caplog.text
 
 
+@needs_ap2
 def test_a_real_rail_will_not_sign_without_an_enrolled_key() -> None:
     config = AgentConfig(pay=True, rail="http", merchant_url="https://pay.example")
 
@@ -193,6 +196,7 @@ def test_a_real_rail_will_not_sign_without_an_enrolled_key() -> None:
         pay_for(cart_for(SONY, [SONY], config), config)
 
 
+@needs_ap2
 def test_a_rail_that_cannot_be_reached_is_its_own_kind_of_failure(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -215,6 +219,7 @@ def test_a_rail_that_cannot_be_reached_is_its_own_kind_of_failure(
         pay_for(cart_for(SONY, [SONY], config), config)
 
 
+@needs_ap2
 def test_a_receipt_never_carries_the_mandate_chain() -> None:
     """A chain authorises this purchase to whoever holds it until it expires,
     and a receipt is logged, sent to a browser and saved to a file."""
@@ -225,6 +230,7 @@ def test_a_receipt_never_carries_the_mandate_chain() -> None:
     assert "~" not in receipt.model_dump_json()
 
 
+@needs_ap2
 def test_an_open_mandate_makes_the_run_unattended(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -251,6 +257,7 @@ def test_a_broken_mandate_file_is_the_one_failure_a_payment_has(
         unattended()
 
 
+@needs_ap2
 def test_paying_on_an_open_mandate_is_reported_as_autonomous(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -268,6 +275,7 @@ def test_paying_on_an_open_mandate_is_reported_as_autonomous(
     assert receipt.enrolled_key is True
 
 
+@needs_ap2
 def test_a_cart_the_open_mandate_does_not_cover_is_refused_before_anything_is_sent(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -309,6 +317,7 @@ def test_the_module_never_reaches_the_config_at_import_time() -> None:
     assert "from buy_agent.rails" not in runtime
 
 
+@needs_ap2
 def test_a_rail_that_goes_away_between_the_price_and_the_payment_says_so(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -362,6 +371,76 @@ def test_a_page_with_no_scheme_names_no_merchant_of_its_own() -> None:
     odd = SONY.model_copy(update={"seller": None, "url": "audiosite.example/xm5"})
 
     assert cart_for(odd, [odd], AgentConfig(pay=True)).merchant == "unknown merchant"
+
+
+def test_a_password_in_an_address_never_becomes_the_merchant() -> None:
+    """The merchant is read off the page's address, and an address can carry a
+    user and a password.
+
+    Counted by slashes, ``https://shopper:hunter2@audiosite.example/xm5`` made
+    the merchant ``shopper:hunter2@audiosite.example`` -- which is the name shown
+    on the surface a person approves, the name in a *signed* AP2 payload, and the
+    name written into a receipt that is logged and handed to a browser. Three
+    places a password has no business being.
+    """
+    odd = SONY.model_copy(
+        update={"seller": None, "url": "https://shopper:hunter2@audiosite.example/xm5"}
+    )
+
+    cart = cart_for(odd, [odd], AgentConfig(pay=True))
+
+    assert cart.merchant == "audiosite.example"
+    payload = cart.merchant_payload()
+    assert payload == {
+        "id": "audiosite.example",
+        "name": "audiosite.example",
+        "website": "https://audiosite.example",
+    }
+    assert "hunter2" not in str(payload)
+
+
+def test_a_port_is_part_of_where_a_site_is_and_stays() -> None:
+    """Only the credentials are a secret. A shop served on another port is a
+    different address, and dropping it would name a site nobody is serving."""
+    odd = SONY.model_copy(
+        update={"seller": None, "url": "https://audiosite.example:8443/xm5"}
+    )
+
+    cart = cart_for(odd, [odd], AgentConfig(pay=True))
+
+    assert cart.merchant == "audiosite.example:8443"
+    assert cart.merchant_payload()["website"] == "https://audiosite.example:8443"
+
+
+def test_an_address_that_names_nothing_at_all_names_no_merchant() -> None:
+    """``Product.url`` is checked before a cart is built, so a run cannot get
+    here -- but ``_host`` is the function that answers "who would we be paying",
+    and the honest answer to a blank is not a crash."""
+    assert payment._host(None) == "unknown merchant"
+    assert payment._host("") == "unknown merchant"
+
+
+def test_an_address_too_malformed_to_read_names_no_merchant() -> None:
+    """An unclosed IPv6 bracket makes ``urlsplit`` itself raise.
+
+    Counted by slashes this used to answer with whatever sat between the second
+    and third one; read properly it has to be caught, or a page with a mangled
+    address turns a payment into a ``ValueError`` nothing above it catches -- and
+    ``PaymentError`` is the one failure paying has.
+    """
+    assert payment._site("https://[::1/p") == ""
+    assert payment._host("https://[::1/p") == "unknown merchant"
+
+
+def test_an_address_with_no_site_in_it_is_used_as_it_stands() -> None:
+    """``merchant_payload`` has always fallen back to the whole address, and a
+    cart built from a schemeless URL still has to name something rather than
+    write ``https://`` and stop."""
+    odd = SONY.model_copy(update={"seller": "AudioSite", "url": "audiosite.example/xm5"})
+
+    payload = cart_for(odd, [odd], AgentConfig(pay=True)).merchant_payload()
+
+    assert payload["id"] == "audiosite.example/xm5"
 
 
 # -- the edges the ranges and the rounding meet --------------------------------
@@ -445,6 +524,7 @@ def test_a_price_off_the_runs_scale_names_the_field_too() -> None:
     assert excinfo.value.field == "products"
 
 
+@needs_ap2
 def test_an_unreachable_rail_carries_the_transports_own_words(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

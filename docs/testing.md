@@ -20,7 +20,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-1741 Python tests and 186 UI tests. Nothing in either suite touches the network or
+1753 Python tests and 186 UI tests. Nothing in either suite touches the network or
 a model server: the model is faked through the `llm=` argument of `BuyAgent` -- a class
 with one `answer` method, which is the whole of `chat.ChatModel`, both
 the search backend and the page fetcher are monkeypatched, the two clients
@@ -40,13 +40,25 @@ The payment tests do sign real mandates. `tests/test_mandates.py` builds genuine
 SD-JWTs with keys generated in the test and reads them back through the AP2
 SDK's own verifier -- the one a merchant or a credential provider runs -- because
 a mandate that verifies only against a fake verifier is a mandate nobody else
-would take. That needs the optional SDK: `pip install --no-deps -r
-requirements-ap2-deps.txt` and then `pip install --no-deps -r
-requirements-ap2.txt`, which `ci.yml` and `mutation.yml` each do in a step of
-their own. Nothing there reaches a network; the HTTP rail's transport is patched
-where `buy_agent.rails` imported it. The 31 tests in
-`integration/` are the exception that proves it, and they live outside
-`testpaths` so a bare `pytest` cannot reach them.
+would take. That needs the optional SDK: `pip install -r requirements-ap2-deps.txt` and then
+`pip install --no-deps -r requirements-ap2.txt` -- the flag is on the second
+command only, and putting it on the first installs `cryptography` without the
+`cffi` it is built on, which is the failure `requirements-ap2.txt` was split in
+two to avoid. `ci.yml` and `mutation.yml` each run both in a step of their own.
+Nothing there reaches a network; the HTTP rail's transport is patched where
+`buy_agent.rails` imported it. The 31 tests in `integration/` are the exception
+that proves it, and they live outside `testpaths` so a bare `pytest` cannot
+reach them.
+
+Without that SDK the 69 tests that need it **skip**, the way
+`tests/test_start_script.py` skips where there is no PowerShell: `needs_ap2` in
+`tests/conftest.py` is the marker, and it asks `mandates.available()` once at
+import. So a checkout set up with `requirements-dev.txt` alone reads
+`1671 passed, 82 skipped` rather than 69 failures claiming the project is
+broken when one optional feature is simply not installed. It is not a way of
+not noticing: both workflows install the SDK, so on the runs that decide
+anything nothing here is skipped and the coverage floor still has to be met --
+which it cannot be with 69 tests sitting out.
 
 A deprecation warning fails the Python suite. `pytest.ini` sets `filterwarnings` to
 turn `DeprecationWarning` and `PendingDeprecationWarning` into errors, in both the
