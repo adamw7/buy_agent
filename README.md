@@ -746,8 +746,9 @@ scored as well as checked, and `--scripted perfect` puts a hand-written answer
 through the whole real pipeline with no model at all and must come out at 1.000.
 
 What the counts are, what `tests/test_conventions.py` checks that coverage
-cannot, what the benchmark measures, and the mutation run that grades the suite
-every Saturday are in [Tests](docs/testing.md).
+cannot, what `tests/test_architecture.py` reads off the import graph instead
+(ADR-0047), what the benchmark measures, and the mutation run that grades the
+suite every Saturday are in [Tests](docs/testing.md).
 
 ## Limitations
 
