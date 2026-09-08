@@ -595,8 +595,7 @@ def test_an_autonomous_authorisation_carries_two_real_mandates(
     assert signed.mandate_payload.checkout_hash == checkout.hash
 
 
-@needs_ap2
-@pytest.mark.parametrize("broken", ["jwcrypto", "cryptography"])
+@pytest.mark.parametrize("broken", [pytest.param("jwcrypto", marks=needs_ap2), "cryptography"])
 def test_a_half_installed_signing_stack_names_what_is_missing(
     monkeypatch: pytest.MonkeyPatch, broken: str
 ) -> None:
@@ -604,7 +603,14 @@ def test_a_half_installed_signing_stack_names_what_is_missing(
     it is built on. Reported as "the AP2 SDK is not installed" that sends
     somebody to re-run the command that just broke it, so the module that
     actually failed is what the sentence names -- and both halves of the signing
-    stack are reached from functions that never touch the SDK itself."""
+    stack are reached from functions that never touch the SDK itself.
+
+    Only the `jwcrypto` half needs anything installed: it is reached past a
+    `cryptography` import this does not refuse, so the key really is generated
+    before the missing module is named. Refusing `cryptography` fails at the
+    first import and needs no signing stack at all, which is why that half runs
+    on a checkout set up with `requirements-dev.txt` alone -- a marker over both
+    was skipping a test that had everything it needs."""
     import builtins
 
     real = builtins.__import__
