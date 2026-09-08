@@ -14,7 +14,7 @@ from buy_agent.cache import DEFAULT_TTL
 from buy_agent.chat import UnreadableAnswerError
 from buy_agent.config import AgentConfig
 from buy_agent.models import ExtractedProduct, ProductList, SearchQuery
-from buy_agent.ranking import RankingWeights
+from buy_agent.ranking import NEUTRAL, RankingWeights
 from buy_agent.search import SearchError, SearchResult
 from buy_agent.sources import parse_sources
 
@@ -1230,7 +1230,13 @@ def test_the_price_scale_is_over_what_survived_the_bounds(
 ) -> None:
     """Price scores relative to the candidate set, so the set has to be the one
     being reported: scored against the $328 pair that was dropped, the $79 one
-    would be "the cheapest available" on the strength of an option nobody has."""
+    would be "the cheapest available" on the strength of an option nobody has.
+
+    One price left in the set is no scale, so it ties at ``NEUTRAL`` -- and it is
+    not an *assumption*, the page having printed the figure and grounding having
+    backed it (ADR-0041). The scale collapsing and the figure being missing are
+    two different things, and only the second is named.
+    """
     agent, _ = agent_factory(
         FakeLLM(products=extracted_products), search_results, max_price=200.0
     )
@@ -1238,7 +1244,10 @@ def test_the_price_scale_is_over_what_survived_the_bounds(
     ranked = agent.run("headphones under $200")
     cheapest = next(entry for entry in ranked if entry.product.name == "Anker Soundcore Q30")
 
-    assert "price" in cheapest.breakdown.neutral, "one price left in the set is no scale"
+    assert cheapest.breakdown.price == pytest.approx(NEUTRAL), (
+        "scored against the dropped $328 pair this would be 1.00"
+    )
+    assert "price" not in cheapest.breakdown.neutral
 
 
 def test_bounds_that_admit_nothing_end_the_run_without_a_report(

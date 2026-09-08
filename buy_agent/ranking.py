@@ -66,6 +66,35 @@ class RankingWeights:
         }
 
 
+def _price_share(
+    placed: float | None, cheapest: float | None, priciest: float | None
+) -> float | None:
+    """Where ``placed`` sits between the cheapest and the priciest of the set.
+
+    ``None`` means *nothing was read*, which is what puts a criterion in
+    :attr:`~buy_agent.models.ScoreParts.neutral` and prints it "assumed": a price
+    nobody published, or one in a currency this run cannot place (ADR-0043).
+    Neither has a place on this scale at all.
+
+    :data:`NEUTRAL` is the other answer, and it is deliberately not the same
+    thing. A set with one distinct price -- every candidate costing the same, and
+    a single-product run every time -- has a price that *was* read and simply
+    does not separate anything. Returned as the 0.5 it scores rather than as
+    ``None``, so it is not reported as an assumption: a run reporting one product
+    said "price assumed" over a figure a page had printed and grounding had
+    backed, which is the one thing ``neutral`` exists to tell apart (ADR-0041).
+
+    ``cheapest`` and ``priciest`` are ``None`` only where no product in the set
+    has a placeable price, and then ``placed`` is ``None`` too -- so they are
+    asked after it, and answer the arithmetic rather than the reporting.
+    """
+    if placed is None:
+        return None
+    if cheapest is None or priciest is None or priciest <= cheapest:
+        return NEUTRAL
+    return (priciest - placed) / (priciest - cheapest)
+
+
 def score_product(
     product: Product,
     *,
@@ -95,7 +124,8 @@ def score_product(
     """
     # ``None`` is "nothing was read", turned into ``NEUTRAL`` once, below, rather
     # than by testing a share against 0.5 afterwards: a product priced mid-way
-    # through the set scores that on the evidence.
+    # through the set scores that on the evidence. The price is the one criterion
+    # that can score ``NEUTRAL`` on evidence as well -- see :func:`_price_share`.
     placed = comparable_price(product, currency)
     read = {
         "rating": None if product.rating is None else product.rating / 5,
@@ -106,16 +136,7 @@ def score_product(
             if product.review_count
             else None
         ),
-        # ``placed`` is None both for a price nobody published and for one in a
-        # currency this set is not counted in -- neither has a place between the
-        # cheapest and the priciest. The last clause is a set with one distinct
-        # price, where nothing separates any product from any other.
-        "price": (
-            None
-            if placed is None or cheapest is None or priciest is None
-            or priciest <= cheapest
-            else (priciest - placed) / (priciest - cheapest)
-        ),
+        "price": _price_share(placed, cheapest, priciest),
     }
     shares = {name: NEUTRAL if share is None else share for name, share in read.items()}
     weighted = sum(getattr(weights, name) * share for name, share in shares.items())

@@ -228,12 +228,22 @@ def condense(text: str, *, max_chars: int, opinion_chars: int = 400) -> str:
         for index, segment in enumerate(segments):
             if not (floor <= len(segment) <= _MAX_SEGMENT) or not matches(segment):
                 continue
-            # The line above is usually the product this is about: shop pages put
-            # the price under the name, review pages the verdict under a heading.
-            if index and not take(index - 1):
-                break
+            # The matching line first, and a match that will not fit still ends
+            # the sweep: the prompt is the page read top down rather than a
+            # best-fit selection of it, so skipping an expensive listing to take
+            # a cheap one from further down would reorder the page's own argument.
             if not take(index):
                 break
+            # Then the line above it -- usually the product this is about: shop
+            # pages put the price under the name, review pages the verdict under
+            # a heading. Context is the one thing here that is *not* a figure, so
+            # it is the one thing worth going without: taken first, a long line
+            # of it ended the sweep and took every price below it down as well,
+            # with most of the budget still unspent. A figure that never reaches
+            # the prompt is one grounding then blanks, which reads as an
+            # extractor that missed it rather than as a budget that ran out.
+            if index:
+                take(index - 1)
 
     sweep(quotes_a_figure, floor=_MIN_SEGMENT, budget=max_chars)
     sweep(reads_like_an_opinion, floor=_MIN_OPINION, budget=opinion_chars)

@@ -571,6 +571,36 @@ def test_a_spent_budget_stops_the_sweep_rather_than_skipping_the_line() -> None:
     assert condensed == "Price $10"
 
 
+def test_context_that_will_not_fit_is_gone_without_the_figure_going_with_it() -> None:
+    """The line above a match is furniture, and furniture is what to go without.
+
+    A match that will not fit ends the sweep, which is the rule above. Its
+    *context* is the one line taken here that is not a figure at all, so a long
+    one must not end anything: taken first, ninety characters of prose ended the
+    page and took every price below it down as well, with three quarters of the
+    budget still unspent. Grounding then blanks the figures that never arrived,
+    which reads as an extractor that missed them.
+    """
+    text = "\n".join(["Sony WH-1000XM5", "$399.00", "X" * 90, "$249.00", "$99.00"])
+
+    condensed = condense(text, max_chars=100, opinion_chars=0)
+
+    # The 90-character line is skipped; the two prices under it are not.
+    assert condensed == "Sony WH-1000XM5\n$399.00\n$249.00\n$99.00"
+
+
+def test_a_figure_is_kept_even_where_its_context_line_was_not() -> None:
+    """The pair is not atomic: the figure is what the ranking is made of.
+
+    With room for the price and not for the name above it, the price is still
+    what reaches the prompt -- and taking the two in that order is also what
+    stops the budget being spent on a name whose price then would not fit.
+    """
+    text = "A rather longer product name than the budget will stretch to\n$249.00"
+
+    assert condense(text, max_chars=20, opinion_chars=0) == "$249.00"
+
+
 def test_a_line_exactly_at_the_ceiling_is_still_a_line() -> None:
     """The ceiling excludes walls of boilerplate, and 300 characters is not one --
     the two length checks it is spelt in have to agree about that, or a page's

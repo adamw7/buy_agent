@@ -21,7 +21,7 @@ import pytest
 import buy_agent.server as server_module
 from buy_agent.agent import ModelUnavailableError, every_step_passes
 from buy_agent.models import Product
-from tests.conftest import ranked_product
+from tests.conftest import needs_ap2, ranked_product
 from buy_agent.providers import OLLAMA, VLLM
 from buy_agent.search import SearchError
 from buy_agent.server import (
@@ -1544,6 +1544,7 @@ PAY_BODY = {
 }
 
 
+@needs_ap2
 def test_paying_answers_a_receipt(server: str) -> None:
     status, body = post(f"{server}/api/pay", PAY_BODY)
 

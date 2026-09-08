@@ -201,6 +201,63 @@ def test_pruning_a_directory_that_is_not_there_removes_nothing(tmp_path: Path) -
     assert DiskCache(tmp_path / "absent", ttl=3600).prune() == 0
 
 
+def test_pruning_clears_a_temporary_file_a_killed_run_left_behind(tmp_path: Path) -> None:
+    """The one file in here nothing else would ever reach.
+
+    ``put`` takes its own back where the write failed, but a process killed
+    between ``mkstemp`` and ``os.replace`` leaves a ``.tmp`` that no key names
+    and no sweep of the entries touches -- so a directory pruned on every run
+    still grew by one file per interrupted one.
+    """
+    cache = DiskCache(tmp_path, ttl=3600)
+    orphan = tmp_path / "leftover.tmp"
+    orphan.write_text("half an entry", encoding="utf-8")
+    stale = orphan.stat().st_mtime - 7200
+    os.utime(orphan, (stale, stale))
+
+    # Not an entry, so not in the count -- and gone all the same.
+    assert cache.prune() == 0
+    assert not orphan.exists()
+
+
+def test_pruning_leaves_a_temporary_file_another_run_is_writing(tmp_path: Path) -> None:
+    """The cutoff is what makes taking the leftovers safe.
+
+    A ``.tmp`` younger than the time to live belongs to a run that is still
+    going, and deleting it under that run would turn a slow write into a lost
+    entry -- which is the one thing pruning must not cost.
+    """
+    cache = DiskCache(tmp_path, ttl=3600)
+    in_flight = tmp_path / "being-written.tmp"
+    in_flight.write_text("half an entry", encoding="utf-8")
+
+    assert cache.prune() == 0
+    assert in_flight.exists()
+
+
+def test_pruning_counts_the_entries_and_reports_the_leftovers(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Two kinds of file, and only one of them is an entry.
+
+    The answer is how many *entries* expired, which is what the number has always
+    meant; a temporary file nobody can read is worth a DEBUG line and not a place
+    in that count.
+    """
+    cache = DiskCache(tmp_path, ttl=3600)
+    cache.put(URL, "old")
+    _age(cache, URL, seconds=7200)
+    orphan = tmp_path / "leftover.tmp"
+    orphan.write_text("half an entry", encoding="utf-8")
+    stale = orphan.stat().st_mtime - 7200
+    os.utime(orphan, (stale, stale))
+
+    with caplog.at_level("DEBUG", logger="buy_agent.cache"):
+        assert cache.prune() == 1
+
+    assert "1 abandoned temporary file(s)" in caplog.text
+
+
 def test_pruning_steps_over_an_entry_it_cannot_remove(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -153,19 +153,41 @@ class DiskCache:
         is keep the directory from being every page ever read. Once per run, over
         a directory holding a run's worth of files at a time, which is cheaper
         than the first HTTP request that follows it.
+
+        The half-written files :meth:`put` leaves behind go too, on the same
+        cutoff. ``put`` takes its own back where the *write* failed, but a
+        process killed between ``mkstemp`` and ``os.replace`` leaves one that
+        nothing afterwards ever looks at: not an entry, so no key ever names it,
+        and not a ``.json``, so sweeping the entries never reached it. A
+        directory pruned on every run still grew by one file per interrupted one.
+
+        The cutoff is what makes taking them safe. A temporary file another run
+        is writing *right now* is younger than the time to live and is left
+        alone; one older than that belongs to a run that ended long ago. They
+        are not entries, so they are not in the answer -- the DEBUG line below
+        is where they are reported.
         """
         cutoff = time.time() - self.ttl
         removed = 0
+        leftovers = 0
         # ``glob`` answers an empty iterator for a directory it cannot list
         # rather than raising, so with the two calls below guarded this cannot
         # raise at all -- which is what lets ``open_cache`` call it unguarded.
-        for path in self.directory.glob("*.json"):
+        for path in (*self.directory.glob("*.json"), *self.directory.glob("*.tmp")):
             try:
-                if path.stat().st_mtime < cutoff:
-                    path.unlink()
-                    removed += 1
+                if path.stat().st_mtime >= cutoff:
+                    continue
+                path.unlink()
             except OSError:  # a file another run is replacing right now
                 continue
+            if path.suffix == ".json":
+                removed += 1
+            else:
+                leftovers += 1
+        if leftovers:
+            logger.debug(
+                "Cleared %d abandoned temporary file(s) in %s", leftovers, self.directory
+            )
         return removed
 
     def _path(self, key: str) -> Path:

@@ -24,7 +24,7 @@ from buy_agent.api import (
 from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.models import Product
 from buy_agent.ranking import RankingWeights, rank_products
-from tests.conftest import payable_product, ranked_product, said
+from tests.conftest import needs_ap2, payable_product, ranked_product, said
 from buy_agent.providers import VLLM
 from buy_agent.search import SearchError
 from buy_agent.sources import Source
@@ -959,6 +959,7 @@ def paying(**extra: object) -> dict:
     }
 
 
+@needs_ap2
 def test_paying_answers_a_receipt() -> None:
     answer = pay_now(paying())
 
@@ -969,6 +970,7 @@ def test_paying_answers_a_receipt() -> None:
     assert receipt["reference"]
 
 
+@needs_ap2
 def test_a_receipt_never_carries_the_mandate_chain() -> None:
     """It is written to a log and handed to a browser; the chain authorises the
     purchase to whoever holds it."""
@@ -978,6 +980,7 @@ def test_a_receipt_never_carries_the_mandate_chain() -> None:
     assert "payment_mandate" not in receipt
 
 
+@needs_ap2
 def test_the_default_rank_is_the_top_product() -> None:
     """A run is already an ordering, so a request that names none wants the one
     the report leads with."""
@@ -1021,6 +1024,7 @@ def test_an_approval_in_another_currency_buys_nothing() -> None:
         pay_now(paying(approved={**APPROVED, "currency": "EUR"}))
 
 
+@needs_ap2
 def test_a_price_spelled_differently_is_the_same_approval() -> None:
     """Compared as numbers rather than as text: a browser writing 329.990 agreed
     to the same thing as one writing 329.99."""
@@ -1043,6 +1047,7 @@ def test_paying_with_no_approval_at_all_is_refused() -> None:
     assert "send back the title" in str(excinfo.value)
 
 
+@needs_ap2
 def test_an_open_mandate_needs_no_echo_from_the_page(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1071,6 +1076,7 @@ def test_a_product_the_sources_did_not_price_is_a_400_naming_the_field() -> None
     assert excinfo.value.field == "products"
 
 
+@needs_ap2
 def test_a_rail_that_could_not_be_reached_is_a_502(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1112,6 +1118,7 @@ def test_the_products_carry_whether_each_may_be_bought() -> None:
     assert "nothing to authorise" in by_name["Anker Q30"]["cannot_pay"]
 
 
+@needs_ap2
 def test_the_form_is_told_whether_this_server_can_pay_at_all() -> None:
     defaults = defaults_payload()
 
@@ -1184,6 +1191,7 @@ THIRD = Product(
 )
 
 
+@needs_ap2
 def test_the_rank_names_which_product_of_the_run_is_bought() -> None:
     """Off by one here is a shopper charged for a product they did not choose,
     which is the worst thing this endpoint can quietly get wrong."""
@@ -1196,6 +1204,7 @@ def test_the_rank_names_which_product_of_the_run_is_bought() -> None:
     assert pay_now(body)["receipt"]["title"] == SECOND.name
 
 
+@needs_ap2
 def test_the_last_product_of_a_run_can_be_bought() -> None:
     body = {
         "products": [PAYABLE.model_dump(), SECOND.model_dump(), THIRD.model_dump()],
@@ -1241,6 +1250,7 @@ def test_an_approval_that_is_not_an_object_buys_nothing() -> None:
     assert "send back the title" in str(excinfo.value)
 
 
+@needs_ap2
 def test_an_approval_with_spaces_round_the_title_is_still_the_same_approval() -> None:
     """A browser is free to send what a text node held; the agreement is about
     the words."""
