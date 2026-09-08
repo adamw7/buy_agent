@@ -48,10 +48,11 @@ convention test that fails if it is skipped.
 
 - `parse_options`: `_read(data, "<key>", defaults.<field>, <coercion>)`. A missing
   key and an empty string both mean "use the default" -- never "zero".
-- Numeric -> `_bounded(int|float, "<key>")` **and** a row in `_BOUNDED` mapping
-  the request key to the config field (`results` -> `num_products`). That one
-  table is read twice: to hold an incoming value, and by `limits_payload` to ship
-  the range to the form.
+- Numeric -> `_bounded(int|float)` **and** a row in `_BOUNDED` mapping the
+  request key to the config field (`results` -> `num_products`). The parser is
+  given the key it arrives under, so the range comes off that row and the key is
+  written once on the line. That one table is read twice: to hold an incoming
+  value, and by `limits_payload` to ship the range to the form.
 - A list-valued option does not go through `_read` (it renders values with `str`,
   turning a JSON array into a Python repr) -- follow `_read_sources`, which takes
   an array or a separated string.

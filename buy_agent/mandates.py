@@ -346,15 +346,63 @@ def authorise(cart: Cart, checkout: SignedCheckout, *, key: Any, nonce: str) -> 
     process. Without one, the caller has already asked a person, and the two
     mandates are signed directly.
 
+    The **Payment** Mandate is the whole of the difference: a root SD-JWT where a
+    person approved this cart, the second hop of the open mandate's chain where
+    one authorised it. What follows is the same authorisation either way -- the
+    Checkout Mandate is this side's signature on the merchant's price whoever
+    agreed to it, and the reference, the transaction id and the binding between
+    the two are the protocol's rather than the mode's. So the modes part for one
+    statement and meet again below.
+
     Raises:
         MandateError: if an open mandate is configured and does not authorise this
             cart, naming the constraint it broke.
     """
+    # Asked before the SDK is, so a mandate file that will not read fails with
+    # its own sentence rather than with the one about installing ``ap2``.
     configured = open_mandate()
+    sdk = _sdk()
+    now = int(time.time())
+    client = sdk.mandate.MandateClient()
+    payload = _payment_mandate(cart, checkout, now)
+
     if configured is None:
-        return _direct(cart, checkout, key=key)
-    token, issuer = configured
-    return _delegated(cart, checkout, key=key, nonce=nonce, open_token=token, issuer=issuer)
+        # Human present: the shopper looked at this exact cart, so the closed
+        # Payment Mandate is signed directly by the surface that asked.
+        payment = client.create(payloads=[payload], issuer_key=key)
+    else:
+        # Human not present: close the open mandate the shopper signed, within
+        # it. The constraints are evaluated by the SDK's own evaluator -- the one
+        # a credential provider runs -- rather than by a second reading of them
+        # written here, and a cart outside them is refused before anything is
+        # sent.
+        open_token, issuer = configured
+        payment = client.present(
+            holder_key=key,
+            mandate_token=open_token,
+            payloads=[payload],
+            nonce=nonce,
+            aud=CREDENTIAL_PROVIDER_AUDIENCE,
+        )
+        violations = verify(
+            payment,
+            issuer=issuer,
+            audience=CREDENTIAL_PROVIDER_AUDIENCE,
+            nonce=nonce,
+            transaction_id=checkout.hash,
+        )
+        if violations:
+            raise MandateError(
+                "The open mandate does not authorise this purchase: " + "; ".join(violations)
+            )
+
+    return Authorisation(
+        checkout=client.create(payloads=[_checkout_mandate(checkout, now)], issuer_key=key),
+        payment=payment,
+        reference=sdk.utils.compute_sha256_b64url(client.get_closed_mandate_jwt(payment)),
+        transaction_id=checkout.hash,
+        autonomous=configured is not None,
+    )
 
 
 def _payment_mandate(cart: Cart, checkout: SignedCheckout, now: int) -> Any:
@@ -398,66 +446,6 @@ def _checkout_mandate(checkout: SignedCheckout, now: int) -> Any:
     )
 
 
-def _direct(cart: Cart, checkout: SignedCheckout, *, key: Any) -> Authorisation:
-    """Human present: a person approved this cart, so it is signed for directly."""
-    sdk = _sdk()
-    now = int(time.time())
-    client = sdk.mandate.MandateClient()
-    payment = client.create(payloads=[_payment_mandate(cart, checkout, now)], issuer_key=key)
-    return Authorisation(
-        checkout=client.create(payloads=[_checkout_mandate(checkout, now)], issuer_key=key),
-        payment=payment,
-        reference=sdk.utils.compute_sha256_b64url(client.get_closed_mandate_jwt(payment)),
-        transaction_id=checkout.hash,
-        autonomous=False,
-    )
-
-
-def _delegated(
-    cart: Cart,
-    checkout: SignedCheckout,
-    *,
-    key: Any,
-    nonce: str,
-    open_token: str,
-    issuer: Any,
-) -> Authorisation:
-    """Human not present: close the open mandate the shopper signed, within it.
-
-    The constraints are evaluated by the SDK's own evaluator -- the one a
-    credential provider runs -- rather than by a second reading of them written
-    here. A cart outside them is refused before anything is sent.
-    """
-    sdk = _sdk()
-    now = int(time.time())
-    client = sdk.mandate.MandateClient()
-    payment = client.present(
-        holder_key=key,
-        mandate_token=open_token,
-        payloads=[_payment_mandate(cart, checkout, now)],
-        nonce=nonce,
-        aud=CREDENTIAL_PROVIDER_AUDIENCE,
-    )
-    violations = verify(
-        payment,
-        issuer=issuer,
-        audience=CREDENTIAL_PROVIDER_AUDIENCE,
-        nonce=nonce,
-        transaction_id=checkout.hash,
-    )
-    if violations:
-        raise MandateError(
-            "The open mandate does not authorise this purchase: " + "; ".join(violations)
-        )
-    return Authorisation(
-        checkout=client.create(payloads=[_checkout_mandate(checkout, now)], issuer_key=key),
-        payment=payment,
-        reference=sdk.utils.compute_sha256_b64url(client.get_closed_mandate_jwt(payment)),
-        transaction_id=checkout.hash,
-        autonomous=True,
-    )
-
-
 def verify(
     chain: str, *, issuer: Any, audience: str, nonce: str, transaction_id: str
 ) -> list[str]:
@@ -466,7 +454,7 @@ def verify(
     Returns:
         The constraint violations, empty for a chain that is authorised. A list
         rather than a raise, because what a violation is worth is the caller's:
-        :func:`_delegated` refuses on one, a test reads them.
+        :func:`authorise` refuses on one, a test reads them.
 
     Raises:
         MandateError: if the chain does not verify at all -- a bad signature, a

@@ -3,6 +3,20 @@ import { Component, computed, input, output, signal } from '@angular/core';
 import type { RailOption, RankedProduct, Receipt, ScoreWeights } from '../agent.types';
 
 /**
+ * The criteria a score is blended from, in the order they are weighted.
+ *
+ * `ranking.CRITERIA` on the Python side, which is a list there for the same
+ * reason it is one here: the name is what looks a share up in `ScoreParts` and
+ * its weight up in `ScoreWeights`, so writing it beside each value would be the
+ * name said twice a row -- and the two halves free to name different criteria.
+ */
+const CRITERIA = [
+  'rating',
+  'popularity',
+  'price',
+] as const satisfies readonly (keyof ScoreWeights)[];
+
+/**
  * One criterion behind the score, as the card draws it.
  *
  * `percent` is that criterion scored on its own out of 100, and `weight` is how
@@ -156,14 +170,9 @@ export class ProductCard {
     const breakdown = this.product().breakdown;
     const weights = this.weights();
     const assumed = new Set(breakdown.neutral);
-    const shares: [keyof ScoreWeights, number][] = [
-      ['rating', breakdown.rating],
-      ['popularity', breakdown.popularity],
-      ['price', breakdown.price],
-    ];
-    return shares.map(([name, share]) => ({
+    return CRITERIA.map((name) => ({
       name,
-      percent: Math.round(share * 100),
+      percent: Math.round(breakdown[name] * 100),
       weight: weights ? Math.round(weights[name] * 100) : null,
       assumed: assumed.has(name),
     }));
