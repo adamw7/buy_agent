@@ -1029,17 +1029,20 @@ reaching out.
 
 Two optional prerequisites decide how many of those 1764 *run*, and neither is a
 failure when it is absent. With neither `pwsh` nor `powershell`, 13 of the 19 in
-`tests/test_start_script.py` skip. Without the optional AP2 SDK, the 74 that sign
+`tests/test_start_script.py` skip. Without the optional AP2 SDK, the 73 that sign
 or verify a mandate skip on `needs_ap2` -- the marker in `tests/conftest.py`,
 which is `needs_powershell` for the other one and asks `mandates.available()`
 once at import. So a machine with both reads `1751 passed, 13 skipped`, and a
-checkout set up with `requirements-dev.txt` alone reads `1677 passed, 87
-skipped` rather than 74 red tests saying the project is broken when one optional
+checkout set up with `requirements-dev.txt` alone reads `1678 passed, 86
+skipped` rather than 73 red tests saying the project is broken when one optional
 feature is not installed. Skipping is only ever the local convenience: `ci.yml`
 and `mutation.yml` each install the SDK in a step of their own, and the 100%
-the coverage floor is set just under cannot be reached with 74 tests sitting
+the coverage floor is set just under cannot be reached with 73 tests sitting
 out -- so a marker put on a test that does *not* need the SDK fails the run
-that matters. The UI's 187 tests run in about two seconds, most of which is
+that matters, and one put on a test that does not need it is a test nobody runs
+on the checkout the marker exists for: `needs_ap2` sits on the parametrised
+*case* that reaches the signing stack, not on a whole function whose other half
+fakes the import it is about. The UI's 187 tests run in about two seconds, most of which is
 building the app first. The 31 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
 

@@ -50,15 +50,18 @@ Nothing there reaches a network; the HTTP rail's transport is patched where
 that proves it, and they live outside `testpaths` so a bare `pytest` cannot
 reach them.
 
-Without that SDK the 74 tests that need it **skip**, the way
+Without that SDK the 73 tests that need it **skip**, the way
 `tests/test_start_script.py` skips where there is no PowerShell: `needs_ap2` in
 `tests/conftest.py` is the marker, and it asks `mandates.available()` once at
 import. So a checkout set up with `requirements-dev.txt` alone reads
-`1677 passed, 87 skipped` rather than 74 failures claiming the project is
+`1678 passed, 86 skipped` rather than 73 failures claiming the project is
 broken when one optional feature is simply not installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide
 anything nothing here is skipped and the coverage floor still has to be met --
-which it cannot be with 74 tests sitting out.
+which it cannot be with 73 tests sitting out. Nor is it a way of skipping more
+than that: every one of the 73 really does fail without the SDK, and the marker
+goes on the parametrised case rather than the function where only one case
+needs it.
 
 A deprecation warning fails the Python suite. `pytest.ini` sets `filterwarnings` to
 turn `DeprecationWarning` and `PendingDeprecationWarning` into errors, in both the

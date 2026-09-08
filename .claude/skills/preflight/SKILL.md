@@ -24,7 +24,7 @@ python -m coverage report
 - With neither `pwsh` nor `powershell` on PATH, 13 tests in
   `tests/test_start_script.py` skip. That is expected off Windows and not a
   failure.
-- Without the optional AP2 SDK, 74 tests skip on `needs_ap2` and the coverage
+- Without the optional AP2 SDK, 73 tests skip on `needs_ap2` and the coverage
   floor cannot be met -- so a `.venv` without it fails the gate on coverage, not
   on a red test. Add it with `pip install -r requirements-ap2-deps.txt` and then
   `pip install --no-deps -r requirements-ap2.txt`; the flag belongs to the second

@@ -31,10 +31,10 @@ if TYPE_CHECKING:
 #: ``tests/test_start_script.py`` skips what cannot run without a PowerShell.
 #: Paying is an optional feature and its SDK is an optional install (two
 #: commands, and somebody else's git repository), so a checkout set up with
-#: ``requirements-dev.txt`` alone has to come back green: seventy-four *failures*
-#: say this project is broken, where seventy-four skips say one feature was not
-#: installed. What the marker must never become is a way of not noticing the
-#: SDK is missing where it is meant to be there -- ``ci.yml`` and
+#: ``requirements-dev.txt`` alone has to come back green: seventy-three
+#: *failures* say this project is broken, where seventy-three skips say one
+#: feature was not installed. What the marker must never become is a way of not
+#: noticing the SDK is missing where it is meant to be there -- ``ci.yml`` and
 #: ``mutation.yml`` each install it in a step of their own, so on the runs that
 #: matter nothing here is skipped and the coverage floor still has to be met.
 #:
@@ -43,6 +43,13 @@ if TYPE_CHECKING:
 #: a test that generates a key needs them whether or not it names ``ap2`` itself.
 #: Four such tests were left unmarked and failed on the very checkout the marker
 #: exists for.
+#:
+#: The other way round costs nothing on the runs that matter and everything on
+#: the one this exists for: a test marked here that would have passed anyway is
+#: one the dev-only checkout never runs, and nothing goes red to say so. So the
+#: marker goes as close to what needs the SDK as pytest allows -- on the
+#: ``pytest.param`` where one case of a parametrised test reaches the signing
+#: stack and another only fakes the import it is about.
 #:
 #: Asked once, at import: ``mandates.available()`` defers the ``ap2`` import, so
 #: this costs one attempted import for the whole session.
