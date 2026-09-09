@@ -227,7 +227,18 @@ an error rather than a paragraph at the end of a green run: every direct depende
 is pinned exactly, so the run that goes red is the one where somebody moved a pin,
 which is when the call is worth fixing. It reaches `integration/` too. A warning a
 dependency raises about itself is not ours to fix and gets an `ignore` line there
-naming the message and the module. `.coveragerc`
+naming the message and the module. It also sets `timeout = 60` (pytest-timeout),
+which is a cap on each test and not a budget for the run: nothing in either suite
+sleeps and the slowest test there is takes about 1.5s spawning an interpreter, so
+a minute is only ever reached by a test that has stopped -- a fetch that got past
+a misspelt patch and out to the real web, a socket nothing will answer -- and
+reaching it names that test instead of leaving a runner to sit until GitHub's own
+six-hour cap. A minute is the wrong number for a real model, so
+`integration/conftest.py` marks every test there with
+`integration.LIVE_TIMEOUT_SECONDS` instead, which a convention test holds between
+the cap above and the five minutes `integration.yml` gives the whole job -- over
+the first or a slow CPU answer fails; at the second the job's own cap fires first
+and names no test. `.coveragerc`
 holds the Python floor (99%, against 100% actual) with `branch = true`, so the
 floor is over branches as well as lines; the one exclusion is the
 `if __name__ == "__main__"` guard, covered instead by spawning a real interpreter.
@@ -1019,7 +1030,7 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1787 tests run in about eight seconds: most of that is the three that spawn an
+1788 tests run in about eight seconds: most of that is the three that spawn an
 interpreter -- two for what only a real import can answer (`python -m buy_agent`
 still runs as a script, and still imports with `$BUY_AGENT_RAIL` misspelt), one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
@@ -1027,13 +1038,13 @@ PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliber
 Nothing else should sleep, so a run that takes much longer still means something is
 reaching out.
 
-Two optional prerequisites decide how many of those 1787 *run*, and neither is a
+Two optional prerequisites decide how many of those 1788 *run*, and neither is a
 failure when it is absent. With neither `pwsh` nor `powershell`, 13 of the 19 in
 `tests/test_start_script.py` skip. Without the optional AP2 SDK, the 73 that sign
 or verify a mandate skip on `needs_ap2` -- the marker in `tests/conftest.py`,
 which is `needs_powershell` for the other one and asks `mandates.available()`
-once at import. So a machine with both reads `1774 passed, 13 skipped`, and a
-checkout set up with `requirements-dev.txt` alone reads `1701 passed, 86
+once at import. So a machine with both reads `1775 passed, 13 skipped`, and a
+checkout set up with `requirements-dev.txt` alone reads `1702 passed, 86
 skipped` rather than 73 red tests saying the project is broken when one optional
 feature is not installed. Skipping is only ever the local convenience: `ci.yml`
 and `mutation.yml` each install the SDK in a step of their own, and the 100%
@@ -1090,7 +1101,9 @@ that
   both of its jobs check out the tag being released rather than a branch;
 - the nightly run pulls the tag `integration.TINY_MODEL` names, names the directory
   `testpaths` leaves out, sets `$BUY_AGENT_REQUIRE_OLLAMA` so an absent Ollama fails
-  instead of skipping, and caps itself at the five minutes the docs quote;
+  instead of skipping, caps itself at the five minutes the docs quote, and leaves
+  `integration.LIVE_TIMEOUT_SECONDS` room inside that cap to fail a stopped model
+  first;
 - every ADR is indexed, numbered to match its heading, carries the status, date and
   sections ADR-0001 asks for, and cites only records that exist;
 - the Saturday mutation run mutates the package `.coveragerc` measures, on the

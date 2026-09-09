@@ -20,7 +20,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-1787 Python tests and 187 UI tests. Nothing in either suite touches the network or
+1788 Python tests and 187 UI tests. Nothing in either suite touches the network or
 a model server: the model is faked through the `llm=` argument of `BuyAgent` -- a class
 with one `answer` method, which is the whole of `chat.ChatModel`, both
 the search backend and the page fetcher are monkeypatched, the two clients
@@ -54,7 +54,7 @@ Without that SDK the 73 tests that need it **skip**, the way
 `tests/test_start_script.py` skips where there is no PowerShell: `needs_ap2` in
 `tests/conftest.py` is the marker, and it asks `mandates.available()` once at
 import. So a checkout set up with `requirements-dev.txt` alone reads
-`1701 passed, 86 skipped` rather than 73 failures claiming the project is
+`1702 passed, 86 skipped` rather than 73 failures claiming the project is
 broken when one optional feature is simply not installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide
 anything nothing here is skipped and the coverage floor still has to be met --
@@ -73,6 +73,27 @@ dependency raises about something it does to itself is not ours to fix: that one
 gets an `ignore` line in `pytest.ini` naming the message and the module, and a
 comment saying which upgrade removes it again.
 
+A hung test fails the Python suite too. `pytest.ini` sets `timeout = 60`, which
+[pytest-timeout](https://pypi.org/project/pytest-timeout/) applies to each test
+on its own -- generously, since nothing here sleeps and the slowest test spawns
+an interpreter in about 1.5s. What a minute catches is not a slow test but a
+stopped one: a fetch that reached the real web because a patch was spelt wrong, a
+socket nothing is going to answer, two threads each holding half a lock. Without
+it that is a job sitting at 4% until GitHub's six-hour cap kills it having
+reported nothing, and a local run to go and find with a task manager; with it,
+the run goes red naming the test. How the timeout arrives is the platform's:
+Linux has `SIGALRM`, so the test fails and the rest of the run still reports,
+while Windows has none, so the plugin dumps every thread's stack and takes the
+process with it. Both are red and both name the test.
+
+The live tests need a different number, and `integration/conftest.py` marks them
+with `integration.LIVE_TIMEOUT_SECONDS` -- 120 -- rather than the minute a faked
+model deserves. It sits between two limits and a convention test holds it there:
+under the unit suite's cap, a 0.6B model answering on a runner's four cores would
+start failing tests for being slow; at or over the five minutes
+`integration.yml` gives the whole job, an Ollama that accepted the request and
+never answered would be a cancelled job naming no test at all.
+
 Both suites are measured and CI fails on a drop: the Python side covers every line
 and branch (`.coveragerc` sets the floor at 99%), and the UI's statements and
 lines sit just under 100% (`ui/scripts/check-coverage.mjs`, floor 98%). Coverage
@@ -87,7 +108,8 @@ provider agreeing about which providers exist; the payloads
 server's own defaults; the four workflows agreeing on the version of every action
 they share and on the Python and Node they run; the release archive carrying the
 UI build where the server looks for it; the nightly run pulling the model the live
-tests ask for; the decision log agreeing with its own index; and every module in
+tests ask for and leaving its own cap room to fail a stopped model first; the
+decision log agreeing with its own index; and every module in
 the package logging under the package's own name, in the deferred form a handler
 can still read, leaving stdout to the report.
 

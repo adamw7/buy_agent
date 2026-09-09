@@ -41,4 +41,17 @@ MODEL_ENV_VAR = "BUY_AGENT_TEST_MODEL"
 #: worst at reporting is having done nothing at all.
 REQUIRE_ENV_VAR = "BUY_AGENT_REQUIRE_OLLAMA"
 
-__all__ = ["MODEL_ENV_VAR", "REQUIRE_ENV_VAR", "TINY_MODEL"]
+#: What one of these tests may take before it is a stopped one, in seconds.
+#: ``pytest.ini`` caps every test at a minute, which is generous for a faked
+#: model and far too tight for a real one: a 0.6B model on a runner's four cores
+#: answers the extraction prompt in tens of seconds, and the session-scoped
+#: ``live_run`` fixture spends that on whichever test asks for it first. So
+#: ``conftest.py`` marks the tests here with this instead -- comfortably over a
+#: slow answer, and comfortably under the five minutes
+#: ``.github/workflows/integration.yml`` gives the whole job, which is what makes
+#: an Ollama that accepted the request and never answered a failing test naming
+#: itself rather than a cancelled job with nothing in it.
+#: ``tests/test_conventions.py`` holds it against both ends.
+LIVE_TIMEOUT_SECONDS = 120
+
+__all__ = ["LIVE_TIMEOUT_SECONDS", "MODEL_ENV_VAR", "REQUIRE_ENV_VAR", "TINY_MODEL"]
