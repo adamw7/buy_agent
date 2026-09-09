@@ -247,8 +247,8 @@ a new record superseding it rather than an edit to the old one -- numbers are ne
 reused, and accepted records are not rewritten. `tests/test_conventions.py` checks
 that the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0046 and every record is Accepted but ADR-0020, which ADR-0037 supersedes,
-so the next free number is 0047.
+to ADR-0047 and every record is Accepted but ADR-0020, which ADR-0037 supersedes,
+so the next free number is 0048.
 
 `.claude/skills/` holds the chores that span those files: `add-option` walks a new
 setting through `config.py`, both front doors, `agent.types.ts` and the form;
@@ -1019,7 +1019,7 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1764 tests run in about eight seconds: most of that is the three that spawn an
+1781 tests run in about eight seconds: most of that is the three that spawn an
 interpreter -- two for what only a real import can answer (`python -m buy_agent`
 still runs as a script, and still imports with `$BUY_AGENT_RAIL` misspelt), one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
@@ -1027,13 +1027,13 @@ PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliber
 Nothing else should sleep, so a run that takes much longer still means something is
 reaching out.
 
-Two optional prerequisites decide how many of those 1764 *run*, and neither is a
+Two optional prerequisites decide how many of those 1781 *run*, and neither is a
 failure when it is absent. With neither `pwsh` nor `powershell`, 13 of the 19 in
 `tests/test_start_script.py` skip. Without the optional AP2 SDK, the 73 that sign
 or verify a mandate skip on `needs_ap2` -- the marker in `tests/conftest.py`,
 which is `needs_powershell` for the other one and asks `mandates.available()`
-once at import. So a machine with both reads `1751 passed, 13 skipped`, and a
-checkout set up with `requirements-dev.txt` alone reads `1678 passed, 86
+once at import. So a machine with both reads `1768 passed, 13 skipped`, and a
+checkout set up with `requirements-dev.txt` alone reads `1695 passed, 86
 skipped` rather than 73 red tests saying the project is broken when one optional
 feature is not installed. Skipping is only ever the local convenience: `ci.yml`
 and `mutation.yml` each install the SDK in a step of their own, and the 100%
@@ -1110,6 +1110,60 @@ that
 
 A field added on one side of the language boundary and forgotten on the other is
 otherwise invisible to both suites.
+
+### The architecture tests
+
+Those are the rules that span a *declaration*. `tests/test_architecture.py` is the
+other half -- the rules that span an *import* -- asserted against the import graph
+with [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython), which parses
+the package with `ast` and answers rules about the result (ADR-0047). Which module
+may know about which is what this file says most often, and an import in the wrong
+direction runs perfectly: it passes that module's own tests, keeps the coverage
+floor and survives the mutation run. Fourteen tests -- thirteen rules and the one
+that keeps them honest -- each the executable form of a sentence written down
+here or in a record:
+
+- the package has **no import cycles**, and imports **none of the five trees that
+  import it** -- `tests/`, `integration/`, `benchmark/`, `demo/`, `scripts/`, none
+  of which is in the image or the release archive;
+- every module sits in a **layer that reaches only downward** -- entry points, web,
+  orchestration, pipeline, paying, model access, settings, domain -- with the four
+  edges that are decisions named in the test: the pipeline never reads the config
+  (which is what lets `rank_products`, `ground` and `Constraints` be tested with
+  three arguments and no environment), the pipeline never pays (ADR-0046), paying
+  never asks the model, and the model seam knows nothing about products (ADR-0038);
+- **one seam, one module**: `mandates.py` alone imports `ap2` (ADR-0046),
+  `providers.py` alone a model client (ADR-0029), `search.py` alone the search
+  backend (ADR-0021), `fetch.py` alone the HTML parser, and the three that speak
+  HTTP -- `fetch`, `providers`, `rails` -- are the three the suite patches, so a
+  fourth is a request from a module nobody thought made any;
+- `server.py` imports **nothing outside the standard library** (ADR-0010), read off
+  the graph rather than off `requirements.txt`, so a dependency added tomorrow is
+  covered without anybody writing it down again;
+- the **tables know nothing about the config** resolved from them (ADR-0029), and
+  `search.py` and `sources.py` know nothing about any other module -- deciding is
+  not fetching;
+- **nothing that decides the answer asks the model**: `ranking`, `constraints`,
+  `verification` and `models` may not reach the chat seam, the fetcher or the
+  search (ADR-0002).
+
+Two things about how those are written. Every rule is checked with
+`ignore_type_checking_imports=True`: an import under that guard never runs, so it
+is a name and not a dependency, and it is how this package already spells "I use
+this type and not this module". And `buy_agent/__init__.py` is in no layer and
+outside the cycle rule, because `from buy_agent import mandates` -- the deferred
+import `api`, `payment` and `rails` each use -- reads as an edge onto the package
+rather than onto the module, while importing any submodule runs `__init__.py`
+first regardless.
+
+A negated rule whose subject matches nothing *passes*, which is the one way this
+file could be worse than no file: `only()` and `every_module_but()` therefore
+check that every filename they name is really a module of the package, so a rename
+fails the rule about that module rather than quietly making it a no-op. A module
+added to the package and to no layer is exempt from the layer rule in the same
+silent way -- adding one means placing it. What is deliberately not asserted is
+size: the library measures lines, methods and cohesion too, and a ceiling on any
+of them would be a policy nobody has decided.
 
 ### The live suite
 
