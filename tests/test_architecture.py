@@ -120,6 +120,16 @@ _MAY_DEPEND_ON: dict[str, tuple[str, ...]] = {
 }
 
 
+#: The four modules ``buy_agent/__init__.py`` re-exports from, off the six names
+#: ``CLAUDE.md`` says a Python caller gets: ``BuyAgent`` (``agent``),
+#: ``AgentConfig`` (``config``), ``Product`` and ``RankedProduct`` (``models``),
+#: ``RankingWeights`` and ``rank_products`` (``ranking``). "Anything else is
+#: reached by its module" is a rule about what this file *imports*, which is a
+#: different thing from what it lists in ``__all__`` -- and the half that costs
+#: something.
+_RE_EXPORTED: tuple[str, ...] = ("agent.py", "config.py", "models.py", "ranking.py")
+
+
 #: Every module of the package, off the directory rather than out of a list here.
 #: The two helpers below are checked against it, because a filter naming a module
 #: that is not there matches nothing, and a rule whose subject matches nothing is
@@ -236,14 +246,56 @@ def test_every_module_of_the_package_is_in_a_layer() -> None:
     deferred import ``api``, ``payment`` and ``rails`` each use -- reads as an edge
     onto the *package* rather than onto the module, which would put an arrow from
     three different tiers onto the top of the stack and say nothing true about any
-    of them.
+    of them. It is not left unchecked, though:
+    ``test_the_re_export_surface_imports_only_what_it_re_exports`` is the rule it
+    gets instead.
+
+    A module named in *two* layers is the same silence the other way about, and
+    the set that would catch a module named in none swallows it: it is placed,
+    twice, and what it may reach is then the union of both rows -- which is a
+    permission nobody wrote down and one no violation would ever point at.
     """
-    placed = {module for modules in _LAYERS.values() for module in modules}
+    placed = [module for modules in _LAYERS.values() for module in modules]
     named = {layer for allowed in _MAY_DEPEND_ON.values() for layer in allowed}
 
-    assert placed | {"__init__.py"} == _MODULES
+    assert len(placed) == len(set(placed)), "a module in two layers may reach what either may"
+    assert set(placed) | {"__init__.py"} == _MODULES
     assert set(_MAY_DEPEND_ON) == set(_LAYERS), "a layer with no row is a layer with no rule"
     assert named <= set(_LAYERS), "a row may only allow layers that exist"
+
+
+def test_the_re_export_surface_imports_only_what_it_re_exports() -> None:
+    """``buy_agent/__init__.py`` re-exports "the small surface a Python caller
+    needs -- ``BuyAgent``, ``AgentConfig``, ``Product``, ``RankedProduct``,
+    ``RankingWeights``, ``rank_products``; anything else is reached by its
+    module". Those six names come from four modules, and this is the rule that
+    the file imports those four and nothing besides.
+
+    It is the one file the two rules above let off, so it is the one file that
+    needs a rule of its own. Every other module pays for an import in the layer
+    it is placed in; this one is in no layer and outside the cycle check, because
+    ``from buy_agent import mandates`` -- the deferred import ``api``,
+    ``payment`` and ``rails`` each use -- reads as an edge onto the package.
+
+    That exemption is exactly why the imports here are not free. Importing *any*
+    submodule runs this file first, before a line of the submodule's own body, so
+    a ``from`` line added here is paid by every caller of every module and by
+    each of those deferred imports -- and paid at the wrong moment. A single
+    ``from buy_agent.payment import pay_for`` would put the AP2 stack behind
+    ``import buy_agent``, which is the import a checkout without the optional SDK
+    makes work (ADR-0046); one naming ``server`` would put a socket module behind
+    ``python -m buy_agent``. Neither shows up as a cycle, neither breaks a layer,
+    and both are a line long.
+    """
+    assert_passes(
+        project_files(_PACKAGE)
+        .with_name(only("__init__.py"))
+        .should_not()
+        .depend_on_files()
+        .with_name(every_module_but("__init__.py", *_RE_EXPORTED))
+        .because("what the package imports is what importing anything of it costs"),
+        _OPTIONS,
+    )
 
 
 def test_the_package_imports_none_of_the_trees_that_import_it() -> None:
@@ -406,6 +458,36 @@ def test_the_server_is_stdlib_only() -> None:
     )
 
 
+def test_only_the_entry_points_parse_a_command_line() -> None:
+    """``argparse`` belongs to the two modules that are handed an ``argv``:
+    ``__main__.build_parser`` for the run and ``server.build_parser`` for the
+    server it is served from. Everything below them is given values.
+
+    ``api.py`` is the module this is really about. "The CLI and the API are two
+    ways of filling in the same ``AgentConfig``", and the difference between them
+    is precisely what ``argparse`` cannot express: over the wire "unset" is
+    spelled by a blank, so ``parse_options`` reads a missing key and an empty
+    string alike (ADR-0012), while on a command line it is spelled by leaving the
+    flag off -- which is why ``--source`` naming nothing is a usage error and an
+    empty ``sources`` field is the whole web (ADR-0027). A web tier reaching for a
+    parser would be a third set of defaults -- and one the convention test that
+    holds those two doors to the same ranges would read straight past.
+
+    A parser anywhere further down is worse than a duplicate: ``argparse``
+    answers a bad value by writing to stderr and exiting the process, which is
+    not a thing a step of a pipeline, a table or a seam may do to a run.
+    """
+    assert_passes(
+        project_files(_PACKAGE)
+        .with_name(every_module_but("__main__.py", "server.py"))
+        .should_not()
+        .depend_on_external_modules()
+        .matching("argparse*")
+        .because("an argv is the entry points' to read; everything else is given values"),
+        _OPTIONS,
+    )
+
+
 # -- what each module is allowed to know ---------------------------------------
 
 
@@ -475,6 +557,154 @@ def test_sources_decides_what_a_source_is_and_does_no_io() -> None:
         .matching("ddgs*")
         .matching("lxml*")
         .because("deciding is not fetching"),
+        _OPTIONS,
+    )
+
+
+def test_the_ap2_seam_knows_nothing_about_this_package() -> None:
+    """The other half of ADR-0046's seam. ``test_only_mandates_imports_the_ap2_sdk``
+    says the SDK stops here; this says the package does too, so ``mandates.py``
+    is a leaf of the graph the way ``search.py`` and ``sources.py`` are.
+
+    That is what makes it a translation rather than a layer of the pipeline: it
+    is given the amounts, the merchant and the key, and answers a signed chain
+    and a verdict on one. What it must not do is reach back up for a ``Product``,
+    a ``Cart`` or a rail's row -- "everything above this line deals in carts and
+    receipts; everything AP2 calls a mandate, a disclosure, an SD-JWT or a
+    ``vct`` stops here", and a seam that knew both vocabularies would be the one
+    place a change to either is felt.
+
+    It is also what keeps the optional dependency optional in practice.
+    ``payment.py`` and ``rails.py`` reach *down* to it through the deferred
+    ``from buy_agent import mandates``, so an import back would be a cycle
+    through the AP2 stack -- resolved differently depending on which module a
+    checkout imports first, and only on the checkouts that installed the SDK at
+    all.
+    """
+    assert_passes(
+        project_files(_PACKAGE)
+        .with_name(only("mandates.py"))
+        .should_not()
+        .depend_on_files()
+        .in_path("*.py")
+        .because("the seam translates between two vocabularies and speaks neither back"),
+        _OPTIONS,
+    )
+
+
+def test_the_web_tier_is_split_at_the_payload_and_the_api_speaks_no_http() -> None:
+    """The module table: ``api.py`` is "request options in, ranked products out --
+    the web-facing half worth testing", and ``server.py`` is "a stdlib HTTP
+    server". The split is the reason the first half *is* testable: options arrive
+    as a mapping and answers leave as payloads, so every one of its rules --
+    ``parse_options``, ``_STATUS``, ``PAY_STATUS``, ``results_payload`` -- is
+    asserted by calling a function, and the socket, the status line, the worker
+    thread and the event stream stay on the other side of it.
+
+    So the sockets, the threads and the queue are ``server.py``'s, along with
+    ``_CONTENT_TYPES``, which spells out what ``ng build`` emits rather than
+    asking ``mimetypes`` (ADR-0020). An ``api.py`` that imported any of them
+    would have started answering requests instead of shaping answers -- and the
+    first thing it would take with it is the streaming half, which is exactly the
+    part that has to be able to fail without a status line to say so.
+    """
+    assert_passes(
+        project_files(_PACKAGE)
+        .with_name(only("api.py"))
+        .should_not()
+        .depend_on_external_modules()
+        .matching("http")
+        .matching("http.*")
+        .matching("socket")
+        .matching("socketserver*")
+        .matching("ssl")
+        .matching("mimetypes*")
+        .matching("threading*")
+        .matching("queue*")
+        .matching("urllib.request*")
+        .because("options in and payloads out is what makes the web tier testable"),
+        _OPTIONS,
+    )
+
+
+def test_the_steps_take_values_and_answer_values() -> None:
+    """The pipeline and the domain are the part of this package that is a
+    function: given the same arguments they answer the same thing, and the
+    arguments are all there is.
+
+    "The pipeline never reads the config" is the layer rule that says half of it,
+    "which is what lets ``rank_products``, ``ground`` and ``Constraints`` be
+    tested with three arguments and no environment at all". This is the other
+    half, which no layer can state, because what a step would reach for is not a
+    module of this package but the machine underneath it: an environment
+    variable, a file, a clock or a random number. A settings module is a place
+    ``$BUY_AGENT_CACHE_DIR`` may be read (``cache.py``, ADR-0040) and a step is
+    not, whatever the variable is called.
+
+    The clock is the half worth spelling out, because it is the one that would
+    look harmless. ``cache.py`` remembers what the model said and hands it back
+    within the TTL (ADR-0044), and what makes that sound is that asking twice is
+    the same question: a run at ``temperature`` above 0 is deliberately never
+    remembered, "it has no one answer to remember". A step whose answer moved
+    with the time of day, or with a coin, would be remembered wrong and stay
+    wrong for the life of the entry -- and it would be the kind of test failure
+    that arrives once a week and passes on a re-run.
+    """
+    steps = only(*_LAYERS["pipeline"], *_LAYERS["domain"])
+
+    assert_passes(
+        project_files(_PACKAGE)
+        .with_name(steps)
+        .should_not()
+        .depend_on_external_modules()
+        .matching("os*")
+        .matching("pathlib*")
+        .matching("tempfile*")
+        .matching("shutil*")
+        .because("a step is given its settings; it does not go and look them up"),
+        _OPTIONS,
+    )
+    assert_passes(
+        project_files(_PACKAGE)
+        .with_name(steps)
+        .should_not()
+        .depend_on_external_modules()
+        .matching("time*")
+        .matching("datetime*")
+        .matching("random*")
+        .matching("secrets*")
+        .matching("uuid*")
+        .because("an answer that moves on its own is one the cache would keep wrongly"),
+        _OPTIONS,
+    )
+
+
+def test_the_steps_do_not_chain_themselves() -> None:
+    """The order of the pipeline lives in ``BuyAgent.run`` and nowhere else.
+
+    "That order is load-bearing in three joints" -- ``clean_products`` before
+    ``ground`` so a name still wearing its publisher suffix is not failed by the
+    coverage check, ``ground`` before ``deduplicate`` so ``_combine`` only merges
+    figures the sources back, and the shopper's bounds between ``deduplicate``
+    and ``rank_products`` (ADR-0039) -- and a joint that is argued in one place
+    is a joint that can be moved. A step that called the next one would settle
+    the order where nobody is reading, and it would have to be unpicked before
+    any of the three could be argued again.
+
+    ``verification.py`` importing ``extraction.py`` is the one edge inside this
+    layer, and it is deliberate: ``GENERIC_WORDS``, ``NAME_TOKENS`` and
+    ``SUPERLATIVES`` are shared so that merging and grounding "agree word for
+    word on what a name's words are", and a second copy would be two bars where
+    the rule wants one. It is a vocabulary and not a call, which is why the rule
+    is written as every other step and not as every pair.
+    """
+    assert_passes(
+        project_files(_PACKAGE)
+        .with_name(only(*(step for step in _LAYERS["pipeline"] if step != "verification.py")))
+        .should_not()
+        .depend_on_files()
+        .with_name(only(*_LAYERS["pipeline"]))
+        .because("the order of the steps is the orchestrator's to know"),
         _OPTIONS,
     )
 

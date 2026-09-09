@@ -20,7 +20,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-1781 Python tests and 187 UI tests. Nothing in either suite touches the network or
+1787 Python tests and 187 UI tests. Nothing in either suite touches the network or
 a model server: the model is faked through the `llm=` argument of `BuyAgent` -- a class
 with one `answer` method, which is the whole of `chat.ChatModel`, both
 the search backend and the page fetcher are monkeypatched, the two clients
@@ -54,7 +54,7 @@ Without that SDK the 73 tests that need it **skip**, the way
 `tests/test_start_script.py` skips where there is no PowerShell: `needs_ap2` in
 `tests/conftest.py` is the marker, and it asks `mandates.available()` once at
 import. So a checkout set up with `requirements-dev.txt` alone reads
-`1695 passed, 86 skipped` rather than 73 failures claiming the project is
+`1701 passed, 86 skipped` rather than 73 failures claiming the project is
 broken when one optional feature is simply not installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide
 anything nothing here is skipped and the coverage floor still has to be met --
@@ -101,20 +101,25 @@ Those are the rules that span a *declaration*. `tests/test_architecture.py` is
 the other half -- the rules that span an *import* -- and it asserts them against
 the import graph with
 [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython), which parses
-the package with `ast` and answers rules about the result (ADR-0047). Thirteen
+the package with `ast` and answers rules about the result (ADR-0047). Nineteen
 rules, every one the executable form of a sentence already written down: the
 package has no import cycles and imports none of the five trees that import it;
 every module sits in a layer that reaches only downward, so the pipeline never
 reads the config and never pays, paying never asks the model, and the model seam
-knows nothing about products; `mandates.py` is the only module that imports the
-optional AP2 SDK; `providers.py` the only one that imports a model client and
-`search.py` the only one that imports the search backend, which is what the
-suite's fakes rest on; `fetch.py` the only one that parses HTML; the three that
-speak HTTP are the three that are patched; the server imports nothing outside the
-standard library, read off the graph rather than off `requirements.txt`; the two
-tables know nothing about the config resolved from them; and nothing that decides
-the answer -- ranking, the bounds, grounding, the types -- may reach the model,
-the fetcher or the search.
+knows nothing about products; `buy_agent/__init__.py` imports the four modules it
+re-exports from and no others, since importing any submodule runs it first;
+`mandates.py` is the only module that imports the optional AP2 SDK, and knows
+about no module of the package in return; `providers.py` the only one that
+imports a model client and `search.py` the only one that imports the search
+backend, which is what the suite's fakes rest on; `fetch.py` the only one that
+parses HTML; the three that speak HTTP are the three that are patched; `argparse`
+belongs to the two modules handed an `argv`; the server imports nothing outside
+the standard library, read off the graph rather than off `requirements.txt`,
+while `api.py` reaches no socket, thread or queue; the two tables know nothing
+about the config resolved from them; the steps read no environment, file, clock
+or random number and never call each other, the order of the pipeline being
+`BuyAgent.run`'s to know; and nothing that decides the answer -- ranking, the
+bounds, grounding, the types -- may reach the model, the fetcher or the search.
 
 Every rule is checked with `ignore_type_checking_imports=True`. An import under
 that guard never runs, so it is a name and not a dependency -- and it is how this
@@ -123,9 +128,11 @@ package already spells "I use this type and not this module", which is what lets
 rule whose subject matches nothing passes, so the two helpers that name modules
 check first that each one exists: a renamed module fails the rule about it
 instead of quietly turning it into a no-op. The layers are guarded the same way
-and for the same reason -- an edge to or from a file in no layer is skipped, so a
-fourteenth test holds the layer table against the directory and a module added to
-neither is a test failure rather than an exemption.
+and for the same reason -- an edge to or from a file in no layer is skipped, and a
+module named in two layers may reach whatever either row allows -- so a twentieth
+test holds the layer table against the directory and counts the placings, and a
+module added to neither layer or to both is a test failure rather than an
+exemption.
 
 Both suites run on Windows and on Linux, on different triggers.
 `.github/workflows/ci.yml` spreads its two jobs -- `coverage run -m pytest` on

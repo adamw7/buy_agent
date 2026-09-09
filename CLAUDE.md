@@ -1019,7 +1019,7 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1781 tests run in about eight seconds: most of that is the three that spawn an
+1787 tests run in about eight seconds: most of that is the three that spawn an
 interpreter -- two for what only a real import can answer (`python -m buy_agent`
 still runs as a script, and still imports with `$BUY_AGENT_RAIL` misspelt), one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
@@ -1027,13 +1027,13 @@ PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliber
 Nothing else should sleep, so a run that takes much longer still means something is
 reaching out.
 
-Two optional prerequisites decide how many of those 1781 *run*, and neither is a
+Two optional prerequisites decide how many of those 1787 *run*, and neither is a
 failure when it is absent. With neither `pwsh` nor `powershell`, 13 of the 19 in
 `tests/test_start_script.py` skip. Without the optional AP2 SDK, the 73 that sign
 or verify a mandate skip on `needs_ap2` -- the marker in `tests/conftest.py`,
 which is `needs_powershell` for the other one and asks `mandates.available()`
-once at import. So a machine with both reads `1768 passed, 13 skipped`, and a
-checkout set up with `requirements-dev.txt` alone reads `1695 passed, 86
+once at import. So a machine with both reads `1774 passed, 13 skipped`, and a
+checkout set up with `requirements-dev.txt` alone reads `1701 passed, 86
 skipped` rather than 73 red tests saying the project is broken when one optional
 feature is not installed. Skipping is only ever the local convenience: `ci.yml`
 and `mutation.yml` each install the SDK in a step of their own, and the 100%
@@ -1119,7 +1119,7 @@ with [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython), which par
 the package with `ast` and answers rules about the result (ADR-0047). Which module
 may know about which is what this file says most often, and an import in the wrong
 direction runs perfectly: it passes that module's own tests, keeps the coverage
-floor and survives the mutation run. Fourteen tests -- thirteen rules and the one
+floor and survives the mutation run. Twenty tests -- nineteen rules and the one
 that keeps them honest -- each the executable form of a sentence written down
 here or in a record:
 
@@ -1134,15 +1134,35 @@ here or in a record:
   never asks the model, and the model seam knows nothing about products (ADR-0038);
 - **one seam, one module**: `mandates.py` alone imports `ap2` (ADR-0046),
   `providers.py` alone a model client (ADR-0029), `search.py` alone the search
-  backend (ADR-0021), `fetch.py` alone the HTML parser, and the three that speak
+  backend (ADR-0021), `fetch.py` alone the HTML parser, the three that speak
   HTTP -- `fetch`, `providers`, `rails` -- are the three the suite patches, so a
-  fourth is a request from a module nobody thought made any;
+  fourth is a request from a module nobody thought made any, and `argparse`
+  belongs to the two modules handed an `argv`: a parser below them is a third set
+  of defaults, and one that answers a bad value by exiting the process;
+- **`buy_agent/__init__.py` imports the four modules it re-exports from** and no
+  others. It is the file both rules above let off, so it is the one that needs a
+  rule of its own -- and importing any submodule runs it first, so a `from` line
+  here is paid by every caller: one naming `payment` would put the optional AP2
+  stack behind `import buy_agent`, one naming `server` a socket module behind
+  `python -m buy_agent`;
 - `server.py` imports **nothing outside the standard library** (ADR-0010), read off
   the graph rather than off `requirements.txt`, so a dependency added tomorrow is
   covered without anybody writing it down again;
 - the **tables know nothing about the config** resolved from them (ADR-0029), and
-  `search.py` and `sources.py` know nothing about any other module -- deciding is
-  not fetching;
+  `search.py`, `sources.py` and `mandates.py` know nothing about any other module
+  -- deciding is not fetching, and the AP2 seam translates between two
+  vocabularies without speaking either back (ADR-0046);
+- **the web tier is split at the payload**: `api.py` reaches no socket, no thread
+  and no queue, which is what leaves every one of its rules assertable by calling
+  a function while the status line and the stream stay in `server.py`;
+- **the steps take values and answer values**: nothing in the pipeline or the
+  domain reads an environment variable, a file, a clock or a random number -- the
+  half of "the pipeline never reads the config" no layer can state, and what says
+  a remembered answer (ADR-0044) is the same answer;
+- **the steps do not chain themselves**: the order of the pipeline is
+  `BuyAgent.run`'s to know, since a joint argued in one place is a joint that can
+  be moved, and the one edge inside that layer is `verification.py` sharing
+  `extraction.py`'s vocabulary;
 - **nothing that decides the answer asks the model**: `ranking`, `constraints`,
   `verification` and `models` may not reach the chat seam, the fetcher or the
   search (ADR-0002).
@@ -1161,8 +1181,11 @@ file could be worse than no file: `only()` and `every_module_but()` therefore
 check that every filename they name is really a module of the package, so a rename
 fails the rule about that module rather than quietly making it a no-op. A module
 added to the package and to no layer is exempt from the layer rule in the same
-silent way -- adding one means placing it. What is deliberately not asserted is
-size: the library measures lines, methods and cohesion too, and a ceiling on any
+silent way -- adding one means placing it -- and a module named in *two* layers is
+that silence the other way about, placed twice and free to reach whatever either
+row allows, so the test that collects the placings counts them as well. What is
+deliberately not asserted is size: the library measures lines, methods and
+cohesion too, and a ceiling on any
 of them would be a policy nobody has decided.
 
 ### The live suite
