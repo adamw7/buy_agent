@@ -26,6 +26,7 @@ from buy_agent.agent import (
     ModelUnavailableError,
     every_step_passes,
 )
+from buy_agent.chat import release
 from buy_agent.config import LIMITS, AgentConfig, parse_region
 from buy_agent.models import Product, dominant_currency
 from buy_agent.payment import (
@@ -264,12 +265,21 @@ def run_search(
     Raises:
         ApiError: for every failure the agent raises, with the status it deserves.
     """
+    agent = None
     try:
-        ranked = agent_factory(config).run(  # type: ignore[arg-type]
-            request, sort_by=sort_by, checkpoint=checkpoint
-        )
+        agent = agent_factory(config)  # type: ignore[arg-type]
+        ranked = agent.run(request, sort_by=sort_by, checkpoint=checkpoint)
     except tuple(_STATUS) as exc:
         raise ApiError(str(exc), _status_for(exc, _STATUS)) from exc
+    finally:
+        # One request, one agent, and the connection it opened let go of here
+        # rather than whenever the last reference to it happens to fall. Both
+        # halves are inside the guard, so a config the provider refuses is still
+        # the ``ApiError`` it was -- and ``None`` is then an agent that was never
+        # built, which is a thing holding nothing open like any other. Asked
+        # rather than called outright, so a stand-in put in through
+        # ``agent_factory`` is still a class with a ``run`` and nothing else.
+        release(agent)
 
     return _run_payload(request, ranked, config.top_n, sort_by, config.weights)
 

@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 from buy_agent.cache import remember_answers
-from buy_agent.chat import UnreadableAnswerError
+from buy_agent.chat import UnreadableAnswerError, release
 from buy_agent.config import DEFAULT_REGION, AgentConfig
 from buy_agent.constraints import Constraints
 from buy_agent.extraction import (
@@ -109,8 +109,30 @@ class BuyAgent:
             ttl=self.config.cache_ttl,
             deterministic=self.config.temperature == 0,
         )
+        #: What :meth:`close` lets go of: the model this agent opened, and never
+        #: one it was handed. A client passed in belongs to whoever passed it,
+        #: and closing it here would be this agent deciding somebody else's
+        #: lifetime. ``None`` is an agent that opened nothing, which is every
+        #: agent a test builds.
+        self._opened = None if llm else self.llm
         self.query_chain = build_query_chain(self.llm)
         self.extraction_chain = build_extraction_chain(self.llm)
+
+    def close(self) -> None:
+        """Let go of the connection to the model server this agent opened.
+
+        A *run* is deliberately not what ends it: an agent answers as many
+        requests as it is asked, and closing at the end of one would leave the
+        second raising out of a client somebody has already shut. The lifetime
+        is the caller's to say, and both front doors say the same thing --
+        one agent per request, released when that request is answered.
+
+        There is no ``with`` here for the same reason neither door uses one: an
+        agent is reached through a factory both of them let a stand-in into, and
+        a stand-in is a class with a ``run``. A Python caller who wants the block
+        has ``contextlib.closing``, which this is the whole of what it needs.
+        """
+        release(self._opened)
 
     def run(
         self,

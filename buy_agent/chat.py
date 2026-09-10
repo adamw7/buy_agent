@@ -19,7 +19,15 @@ schema is declared and how the answer comes back -- is
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeAlias, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Generic,
+    Protocol,
+    TypeAlias,
+    TypeVar,
+    runtime_checkable,
+)
 
 from pydantic import BaseModel, ValidationError
 
@@ -68,6 +76,37 @@ class ChatModel(Protocol):
             UnreadableAnswerError: if what came back cannot be read as one.
         """
         ...  # pragma: no cover -- a protocol's body is never run
+
+
+@runtime_checkable
+class Closable(Protocol):
+    """Something holding a connection open that can be told to let go of it.
+
+    Deliberately *not* a second method on :class:`ChatModel`. A stand-in there is
+    a class with one method and stays one -- the three in ``tests/conftest.py``,
+    ``benchmark/scripted.py`` and ``demo/server.py`` answer a question and hold
+    nothing open, so there is nothing for them to implement. What does hold
+    something open is a provider's client, and that is where the two
+    implementations of this are.
+    """
+
+    def close(self) -> None:
+        """Let go of it. Asked by whoever opened it, once, and never mid-answer."""
+        ...  # pragma: no cover -- a protocol's body is never run
+
+
+def release(held: object) -> None:
+    """Let go of whatever ``held`` has open, where it has anything at all.
+
+    Asked rather than required, which is what lets a caller point it at an
+    injected model or at an agent-shaped stand-in: neither has a ``close``, so
+    neither is touched, and no stand-in grows a method to be passed over.
+
+    ``None`` is a thing with nothing open, so an owner that opened nothing has
+    nothing to spell differently.
+    """
+    if isinstance(held, Closable):
+        held.close()
 
 
 @dataclass(frozen=True, slots=True)

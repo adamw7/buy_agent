@@ -45,8 +45,27 @@ def fake_agent(monkeypatch):
                 raise captured["result"]
             return captured.get("result", RANKED)
 
+        def close(self):
+            captured["closed"] = captured.get("closed", 0) + 1
+
     monkeypatch.setattr("buy_agent.__main__.BuyAgent", Recorder)
     return captured
+
+
+def test_a_run_lets_go_of_its_agent_however_it_went(fake_agent) -> None:
+    """The process is about to end either way, so this is the smaller half of the
+    rule -- but it is the same rule the server's door keeps, and one place for it
+    to be true is not two places for it to disagree."""
+    assert main(["gaming laptop"]) == 0
+
+    assert fake_agent["closed"] == 1
+
+
+def test_a_run_that_failed_lets_go_of_its_agent_too(fake_agent) -> None:
+    fake_agent["result"] = SearchError("DuckDuckGo is rate-limiting this")
+
+    assert main(["gaming laptop"]) == 1
+    assert fake_agent["closed"] == 1
 
 
 def test_defaults_are_ten_products_and_a_top_three(fake_agent) -> None:

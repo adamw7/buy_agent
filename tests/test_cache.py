@@ -504,3 +504,28 @@ def test_a_run_that_should_remember_gets_a_model_that_does(
 
     assert len(model.calls) == 1
     assert list((tmp_path / ANSWERS).glob("*.json"))
+
+
+def test_closing_a_remembering_model_closes_the_one_underneath(tmp_path: Path) -> None:
+    """The wrapper is the only handle anything above still has on the client, so
+    a run that remembers its answers must not be a run that leaks its socket."""
+
+    class Pooling(FakeLLM):
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    server = Pooling()
+
+    _remembering(tmp_path, server).close()
+
+    assert server.closed is True
+
+
+def test_closing_one_wrapped_around_a_model_that_holds_nothing_is_a_no_op(
+    tmp_path: Path,
+) -> None:
+    """The cache itself holds nothing open: it is a directory, and every entry is
+    opened and closed inside the call that reads or writes it."""
+    _remembering(tmp_path, FakeLLM()).close()

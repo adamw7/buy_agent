@@ -350,6 +350,12 @@ def _read_capped(response: httpx.Response, url: str) -> str:
     takes broken markup, which is most of the web -- and the lines above the cut
     are the ones a shop puts its prices on. The decoding is httpx's own
     ``encoding``, read off the header a streamed response has already delivered.
+
+    The pieces are let go of between the joining and the decoding, which is the
+    one moment this function holds the page more than twice over. It matters
+    because of where it runs: :func:`enrich` reads eight pages at once, each up
+    to :data:`_MAX_PAGE_BYTES`, and every copy alive at the same moment is eight
+    copies of that.
     """
     chunks: list[bytes] = []
     read = 0
@@ -359,7 +365,9 @@ def _read_capped(response: httpx.Response, url: str) -> str:
         if read >= _MAX_PAGE_BYTES:
             logger.debug("Read the first %d bytes of %s and stopped", read, url)
             break
-    return b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
+    markup = b"".join(chunks)
+    chunks.clear()
+    return markup.decode(response.encoding or "utf-8", errors="replace")
 
 
 def describe_failure(exc: Exception) -> str:

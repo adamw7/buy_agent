@@ -570,6 +570,41 @@ def test_reordering_answers_the_shape_a_finished_run_answers_with() -> None:
     assert set(rank_again(posted())) == set(ran)
 
 
+def test_a_run_lets_go_of_its_agent_once_the_answer_is_shaped() -> None:
+    """One request, one agent, and the connection it opened closed here rather
+    than whenever the last reference to it happens to fall. The server answers
+    for hours; an agent lives for one of its requests."""
+    captured = agent_returning(RANKED)
+    closed: list[bool] = []
+    captured["factory"].close = lambda _self: closed.append(True)
+
+    run_search("headphones", AgentConfig(), agent_factory=captured["factory"])
+
+    assert closed == [True]
+
+
+def test_a_run_that_failed_lets_go_of_its_agent_too() -> None:
+    """The failing run is the one that most wants it: a model server that is not
+    answering is a client left holding a connection to nothing."""
+    captured = agent_returning(ModelUnavailableError("Ollama is not running"))
+    closed: list[bool] = []
+    captured["factory"].close = lambda _self: closed.append(True)
+
+    with pytest.raises(ApiError):
+        run_search("headphones", AgentConfig(), agent_factory=captured["factory"])
+
+    assert closed == [True]
+
+
+def test_a_stand_in_with_nothing_to_close_is_left_alone() -> None:
+    """Which is what every other test in this file hands over: the rule for a
+    stand-in is still a class with a ``run`` and nothing else."""
+    captured = agent_returning(RANKED)
+
+    assert not hasattr(captured["factory"], "close")
+    run_search("headphones", AgentConfig(), agent_factory=captured["factory"])
+
+
 def test_a_run_reports_the_weights_its_scores_were_blended_by() -> None:
     """Three shares beside a total they do not add up to cannot be read at all:
     the card draws each criterion's own score, and only the weight says which of
