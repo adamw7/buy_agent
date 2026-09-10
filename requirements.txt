@@ -10,7 +10,7 @@
 # both at module level, so neither is optional (ADR-0028).
 ollama==0.6.2
 openai==2.54.0
-ddgs==9.15.0
+ddgs==9.16.0
 pydantic==2.13.5
 httpx==0.28.1
 lxml==6.1.3
