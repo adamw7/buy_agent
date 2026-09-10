@@ -9,7 +9,7 @@
 # One per model server: `buy_agent.providers` builds a client on each and imports
 # both at module level, so neither is optional (ADR-0028).
 ollama==0.6.2
-openai==2.54.0
+openai==3.11.0
 ddgs==9.15.0
 pydantic==2.13.5
 httpx==0.28.1
