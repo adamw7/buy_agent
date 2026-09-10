@@ -51,6 +51,21 @@
 
   packageRules: [
     {
+      // `@angular/build` peer-depends on vitest -- 22.1.5 asks for `^4.0.8`, and
+      // so does every 22.x published since, the next line included -- so a vitest
+      // major is a pull request that cannot be made green: `npm ci` refuses the
+      // tree, and regenerating the lockfile refuses it for the same reason
+      // (#144). It is held for approval on the dependency dashboard rather than
+      // pinned away here, so what releases it is a tick there once the builder's
+      // peer range moves, and not a version somebody has to remember to delete.
+      // `@vitest/coverage-v8` peers vitest exactly, so the two only ever move
+      // together and the rule names both.
+      matchManagers: ['npm'],
+      matchPackageNames: ['vitest', '@vitest/**'],
+      matchUpdateTypes: ['major'],
+      dependencyDashboardApproval: true,
+    },
+    {
       // Node is pinned in six places: the job in `ci.yml` that builds the UI, the
       // one in `release.yml`, the build stage of the `Dockerfile`, and the two
       // files above. `tests/test_conventions.py` asserts all of them agree, so a
