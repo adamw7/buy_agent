@@ -41,7 +41,12 @@ from buy_agent.config import AgentConfig
 from buy_agent.providers import OLLAMA
 from benchmark.corpus import REQUEST, settings
 from benchmark.runner import serving_the_corpus
-from integration import MODEL_ENV_VAR, REQUIRE_ENV_VAR, TINY_MODEL
+from integration import (
+    LIVE_TIMEOUT_SECONDS,
+    MODEL_ENV_VAR,
+    REQUIRE_ENV_VAR,
+    TINY_MODEL,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
@@ -50,6 +55,27 @@ if TYPE_CHECKING:
     from buy_agent.chat import Chain
     from buy_agent.models import ProductList, RankedProduct
     from buy_agent.search import SearchResult
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Give every live test the longer budget a real model needs.
+
+    ``pytest.ini``'s minute is the right cap for a suite whose model is a class
+    with one method, and the wrong one here: the model is real, it is answering
+    on a runner's CPU, and the session-scoped :func:`live_run` fixture puts two
+    whole inferences on whichever test asks for it first. A marker rather than a
+    second ini file, since there is only ever one -- and applied here rather than
+    written on each test, so a test added to this package is inside the cap
+    without anybody remembering it.
+
+    What it is for is not a slow model but a stopped one: an Ollama that took the
+    request and never answered leaves the nightly job to be killed by its own
+    five-minute cap, which reports which *job* failed and nothing about which
+    test. :data:`LIVE_TIMEOUT_SECONDS` fits inside that, so the run says so
+    itself.
+    """
+    for item in items:
+        item.add_marker(pytest.mark.timeout(LIVE_TIMEOUT_SECONDS))
 
 
 @dataclass(frozen=True, slots=True)

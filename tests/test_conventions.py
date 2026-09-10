@@ -83,7 +83,7 @@ from buy_agent.ranking import SortBy
 from buy_agent.server import DEFAULT_UI_DIR
 from buy_agent.server import build_parser as build_server_parser
 import integration
-from integration import REQUIRE_ENV_VAR, TINY_MODEL
+from integration import LIVE_TIMEOUT_SECONDS, REQUIRE_ENV_VAR, TINY_MODEL
 
 _ROOT = Path(__file__).resolve().parents[1]
 _TYPES_TS = _ROOT / "ui" / "src" / "app" / "agent.types.ts"
@@ -994,6 +994,23 @@ def test_the_nightly_run_is_nightly_and_capped() -> None:
     assert re.search(
         rf"^\s+timeout-minutes: {_NIGHTLY_BUDGET_MINUTES}$", integration_workflow(), re.M
     )
+
+
+def test_a_stopped_model_fails_a_live_test_before_it_fails_the_job() -> None:
+    """The live tests' own cap, held against the two numbers it sits between.
+
+    ``pytest.ini`` caps every test at a minute, which is a stopped test on a
+    faked model and a slow answer on a real one -- so ``integration/conftest.py``
+    marks these with :data:`LIVE_TIMEOUT_SECONDS` instead. Both ends of that are
+    load-bearing. Under the unit suite's cap it would be the tighter number and
+    a CPU model would start failing tests for answering; at or over the job's own
+    :data:`_NIGHTLY_BUDGET_MINUTES` it could never fire first, and an Ollama that
+    took the request and never answered would be a cancelled job naming no test
+    at all -- which is the failure this exists to report.
+    """
+    unit_cap = int(ini_values(_PYTEST_INI, "pytest", "timeout")[0])
+
+    assert unit_cap < LIVE_TIMEOUT_SECONDS < _NIGHTLY_BUDGET_MINUTES * 60
 
 
 def test_the_nightly_run_is_never_a_gate_on_a_pull_request() -> None:

@@ -7,3 +7,10 @@ coverage==7.15.4
 # nothing in buy_agent/ imports it, so it stays out of requirements.txt and out
 # of the image.
 archunitpython==1.5.0
+
+# The per-test cap `pytest.ini` sets. pytest has no timeout of its own, so a test
+# that stops -- a patch spelt wrong and a real fetch behind it, a socket nothing
+# will answer -- hangs the run rather than failing it, which on a runner is six
+# hours of nothing and locally is a process to go and find. Test-only, like the
+# two above: nothing in buy_agent/ imports it, so it stays out of the image.
+pytest-timeout==2.4.0
