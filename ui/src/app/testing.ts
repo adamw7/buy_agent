@@ -1,16 +1,13 @@
 /**
  * The payloads the server sends, as the specs need them to exist.
  *
- * Three spec files each held their own copy of what `GET /api/config` answers
- * with -- sixty-odd lines of provider rows, rail rows and ranges, differing in
- * the one field the test was about. Copies of a payload only ever drift apart:
- * a field added to `defaults_payload` and mirrored in `agent.types.ts` had to be
- * written into every one of them or the file stopped compiling, one at a time.
+ * Three spec files each held their own copy of what `GET /api/config` answers with
+ * -- sixty-odd lines of provider rows, rail rows and ranges, differing in the one
+ * field the test was about. Copies of a payload only ever drift apart.
  *
- * Every fixture here is a builder taking overrides rather than a constant, so a
- * spec that cares about one field says that field and nothing else. `agent.types.ts`
- * is what they are typed against, so this file is held to the same shapes Python
- * sends -- it is a second reading of nothing.
+ * Every fixture here is a builder taking overrides rather than a constant, so a spec
+ * that cares about one field says that field and nothing else. `agent.types.ts` is
+ * what they are typed against, so this file is a second reading of nothing.
  */
 import type {
   AgentDefaults,

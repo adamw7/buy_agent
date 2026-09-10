@@ -1,41 +1,31 @@
 """The AP2 seam: a cart in, a signed mandate chain out, and the check back.
 
 The **only** module that imports ``ap2``, the way :mod:`buy_agent.chat` is the
-only module that talks to a model. Everything above this line deals in carts and
-receipts; everything AP2 calls a mandate, a disclosure, an SD-JWT or a ``vct``
-stops here.
+only one that talks to a model. Everything above deals in carts and receipts;
+everything AP2 calls a mandate, a disclosure, an SD-JWT or a ``vct`` stops here.
 
 Two shapes of authorisation, which is the whole of AP2's two modes:
 
-* **Human present.** The shopper looked at this exact cart and said yes, so the
-  closed Checkout and Payment Mandates are signed directly by the surface that
-  asked -- a root SD-JWT apiece, no delegation. That is what the specification
-  means by "the signature on the closed Mandates is validated as coming from a
-  User directly".
+* **Human present.** The shopper looked at this exact cart, so the closed Checkout
+  and Payment Mandates are signed directly by the surface that asked -- a root
+  SD-JWT apiece, no delegation.
 * **Human not present.** The shopper signed an *open* mandate earlier, carrying
-  constraints -- an amount range, the payees allowed, an expiry -- and the agent
-  closes it on their behalf. That is a two-hop chain: the open mandate as issued,
-  and a closed Payment Mandate signed by the agent's own key, which the open
-  mandate's ``cnf`` delegates to. The constraints are checked here by the same
-  evaluator a credential provider would run, so a cart outside them is refused
-  before anything is sent -- which is the point of the shopper having written a
-  budget down.
+  constraints (an amount range, the payees allowed, an expiry), and the agent
+  closes it: a two-hop chain, the open mandate as issued plus a closed Payment
+  Mandate signed by the agent's key, which the open mandate's ``cnf`` delegates
+  to. The constraints are checked here by the same evaluator a credential
+  provider would run, so a cart outside them is refused before anything is sent.
 
-What binds the two mandates together is not a field either of them invented: the
-Payment Mandate's ``transaction_id`` **is** the Checkout Mandate's
-``checkout_hash``, which is the base64url SHA-256 of the merchant's signed
-checkout JWT. So a Payment Mandate cannot be paired with another cart's checkout,
-and neither half means anything about a price the merchant did not sign. The
-``nonce`` is a different thing again -- the counterparty's own challenge, so a
-presentation cannot be replayed at a second verifier -- and it comes from the
-rail rather than from here.
+What binds the two mandates is not a field either invented: the Payment Mandate's
+``transaction_id`` **is** the Checkout Mandate's ``checkout_hash``, the base64url
+SHA-256 of the merchant's signed checkout JWT. So a Payment Mandate cannot be
+paired with another cart's checkout. The ``nonce`` is a different thing -- the
+counterparty's own challenge against replay -- and comes from the rail.
 
-The ``ap2`` import is deferred to :func:`_sdk` rather than made at module level.
-The SDK is an optional install, because paying is an optional feature, and this
-module is reached from :mod:`buy_agent.rails`, which the config imports on every
-run -- including every run that pays for nothing. A missing SDK has to be a
-sentence naming one command, raised when somebody tries to pay, not an
-``ImportError`` out of ``--help``.
+The ``ap2`` import is deferred to :func:`_sdk`: the SDK is an optional install and
+this module is reached from :mod:`buy_agent.rails`, which the config imports on
+every run, paying or not. A missing SDK has to be a sentence naming one command,
+not an ``ImportError`` out of ``--help``.
 """
 
 from __future__ import annotations
@@ -52,8 +42,7 @@ if TYPE_CHECKING:  # pragma: no cover -- import-time typing only
     from buy_agent.rails import Cart
 
 #: Where the agent's own signing key lives. A path and not a flag, for the reason
-#: ``$BUY_AGENT_CACHE_DIR`` is one: a file on the server's disk is nobody's to
-#: name from a browser, and this one signs payments.
+#: ``$BUY_AGENT_CACHE_DIR`` is one -- and this one signs payments.
 KEY_PATH = "BUY_AGENT_AP2_KEY"
 
 #: Where a pre-signed open mandate lives. Its presence is what turns on the
@@ -68,10 +57,9 @@ INSTALL = (
     "pip install --no-deps -r requirements-ap2.txt"
 )
 
-#: How long a mandate signed here stays valid. Minutes, not hours: it authorises
-#: one cart at one price, and a price is not evidence of anything for long. Long
-#: enough for a slow merchant, short enough that a chain left in a log is not a
-#: bearer token for the rest of the afternoon.
+#: How long a mandate signed here stays valid. Minutes: long enough for a slow
+#: merchant, short enough that a chain left in a log is not a bearer token for
+#: the rest of the afternoon.
 TTL_SECONDS = 600
 
 #: Who each mandate is signed for. AP2 binds a presentation to its audience, so
@@ -85,9 +73,8 @@ class MandateError(Exception):
     """Anything AP2-shaped that did not work: no SDK, no key, no verification.
 
     One class rather than one per cause, for the reason
-    :class:`~buy_agent.agent.ModelUnavailableError` is one: to the shopper these
-    are all "the authorisation could not be made", and only the sentence differs.
-    :mod:`buy_agent.payment` turns it into the payment's own failure.
+    :class:`~buy_agent.agent.ModelUnavailableError` is one: to the shopper these are
+    all "the authorisation could not be made", and only the sentence differs.
     """
 
 
@@ -95,9 +82,9 @@ class MandateError(Exception):
 class SignedCheckout:
     """A merchant's signed quote for a cart, and the hash both mandates bind to.
 
-    ``jwt`` is the merchant's own token -- AP2 requires the Checkout Mandate to
-    carry it and to bind to it by hash, which is what makes "the price I
-    approved" and "the price you charged" one claim rather than two.
+    ``jwt`` is the merchant's own token -- AP2 requires the Checkout Mandate to carry
+    it and bind to it by hash, which makes "the price I approved" and "the price you
+    charged" one claim rather than two.
     """
 
     jwt: str
@@ -110,17 +97,14 @@ class Authorisation:
 
     Attributes:
         checkout: The Checkout Mandate, for the merchant.
-        payment: The Payment Mandate, for the credential provider. A single
-            token when a person approved the cart, a two-hop chain when an open
-            mandate did.
-        reference: The canonical receipt reference -- the SHA-256 of the closed
-            leaf JWT, which is what a receipt points back at, and which is stable
-            across delegation depth and disclosure choices.
-        transaction_id: The checkout hash both mandates carry, which is what ties
-            them to each other and to the merchant's price.
+        payment: The Payment Mandate, for the credential provider. A single token
+            when a person approved the cart, a two-hop chain when an open mandate did.
+        reference: The SHA-256 of the closed leaf JWT, which is what a receipt points
+            back at, stable across delegation depth and disclosure choices.
+        transaction_id: The checkout hash both mandates carry, tying them to each
+            other and to the merchant's price.
         autonomous: Whether an open mandate authorised this rather than a person
-            looking at the cart. Reported, because the two are not the same
-            promise and a receipt that hid the difference would be lying.
+            looking at the cart. Reported, the two not being the same promise.
     """
 
     checkout: str
@@ -134,8 +118,7 @@ def _sdk() -> Any:
     """The AP2 SDK, imported now rather than at module import.
 
     Raises:
-        MandateError: naming the one command that installs it. Paying is optional
-            and so is its dependency; everything else works without it.
+        MandateError: naming the one command that installs it.
     """
     try:
         import ap2.sdk.jwt_helper  # noqa: F401, PLC0415 -- deferred, see the module docstring
@@ -150,11 +133,10 @@ def _sdk() -> Any:
 def _jwk_class() -> Any:
     """jwcrypto's key type, imported through the same translation the SDK is.
 
-    Its own helper because the signing stack is reached from four functions that
-    do not otherwise touch the SDK, and an ``ImportError`` escaping one of them
-    is a traceback where every other missing piece is a sentence. A half-installed
-    stack -- ``cryptography`` present but built on a ``cffi`` that is not -- fails
-    exactly here, and it is not the shopper's job to know that.
+    Its own helper because the signing stack is reached from four functions that do
+    not otherwise touch the SDK, and an ``ImportError`` escaping one is a traceback
+    where every other missing piece is a sentence. A half-installed stack --
+    ``cryptography`` present, its ``cffi`` not -- fails exactly here.
     """
     try:
         from jwcrypto.jwk import JWK  # noqa: PLC0415 -- part of the deferred SDK stack
@@ -166,10 +148,10 @@ def _jwk_class() -> Any:
 def _missing(exc: ImportError) -> str:
     """What to say when part of the signing stack will not import.
 
-    Names the module that actually failed rather than only "the SDK": installed
-    with ``--no-deps`` over the wrong file, ``cryptography`` arrives without the
-    ``cffi`` it is built on, and "the AP2 SDK is not installed" then sends
-    somebody to re-run the command that just broke it.
+    Names the module that actually failed rather than only "the SDK": installed with
+    ``--no-deps`` over the wrong file, ``cryptography`` arrives without the ``cffi``
+    it is built on, and "the AP2 SDK is not installed" then sends somebody to re-run
+    the command that just broke it.
     """
     # ``name`` is what a ``ModuleNotFoundError`` carries and a bare
     # ``ImportError`` does not, so the sentence still reads without one.
@@ -210,18 +192,17 @@ def generate_key(kid: str = "agent-ephemeral") -> Any:
 def load_key(*, required: bool) -> tuple[Any, bool]:
     """The agent's signing key, and whether it came off disk.
 
-    ``required`` is the difference between the two rails. A rail that moves money
-    must sign with a key somebody enrolled -- an ephemeral one authorises nothing
-    a counterparty could have agreed to trust. The dry run has no counterparty, so
-    a missing key there is no reason to refuse: it generates one, says so, and
-    what it writes is a demonstration rather than a credential.
+    ``required`` is the difference between the two rails. A rail that moves money must
+    sign with a key somebody enrolled, an ephemeral one authorising nothing a
+    counterparty could trust. The dry run has no counterparty, so it generates one,
+    says so, and writes a demonstration rather than a credential.
 
     Returns:
         The key, and True if it was read from ``$BUY_AGENT_AP2_KEY``.
 
     Raises:
-        MandateError: if the variable is unset and a key was required, or names a
-            file that is not a private key this can sign with.
+        MandateError: if the variable is unset and a key was required, or names a file
+            that is not a private key this can sign with.
     """
     _sdk()  # jwcrypto is the SDK's own stack: fail with its sentence, not an ImportError
     JWK = _jwk_class()  # noqa: N806 -- a class, named as the SDK names it
@@ -251,8 +232,8 @@ def load_key(*, required: bool) -> tuple[Any, bool]:
 def challenge() -> str:
     """A counterparty's nonce, for a rail that has no way to issue one itself.
 
-    From :mod:`secrets`: it exists so that a presentation cannot be replayed, and
-    a predictable one would not.
+    From :mod:`secrets`: it exists so a presentation cannot be replayed, and a
+    predictable one would not.
     """
     return secrets.token_urlsafe(24)
 
@@ -260,12 +241,9 @@ def challenge() -> str:
 def checkout_document(cart: Cart, *, order_id: str) -> dict[str, Any]:
     """The checkout a merchant signs, as AP2's UCP-shaped payload.
 
-    Assembled here rather than in a rail because both rails need the same
-    document: the dry run signs it itself, standing in for the merchant, and the
-    HTTP rail sends it to one to be signed. Amounts are minor units throughout --
-    that is what the schema means by "signed amount in minor currency units", and
-    why :func:`buy_agent.payment.minor_units` exists rather than a float going on
-    the wire.
+    Assembled here rather than in a rail because both need the same document: the dry
+    run signs it itself, the HTTP rail sends it to a merchant. Amounts are minor units
+    throughout, which is what the schema means and why no float goes on the wire.
     """
     totals = [
         {"type": "subtotal", "amount": cart.amount},
@@ -292,9 +270,9 @@ def checkout_document(cart: Cart, *, order_id: str) -> dict[str, Any]:
 def sign_checkout(document: dict[str, Any], key: Any) -> SignedCheckout:
     """Sign a checkout as the merchant would, and hash it as a mandate binds it.
 
-    Used by the dry run, which plays every role there is. A real merchant signs
-    its own, and this side only ever hashes what came back -- which is why
-    :func:`checkout_hash` is reachable on its own.
+    Used by the dry run, which plays every role. A real merchant signs its own and
+    this side only hashes what came back, which is why :func:`checkout_hash` is
+    reachable on its own.
     """
     sdk = _sdk()
     token = sdk.jwt_helper.create_jwt({"alg": "ES256", "typ": "JWT"}, document, key)
@@ -310,15 +288,14 @@ def open_mandate() -> tuple[str, Any] | None:
     """The pre-signed open mandate and its issuer's key, if one is configured.
 
     The file is a small JSON document -- ``{"mandate": "<SD-JWT>", "issuer_jwk":
-    {...}}`` -- because verifying an open mandate needs the key it was issued
-    under and a bare token carries no way to find one. AP2 leaves how a verifier
-    reaches an issuer key to the deployment; a file naming both is the smallest
-    thing that is honest about needing it.
+    {...}}`` -- because verifying an open mandate needs the key it was issued under
+    and a bare token carries no way to find one. AP2 leaves how a verifier reaches an
+    issuer key to the deployment; a file naming both is the smallest honest thing.
 
     Raises:
-        MandateError: if the variable names a file that is not that document. A
-            malformed one is not "no mandate": read as absent, it would quietly
-            drop an unattended run back to waiting for a person who is not there.
+        MandateError: if the variable names a file that is not that document. Read as
+            absent, a malformed one would quietly drop an unattended run back to
+            waiting for a person who is not there.
     """
     location = os.getenv(MANDATE_PATH, "").strip()
     if not location:
@@ -327,10 +304,9 @@ def open_mandate() -> tuple[str, Any] | None:
     try:
         document = json.loads(Path(location).read_text(encoding="utf-8"))
         token = str(document["mandate"])
-        # Asked for after the file has been read, not before: reading a JSON
-        # document needs none of the signing stack, and asked first it answered
-        # a missing or malformed mandate with the sentence about installing the
-        # SDK -- which sends somebody to pip over a path that is simply wrong.
+        # Asked for after the file has been read: reading JSON needs none of the
+        # signing stack, and asked first it answered a malformed mandate with the
+        # sentence about installing the SDK -- pip, over a path that is wrong.
         issuer = _jwk_class()(**document["issuer_jwk"])
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise MandateError(
@@ -343,18 +319,15 @@ def open_mandate() -> tuple[str, Any] | None:
 def authorise(cart: Cart, checkout: SignedCheckout, *, key: Any, nonce: str) -> Authorisation:
     """Sign what this cart needs in order to be paid for, in whichever mode applies.
 
-    An open mandate at ``$BUY_AGENT_AP2_MANDATE`` makes this the autonomous mode,
-    and the cart is held to that mandate's constraints before anything leaves the
-    process. Without one, the caller has already asked a person, and the two
-    mandates are signed directly.
+    An open mandate at ``$BUY_AGENT_AP2_MANDATE`` makes this the autonomous mode, and
+    the cart is held to that mandate's constraints before anything leaves the process.
+    Without one, the caller has already asked a person.
 
     The **Payment** Mandate is the whole of the difference: a root SD-JWT where a
-    person approved this cart, the second hop of the open mandate's chain where
-    one authorised it. What follows is the same authorisation either way -- the
-    Checkout Mandate is this side's signature on the merchant's price whoever
-    agreed to it, and the reference, the transaction id and the binding between
-    the two are the protocol's rather than the mode's. So the modes part for one
-    statement and meet again below.
+    person approved this cart, the second hop of the open mandate's chain where one
+    authorised it. Everything after is the same either way -- the Checkout Mandate is
+    this side's signature on the merchant's price whoever agreed to it, and the
+    reference, the transaction id and the binding are the protocol's, not the mode's.
 
     Raises:
         MandateError: if an open mandate is configured and does not authorise this
@@ -374,10 +347,8 @@ def authorise(cart: Cart, checkout: SignedCheckout, *, key: Any, nonce: str) -> 
         payment = client.create(payloads=[payload], issuer_key=key)
     else:
         # Human not present: close the open mandate the shopper signed, within
-        # it. The constraints are evaluated by the SDK's own evaluator -- the one
-        # a credential provider runs -- rather than by a second reading of them
-        # written here, and a cart outside them is refused before anything is
-        # sent.
+        # it. The constraints go through the SDK's own evaluator -- the one a
+        # credential provider runs -- rather than a second reading written here.
         open_token, issuer = configured
         payment = client.present(
             holder_key=key,
@@ -410,9 +381,9 @@ def authorise(cart: Cart, checkout: SignedCheckout, *, key: Any, nonce: str) -> 
 def _payment_mandate(cart: Cart, checkout: SignedCheckout, now: int) -> Any:
     """The closed Payment Mandate for this cart.
 
-    ``transaction_id`` is the checkout hash and not an identifier of our own: that
-    is how the specification binds a payment to the checkout it pays for, and an
-    invented one would leave the two halves free to describe different carts.
+    ``transaction_id`` is the checkout hash and not an identifier of our own: that is
+    how the specification binds a payment to the checkout it pays for, and an invented
+    one would leave the two halves free to describe different carts.
     """
     from ap2.sdk.generated.payment_mandate import PaymentMandate  # noqa: PLC0415
     from ap2.sdk.generated.types.amount import Amount  # noqa: PLC0415
@@ -425,9 +396,8 @@ def _payment_mandate(cart: Cart, checkout: SignedCheckout, now: int) -> Any:
         transaction_id=checkout.hash,
         payee=Merchant(**cart.merchant_payload()),
         payment_amount=Amount(amount=cart.amount, currency=cart.currency),
-        # The instrument is a reference and never a number: what funds a payment
-        # is the credential provider's to hold, and an agent carrying the digits
-        # would be the stored card AP2 exists to do without.
+        # The instrument is a reference and never a number: an agent carrying the
+        # digits would be the stored card AP2 exists to do without.
         payment_instrument=PaymentInstrument(
             id=cart.instrument, type="card", description="Held by the credential provider"
         ),
@@ -454,14 +424,13 @@ def verify(
     """Check a two-hop payment chain and report what it breaks, if anything.
 
     Returns:
-        The constraint violations, empty for a chain that is authorised. A list
-        rather than a raise, because what a violation is worth is the caller's:
-        :func:`authorise` refuses on one, a test reads them.
+        The constraint violations, empty for a chain that is authorised. A list rather
+        than a raise, because what a violation is worth is the caller's.
 
     Raises:
-        MandateError: if the chain does not verify at all -- a bad signature, a
-            hop signed by the wrong key, an audience it was not meant for. That is
-            not a constraint being broken; it is not a mandate.
+        MandateError: if the chain does not verify at all -- a bad signature, a hop
+            signed by the wrong key, an audience it was not meant for. That is not a
+            constraint being broken; it is not a mandate.
     """
     sdk = _sdk()
     from ap2.sdk.payment_mandate_chain import PaymentMandateChain  # noqa: PLC0415
