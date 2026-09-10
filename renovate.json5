@@ -66,6 +66,22 @@
       dependencyDashboardApproval: true,
     },
     {
+      // Angular 22 peer-depends on TypeScript `>=6.0 <6.1` -- `@angular/build`
+      // and `@angular/compiler-cli` alike, in 22.1.7 and every 22.x published
+      // since, the 22.2 line included -- and 7.0 is the `typescript-go` rewrite
+      // rather than a range somebody forgot to widen. A major is another pull
+      // request that cannot be made green: `npm ci` refuses the lockfile the
+      // branch leaves untouched (#142), and regenerating it only moves the
+      // failure to `ng build`, where `@angular/compiler-cli` reads a TypeScript
+      // API 7.0 no longer has and the compilation dies before a source file is
+      // read. Held on the dashboard for the same reason as the rule above, and
+      // released the same way: a tick there once Angular's peer range moves.
+      matchManagers: ['npm'],
+      matchPackageNames: ['typescript'],
+      matchUpdateTypes: ['major'],
+      dependencyDashboardApproval: true,
+    },
+    {
       // Node is pinned in six places: the job in `ci.yml` that builds the UI, the
       // one in `release.yml`, the build stage of the `Dockerfile`, and the two
       // files above. `tests/test_conventions.py` asserts all of them agree, so a
