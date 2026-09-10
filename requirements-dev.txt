@@ -1,6 +1,6 @@
 -r requirements.txt
 pytest==9.1.1
-coverage==7.15.4
+coverage==7.16.0
 
 # What tests/test_architecture.py checks the import graph with (ADR-0047). It
 # has no dependencies of its own -- it parses the package with `ast` -- and
