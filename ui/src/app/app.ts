@@ -8,6 +8,7 @@ import type {
   ModelSource,
   ModelStatus,
   RailOption,
+  RankedProduct,
   Receipt,
   SearchOptions,
   SearchResult,
@@ -81,11 +82,21 @@ export class App {
    */
   private readonly ranWith = signal<SearchOptions | null>(null);
 
-  /** The product being paid for, by rank -- one payment at a time, page-wide. */
-  protected readonly paying = signal<number | null>(null);
+  /** The product being paid for, by name -- one payment at a time, page-wide. */
+  protected readonly paying = signal<string | null>(null);
 
-  /** What came of each payment, by the rank of the product it bought. */
-  protected readonly receipts = signal<Record<number, Receipt>>({});
+  /**
+   * What came of each payment, by the name of the product it bought.
+   *
+   * By the name and not the rank, which is the slot rather than the thing in it:
+   * a re-sort ranks the same products again from 1 (ADR-0035), so a receipt kept
+   * under `3` moved to whatever came third next -- the page then showed a
+   * purchase against a product nobody had bought, and offered the one that had
+   * been bought a Pay button for a second go. A name is what a run identifies a
+   * product by everywhere else: `deduplicate` folds the variants, so the ones
+   * left are distinct, and it is the title the approval was given for.
+   */
+  protected readonly receipts = signal<Record<string, Receipt>>({});
 
   /** A payment that did not happen. Its own banner, beside the products: the
    *  run itself worked, and `failure` means the run did not. */
@@ -358,7 +369,7 @@ export class App {
    * showing a stale price cannot buy at that price (ADR-0012).
    */
   protected payFor(
-    rank: number,
+    product: RankedProduct,
     approved: { title: string; price: number; currency: string },
   ): void {
     const found = this.result();
@@ -366,7 +377,10 @@ export class App {
     if (!found || !settings || this.paying() !== null) {
       return;
     }
-    this.paying.set(rank);
+    // The rank is where this product sits in the list being sent, which is what
+    // the server indexes by; the name is what the answer is filed under here.
+    const { rank, name } = product;
+    this.paying.set(name);
     this.payFailed.set(null);
     this.pay = this.agent
       .pay({
@@ -379,7 +393,7 @@ export class App {
       })
       .subscribe({
         next: ({ receipt }) => {
-          this.receipts.update((held) => ({ ...held, [rank]: receipt }));
+          this.receipts.update((held) => ({ ...held, [name]: receipt }));
           this.paying.set(null);
         },
         error: (failure: unknown) => {

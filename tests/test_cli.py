@@ -771,6 +771,16 @@ class Typed:
         return self.answer
 
 
+class Interrupted(Typed):
+    """A terminal whose reader pressed Ctrl-C at the prompt instead of answering."""
+
+    def __init__(self) -> None:
+        super().__init__("")
+
+    def readline(self) -> str:
+        raise KeyboardInterrupt
+
+
 def test_nothing_is_paid_for_unless_it_was_asked_for(fake_agent, monkeypatch) -> None:
     """The switch is off, so a run is exactly the run it always was."""
     paid = []
@@ -817,6 +827,21 @@ def test_anything_but_yes_buys_nothing(fake_agent, monkeypatch, caplog) -> None:
         assert main(["headphones", "--pay"]) == main_module.PAYMENT_FAILED
 
     assert "was not approved" in caplog.text
+
+
+def test_ctrl_c_at_the_approval_prompt_is_interrupted_and_not_a_traceback(
+    fake_agent, monkeypatch, caplog
+) -> None:
+    """The prompt is where a shopper hesitates, so it is where Ctrl-C lands --
+    and a traceback there reads as a crash at the one moment somebody needs to
+    know whether any money moved."""
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Interrupted())
+
+    with caplog.at_level(logging.WARNING):
+        assert main(["headphones", "--pay"]) == 130
+
+    assert "Nothing was bought" in caplog.text
 
 
 def test_a_run_with_nothing_to_type_into_is_refused_rather_than_assumed(

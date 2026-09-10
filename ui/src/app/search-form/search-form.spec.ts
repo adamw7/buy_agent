@@ -578,6 +578,55 @@ describe('SearchForm', () => {
     expect(label().querySelector('span')!.textContent).toContain('vLLM address');
   });
 
+  it('stops holding a run to a box the provider has since switched off', async () => {
+    /* A mark on a disabled box is one nobody can act on: the button stays off,
+       the summary counts a setting to look at, and the field it points at cannot
+       be typed into. Switching to a vLLM over a context window the form had
+       already refused left a form that would not search and no way to fix it. */
+    await type('input[name="request"]', 'kettle');
+    await type('input[name="num_ctx"]', '0');
+    expect(submit().disabled).toBe(true);
+
+    await choose('select[name="provider"]', 'vllm');
+
+    expect(element<HTMLInputElement>('input[name="num_ctx"]').disabled).toBe(true);
+    expect(problem('num_ctx')).toBe('');
+    expect(submit().disabled).toBe(false);
+  });
+
+  it('sends nothing for a box the provider has switched off', async () => {
+    /* The other half of the same thing: left sending it, the value the disabled
+       box still held came back as the server's refusal, marking that same box. */
+    await type('input[name="request"]', 'kettle');
+    await type('input[name="num_ctx"]', '9999');
+    await choose('select[name="provider"]', 'vllm');
+    await send();
+
+    expect(submitted[0].num_ctx).toBeNull();
+  });
+
+  it('neither holds nor sends a spend limit while paying is off', async () => {
+    /* The same rule on the other field that has one: a limit typed and then
+       switched off is not a setting this run has, so it is not a run to refuse. */
+    await type('input[name="request"]', 'kettle');
+    const box = element<HTMLInputElement>('input[name="pay"]');
+    box.checked = true;
+    box.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    await type('input[name="spend_limit"]', '0');
+    expect(submit().disabled).toBe(true);
+
+    box.checked = false;
+    box.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    expect(problem('spend_limit')).toBe('');
+    expect(submit().disabled).toBe(false);
+
+    await send();
+    expect(submitted[0].spend_limit).toBeNull();
+  });
+
   it('closes the context field for a provider that does not take one', async () => {
     /* vLLM fixes its window with --max-model-len when it starts, so a box to type
        one into would be a setting that quietly does nothing. */

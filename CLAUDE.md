@@ -544,7 +544,9 @@ reported.
 
 `BuyAgent.run()` raises exactly three things -- `ValueError`,
 `ModelUnavailableError`, `SearchError` -- and `__main__.main()` catches exactly
-those around the run, logging them and returning 1 (130 on Ctrl-C, and
+those around the run, logging them and returning 1 (130 on Ctrl-C -- at the
+payment's approval prompt as well as during the run, that being where a shopper
+hesitates and the one place a traceback reads as money having moved -- and
 `NOTHING_FOUND` -- 3 -- for a run that worked and found nothing, which a shell told
 1 could not tell from a stopped model server; `PAYMENT_FAILED` -- 4 -- for a run
 that was asked to pay and did not; 2 is argparse's own, so the codes a
@@ -869,7 +871,13 @@ holds against the cart it builds itself; the card decides nothing else, and a
 product it may not buy shows Python's `cannot_pay` sentence rather than no button
 and no explanation. Once something is bought the receipt replaces the button --
 "Paid" where money moved and "Authorised" where it did not, which for the dry run
-is the honest word.
+is the honest word. That receipt belongs to the *product* and not to the rank it
+was bought at, and so does the card drawing it: a re-sort ranks the same products
+again from 1 (ADR-0035), so `App.receipts` is keyed by name and the two loops
+track by name, or a purchase moves to whatever comes up that rank next -- shown
+against something nobody bought, while the thing that was bought is offered a Pay
+button for a second go, and a confirmation opened on one product stays open over
+another.
 
 **`search-form`** remembers the advanced settings in `localStorage` and the request
 deliberately not -- what to shop for is a new question every time -- and every read
@@ -890,7 +898,13 @@ It refuses what the server would, before the run rather than a minute into it
 (ADR-0033). `problems()` is what the page worked out -- each number against the
 range that came down with the defaults, and the sources field against whatever
 `GET /api/sources` last said about the text it holds -- and it gates `canSubmit`,
-none of it costing anything to know. `notes()` is what is shown under each field:
+none of it costing anything to know. A box the run does not take is outside all
+of that: a field whose `off()` is true is neither held to its range nor sent at
+all (`sent()` reads it as the cleared box it is drawn as), because it is disabled
+-- and a mark on a disabled box is one nobody can act on, a form that will not
+search pointing at a field that cannot be typed into. Switching to a vLLM over a
+context window the form had already refused, or turning paying off over a spend
+limit it had, was exactly that. `notes()` is what is shown under each field:
 `problems()`, plus the `rejected` input for a field the page has no rule for, which
 is the `field` a `failure` event named. The server's mark does not gate the button
 -- it is about what was sent -- and it is shown only while the box still holds what
@@ -1036,7 +1050,7 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1802 tests run in about eight seconds: most of that is the three that spawn an
+1803 tests run in about eight seconds: most of that is the three that spawn an
 interpreter -- two for what only a real import can answer (`python -m buy_agent`
 still runs as a script, and still imports with `$BUY_AGENT_RAIL` misspelt), one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
@@ -1044,13 +1058,13 @@ PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliber
 Nothing else should sleep, so a run that takes much longer still means something is
 reaching out.
 
-Two optional prerequisites decide how many of those 1802 *run*, and neither is a
+Two optional prerequisites decide how many of those 1803 *run*, and neither is a
 failure when it is absent. With neither `pwsh` nor `powershell`, 13 of the 19 in
 `tests/test_start_script.py` skip. Without the optional AP2 SDK, the 73 that sign
 or verify a mandate skip on `needs_ap2` -- the marker in `tests/conftest.py`,
 which is `needs_powershell` for the other one and asks `mandates.available()`
-once at import. So a machine with both reads `1789 passed, 13 skipped`, and a
-checkout set up with `requirements-dev.txt` alone reads `1716 passed, 86
+once at import. So a machine with both reads `1790 passed, 13 skipped`, and a
+checkout set up with `requirements-dev.txt` alone reads `1717 passed, 86
 skipped` rather than 73 red tests saying the project is broken when one optional
 feature is not installed. Skipping is only ever the local convenience: `ci.yml`
 and `mutation.yml` each install the SDK in a step of their own, and the 100%
@@ -1059,7 +1073,7 @@ out -- so a marker put on a test that does *not* need the SDK fails the run
 that matters, and one put on a test that does not need it is a test nobody runs
 on the checkout the marker exists for: `needs_ap2` sits on the parametrised
 *case* that reaches the signing stack, not on a whole function whose other half
-fakes the import it is about. The UI's 187 tests run in about two seconds, most of which is
+fakes the import it is about. The UI's 192 tests run in about two seconds, most of which is
 building the app first. The 31 in `integration/` are counted separately and collected only by being
 named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
 
