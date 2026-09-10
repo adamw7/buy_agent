@@ -416,7 +416,16 @@ export class SearchForm {
     const problems: Record<string, string> = {};
     const limits = this.limits();
     const unreadable = this.unreadable();
-    for (const { key, value: held } of this.numberFields) {
+    for (const { key, value: held, off } of this.numberFields) {
+      // A box this run does not take is not a setting to be held to anything, and
+      // it is disabled -- so a mark on it is one nobody can act on: the button
+      // stays off, the summary counts a setting to look at, and the box it points
+      // at cannot be typed into. Switching to a vLLM over a context window the
+      // form had already refused was a form that would not search and offered no
+      // way to fix it. Nothing is sent for it either -- see `options`.
+      if (off()) {
+        continue;
+      }
       const limit = limits[key];
       const value = held();
       // Before the range, and before reading the value at all: what the box holds
@@ -593,22 +602,41 @@ export class SearchForm {
       base_url: this.baseUrl().trim(),
       region: this.region().trim(),
       sources: this.sources().trim(),
-      results: this.results(),
-      top: this.top(),
-      max_price: this.maxPrice(),
-      min_rating: this.minRating(),
-      min_reviews: this.minReviews(),
-      cache_ttl: this.cacheTtl(),
+      results: this.sent('results'),
+      top: this.sent('top'),
+      max_price: this.sent('max_price'),
+      min_rating: this.sent('min_rating'),
+      min_reviews: this.sent('min_reviews'),
+      cache_ttl: this.sent('cache_ttl'),
       sort_by: this.sortBy(),
-      temperature: this.temperature(),
-      num_ctx: this.numCtx(),
+      temperature: this.sent('temperature'),
+      num_ctx: this.sent('num_ctx'),
       think: fromThinking(this.thinking()),
       fetch: this.fetchPages(),
       pay: this.pay(),
       rail: this.rail(),
       merchant_url: this.merchantUrl().trim(),
-      spend_limit: this.spendLimit(),
+      spend_limit: this.sent('spend_limit'),
     };
+  }
+
+  /**
+   * What one number box is sent as: nothing, where this run does not take it.
+   *
+   * A switched-off box is a setting this run has no use for -- a context window
+   * for a vLLM, which fixes its own when it starts, or a spend limit with paying
+   * off -- and `null` is how "unset" is spelled over the wire (ADR-0012), so the
+   * server falls back to its own default and nothing here is refused for a
+   * number nobody is being asked for. Left sending it, a value the box still
+   * held came back as a refusal marking a field that is disabled: a form that
+   * would not search, pointing at a box that could not be typed into.
+   */
+  private sent(key: NumberField['key']): number | null {
+    // Every key it is called with names a row of the table above, so the lookup
+    // is not expected to miss; one that did reads as the cleared box it would be
+    // drawn as, rather than as whatever a signal read somewhere else still held.
+    const field = this.numberFields.find((row) => row.key === key);
+    return field && !field.off() ? field.value() : null;
   }
 
   /**

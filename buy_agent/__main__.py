@@ -502,8 +502,20 @@ def main(argv: list[str] | None = None) -> int:
     # After the report and after the file: both are true whatever the payment
     # does, and a purchase that fails must not cost the shopper the answer they
     # already paid a minute of searching for.
-    if args.pay and ranked and not _bought(ranked, config):
-        return PAYMENT_FAILED
+    if args.pay and ranked:
+        try:
+            bought = _bought(ranked, config)
+        except KeyboardInterrupt:
+            # Ctrl-C at the approval prompt is somebody deciding not to buy, and
+            # the prompt is where a shopper hesitates -- so it is answered the way
+            # a Ctrl-C anywhere else in this run is, rather than with the
+            # traceback it used to end on. The traceback was the worst reading of
+            # the moment: it looks like a crash, at the one point in the program
+            # where what a shopper needs to know is whether any money moved.
+            logger.warning("Interrupted. Nothing was bought.")
+            return 130
+        if not bought:
+            return PAYMENT_FAILED
 
     return 0 if ranked else NOTHING_FOUND
 

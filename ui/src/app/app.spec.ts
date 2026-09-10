@@ -909,6 +909,50 @@ describe('App paying', () => {
     expect(buttons.every((button) => button.disabled)).toBe(true);
   });
 
+  /** Ask for the same products in another order, the way the control beside the
+   *  results does. The fake answers with them reversed and ranked again from 1,
+   *  which is what `rank_products` does to any set it is handed. */
+  const reorder = async (fixture: ComponentFixture<App>, criterion: string) => {
+    const select = (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>(
+      'select[name="resort"]',
+    )!;
+    select.value = criterion;
+    select.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+  };
+
+  it('leaves the receipt on the product that was bought when the run is re-ordered', async () => {
+    /* A re-sort ranks the same products again from 1 (ADR-0035), so a receipt
+       filed under a rank moved to whatever came up that rank next: the page
+       showed a purchase against a product nobody had bought, and offered the one
+       that had been bought a Pay button for a second go. */
+    const fixture = await finished(true);
+    await buyTheTopOne(fixture);
+
+    await reorder(fixture, 'price');
+
+    const cards = [...(fixture.nativeElement as HTMLElement).querySelectorAll('app-product-card')];
+    const bought = cards.filter((card) => card.textContent!.includes('ref-abc'));
+    expect(bought).toHaveLength(1);
+    expect(bought[0].textContent).toContain('Best Kettle');
+    expect(bought[0].querySelector('.pay'), 'nothing left to buy on this one').toBeNull();
+  });
+
+  it('does not carry a confirmation over to whatever a re-order puts in its place', async () => {
+    /* The second click is the one that spends the money, so it has to be about
+       the product the first click was about. Tracked by rank, the card kept its
+       component and swapped the product underneath it. */
+    const fixture = await finished(true);
+    const page = fixture.nativeElement as HTMLElement;
+    page.querySelector<HTMLButtonElement>('app-product-card .pay')!.click();
+    await fixture.whenStable();
+    expect(page.querySelector('app-product-card .confirm')).not.toBeNull();
+
+    await reorder(fixture, 'price');
+
+    expect(page.querySelector('app-product-card .confirm')).toBeNull();
+  });
+
   it('forgets the receipts when a new run replaces the products', async () => {
     const fixture = await finished(true);
     await buyTheTopOne(fixture);

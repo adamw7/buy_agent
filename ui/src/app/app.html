@@ -136,7 +136,13 @@
           <p class="card banner" role="alert">{{ problem }}</p>
         }
 
-        @for (product of highlighted(); track product.rank) {
+        <!-- Tracked by name and not by rank: a re-sort ranks the same products
+             again from 1 (ADR-0035), so tracking the slot kept one card's
+             component and swapped the product underneath it -- a confirmation
+             opened on the top product stayed open over whatever came top next.
+             The name is what a run identifies a product by; `deduplicate` has
+             already folded the variants, so the ones left are distinct. -->
+        @for (product of highlighted(); track product.name) {
           <app-product-card
             [product]="product"
             [highlighted]="true"
@@ -144,23 +150,23 @@
             [canPay]="canPay()"
             [rail]="payRail()"
             [paying]="paying() !== null"
-            [receipt]="receipts()[product.rank] ?? null"
-            (pay)="payFor(product.rank, $event)"
+            [receipt]="receipts()[product.name] ?? null"
+            (pay)="payFor(product, $event)"
           />
         }
 
         @if (rest().length) {
           <details class="also">
             <summary>{{ rest().length }} more the agent found</summary>
-            @for (product of rest(); track product.rank) {
+            @for (product of rest(); track product.name) {
               <app-product-card
                 [product]="product"
                 [weights]="found.weights"
                 [canPay]="canPay()"
                 [rail]="payRail()"
                 [paying]="paying() !== null"
-                [receipt]="receipts()[product.rank] ?? null"
-                (pay)="payFor(product.rank, $event)"
+                [receipt]="receipts()[product.name] ?? null"
+                (pay)="payFor(product, $event)"
               />
             }
           </details>
