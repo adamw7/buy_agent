@@ -51,15 +51,19 @@
 
   packageRules: [
     {
-      // `@angular/build` peer-depends on vitest -- 22.1.5 asks for `^4.0.8`, and
-      // so does every 22.x published since, the next line included -- so a vitest
-      // major is a pull request that cannot be made green: `npm ci` refuses the
-      // tree, and regenerating the lockfile refuses it for the same reason
-      // (#144). It is held for approval on the dependency dashboard rather than
-      // pinned away here, so what releases it is a tick there once the builder's
-      // peer range moves, and not a version somebody has to remember to delete.
-      // `@vitest/coverage-v8` peers vitest exactly, so the two only ever move
-      // together and the rule names both.
+      // `@angular/build` peer-depends on vitest, and every stable 22.x asks for
+      // `^4.0.8` -- 22.1.5 through 22.1.8 -- so a vitest major is a pull request
+      // that cannot be made green: `npm ci` refuses the tree, and regenerating
+      // the lockfile refuses it for the same reason (#144). It is held for
+      // approval on the dependency dashboard rather than pinned away here, so
+      // what releases it is a tick there and not a version somebody has to
+      // remember to delete. That tick has a date now: 22.2.0-next.7 widened the
+      // peer to `^4.0.8 || ^5.0.0`, so the hold comes off once that line is
+      // stable. Only the metadata is in the way in the meantime -- vitest 5 runs
+      // this suite on the 22.1.8 builder as it stands -- but standing an npm
+      // override in for the peer range until then is exactly the leftover this
+      // rule exists to avoid. `@vitest/coverage-v8` peers vitest exactly, so the
+      // two only ever move together and the rule names both.
       matchManagers: ['npm'],
       matchPackageNames: ['vitest', '@vitest/**'],
       matchUpdateTypes: ['major'],
