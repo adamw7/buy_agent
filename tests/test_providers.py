@@ -141,6 +141,10 @@ def chatting(monkeypatch):
                 sent.update(kwargs)
                 return SimpleNamespace(message=SimpleNamespace(content=answered))
 
+            @staticmethod
+            def close() -> None:
+                sent["closed"] = True
+
         monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
         return sent
 
@@ -157,6 +161,10 @@ def completing(monkeypatch):
             def __init__(self, **kwargs) -> None:
                 sent["client"] = kwargs
                 self.chat = SimpleNamespace(completions=SimpleNamespace(create=create))
+
+            @staticmethod
+            def close() -> None:
+                sent["closed"] = True
 
         def create(**kwargs):
             sent.update(kwargs)
@@ -289,6 +297,21 @@ def asked(config: AgentConfig, sent: dict, schema: type = SearchQuery) -> dict:
         [{"role": "user", "content": "headphones"}], schema
     )
     return sent
+
+
+def test_closing_a_chat_model_lets_go_of_the_client_underneath(
+    chatting, completing
+) -> None:
+    """The one thing a chat model holds that outlives the answer. Nothing above
+    here knows there is a connection pool at all, so the agent that opened one
+    says when it is done with it and each row closes its own client."""
+    ollama_sent, vllm_sent = chatting(), completing()
+
+    chat_model(AgentConfig(provider="ollama")).close()
+    chat_model(VLLM_CONFIG).close()
+
+    assert ollama_sent["closed"] is True
+    assert vllm_sent["closed"] is True
 
 
 def test_ollama_is_given_the_window_and_the_thinking_switch(chatting) -> None:

@@ -36,7 +36,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from buy_agent.chat import UnreadableAnswerError, read_answer
+from buy_agent.chat import UnreadableAnswerError, read_answer, release
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -249,6 +249,17 @@ class RememberedAnswers:
         answer = self.model.answer(messages, schema)
         self.cache.put(key, answer.model_dump_json())
         return answer
+
+    def close(self) -> None:
+        """Let go of what the model underneath holds open.
+
+        Passed through rather than answered here: this wrapper holds nothing
+        itself -- a cache is a directory, and every entry it reads or writes is
+        opened and closed inside the one call. What is behind it is a client
+        with a connection pool, and this is the only handle anything above still
+        has on it.
+        """
+        release(self.model)
 
     def _key(self, messages: Sequence[Message], schema: type[SchemaT]) -> str:
         """Everything this question is: the request, the schema, and the run.

@@ -964,6 +964,56 @@ def test_what_the_pages_said_reaches_the_report(agent_factory, caplog) -> None:
     assert "battery life" not in caplog.text
 
 
+# -- and lets go of the connection it opened -----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("cache_ttl", "why"),
+    [
+        pytest.param(0, "the model itself", id="a live run"),
+        pytest.param(DEFAULT_TTL, "through the remembering wrapper", id="a remembered run"),
+    ],
+)
+def test_closing_an_agent_closes_the_client_it_opened(
+    monkeypatch: pytest.MonkeyPatch, cache_ttl: float, why: str
+) -> None:
+    """Whichever of the two the agent is holding. The wrapper that remembers
+    answers is the only handle left on the client when a run may reuse them, so
+    the close has to reach through it (ADR-0044)."""
+    closed: list[str] = []
+
+    class FakeClient:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def close(self) -> None:
+            closed.append(why)
+
+    monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
+
+    BuyAgent(AgentConfig(provider="ollama", cache_ttl=cache_ttl)).close()
+
+    assert closed == [why]
+
+
+def test_closing_an_agent_leaves_a_model_it_was_handed_alone() -> None:
+    """A client passed in belongs to whoever passed it. Closing it here would be
+    this agent ending a lifetime that is not its to end -- and the injected model
+    is how every test and both scripted front ends run the pipeline."""
+
+    class Pooling(FakeLLM):
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    model = Pooling()
+
+    BuyAgent(AgentConfig(), llm=model).close()
+
+    assert model.closed is False
+
+
 # -- searching only the sources the shopper named ------------------------------
 
 

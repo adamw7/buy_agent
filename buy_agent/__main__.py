@@ -12,6 +12,7 @@ from typing import Any, Callable, get_args
 from buy_agent import mandates, payment
 from buy_agent.agent import BuyAgent, ModelUnavailableError
 from buy_agent.api import results_payload
+from buy_agent.chat import release
 from buy_agent.config import (
     DEFAULT_PROVIDER,
     DEFAULT_RAIL,
@@ -463,14 +464,25 @@ def main(argv: list[str] | None = None) -> int:
             args.num_ctx,
         )
 
+    agent = None
     try:
-        ranked = BuyAgent(config).run(args.request, sort_by=args.sort_by)
+        agent = BuyAgent(config)
+        ranked = agent.run(args.request, sort_by=args.sort_by)
     except (ModelUnavailableError, SearchError, ValueError) as exc:
         logger.error("%s", exc)
         return 1
     except KeyboardInterrupt:
         logger.warning("Interrupted.")
         return 130
+    finally:
+        # The agent is this run and nothing after it, so the connection it
+        # opened is let go of here rather than at whatever point the process
+        # happens to end. Built inside the guard, as it was before: a provider
+        # that refuses the config is one of the three failures above, and
+        # ``None`` is then an agent that was never built. Asked rather than
+        # called outright, this being the name the tests put a stand-in over --
+        # a class with a ``run`` and nothing else.
+        release(agent)
 
     if args.json:
         # Written even when the run found nothing, and so before the exit code is

@@ -352,7 +352,13 @@ reported.
   no `if provider == ...` anywhere above the table. A setting one server takes and
   the other does not gets a declaration on the row rather than a branch in the CLI,
   the API and the form; a hint sentence both servers would write goes in
-  `_too_slow_hint` or `_unreachable_hint` (ADR-0028, ADR-0029).
+  `_too_slow_hint` or `_unreachable_hint` (ADR-0028, ADR-0029). A row's client
+  holds a connection pool, and letting go of it is the row's own too: each chat
+  model has a `close`, `chat.release` is who asks for one where there is one to
+  ask, and `BuyAgent.close` is when -- so both front doors build one agent per
+  request and release it, rather than leaving a pool to whenever the last
+  reference to it happens to fall. A stand-in is unaffected, which is the point
+  of asking rather than requiring: `ChatModel` is still a class with one method.
 - **A payment rail is one row in one table too, and the default one spends
   nothing.** `rails.RAILS` is `providers.PROVIDERS` for counterparties: each row
   carries where it listens (from its own environment variable), whether it needs
@@ -1030,7 +1036,7 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1788 tests run in about eight seconds: most of that is the three that spawn an
+1802 tests run in about eight seconds: most of that is the three that spawn an
 interpreter -- two for what only a real import can answer (`python -m buy_agent`
 still runs as a script, and still imports with `$BUY_AGENT_RAIL` misspelt), one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
@@ -1038,13 +1044,13 @@ PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliber
 Nothing else should sleep, so a run that takes much longer still means something is
 reaching out.
 
-Two optional prerequisites decide how many of those 1788 *run*, and neither is a
+Two optional prerequisites decide how many of those 1802 *run*, and neither is a
 failure when it is absent. With neither `pwsh` nor `powershell`, 13 of the 19 in
 `tests/test_start_script.py` skip. Without the optional AP2 SDK, the 73 that sign
 or verify a mandate skip on `needs_ap2` -- the marker in `tests/conftest.py`,
 which is `needs_powershell` for the other one and asks `mandates.available()`
-once at import. So a machine with both reads `1775 passed, 13 skipped`, and a
-checkout set up with `requirements-dev.txt` alone reads `1702 passed, 86
+once at import. So a machine with both reads `1789 passed, 13 skipped`, and a
+checkout set up with `requirements-dev.txt` alone reads `1716 passed, 86
 skipped` rather than 73 red tests saying the project is broken when one optional
 feature is not installed. Skipping is only ever the local convenience: `ci.yml`
 and `mutation.yml` each install the SDK in a step of their own, and the 100%

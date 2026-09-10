@@ -9,7 +9,14 @@ from __future__ import annotations
 
 import pytest
 
-from buy_agent.chat import Chain, Prompt, UnreadableAnswerError, read_answer
+from buy_agent.chat import (
+    Chain,
+    Closable,
+    Prompt,
+    UnreadableAnswerError,
+    read_answer,
+    release,
+)
 from buy_agent.models import ProductList, SearchQuery
 
 PROMPT = Prompt(system="Extract at most {limit} products.", human="Wanted: {request}")
@@ -109,3 +116,37 @@ def test_a_long_answer_is_quoted_short_enough_to_write_a_sentence_around() -> No
 def test_an_unreadable_answer_is_a_value_error() -> None:
     """Uncaught it lands in the three failures ``run`` documents, not a fourth."""
     assert issubclass(UnreadableAnswerError, ValueError)
+
+
+# -- letting go of what a model holds open -------------------------------------
+
+
+def test_a_model_with_one_method_is_not_closable_and_is_passed_over() -> None:
+    """``Closable`` is a second protocol rather than a second method on
+    ``ChatModel`` so that this stays true: a stand-in answers a question and has
+    nothing to close, here as in ``tests/conftest.py``, ``benchmark/scripted.py``
+    and ``demo/server.py``."""
+    model = Recording()
+
+    assert not isinstance(model, Closable)
+    release(model)  # and nothing raises
+
+
+def test_releasing_a_model_that_holds_something_open_closes_it() -> None:
+    class Pooling(Recording):
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    model = Pooling()
+
+    release(model)
+
+    assert model.closed is True
+
+
+def test_an_owner_that_opened_nothing_has_nothing_to_release() -> None:
+    """Which is how ``BuyAgent`` spells "the model was handed to me": no branch
+    at the call, and no boolean beside the field saying which kind it holds."""
+    release(None)

@@ -161,6 +161,15 @@ class _OllamaChat:
         )
         return read_answer(response.message.content or "", schema)
 
+    def close(self) -> None:
+        """Let go of the connection this client keeps to Ollama.
+
+        The pool underneath it is idle between runs and open for as long as
+        whoever built this model holds on to it, which on the server is one run
+        (:func:`buy_agent.chat.release` is who asks).
+        """
+        self.client.close()
+
 
 def _ollama_chat_model(config: AgentConfig) -> ChatModel:
     """Ollama takes the window and the thinking switch as request options."""
@@ -336,6 +345,10 @@ class _VLLMChat:
             extra_body=self.extra_body,
         )
         return read_answer(response.choices[0].message.content or "", schema)
+
+    def close(self) -> None:
+        """Let go of the connection this client keeps to vLLM, as Ollama's does."""
+        self.client.close()
 
 
 def _vllm_chat_model(config: AgentConfig) -> ChatModel:
