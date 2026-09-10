@@ -45,26 +45,22 @@ def every_step_passes(_step: str) -> None:
 class ModelUnavailableError(RuntimeError):
     """Raised when the model could not be used: no server, no model, or no answer.
 
-    One exception for both providers: to the shopper it is one thing, the model
-    could not be used. Only the sentence differs -- ``ollama pull`` or ``vllm
-    serve`` -- which is the provider's own to write (ADR-0028).
-
-    A server that answered with something other than the JSON it was asked for is
-    the third of those and not a fourth failure mode (ADR-0009): nothing about the
-    request was wrong, and the remedy is the model's -- more room, or a smaller
-    prompt.
+    One exception for both providers: to the shopper it is one thing. Only the
+    sentence differs -- ``ollama pull`` or ``vllm serve`` -- which is the provider's
+    own to write (ADR-0028). A server answering with something other than the JSON it
+    was asked for is the third of these and not a fourth failure mode (ADR-0009):
+    nothing about the request was wrong, and the remedy is the model's.
     """
 
 
 def _asks_the_same_question(config: AgentConfig) -> dict[str, object]:
     """Everything besides the prompt that decides what a model answers (ADR-0044).
 
-    The prompt and the schema go into the key where it is built; this is the rest.
     Two settings are deliberately absent. ``api_key`` is a secret and the key is
-    written to a file. ``temperature`` is a constant here -- only a run at zero is
-    remembered at all -- and a constant in a key is noise. ``num_ctx`` goes in
-    only where the provider sends it: vLLM fixes its window at startup, so
-    including it would miss on a setting that server never saw.
+    written to a file; ``temperature`` is a constant here, only a run at zero being
+    remembered at all. ``num_ctx`` goes in only where the provider sends it: vLLM
+    fixes its window at startup, so including it would miss on a setting that server
+    never saw.
     """
     fingerprint: dict[str, object] = {
         "provider": config.provider,
@@ -80,11 +76,11 @@ def _asks_the_same_question(config: AgentConfig) -> dict[str, object]:
 class BuyAgent:
     """Finds products for a shopper, ranks them, and logs the best few.
 
-    The control flow is fixed rather than left to the model: the LLM refines the
-    query and reads products out of the results, while searching, ranking and
-    reporting are ordinary code -- which keeps the agent usable with the small
-    local models these servers are typically run with. Which server is answering,
-    ``config.provider`` says and nothing here asks (ADR-0028).
+    The control flow is fixed rather than left to the model: the LLM refines the query
+    and reads products out of the results, while searching, ranking and reporting are
+    ordinary code -- which keeps the agent usable with the small local models these
+    servers are typically run with. Which server is answering, ``config.provider``
+    says and nothing here asks (ADR-0028).
     """
 
     def __init__(
@@ -94,11 +90,10 @@ class BuyAgent:
 
         Args:
             config: Model, search and ranking settings; the defaults are sensible.
-            llm: Chat model to use instead of the provider's own -- the seam the
-                tests inject a fake model through. Given one, nothing is wrapped
-                around it: a stand-in answers whatever it was told to, and a
-                remembered answer over the top of that would be this module
-                deciding what a test meant.
+            llm: Chat model to use instead of the provider's own -- the seam the tests
+                inject a fake model through. Given one, nothing is wrapped around it: a
+                remembered answer over a stand-in would be this module deciding what a
+                test meant.
         """
         self.config = config or AgentConfig()
         # The remembering goes here rather than in ``providers``: it has nothing
@@ -109,11 +104,9 @@ class BuyAgent:
             ttl=self.config.cache_ttl,
             deterministic=self.config.temperature == 0,
         )
-        #: What :meth:`close` lets go of: the model this agent opened, and never
-        #: one it was handed. A client passed in belongs to whoever passed it,
-        #: and closing it here would be this agent deciding somebody else's
-        #: lifetime. ``None`` is an agent that opened nothing, which is every
-        #: agent a test builds.
+        #: What :meth:`close` lets go of: the model this agent opened, never one
+        #: it was handed -- closing that would be this agent deciding somebody
+        #: else's lifetime. ``None`` is an agent that opened nothing.
         self._opened = None if llm else self.llm
         self.query_chain = build_query_chain(self.llm)
         self.extraction_chain = build_extraction_chain(self.llm)
@@ -121,16 +114,14 @@ class BuyAgent:
     def close(self) -> None:
         """Let go of the connection to the model server this agent opened.
 
-        A *run* is deliberately not what ends it: an agent answers as many
-        requests as it is asked, and closing at the end of one would leave the
-        second raising out of a client somebody has already shut. The lifetime
-        is the caller's to say, and both front doors say the same thing --
-        one agent per request, released when that request is answered.
+        A *run* is deliberately not what ends it: an agent answers as many requests as it
+        is asked, and closing at the end of one would leave the second raising out of a
+        shut client. The lifetime is the caller's, and both front doors say the same
+        thing -- one agent per request, released when that request is answered.
 
-        There is no ``with`` here for the same reason neither door uses one: an
-        agent is reached through a factory both of them let a stand-in into, and
-        a stand-in is a class with a ``run``. A Python caller who wants the block
-        has ``contextlib.closing``, which this is the whole of what it needs.
+        No ``with`` here, for the reason neither door uses one: an agent is reached
+        through a factory both let a stand-in into, and a stand-in is a class with a
+        ``run``. A Python caller who wants the block has ``contextlib.closing``.
         """
         release(self._opened)
 
@@ -143,24 +134,23 @@ class BuyAgent:
     ) -> list[RankedProduct]:
         """Search for what the shopper asked for and log the top products.
 
-        Three failures come out of here and no more (ADR-0009). What
-        ``checkpoint`` raises comes out too, but that is the caller's own exception
-        travelling back rather than a fourth thing this pipeline fails with, which
-        is why it is not in ``Raises`` below.
+        Three failures come out of here and no more (ADR-0009). What ``checkpoint``
+        raises comes out too, but that is the caller's own exception travelling back
+        rather than a fourth thing this pipeline fails with, which is why it is not in
+        ``Raises`` below.
 
         Args:
             request: What the user wants to buy, in their own words.
             sort_by: ``"score"`` (default), ``"price"`` or ``"rating"``.
-            checkpoint: Called with the name of each step as it is about to start
-                -- ``"search"``, ``"fetch"``, ``"extract"``, ``"rank"`` -- so a
-                caller can end a run it no longer wants. Nothing here catches what
-                it raises, which is how it ends one (ADR-0034). A step boundary is
-                as fine as it gets: a model call already in flight finishes first,
-                nothing being able to cancel one.
+            checkpoint: Called with the name of each step as it is about to start --
+                ``"search"``, ``"fetch"``, ``"extract"``, ``"rank"`` -- so a caller can
+                end a run it no longer wants. Nothing here catches what it raises, which
+                is how it ends one (ADR-0034). A step boundary is as fine as it gets: a
+                model call already in flight finishes first.
 
         Returns:
-            Every product found that is inside the bounds the config carries,
-            best first -- not only the ones logged.
+            Every product found that is inside the bounds the config carries, best first
+            -- not only the ones logged.
 
         Raises:
             ValueError: if the request is empty.
@@ -212,15 +202,14 @@ class BuyAgent:
     def _search(self, query: str) -> list[SearchResult]:
         """Search the web, or only the sources the shopper named.
 
-        Named none, this is one search. Named some, it is one search per source --
-        ``site:`` narrows to a single domain -- pooled in the order given
-        (ADR-0027). Two things about the pooling are load-bearing: every result
-        goes through :meth:`~buy_agent.sources.Source.covers` first, so a backend
-        ignoring the operator cannot smuggle in a page from elsewhere, and a page
-        found twice is kept once rather than crowding out another.
+        Named none, this is one search. Named some, it is one search per source
+        (``site:`` narrows to a single domain), pooled in the order given (ADR-0027).
+        Two things are load-bearing: every result goes through
+        :meth:`~buy_agent.sources.Source.covers` first, so a backend ignoring the operator
+        cannot smuggle in a page from elsewhere, and a page found twice is kept once.
 
-        The width is shared out rather than multiplied -- five sources at ten
-        results each would fetch fifty pages for a report of three.
+        The width is shared out rather than multiplied -- five sources at ten results each
+        would fetch fifty pages for a report of three.
         """
         sources = self.config.sources
         width = self.config.search_results
@@ -250,11 +239,10 @@ class BuyAgent:
     def _region_note(self) -> str:
         """The region, when it is one worth suspecting of an empty search.
 
-        A region is checked for shape at both front doors, but the shapes outnumber
-        the codes: ``en-us`` is the right shape the wrong way round, and a search
-        engine given it answers with nothing rather than complaining (ADR-0031).
-        The default is left unnamed on purpose -- it is the one value known to work,
-        and pointing at it would send someone to correct a correct setting.
+        A region is checked for shape at both front doors, but the shapes outnumber the
+        codes: ``en-us`` is the right shape the wrong way round, and a search engine given
+        it answers with nothing rather than complaining (ADR-0031). The default is left
+        unnamed: it is the one value known to work.
         """
         region = self.config.region
         if region == DEFAULT_REGION:
@@ -297,9 +285,8 @@ class BuyAgent:
         except UnreadableAnswerError as exc:
             # Caught here rather than in ``_invoke``, which the recoverable step
             # goes through too: a fumbled query falls back to the raw request,
-            # while an unreadable extraction has nothing to. Left as the
-            # ``ValueError`` it is, it would blame the shopper's request, so it
-            # becomes the failure it actually is, carrying what to do about it.
+            # an unreadable extraction has nothing to. Left a ``ValueError`` it
+            # would blame the shopper's request.
             logger.debug("The model's answer could not be read", exc_info=True)
             server = self.config.model_server
             raise ModelUnavailableError(server.hint(self.config, exc)) from exc
@@ -312,10 +299,9 @@ class BuyAgent:
     def _invoke(self, chain: Chain[Any], payload: dict[str, Any]) -> Any:
         """Invoke a chain, turning transport errors into an actionable message.
 
-        Which errors those are, and what the message says, is the provider's to
-        answer: a stopped Ollama and a stopped vLLM raise different classes and are
-        restarted with different commands. Both arrive as one
-        ``ModelUnavailableError`` -- above this line they are one failure (ADR-0009).
+        Which errors those are, and what the message says, is the provider's to answer.
+        Both arrive as one ``ModelUnavailableError`` -- above this line they are one
+        failure (ADR-0009).
         """
         server = self.config.model_server
         try:

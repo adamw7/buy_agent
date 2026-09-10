@@ -5,22 +5,20 @@ this project, and a run that takes a minute and serves one person needs no
 framework under it.
 
 Two ways to ask for the same thing. ``POST /api/search`` runs the pipeline and
-answers in one JSON response -- the shape scripts want. ``GET
-/api/search/stream`` is the same run as Server-Sent Events (``log`` lines, then
-``result`` or ``failure``), which is what the UI uses. Closing that stream ends
-the run: the first frame that cannot be written says the reader has gone, and the
-pipeline stops at its next step boundary (ADR-0034).
+answers in one JSON response; ``GET /api/search/stream`` is the same run as
+Server-Sent Events (``log`` lines, then ``result`` or ``failure``), which the UI
+uses. Closing that stream ends the run: the first frame that cannot be written
+says the reader has gone, and the pipeline stops at its next step boundary
+(ADR-0034).
 
-Three endpoints run no pipeline at all. ``POST /api/rank`` puts a finished run's
-products in another order (ADR-0035), ``POST /api/pay`` buys one of them once the
-page has shown that a person approved it, and ``GET /api/sources`` reads a Trusted
-sources field the way a run would, so the form can refuse ``Marques Brownlee``
-before opening a stream (ADR-0033).
+Three endpoints run no pipeline. ``POST /api/rank`` re-orders a finished run
+(ADR-0035), ``POST /api/pay`` buys one of its products once the page has shown
+that a person approved it, and ``GET /api/sources`` reads a Trusted sources field
+the way a run would (ADR-0033).
 
 Everything outside ``/api`` is the built Angular app, unknown paths falling back
-to ``index.html`` so it keeps its own routing. Both are guarded by
-:meth:`BuyAgentHandler._admits`: a server on loopback is reachable from every
-page the same browser has open (ADR-0018).
+to ``index.html``. Both are guarded by :meth:`BuyAgentHandler._admits`: a server
+on loopback is reachable from every page the same browser has open (ADR-0018).
 """
 
 from __future__ import annotations
@@ -73,30 +71,26 @@ _KEEPALIVE_SECONDS = 15.0
 
 _MAX_BODY_BYTES = 64 * 1024
 
-#: How long one blocking read or write on a connection may take before it is
-#: dropped. Without it a client that announces a body and never sends it parks a
-#: handler thread for the life of the process, and nothing ever reclaims it. It
-#: bounds a single socket operation and not a request, so the slow paths pay
-#: nothing: a run that takes a minute blocks on no socket, and the stream's frames
-#: are small and sent at worst :data:`_KEEPALIVE_SECONDS` apart. A write that does
-#: time out arrives as the ``OSError`` :meth:`BuyAgentHandler._send_event` already
-#: reads as a reader who has gone (ADR-0034), and an idle keep-alive connection is
-#: closed by ``handle_one_request``, which answers ``TimeoutError`` by hanging up.
+#: How long one blocking read or write on a connection may take. Without it a
+#: client that announces a body and never sends it parks a handler thread for the
+#: life of the process. It bounds a socket operation and not a request, so the
+#: slow paths pay nothing -- a run blocks on no socket, and the stream's frames
+#: are sent at worst :data:`_KEEPALIVE_SECONDS` apart. A write that times out is
+#: the ``OSError`` :meth:`BuyAgentHandler._send_event` reads as a reader who has
+#: gone (ADR-0034), and an idle connection is hung up by ``handle_one_request``.
 _REQUEST_TIMEOUT = 30.0
 
 #: Host names that mean "this machine". A ``Host`` outside the allowed set is a
 #: name that resolved here without being one of ours -- DNS rebinding. 0.0.0.0 is
 #: deliberately absent: an address to *bind*, never one a browser addresses, so
-#: counting it would read ``--host 0.0.0.0`` -- the container's bind (ADR-0015) --
-#: as loopback and refuse every name that actually reaches it.
+#: counting it would read the container's bind (ADR-0015) as loopback.
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 #: The ``Sec-Fetch-Site`` value meaning a page on another site made the request.
-#: Browsers send it even where there is no ``Origin`` at all -- an ``<img>``, a
-#: cross-site form post -- which is the gap it closes; a non-browser sends nothing
-#: and is judged on ``Origin`` and ``Host``. ``same-site`` is deliberately not
-#: here: a site is a domain and not a port, so the Angular dev server on
-#: ``localhost:4200`` counts as one, and refusing it would break ``npm start`` to
+#: Browsers send it even where there is no ``Origin`` -- an ``<img>``, a
+#: cross-site form post -- which is the gap it closes; a non-browser is judged on
+#: ``Origin`` and ``Host``. ``same-site`` is deliberately absent: a site is a
+#: domain and not a port, so refusing it would break ``npm start`` on :4200 to
 #: close a hole nobody remote can reach through.
 _CROSS_SITE = "cross-site"
 
@@ -187,17 +181,16 @@ class _Stopped(Exception):
 
     Deliberately not one of the agent's three failure modes (ADR-0009): nothing
     failed, and nobody is left to answer with a status. Caught by the worker that
-    raised it and going no further, which is why it lives here beside the stream
-    that is the only thing able to want one (ADR-0034).
+    raised it and going no further (ADR-0034).
     """
 
 
 def _stop_when(stopped: threading.Event) -> Checkpoint:
     """A checkpoint that ends a run at the first step boundary after ``stopped``.
 
-    The exception carries the step that was about to start: "stopped before
-    extract" and "stopped before rank" are the difference between saving a minute
-    and saving nothing.
+    The exception carries the step that was about to start: "stopped before extract"
+    and "stopped before rank" are the difference between saving a minute and saving
+    nothing.
     """
 
     def checkpoint(step: str) -> None:
@@ -211,8 +204,8 @@ class _LogRelay(logging.Handler):
     """Fans ``buy_agent`` log records out to the run that produced them.
 
     Each streamed search runs in its own thread, so the thread a record arrived on
-    says whose it is -- kept in ``threading.local``, which is why nothing locks
-    and why two searches do not see each other.
+    says whose it is -- kept in ``threading.local``, which is why nothing locks and
+    two searches do not see each other.
     """
 
     def __init__(self) -> None:
@@ -226,9 +219,8 @@ class _LogRelay(logging.Handler):
         try:
             sink.put(
                 {
-                    # The CLI's own clock and format: without it a run that spent
-                    # four minutes in extraction looks exactly like one that spent
-                    # four seconds, on screen and in a bug report's transcript.
+                    # The CLI's own clock and format: without it a four-minute
+                    # extraction reads exactly like a four-second one.
                     "time": time.strftime("%H:%M:%S", time.localtime(record.created)),
                     "level": record.levelname,
                     "logger": record.name,
@@ -252,9 +244,9 @@ def _install_relay() -> None:
     """Put the relay on the package logger. Idempotent -- ``addHandler`` dedupes."""
     package_logger = logging.getLogger("buy_agent")
     package_logger.addHandler(_relay)
-    # The progress the browser waits for is logged at INFO, which a logger left at
-    # its default drops before any handler sees it. ``configure_logging`` does this
-    # too, but the server is importable without it.
+    # Progress is logged at INFO, which a logger left at its default drops before
+    # any handler sees it. ``configure_logging`` does this too, but the server is
+    # importable without it.
     if package_logger.getEffectiveLevel() > logging.INFO:
         package_logger.setLevel(logging.INFO)
 
@@ -279,9 +271,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         self.ui_dir = ui_dir
         self.agent_factory = agent_factory
         #: None accepts every ``Host`` -- what an operator binding a public
-        #: interface has already chosen (see ``main``). It has to be asked for:
-        #: the default is the guarded one, so no handler is unprotected by
-        #: accident.
+        #: interface has already chosen. It has to be asked for: the default is
+        #: the guarded one, so no handler is unprotected by accident.
         self.allowed_hosts = allowed_hosts
         super().__init__(*args, **kwargs)
 
@@ -290,14 +281,12 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     def _admits(self) -> bool:
         """Whether this request came from the page this server serves (ADR-0018).
 
-        There is no authentication and should not be -- it serves one person on
-        their own machine -- but loopback is not a boundary a browser respects. A
-        cross-site *write* needs no reply to be worth making: a page elsewhere can
-        open an ``EventSource`` here and the run happens anyway. A cross-site
-        *read* needs the origin to match, which DNS rebinding manufactures.
-
-        So the fetch metadata and the ``Origin`` say who asked, the ``Host`` says
-        which name they used, and both have to be ours.
+        There is no authentication and should not be, but loopback is not a boundary a
+        browser respects. A cross-site *write* needs no reply to be worth making: a page
+        elsewhere can open an ``EventSource`` here and the run happens anyway. A
+        cross-site *read* needs the origin to match, which DNS rebinding manufactures. So
+        the fetch metadata and the ``Origin`` say who asked, the ``Host`` says which name
+        they used, and both have to be ours.
         """
         return self._origin_admits() and self._host_admits()
 
@@ -313,9 +302,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
         netloc = urlparse(origin).netloc.strip().lower()
         # An origin equal to the authority the request was addressed to is this
-        # server's own page, whatever that authority is: the browser writes both
-        # headers and a page elsewhere cannot make them agree. That keeps a
-        # deliberately public bind usable without loosening anything.
+        # server's own page: the browser writes both headers and a page elsewhere
+        # cannot make them agree. That keeps a public bind usable.
         if netloc and netloc == self.headers.get("Host", "").strip().lower():
             return True
         return _hostname(netloc) in _LOOPBACK_HOSTS
@@ -328,12 +316,12 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
     def _refuse(self) -> None:
         """Answer a request from somewhere else, without doing any of its work."""
-        # Deliberately terse and deliberately not CORS-negotiable: there is
-        # nothing here another site is meant to be able to ask for.
+        # Deliberately terse and not CORS-negotiable: there is nothing here
+        # another site is meant to ask for.
         self.close_connection = True
-        # All three headers the checks read, as they arrived -- None where one was
-        # not sent. Fetch metadata can refuse a request carrying no Origin at all,
-        # so a line naming only the Origin sends the reader to the wrong header.
+        # All three headers the checks read, as they arrived. Fetch metadata can
+        # refuse a request carrying no Origin, so a line naming only the Origin
+        # sends the reader to the wrong header.
         logger.warning(
             "Refused a %s %s from origin %r with host %r and fetch site %r",
             self.command,
@@ -353,8 +341,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         params = {key: values[-1] for key, values in parse_qs(url.query).items()}
         # Outside the guard below, and first: it writes its own response as it
-        # goes, so there is no status left to answer a late failure with -- and it
-        # has a ``failure`` event for the ones it can still report.
+        # goes, so there is no status left for a late failure -- and it has a
+        # ``failure`` event for the ones it can still report.
         if url.path == "/api/search/stream":
             self._stream_search(params)
             return
@@ -372,12 +360,11 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             else:
                 self._serve_static(url.path)
         except Exception as exc:  # noqa: BLE001 -- a 500 beats a dropped connection
-            # The reason both handlers have one: an exception here escapes to
+            # Why both handlers have one: an exception here escapes to
             # socketserver, which closes the socket unanswered, and the page reads
-            # that as the agent server being down -- for a server that answered
-            # every other request. ``$BUY_AGENT_PROVIDER=olama`` did exactly that
-            # to ``/api/config``, where ``AgentConfig()`` raises and the sentence
-            # naming the servers that do exist never reached anybody.
+            # that as the agent server being down. ``$BUY_AGENT_PROVIDER=olama``
+            # did exactly that to ``/api/config``, where ``AgentConfig()`` raises
+            # and the sentence naming the real servers never reached anybody.
             logger.exception("Unexpected failure answering %s", url.path)
             self._send_json(500, {"error": f"Unexpected failure: {exc}"})
 
@@ -391,9 +378,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         endpoints: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
             "/api/search": self._search,
             "/api/rank": rank_again,
-            # Runs no pipeline either, and is a POST for the same reason a
-            # re-sort is: a query string cannot carry a run's products, let
-            # alone the approval that has to travel with them.
+            # Runs no pipeline either, and a POST for the reason a re-sort is: a
+            # query string carries neither a run's products nor the approval.
             "/api/pay": pay_now,
         }
         run = endpoints.get(url.path)
@@ -426,10 +412,9 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     def _models(self, params: dict[str, str]) -> dict[str, Any]:
         """What the named server is serving, for the form's model picker.
 
-        The provider comes with the address, since a vLLM asked Ollama's question
-        answers 404. An unknown name is not refused here: ``installed_models``
-        reports it as an unreachable server with the reason, which is what the
-        pill above the form shows.
+        The provider comes with the address, a vLLM asked Ollama's question answering
+        404. An unknown name is not refused here: ``installed_models`` reports it as an
+        unreachable server with the reason, which is what the pill above the form shows.
         """
         provider = params.get("provider") or DEFAULT_PROVIDER
         base_url = params.get("base_url") or _default_base_url(provider)
@@ -451,13 +436,10 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     def _stream_search(self, params: dict[str, str]) -> None:
         """Run a search in a worker thread, relaying its log lines as they arrive.
 
-        The work cannot happen on this thread: the response is written while the
-        run is still going, which is the whole point of the stream.
-
-        A reader who goes away takes the run with them (ADR-0034): the first frame
-        that cannot be written -- a log line, or the keepalive ping at worst 15
-        seconds later -- sets ``stopped``, and the run ends at its next step
-        boundary rather than fetching ten more pages nobody will see.
+        The work cannot happen on this thread: the response is written while the run is
+        still going, which is the point of the stream. A reader who goes away takes the
+        run with them (ADR-0034) -- the first frame that cannot be written, a log line or
+        the keepalive ping at worst 15 seconds later, sets ``stopped``.
         """
         try:
             self.send_response(200)
@@ -475,9 +457,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         stopped = threading.Event()
         for event, data in self._search_events(params, stopped):
             if not self._send_event(event, data):
-                # Coarse and not instant: a model call already in flight finishes
-                # first, nothing here being able to cancel one. What it saves is
-                # every step after that one.
+                # Coarse and not instant: a model call in flight finishes first,
+                # nothing here being able to cancel one.
                 stopped.set()
                 logger.info("Client disconnected; stopping the run at its next step")
                 return
@@ -487,12 +468,10 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     ) -> Iterator[tuple[str, Any]]:
         """Yield ``log`` events for the run's progress, then ``result`` or ``failure``.
 
-        Not ``error``: a browser's EventSource delivers its own transport errors
-        under that name and then reconnects, which would silently restart the run.
-
-        ``stopped`` is the caller's way of ending the run: set it and the worker
-        raises :class:`_Stopped` out of the pipeline's next step boundary. Nothing
-        is yielded for that -- whoever set it is the reader who has already gone.
+        Not ``error``: a browser's EventSource delivers its own transport errors under
+        that name and then reconnects, which would silently restart the run. ``stopped``
+        is the caller's way of ending the run, and nothing is yielded for it -- whoever
+        set it is the reader who has already gone.
         """
         _install_relay()
         sink: queue.Queue[Any] = queue.Queue()
@@ -553,15 +532,11 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     def _send_unbuilt(self) -> None:
         """Say the app has not been built, in whatever the asker can read.
 
-        This is the first thing anybody who ran ``python -m buy_agent.server``
-        before ``npm run build`` sees, and they see it in a browser -- which
-        renders ``application/json`` as its braces and quotes, so the one message
-        standing between somebody and a working page arrived looking like a
-        crash. A browser says so in ``Accept``, so it gets the sentence as a page
-        and every other client gets the JSON it was already reading.
-
-        The sentence itself is written once and shown both ways: what to run and
-        where to run it is the same answer whoever asked.
+        The first thing anybody who ran the server before ``npm run build`` sees, and they
+        see it in a browser -- which renders ``application/json`` as its braces and
+        quotes, so the one useful message arrived looking like a crash. A browser says so
+        in ``Accept``, so it gets the sentence as a page and every other client gets the
+        JSON it was already reading. The sentence itself is written once.
         """
         workspace = _workspace_for(self.ui_dir)
         if "text/html" not in self.headers.get("Accept", ""):
@@ -579,8 +554,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     def _resolve(self, path: str) -> Path | None:
         """Map a URL path to a file inside the UI directory, or to ``index.html``.
 
-        None when there is nothing to serve, which nearly always means the app has
-        not been built.
+        None when there is nothing to serve, which nearly always means the app has not
+        been built.
         """
         index = self.ui_dir / "index.html"
         if not index.is_file():
@@ -592,8 +567,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             candidate = (self.ui_dir / relative).resolve()
         except (OSError, ValueError):
             # A percent-encoded NUL makes resolve() raise. A path that cannot be
-            # read names nothing to serve, which is what ``index.html`` already
-            # answers -- better than the 500 ``do_GET``'s catch-all would send.
+            # read names nothing to serve, which ``index.html`` already answers.
             return index
         # A candidate outside the UI directory is someone walking out of it with
         # '..'; fall through to the app rather than reading the filesystem.
@@ -604,10 +578,10 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     # -- plumbing --------------------------------------------------------------
 
     def _read_json(self) -> dict[str, Any]:
-        # Rejecting a body unread leaves it in the socket, where the next request
-        # on a kept-alive connection would be parsed out of the leftover bytes --
-        # so every such path ends the connection instead. Transfer-Encoding is the
-        # same desync through another header: nothing here decodes chunks.
+        # A body left unread stays in the socket, where the next request on a
+        # kept-alive connection would be parsed out of the leftover bytes -- so
+        # every such path ends the connection. Transfer-Encoding is the same
+        # desync through another header: nothing here decodes chunks.
         if self.headers.get("Transfer-Encoding"):
             self.close_connection = True
             raise ApiError("Send a body with a Content-Length; chunked is not read here.", 411)
@@ -628,9 +602,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             raw = self.rfile.read(length)
         except TimeoutError as exc:
             # A body announced and never sent: what :data:`_REQUEST_TIMEOUT` ends.
-            # Named rather than left to ``do_POST``'s catch-all, which would log a
-            # traceback for a slow client and call it an "Unexpected failure during
-            # a search" -- and a socket that has timed out refuses every later read,
+            # Named rather than left to the catch-all, which would log a traceback
+            # for a slow client -- and a timed-out socket refuses every later read,
             # so the connection goes too.
             self.close_connection = True
             raise ApiError("The request body did not arrive in time.", 408) from exc
@@ -649,8 +622,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     def _send_security_headers(self) -> None:
         """Say what the page is allowed to do, on every response.
 
-        Cheap here in a way it is not elsewhere: the app is served whole from one
-        origin, so the policy describing it is the tightest there is.
+        Cheap here in a way it is not elsewhere: the app is served whole from one origin,
+        so the policy describing it is the tightest there is.
         """
         for name, value in _SECURITY_HEADERS:
             self.send_header(name, value)
@@ -670,9 +643,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
         except OSError:
             # And nothing more goes over it: after a write that timed out the
-            # socket refuses reads as well, so leaving it open sends that failure
-            # to ``socketserver`` -- the dropped, silent close every catch-all in
-            # here exists to avoid.
+            # socket refuses reads too, so leaving it open sends that failure to
+            # ``socketserver`` -- the silent close every catch-all here avoids.
             self.close_connection = True
             logger.debug("Client went away before the response was written")
 
@@ -695,10 +667,9 @@ def _workspace_for(ui_dir: Path) -> Path:
     """The Angular workspace whose build lands in ``ui_dir`` -- where npm is run.
 
     ``ng build`` writes ``<workspace>/dist/<project>/browser``, so the workspace is
-    three levels up, and it is named only where it really is: a ``--ui-dir``
-    pointing elsewhere has no knowable workspace above it, and inventing one sends
-    the reader to "run npm install in ui/dist" -- a directory that exists only once
-    the build has already succeeded.
+    three levels up, and it is named only where it really is: a ``--ui-dir`` pointing
+    elsewhere has no knowable workspace above it, and inventing one sends the reader
+    to a directory that exists only once the build has succeeded.
     """
     workspace = ui_dir.parent.parent.parent
     return workspace if (workspace / "package.json").is_file() else ui_dir
@@ -707,9 +678,9 @@ def _workspace_for(ui_dir: Path) -> Path:
 def _browsable_url(host: str, port: int) -> str:
     """The address to type into a browser for a server bound to ``host``.
 
-    A wildcard bind is an address to listen on rather than one to visit, so the
-    URL names loopback instead; an IPv6 literal is bracketed, which is what an
-    address bar needs and what ``http://::1:8000`` is missing.
+    A wildcard bind is an address to listen on rather than one to visit, so the URL
+    names loopback instead; an IPv6 literal is bracketed, which is what an address bar
+    needs and what ``http://::1:8000`` is missing.
     """
     shown = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)
     if ":" in shown:
@@ -720,9 +691,9 @@ def _browsable_url(host: str, port: int) -> str:
 def _clashing_provider(port: int) -> str:
     """The sentence naming the model server whose own default address is ``port``.
 
-    vLLM's default is ``http://localhost:8000/v1`` and this server's default port
-    is 8000, so the two collide on the machine most likely to run both -- and
-    "Could not listen on 127.0.0.1:8000" says nothing about a model server.
+    vLLM's default is ``http://localhost:8000/v1`` and this server's default port is
+    8000, so the two collide on the machine most likely to run both -- and "Could not
+    listen on 127.0.0.1:8000" says nothing about a model server.
     """
     for server in PROVIDERS.values():
         listens = urlparse(server.base_url)
@@ -738,9 +709,8 @@ def _clashing_provider(port: int) -> str:
 def _default_base_url(provider: str) -> str:
     """Where that provider listens when the request named no address.
 
-    An unknown provider gets the empty string, which ``installed_models`` turns
-    into the unreachable status carrying the reason -- the same answer a server
-    that is simply down gets.
+    An unknown provider gets the empty string, which ``installed_models`` turns into
+    the unreachable status carrying the reason.
     """
     server = PROVIDERS.get(provider)
     return server.base_url if server else ""
@@ -762,9 +732,9 @@ def _hostname(netloc: str) -> str:
 def allowed_hosts_for(host: str, extra: Sequence[str] = ()) -> frozenset[str] | None:
     """Which ``Host`` headers a server bound to ``host`` should answer.
 
-    Loopback binds get the loopback names plus anything the operator named. A
-    public bind gets None -- every host accepted -- because the name reaching it
-    is the operator's to know; ``--allowed-host`` turns the check back on.
+    Loopback binds get the loopback names plus anything the operator named. A public
+    bind gets None -- every host accepted -- because the name reaching it is the
+    operator's to know; ``--allowed-host`` turns the check back on.
     """
     named = frozenset(_hostname(entry) for entry in extra if entry.strip())
     if _hostname(host) not in _LOOPBACK_HOSTS:
@@ -839,10 +809,9 @@ def main(argv: list[str] | None = None) -> int:
         provider_for(DEFAULT_PROVIDER)
         rail_for(DEFAULT_RAIL)
     except ValueError as exc:
-        # Every page load resolves both names -- the form's own defaults are an
-        # ``AgentConfig``, which reads a provider and a rail -- so a misspelt
-        # ``$BUY_AGENT_PROVIDER`` or ``$BUY_AGENT_RAIL`` is said here, to the
-        # shell that is still on screen, rather than as a 500 per page.
+        # Every page load resolves both names, the form's defaults being an
+        # ``AgentConfig``, so a misspelt ``$BUY_AGENT_PROVIDER`` or
+        # ``$BUY_AGENT_RAIL`` is said here rather than as a 500 per page.
         logger.error("%s", exc)
         return 1
 
@@ -872,9 +841,8 @@ def main(argv: list[str] | None = None) -> int:
     host, port = httpd.server_address[:2]
     logger.info("buy_agent UI on %s", _browsable_url(str(host), port))
     if not (args.ui_dir / "index.html").is_file():
-        # The same command and the same workspace the 503 quotes: said at startup
-        # to the shell that is still on screen, and again to whoever loads the
-        # page -- one answer, not two that can come to differ.
+        # The same command and workspace the 503 quotes: said at startup to the
+        # shell still on screen, and again to whoever loads the page.
         logger.warning(
             "No built UI at %s -- the API works, but the page will not. "
             "Build it with:  %s   (in %s)",

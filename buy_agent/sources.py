@@ -1,18 +1,16 @@
 """The sources a shopper trusts, and what "trusted" is allowed to mean.
 
-Left to itself the agent searches the whole web and reports whatever the first
-ten results printed. A shopper who knows where the good information is can name
-those sites instead, and then every price, rating and quote comes from one of
-them: the pages are what grounding checks against, so narrowing the pages narrows
-the facts (ADR-0027).
+Left to itself the agent searches the whole web and reports whatever the first ten
+results printed. A shopper who knows where the good information is can name those
+sites instead, and then every price, rating and quote comes from one of them: the
+pages are what grounding checks against, so narrowing the pages narrows the facts
+(ADR-0027).
 
-A source is written the way people say it -- a site (``rtings.com``), a section of
-one (``rtings.com/headphones``), a pasted URL, or a YouTube handle (``@mkbhd``) --
-and is read down to two parts. The **domain** is enforced: a result from anywhere
-else is discarded before the model sees it. The **term** (a handle, a section)
-narrows the *search* only, a URL being unable to carry it -- a video's address says
-which video it is and nothing about who published it, so enforcing a handle would
-throw away every video the channel ever posted.
+A source is written the way people say it -- a site, a section of one, a pasted
+URL, or a YouTube handle -- and read down to two parts. The **domain** is
+enforced: a result from anywhere else is discarded before the model sees it. The
+**term** narrows the *search* only, a URL being unable to carry it -- a video's
+address says which video it is and nothing about who published it.
 
 Nothing here does any I/O: this module decides what a source *is* and
 :class:`~buy_agent.agent.BuyAgent` does the searching, which keeps
@@ -44,9 +42,9 @@ _SCHEME = re.compile(r"^(?:[a-z][a-z0-9+.-]*:)?//", re.IGNORECASE)
 _SEPARATORS = re.compile(r"[,\s]+")
 
 #: Path segments that route to a place rather than name one: YouTube writes a
-#: channel ``/@mkbhd``, ``/c/mkbhd`` or ``/channel/UC...``, Reddit ``/r/headphones``
-#: -- in each the identifying segment is the next. Left in,
-#: ``reddit.com/r/headphones`` narrowed the search on the phrase "r".
+#: channel ``/@mkbhd`` or ``/c/mkbhd``, Reddit ``/r/headphones`` -- in each the
+#: identifying segment is the next. Left in, ``reddit.com/r/headphones`` narrowed
+#: the search on the phrase "r".
 _ROUTING = frozenset({"c", "user", "channel", "r", "u"})
 
 #: Where a bare ``@handle`` lives -- how people name the one kind of source that
@@ -55,8 +53,7 @@ _HANDLE_HOST = "youtube.com"
 
 #: What has to follow that ``@``. Checked for the reason a host is: ``--source @``
 #: named its site without naming anything *on* it, so the run searched YouTube for
-#: the literal phrase "@" and -- named sources having no fall back to the wider web
-#: (ADR-0027) -- reported nothing found with nothing to say about why.
+#: the literal "@" and reported nothing found (ADR-0027).
 _HANDLE = re.compile(r"@[a-z0-9][a-z0-9._-]*", re.IGNORECASE)
 
 #: Stripped off a host before it is compared: ``www.rtings.com`` and
@@ -64,7 +61,7 @@ _HANDLE = re.compile(r"@[a-z0-9][a-z0-9._-]*", re.IGNORECASE)
 _WWW = "www."
 
 #: The shapes that work, written once. Every refusal in this module ends in them:
-#: what the shopper needs is a spec they can type, not which check turned them away.
+#: what the shopper needs is a spec they can type.
 _SHAPES = (
     "Give a site (rtings.com), a section of one (rtings.com/headphones) or a "
     "YouTube handle (@mkbhd)."
@@ -78,8 +75,8 @@ class Source:
     Attributes:
         spec: What the shopper typed, tidied -- what the logs call this source.
         domain: The host the results have to come from, without any ``www.``.
-        term: A channel handle or a section, added to the query to aim the
-            search inside the domain. Empty for a source that is a whole site.
+        term: A channel handle or a section, added to the query to aim the search
+            inside the domain. Empty for a source that is a whole site.
     """
 
     spec: str
@@ -89,8 +86,8 @@ class Source:
     def site_query(self, query: str) -> str:
         """``query``, narrowed to this source.
 
-        ``site:`` is what a search engine offers for "only this domain"; the term
-        goes in as a quoted phrase beside it, a channel being no domain.
+        ``site:`` is what a search engine offers for "only this domain"; the term goes in
+        as a quoted phrase beside it, a channel being no domain.
         """
         narrowed = f"{query} site:{self.domain}"
         return f'{narrowed} "{self.term}"' if self.term else narrowed
@@ -98,8 +95,8 @@ class Source:
     def covers(self, url: str) -> bool:
         """Whether ``url`` is a page on this source's domain, subdomains included.
 
-        Subdomains count: a site's own pages live on them. Whole labels are
-        compared, so ``notrtings.com`` is not ``rtings.com``.
+        Subdomains count: a site's own pages live on them. Whole labels are compared, so
+        ``notrtings.com`` is not ``rtings.com``.
         """
         try:
             host = urlsplit(url).hostname
@@ -125,8 +122,8 @@ def parse_source(spec: str) -> Source:
         youtube.com/@mkbhd
 
     Raises:
-        ValueError: if it names no site -- which a plain word does not, however
-            well known the person it names.
+        ValueError: if it names no site -- which a plain word does not, however well
+            known the person it names.
     """
     spec = spec.strip()
     if not spec:
@@ -151,9 +148,8 @@ def parse_source(spec: str) -> Source:
 def _not_a_source(spec: str) -> ValueError:
     """The refusal both shapes carry, naming the ones that work.
 
-    One sentence rather than two: a handle and a host fail for the same reason --
-    what was written identifies no page to take a fact from -- and the shopper
-    needs the shapes, not which branch turned them away.
+    One sentence rather than two: a handle and a host fail for the same reason, and
+    the shopper needs the shapes rather than which branch turned them away.
     """
     return ValueError(f"{spec!r} does not name a source. {_SHAPES}")
 
@@ -162,13 +158,9 @@ def parse_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:
     """Every source in ``specs``, in the order given and without repeats.
 
     Takes one string holding several -- how the web form sends them -- or the list a
-    repeated flag builds up, whose entries may again hold several. Both separate
-    the same way, so a shopper who commas two sites into one ``--source`` gets what
-    the form would have given them.
-
-    Two specs naming the same domain and term are one source: a second identical
-    search would halve what the other sources are allowed. That holds across
-    separators and flags alike, which is why they are parsed together.
+    repeated flag builds up, whose entries may again hold several. Both separate the
+    same way. Two specs naming the same domain and term are one source: a second
+    identical search would halve what the other sources are allowed.
 
     Raises:
         ValueError: if any of them names no site.
@@ -187,16 +179,15 @@ def parse_named_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:
     """The sources in ``specs``, where naming none of them is the mistake.
 
     :func:`parse_sources` answers "which sources are these?", and ``()`` is a real
-    answer to it: an empty Trusted sources field is the whole web, which is the
-    default and is fine (ADR-0012). This answers the other question -- "they asked
-    to narrow the search: to what?" -- where nothing is no answer at all.
+    answer to it: an empty field is the whole web (ADR-0012). This answers the other
+    question -- "they asked to narrow the search: to what?" -- where nothing is no
+    answer at all.
 
-    The two differ only for a spec that is blank once the separators are taken
-    out, which is the same hole ``@`` used to go through: it parses, it identifies
-    nothing, and named sources have no fall back to the wider web (ADR-0027). But
-    a blank *widens* rather than narrowing -- ``--source ""`` searched the whole
-    web without a word -- which is the opposite of what was asked for and the one
-    version of this mistake nothing downstream can notice.
+    The two differ only for a spec that is blank once the separators are taken out,
+    which is the hole ``@`` used to go through: it parses, identifies nothing, and
+    named sources have no fall back to the wider web (ADR-0027). But a blank *widens*
+    rather than narrowing, which is the one version of this mistake nothing downstream
+    can notice.
 
     Raises:
         ValueError: if ``specs`` names no source, or any of them names no site.

@@ -1,27 +1,13 @@
 """What a run can reuse from the last one, kept on disk.
 
-Two things, on the same rules and under the same time to live. The **pages**
-:mod:`buy_agent.fetch` read (ADR-0040): a run opens ten of them, the ten a search
-returns are the same ten an hour later, and re-fetching costs the wait, another
-ten requests at shops that rate-limit, and a fresh chance for one of them to
-answer 403 -- which blanks figures grounding would otherwise have backed. And the
-**answers** a model server gave (ADR-0044): that is the rest of the minute, and a
-run whose pages all came off disk is asking the same server the same question it
-answered last time.
+The pages :mod:`buy_agent.fetch` read (ADR-0040) and the answers a model server
+gave (ADR-0044), on the same rules and the same time to live. A page is stored as
+its *visible text* rather than the condensed excerpt, so moving ``page_chars`` or
+``opinion_chars`` does not replay a stale one; both are stored whole, so a cached
+run reports what a fresh one would have.
 
-Two things about *what* is stored are load-bearing:
-
-- A page is stored as its **visible text**, not as the condensed excerpt.
-  ``page_chars`` and ``opinion_chars`` decide which lines of it survive into the
-  prompt, so storing the excerpt would replay a stale one after either budget
-  moved. Condensing is cheap and runs every time; fetching is what is skipped.
-- Both are stored **whole**, exactly as the live thing produced them, so a cached
-  run extracts from the text a fresh one would have and reports the answer a
-  fresh one would have got. Nothing here trims.
-
-Every operation is best-effort. A cache that cannot be read, written or created
-is a slower run and never a failed one, so nothing here raises: an unwritable
-directory, a half-written entry and a disk that filled up all read as a miss.
+Every operation is best-effort. Nothing here raises: an unwritable directory, a
+half-written entry and a full disk all read as a miss.
 """
 
 from __future__ import annotations
@@ -45,18 +31,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: How long a stored page stays usable, in seconds. A day: prices move slower
-#: than that, and a shopper comparing two runs an afternoon apart is comparing
-#: the same pages rather than wondering which figures moved underneath them.
+#: How long a stored entry stays usable, in seconds. A day: prices move slower
+#: than that, so two runs an afternoon apart compare the same pages.
 DEFAULT_TTL = 86_400.0
 
-#: Under the directory each platform keeps disposable things in, because that is
-#: what this is: deleting the whole of it costs one slow run.
+#: Under the directory each platform keeps disposable things in: deleting the
+#: whole of it costs one slow run.
 _DIRECTORY = "buy-agent"
 
-#: The two kinds of entry, each in its own directory under the root. Separate
-#: because they are pruned and counted separately, and because a page's key is a
-#: URL while an answer's is a whole request.
+#: The two kinds of entry, each in its own directory: pruned and counted
+#: separately, and keyed differently -- a URL against a whole request.
 PAGES = "pages"
 ANSWERS = "answers"
 
@@ -64,11 +48,10 @@ ANSWERS = "answers"
 def default_dir(kind: str) -> Path:
     """Where entries of one kind live.
 
-    ``$BUY_AGENT_CACHE_DIR`` wins outright and holds both kinds, one directory
-    each, which is how a run is pointed at a scratch directory or at a volume in
-    the container. It is the one setting here with no flag and no form field, for
-    the reason ``$VLLM_API_KEY`` is: a path on the server's disk is not a
-    browser's to choose.
+    ``$BUY_AGENT_CACHE_DIR`` wins outright and holds both kinds, which is how a
+    run is pointed at a scratch directory or a volume. It has no flag and no form
+    field, for the reason ``$VLLM_API_KEY`` has none: a path on the server's disk
+    is not a browser's to choose.
     """
     named = os.getenv("BUY_AGENT_CACHE_DIR")
     if named:
@@ -83,15 +66,9 @@ def default_dir(kind: str) -> Path:
 class DiskCache:
     """Text kept on disk under a key, one JSON file each, expiring by age.
 
-    The file name is a hash of the key, so a key of any length and any character
-    becomes a name every filesystem takes. The key itself is stored *inside* the
-    entry and checked on the way out: a hash is not a promise, and an entry that
-    does not name the key asked for is a miss rather than one page's text -- or
-    one prompt's answer -- quietly standing in for another's.
-
-    A key is a URL for the pages and a whole rendered request for the answers,
-    which is why it is stored rather than trusted: the second is long, and long is
-    exactly where "the name is the hash" stops being an argument on its own.
+    The file name is a hash of the key, so any key becomes a name every filesystem
+    takes; the key itself is stored *inside* the entry and checked on the way out,
+    a hash being no promise that one page's text is not standing in for another's.
     """
 
     def __init__(self, directory: Path, *, ttl: float = DEFAULT_TTL) -> None:
@@ -101,10 +78,8 @@ class DiskCache:
     def get(self, key: str) -> str | None:
         """The text stored for ``key``, or None for a miss.
 
-        A miss is everything that is not a fresh, readable entry naming this key:
-        no file, a file older than the time to live, one that is not JSON, one
-        holding something other than an entry. All of them mean "do the work",
-        which is the answer a cache is allowed to be wrong in the direction of.
+        A miss is everything that is not a fresh, readable entry naming this key.
+        All of them mean "do the work", the direction a cache may be wrong in.
         """
         path = self._path(key)
         try:
@@ -123,13 +98,10 @@ class DiskCache:
     def put(self, key: str, value: str) -> None:
         """Store ``value`` under ``key``, replacing whatever was there.
 
-        Written to a temporary file and moved into place, so a reader never sees
-        half an entry and two runs storing the same page cannot interleave into
-        one broken file. ``os.replace`` is the atomic move on both platforms.
-
-        The cleanup is suppressed rather than guarded, because it runs *inside*
-        the handler: an ``unlink`` that raised there would leave this raising
-        after all, which is the one thing this module may not do.
+        Written to a temporary file and moved into place (``os.replace``, atomic
+        on both platforms), so a reader never sees half an entry. The cleanup is
+        suppressed rather than guarded: it runs inside the handler, and an
+        ``unlink`` raising there would leave this module raising after all.
         """
         temporary = ""
         try:
@@ -149,30 +121,20 @@ class DiskCache:
     def prune(self) -> int:
         """Delete every entry past its time to live, and say how many went.
 
-        Entries expire on the way out, so this changes no answer -- what it does
-        is keep the directory from being every page ever read. Once per run, over
-        a directory holding a run's worth of files at a time, which is cheaper
-        than the first HTTP request that follows it.
-
-        The half-written files :meth:`put` leaves behind go too, on the same
-        cutoff. ``put`` takes its own back where the *write* failed, but a
-        process killed between ``mkstemp`` and ``os.replace`` leaves one that
-        nothing afterwards ever looks at: not an entry, so no key ever names it,
-        and not a ``.json``, so sweeping the entries never reached it. A
-        directory pruned on every run still grew by one file per interrupted one.
-
-        The cutoff is what makes taking them safe. A temporary file another run
-        is writing *right now* is younger than the time to live and is left
-        alone; one older than that belongs to a run that ended long ago. They
-        are not entries, so they are not in the answer -- the DEBUG line below
-        is where they are reported.
+        Entries expire on the way out, so this changes no answer: it keeps the
+        directory from being every page ever read. The half-written files a
+        killed process leaves between ``mkstemp`` and ``os.replace`` go too, on
+        the same cutoff -- nothing else ever looks at them, and the cutoff is
+        what makes taking them safe, one a live run is writing being younger than
+        the time to live. They are not entries, so they are reported at DEBUG
+        rather than counted in the answer.
         """
         cutoff = time.time() - self.ttl
         removed = 0
         leftovers = 0
-        # ``glob`` answers an empty iterator for a directory it cannot list
-        # rather than raising, so with the two calls below guarded this cannot
-        # raise at all -- which is what lets ``open_cache`` call it unguarded.
+        # ``glob`` answers an empty iterator for a directory it cannot list, so
+        # with the two calls below guarded this cannot raise -- which is what
+        # lets ``open_cache`` call it unguarded.
         for path in (*self.directory.glob("*.json"), *self.directory.glob("*.tmp")):
             try:
                 if path.stat().st_mtime >= cutoff:
@@ -197,10 +159,8 @@ class DiskCache:
 def open_cache(kind: str, ttl: float) -> DiskCache | None:
     """The cache of one kind a run should use, or None for a run using none.
 
-    ``ttl <= 0`` is how "do all of it fresh" is spelled, on the command line and
-    in the form alike -- one setting rather than a number and a switch that can
-    disagree about whether the cache is on, and one setting for both kinds rather
-    than two that can disagree about how old is too old.
+    ``ttl <= 0`` is how "do all of it fresh" is spelled -- one setting rather than
+    a number and a switch that can disagree, and one for both kinds.
     """
     if ttl <= 0:
         return None
@@ -212,15 +172,12 @@ def open_cache(kind: str, ttl: float) -> DiskCache | None:
 class RememberedAnswers:
     """A model server, with the answers it has already given handed back.
 
-    A :class:`~buy_agent.chat.ChatModel` wrapping a ``ChatModel``, so everything
-    above it asks its one question and cannot tell: the pipeline sees a model that
-    is sometimes very fast. That is the only way this is allowed to work, and it
-    is why the key has to hold *everything* that decides an answer -- the messages,
-    the schema, and the run's own fingerprint, which is the caller's to build,
-    this module having no business knowing what a provider is (ADR-0044).
-
-    Only an answer is stored. A failure is not an answer, and a model that could
-    not be reached is a state of the world rather than a fact about this question.
+    A ``ChatModel`` wrapping a ``ChatModel``, so the pipeline just sees one that is
+    sometimes very fast -- which is why the key holds everything deciding an
+    answer: the messages, the schema and the run's fingerprint, built by the caller
+    since this module has no business knowing what a provider is (ADR-0044). Only
+    an answer is stored; a failure is a state of the world, not a fact about this
+    question.
     """
 
     def __init__(
@@ -238,9 +195,8 @@ class RememberedAnswers:
             try:
                 remembered = read_answer(stored, schema)
             except UnreadableAnswerError:
-                # An entry that will not read back as the schema is a miss like
-                # any other: it should not happen, the schema being part of the
-                # key, and it costs a model call rather than a run.
+                # A miss like any other: it should not happen, the schema being
+                # part of the key, and it costs a model call rather than a run.
                 logger.debug("A remembered answer could not be read back")
             else:
                 logger.info("Reused a remembered %s answer", schema.__name__)
@@ -253,21 +209,17 @@ class RememberedAnswers:
     def close(self) -> None:
         """Let go of what the model underneath holds open.
 
-        Passed through rather than answered here: this wrapper holds nothing
-        itself -- a cache is a directory, and every entry it reads or writes is
-        opened and closed inside the one call. What is behind it is a client
-        with a connection pool, and this is the only handle anything above still
-        has on it.
+        Passed through: this wrapper holds nothing itself, a cache being a
+        directory, while behind it is a client with a connection pool.
         """
         release(self.model)
 
     def _key(self, messages: Sequence[Message], schema: type[SchemaT]) -> str:
         """Everything this question is: the request, the schema, and the run.
 
-        The schema goes in as the JSON schema itself rather than as the class's
-        name, so a field added to ``ExtractedProduct`` -- which changes both the
-        decoding grammar and the shape of the answer (ADR-0004) -- is a different
-        question, and not the same one with a stale answer.
+        The schema goes in whole rather than by class name, so a field added to
+        ``ExtractedProduct`` (ADR-0004) is a different question rather than the
+        same one with a stale answer.
         """
         return json.dumps(
             {
@@ -289,12 +241,10 @@ def remember_answers(
 ) -> ChatModel:
     """``model``, answering off disk where it may, or ``model`` itself where not.
 
-    Two things turn it off, both somebody's decision rather than a failure.
-    ``ttl <= 0`` is the shopper asking for a live run, the same setting that reads
-    every page off the web. ``deterministic`` false is the run being *sampled*: a
-    model asked for a different answer each time has none to remember, and
-    replaying one sample would be this cache changing a run's result, which is the
-    one thing it may never do (ADR-0044).
+    Two decisions turn it off, neither a failure. ``ttl <= 0`` is the shopper
+    asking for a live run. ``deterministic`` false is a *sampled* run: a model
+    asked for a different answer each time has none to remember, and replaying one
+    sample would change a run's result, which this may never do (ADR-0044).
     """
     if not deterministic:
         return model

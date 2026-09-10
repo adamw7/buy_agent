@@ -1,12 +1,12 @@
-"""The two LLM steps -- rewrite the request as a search query, then read products
-out of the search results -- plus the deterministic clean-up that follows.
+"""The two LLM steps -- rewrite the request as a search query, then read products out
+of the search results -- plus the deterministic clean-up that follows.
 
 Both chains are answered under a JSON schema, constraining decoding to it, so a
-small local model cannot answer with prose or a half-closed object -- how that
+small local model cannot answer with prose or a half-closed object; how that
 schema is declared is the provider's to say (ADR-0004, ADR-0038). What the model
-still gets wrong is judgement, not syntax: it will
-happily report "12 Best Headphones Under $200" as a product, which is what
-``clean_products`` and ``deduplicate`` are for.
+still gets wrong is judgement, not syntax: it will happily report "12 Best
+Headphones Under $200" as a product, which is what ``clean_products`` and
+``deduplicate`` are for.
 """
 
 from __future__ import annotations
@@ -80,12 +80,10 @@ EXTRACTION_PROMPT = Prompt(
 )
 
 #: The words a roundup ranks with, shared with :mod:`buy_agent.verification` the
-#: way :data:`GENERIC_WORDS` is -- and for the same reason. Here they open a
-#: headline the model has mistaken for a product ("12 Best ..."); there they mark
-#: the figure beside them as a count of products rather than a rating ("we rated
-#: the 5 best headphones"). One vocabulary read two ways: a word added to one copy
-#: and not the other used to leave a "cheapest" headline dropped as a page while
-#: the rating printed next to it still grounded.
+#: way :data:`GENERIC_WORDS` is. Here they open a headline the model mistook for a
+#: product ("12 Best ..."); there they mark the figure beside them as a count of
+#: products rather than a rating. One vocabulary read two ways: a word added to
+#: one copy only left a "cheapest" headline dropped while its rating grounded.
 SUPERLATIVES = r"(?:best|top|cheapest|worst|greatest)"
 
 #: A name opening on a superlative: "12 Best ...", "The 5 Best ...", "Top ...".
@@ -109,18 +107,15 @@ _NOT_A_PRODUCT = re.compile(
 _SITE_SUFFIX = re.compile(r"\s+\|\s+")
 
 #: Words models tack onto a name when copying it off a review page. Plurals where
-#: a page writes one -- ``deals?`` and not ``deal``, because "Deals" is what the
-#: heading actually says and :data:`_NOT_A_PRODUCT` knows only that spelling: the
-#: singular came off a name and left a product, while the plural stayed on it and
-#: had the whole product discarded as a page.
+#: a page writes one -- ``deals?`` and not ``deal``, "Deals" being what the
+#: heading says and the only spelling :data:`_NOT_A_PRODUCT` knows.
 _TRAILING_NOISE = re.compile(
     r"\s*[-|:,]?\s*\b(reviews?|prices?|deals?|on sale|tested|hands[- ]on)\b\s*$",
     re.IGNORECASE,
 )
 
-#: A token carrying both letters and digits, which is what a model number looks
-#: like: "WH-1000XM5" has "1000xm5". A year or a price is digits alone and does
-#: not count, which keeps "Best Headphones 2026" a headline.
+#: A token carrying both letters and digits, as a model number does: "WH-1000XM5"
+#: has "1000xm5". A year or a price is digits alone and does not count.
 _MODEL_NUMBER = re.compile(r"\b(?=[a-z0-9]*[a-z])(?=[a-z0-9]*\d)[a-z0-9]+\b", re.IGNORECASE)
 
 #: Longer than any real model name. Article titles run long.
@@ -167,8 +162,8 @@ def format_results(results: Sequence[SearchResult]) -> str:
 def clean_name(name: str) -> str:
     """Strip the page furniture models copy along with a product name.
 
-    ``"Sennheiser HD 450BT Review | AudioSite"`` is a real product wearing a
-    headline, so the suffix comes off rather than the product being dropped.
+    ``"Sennheiser HD 450BT Review | AudioSite"`` is a real product wearing a headline,
+    so the suffix comes off rather than the product being dropped.
     """
     name = _SITE_SUFFIX.split(name.strip(), maxsplit=1)[0]
     name = _TRAILING_NOISE.sub("", name)
@@ -181,10 +176,10 @@ def looks_like_a_product(name: str) -> bool:
     A leading superlative is the strongest tell of a headline and the one a real
     product also trips ("Best Buy Essentials BE-HAPB02"). What tells them apart is
     *where* the model number sits: a headline puts a category qualifier after the
-    superlative and names no single model ("Best PS5 Headsets"), a product puts its
-    brand there and its model number later. So a superlative name is kept only
-    where a model number follows something else -- at the cost of "Top Gun
-    Sunglasses", which is why :func:`clean_products` logs what it took.
+    superlative ("Best PS5 Headsets"), a product puts its brand there and its model
+    number later. So a superlative name is kept only where a model number follows
+    something else -- at the cost of "Top Gun Sunglasses", which is why
+    :func:`clean_products` logs what it took.
     """
     name = name.strip()
     if not name or len(name) > _MAX_NAME_LENGTH or "?" in name:
@@ -211,7 +206,7 @@ def clean_products(products: Sequence[Product]) -> list[Product]:
             discarded.append(name or product.name)
     if discarded:
         # The count at INFO, the names at DEBUG: a heuristic that drops a real
-        # product should be diagnosable, and the names say which just happened.
+        # product should be diagnosable.
         logger.info("Discarded %d result(s) that were pages, not products", len(discarded))
         logger.debug(
             "Discarded as pages, not products: %s", ", ".join(repr(n) for n in discarded)
@@ -224,17 +219,15 @@ def deduplicate(products: Sequence[Product], limit: int) -> list[Product]:
 
     Search results overlap heavily, so without this the top 3 can be one product
     listed three times. One pass of :func:`merge_variants` does all of it: an exact
-    repeat is the easiest case of a name differing by descriptive words -- its
-    difference being empty and vacuously generic -- and a pass of its own for exact
-    names would be the same merge under a second rule about whose name survives.
-
-    A name with nothing to identify it by is dropped: it can be neither merged nor
-    reported.
+    repeat is the easiest case of a name differing by descriptive words, and a pass of
+    its own for exact names would be the same merge under a second rule about whose
+    name survives. A name with nothing to identify it by is dropped: it can be
+    neither merged nor reported.
     """
     named = [product for product in products if product.dedup_key]
     if len(named) != len(products):
         # Count then names, as everywhere a product is removed: "identifies
-        # nothing" is a verdict on a name, and the name is what argues with it.
+        # nothing" is a verdict on a name.
         logger.info(
             "Dropped %d result(s) whose name identifies nothing", len(products) - len(named)
         )
@@ -252,17 +245,17 @@ def deduplicate(products: Sequence[Product], limit: int) -> list[Product]:
 def merge_variants(products: Sequence[Product]) -> list[Product]:
     """Fold together names that identify the same thing.
 
-    Exact matching would miss the common case where one page says "Sony WH-CH720N"
-    and the next "Sony WH-CH720N Noise Canceling Wireless Headphones", taking two of
-    the three reported slots.
+    Exact matching would miss the common case where one page says "Sony WH-CH720N" and
+    the next "Sony WH-CH720N Noise Canceling Wireless Headphones", taking two of the
+    three reported slots.
     """
     merged: list[Product] = []
     for product in products:
         for index, existing in enumerate(merged):
             if _same_product(existing.name, product.name):
-                # The other way a product leaves the report without being dropped,
-                # and the one a reader cannot reconstruct: the merged entry keeps
-                # the shorter of the two names, so the other is simply gone.
+                # The other way a product leaves the report without being
+                # dropped: the merged entry keeps the shorter of the two names,
+                # so the other is simply gone.
                 logger.debug("Folded %r together with %r", existing.name, product.name)
                 merged[index] = _combine(existing, product)
                 break
@@ -282,20 +275,19 @@ def _same_product(left: str, right: str) -> bool:
     return (left_tokens ^ right_tokens) <= GENERIC_WORDS
 
 
-#: Fields worth carrying over from a weaker listing, and the list to edit when one
-#: is added to ``Product``. Each moves with whatever only qualifies it
-#: (:data:`~buy_agent.models.QUALIFIERS`): grounding runs before the merge and
-#: each half really is in the sources, so only an invented *pairing* is left to
-#: catch. ``opinions`` is deliberately not here -- see :func:`_merge_opinions`.
+#: Fields worth carrying over from a weaker listing, and the list to edit when
+#: one is added to ``Product``. Each moves with whatever only qualifies it
+#: (:data:`~buy_agent.models.QUALIFIERS`): grounding ran first, so only an
+#: invented *pairing* is left to catch. ``opinions`` is deliberately not here.
 _MERGEABLE_FIELDS = ("price", "rating", "seller", "url", "notes")
 
 
 def _combine(first: Product, second: Product) -> Product:
     """Merge two listings for one product.
 
-    Name and data are decided separately: the shorter name reads better, the
-    figures come from whichever listing filled in more of them. Both ties go to
-    ``first``, the listing that ranked higher in the search results.
+    Name and data are decided separately: the shorter name reads better, the figures
+    come from whichever listing filled in more of them. Both ties go to ``first``, the
+    listing that ranked higher in the search results.
     """
     winner, loser = (
         (first, second) if _completeness(first) >= _completeness(second) else (second, first)
@@ -309,16 +301,14 @@ def _combine(first: Product, second: Product) -> Product:
 def _merge_opinions(winner: Product, loser: Product) -> list[Opinion]:
     """Both listings' opinions, the winner's first, without repeats.
 
-    The only field taken from both. Two listings quoting different prices are in
-    conflict and one has to win; two reviewers are not. Nothing is invented: each
-    quote was grounded on its own, and a quote says who it is about by being about
-    the product rather than by sitting next to a figure -- which is why it needs
-    none of the pairing care :data:`_MERGEABLE_FIELDS` takes.
+    The only field taken from both: two listings quoting different prices are in
+    conflict and one has to win, two reviewers are not. Nothing is invented -- each
+    quote was grounded on its own, and a quote says who it is about by being about the
+    product rather than by sitting next to a figure.
 
-    A quote travels with the page that printed it, which is the one qualifier here
-    that needs no rule of its own (ADR-0042): the pair is one object, so neither
-    half can be carried over without the other and neither listing's link can end
-    up under the other listing's words.
+    A quote travels with the page that printed it, the one qualifier here needing no
+    rule of its own (ADR-0042): the pair is one object, so neither listing's link can
+    end up under the other listing's words.
     """
     return distinct_quotes([*winner.opinions, *loser.opinions])
 
@@ -326,9 +316,9 @@ def _merge_opinions(winner: Product, loser: Product) -> list[Opinion]:
 def _fill_gaps(winner: Product, loser: Product) -> dict[str, object]:
     """The fields ``loser`` can contribute because ``winner`` left them blank.
 
-    A figure travels with the words that qualify it: the loser's currency or
-    review count is taken only where its price or rating is taken too, or where
-    both quote the same one -- never grafted onto a figure it never printed.
+    A figure travels with the words that qualify it: the loser's currency or review
+    count is taken only where its price or rating is taken too, or where both quote
+    the same one -- never grafted onto a figure it never printed.
     """
     updates: dict[str, object] = {}
     for figure in _MERGEABLE_FIELDS:

@@ -36,9 +36,8 @@ export class AgentService {
   /**
    * What the server makes of a Trusted sources field, before a run is started.
    *
-   * The parse is Python's -- a hostname, a handle, the routing segments a
-   * channel URL carries -- so the browser asks rather than re-implementing it,
-   * and shows the sentence that comes back (ADR-0033).
+   * The parse is Python's -- a hostname, a handle, the routing segments a channel URL
+   * carries -- so the browser asks rather than re-implementing it (ADR-0033).
    */
   checkSources(sources: string): Observable<SourcesCheck> {
     return this.http.get<SourcesCheck>('/api/sources', { params: { sources } });
@@ -47,10 +46,10 @@ export class AgentService {
   /**
    * Put a finished run's products in another order, without running it again.
    *
-   * A POST rather than a GET because a query string cannot carry a list of
-   * products, and the products are what makes this cost nothing: the browser
-   * sends back what it was sent and Python ranks it with the same function a run
-   * ends with, so the searching is skipped and the judgement is not (ADR-0035).
+   * A POST rather than a GET because a query string cannot carry a list of products,
+   * and the products are what makes this cost nothing: the browser sends back what it
+   * was sent and Python ranks it with the same function a run ends with, so the
+   * searching is skipped and the judgement is not (ADR-0035).
    */
   rank(options: RankOptions): Observable<SearchResult> {
     return this.http.post<SearchResult>('/api/rank', options);
@@ -60,22 +59,20 @@ export class AgentService {
    * Buy one product of a finished run, having been shown that it was approved.
    *
    * A POST for the reason a re-sort is one, and then some: it carries the run's
-   * products *and* the approval a person gave for one of them. Neither the cart
-   * nor the price is decided here -- the server builds the cart from the
-   * products and refuses unless the approval echoes what it built, so a page
-   * showing a stale price cannot buy at that price (ADR-0012).
+   * products *and* the approval a person gave for one of them. Neither the cart nor
+   * the price is decided here -- the server builds the cart and refuses unless the
+   * approval echoes what it built (ADR-0012).
    */
   pay(options: PayOptions): Observable<{ receipt: Receipt }> {
     return this.http.post<{ receipt: Receipt }>('/api/pay', options);
   }
 
   /**
-   * Run a search, emitting the agent's log lines as they happen and finishing on
-   * a `result` or a `failure`.
+   * Run a search, emitting the agent's log lines as they happen and finishing on a
+   * `result` or a `failure`.
    *
-   * A run takes tens of seconds, which is why this streams rather than answering
-   * once at the end: without it the page would sit silent through the whole
-   * search. Unsubscribing closes the stream, which is how the Stop button works.
+   * A run takes tens of seconds, which is why this streams rather than answering once
+   * at the end. Unsubscribing closes the stream, which is how the Stop button works.
    */
   search(options: SearchOptions): Observable<SearchEvent> {
     return new Observable<SearchEvent>((subscriber) => {

@@ -1,14 +1,12 @@
 """Turning a web request into an :class:`~buy_agent.agent.BuyAgent` run.
 
-The whole HTTP-facing half worth testing -- reading options off a request,
-running the pipeline, shaping the answer as JSON; :mod:`buy_agent.server` is only
-the socket around it. Options arrive as a JSON body (``POST /api/search``) or as
-query parameters (``GET /api/search/stream``), so every value is coerced from
-text, which either carrier can spell.
+The whole HTTP-facing half worth testing -- reading options off a request, running
+the pipeline, shaping the answer as JSON; :mod:`buy_agent.server` is only the
+socket around it. Options arrive as a JSON body or as query parameters, so every
+value is coerced from text, which either carrier can spell.
 
-:func:`rank_again` is the one entry point that runs no pipeline: a finished run's
-products, posted back and sorted another way. POST only -- a query string cannot
-carry a list of products.
+:func:`rank_again` and :func:`pay_now` run no pipeline, and are POST only: a query
+string cannot carry a list of products.
 """
 
 from __future__ import annotations
@@ -79,11 +77,10 @@ _TRUE = frozenset({"true", "1", "yes", "on"})
 _FALSE = frozenset({"false", "0", "no", "off"})
 
 #: The config field whose range holds each number a request may carry, by the key
-#: it arrives under -- ``results`` is what a request calls ``num_products``. One
-#: table read twice: :func:`_bounded` holds an incoming value to the range, and
-#: :func:`limits_payload` ships the same ranges to the form, so a field can refuse
-#: 100 products before a run starts without a second copy of the bounds in
-#: TypeScript (ADR-0033).
+#: it arrives under -- ``results`` is what a request calls ``num_products``. Read
+#: twice: :func:`_bounded` holds an incoming value to the range and
+#: :func:`limits_payload` ships the same ranges to the form, so the browser can
+#: refuse 100 products without a second copy of the bounds (ADR-0033).
 _BOUNDED: dict[str, str] = {
     "results": "num_products",
     "top": "top_n",
@@ -113,10 +110,9 @@ _STATUS: dict[type[Exception], int] = {
 }
 
 
-#: Which HTTP status each payment failure deserves. A table of its own rather than
-#: rows in :data:`_STATUS`: those three are what a *run* raises, held against
-#: ``BuyAgent.run`` and the CLI by a convention test, while a payment fails at its
-#: own door. Ordered subclass-first, the lookup below taking the first match.
+#: Which HTTP status each payment failure deserves. A table of its own rather
+#: than rows in :data:`_STATUS`: those three are what a *run* raises, while a
+#: payment fails at its own door. Subclass-first, the lookup taking the first.
 PAY_STATUS: dict[type[Exception], int] = {
     RailUnreachableError: 502,
     PaymentError: 400,
@@ -126,11 +122,9 @@ PAY_STATUS: dict[type[Exception], int] = {
 class ApiError(Exception):
     """A failure with the HTTP status the client should be told about.
 
-    ``field`` is the request key the unusable value arrived under, so the browser
-    can mark that input rather than only writing the sentence into a banner --
-    which field a message is about being Python's to say (ADR-0033). ``None``
-    where the failure is about the run rather than a value: a model server that
-    did not answer is nothing the form could have refused.
+    ``field`` is the request key the unusable value arrived under, so the browser can
+    mark that input rather than only writing the sentence into a banner (ADR-0033).
+    ``None`` where the failure is about the run rather than a value.
     """
 
     def __init__(self, message: str, status: int = 400, field: str | None = None) -> None:
@@ -145,9 +139,8 @@ class ApiError(Exception):
 def _status_for(exc: Exception, table: Mapping[type[Exception], int]) -> int:
     """The status ``table`` gives this failure, taking the first row it matches.
 
-    Both tables are ordered subclass-first and each is the same tuple its
-    ``except`` clause catches, so a caught exception always matches a row and this
-    cannot come up empty.
+    Both tables are ordered subclass-first and each is the tuple its ``except`` clause
+    catches, so a caught exception always matches a row.
     """
     return next(status for kind, status in table.items() if isinstance(exc, kind))
 
@@ -178,13 +171,11 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
             field="provider",
         )
 
-    # ``AgentConfig`` refuses a paying rail with nowhere to pay, which is the one
-    # thing about these settings the form cannot judge from a range. Its sentence
-    # is the useful one; the field it belongs to is this door's to name -- and the
-    # address is the only one left, the provider, the rail and the region each
-    # being refused above with a field of their own. Uncaught it left the form's
-    # own mistake as a 500 reading "Unexpected failure", with a traceback in the
-    # log and no box marked (ADR-0033).
+    # ``AgentConfig`` refuses a paying rail with nowhere to pay, the one thing
+    # here no range can judge. Its sentence is the useful one; the field is this
+    # door's to name, and the address is the only one left, the provider, rail
+    # and region each being refused above. Uncaught it was a 500 reading
+    # "Unexpected failure" with no box marked (ADR-0033).
     config = _configured(
         provider=provider,
         # Blank rather than ``defaults``, which was built for whichever provider
@@ -221,15 +212,14 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
 def _configured(**settings: Any) -> AgentConfig:
     """An :class:`AgentConfig`, with its own refusal answered like every other.
 
-    The config checks one thing no range can: a rail that moves money and has
-    nowhere to send it. That is a value a request carried, so it deserves the
-    status and the field every other unusable value gets rather than the 500 an
-    escaping ``ValueError`` becomes -- which is the one refusal here that read as
-    the server having broken.
+    The config checks one thing no range can: a rail that moves money and has nowhere
+    to send it. That is a value a request carried, so it earns the status and the
+    field every other unusable value gets rather than the 500 an escaping
+    ``ValueError`` becomes.
 
     Raises:
-        ApiError: naming ``merchant_url``, the only setting left for the config
-            to refuse once this door has checked the rest.
+        ApiError: naming ``merchant_url``, the only setting left for the config to
+            refuse once this door has checked the rest.
     """
     try:
         return AgentConfig(**settings)
@@ -253,10 +243,10 @@ def run_search(
         sort_by: ``"score"``, ``"price"`` or ``"rating"``.
         agent_factory: Builds the agent from the config -- the seam tests inject a
             stub through, mirroring ``BuyAgent(config, llm=...)``.
-        checkpoint: Handed to ``BuyAgent.run``, which calls it at each step
-            boundary. A caller whose client has gone raises from it to end the run
-            there (ADR-0034); what it raises is not turned into an ``ApiError``,
-            since there is nobody left to answer with one.
+        checkpoint: Handed to ``BuyAgent.run``, which calls it at each step boundary.
+            A caller whose client has gone raises from it to end the run there
+            (ADR-0034); what it raises stays an exception, there being nobody left to
+            answer an ``ApiError`` to.
 
     Returns:
         ``{"request", "count", "top_n", "sort_by", "products"}``, best first, each
@@ -272,13 +262,11 @@ def run_search(
     except tuple(_STATUS) as exc:
         raise ApiError(str(exc), _status_for(exc, _STATUS)) from exc
     finally:
-        # One request, one agent, and the connection it opened let go of here
-        # rather than whenever the last reference to it happens to fall. Both
-        # halves are inside the guard, so a config the provider refuses is still
-        # the ``ApiError`` it was -- and ``None`` is then an agent that was never
-        # built, which is a thing holding nothing open like any other. Asked
-        # rather than called outright, so a stand-in put in through
-        # ``agent_factory`` is still a class with a ``run`` and nothing else.
+        # One request, one agent, and its connection let go of here rather than
+        # whenever the last reference falls. Both halves are inside the guard, so
+        # a config the provider refuses is still the ``ApiError`` it was and
+        # ``None`` is an agent never built. Asked rather than called outright, so
+        # a stand-in is still a class with a ``run`` and nothing else.
         release(agent)
 
     return _run_payload(request, ranked, config.top_n, sort_by, config.weights)
@@ -287,18 +275,14 @@ def run_search(
 def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
     """Put a finished run's products in another order, without running it again.
 
-    Nothing in :func:`~buy_agent.ranking.rank_products` needs a model or a
-    network, so re-ordering is that ordering asked for on its own rather than a
-    second minute-long run (ADR-0035). The judgement stays here: the products go
-    back to Python and come back scored by the function a run ends with, and the
-    scores the browser holds are ignored and recomputed, a score being a fact
-    about the whole candidate set.
+    Ranking needs no model and no network, so re-ordering is that ordering asked for
+    on its own (ADR-0035). The judgement stays here: the scores the browser holds are
+    ignored and recomputed, a score being a fact about the whole candidate set.
 
     Args:
         data: ``{"request", "products", "sort_by", "top"}`` -- the products as
-            :func:`product_payload` wrote them (its extra keys are ignored), and
-            the two settings shaping the answer around them. How many may arrive
-            is what the body size allows, which is the server's to cap.
+            :func:`product_payload` wrote them (extra keys ignored), and the two
+            settings shaping the answer. How many may arrive is the server's to cap.
 
     Returns:
         The shape a finished run answers with, so the page shows it the same way.
@@ -330,26 +314,22 @@ def mandate_support() -> bool:
 def pay_now(data: Mapping[str, Any]) -> dict[str, Any]:
     """Buy one product of a finished run, having been shown that it was approved.
 
-    Runs no pipeline, the way :func:`rank_again` runs none (ADR-0035): the
-    products travel in the body because the browser is already holding them, and
-    a server-side run store would be a lifetime and an eviction policy on a
-    server that is stdlib on purpose.
+    Runs no pipeline, the way :func:`rank_again` runs none (ADR-0035): the products
+    travel in the body because the browser is already holding them, a server-side run
+    store being a lifetime and an eviction policy on a server that is stdlib on
+    purpose.
 
-    The browser decides nothing here either (ADR-0012). It does not send a cart --
-    it sends the run, which product of it, and ``approved``: an echo of the
-    title, price and currency it put in front of a person. The cart is built here
-    from the products, and the echo has to match it. So a page showing a stale
-    price cannot buy at that price, and a page that never asked anybody cannot
-    guess the right echo either: the approval is witnessed, not asserted.
-
-    Where a pre-signed open mandate authorises the run, no echo is required --
-    that is the whole meaning of the autonomous mode -- and the mandate's own
-    constraints are what the cart is held to.
+    The browser decides nothing here either (ADR-0012). It sends no cart -- it sends
+    the run, which product of it, and ``approved``: an echo of the title, price and
+    currency it put in front of a person. The cart is built here and the echo has to
+    match it, so a stale page cannot buy at its stale price and a page that asked
+    nobody cannot guess the echo. Where a pre-signed open mandate authorises the run
+    there is no echo, that being the whole meaning of the autonomous mode, and the
+    mandate's own constraints are what the cart is held to.
 
     Args:
-        data: ``{"products", "rank", "approved", ...}`` plus the run settings,
-            which are read by :func:`parse_options` so a payment is configured
-            exactly as a search is.
+        data: ``{"products", "rank", "approved", ...}`` plus the run settings, read
+            by :func:`parse_options` so a payment is configured as a search is.
 
     Returns:
         ``{"receipt": ...}`` -- what came of the payment.
@@ -376,10 +356,9 @@ def pay_now(data: Mapping[str, Any]) -> dict[str, Any]:
 def receipt_payload(receipt: Receipt) -> dict[str, Any]:
     """What came of a payment, as JSON.
 
-    Never the mandate chain. A chain authorises this purchase to whoever holds it
-    until it expires, and this payload is written to a log and handed to a
-    browser; ``reference`` is the hash that points back at it, which is what AP2
-    says a receipt binds by.
+    Never the mandate chain: a chain authorises this purchase to whoever holds it, and
+    this payload is logged and handed to a browser. ``reference`` is the hash pointing
+    back at it, which is what AP2 says a receipt binds by.
     """
     return receipt.model_dump()
 
@@ -387,19 +366,12 @@ def receipt_payload(receipt: Receipt) -> dict[str, Any]:
 def _rank(data: Mapping[str, Any], count: int) -> int:
     """Which product of the run to buy, as an index into the list that arrived.
 
-    One-based, because that is what a card shows and what ``rank`` means
-    everywhere else in this API. Defaults to the first: a run is already an
-    ordering, and "the top one" is the answer a request that names none wants.
-
-    The bound is the run's own length and not a row of :data:`_BOUNDED`: this is
-    the one number a request carries that bounds nothing on ``AgentConfig``, and
-    holding it to ``top``'s 1..50 as well only meant two refusals for one
-    mistake, the wider of which quoted a ceiling nothing here has -- "between 1
-    and 50" for a run of three products.
+    One-based, as a card shows it, defaulting to the first. The bound is the run's own
+    length rather than a row of :data:`_BOUNDED`: holding it to ``top``'s 1..50 too
+    meant two refusals for one mistake, the wider quoting a ceiling nothing here has.
 
     Raises:
-        ApiError: if it is not a whole number naming one of the products that
-            arrived.
+        ApiError: if it is not a whole number naming one of the products that arrived.
     """
     return _read(data, "rank", 1, partial(_as_number, int, 1, count)) - 1
 
@@ -407,14 +379,12 @@ def _rank(data: Mapping[str, Any], count: int) -> int:
 def _witnessed(data: Mapping[str, Any], cart: Cart) -> None:
     """Refuse unless the request echoes the cart the server just built.
 
-    Three fields and not the whole cart: the title, the price and the currency
-    are what a person was shown and what they agreed to, and they are the three
-    a stale page would get wrong. Compared as numbers rather than as text, so a
-    browser writing "329.99" and one writing "329.990" are the same approval.
+    The title, the price and the currency: what a person was shown, and the three a
+    stale page would get wrong. Prices compared as numbers, so "329.99" and "329.990"
+    are one approval.
 
     Raises:
-        ApiError: naming what differs, so the page can show it rather than
-            silently re-asking.
+        ApiError: naming what differs, so the page can show it.
     """
     approved = data.get("approved")
     if not isinstance(approved, Mapping):
@@ -453,12 +423,10 @@ def _run_payload(
 ) -> dict[str, Any]:
     """The shape a finished run answers with, however it was finished.
 
-    ``weights`` travels with the products because a breakdown cannot be read
-    without it: three shares drawn beside a total invite being added up, and
-    nothing on a card says which of them the placing actually turned on. Sent as
-    fractions of the blend rather than as ``RankingWeights`` wrote them, so the
-    browser draws a number rather than working one out -- and as a fact about the
-    run, which is what it is, rather than as a fourth field on every product.
+    ``weights`` travels with the products because a breakdown cannot be read without
+    it: three shares beside a total invite being added up, and nothing on a card says
+    which one the placing turned on. Sent as fractions of the blend, and as a fact
+    about the run rather than a fourth field on every product.
     """
     return {
         "request": request.strip(),
@@ -474,12 +442,9 @@ def results_payload(ranked: Sequence[RankedProduct]) -> list[dict[str, Any]]:
     """A whole run's products as JSON, best first.
 
     One shape for every way a run leaves the process: the API's answer, the file
-    ``--json`` writes, and the file Download results hands over -- that answer
-    saved, so the browser composes no document of its own.
-
-    The currency is worked out once, here, and handed to every product: whether
-    one *can* be paid for is partly a fact about the set it was found in
-    (ADR-0043), so a product cannot answer it alone.
+    ``--json`` writes, and the file Download results hands over. The currency is
+    worked out once here and handed to every product -- whether one *can* be paid for
+    is partly a fact about the set it was found in (ADR-0043).
     """
     currency = dominant_currency(entry.product for entry in ranked)
     return [product_payload(entry, currency) for entry in ranked]
@@ -489,20 +454,17 @@ def product_payload(entry: RankedProduct, currency: str | None = None) -> dict[s
     """One ranked product as JSON.
 
     The raw fields *and* the labels ``Product`` already knows how to write, so the
-    browser never reinvents how a blank price reads -- ``cannot_pay`` among them:
-    the sentence saying why this product may not be bought, or ``null`` where it
-    may. The judgement is Python's, made by the same function the payment itself
-    goes through, so a Pay button is never offered for something the server would
-    then refuse (ADR-0012, ADR-0033).
+    browser never reinvents how a blank price reads -- ``cannot_pay`` among them, the
+    sentence saying why this product may not be bought, made by the same function the
+    payment goes through so a Pay button is never offered for what the server would
+    refuse (ADR-0012, ADR-0033).
 
-    ``pay_currency`` and ``pay_label`` are what that purchase would actually be
-    for, and they are here because they are frequently *not* the product's own
-    figures: a page that printed a bare "329.00" is priced in the run's currency
-    (ADR-0043), so ``currency`` is ``null`` and the cart is in USD all the same.
-    A card restating ``price_label`` showed a person "329.00" of unnamed money
-    and then echoed a ``null`` currency back, which no approval can match -- so
-    the confirm button did nothing whatever. Both are ``null`` exactly when
-    ``cannot_pay`` is a sentence: there is no purchase to name.
+    ``pay_currency`` and ``pay_label`` are what that purchase would be *for*, which is
+    frequently not the product's own figures: a page printing a bare "329.00" leaves
+    ``currency`` null while the cart is in the run's currency (ADR-0043). A card
+    restating ``price_label`` showed unnamed money and echoed a null currency back,
+    which no approval matches. Both are null exactly when ``cannot_pay`` is a
+    sentence.
     """
     terms = amount_for(entry.product, currency)
     return {
@@ -511,10 +473,8 @@ def product_payload(entry: RankedProduct, currency: str | None = None) -> dict[s
         "pay_label": amount_label(*terms) if terms else None,
         "rank": entry.rank,
         "score": round(entry.score, 4),
-        # What that score is made of, so a card can say why a product placed where
-        # it did and which criteria it was placed on nothing at all (ADR-0041).
-        # Sent whole: drawing three shares is the page's business, what they are
-        # is Python's.
+        # What that score is made of, so a card can say why a product placed
+        # where it did and which criteria it was placed on nothing (ADR-0041).
         "breakdown": entry.breakdown.model_dump(),
         **entry.product.model_dump(),
         "price_label": entry.product.price_label(),
@@ -525,9 +485,9 @@ def product_payload(entry: RankedProduct, currency: str | None = None) -> dict[s
 def model_payload(model: InstalledModel) -> dict[str, Any]:
     """One model a server is holding, as the picker needs it.
 
-    ``completion`` is sent rather than acted on: the form *marks* a model that
-    cannot answer a prompt instead of hiding it, so a tag pulled by mistake stays
-    visible (ADR-0032).
+    ``completion`` is sent rather than acted on: the form *marks* a model that cannot
+    answer a prompt instead of hiding it, so a tag pulled by mistake stays visible
+    (ADR-0032).
     """
     return {"name": model.name, "completion": model.completion}
 
@@ -578,12 +538,9 @@ def defaults_payload() -> dict[str, Any]:
 def limits_payload() -> dict[str, dict[str, int]]:
     """The range each number a request carries is held to, by the key it uses.
 
-    Shipped rather than written into the form (:data:`_BOUNDED`): the browser
-    applies these and does not choose them, which is the line ADR-0033 draws.
-
-    Paired strictly, because a range is exactly two numbers: a row of
-    :data:`~buy_agent.config.LIMITS` that grew a third would otherwise ship a
-    bound the form silently never applies.
+    Shipped rather than written into the form (:data:`_BOUNDED`): the browser applies
+    these and does not choose them (ADR-0033). Paired strictly, a range being exactly
+    two numbers, so a row that grew a third cannot ship a bound nothing applies.
     """
     return {
         key: dict(zip(("min", "max"), LIMITS[field], strict=True))
@@ -594,20 +551,19 @@ def limits_payload() -> dict[str, dict[str, int]]:
 def sources_payload(spec: str) -> dict[str, Any]:
     """Whether a Trusted-sources field names sources, and what is wrong if not.
 
-    The one option the form cannot judge for itself: a range is two numbers the
-    server ships, but a source is whatever
+    The one option the form cannot judge itself: a source is whatever
     :func:`~buy_agent.sources.parse_sources` reads, and writing that again in
-    TypeScript is the drift ADR-0031 refused for the region. So the browser asks,
-    and gets the sentence the CLI prints (ADR-0033).
+    TypeScript is the drift ADR-0031 refused for the region. So the browser asks and
+    gets the sentence the CLI prints (ADR-0033).
 
     Args:
         spec: What the field holds -- one string, which may name several sources.
             Empty is the whole web, and fine.
 
     Returns:
-        ``{"sources", "error"}``. ``error`` is empty for a field with nothing
-        wrong with it; ``sources`` is the spec as given, so a form typed into
-        since can drop an answer about what it held a keystroke ago.
+        ``{"sources", "error"}``. ``error`` is empty for a field with nothing wrong
+        with it; ``sources`` is the spec as given, so a form typed into since can drop
+        an answer about what it held a keystroke ago.
     """
     error = ""
     try:
@@ -620,19 +576,14 @@ def sources_payload(spec: str) -> dict[str, Any]:
 def installed_models(provider: str, base_url: str) -> dict[str, Any]:
     """Ask a model server what it is serving, for the UI's model picker.
 
-    An unreachable server is an answer and not an error: the UI shows it as a
-    status rather than refusing to draw a form, and a provider name nothing can
-    serve is the same kind of answer. ``label`` travels with it, since the pill
-    above the form names the server and "Ollama unreachable" over a vLLM address
-    would be a lie the browser could not catch. Each model carries what it can do
-    beside its name, Ollama holding embedding-only tags a run cannot use
-    (ADR-0032).
+    An unreachable server is an answer, not an error: the UI shows it as a status
+    rather than refusing to draw a form. ``label`` travels with it, since "Ollama
+    unreachable" over a vLLM address is a lie the browser could not catch, and each
+    model carries what it can do beside its name (ADR-0032).
 
-    A failure carries two fields: ``detail`` is the transport's own reason, and
-    ``hint`` is the sentence the provider would have raised had a run hit the same
-    failure -- the command to start the server, the key to set, the tag to pull.
-    Written here rather than in TypeScript, because the browser decides nothing
-    and that sentence already exists and is tested.
+    A failure carries ``detail``, the transport's own reason, and ``hint``, the
+    sentence the provider would have raised had a run hit the same failure. Written
+    here rather than in TypeScript: that sentence already exists and is tested.
     """
     label = PROVIDERS[provider].label if provider in PROVIDERS else provider
     status = {"provider": provider, "label": label, "base_url": base_url}
@@ -660,15 +611,12 @@ def _read_sources(
 ) -> tuple[Source, ...]:
     """The sources the request named, if any -- the one option that is a list.
 
-    Not through :func:`_read`, which renders every value with ``str`` and would
-    turn a JSON array into its Python repr. A query string spells several as one
-    separated string; a JSON body may send either.
-
-    Each entry is rendered with ``str`` all the same, exactly as :func:`_present`
-    already reads them: a JSON array is whatever was posted, so ``["rtings.com",
-    5]`` reached ``parse_sources`` and asked an ``int`` for its ``strip`` --
-    an ``AttributeError`` out of the door, which is the 500 and the traceback
-    that every other unusable value here is spared (ADR-0033).
+    Not through :func:`_read`, which renders every value with ``str`` and would turn a
+    JSON array into its Python repr. A query string spells several as one separated
+    string; a JSON body may send either. Each entry is rendered with ``str`` all the
+    same: ``["rtings.com", 5]`` otherwise asked an ``int`` for its ``strip``, an
+    ``AttributeError`` out of the door where every other unusable value gets a
+    sentence (ADR-0033).
     """
     if not _present(data, "sources"):
         return default
@@ -685,13 +633,10 @@ def _read_sources(
 def _present(data: Mapping[str, Any], key: str) -> bool:
     """Is the key set to something? An empty form field counts as unset.
 
-    A list holding nothing but blanks is the same answer in the shape only
-    ``sources`` arrives in: ``[]`` and ``["", " "]`` say what ``""`` says, which
-    is "use the default" (ADR-0012). Read as set, they reached ``parse_sources``,
-    came back empty and left the run searching the whole web -- the widening
-    ``parse_named_sources`` refuses on the command line, arrived at from the other
-    side. Said here rather than there, because over the wire a blank really is how
-    "unset" is spelled.
+    A list holding nothing but blanks says what ``""`` says, which is "use the
+    default" (ADR-0012) -- read as set, they left the run searching the whole web,
+    the widening ``parse_named_sources`` refuses on the command line. Said here
+    rather than there, because over the wire a blank really is how "unset" is spelled.
     """
     value = data.get(key)
     if value is None:
@@ -712,8 +657,8 @@ def _read(
     """The value of ``key``, parsed -- or ``default`` where it is not set at all.
 
     Every option survives ``str`` intact (a JSON ``true`` becomes "True", which
-    :func:`_as_bool` reads back), so one parser serves both carriers. ``parse``
-    is given the key because its refusal names the field.
+    :func:`_as_bool` reads back), so one parser serves both carriers. ``parse`` is
+    given the key because its refusal names the field.
 
     Raises:
         ApiError: if the value is present but ``parse`` cannot make sense of it.
@@ -726,11 +671,9 @@ def _read(
 def _read_products(data: Mapping[str, Any]) -> list[Product]:
     """The products of a finished run, read back off the request that carried them.
 
-    Not through :func:`_read`, for the reason :func:`_read_sources` is not -- and
-    a query string cannot carry a list at all, which is why re-sorting is a POST.
+    Not through :func:`_read`, for the reason :func:`_read_sources` is not.
     ``Product`` validates them, so what comes back is the domain model rather than
-    whatever JSON was posted: :func:`product_payload`'s extra keys are ignored,
-    and a missing name is refused.
+    whatever JSON was posted: extra keys are ignored, and a missing name is refused.
     """
     value = data.get("products")
     if not isinstance(value, list):
@@ -759,8 +702,8 @@ def _as_text(_key: str, text: str) -> str:
 def _as_sort_by(key: str, text: str) -> str:
     """A ranking criterion, checked against the ones ``rank_products`` sorts by.
 
-    Read by both doors into the ranking -- the search that ends in one and the
-    re-sort that is only one -- so a fourth is offered by both the day it is added.
+    Read by both doors into the ranking, so a fourth is offered by both the day it is
+    added.
     """
     if text not in SORT_OPTIONS:
         raise ApiError(
@@ -772,9 +715,8 @@ def _as_sort_by(key: str, text: str) -> str:
 def _as_rail(key: str, text: str) -> str:
     """A payment rail, checked against the ones there are.
 
-    Refused here rather than in ``AgentConfig``'s own ``ValueError`` so the
-    answer carries the field it came out of, which is what marks the box
-    (ADR-0033) -- the same reason a provider is checked in ``parse_options``.
+    Refused here rather than in ``AgentConfig``'s own ``ValueError`` so the answer
+    carries the field it came out of, which is what marks the box (ADR-0033).
     """
     if text not in RAIL_OPTIONS:
         raise ApiError(
@@ -786,10 +728,9 @@ def _as_rail(key: str, text: str) -> str:
 def _as_region(key: str, text: str) -> str:
     """A region code, checked for shape the way a source is checked for a site.
 
-    A 400 naming the shape, rather than a run that searches on it and reports the
-    web as having nothing to say: this is the one setting a typo makes look like
-    an empty web (ADR-0031). The key travels beside the message so the form can
-    mark the box it came out of (ADR-0033).
+    A 400 naming the shape, rather than a run that reports the web as having nothing
+    to say: this is the one setting a typo makes look like an empty web (ADR-0031).
+    The key travels beside the message so the form can mark the box (ADR-0033).
     """
     try:
         return parse_region(text)
@@ -810,14 +751,11 @@ def _as_bool(key: str, text: str) -> bool:
 def _bounded(kind: Callable[[str], _Number]) -> Callable[[str, str], _Number]:
     """A parser for a number within the bounds whatever key it arrives under has.
 
-    The key is not an argument because :func:`_read` already hands it to the
-    parser, and one named here too is a key written twice on one line: two
-    chances to disagree, and the way they disagree is a value silently held to
-    another setting's range. The range itself is read off
-    :data:`buy_agent.config.LIMITS` through :data:`_BOUNDED` rather than written
-    down here, so the CLI, this and the form -- shipped the same table -- cannot
-    disagree about what a request may ask for. The bounds are quoted back as
-    declared: "between 0 and 2" is what a temperature is.
+    The key is not an argument because :func:`_read` already hands it to the parser,
+    and one named here too is two chances to disagree -- the way they disagree being a
+    value silently held to another setting's range. The range is read off
+    :data:`buy_agent.config.LIMITS` through :data:`_BOUNDED`, so the CLI, this and the
+    form cannot disagree, and is quoted back as declared.
     """
     return partial(_declared_number, kind)
 

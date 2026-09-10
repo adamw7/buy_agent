@@ -34,14 +34,11 @@ logger = logging.getLogger("buy_agent")
 def _defaults() -> AgentConfig:
     """Every flag's default, off one config so the two cannot drift apart.
 
-    Built on a provider and a rail that exist rather than on
-    ``$BUY_AGENT_PROVIDER`` and ``$BUY_AGENT_RAIL`` themselves, which are a
-    shopper's to misspell: resolved at import time, a bad one was a
-    ``ValueError`` out of importing this module -- a traceback before ``main``
-    had run, with ``--help`` and its list of the names there are unreachable too.
-    Both names are still read below, where ``_checked`` turns either into the
-    usage error it deserves; every other field here is a plain default that no
-    environment variable can make unusable.
+    Built on a provider and a rail that exist rather than on ``$BUY_AGENT_PROVIDER``
+    and ``$BUY_AGENT_RAIL``, which are a shopper's to misspell: resolved at import
+    time, a bad one was a ``ValueError`` out of importing this module, with ``--help``
+    and its list of the names there are unreachable too. Both are still read below,
+    where ``_checked`` turns either into the usage error it deserves.
     """
     return AgentConfig(
         provider=DEFAULT_PROVIDER if DEFAULT_PROVIDER in PROVIDERS else next(iter(PROVIDERS)),
@@ -51,29 +48,26 @@ def _defaults() -> AgentConfig:
 
 _DEFAULTS = _defaults()
 
-#: Exit code for a run that worked and found nothing: the search reached the web,
-#: the model answered, and no product survived. Its own code because a shell
-#: cannot otherwise tell it from a stopped model server. 2 is argparse's own.
+#: Exit code for a run that worked and found nothing. Its own code because a
+#: shell cannot otherwise tell it from a stopped model server; 2 is argparse's.
 NOTHING_FOUND = 3
 
-#: Exit code for a run that was asked to pay and did not: the product could not
-#: be authorised, the shopper declined, or the rail refused. Its own code because
-#: the report on stdout is real either way -- a script that read 0 here would file
+#: Exit code for a run that was asked to pay and did not. Its own code because
+#: the report on stdout is real either way -- a script reading 0 here would file
 #: the products and never learn that nothing was bought.
 PAYMENT_FAILED = 4
 
 #: What ``--num-ctx`` holds when it was not given. A sentinel rather than the
 #: config's default: "8192" and "the default, which is 8192" are the same number
-#: and different requests, and only the first is worth warning a shopper about.
+#: and different requests, and only the first is worth a warning.
 _UNSET = object()
 
 
 def _provider_defaults(setting: str) -> str:
     """One column of :data:`buy_agent.providers.PROVIDERS`, as ``--help`` prints it.
 
-    ``--model`` and ``--base-url`` have a default per provider, so the help names
-    them all: "gemma4:12b for ollama, Qwen/Qwen3-8B for vllm". Read off the table,
-    so a third provider appears here by being added there.
+    ``--model`` and ``--base-url`` have a default per provider, so the help names them
+    all. Read off the table, so a third provider appears here by being added there.
     """
     return ", ".join(
         f"{getattr(server, setting)} for {name}" for name, server in PROVIDERS.items()
@@ -84,9 +78,9 @@ def _bounded(kind: Callable[[str], Any], field: str) -> Callable[[str], Any]:
     """``--results`` and the rest, held to the range the API holds them to.
 
     Read off :data:`buy_agent.config.LIMITS` so the two front ends cannot disagree:
-    unchecked, ``--results 0`` searches the web and reads ten pages to ask the
-    model for no products at all. Checked here rather than after parsing, so it is
-    a usage error printed with the flag that carries it.
+    unchecked, ``--results 0`` reads ten pages to ask the model for no products.
+    Checked here rather than after parsing, so it is a usage error printed with the
+    flag that carries it.
     """
     minimum, maximum = LIMITS[field]
 
@@ -107,26 +101,21 @@ def _bounded(kind: Callable[[str], Any], field: str) -> Callable[[str], Any]:
 def _checked(check: Callable[[str], object]) -> Callable[[str], str]:
     """A flag's value as argparse takes it: refused here, and kept as written.
 
-    Four settings are judged before the run rather than after parsing -- a
-    source, a provider, a rail and a region -- and each is judged by the same
-    function a run would have used, so there is no second rule to keep true. The
-    wrapper is what argparse needs: a ``ValueError`` out of a ``type`` function
-    becomes "invalid value" with the sentence thrown away, and the sentence is
-    the whole message -- the shapes a source can have, the providers there are,
-    the rails there are, the two halves of a region code.
+    Four settings are judged before the run -- a source, a provider, a rail and a
+    region -- each by the same function a run would have used. The wrapper is what
+    argparse needs: a ``ValueError`` out of a ``type`` function becomes "invalid
+    value" with the sentence thrown away, and the sentence is the whole message.
 
-    Checked *here* because two of the four otherwise fail quietly. A source that
-    names no site and a region no engine knows both search for nothing and come
-    back as an empty report with nothing to explain it (ADR-0027, ADR-0031). The
-    other two are checked here because a ``type`` function also runs over a
-    string *default*, where ``choices`` does not: ``$BUY_AGENT_PROVIDER=olama``
-    and ``$BUY_AGENT_RAIL=dryrun`` sailed past ``choices`` and reached
+    Checked *here* because two of the four otherwise fail quietly: a source naming no
+    site and a region no engine knows both come back as an empty report with nothing
+    to explain it (ADR-0027, ADR-0031). The other two because a ``type`` function also
+    runs over a string *default*, where ``choices`` does not --
+    ``$BUY_AGENT_PROVIDER=olama`` sailed past ``choices`` and reached
     ``AgentConfig``, outside the ``try`` that names the three failures a run has.
 
-    The text comes back as it was typed rather than as ``check`` read it, so
-    ``main`` parses every ``--source`` together -- two flags naming one site are
-    one source -- and so the region is lower-cased where every other caller
-    lower-cases it, in ``AgentConfig``.
+    The text comes back as typed rather than as ``check`` read it, so ``main`` parses
+    every ``--source`` together and the region is lower-cased where every other caller
+    lower-cases it.
     """
 
     def parse(text: str) -> str:
@@ -215,11 +204,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--source",
         action="append",
         metavar="SITE",
-        # ``parse_named_sources`` rather than ``parse_sources``: on a command line
-        # "unset" is spelled by leaving the flag off, so ``--source ""`` is a
-        # mistake and not an answer. Left to parse, it came back empty and the run
-        # searched the whole web -- the opposite of what was asked for, and said
-        # so nowhere.
+        # ``parse_named_sources`` rather than ``parse_sources``: on a command
+        # line "unset" is spelled by leaving the flag off, so ``--source ""`` is a
+        # mistake. Left to parse, it came back empty and the run searched the
+        # whole web -- the opposite of what was asked for.
         type=_checked(parse_named_sources),
         help="Take the facts from this source only; repeat for several. A site "
         "(rtings.com), a section of one (rtings.com/headphones) or a YouTube "
@@ -339,16 +327,14 @@ def build_parser() -> argparse.ArgumentParser:
 def _approved(cart: payment.Cart, config: AgentConfig) -> bool:
     """Ask the shopper to approve this exact cart, and mean it.
 
-    This is AP2's Trusted Surface, small: the surface that shows a person what
-    they are agreeing to before anything is signed. So it restates the cart the
-    mandates will carry -- the title, the price, the merchant and which rail --
-    rather than the request that found it, and it says whether the rail can
-    charge anybody, since the honest answer for the default is no.
+    AP2's Trusted Surface, small: the surface showing a person what they are agreeing
+    to before anything is signed. So it restates the cart the mandates will carry --
+    the title, the price, the merchant and which rail -- rather than the request that
+    found it, and says whether the rail can charge anybody.
 
-    The prompt goes to stderr and the answer is read off stdin, keeping the
-    report on stdout a report. A run with nothing to type into is **refused**:
-    silence is not consent, and a script that piped in nothing would otherwise
-    have bought something.
+    The prompt goes to stderr and the answer is read off stdin, keeping the report on
+    stdout a report. A run with nothing to type into is **refused**: silence is not
+    consent, and a script piping in nothing would otherwise have bought something.
 
     Raises:
         PaymentError: if nobody could have answered.
@@ -376,11 +362,11 @@ def _approved(cart: payment.Cart, config: AgentConfig) -> bool:
 def _bought(ranked: list[RankedProduct], config: AgentConfig) -> bool:
     """Buy the top-ranked product, and say what came of it.
 
-    The top one and not a choice of one: the report is already an ordering, and
-    a flag naming a rank would be a second way of saying what ``--sort-by``
-    already said. Everything that can go wrong here is one failure with one
-    sentence (:class:`~buy_agent.payment.PaymentError`), caught in its own place
-    rather than added to the three a *run* raises -- a payment is not a run.
+    The top one and not a choice of one: the report is already an ordering, and a flag
+    naming a rank would be a second way of saying what ``--sort-by`` said. Everything
+    that can go wrong is one failure with one sentence
+    (:class:`~buy_agent.payment.PaymentError`), caught in its own place rather than
+    added to the three a *run* raises.
     """
     products = [entry.product for entry in ranked]
     try:
@@ -407,12 +393,10 @@ def _bought(ranked: list[RankedProduct], config: AgentConfig) -> bool:
 def _configured(parser: argparse.ArgumentParser, **settings: Any) -> AgentConfig:
     """The run's config, with the one thing it refuses said the way a flag is.
 
-    ``AgentConfig`` checks what no single flag can: a rail that moves money and
-    has nowhere to send it, which is two flags and an environment variable
-    between them. Every other setting judged before the run is refused by a
-    ``type`` function, so it reads as a usage error carrying its own sentence
-    (:func:`_checked`); left to escape, this one came out of ``main`` as a
-    traceback, which is what that whole arrangement exists to avoid.
+    ``AgentConfig`` checks what no single flag can: a rail that moves money and has
+    nowhere to send it, which is two flags and an environment variable between them.
+    Every other setting judged before the run is refused by a ``type`` function
+    (:func:`_checked`); left to escape, this one came out of ``main`` as a traceback.
 
     Raises:
         SystemExit: argparse's own, code 2, carrying the config's sentence.
@@ -475,20 +459,17 @@ def main(argv: list[str] | None = None) -> int:
         logger.warning("Interrupted.")
         return 130
     finally:
-        # The agent is this run and nothing after it, so the connection it
-        # opened is let go of here rather than at whatever point the process
-        # happens to end. Built inside the guard, as it was before: a provider
-        # that refuses the config is one of the three failures above, and
-        # ``None`` is then an agent that was never built. Asked rather than
-        # called outright, this being the name the tests put a stand-in over --
-        # a class with a ``run`` and nothing else.
+        # The agent is this run and nothing after it, so its connection is let
+        # go of here rather than whenever the process ends. Built inside the
+        # guard: a provider that refuses the config is one of the three failures
+        # above, and ``None`` is an agent that was never built. Asked rather than
+        # called outright, this being where the tests put a stand-in.
         release(agent)
 
     if args.json:
-        # Written even when the run found nothing, and so before the exit code is
-        # decided: skipped, a script waiting on this file finds the last run's
-        # results looking current. The API's own shaping, not a second one -- the
-        # file the page hands over is that same answer saved.
+        # Written even when the run found nothing, and so before the exit code
+        # is decided: skipped, a script waiting on this file finds the last run's
+        # results looking current. The API's own shaping, not a second one.
         payload = results_payload(ranked)
         try:
             args.json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -499,19 +480,16 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         logger.info("Wrote %d products to %s", len(payload), args.json)
 
-    # After the report and after the file: both are true whatever the payment
-    # does, and a purchase that fails must not cost the shopper the answer they
-    # already paid a minute of searching for.
+    # After the report and the file: both are true whatever the payment does,
+    # and a failed purchase must not cost the shopper the answer.
     if args.pay and ranked:
         try:
             bought = _bought(ranked, config)
         except KeyboardInterrupt:
             # Ctrl-C at the approval prompt is somebody deciding not to buy, and
-            # the prompt is where a shopper hesitates -- so it is answered the way
-            # a Ctrl-C anywhere else in this run is, rather than with the
-            # traceback it used to end on. The traceback was the worst reading of
-            # the moment: it looks like a crash, at the one point in the program
-            # where what a shopper needs to know is whether any money moved.
+            # the prompt is where a shopper hesitates -- so it is answered as a
+            # Ctrl-C anywhere else in this run is. A traceback reads as a crash at
+            # the one point where what matters is whether money moved.
             logger.warning("Interrupted. Nothing was bought.")
             return 130
         if not bought:

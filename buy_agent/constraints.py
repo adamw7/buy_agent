@@ -1,24 +1,20 @@
 """What the shopper will accept, applied to the products before they are ranked.
 
 The request carries the shopper's terms in prose -- "wireless headphones under
-$200" -- and the model is asked to keep them when it rewrites the query
-(:mod:`buy_agent.extraction`), which is as far as a search query can take them: a
-page is returned for matching the words, not for obeying them. So the report
-could be topped by a $900 pair, and it read as the right answer, because
-``ranking`` scores price *relative to the candidate set* and the cheapest of nine
-expensive things still scores 1.0.
+$200" -- and the model keeps them when it rewrites the query, which is as far as a
+search query can take them: a page is returned for matching the words, not for
+obeying them. So the report could be topped by a $900 pair and read as the right
+answer, ``ranking`` scoring price *relative to the candidate set* and the cheapest
+of nine expensive things still scoring 1.0.
 
-This is the other half: bounds said as numbers rather than as prose, checked in
-Python after the pages have been read, so what is reported is what was asked for
-(ADR-0039). Nothing here is the model's judgement -- these are three comparisons
-over figures grounding has already backed.
+This is the other half: bounds said as numbers, checked in Python after the pages
+have been read (ADR-0039). Nothing here is the model's judgement.
 
-The one rule worth knowing is what happens to a product whose figure is
-*unknown*: it is kept. A blank is not a violation, it is the extractor having
-missed something or the page never having printed it, and grounding blanks
-anything the sources did not back -- so dropping blanks would reject products for
-the model's misses, which is the same reasoning that scores missing data
-``NEUTRAL`` rather than zero (ADR-0007).
+The one rule worth knowing is what happens to a product whose figure is *unknown*:
+it is kept. A blank is the extractor having missed something or the page never
+having printed it, and grounding blanks anything the sources did not back -- so
+dropping blanks would reject products for the model's misses, which is what scores
+missing data ``NEUTRAL`` rather than zero (ADR-0007).
 """
 
 from __future__ import annotations
@@ -43,15 +39,12 @@ logger = logging.getLogger(__name__)
 Reader: TypeAlias = "Callable[[Product, str | None], float | None]"
 
 #: One row per bound: the field holding it -- named the same here and on
-#: :class:`~buy_agent.config.AgentConfig`, which is what lets ``from_config`` be a
-#: comprehension -- how the figure is read off a product, what "outside" means, and
-#: how it reads in the line a run logs. Everything below reads this table, so a
-#: fourth bound is a row here and nothing else (ADR-0039).
-#:
-#: The price is read by :func:`~buy_agent.models.comparable_price`: a budget is a
-#: number in one currency, so a price in another reads as unknown and passes, the
-#: way any unknown figure does (ADR-0043). The other two ignore the currency -- a
-#: rating is out of five wherever it was printed.
+#: :class:`~buy_agent.config.AgentConfig`, which lets ``from_config`` be a
+#: comprehension -- how the figure is read off a product, what "outside" means,
+#: and how it reads in the line a run logs. Everything below reads this table, so
+#: a fourth bound is a row here and nothing else (ADR-0039). The price is read by
+#: :func:`~buy_agent.models.comparable_price`, so a price in another currency
+#: reads as unknown and passes (ADR-0043); the other two ignore the currency.
 _BOUNDS: tuple[tuple[str, Reader, Callable[[float, float], bool], str], ...] = (
     ("max_price", comparable_price, operator.gt, "at most {:,.2f}"),
     ("min_rating", lambda p, _: p.rating, operator.lt, "rated at least {:g}"),
@@ -63,21 +56,19 @@ _BOUNDS: tuple[tuple[str, Reader, Callable[[float, float], bool], str], ...] = (
 class Constraints:
     """The bounds a product has to be inside to be reported.
 
-    ``None`` is "no bound", which is what all three default to -- a run nobody
-    gave terms to reports everything it found, as it always did.
+    ``None`` is "no bound", which is what all three default to.
 
     Attributes:
         max_price: The most the shopper will pay, read in the currency the run's
-            prices are counted in (ADR-0043). Nothing is converted -- a rate table
-            is not this project's to ship, and a stale rate is a wrong answer
-            wearing a right one's clothes -- so a price in some other currency is
-            not held against this at all: it is a figure the run cannot place, and
-            an unplaceable figure passes, the way an unknown one does.
-        min_rating: The lowest average review score worth reporting, on the 0-5
-            scale ``Product.rating`` is in.
-        min_reviews: How many reviews a rating has to be averaged over. A 5.0
-            from two people is not a rating, and the ranking already discounts it
-            -- this refuses it outright.
+            prices are counted in (ADR-0043). Nothing is converted -- a rate table is
+            not this project's to ship, and a stale rate is a wrong answer wearing a
+            right one's clothes -- so a price in another currency is not held against
+            this at all: it is unplaceable, and passes the way an unknown one does.
+        min_rating: The lowest average review score worth reporting, on the 0-5 scale
+            ``Product.rating`` is in.
+        min_reviews: How many reviews a rating has to be averaged over. A 5.0 from two
+            people is not a rating, and the ranking already discounts it -- this
+            refuses it outright.
     """
 
     max_price: float | None = None
@@ -88,11 +79,9 @@ class Constraints:
     def from_config(cls, config: AgentConfig) -> Constraints:
         """The three bounds a run was configured with, off the config that holds them.
 
-        They live on :class:`~buy_agent.config.AgentConfig` as three plain fields
-        rather than as one of these, because that is what
-        :data:`~buy_agent.config.LIMITS` bounds and what both front doors fill in
-        -- one field, one flag, one form box. This is where they become the thing
-        that does the work.
+        They live on :class:`~buy_agent.config.AgentConfig` as three plain fields rather
+        than as one of these, because that is what :data:`~buy_agent.config.LIMITS` bounds
+        and what both front doors fill in -- one field, one flag, one form box.
         """
         return cls(**{name: getattr(config, name) for name, *_ in _BOUNDS})
 
@@ -100,9 +89,8 @@ class Constraints:
     def given(self) -> bool:
         """Whether the shopper set any of them.
 
-        None set is the default, and the difference between "nothing was asked
-        for" and "everything passed" is worth keeping: only the second is worth a
-        line in the report.
+        The difference between "nothing was asked for" and "everything passed" is worth
+        keeping: only the second is worth a line in the report.
         """
         # Every row ``_set`` yields is a non-empty tuple, so the rows themselves
         # are the truthy thing to ask about.
@@ -111,11 +99,10 @@ class Constraints:
     def admits(self, product: Product, currency: str | None = None) -> bool:
         """Whether this product is inside every bound that was set.
 
-        A figure the run does not know passes: see the module docstring. So the
-        test is "known *and* outside", never "not inside". ``currency`` is what
-        the run's prices are counted in, and a price in another one is a figure
-        this run does not know (ADR-0043). It defaults to "nothing says these are
-        different currencies", which is what one product on its own says.
+        A figure the run does not know passes: see the module docstring. So the test is
+        "known *and* outside", never "not inside". ``currency`` is what the run's prices
+        are counted in, and a price in another one is a figure this run does not know
+        (ADR-0043).
         """
         return not any(
             (figure := read(product, currency)) is not None and outside(figure, bound)
@@ -125,12 +112,9 @@ class Constraints:
     def describe(self, currency: str | None = None) -> str:
         """The bounds as one phrase, for the line the run logs about them.
 
-        Only the ones that were set, in the order :data:`_BOUNDS` declares them,
-        so a run narrowed on price alone does not report two bounds it never had.
-
-        A budget is named with the currency it was read in where the run found
-        one, because that is the part of it nobody typed: the number came from the
-        shopper and the currency from whatever the pages were printing.
+        Only the ones that were set, in the order :data:`_BOUNDS` declares them. A budget
+        is named with the currency it was read in, that being the part nobody typed: the
+        number came from the shopper and the currency from whatever the pages printed.
         """
         # The budget is the one bound whose figure carries a unit, so its reader
         # being ``comparable_price`` is what identifies it -- no extra column.
@@ -143,14 +127,12 @@ class Constraints:
     def apply(self, products: Sequence[Product]) -> list[Product]:
         """The products inside the bounds, and a line saying how many were not.
 
-        Silence is the failure mode this guards against: a run that quietly
-        reports two products because seven were over budget looks exactly like a
-        run that only found two, and the second is a reason to search differently
-        while the first is not. So the count goes out whenever bounds were set,
-        even where everything passed -- "10 of 10" is the answer that says the
-        bound did nothing.
-
-        Given no bounds at all this is the products, unexamined and unremarked.
+        Silence is the failure mode this guards against: a run that quietly reports two
+        products because seven were over budget looks exactly like a run that only found
+        two, and the second is a reason to search differently. So the count goes out
+        whenever bounds were set, even where everything passed -- "10 of 10" says the
+        bound did nothing. Given no bounds this is the products, unexamined and
+        unremarked.
         """
         if not self.given:
             return list(products)
@@ -169,7 +151,7 @@ class Constraints:
         if excluded:
             # The names at DEBUG under the count, as everywhere a product is
             # removed: "why is the one I had in mind not in there?" is what a
-            # bound provokes, and a count alone answers it with a number.
+            # bound provokes.
             logger.debug(
                 "Outside the limits: %s", ", ".join(repr(name) for name in excluded)
             )
