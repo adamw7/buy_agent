@@ -31,9 +31,9 @@ docker run --rm -v "${PWD}:/out" buy-agent -m buy_agent "running shoes" --json /
 ```
 
 The other model server is the same story with the other pair of variables: the
-image sets `VLLM_HOST` to `host.docker.internal:8000/v1` beside `OLLAMA_HOST`, so
-a vLLM on the host needs only the provider named -- as a variable for every run in
-that container, or per search from the form's **Model server** picker
+image sets `VLLM_HOST` to `host.docker.internal:8000/v1` beside `OLLAMA_HOST`,
+so a vLLM on the host needs only the provider named -- as a variable for every
+run in that container, or per search from the form's **Model server** picker
 ([ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md)):
 
 ```powershell
@@ -73,7 +73,7 @@ pip install -r requirements.txt
 python -m buy_agent.server                       # http://127.0.0.1:8000
 ```
 
-Both are checked before they are published: the workflow starts each one and asks
-it for `/api/config` and for the page, so an archive whose UI landed in the wrong
-place, or an image that no longer boots, fails the release rather than the
+Both are checked before they are published: the workflow starts each one and
+asks it for `/api/config` and for the page, so an archive whose UI landed in the
+wrong place, or an image that no longer boots, fails the release rather than the
 download.

@@ -1,32 +1,33 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with
+code in this repository.
 
 ## What this is
 
 A shopping agent: it takes a plain-language request ("wireless headphones under
 $200"), searches the web, extracts up to 10 products along with what the pages
-say about them, ranks them, and logs the top 3. Built on a local model, served by
-Ollama or by a vLLM behind its OpenAI-compatible API -- `AgentConfig.provider`
-chooses, `buy_agent/providers.py` is the only module that knows the difference
-(ADR-0028), and each server's own client is called directly: there is no
-framework between the prompt and the answer, `buy_agent/chat.py` being all of one
-there is (ADR-0038). `ui/` is an Angular front end onto the same
-pipeline, served by `buy_agent.server`. Optionally -- off by default, and off
-unless an extra dependency is installed -- it can also *buy* what it found,
-authorised by signed [AP2](https://ap2-protocol.org) mandates rather than a
-stored card (ADR-0046).
+say about them, ranks them, and logs the top 3. Built on a local model, served
+by Ollama or by a vLLM behind its OpenAI-compatible API --
+`AgentConfig.provider` chooses, `buy_agent/providers.py` is the only module that
+knows the difference (ADR-0028), and each server's own client is called
+directly: there is no framework between the prompt and the answer,
+`buy_agent/chat.py` being all of one there is (ADR-0038). `ui/` is an Angular
+front end onto the same pipeline, served by `buy_agent.server`. Optionally --
+off by default, and off unless an extra dependency is installed -- it can also
+*buy* what it found, authorised by signed [AP2](https://ap2-protocol.org)
+mandates rather than a stored card (ADR-0046).
 
 `README.md` keeps the tour and links out to the longer sections beside it:
-`docs/models.md` (keeping Ollama's models current), `docs/docker.md` (the web tier
-as a container, and what a release publishes), `docs/testing.md` (both suites, the
-coverage floors, the nightly run, the benchmark and the mutation run) and `demo/README.md` (two
-recorded runs of the UI, the still the README shows, and the harness that took
-all three).
+`docs/models.md` (keeping Ollama's models current), `docs/docker.md` (the web
+tier as a container, and what a release publishes), `docs/testing.md` (both
+suites, the coverage floors, the nightly run, the benchmark and the mutation
+run) and `demo/README.md` (two recorded runs of the UI, the still the README
+shows, and the harness that took all three).
 
 The rules below are the *rules*. `docs/adr/` is why each exists and what was
-rejected; the module docstrings carry the local detail. Prefer adding a rule here
-or a convention test over restating an ADR.
+rejected; the module docstrings carry the local detail. Prefer adding a rule
+here or a convention test over restating an ADR.
 
 ## Commands
 
@@ -87,13 +88,13 @@ npm start                                     # dev server on :4200, proxying /a
 `ui/` is a separate, ordinary Angular workspace with its own `package.json` and
 tests: Angular 22 on Node 22.22.3+, 24.15+ or 26+ (older Node is refused by the
 Angular CLI, not by anything here), and nothing on the Python side needs Node.
-The Python half has a linter and no formatter -- pylint, over the package and from
-the repository root, where it finds `.pylintrc` (ADR-0048) -- and the UI has it the
-other way about: Prettier (`npx prettier --write "src/**/*"`) and nothing linting
-it. Without `ui/dist/ui/browser` the API still answers and the page is a 503 saying
-how to build it (`--ui-dir` points at a build elsewhere) -- as a small HTML page
-for a client whose `Accept` says it is a browser, which is who reads that message,
-and as the same sentence in JSON for everyone else.
+The Python half has a linter and no formatter -- pylint, over the package and
+from the repository root, where it finds `.pylintrc` (ADR-0048) -- and the UI
+has it the other way about: Prettier (`npx prettier --write "src/**/*"`) and
+nothing linting it. Without `ui/dist/ui/browser` the API still answers and the
+page is a 503 saying how to build it (`--ui-dir` points at a build elsewhere) --
+as a small HTML page for a client whose `Accept` says it is a browser, which is
+who reads that message, and as the same sentence in JSON for everyone else.
 
 ### The container
 
@@ -107,50 +108,51 @@ A `node:22.22.3-bookworm-slim` stage builds `ui/`; a `python:3.13-slim` stage
 installs `requirements.txt` and gets the build copied to `ui/dist/ui/browser`
 beside the package, where `server.DEFAULT_UI_DIR` looks. Neither model server is
 in the image or started by it (ADR-0015): the container talks to the host's
-through `host.docker.internal`, which both `$OLLAMA_HOST` and `$VLLM_HOST` are set
-to, and which needs `--add-host=host.docker.internal:host-gateway` on Linux.
-`ENTRYPOINT` is `python` and `CMD` is `-m buy_agent.server --host 0.0.0.0`, so the
-CLI is reachable from the same image and `--host` stays out of the server's own
-default. No pull request builds it -- `release.yml` does, once per release
+through `host.docker.internal`, which both `$OLLAMA_HOST` and `$VLLM_HOST` are
+set to, and which needs `--add-host=host.docker.internal:host-gateway` on Linux.
+`ENTRYPOINT` is `python` and `CMD` is `-m buy_agent.server --host 0.0.0.0`, so
+the CLI is reachable from the same image and `--host` stays out of the server's
+own default. No pull request builds it -- `release.yml` does, once per release
 (ADR-0030); the rest of the time `tests/test_conventions.py` keeps its version
 pins, its copy destination and its `EXPOSE` in step.
 
 `.dockerignore` narrows what the build sees: `tests/`, `integration/`,
-`benchmark/`, `docs/`, `scripts/`, `demo/`, `.github/`, `.claude/`, every Markdown
-file, the dev and mutation requirements with `setup.cfg` and `.pylintrc`, whatever
-working here leaves behind -- `.gitignore`'s own list, every spelling of the
-virtualenv included -- and `.env`, which is the one thing kept out on purpose
-rather than for its size. So the Node stage builds from source rather than copying a stale local
-`dist/`, and `demo/` -- a video the size of the rest put together -- never reaches
-the daemon. `tests/test_conventions.py` reads it from both sides: everything
-`.gitignore` names is named here too, which is the sentence the file opens with,
-and nothing the `Dockerfile` copies is caught by any of it, which is the mistake
-that stops a build rather than quietly fattening one. Neither says anything about
-a *new* top-level directory, so one added without a line here is still uploaded
-whole. Patterns match from the root, so the UI's own leavings are written out
+`benchmark/`, `docs/`, `scripts/`, `demo/`, `.github/`, `.claude/`, every
+Markdown file, the dev and mutation requirements with `setup.cfg` and
+`.pylintrc`, whatever working here leaves behind -- `.gitignore`'s own list,
+every spelling of the virtualenv included -- and `.env`, which is the one thing
+kept out on purpose rather than for its size. So the Node stage builds from
+source rather than copying a stale local `dist/`, and `demo/` -- a video the
+size of the rest put together -- never reaches the daemon.
+`tests/test_conventions.py` reads it from both sides: everything `.gitignore`
+names is named here too, which is the sentence the file opens with, and nothing
+the `Dockerfile` copies is caught by any of it, which is the mistake that stops
+a build rather than quietly fattening one. Neither says anything about a *new*
+top-level directory, so one added without a line here is still uploaded whole.
+Patterns match from the root, so the UI's own leavings are written out
 (`ui/dist/`, `ui/coverage/`): `ui/` is the one directory copied whole, and a
 `coverage/` matched at the root reaches nothing inside it.
 
 ### Settings and their environment
 
 `$BUY_AGENT_CACHE_DIR` moves where a run keeps what it can reuse -- `pages/` for
-the text the fetch read (ADR-0040) and `answers/` for what the model said about it
-(ADR-0044) -- defaulting to the platform's own cache directory under `buy-agent/`.
-Like `$VLLM_API_KEY` it has no flag and no form field -- a path on the server's
-disk is not a browser's to choose -- while *how long* an entry lasts is the
-ordinary `cache_ttl` setting, one number for both kinds, 0 meaning "read every
-page off the web and ask the model every question". A sampled run
+the text the fetch read (ADR-0040) and `answers/` for what the model said about
+it (ADR-0044) -- defaulting to the platform's own cache directory under
+`buy-agent/`. Like `$VLLM_API_KEY` it has no flag and no form field -- a path on
+the server's disk is not a browser's to choose -- while *how long* an entry
+lasts is the ordinary `cache_ttl` setting, one number for both kinds, 0 meaning
+"read every page off the web and ask the model every question". A sampled run
 (`temperature` above 0) is never remembered whatever the setting says: it has no
 one answer to remember.
 
 Paying adds two settings of the same kind, and for the same reason.
-`$BUY_AGENT_AP2_KEY` is the EC P-256 key mandates are signed with -- a secret, so
-it stays out of a shell history, out of `defaults_payload` and out of any form --
-and `$BUY_AGENT_AP2_MANDATE` names a pre-signed *open* mandate, a path on the
-server's disk. That second one is not merely a setting: its presence is what puts
-a run into AP2's human-not-present mode, because the open mandate *is* the
-authorisation and a second switch saying "run unattended" would only fail without
-the file anyway (ADR-0046).
+`$BUY_AGENT_AP2_KEY` is the EC P-256 key mandates are signed with -- a secret,
+so it stays out of a shell history, out of `defaults_payload` and out of any
+form -- and `$BUY_AGENT_AP2_MANDATE` names a pre-signed *open* mandate, a path
+on the server's disk. That second one is not merely a setting: its presence is
+what puts a run into AP2's human-not-present mode, because the open mandate *is*
+the authorisation and a second switch saying "run unattended" would only fail
+without the file anyway (ADR-0046).
 
 `$BUY_AGENT_PROVIDER` moves which model server a run talks to, and each provider
 has its own variables behind it -- `$OLLAMA_MODEL`/`$OLLAMA_HOST` and
@@ -159,10 +161,10 @@ has its own variables behind it -- `$OLLAMA_MODEL`/`$OLLAMA_HOST` and
 therefore default to the *empty string* and are resolved per provider in
 `__post_init__`: which value is right depends on a sibling field, so a plain
 default could only ever be right for one of the two, and "unset" is spelled the
-way a blank form field is (ADR-0012). Hence `--model` and `--base-url` default to
-`""` and interpolate every provider's pair into their help. `$VLLM_API_KEY` is the
-one setting with no flag and no form field -- a secret, so it stays out of a shell
-history, out of `defaults_payload` and out of `provider_options()`.
+way a blank form field is (ADR-0012). Hence `--model` and `--base-url` default
+to `""` and interpolate every provider's pair into their help. `$VLLM_API_KEY`
+is the one setting with no flag and no form field -- a secret, so it stays out
+of a shell history, out of `defaults_payload` and out of `provider_options()`.
 
 Every other CLI flag defaults to the matching `AgentConfig` field, so a new
 setting is added in `config.py` and picked up rather than repeated. One field is
@@ -173,9 +175,9 @@ deliberately renamed on the way out: `AgentConfig.reasoning` is `--think`
 
 It pairs with `num_ctx`: the extraction prompt runs to ~4.3k tokens, so on
 Ollama's default 4096 window a thinking model reasons until the context is gone
-and never emits any JSON. Ollama's default model is `gemma4:12b`, which thinks, so
-`reasoning` defaults to `False` and `num_ctx` to `8192`. A model that cannot think
-ignores both; one that wants its own behaviour back is given
+and never emits any JSON. Ollama's default model is `gemma4:12b`, which thinks,
+so `reasoning` defaults to `False` and `num_ctx` to `8192`. A model that cannot
+think ignores both; one that wants its own behaviour back is given
 `num_ctx=None, reasoning=None`, reachable from neither front end (ADR-0019).
 `num_ctx` is the one setting the two providers do not share -- vLLM fixes its
 window with `--max-model-len` at startup, so `Provider.takes_num_ctx` is false
@@ -188,126 +190,124 @@ number nothing reads. `reasoning` *is* shared: Ollama's `think`, vLLM's
 `.github/workflows/ci.yml` runs two jobs for pushes to `main` and every pull
 request: `coverage run -m pytest`, `coverage report` and then `pylint buy_agent`
 on Python 3.13, and `npm run test:coverage && npm run build` in `ui/` on Node
-22.22.3. The lint is last in its job on purpose: a job stops at its first failing
-step, and of the two the tests are what a change is about. Either platform
-alone leaves half the platform differences unchecked (ADR-0020), so both jobs are
-still matrixed over `ubuntu-latest` and `windows-latest` -- but not on the same
-trigger (ADR-0037): a push and a pull request are gated on Linux, and Windows joins
-the matrix at 04:09 UTC on Saturdays and on `workflow_dispatch`, which is how a
-branch that touched a path, an encoding, a socket or `start.ps1` asks for Windows
-before it is merged rather than a week after. The matrix is one expression over
-`github.event_name`, in one workflow, rather than a second file copying both jobs'
-steps and both version pins. `fail-fast` is off so one platform's failure still
-reports the other; the concurrency group names the event, the schedule firing on
-`main` where pushes land and `cancel-in-progress` otherwise letting a Saturday
-morning merge drop the week's only Windows run; every step runs under `bash`,
-PowerShell carrying on past a failing command mid-step; and the matrix is over
-platforms only, one Python and one Node, since the `Dockerfile`, `scripts/start.ps1`
-and `docs/testing.md` each pin themselves to *the* version `ci.yml` names.
+22.22.3. The lint is last in its job on purpose: a job stops at its first
+failing step, and of the two the tests are what a change is about. Either
+platform alone leaves half the platform differences unchecked (ADR-0020), so
+both jobs are still matrixed over `ubuntu-latest` and `windows-latest`. Not on
+the same trigger, though (ADR-0037): a push and a pull request are gated on
+Linux, and Windows joins the matrix at 04:09 UTC on Saturdays and on
+`workflow_dispatch`. That dispatch is how a branch that touched a path, an
+encoding, a socket or `start.ps1` asks for Windows before it is merged rather
+than a week after. The matrix is one expression over `github.event_name`, in one
+workflow, rather than a second file copying both jobs' steps and both version
+pins. Four details hold it together. `fail-fast` is off, so one platform's
+failure still reports the other. The concurrency group names the event: the
+schedule fires on `main` where pushes land, and `cancel-in-progress` otherwise
+would let a Saturday morning merge drop the week's only Windows run. Every step
+runs under `bash`, PowerShell carrying on past a failing command mid-step. And
+the matrix is over platforms only, one Python and one Node, since the
+`Dockerfile`, `scripts/start.ps1` and `docs/testing.md` each pin themselves to
+*the* version `ci.yml` names.
 
 - **`integration.yml`** runs `pytest integration` against a real Ollama at 03:41
   UTC nightly (and on `workflow_dispatch`), never on a pull request, capped at
-  `timeout-minutes: 5` -- which covers installing Ollama, pulling the model and the
-  inference. Linux only: what it asks is the same question on either platform.
-  Ollama and the model tag are the one pair deliberately left unpinned, noticing
-  that a release changed `method="json_schema"` decoding being half of what the job
-  is for (ADR-0026).
+  `timeout-minutes: 5` -- which covers installing Ollama, pulling the model and
+  the inference. Linux only: what it asks is the same question on either
+  platform. Ollama and the model tag are the one pair deliberately left
+  unpinned, noticing that a release changed `method="json_schema"` decoding
+  being half of what the job is for (ADR-0026).
 - **`mutation.yml`** runs mutmut against `buy_agent/` at 05:17 UTC on Saturdays
   (and on `workflow_dispatch`), never on a pull request. Its settings live in
   `setup.cfg` -- which exists for that and is not a packaging file -- and
-  `scripts/mutation_report.py` turns a run into the job summary and fails it under
-  75% (ADR-0016). A run copies the tree to `mutants/` and tests the copy, so
-  anything the suite reads off disk or imports from outside `buy_agent` has to be
-  named in `also_copy`, or the run dies at collection.
-- **`release.yml`** runs when a release is *published* (and on `workflow_dispatch`
-  with a tag, so a failed upload can be retried without re-cutting the release) and
-  puts two packages on GitHub: `buy-agent-<version>.tar.gz`/`.zip` with a
-  `SHA256SUMS.txt`, attached by `gh`, and `ghcr.io/<owner>/<repo>:<version>` from
-  the `Dockerfile`, `latest` following full releases only (ADR-0030). The archive
-  holds `buy_agent/`, the built UI, `requirements.txt`, `README.md` and `docs/` --
-  no wheel and no sdist, the project still being run from a directory. Both jobs
-  check out `$TAG` rather than the branch the workflow sits on, and neither package
-  is published unattended: each is installed or run and asked for `/api/config` and
+  `scripts/mutation_report.py` turns a run into the job summary and fails it
+  under 75% (ADR-0016). A run copies the tree to `mutants/` and tests the copy,
+  so anything the suite reads off disk or imports from outside `buy_agent` has
+  to be named in `also_copy`, or the run dies at collection.
+- **`release.yml`** runs when a release is *published* (and on
+  `workflow_dispatch` with a tag, so a failed upload can be retried without
+  re-cutting the release) and puts two packages on GitHub:
+  `buy-agent-<version>.tar.gz`/`.zip` with a `SHA256SUMS.txt`, attached by `gh`,
+  and `ghcr.io/<owner>/<repo>:<version>` from the `Dockerfile`, `latest`
+  following full releases only (ADR-0030). The archive holds `buy_agent/`, the
+  built UI, `requirements.txt`, `README.md` and `docs/` -- no wheel and no
+  sdist, the project still being run from a directory. Both jobs check out
+  `$TAG` rather than the branch the workflow sits on, and neither package is
+  published unattended: each is installed or run and asked for `/api/config` and
   `/`. Linux only, like the other two schedules.
 
-`pytest.ini` sets `pythonpath = .` (which is why the package imports without being
-installed), `testpaths = tests`, `addopts = -q --strict-markers` and
-`filterwarnings`, which makes a `DeprecationWarning` or a `PendingDeprecationWarning`
-an error rather than a paragraph at the end of a green run: every direct dependency
-is pinned exactly, so the run that goes red is the one where somebody moved a pin,
-which is when the call is worth fixing. It reaches `integration/` too. A warning a
-dependency raises about itself is not ours to fix and gets an `ignore` line there
-naming the message and the module. It also sets `timeout = 60` (pytest-timeout),
-which is a cap on each test and not a budget for the run: nothing in either suite
-sleeps and the slowest test there is takes about 1.5s spawning an interpreter, so
-a minute is only ever reached by a test that has stopped -- a fetch that got past
-a misspelt patch and out to the real web, a socket nothing will answer -- and
-reaching it names that test instead of leaving a runner to sit until GitHub's own
-six-hour cap. A minute is the wrong number for a real model, so
-`integration/conftest.py` marks every test there with
-`integration.LIVE_TIMEOUT_SECONDS` instead, which a convention test holds between
-the cap above and the five minutes `integration.yml` gives the whole job -- over
-the first or a slow CPU answer fails; at the second the job's own cap fires first
-and names no test. `.coveragerc` holds the Python floor (99%, against 100%
-actual) with `branch = true`, so the floor is over branches as well as lines; the
-one exclusion is the `if __name__ == "__main__"` guard, covered instead by
-spawning a real interpreter.
-`.pylintrc` is the third file of that kind and the one that holds no number: the
-linter has to come out with no message at all, since every check this project has
-answered differently is turned off there with the answer, and every line the tool
-misreads carries a `# pylint: disable` and the sentence saying why (ADR-0048) --
-which `tests/test_conventions.py` reads back, pylint's own `useless-suppression`
-failing a pragma that has stopped suppressing anything.
+Four files configure all of that, and `docs/testing.md` says why each is set the
+way it is.
 
-`ui/scripts/check-coverage.mjs` holds the UI's (98% of statements and lines): the
-Angular unit-test builder reads a vitest config's coverage *reporters* but does not
-fail a run on its `thresholds`, so the floor has to be checked separately or it is
-not a floor. Statements and lines only, on purpose -- v8 attributes the branches
-inside a compiled Angular template to positions no test can reach, so a branch
-floor there would measure the instrumentation. Don't add one.
+- `pytest.ini` sets `pythonpath = .`, which is why the package imports without
+  being installed, plus `testpaths = tests`, `addopts = -q --strict-markers`,
+  `filterwarnings` (a `DeprecationWarning` or a `PendingDeprecationWarning` is an
+  error, `integration/` included) and `timeout = 60` per test. A warning a
+  dependency raises about itself gets an `ignore` line there naming the message
+  and the module. A minute is the wrong number for a real model, so
+  `integration/conftest.py` marks every test there with
+  `integration.LIVE_TIMEOUT_SECONDS` instead, which a convention test holds
+  between that cap and the five minutes `integration.yml` gives the whole job.
+- `.coveragerc` holds the Python floor -- 99% against 100% actual, with
+  `branch = true`, so it is over branches as well as lines. The one exclusion is
+  the `if __name__ == "__main__"` guard, covered instead by spawning a real
+  interpreter.
+- `.pylintrc` is the one of the four that holds no number: the linter has to come
+  out with no message at all. Every check this project has answered differently
+  is turned off there with the answer, and every line the tool misreads carries a
+  `# pylint: disable` and the sentence saying why (ADR-0048).
+- `ui/scripts/check-coverage.mjs` holds the UI's floor, 98% of statements and
+  lines. The Angular unit-test builder reads a vitest config's coverage
+  *reporters* but does not fail a run on its `thresholds`, so the floor has to be
+  checked separately or it is not a floor. Statements and lines only, on purpose:
+  v8 attributes the branches inside a compiled Angular template to positions no
+  test can reach, so a branch floor there would measure the instrumentation.
+  Don't add one.
 
 ## Architecture
 
-`docs/architecture.md` holds the same picture as C4 diagrams; keep it in step when
-a module's responsibility or a boundary moves. `docs/adr/` is the decision log,
-indexed by `docs/adr/README.md`. A change that contradicts an accepted record gets
-a new record superseding it rather than an edit to the old one -- numbers are never
-reused, and accepted records are not rewritten. `tests/test_conventions.py` checks
-that the index and the directory agree, so a new ADR is two edits: the file and its
-row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0048 and every record is Accepted but ADR-0020, which ADR-0037 supersedes,
-so the next free number is 0049.
+`docs/architecture.md` holds the same picture as C4 diagrams; keep it in step
+when a module's responsibility or a boundary moves. `docs/adr/` is the decision
+log, indexed by `docs/adr/README.md`. A change that contradicts an accepted
+record gets a new record superseding it rather than an edit to the old one --
+numbers are never reused, and accepted records are not rewritten.
+`tests/test_conventions.py` checks that the index and the directory agree, so a
+new ADR is two edits: the file and its row in the index.
+`docs/adr/0000-template.md` is the starting point. Every record is Accepted but
+ADR-0020, which ADR-0037 supersedes; the next free number is the one after the
+last file in that directory, which is where `add-adr` reads it from.
 
-`.claude/skills/` holds the chores that span those files: `add-option` walks a new
-setting through `config.py`, both front doors, `agent.types.ts` and the form;
-`add-row` is that walk for a model server or a payment rail, each of which is one
-row in one table and a row nowhere else; `add-adr` takes the next number off the
-directory rather than off the sentence above, which has gone stale before;
-`preflight` is the gate `ci.yml` applies. They are checklists over the rules
-written down here, not new rules -- a rule belongs in this file or in a convention
-test, where it holds whether or not anybody invoked a skill. They are checked like
-everything else that names the code from outside it: `tests/test_conventions.py`
-holds every file, test and table a skill names against what is there, since
-nothing else in either suite reads them and a step pointing at a renamed table
-stays green for as long as nobody follows it.
+`.claude/skills/` holds the chores that span those files: `add-option` walks a
+new setting through `config.py`, both front doors, `agent.types.ts` and the
+form; `add-row` is that walk for a model server or a payment rail, each of which
+is one row in one table and a row nowhere else; `add-adr` takes the next number
+off the directory rather than off the sentence above, which has gone stale
+before; `preflight` is the gate `ci.yml` applies. They are checklists over the
+rules written down here, not new rules -- a rule belongs in this file or in a
+convention test, where it holds whether or not anybody invoked a skill. They are
+checked like everything else that names the code from outside it:
+`tests/test_conventions.py` holds every file, test and table a skill names
+against what is there, since nothing else in either suite reads them and a step
+pointing at a renamed table stays green for as long as nobody follows it.
 
 `.claude/hooks/session-start.sh` is the other thing in there, and it runs rather
-than being read: the images Claude Code on the web starts a session in ship a Node
-below the one `ci.yml` pins, which the Angular CLI refuses outright, so every
-session used to open by hunting for another interpreter and finding none. The hook
-fetches the pinned build into `/opt/node-<version>`, leaves it on `$PATH` through
-`$CLAUDE_ENV_FILE` -- the Bash tool starting a fresh shell per call, so exporting it
-is not enough -- and runs `npm install` in `ui/`. It reads the version out of
-`ci.yml` rather than writing it down again, by the rule `scripts/start.ps1` follows:
-that file is the one pin the `Dockerfile`, the start script and `docs/testing.md`
-already chase, and a fourth copy is a fourth thing to bump. It is a no-op outside a
-remote session (`$CLAUDE_CODE_REMOTE`), a no-op once the interpreter is unpacked,
-and every failure in it is a warning rather than a stop -- a session that starts
-with the old Node is the situation it was written for, not worse than it.
+than being read: the images Claude Code on the web starts a session in ship a
+Node below the one `ci.yml` pins, which the Angular CLI refuses outright, so
+every session used to open by hunting for another interpreter and finding none.
+The hook fetches the pinned build into `/opt/node-<version>`, leaves it on
+`$PATH` through `$CLAUDE_ENV_FILE` -- the Bash tool starting a fresh shell per
+call, so exporting it is not enough -- and runs `npm install` in `ui/`. It reads
+the version out of `ci.yml` rather than writing it down again, by the rule
+`scripts/start.ps1` follows: that file is the one pin the `Dockerfile`, the
+start script and `docs/testing.md` already chase, and a fourth copy is a fourth
+thing to bump. It is a no-op outside a remote session (`$CLAUDE_CODE_REMOTE`), a
+no-op once the interpreter is unpacked, and every failure in it is a warning
+rather than a stop -- a session that starts with the old Node is the situation
+it was written for, not worse than it.
 
-The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used for
-the two steps it is reliable at, and ordinary Python does everything else, because
-these servers are typically run with small models that drive tool loops badly.
+The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
+for the two steps it is reliable at, and ordinary Python does everything else,
+because these servers are typically run with small models that drive tool loops
+badly.
 
 ```
 request -> refine query (LLM) -> DuckDuckGo (once, or once per named
@@ -316,17 +316,17 @@ source) -> fetch + condense pages
         -> ground -> deduplicate -> the shopper's bounds -> rank -> log top 3
 ```
 
-That order is load-bearing in three joints. `clean_products` runs before `ground`
-so a name still wearing its publisher suffix ("... Review | AudioSite") is not
-failed by the coverage check for tokens the page never had to contain; `ground`
-runs before `deduplicate` so `_combine` only ever merges figures the sources back.
-That is necessary and not sufficient: a merge taking each field on its own would
-still report a pairing no page printed, so `models.QUALIFIERS` says which fields
-only qualify another and `_fill_gaps` moves the group. The third is the shopper's
-bounds (ADR-0039): after `deduplicate`, since `_fill_gaps` may be what supplies
-the price they are judged on, and before `rank_products`, since price scores
-relative to the candidate set and the set that matters is the one being
-reported.
+That order is load-bearing in three joints. `clean_products` runs before
+`ground` so a name still wearing its publisher suffix ("... Review | AudioSite")
+is not failed by the coverage check for tokens the page never had to contain;
+`ground` runs before `deduplicate` so `_combine` only ever merges figures the
+sources back. That is necessary and not sufficient: a merge taking each field on
+its own would still report a pairing no page printed, so `models.QUALIFIERS`
+says which fields only qualify another and `_fill_gaps` moves the group. The
+third is the shopper's bounds (ADR-0039): after `deduplicate`, since
+`_fill_gaps` may be what supplies the price they are judged on, and before
+`rank_products`, since price scores relative to the candidate set and the set
+that matters is the one being reported.
 
 | Module | Responsibility |
 | --- | --- |
@@ -356,26 +356,26 @@ reported.
   `base_url`, `api_key`, from its own environment variables) beside how it is
   talked to (the client, how it declares a schema, the listing, the transport
   errors meaning "not there", the sentence that failure carries) plus
-  `takes_num_ctx` (ADR-0029). The listing
-  answers `InstalledModel`s rather than names, since what a server holds and what a
-  run can use are the same question only on vLLM: Ollama's `installed` asks
-  `ollama show` per tag, so an embedding-only pull is marked in the picker rather
-  than offered (ADR-0032), and a failed probe leaves the tag usable. The module
-  imports nothing from `config`; the dependency runs the other way, and
-  `AgentConfig.model_server` is the *only* place a provider name becomes behaviour
-  -- so `agent.py` reads `config.model_server.chat_model(config)`, catches
-  `.transport_errors` and raises with `.hint(config, exc)`, and
-  `api.installed_models` asks `.installed(config)`. No module-level wrappers, and
-  no `if provider == ...` anywhere above the table. A setting one server takes and
-  the other does not gets a declaration on the row rather than a branch in the CLI,
-  the API and the form; a hint sentence both servers would write goes in
-  `_too_slow_hint` or `_unreachable_hint` (ADR-0028, ADR-0029). A row's client
-  holds a connection pool, and letting go of it is the row's own too: each chat
-  model has a `close`, `chat.release` is who asks for one where there is one to
-  ask, and `BuyAgent.close` is when -- so both front doors build one agent per
-  request and release it, rather than leaving a pool to whenever the last
-  reference to it happens to fall. A stand-in is unaffected, which is the point
-  of asking rather than requiring: `ChatModel` is still a class with one method.
+  `takes_num_ctx` (ADR-0029). The listing answers `InstalledModel`s rather than
+  names, since what a server holds and what a run can use are the same question
+  only on vLLM: Ollama's `installed` asks `ollama show` per tag, so an
+  embedding-only pull is marked in the picker rather than offered (ADR-0032),
+  and a failed probe leaves the tag usable. The module imports nothing from
+  `config`; the dependency runs the other way, and `AgentConfig.model_server` is
+  the *only* place a provider name becomes behaviour -- so `agent.py` reads
+  `config.model_server.chat_model(config)`, catches `.transport_errors` and
+  raises with `.hint(config, exc)`, and `api.installed_models` asks
+  `.installed(config)`. No module-level wrappers, and no `if provider == ...`
+  anywhere above the table. A setting one server takes and the other does not
+  gets a declaration on the row rather than a branch in the CLI, the API and the
+  form; a hint sentence both servers would write goes in `_too_slow_hint` or
+  `_unreachable_hint` (ADR-0028, ADR-0029). A row's client holds a connection
+  pool, and letting go of it is the row's own too: each chat model has a
+  `close`, `chat.release` is who asks for one where there is one to ask, and
+  `BuyAgent.close` is when -- so both front doors build one agent per request
+  and release it, rather than leaving a pool to whenever the last reference to
+  it happens to fall. A stand-in is unaffected, which is the point of asking
+  rather than requiring: `ChatModel` is still a class with one method.
 - **A payment rail is one row in one table too, and the default one spends
   nothing.** `rails.RAILS` is `providers.PROVIDERS` for counterparties: each row
   carries where it listens (from its own environment variable), whether it needs
@@ -386,193 +386,199 @@ reported.
   choice -- and no merchant, wallet, processor or cloud is named anywhere here
   (ADR-0046). `AgentConfig.rail_used` is the only place a rail's name becomes
   behaviour; no `if rail == ...` above that module, and a third rail is a row
-  there and a row nowhere else. The default is `dry-run`, which plays every role,
-  signs a chain that really verifies and charges nobody, so `--pay` on its own is
-  never a way to spend money.
+  there and a row nowhere else. The default is `dry-run`, which plays every
+  role, signs a chain that really verifies and charges nobody, so `--pay` on its
+  own is never a way to spend money.
 - **Never pay on an unverified number, and never on one this run cannot place.**
   The ranking rule (ADR-0006) turned around. `payment._check` refuses a product
-  whose price grounding blanked, whose currency no page printed, whose price is in
-  a currency outside the run's own (ADR-0043), or which has no source page to name
-  a merchant from -- every one of those already being the answer to "did a source
-  say so". It is the deliberate opposite of the shopper's bounds, which *keep* a
-  product they cannot judge (ADR-0039): a filter that drops a candidate over a
-  missing figure punishes the extractor's miss, while an amount nobody can place
-  is simply not an amount to send. That one function is asked by the CLI's prompt,
-  by the card's button (through `cannot_pay` on every product) and by the payment
-  itself, so a button is never offered for something the server would refuse.
+  whose price grounding blanked, whose currency no page printed, whose price is
+  in a currency outside the run's own (ADR-0043), or which has no source page to
+  name a merchant from -- every one of those already being the answer to "did a
+  source say so". It is the deliberate opposite of the shopper's bounds, which
+  *keep* a product they cannot judge (ADR-0039): a filter that drops a candidate
+  over a missing figure punishes the extractor's miss, while an amount nobody
+  can place is simply not an amount to send. That one function is asked by the
+  CLI's prompt, by the card's button (through `cannot_pay` on every product) and
+  by the payment itself, so a button is never offered for something the server
+  would refuse.
 - **The sources are whatever was searched, and the shopper may narrow them.**
   `AgentConfig.sources` is empty by default, which is the whole web. Given any,
   `BuyAgent._search` runs one search per source (`site:` takes one domain), puts
-  every result through `Source.covers()` before keeping it, pools them deduplicated
-  by URL and cuts the pool back to `search_results` -- so the fetching does not
-  multiply with the sources even though the searching does. Nothing downstream
-  knows, which is how "every figure and every quote was printed by a page the
-  shopper named" holds by construction (ADR-0027). What is enforced is the
-  **domain**; a handle or a section only narrows the query, a URL being unable to
-  carry it. Every shape is checked for naming something -- a host against
-  `_HOSTNAME`, a handle against `_HANDLE` -- because a spec that parses without
-  identifying anything searches for a phrase no page contains, and with no fall
-  back to the wider web that is an empty report with nothing to explain it. There is no fall back to the wider web when the named sources find
+  every result through `Source.covers()` before keeping it, pools them
+  deduplicated by URL and cuts the pool back to `search_results` -- so the
+  fetching does not multiply with the sources even though the searching does.
+  Nothing downstream knows, which is how "every figure and every quote was
+  printed by a page the shopper named" holds by construction (ADR-0027). What is
+  enforced is the **domain**; a handle or a section only narrows the query, a
+  URL being unable to carry it. Every shape is checked for naming something -- a
+  host against `_HOSTNAME`, a handle against `_HANDLE` -- because a spec that
+  parses without identifying anything searches for a phrase no page contains,
+  and with no fall back to the wider web that is an empty report with nothing to
+  explain it. There is no fall back to the wider web when the named sources find
   nothing: that would report facts from pages the shopper refused. `sources.py`
-  does no I/O -- it decides what a source *is* and `agent.py` does the searching,
-  which is also what keeps `search.py` a DuckDuckGo wrapper.
+  does no I/O -- it decides what a source *is* and `agent.py` does the
+  searching, which is also what keeps `search.py` a DuckDuckGo wrapper.
 - **`ExtractedProduct` uses sentinels, `Product` uses `None`.** The LLM-facing
-  schema asks for `-1`/`""` rather than nullable fields: Ollama compiles the JSON
-  schema into a decoding grammar, and a required `number` makes `"N/A"` -- which
-  would fail validation for the entire batch -- structurally impossible. Keep new
-  extraction fields non-nullable with a sentinel, and convert in `to_product()`.
-  `opinions` is the one field whose sentinel survives into `Product` as itself: the
-  empty list already spells "nothing was said".
+  schema asks for `-1`/`""` rather than nullable fields: Ollama compiles the
+  JSON schema into a decoding grammar, and a required `number` makes `"N/A"` --
+  which would fail validation for the entire batch -- structurally impossible.
+  Keep new extraction fields non-nullable with a sentinel, and convert in
+  `to_product()`. `opinions` is the one field whose sentinel survives into
+  `Product` as itself: the empty list already spells "nothing was said".
 - **Never rank on an unverified number, never link to an unverified page, and
-  never quote what nobody said.** `verification.ground()` drops products whose name
-  is absent from the sources and blanks any price, rating or review count that is.
-  Only the price is checked as a bare number. The other two are small whole
-  numbers a page prints for a hundred other reasons, so each is checked as
+  never quote what nobody said.** `verification.ground()` drops products whose
+  name is absent from the sources and blanks any price, rating or review count
+  that is. Only the price is checked as a bare number. The other two are small
+  whole numbers a page prints for a hundred other reasons, so each is checked as
   *itself*: a rating needs its scale ("4.3/5", "rated 4.3"), a bare `5` matching
   the "5" in "out of 5", and a review count needs somebody to be counted ("3,200
   ratings", "from 12,500 shoppers"), a bare `720` matching the model number in
-  "WH-CH720N", the year in a release date, or the price beside it. A figure added
-  here that a page could print by accident needs a `mentions_*` of its own rather
-  than `mentions_number`. Extraction and verification must be given the same text
-  or the check rejects everything, which is why `fetch.enrich()` puts page content on
-  `SearchResult` rather than passing it around separately. `attribute_sources()`
-  then gives each product the URL of the first searched page that mentions it,
-  keeping the model's own `url` only when it names a page that was searched
-  (ADR-0017): a blanked figure shows as "price unknown", but a made-up link is one
-  the shopper clicks. It runs inside `ground`, so `deduplicate` only ever merges
-  links the sources back.
+  "WH-CH720N", the year in a release date, or the price beside it. A figure
+  added here that a page could print by accident needs a `mentions_*` of its own
+  rather than `mentions_number`. Extraction and verification must be given the
+  same text or the check rejects everything, which is why `fetch.enrich()` puts
+  page content on `SearchResult` rather than passing it around separately.
+  `attribute_sources()` then gives each product the URL of the first searched
+  page that mentions it, keeping the model's own `url` only when it names a page
+  that was searched (ADR-0017): a blanked figure shows as "price unknown", but a
+  made-up link is one the shopper clicks. It runs inside `ground`, so
+  `deduplicate` only ever merges links the sources back.
 - **A quote is checked as running text, on the page it came from** (ADR-0024,
   ADR-0025). `fetch.py` sweeps each page twice -- once for the lines quoting a
   figure, once for the lines passing judgement, each on its own budget
   (`page_chars`, `opinion_chars`) so neither crowds the other out -- and
-  `verify_opinions()` drops every quote the sources do not contain as overlapping
-  runs of five consecutive words, most of which must be found. A word-by-word check
-  would pass any sentence assembled out of shared vocabulary, which is what a small
-  model paraphrasing produces. The tolerance is deliberately at the ends and not in
-  the middle. `_OPINION` is a vocabulary of judgement ("reviewers found", "the
-  downside is", "disappointing"), never of subject matter: "wireless" or "battery"
-  would take every line on the page. Unlike the figures, a quote is checked against
-  one page at a time and only one `mentions_name` says is about the product, which
-  is why `verify_opinions()` takes the results and not the pooled haystack. That
-  makes `mentions_name` the decider of three things -- whether a product is real,
-  where it links, and what may be quoted for it -- so a word added to
-  `GENERIC_WORDS` loosens all three.
+  `verify_opinions()` drops every quote the sources do not contain as
+  overlapping runs of five consecutive words, most of which must be found. A
+  word-by-word check would pass any sentence assembled out of shared vocabulary,
+  which is what a small model paraphrasing produces. The tolerance is
+  deliberately at the ends and not in the middle. `_OPINION` is a vocabulary of
+  judgement ("reviewers found", "the downside is", "disappointing"), never of
+  subject matter: "wireless" or "battery" would take every line on the page.
+  Unlike the figures, a quote is checked against one page at a time and only one
+  `mentions_name` says is about the product, which is why `verify_opinions()`
+  takes the results and not the pooled haystack. That makes `mentions_name` the
+  decider of three things -- whether a product is real, where it links, and what
+  may be quoted for it -- so a word added to `GENERIC_WORDS` loosens all three.
 - **A quote carries the page that printed it** (ADR-0042). `verify_opinions()`
   already has to find that page to keep the quote at all, so `Product.opinions`
   are `Opinion` objects -- the words and the URL of the first result that both
   mentions the product and prints them, which is the rule `attribute_sources`
-  picks the product's own link by. The model is asked for the words and never for
-  the page, exactly as it is never trusted with a link (ADR-0017). `url` is
+  picks the product's own link by. The model is asked for the words and never
+  for the page, exactly as it is never trusted with a link (ADR-0017). `url` is
   nullable and `None` is *not* "no page printed it": it is a result the search
   returned without one, and collapsing the two would drop every quote off such a
   page. The pair travels as one object -- through `_merge_opinions`,
-  `distinct_quotes`, `product_payload` and the card -- which is why it needs none
-  of the qualifier care below: neither half can move without the other.
+  `distinct_quotes`, `product_payload` and the card -- which is why it needs
+  none of the qualifier care below: neither half can move without the other.
 - **A currency belongs to its price, and a review count to its rating**
   (ADR-0022). Both are facts about the *listing* that printed them, so
-  `models.QUALIFIERS` pairs them up and `_fill_gaps` carries a qualifier over only
-  where the figure it describes is carried over too, or where both listings quote
-  the same one. The same rule binds at both earlier stages:
-  `verification.verify_numbers`, where a figure the sources do not back takes its
-  qualifiers down with it, and `ExtractedProduct.to_product`, where neither a
-  review count reported with no rating beside it nor a currency reported with no
-  price ever becomes one. Either way a count left
-  standing alone describes nothing, reads "unrated" on the card, and still feeds
-  the popularity half of the score -- which is why the pairing is declared once
-  beside the fields it names rather than restated in the merge's table and the
-  grounding's. Field-by-field merging passes grounding -- each half really is in
-  the sources -- while reporting "129.00 EUR" for a page that said 129 and a page
-  that said "249 EUR". A new field that only makes sense next to another belongs in
-  that other's group. `opinions` is deliberately outside the scheme, in
+  `models.QUALIFIERS` pairs them up and `_fill_gaps` carries a qualifier over
+  only where the figure it describes is carried over too, or where both listings
+  quote the same one. The same rule binds at both earlier stages:
+  `verification.verify_numbers`, where a figure the sources do not back takes
+  its qualifiers down with it, and `ExtractedProduct.to_product`, where neither
+  a review count reported with no rating beside it nor a currency reported with
+  no price ever becomes one. Either way a count left standing alone describes
+  nothing, reads "unrated" on the card, and still feeds the popularity half of
+  the score -- which is why the pairing is declared once beside the fields it
+  names rather than restated in the merge's table and the grounding's.
+  Field-by-field merging passes grounding -- each half really is in the sources
+  -- while reporting "129.00 EUR" for a page that said 129 and a page that said
+  "249 EUR". A new field that only makes sense next to another belongs in that
+  other's group. `opinions` is deliberately outside the scheme, in
   `_merge_opinions`: two listings' quotes are both kept, two reviewers being no
   conflict, and each was grounded on its own before the merge.
 - **`GENERIC_WORDS` is shared, and edits to it pull in two directions.**
-  `verification.py` imports the set from `extraction.py` (with `NAME_TOKENS`, so
-  merging and grounding agree on what a name's words are, and `SUPERLATIVES`, the
-  words a roundup ranks with -- there they open a headline the model reported as a
-  product, here they mark the figure beside them as a count of products rather
-  than a rating, and a word in one copy only used to drop a "cheapest" headline
-  while still grounding the rating printed next to it). Adding a word makes
-  `merge_variants` fold *more* names into one product and at the same time makes
-  `mentions_name` stricter, ignored words leaving fewer distinctive tokens to clear
-  the 0.6 coverage bar. Both sides of that bar are split by `NAME_TOKENS` and
-  compared word to word: a substring test would let "$1700" on the page vouch for
-  an invented "Bose 700". Only ever add words that identify nothing ("wireless",
-  "black"); a brand or a model number there would let an invented product pass
-  grounding.
+  `verification.py` imports the set from `extraction.py`, along with
+  `NAME_TOKENS`, so merging and grounding agree on what a name's words are.
+  `SUPERLATIVES` comes across too -- the words a roundup ranks with. There they
+  open a headline the model reported as a product; here they mark the figure
+  beside them as a count of products rather than a rating. A word in one copy
+  only used to drop a "cheapest" headline while still grounding the rating
+  printed next to it. Adding a word makes `merge_variants` fold *more* names
+  into one product and at the same time makes `mentions_name` stricter, ignored
+  words leaving fewer distinctive tokens to clear the 0.6 coverage bar. Both
+  sides of that bar are split by `NAME_TOKENS` and compared word to word: a
+  substring test would let "$1700" on the page vouch for an invented "Bose 700".
+  Only ever add words that identify nothing ("wireless", "black"); a brand or a
+  model number there would let an invented product pass grounding.
 - **Missing data scores neutral, not zero -- and says that it did.**
   `ranking.NEUTRAL` is 0.5, and an unknown rating, review count or price scores
   that. Grounding blanks figures the sources did not back, so scoring a blank as
   0 would punish a product for the extractor's misses. For the same reason
-  `sort_by="price"` and `"rating"` sink products missing that field to the bottom
-  instead of dropping them, and the shopper's bounds keep a product whose figure
-  is unknown rather than dropping it (ADR-0039). A price the run cannot *place*
-  is one of those blanks: prices are compared inside one currency and converted
-  never, so `models.dominant_currency` says which currency a set is counted in
-  and `models.comparable_price` answers `None` for anything outside it, which
-  scores neutral, sinks in a price sort and passes every bound (ADR-0043). A bare
-  price is taken as the set's own. Both places that hold one price against another
-  -- `rank_products` and `Constraints` -- go through that one function; a third
-  would have to. Which currency a listing named is settled once, in
-  `models._currency`: the schema asks for a code and a small model hands back the
-  sign the page printed, so `$` and `USD` are folded together there rather than
-  counted as two currencies half a set is then unplaceable in. Only the spellings
-  that name one currency are folded -- `¥` is the yen's and the yuan's alike, and
-  an ambiguous one left as written is a price the run cannot place, which is what
-  the rule above already has an answer for. The cost of that rule is that
-  0.5 means two different things, so `score_product` answers a `ScoreParts` whose
-  `neutral` names the criteria that were assumed rather than read, and both front
-  ends show it (ADR-0041). It is decided there and nowhere else: a share that
-  *equals* 0.5 may have been measured, a product priced mid-way through the set
-  scoring exactly that. The shares stay *unweighted*, so a run reports the weights
-  beside them -- `RankingWeights.fractions` on the run payload and on the score
-  line, `ranking.CRITERIA` pairing each with the share it weighs (ADR-0045). Three
+  `sort_by="price"` and `"rating"` sink products missing that field to the
+  bottom instead of dropping them, and the shopper's bounds keep a product whose
+  figure is unknown rather than dropping it (ADR-0039). A price the run cannot
+  *place* is one of those blanks: prices are compared inside one currency and
+  converted never, so `models.dominant_currency` says which currency a set is
+  counted in and `models.comparable_price` answers `None` for anything outside
+  it, which scores neutral, sinks in a price sort and passes every bound
+  (ADR-0043). A bare price is taken as the set's own. Both places that hold one
+  price against another -- `rank_products` and `Constraints` -- go through that
+  one function; a third would have to. Which currency a listing named is settled
+  once, in `models._currency`: the schema asks for a code and a small model
+  hands back the sign the page printed, so `$` and `USD` are folded together
+  there rather than counted as two currencies half a set is then unplaceable in.
+  Only the spellings that name one currency are folded -- `¥` is the yen's and
+  the yuan's alike, and an ambiguous one left as written is a price the run
+  cannot place, which is what the rule above already has an answer for. The cost
+  of that rule is that 0.5 means two different things, so `score_product`
+  answers a `ScoreParts` whose `neutral` names the criteria that were assumed
+  rather than read, and both front ends show it (ADR-0041). It is decided there
+  and nowhere else: a share that *equals* 0.5 may have been measured, a product
+  priced mid-way through the set scoring exactly that. The shares stay
+  *unweighted*, so a run reports the weights beside them --
+  `RankingWeights.fractions` on the run payload and on the score line,
+  `ranking.CRITERIA` pairing each with the share it weighs (ADR-0045). Three
   numbers under a total they do not add up to are otherwise unreadable, and a
   product carried by its price looks exactly like one carried by its rating.
-- **The report is output; the progress is narration.** `logging_setup` splits them
-  by handler rather than by logger: `log_top_products` marks its records and they
-  go to stdout, everything else to the stderr handler `basicConfig` installed, and
-  both still reach every other handler -- which keeps the browser's progress panel
-  showing one stream and a `caplog` seeing the whole run. Only the *console*
-  handler is told to skip the report; a handler writing anywhere else is nobody's
-  stream to take lines out of. `configure_logging` sets the level itself rather
-  than leaving it to `basicConfig`, which does nothing at all where the root
-  logger already has a handler -- and the level is what it silently skips, so
-  `--verbose` asked for DEBUG and got INFO. It quietens libraries in two tiers:
-  `_NOISY_LIBRARIES` log a line per call and go quiet until somebody asks for
-  detail, while `_TRACE_LIBRARIES` -- httpcore, a dozen DEBUG lines per request
-  -- are held down at `--verbose` too, being what asking for detail would
-  otherwise be spent on.
+- **The report is output; the progress is narration.** `logging_setup` splits
+  them by handler rather than by logger: `log_top_products` marks its records
+  and they go to stdout, everything else to the stderr handler `basicConfig`
+  installed, and both still reach every other handler -- which keeps the
+  browser's progress panel showing one stream and a `caplog` seeing the whole
+  run. Only the *console* handler is told to skip the report; a handler writing
+  anywhere else is nobody's stream to take lines out of. `configure_logging`
+  sets the level itself rather than leaving it to `basicConfig`, which does
+  nothing at all where the root logger already has a handler -- and the level is
+  what it silently skips, so `--verbose` asked for DEBUG and got INFO. It
+  quietens libraries in two tiers: `_NOISY_LIBRARIES` log a line per call and go
+  quiet until somebody asks for detail, while `_TRACE_LIBRARIES` -- httpcore, a
+  dozen DEBUG lines per request -- are held down at `--verbose` too, being what
+  asking for detail would otherwise be spent on.
 - **A heuristic that takes something away says how many at INFO and which at
   DEBUG**, and `tests/test_logging_contract.py` drives all eight to say so, each
-  step's own file pinning its wording. All eight do: `clean_products`, `drop_ungrounded`, `merge_variants`,
-  `deduplicate`'s nameless drop and `Constraints.apply` drop a whole product;
-  `verify_numbers` blanks a figure, `verify_opinions` a quote and
-  `attribute_sources` a link. The count is what says a short report is a
-  filtered one rather than a thin web; the name is what makes a wrong drop
-  arguable, and `-v` is the only place a name per product can be afforded. The
-  merge is the case to remember, since nothing was dropped at all: the folded
-  entry keeps the shorter of the two names and the other is simply gone.
+  step's own file pinning its wording. All eight do: `clean_products`,
+  `drop_ungrounded`, `merge_variants`, `deduplicate`'s nameless drop and
+  `Constraints.apply` drop a whole product; `verify_numbers` blanks a figure,
+  `verify_opinions` a quote and `attribute_sources` a link. The count is what
+  says a short report is a filtered one rather than a thin web; the name is what
+  makes a wrong drop arguable, and `-v` is the only place a name per product can
+  be afforded. The merge is the case to remember, since nothing was dropped at
+  all: the folded entry keeps the shorter of the two names and the other is
+  simply gone.
 - **Model output is never trusted as judgement.** The model reports article
-  headlines as products; `clean_products` filters them. Anything that decides the
-  answer -- filtering, scoring, ordering -- belongs in Python, where it is testable.
+  headlines as products; `clean_products` filters them. Anything that decides
+  the answer -- filtering, scoring, ordering -- belongs in Python, where it is
+  testable.
 
 ### Failures
 
 `BuyAgent.run()` raises exactly three things -- `ValueError`,
 `ModelUnavailableError`, `SearchError` -- and `__main__.main()` catches exactly
-those around the run, logging them and returning 1 (130 on Ctrl-C -- at the
-payment's approval prompt as well as during the run, that being where a shopper
-hesitates and the one place a traceback reads as money having moved -- and
-`NOTHING_FOUND` -- 3 -- for a run that worked and found nothing, which a shell told
-1 could not tell from a stopped model server; `PAYMENT_FAILED` -- 4 -- for a run
-that was asked to pay and did not; 2 is argparse's own, so the codes a
-script branches on are the six `--help` ends by listing). `main` has a second,
-unrelated `except` for an `OSError` from writing the `--json` file, which is why
-`tests/test_conventions.py` reads the handlers of the `try` holding the `.run()`
-call rather than every handler in the function. `api._STATUS` maps the same three
-onto HTTP statuses (400, 503, 502). A new failure mode needs handling in all three
-places, or it reaches the user as a traceback and the browser as a 500.
+those around the run, logging them and returning 1. Four other codes are not
+failures of that kind. 130 is Ctrl-C, at the payment's approval prompt as well
+as during the run, that being where a shopper hesitates and the one place a
+traceback reads as money having moved. `NOTHING_FOUND` (3) is a run that worked
+and found nothing, which a shell told 1 could not tell from a stopped model
+server. `PAYMENT_FAILED` (4) is a run that was asked to pay and did not. 2 is
+argparse's own. So the codes a script branches on are the six `--help` ends by
+listing. `main` has a second, unrelated `except` for an `OSError` from writing
+the `--json` file, which is why `tests/test_conventions.py` reads the handlers
+of the `try` holding the `.run()` call rather than every handler in the
+function. `api._STATUS` maps the same three onto HTTP statuses (400, 503, 502).
+A new failure mode needs handling in all three places, or it reaches the user as
+a traceback and the browser as a 500.
 
 A *payment* fails at its own door and is deliberately not a fourth row there
 (ADR-0046). `payment.PaymentError` is the one thing paying raises --
@@ -583,97 +589,99 @@ by catching the parent -- and it is mapped by `api.PAY_STATUS` and caught in
 `_STATUS` would make `run` promise something it does not raise.
 
 Within the agent only query refinement is recoverable: it falls back to the raw
-request but lets `ModelUnavailableError` through rather than searching with a model
-that is not there. What has to be caught is the provider's to say -- `_invoke`
-catches `self.config.model_server.transport_errors` and nothing written down
-locally. For Ollama that tuple is wider than it looks: the ollama client converts
-exactly one of its transport failures, a refused connection becoming a builtin
-`ConnectionError`, while a model too slow to answer and a stream the server drops
-mid-object arrive as raw `httpx` errors, neither an `OSError`. Hence
-`httpx.HTTPError` beside ollama's own `RequestError`, a different class from
-httpx's identically named one. Which failure is which moved with ADR-0038 -- the
-chat call is the plain path now, not the streaming one -- so the tuple is read off
-what the client actually raises rather than off this paragraph. vLLM's is `openai.OpenAIError`,
-the root of that client's hierarchy, plus the two above for the listing.
+request but lets `ModelUnavailableError` through rather than searching with a
+model that is not there. What has to be caught is the provider's to say --
+`_invoke` catches `self.config.model_server.transport_errors` and nothing
+written down locally. For Ollama that tuple is wider than it looks: the ollama
+client converts exactly one of its transport failures, a refused connection
+becoming a builtin `ConnectionError`, while a model too slow to answer and a
+stream the server drops mid-object arrive as raw `httpx` errors, neither an
+`OSError`. Hence `httpx.HTTPError` beside ollama's own `RequestError`, a
+different class from httpx's identically named one. Which failure is which moved
+with ADR-0038 -- the chat call is the plain path now, not the streaming one --
+so the tuple is read off what the client actually raises rather than off this
+paragraph. vLLM's is `openai.OpenAIError`, the root of that client's hierarchy,
+plus the two above for the listing.
 
 A server that answers with something that is not the JSON asked for is the third
-of those three and not a fourth: `chat.UnreadableAnswerError` *is* a `ValueError`
--- deliberately, so an uncaught one lands in the three `run` documents rather than
-a fourth -- so left alone it arrives as the one `run` documents for an empty
-request, telling a shopper whose model ran out of room that their request was bad.
-`_extract_products` turns it into a `ModelUnavailableError` carrying
-`hint(config, exc)`, which names the room the model may have run out of
-(ADR-0019). Caught there rather than in `_invoke`, which the recoverable step goes
-through too: a fumbled query still falls back to the raw request.
+of those three and not a fourth: `chat.UnreadableAnswerError` *is* a
+`ValueError` -- deliberately, so an uncaught one lands in the three `run`
+documents rather than a fourth -- so left alone it arrives as the one `run`
+documents for an empty request, telling a shopper whose model ran out of room
+that their request was bad. `_extract_products` turns it into a
+`ModelUnavailableError` carrying `hint(config, exc)`, which names the room the
+model may have run out of (ADR-0019). Caught there rather than in `_invoke`,
+which the recoverable step goes through too: a fumbled query still falls back to
+the raw request.
 
-### Options, and the five that are special
+### Options, and the seven that are special
 
-The CLI and the API are two ways of filling in the same `AgentConfig`, and both set
-`search_results = max(results, top)` -- searching for fewer pages than the report
-intends to show would cap the report. A new option belongs in
+The CLI and the API are two ways of filling in the same `AgentConfig`, and both
+set `search_results = max(results, top)` -- searching for fewer pages than the
+report intends to show would cap the report. A new option belongs in
 `__main__.build_parser`, `api.parse_options` and `api.defaults_payload`, which
 seeds the web form.
 
-- **Numbers** belong in `config.LIMITS` too, where the range is declared once and
-  read by both doors: written on each of them, the CLI comes to accept what the API
-  refuses. On the CLI the check is a `type` function, so an out-of-range number is
-  a usage error rather than a minute wasted; `tests/test_conventions.py` asserts
-  the two doors refuse the same numbers.
-- **`region`** is the same rule for a shape rather than a range: `config.REGION` is
-  a country and then a language (`us-en`, `pl-pl`, three-letter `hk-tzh`),
-  `config.parse_region` is the only place it is checked, and both doors go through
-  it -- the CLI as a `type` function, the API as `_as_region` -- with
+- **Numbers** belong in `config.LIMITS` too, where the range is declared once
+  and read by both doors: written on each of them, the CLI comes to accept what
+  the API refuses. On the CLI the check is a `type` function, so an out-of-range
+  number is a usage error rather than a minute wasted;
+  `tests/test_conventions.py` asserts the two doors refuse the same numbers.
+- **`region`** is the same rule for a shape rather than a range: `config.REGION`
+  is a country and then a language (`us-en`, `pl-pl`, three-letter `hk-tzh`),
+  `config.parse_region` is the only place it is checked, and both doors go
+  through it -- the CLI as a `type` function, the API as `_as_region` -- with
   `__post_init__` behind them for a Python caller. A shape and not the list of
-  codes that exist, because `ddgs` asks several engines that each read the halves
-  their own way (ADR-0031). The shape is not the whole story -- `en-us` is the right
-  shape the wrong way round -- so `BuyAgent._region_note` names the region in the
-  "Search returned nothing" warning unless it is `DEFAULT_REGION`, which is known
-  to work.
+  codes that exist, because `ddgs` asks several engines that each read the
+  halves their own way (ADR-0031). The shape is not the whole story -- `en-us`
+  is the right shape the wrong way round -- so `BuyAgent._region_note` names the
+  region in the "Search returned nothing" warning unless it is `DEFAULT_REGION`,
+  which is known to work.
 - **`provider`** is offered in *four* places -- those three plus the
   `ProviderOption` rows `defaults_payload` sends the picker -- each reading
-  `providers.PROVIDERS` rather than listing the names again. It also changes what
-  two other options mean, so both front ends pass `model` and `base_url` through as
-  `""` when they were not given, and the form fills both fields in when the picker
-  changes.
-- **`sources`** is the one option that is a list, and so the one that does not go
-  through `api._read`, which renders every value with `str` and would turn a JSON
-  array into its Python repr; `_read_sources` takes either an array or the
+  `providers.PROVIDERS` rather than listing the names again. It also changes
+  what two other options mean, so both front ends pass `model` and `base_url`
+  through as `""` when they were not given, and the form fills both fields in
+  when the picker changes.
+- **`sources`** is the one option that is a list, and so the one that does not
+  go through `api._read`, which renders every value with `str` and would turn a
+  JSON array into its Python repr; `_read_sources` takes either an array or the
   separated string a query string can carry. On the CLI it is `--source`,
-  repeatable, and its `type` checks the spec but hands back the text: checking there
-  makes a bad source a usage error carrying the shapes that work, while parsing
-  every flag together in `main` is what makes two flags naming one site one source.
-  It is the one option whose two doors judge a *blank* differently, and they have
-  to: over the wire an empty value is how "unset" is spelled (ADR-0012), so
-  `api._present` reads an empty string and a list of blanks alike as the whole web,
-  while on a command line "unset" is spelled by leaving the flag off -- so
-  `parse_named_sources` refuses a flag naming nothing rather than letting it come
-  back empty and widen the search to everything (ADR-0027).
+  repeatable, and its `type` checks the spec but hands back the text: checking
+  there makes a bad source a usage error carrying the shapes that work, while
+  parsing every flag together in `main` is what makes two flags naming one site
+  one source. It is the one option whose two doors judge a *blank* differently,
+  and they have to. Over the wire an empty value is how "unset" is spelled
+  (ADR-0012), so `api._present` reads an empty string and a list of blanks alike
+  as the whole web. On a command line "unset" is spelled by leaving the flag
+  off, so `parse_named_sources` refuses a flag naming nothing rather than
+  letting it come back empty and widen the search to everything (ADR-0027).
 - **The three bounds** -- `max_price`, `min_rating`, `min_reviews` -- are
-  ordinary numbers with one rule of their own: they default to `None`, so a blank
-  is not "the default value" but "no bound at all", and a product whose figure is
-  unknown passes every one of them (ADR-0039). The form says so rather than
-  showing a fallback number: their placeholder is "No limit". `max_price` is read
-  in the currency the run's own prices are counted in, and a price outside it is
-  a figure the bound cannot judge -- so it passes too, and the line the run logs
-  names the currency (ADR-0043).
+  ordinary numbers with one rule of their own: they default to `None`, so a
+  blank is not "the default value" but "no bound at all", and a product whose
+  figure is unknown passes every one of them (ADR-0039). The form says so rather
+  than showing a fallback number: their placeholder is "No limit". `max_price`
+  is read in the currency the run's own prices are counted in, and a price
+  outside it is a figure the bound cannot judge -- so it passes too, and the
+  line the run logs names the currency (ADR-0043).
 - **The four paying settings.** `pay` is the master switch and defaults to
   `False`, so nothing about a run changes without it. `rail` is checked against
-  `rails.RAILS` at both doors, the way `provider` is checked against
-  `PROVIDERS` -- and it is offered in *four* places for the same reason, the
-  fourth being the `rail_options()` rows the form's picker is built from.
-  `merchant_url` defaults to `""` and is resolved per rail in `__post_init__`,
-  exactly as `base_url` is resolved per provider (ADR-0012); a *paying* rail
-  that needs an address and has none is a `ValueError` there, which is the one
-  thing about these settings a range cannot say -- and the only one a config
-  raises that neither door has already refused, so each door translates it
-  rather than letting it out: an `ApiError` naming `merchant_url`, so the form
-  marks that box (ADR-0033), and argparse's own exit 2, so it reads like the
-  refusals `_checked` writes. Both doors build the config outside every guard
-  they have, so an escaping one is a 500 and a traceback for a mistake the form
-  can make. `spend_limit` is an ordinary
-  bounded number whose range is `max_price`'s, and a different promise: that one
-  filters what is reported and admits a product it cannot judge, this one has to
-  be cleared before money moves and refuses what it cannot judge.
+  `rails.RAILS` at both doors, the way `provider` is checked against `PROVIDERS`
+  -- and it is offered in *four* places for the same reason, the fourth being
+  the `rail_options()` rows the form's picker is built from. `merchant_url`
+  defaults to `""` and is resolved per rail in `__post_init__`, exactly as
+  `base_url` is resolved per provider (ADR-0012). A *paying* rail that needs an
+  address and has none is a `ValueError` there, which is the one thing about
+  these settings a range cannot say. It is also the only one a config raises
+  that neither door has already refused, so each door translates it rather than
+  letting it out: an `ApiError` naming `merchant_url`, so the form marks that
+  box (ADR-0033), and argparse's own exit 2, so it reads like the refusals
+  `_checked` writes. Both doors build the config outside every guard they have,
+  so an escaping one is a 500 and a traceback for a mistake the form can make.
+  `spend_limit` is an ordinary bounded number whose range is `max_price`'s, and
+  a different promise: that one filters what is reported and admits a product it
+  cannot judge, this one has to be cleared before money moves and refuses what
+  it cannot judge.
 - **`weights`** is the one field neither door fills in: `RankingWeights` is
   reachable only by constructing an `AgentConfig` in Python, so rebalancing the
   blended score is a code change and not a flag.
@@ -684,9 +692,9 @@ seeds the web form.
 
 ## The UI and its server
 
-`buy_agent.server` is stdlib-only on purpose -- the dependency list is already the
-interesting part of this project, and a run that takes a minute and serves one
-person does not need a framework under it. It hands `/api` to `api.py` and
+`buy_agent.server` is stdlib-only on purpose -- the dependency list is already
+the interesting part of this project, and a run that takes a minute and serves
+one person does not need a framework under it. It hands `/api` to `api.py` and
 everything else to the built Angular app, unknown paths falling back to
 `index.html` so the app keeps its own routing.
 
@@ -700,48 +708,49 @@ everything else to the built Angular app, unknown paths falling back to
 | `POST /api/pay` | One of those products bought, given the approval the page witnessed -- runs no pipeline either |
 | `GET /api/search/stream` | One run, as SSE: `log` lines, then `result` or `failure` |
 
-- **A run is streamed, not requested.** `GET /api/search/stream` runs the agent in
-  a worker thread and relays its log lines as Server-Sent Events while it works.
-  `_LogRelay` routes records by the thread that produced them, which keeps two
-  concurrent runs from seeing each other's progress. Extraction is slow and logs
-  nothing while it runs, so a `ping` goes out every 15s to keep browsers and proxies
-  from timing the stream out, and every relayed line carries the `time` Python
-  logged it at in the CLI's own `%H:%M:%S` -- the gap between two lines being the
-  only thing that tells a four-minute extraction from a four-second one.
-  `POST /api/search` is the same run in one response.
+- **A run is streamed, not requested.** `GET /api/search/stream` runs the agent
+  in a worker thread and relays its log lines as Server-Sent Events while it
+  works. `_LogRelay` routes records by the thread that produced them, which
+  keeps two concurrent runs from seeing each other's progress. Extraction is
+  slow and logs nothing while it runs, so a `ping` goes out every 15s to keep
+  browsers and proxies from timing the stream out, and every relayed line
+  carries the `time` Python logged it at in the CLI's own `%H:%M:%S` -- the gap
+  between two lines being the only thing that tells a four-minute extraction
+  from a four-second one. `POST /api/search` is the same run in one response.
 - **Closing the stream stops the run, at the next step and not at the click**
-  (ADR-0034). `BuyAgent.run` calls its `checkpoint` with the name of each step about
-  to start -- `search`, `fetch`, `extract`, `rank` -- and nothing in the pipeline
-  catches what that raises. The first frame `_stream_search` cannot write sets the
-  flag `server._stop_when` reads, and the worker's `_Stopped` goes no further than
-  the worker: a stopped run is not a failure, so it stays out of `api._STATUS`, out
-  of `__main__.main` and out of `run`'s `Raises:`, and the three-failure agreement
-  holds. It cannot cancel a chat call already in flight -- there is no way into
-  either client -- so the granularity is a step, and the browser's Stop line says so
-  rather than promising what nothing can keep. A step added to `run` announces
-  itself or a stopped run pays for it anyway; every stand-in for `BuyAgent` takes
-  the keyword, since `run_search` always passes it.
+  (ADR-0034). `BuyAgent.run` calls its `checkpoint` with the name of each step
+  about to start -- `search`, `fetch`, `extract`, `rank` -- and nothing in the
+  pipeline catches what that raises. The first frame `_stream_search` cannot
+  write sets the flag `server._stop_when` reads, and the worker's `_Stopped`
+  goes no further than the worker: a stopped run is not a failure, so it stays
+  out of `api._STATUS`, out of `__main__.main` and out of `run`'s `Raises:`, and
+  the three-failure agreement holds. It cannot cancel a chat call already in
+  flight -- there is no way into either client -- so the granularity is a step,
+  and the browser's Stop line says so rather than promising what nothing can
+  keep. A step added to `run` announces itself or a stopped run pays for it
+  anyway; every stand-in for `BuyAgent` takes the keyword, since `run_search`
+  always passes it.
 - **The stream's failure event is called `failure`, not `error`.** A browser's
-  `EventSource` delivers transport errors under `error` and then reconnects, so a
-  named `error` event would be indistinguishable from a dropped connection and the
-  reconnect would silently restart the search. For the same reason
-  `HEAD /api/search/stream` answers 405 rather than starting a run nobody reads.
+  `EventSource` delivers transport errors under `error` and then reconnects, so
+  a named `error` event would be indistinguishable from a dropped connection and
+  the reconnect would silently restart the search. For the same reason `HEAD
+  /api/search/stream` answers 405 rather than starting a run nobody reads.
 - **The browser decides nothing.** Ranking, grounding, whether a product may be
-  bought at all -- `cannot_pay` is Python's sentence, from the same check the
-  payment goes through, and `pay_currency` and `pay_label` beside it are what
-  that purchase would be *for*, which is frequently not the product's own figures:
-  a page that printed a bare "329.00" is priced in the run's currency
-  (ADR-0043), so `currency` is null while the cart is in USD -- and even the
-  wording of an unknown price stay in Python: `product_payload` sends `price_label` and
-  `rating_label` next to the raw figures; `sort_by` is a request parameter rather
-  than a client-side re-sort, for a finished run too (ADR-0035); `installed_models`
-  sends each model's `completion` beside its name so the dropdown marks what it
-  could not have worked out, the provider's `label` so the header pill never
-  decides what to call the server, and -- where it could not be reached -- the
-  `hint` that provider's row would have raised a run with, so the page says "Start
-  it with:  ollama serve" without a second wording in TypeScript.
-  `ui/src/app/agent.types.ts` mirrors those payloads, so a field added to `api.py`
-  is added there too.
+  bought at all, and even the wording of an unknown price all stay in Python.
+  `cannot_pay` is Python's sentence, from the same check the payment goes
+  through. `pay_currency` and `pay_label` beside it are what that purchase would
+  be *for*, which is frequently not the product's own figures: a page that
+  printed a bare "329.00" is priced in the run's currency (ADR-0043), so
+  `currency` is null while the cart is in USD. `product_payload` sends
+  `price_label` and `rating_label` next to the raw figures. `sort_by` is a
+  request parameter rather than a client-side re-sort, for a finished run too
+  (ADR-0035). `installed_models` sends each model's `completion` beside its
+  name, so the dropdown marks what it could not have worked out; the provider's
+  `label`, so the header pill never decides what to call the server; and --
+  where it could not be reached -- the `hint` that provider's row would have
+  raised a run with, so the page says "Start it with:  ollama serve" without a
+  second wording in TypeScript. `ui/src/app/agent.types.ts` mirrors those
+  payloads, so a field added to `api.py` is added there too.
 - **Paying is witnessed, not asserted** (ADR-0046). `POST /api/pay` runs no
   pipeline, the way a re-sort runs none, and the products travel in the body for
   the same reason -- the browser is already holding them. What it must not send
@@ -758,42 +767,43 @@ everything else to the built Angular app, unknown paths falling back to
   points back at it.
 - **Re-ordering a finished run is a request, not a re-run** (ADR-0035).
   `rank_again` is `rank_products` and nothing else -- no agent built, no page
-  fetched, no model asked -- and it answers the shape `run_search` answers with, so
-  the page shows a re-sorted run through the same view. The products travel in the
-  body rather than being kept server-side under a run id: a session store is a
-  lifetime, an eviction policy and a leak on a server that is stdlib on purpose, and
-  the browser is already holding them. Every product is scored again from the set,
-  so an edited figure changes nothing. `api.results_payload` is the one shaping of a
-  run's products -- the API's answer, the file `--json` writes, and the file
-  Download results hands over. A re-sort that fails is said beside the results it
-  left alone, not in the banner that means the *run* failed.
-- **A blank value means "use the default".** `api.parse_options` treats a missing
-  key and an empty string alike, an empty form field meaning "unset" and not "zero"
-  -- and the UI's `toQuery` drops blanks for the same reason. Values present but
-  unusable raise `ApiError` with the status the client deserves.
+  fetched, no model asked -- and it answers the shape `run_search` answers with,
+  so the page shows a re-sorted run through the same view. The products travel
+  in the body rather than being kept server-side under a run id: a session store
+  is a lifetime, an eviction policy and a leak on a server that is stdlib on
+  purpose, and the browser is already holding them. Every product is scored
+  again from the set, so an edited figure changes nothing. `api.results_payload`
+  is the one shaping of a run's products -- the API's answer, the file `--json`
+  writes, and the file Download results hands over. A re-sort that fails is said
+  beside the results it left alone, not in the banner that means the *run*
+  failed.
+- **A blank value means "use the default".** `api.parse_options` treats a
+  missing key and an empty string alike, an empty form field meaning "unset" and
+  not "zero" -- and the UI's `toQuery` drops blanks for the same reason. Values
+  present but unusable raise `ApiError` with the status the client deserves.
 - **The form refuses first, and never on a rule of its own** (ADR-0033). Every
-  setting the page holds is one the server can judge without a model, a network or a
-  minute of waiting, so it is judged before a run is opened -- but the rule is always
-  Python's. `defaults_payload` ships `limits` (`limits_payload`, off `config.LIMITS`
-  through `api._BOUNDED`, the one table saying which config field bounds each
-  request key), and the form binds `[min]`/`[max]` from it. A source is not a range,
-  so the form asks `GET /api/sources`, which reads the field with the same
-  `parse_sources` a run would and answers `{"sources", "error"}` -- 200 either way,
-  and naming the spec it was about so an answer for text since typed over is
-  dropped. What the page cannot judge is still marked where it belongs: `ApiError`
-  carries `field`, `payload()` sends it, and the `failure` event carries it to the
-  box. `parse_options` is untouched -- this is the earlier line, not the only one. A
-  region is deliberately *not* checked here: its shape stays in Python (ADR-0031),
-  and what it gains is the mark.
+  setting the page holds is one the server can judge without a model, a network
+  or a minute of waiting, so it is judged before a run is opened -- but the rule
+  is always Python's. `defaults_payload` ships `limits` (`limits_payload`, off
+  `config.LIMITS` through `api._BOUNDED`, the one table saying which config
+  field bounds each request key), and the form binds `[min]`/`[max]` from it. A
+  source is not a range, so the form asks `GET /api/sources`, which reads the
+  field with the same `parse_sources` a run would and answers `{"sources",
+  "error"}` -- 200 either way, and naming the spec it was about so an answer for
+  text since typed over is dropped. What the page cannot judge is still marked
+  where it belongs: `ApiError` carries `field`, `payload()` sends it, and the
+  `failure` event carries it to the box. `parse_options` is untouched -- this is
+  the earlier line, not the only one. A region is deliberately *not* checked
+  here: its shape stays in Python (ADR-0031), and what it gains is the mark.
 - **Loopback is not a boundary a browser respects, so every request is admitted
-  first.** `BuyAgentHandler._admits()` runs at the top of `do_GET`, `do_POST` and
-  `do_HEAD` -- a new method added without it is unguarded and nothing fails -- and
-  refuses `Sec-Fetch-Site: cross-site`, an `Origin` that is neither loopback nor
-  equal to the request's own `Host`, and a `Host` outside `allowed_hosts`
-  (ADR-0018). The first stops a page on another site starting a run whose answer it
-  could never read; the last stops DNS rebinding, which is how that page would get
-  to read one. `--allowed-host` names a further host; a bind to a public interface
-  turns the `Host` check off and says so at startup.
+  first.** `BuyAgentHandler._admits()` runs at the top of `do_GET`, `do_POST`
+  and `do_HEAD` -- a new method added without it is unguarded and nothing fails
+  -- and refuses `Sec-Fetch-Site: cross-site`, an `Origin` that is neither
+  loopback nor equal to the request's own `Host`, and a `Host` outside
+  `allowed_hosts` (ADR-0018). The first stops a page on another site starting a
+  run whose answer it could never read; the last stops DNS rebinding, which is
+  how that page would get to read one. `--allowed-host` names a further host; a
+  bind to a public interface turns the `Host` check off and says so at startup.
 - **Every request is answered, including the ones that go wrong.** `do_GET` and
   `do_POST` each end in a catch-all that logs and sends a 500, because an
   exception out of a handler escapes to socketserver, which closes the socket
@@ -802,15 +812,15 @@ everything else to the built Angular app, unknown paths falling back to
   `AgentConfig`, so `$BUY_AGENT_PROVIDER=olama` made every page load a dropped
   connection under a banner blaming the agent server. `server.main` refuses that
   name before it binds a port -- and `$BUY_AGENT_RAIL` beside it, a config
-  resolving both -- for the same reason `__main__` makes either a usage error: it
-  is not worth a server that starts and then 500s at its own form. The
-  stream sits outside the guard and answers its own failures with a `failure`
-  event, having spent the status line already.
+  resolving both -- for the same reason `__main__` makes either a usage error:
+  it is not worth a server that starts and then 500s at its own form. The stream
+  sits outside the guard and answers its own failures with a `failure` event,
+  having spent the status line already.
 
 ### Two platform traps and one coupling
 
-`server._CONTENT_TYPES` spells out the types `ng build` emits rather than leaving
-them to `mimetypes`, which reads the registry on Windows and can answer
+`server._CONTENT_TYPES` spells out the types `ng build` emits rather than
+leaving them to `mimetypes`, which reads the registry on Windows and can answer
 `text/plain` for `.js` -- which a browser refuses to run as a module, leaving a
 blank page and no error. `_resolve` catches `OSError` and `ValueError` around
 `Path.resolve` and falls back to the app, an unreadable path naming nothing to
@@ -819,287 +829,193 @@ serve; an encoded NUL raises on POSIX and does not on Windows, where
 `resolve()` refuse outright rather than by an input only one platform rejects
 (ADR-0020).
 
-`_SECURITY_HEADERS` goes out on every response, its CSP `'self'` throughout because
-the app is served whole from one origin -- `'unsafe-inline'` for styles only, which
-Angular's per-component `<style>` blocks need. That policy and the UI's build are
-coupled: `optimization.styles.inlineCritical` is off in `ui/angular.json` because
-Angular's critical-CSS inliner defers the global stylesheet with an inline
-`onload`, and `script-src 'self'` refuses to run it, leaving the sheet at
-`media="print"` and the page unstyled. Neither suite can see that; it takes a
-browser. Anything else adding an inline handler, an inline `<script>` or a request
-to another origin has the same shape of symptom.
+`_SECURITY_HEADERS` goes out on every response, its CSP `'self'` throughout
+because the app is served whole from one origin -- `'unsafe-inline'` for styles
+only, which Angular's per-component `<style>` blocks need. That policy and the
+UI's build are coupled: `optimization.styles.inlineCritical` is off in
+`ui/angular.json` because Angular's critical-CSS inliner defers the global
+stylesheet with an inline `onload`, and `script-src 'self'` refuses to run it,
+leaving the sheet at `media="print"` and the page unstyled. Neither suite can
+see that; it takes a browser. Anything else adding an inline handler, an inline
+`<script>` or a request to another origin has the same shape of symptom.
 
 ### The components
 
-**The header pill** says whether the model server answered; `App.unreachable` says
-why and what to type. It reads the `hint` `installed_models` sent and shows it as a
-line under the pill rather than a `title`, which is hover-only -- unavailable on a
-touch screen, easy to miss, inconsistently announced by screen readers -- and this
-is the one failure whose fix is a single command. It is `null` for a server that
-answered, and also when the *agent* server is the one that did not: nothing came
-back to ask, and a sentence written here rather than in `providers.py` would be a
-second wording to keep true. It is `white-space: pre-wrap`, keeping the run of
-spaces Python puts in front of the command, and a **Check again** button sits
-beside it, since the moment someone has just run that command is the moment they
-need to say so.
+Four of them, and `ui/README.md` is where each is drawn and argued. These are the
+rules a change to them may not break.
 
-While a listing is in flight the pill says **Asking &lt;label&gt;…** instead, and the
-remedy under it and the model picker beside it both stand down -- `App.asking`
-holds the `ModelSource` being asked about, so the pill names *that* server rather
-than the one still on screen, and `checking` is that signal being non-null.
-`installed_models` is a call per pulled tag on a five-second budget (ADR-0032), so
-this is the one wait on the page with nothing else to say it is happening: without
-it the first load had no pill at all, Check again looked like a button that did
-nothing, and a model picked in that window was one the new server had never
-offered.
+- **No sentence about the model server is written here.** `App.unreachable` is
+  whatever `installed_models` sent as `hint`, and it is `null` when the agent
+  server itself did not answer, there being nothing to have asked. `App.asking`
+  holds the `ModelSource` in flight, so the pill names the server being asked and
+  not the one still on screen; `checking` stands the remedy and the picker down.
+- **`progress-log` is presentation, not judgement.** Download log is offered for a
+  failed run and a stopped one only. `transcript()` appends the failure message,
+  which never reached the panel as a log line.
+- **Buying takes two clicks, and the second restates the cart.** Title, the cart's
+  `pay_label`, merchant, rail, and whether anybody is charged -- the cart the
+  mandates will carry, never the product's own figures (ADR-0043). The card emits
+  those three fields for the server to check against the cart it builds itself,
+  and shows Python's `cannot_pay` where there is no button to offer.
+- **A receipt is keyed by product name, in `App.receipts` and in both loops.** A
+  re-sort ranks the same products again from 1 (ADR-0035), so tracking by index
+  moves a purchase onto whatever lands at that rank next.
+- **`pay` is the one setting `localStorage` does not remember.** The rest are
+  standing answers about this machine; that one would arm a run nobody asked for.
+  Every storage call is wrapped, so a browser refusing storage still has a form.
+- **The form refuses on the server's rules and invents none of its own**
+  (ADR-0033). `problems()` gates `canSubmit` off the ranges that came down with
+  the defaults and off what `GET /api/sources` last said. A field whose `off()` is
+  true is neither held to a range nor sent, a mark on a disabled box being one
+  nobody can act on. `notes()` adds the server's `rejected` field, which does not
+  gate the button and is shown only while the box still holds what `submitted`
+  recorded. `options()` is the single place that payload is built.
+  `numberTyped` reads `validity.badInput`, without which a box full of text is
+  sent as the `null` a cleared box means (ADR-0012).
+- **A number box is declared once, in `numberFields`**, under the key that also
+  carries its range and names its refusal; `placeholders()` reads its fallback off
+  `defaults_payload` by that key. `tests/test_conventions.py` holds those keys
+  against `limits_payload`.
+- **The model field marks what it cannot offer and never hides it** -- "not
+  served" for a name the server does not have, "embedding only" for a pull that
+  cannot answer a prompt (ADR-0032). `ModelOption.note` is filled from Python's
+  `completion`: the browser writes the suffix, not the judgement. `refresh`
+  carries a `ModelSource`, provider and address both, a vLLM asked Ollama's
+  question answering 404, and `takes_num_ctx` off the provider's row is what
+  disables the context field.
+- **A mark opens the panel it is in.** The form opens Settings itself the first
+  time `flagged()` is non-zero, on the marks changing and not on the panel's
+  state, so shutting it again stays the reader's to do.
 
-**`progress-log`** follows the tail the way a terminal does, but only while the
-reader is at it: the scroll handler sets `sticking` from how far the panel is from
-the bottom, so a reader who scrolled up to re-read a finished step is left there.
-It offers **Download log** for a run that failed and for one the reader stopped,
-and for no other -- a run that finished is on the page in front of you, while
-those two leave nothing there at all, and the reason to stop one is usually that
-it had gone quiet. `transcript()` writes what the panel was showing plus the
-failure message, which the panel never has, a failure arriving as its own SSE
-event rather than a log line; a stopped run needs no such line, `App.stop` having
-written one into the log itself. It keeps whole logger names where the panel trims
-them. This is presentation, not judgement.
-
-It also counts the wait out, beside the working pill and then as the total in place
-of it. Extraction is slow and logs nothing while it runs, so the panel is otherwise
-a frozen list under a pulsing dot with no way to tell a model still thinking from
-one that has stopped answering -- the timestamps say that afterwards, `elapsed()`
-while it is happening. The clock starts and stops on the `running` input, redraws
-once a second and is cleared on destroy; `duration()` writes seconds and minutes
-(`8s`, `2m 14s`) rather than a `0:08` clock, this being how long something took and
-not what time it is.
-
-**`product-card`** draws one product, and -- where the run asked to pay and the
-server can -- offers to buy it in **two** clicks. The second one is the small
-Trusted Surface AP2 asks for: it restates the *cart* (the title, the cart's own
-`pay_label`, the merchant, which rail, and whether anybody will actually be
-charged) rather than the request that found it, because the cart is what the
-mandates carry. The cart's label and not the product's: a page that printed a
-bare "329.00" leaves `price_label` with no unit on it while the purchase is in
-the run's currency all the same (ADR-0043), and a surface that names no money is
-not one. A single button would be a purchase made by a misclick on a card in a
-list. What it emits is the three fields a person was shown, which the server
-holds against the cart it builds itself; the card decides nothing else, and a
-product it may not buy shows Python's `cannot_pay` sentence rather than no button
-and no explanation. Once something is bought the receipt replaces the button --
-"Paid" where money moved and "Authorised" where it did not, which for the dry run
-is the honest word. That receipt belongs to the *product* and not to the rank it
-was bought at, and so does the card drawing it: a re-sort ranks the same products
-again from 1 (ADR-0035), so `App.receipts` is keyed by name and the two loops
-track by name, or a purchase moves to whatever comes up that rank next -- shown
-against something nobody bought, while the thing that was bought is offered a Pay
-button for a second go, and a confirmation opened on one product stays open over
-another.
-
-**`search-form`** remembers the advanced settings in `localStorage` and the request
-deliberately not -- what to shop for is a new question every time -- and every read
-and write is wrapped, so a browser that refuses storage still gets a working form.
-
-Its payment block is drawn only when `pay_available` says the server has the AP2
-SDK at all -- a switch whose only outcome is a message about pip is worse than a
-sentence -- and the rail picker, its address field and the spend limit appear
-only once paying is ticked. `moves_money` and `needs_endpoint` come off the rail's
-own row, so the warning under the picker and the disabled address box are
-Python's answers rather than a second reading of a rail's name here. One thing is
-deliberately *not* remembered: `pay` itself. The other settings are standing
-answers about this machine, and "you may spend my money" is not one of them -- a
-browser that restored it would arm the next visit's run with nobody having said
-so.
-
-It refuses what the server would, before the run rather than a minute into it
-(ADR-0033). `problems()` is what the page worked out -- each number against the
-range that came down with the defaults, and the sources field against whatever
-`GET /api/sources` last said about the text it holds -- and it gates `canSubmit`,
-none of it costing anything to know. A box the run does not take is outside all
-of that: a field whose `off()` is true is neither held to its range nor sent at
-all (`sent()` reads it as the cleared box it is drawn as), because it is disabled
--- and a mark on a disabled box is one nobody can act on, a form that will not
-search pointing at a field that cannot be typed into. Switching to a vLLM over a
-context window the form had already refused, or turning paying off over a spend
-limit it had, was exactly that. `notes()` is what is shown under each field:
-`problems()`, plus the `rejected` input for a field the page has no rule for, which
-is the `field` a `failure` event named. The server's mark does not gate the button
--- it is about what was sent -- and it is shown only while the box still holds what
-was sent: `submitted` keeps the payload each run went out with, and a mark that
-outlived the mistake was a red field, an `aria-invalid` and a "1 setting to look
-at" over a form with nothing wrong with it. `options()` is the one place that
-payload is built, since the comparison and the run have to agree on what a box
-holds. One check is the page's own rather than a range: a number box holding text
-that is not a number reports the empty string, which reaches `ngModel` as the
-`null` a *cleared* box means (ADR-0012), so `numberTyped` asks the element's
-`validity.badInput` on every keystroke and `problems()` marks it. Left to the
-`null`, a box visibly full of nonsense was sent as unset and the run quietly used
-the default. The sources
-check goes out on `change` rather than on every keystroke, and once more after
-`restore`, a remembered bad source being one nobody is about to retype. The
-`numberFields` table is the one place a number box is declared -- the key it is
-sent under (which is also the key its range arrives under and its refusal names),
-its label, its step and its hint -- and the template loops over it rather than
-repeating the same twenty lines of markup per setting.
-`tests/test_conventions.py` holds its keys against `limits_payload`, so a box
-that is drawn is a box that is held to a range.
-
-Every one of those marks is on a field inside the Settings panel, which is shut
-until somebody opens it -- so the form opens it itself the first time `flagged()`
-is not zero, and the summary carries the count for a reader who has shut it again.
-Left alone, a marked box says nothing and a run refused for a setting leaves a
-greyed-out button with no visible reason; the case that needs no keystroke at all
-is a remembered source or number the server would refuse, restored, checked and
-marked before the form is first drawn. The effect fires on the marks changing and
-not on the panel's state, so closing it again stays the reader's to do.
-`placeholders()` is the smaller half of the same idea: a cleared number box means
-"use the default" (ADR-0012), an answer rather than a mistake, so each box names
-the number it falls back to -- read off `defaults_payload` by the same key the box
-is sent under, rather than listed a second time, so a box added to `numberFields`
-cannot be one drawn with an empty placeholder.
-
-Its model field is a `<select>` over `GET /api/models`, and its three edge cases
-are the point. A name chosen but *not* in that list (a remembered setting, or a
-default for a model nobody pulled) is kept marked "not served" rather than dropped,
-since dropping it would silently run the search on whichever model sorted first. A
-model that *is* there and reports no `completion` capability is marked "embedding
-only" for the same reason turned around: it is a pull someone made on purpose, and
-hiding it would leave nothing to explain why the tag they remember is gone
-(ADR-0032). Which of the two an entry gets is `ModelOption.note`, filled from the
-`completion` Python sent -- the browser writes the suffix, not the judgement. An
-empty list falls back to the text box it used to be, a dropdown holding one
-unusable entry being worse than typing. The field is disabled while `checking` is
-set, and says which server it is waiting on: what it holds until the answer lands
-is the *last* server's models. Because the list belongs to one server,
-editing the address field emits `refresh` and `App.refreshModels` asks that one
-instead; `refresh` carries a `ModelSource` -- the provider *and* the address --
-because a vLLM asked Ollama's question answers 404. Changing the provider picker
-emits the same event after filling the model and address fields from that
-provider's row. `takes_num_ctx` on that row is what disables the context field and
-replaces its note, rather than the form testing the provider's name.
-
-`create_server(agent_factory=...)` is the seam the server tests inject a stub agent
-through, the way `BuyAgent(config, llm=...)` is for the pipeline; `allowed_hosts=`
-is the second seam, `None` there meaning "answer any `Host`", which is what a
-public bind gets. Angular components are tested in jsdom with `TestBed`;
-`AgentService` against a fake `EventSource` rather than a live one.
+`create_server(agent_factory=...)` is the seam the server tests inject a stub
+agent through, the way `BuyAgent(config, llm=...)` is for the pipeline;
+`allowed_hosts=` is the second, `None` meaning "answer any `Host`", which is what
+a public bind gets. Angular components are tested in jsdom with `TestBed`,
+`AgentService` against a fake `EventSource`.
 
 ### demo/
 
-`demo/server.py` starts the real `buy_agent.server` with `search_web`, `enrich` and
-the chat model replaced by one of the scripts beside it (`books.py`, `laptops.py`,
-chosen with `--script`; a third is a module offering the same five names plus a row
-in `server.SCRIPTS`), so everything between the search and the ranking is the real
-pipeline and neither Ollama nor the network is needed to reproduce a recording. The
-scripts make the fake model wrong in the six ways a small model is wrong, so the
-progress panel shows `clean_products`, `ground`, `verify_opinions`,
-`attribute_sources` and `deduplicate` each catching one. `demo/record.mjs` drives
-Chromium through Playwright and encodes with ffmpeg; `--pace` scales the scripted
-delays, a real run's two silent model calls being dead air on tape.
-`demo/screenshot.mjs` is the same drive for one frame -- it takes `docs/ui.png` off
-this server rather than off `buy_agent.server` because the model dropdown and the
-header pill are answers from an Ollama, and a picture taken without one says
-"Ollama unreachable" over a text box. It is clipped to the form card, so a field
-added to the settings makes it taller rather than falling off the bottom. Nothing
-here is imported by `buy_agent/` or by either suite, so it is not covered, not
-mutated and, per `.dockerignore`, not in the image.
+`demo/README.md` says what the two recordings show, what is real in them and how
+to take them again. Three things about the directory hold here.
+
+- `demo/server.py` starts the *real* `buy_agent.server` with only `search_web`,
+  `enrich` and the chat model replaced, so everything between the search and the
+  ranking is the real pipeline and a recording needs neither Ollama nor the
+  network. The scripts beside it make the fake model wrong in the six ways a
+  small model is wrong, which is what puts `clean_products`, `ground`,
+  `verify_opinions`, `attribute_sources` and `deduplicate` each catching one in
+  the progress panel.
+- A third demo is a module offering the same five names `books.py` and
+  `laptops.py` do, plus a row in `server.SCRIPTS`. `docs/ui.png` is taken off
+  this server rather than off `buy_agent.server`, the model dropdown and the
+  header pill being answers from an Ollama, and it is clipped to the form card,
+  so a field added to the settings makes it taller rather than falling off the
+  bottom.
+- Nothing here is imported by `buy_agent/` or by either suite, so it is not
+  covered, not mutated and, per `.dockerignore`, not in the image.
 
 ## Tests
 
-`BuyAgent(config, llm=...)` is the injection seam: `tests/conftest.py` provides a
-`FakeLLM` with the one `answer` method `chat.ChatModel` asks for, and a stand-in
-for a *chain* is a class with `invoke` -- which is what `integration/conftest.py`
-wraps the real one in. The network is monkeypatched in
-three places: `buy_agent.agent.search_web` and `buy_agent.agent.enrich` for
-pipeline tests, and `buy_agent.search.DDGS` / `buy_agent.fetch.httpx.Client` for
-the wrappers' own tests. `search_web` is patched on `agent` and only there, which
-is why the fan-out over named sources lives in `agent.py` rather than beside the
-rest of `sources.py`: a second call site elsewhere would be a second thing to
-patch, and a test that forgot it would reach the real DuckDuckGo silently.
+`docs/testing.md` is the long form: both suites, the counts, the coverage
+floors, the nightly run, the benchmark and the mutation run. What is written
+here is what a change has to obey.
 
-Both model clients are patched where `buy_agent.providers` imported them --
-`providers.Client` for Ollama's chat and for the `show` a listing asks per tag,
-`providers.openai.OpenAI` for vLLM's chat -- and both listings are patched at
-`providers.httpx.get`, Ollama's `/api/tags` beside vLLM's `/v1/models`: the tags
-are read off the endpoint rather than through the client's typed listing, which
-declares one of the two spellings that endpoint names a model by and discards the
-other, so a tag arriving as `name` alone reached the picker as nothing at all.
-What a setting reaches is asserted on the *request*, not on a wrapper read back:
-since ADR-0038 the window, the thinking switch and the schema travel per call. Patching `ollama.Client` no longer works: `providers.py` imports the
-name at module level, which is also the only place either client is named. A row of
-`providers.PROVIDERS` is compared by identity only through the module --
-`providers_module.OLLAMA`, never a name imported from it -- because
-`tests/test_providers.py` reloads that module to re-read its environment-derived
-defaults, and a reload re-runs it over its own globals, so `provider_for` answers
-with the new rows while a name bound at import time holds the old ones. The
-teardown puts the *values* back, which is why comparing those is safe anywhere.
-Patching `DDGS.text` does *not* work -- the name `ddgs` exports is a wrapper that
-constructs a different class.
+**The seams.** `BuyAgent(config, llm=...)` injects the model, and
+`tests/conftest.py` provides a `FakeLLM` with the one `answer` method
+`chat.ChatModel` asks for. A stand-in for a *chain* is a class with `invoke`,
+which is what `integration/conftest.py` wraps the real one in.
+`create_server(agent_factory=...)` is the same seam for the server, and
+`allowed_hosts=` is the second one.
 
-No test in `tests/` touches the network, a model server or the machine's own
-cache: `conftest.py` points `$BUY_AGENT_CACHE_DIR` at a scratch directory per
-test, autouse, so a test that builds a real `BuyAgent` gets a model that remembers
-its answers somewhere disposable (ADR-0044) and no test can answer another test's
-question. Keep all three that way. A second autouse fixture unsets
-`$BUY_AGENT_AP2_KEY`, `$BUY_AGENT_AP2_MANDATE` and `$BUY_AGENT_MERCHANT_URL`, for
-the same reason and more so: a developer who has configured paying would
-otherwise have a suite signing with their key and buying on their budget.
+**Where the network is patched.** Three places: `buy_agent.agent.search_web` and
+`buy_agent.agent.enrich` for pipeline tests, `buy_agent.search.DDGS` and
+`buy_agent.fetch.httpx.Client` for the wrappers' own tests. `search_web` is
+patched on `agent` and only there, which is why the fan-out over named sources
+lives in `agent.py` rather than beside the rest of `sources.py`: a second call
+site would be a second thing to patch, and a test that forgot it would reach the
+real DuckDuckGo silently. The HTTP rail's transport is patched at
+`rails.httpx.post`, where that module imported it.
 
-The payment tests do sign real mandates -- keys generated in the test, read back
-through the AP2 SDK's own verifier, because a mandate that verifies only against
-a fake verifier is one nobody else would take. That needs the optional SDK
-(`pip install -r requirements-ap2-deps.txt` and then `pip install --no-deps -r
-requirements-ap2.txt` -- the flag is not a per-line option, so the SDK's own
-imports are a file of their own), which `ci.yml` and
-`mutation.yml` each install in a step of their own. The HTTP rail's transport is
-patched at `rails.httpx.post` -- where that module imported it, by the rule the
-provider fakes follow -- and a row of `rails.RAILS` is compared by identity only
-through the module (`rails.RAILS`, never a name imported from it), because
-`tests/test_rails.py` and `tests/test_config.py` reload it to re-read its
-environment-derived defaults.
-`integration/` is where a real model goes, outside `testpaths` so a bare `pytest`
-cannot reach it. The server tests are the one exception to "no sockets": they bind
-loopback, routing and status codes being what they are about, and pass
-`serve_forever(0.01)` -- the default 0.5s poll would cost half a second per test on
+**Where the model clients are patched.** Both are patched where
+`buy_agent.providers` imported them -- `providers.Client` for Ollama's chat and
+for the `show` a listing asks per tag, `providers.openai.OpenAI` for vLLM's
+chat. Both listings are patched at `providers.httpx.get`, Ollama's `/api/tags`
+beside vLLM's `/v1/models`. The tags are read off the endpoint rather than
+through the client's typed listing, which declares one of the two spellings that
+endpoint names a model by and discards the other: a tag arriving as `name` alone
+reached the picker as nothing at all. What a setting reaches is asserted on the
+*request*, not on a wrapper read back, since ADR-0038 sends the window, the
+thinking switch and the schema per call.
+
+**Two patches that no longer work.** `ollama.Client` is not the name to patch:
+`providers.py` imports it at module level, which is also the only place either
+client is named. `DDGS.text` is not either, the name `ddgs` exports being a
+wrapper that constructs a different class.
+
+**A table row is compared by identity only through its module** --
+`providers_module.OLLAMA`, never a name imported from it, and `rails.RAILS` the
+same. `tests/test_providers.py`, `tests/test_rails.py` and
+`tests/test_config.py` each reload those modules to re-read their
+environment-derived defaults, and a reload re-runs the module over its own
+globals. `provider_for` then answers with the new rows while a name bound at
+import time holds the old ones. The teardown puts the *values* back, which is
+why comparing those is safe anywhere.
+
+**No test in `tests/` touches the network, a model server or the machine's own
+cache, and all three stay that way.** `conftest.py` points
+`$BUY_AGENT_CACHE_DIR` at a scratch directory per test, autouse, so a test that
+builds a real `BuyAgent` remembers its answers somewhere disposable (ADR-0044)
+and no test can answer another test's question. A second autouse fixture unsets
+`$BUY_AGENT_AP2_KEY`, `$BUY_AGENT_AP2_MANDATE` and `$BUY_AGENT_MERCHANT_URL`: a
+developer who has configured paying would otherwise have a suite signing with
+their key and buying on their budget.
+
+**The payment tests sign real mandates** -- keys generated in the test, read
+back through the AP2 SDK's own verifier, because a mandate that verifies only
+against a fake verifier is one nobody else would take. That needs the optional
+SDK, which `ci.yml` and `mutation.yml` each install in a step of their own.
+
+**The server tests are the one exception to "no sockets".** They bind loopback,
+routing and status codes being what they are about, and pass
+`serve_forever(0.01)`, the default 0.5s poll costing half a second per test on
 shutdown. Four speak the protocol over a raw socket, urllib refusing to build a
-request with a malformed `Content-Length`; `raw()` reads until the declared body has
-arrived, the headers and the body being separate writes that can land in separate
-segments, and the one asserting that a body refused unread ends the connection
-reads to EOF instead.
+request with a malformed `Content-Length`. `raw()` reads until the declared body
+has arrived, the headers and the body being separate writes that can land in
+separate segments; the one asserting that a body refused unread ends the
+connection reads to EOF instead.
 
-1831 tests run in about eight seconds: most of that is the three that spawn an
-interpreter -- two for what only a real import can answer (`python -m buy_agent`
-still runs as a script, and still imports with `$BUY_AGENT_RAIL` misspelt), one
-PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
-`StubAgent.delay` in the three server tests that need a run to still be going.
-Nothing else should sleep, so a run that takes much longer still means something is
-reaching out.
+**`integration/` is where a real model goes**, outside `testpaths` so a bare
+`pytest` cannot reach it.
 
-Two optional prerequisites decide how many of those 1831 *run*, and neither is a
-failure when it is absent. With neither `pwsh` nor `powershell`, 13 of the 19 in
-`tests/test_start_script.py` skip. Without the optional AP2 SDK, the 73 that sign
-or verify a mandate skip on `needs_ap2` -- the marker in `tests/conftest.py`,
-which is `needs_powershell` for the other one and asks `mandates.available()`
-once at import. So a machine with both reads `1818 passed, 13 skipped`, and a
-checkout set up with `requirements-dev.txt` alone reads `1745 passed, 86
-skipped` rather than 73 red tests saying the project is broken when one optional
-feature is not installed. Skipping is only ever the local convenience: `ci.yml`
-and `mutation.yml` each install the SDK in a step of their own, and the 100%
-the coverage floor is set just under cannot be reached with 73 tests sitting
-out -- so a marker put on a test that does *not* need the SDK fails the run
-that matters, and one put on a test that does not need it is a test nobody runs
-on the checkout the marker exists for: `needs_ap2` sits on the parametrised
-*case* that reaches the signing stack, not on a whole function whose other half
-fakes the import it is about. The UI's 192 tests run in about two seconds, most of which is
-building the app first. The 31 in `integration/` are counted separately and collected only by being
-named. `docs/testing.md` quotes all three counts, so a new test file is two edits.
+**Nothing else should sleep.** The suite takes about eight seconds, most of it
+the three tests that spawn an interpreter -- two for what only a real import can
+answer (`python -m buy_agent` still runs as a script, and still imports with
+`$BUY_AGENT_RAIL` misspelt), one PowerShell for the whole of
+`tests/test_start_script.py` -- plus 1.0s of deliberate `StubAgent.delay` in the
+three server tests that need a run to still be going. A run that takes much
+longer means something is reaching out.
+
+**Two optional prerequisites decide how many of them run, and neither is a
+failure when it is absent.** With neither `pwsh` nor `powershell`, most of
+`tests/test_start_script.py` skips on `needs_powershell`; without the AP2 SDK,
+the tests that sign or verify a mandate skip on `needs_ap2`, which asks
+`mandates.available()` once at import. Both markers live in `tests/conftest.py`.
+Skipping is only ever the local convenience: both workflows install the SDK, and
+the 100% the coverage floor is set just under cannot be reached with those tests
+sitting out. So a marker on a test that does not need the SDK fails the run that
+matters, and a test that needs one and carries none is red on every checkout the
+marker exists for. `needs_ap2` sits on the parametrised *case* that reaches the
+signing stack, not on a whole function whose other half fakes the import it is
+about. `docs/testing.md` is the one place all three counts are written down, so
+a new test file is one edit there.
 
 ### The convention tests
 
-Both suites cover essentially every line, so coverage no longer says where the next
-test should go. `tests/test_conventions.py` covers what it cannot: the rules that
-hold *between* modules, read off the declarations rather than exercised. It asserts
-that
+Both suites cover essentially every line, so coverage no longer says where the
+next test should go. `tests/test_conventions.py` covers what it cannot: the
+rules that hold *between* modules, read off the declarations rather than
+exercised. A field added on one side of the language boundary and forgotten on
+the other is otherwise invisible to both suites. It asserts that
 
 - `api._STATUS`, the `except` tuple in `__main__.main` (parsed with `ast`) and
   `BuyAgent.run`'s documented `Raises` name the same three failures;
@@ -1108,8 +1024,8 @@ that
 - every provider in `providers.PROVIDERS` is offered by `--provider`, by
   `api.PROVIDER_OPTIONS` and in the rows the form's picker is built from, and
   `ProviderOption` is mirrored in TypeScript;
-- every rail in `rails.RAILS` is offered by `--rail`, by `api.RAIL_OPTIONS` and in
-  the form's picker; `RailOption`, `Receipt` and `PayOptions` are mirrored in
+- every rail in `rails.RAILS` is offered by `--rail`, by `api.RAIL_OPTIONS` and
+  in the form's picker; `RailOption`, `Receipt` and `PayOptions` are mirrored in
   TypeScript; every key `pay_now` reads is one the page sends; the payment's
   failures are `api.PAY_STATUS` and what `__main__._bought` catches, ordered
   subclass-first, and deliberately *not* the three in `_STATUS`; and
@@ -1119,196 +1035,188 @@ that
   for field;
 - the form holds a number to a range for every range `limits_payload` ships and
   writes no `min` or `max` of its own into its template, and every key
-  `parse_options` reads is one `SearchOptions` sends -- a key it reads and the form
-  never sends is a refusal marking a box that is not there (ADR-0033);
+  `parse_options` reads is one `SearchOptions` sends -- a key it reads and the
+  form never sends is a refusal marking a box that is not there (ADR-0033);
 - the `Dockerfile` pins the versions CI tests against, copies the built UI where
-  the server looks, exposes the port it binds and installs the runtime dependencies
-  only, and `.dockerignore` keeps out everything `.gitignore` does while keeping in
-  everything those `COPY` lines ask for;
+  the server looks, exposes the port it binds and installs the runtime
+  dependencies only, and `.dockerignore` keeps out everything `.gitignore` does
+  while keeping in everything those `COPY` lines ask for;
 - every job in `ci.yml` names both a Windows and a Linux runner between them and
   holds a merge up for neither, over the events the workflow actually runs on
-  (ADR-0037), and sets up exactly
-  one Python and one Node for the three files that pin themselves to those; every
-  workflow sets up that same Python and builds with that same Node; and the
-  workflows pin the same version of every action they share, an update reaching only
-  one leaving every file valid and a scheduled run on the older action, and every
-  one of them declares a read-only token, a workflow that declares none inheriting
-  whatever the repository's default happens to be -- the two jobs that publish
-  anything widen that on their own job instead;
+  (ADR-0037), and sets up exactly one Python and one Node for the three files
+  that pin themselves to those; every workflow sets up that same Python and
+  builds with that same Node; the workflows pin the same version of every action
+  they share, an update reaching only one leaving every file valid and a
+  scheduled run on the older action; and every one of them declares a read-only
+  token, the two jobs that publish anything widening that on their own job
+  instead;
 - the release archive puts the built UI where `server.DEFAULT_UI_DIR` looks, and
   both of its jobs check out the tag being released rather than a branch;
-- the nightly run pulls the tag `integration.TINY_MODEL` names, names the directory
-  `testpaths` leaves out, sets `$BUY_AGENT_REQUIRE_OLLAMA` so an absent Ollama fails
-  instead of skipping, caps itself at the five minutes the docs quote, and leaves
-  `integration.LIVE_TIMEOUT_SECONDS` room inside that cap to fail a stopped model
-  first;
-- every ADR is indexed, numbered to match its heading, carries the status, date and
-  sections ADR-0001 asks for, and cites only records that exist;
+- the nightly run pulls the tag `integration.TINY_MODEL` names, names the
+  directory `testpaths` leaves out, sets `$BUY_AGENT_REQUIRE_OLLAMA` so an
+  absent Ollama fails instead of skipping, caps itself at the five minutes the
+  docs quote, and leaves `integration.LIVE_TIMEOUT_SECONDS` room inside that cap
+  to fail a stopped model first;
+- every ADR is indexed, numbered to match its heading, carries the status, date
+  and sections ADR-0001 asks for, and cites only records that exist;
 - the Saturday mutation run mutates the package `.coveragerc` measures, on the
-  Python `ci.yml` pins, with every file these tests open -- or import from outside
-  `buy_agent`, `benchmark/` and `integration/` included -- named in mutmut's
-  `also_copy`;
+  Python `ci.yml` pins, with every file these tests open -- or import from
+  outside `buy_agent`, `benchmark/` and `integration/` included -- named in
+  mutmut's `also_copy`;
 - the linter reads that same package, `.pylintrc` sits where every command that
   runs pylint is run from, and no line of the package takes a check away without
-  saying why: a `# pylint: disable` with no prose above it is a suppression nobody
-  can date, which is what the `# noqa` codes it replaced had become (ADR-0048);
-- every skill in `.claude/skills/` is named after its own directory, is described
-  where this file introduces them, and names only files, tests and tables that
-  exist -- `add-option` the two the form declares, `preflight` the checking
-  commands `ci.yml` runs and the toolchains it pins;
-- every module in the package takes its logger off the package's own name, leaves
-  its formatting to the logger, marks nothing as the report, configures logging
-  nowhere but `logging_setup`, and writes to stdout not at all -- and each entry
-  point wires its `--verbose` flag to the level. Every one of those is invisible
-  where it is broken: the line still reaches a terminal, and only the browser's
-  progress panel, a `> top.txt` or a `-v` nobody ran is any the wiser.
-
-A field added on one side of the language boundary and forgotten on the other is
-otherwise invisible to both suites.
+  saying why: a `# pylint: disable` with no prose above it is a suppression
+  nobody can date, which is what the `# noqa` codes it replaced had become
+  (ADR-0048);
+- every skill in `.claude/skills/` is named after its own directory, is
+  described where this file introduces them, and names only files, tests and
+  tables that exist -- `add-option` the two the form declares, `preflight` the
+  checking commands `ci.yml` runs and the toolchains it pins;
+- every module in the package takes its logger off the package's own name,
+  leaves its formatting to the logger, marks nothing as the report, configures
+  logging nowhere but `logging_setup`, and writes to stdout not at all -- and
+  each entry point wires its `--verbose` flag to the level. Every one of those
+  is invisible where it is broken: the line still reaches a terminal, and only
+  the browser's progress panel, a `> top.txt` or a `-v` nobody ran is any the
+  wiser.
 
 ### The architecture tests
 
-Those are the rules that span a *declaration*. `tests/test_architecture.py` is the
-other half -- the rules that span an *import* -- asserted against the import graph
-with [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython), which parses
-the package with `ast` and answers rules about the result (ADR-0047). Which module
-may know about which is what this file says most often, and an import in the wrong
-direction runs perfectly: it passes that module's own tests, keeps the coverage
-floor and survives the mutation run. Twenty tests -- nineteen rules and the one
-that keeps them honest -- each the executable form of a sentence written down
-here or in a record:
+Those are the rules that span a *declaration*. `tests/test_architecture.py` is
+the other half -- the rules that span an *import* -- asserted against the import
+graph with [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython)
+(ADR-0047). Which module may know about which is what this file says most often,
+and an import in the wrong direction runs perfectly: it passes that module's own
+tests, keeps the coverage floor and survives the mutation run. Nineteen rules,
+each the executable form of a sentence written down here or in a record, and a
+twentieth test that keeps them honest:
 
-- the package has **no import cycles**, and imports **none of the five trees that
-  import it** -- `tests/`, `integration/`, `benchmark/`, `demo/`, `scripts/`, none
-  of which is in the image or the release archive;
-- every module sits in a **layer that reaches only downward** -- entry points, web,
-  orchestration, pipeline, paying, model access, settings, domain -- with the four
-  edges that are decisions named in the test: the pipeline never reads the config
-  (which is what lets `rank_products`, `ground` and `Constraints` be tested with
-  three arguments and no environment), the pipeline never pays (ADR-0046), paying
-  never asks the model, and the model seam knows nothing about products (ADR-0038);
+- the package has **no import cycles**, and imports **none of the five trees
+  that import it** -- `tests/`, `integration/`, `benchmark/`, `demo/`,
+  `scripts/`, none of which is in the image or the release archive;
+- every module sits in a **layer that reaches only downward** -- entry points,
+  web, orchestration, pipeline, paying, model access, settings, domain -- with
+  the four edges that are decisions named in the test: the pipeline never reads
+  the config (which is what lets `rank_products`, `ground` and `Constraints` be
+  tested with three arguments and no environment), the pipeline never pays
+  (ADR-0046), paying never asks the model, and the model seam knows nothing
+  about products (ADR-0038);
 - **one seam, one module**: `mandates.py` alone imports `ap2` (ADR-0046),
   `providers.py` alone a model client (ADR-0029), `search.py` alone the search
   backend (ADR-0021), `fetch.py` alone the HTML parser, the three that speak
   HTTP -- `fetch`, `providers`, `rails` -- are the three the suite patches, so a
   fourth is a request from a module nobody thought made any, and `argparse`
-  belongs to the two modules handed an `argv`: a parser below them is a third set
-  of defaults, and one that answers a bad value by exiting the process;
+  belongs to the two modules handed an `argv`: a parser below them is a third
+  set of defaults, and one that answers a bad value by exiting the process;
 - **`buy_agent/__init__.py` imports the four modules it re-exports from** and no
   others. It is the file both rules above let off, so it is the one that needs a
   rule of its own -- and importing any submodule runs it first, so a `from` line
   here is paid by every caller: one naming `payment` would put the optional AP2
   stack behind `import buy_agent`, one naming `server` a socket module behind
   `python -m buy_agent`;
-- `server.py` imports **nothing outside the standard library** (ADR-0010), read off
-  the graph rather than off `requirements.txt`, so a dependency added tomorrow is
-  covered without anybody writing it down again;
-- the **tables know nothing about the config** resolved from them (ADR-0029), and
-  `search.py`, `sources.py` and `mandates.py` know nothing about any other module
-  -- deciding is not fetching, and the AP2 seam translates between two
+- `server.py` imports **nothing outside the standard library** (ADR-0010), read
+  off the graph rather than off `requirements.txt`, so a dependency added
+  tomorrow is covered without anybody writing it down again;
+- the **tables know nothing about the config** resolved from them (ADR-0029),
+  and `search.py`, `sources.py` and `mandates.py` know nothing about any other
+  module -- deciding is not fetching, and the AP2 seam translates between two
   vocabularies without speaking either back (ADR-0046);
-- **the web tier is split at the payload**: `api.py` reaches no socket, no thread
-  and no queue, which is what leaves every one of its rules assertable by calling
-  a function while the status line and the stream stay in `server.py`;
+- **the web tier is split at the payload**: `api.py` reaches no socket, no
+  thread and no queue, which is what leaves every one of its rules assertable by
+  calling a function while the status line and the stream stay in `server.py`;
 - **the steps take values and answer values**: nothing in the pipeline or the
-  domain reads an environment variable, a file, a clock or a random number -- the
-  half of "the pipeline never reads the config" no layer can state, and what says
-  a remembered answer (ADR-0044) is the same answer;
+  domain reads an environment variable, a file, a clock or a random number --
+  the half of "the pipeline never reads the config" no layer can state, and what
+  says a remembered answer (ADR-0044) is the same answer;
 - **the steps do not chain themselves**: the order of the pipeline is
-  `BuyAgent.run`'s to know, since a joint argued in one place is a joint that can
-  be moved, and the one edge inside that layer is `verification.py` sharing
+  `BuyAgent.run`'s to know, since a joint argued in one place is a joint that
+  can be moved, and the one edge inside that layer is `verification.py` sharing
   `extraction.py`'s vocabulary;
 - **nothing that decides the answer asks the model**: `ranking`, `constraints`,
   `verification` and `models` may not reach the chat seam, the fetcher or the
   search (ADR-0002).
 
-Two things about how those are written. Every rule is checked with
-`ignore_type_checking_imports=True`: an import under that guard never runs, so it
-is a name and not a dependency, and it is how this package already spells "I use
-this type and not this module". And `buy_agent/__init__.py` is in no layer and
+Three things about how those are written. Every rule is checked with
+`ignore_type_checking_imports=True`: an import under that guard never runs, so
+it is a name and not a dependency, and it is how this package already spells "I
+use this type and not this module". `buy_agent/__init__.py` is in no layer and
 outside the cycle rule, because `from buy_agent import mandates` -- the deferred
-import `api`, `payment` and `rails` each use -- reads as an edge onto the package
-rather than onto the module, while importing any submodule runs `__init__.py`
-first regardless.
-
-A negated rule whose subject matches nothing *passes*, which is the one way this
-file could be worse than no file: `only()` and `every_module_but()` therefore
-check that every filename they name is really a module of the package, so a rename
-fails the rule about that module rather than quietly making it a no-op. A module
-added to the package and to no layer is exempt from the layer rule in the same
-silent way -- adding one means placing it -- and a module named in *two* layers is
-that silence the other way about, placed twice and free to reach whatever either
-row allows, so the test that collects the placings counts them as well. What is
-deliberately not asserted is size: the library measures lines, methods and
-cohesion too, and a ceiling on any
-of them would be a policy nobody has decided.
+import `api`, `payment` and `rails` each use -- reads as an edge onto the
+package rather than onto the module. And a negated rule whose subject matches
+nothing *passes*, which is the one way this file could be worse than no file:
+`only()` and `every_module_but()` therefore check that every filename they name
+is really a module of the package, so a rename fails the rule about that module
+rather than quietly making it a no-op. A module in no layer is exempt in that
+same silent way, and one named in *two* is free to reach whatever either row
+allows, so the twentieth test collects the placings and counts them. Size is
+deliberately not asserted: a ceiling on lines, methods or cohesion would be a
+policy nobody has decided.
 
 ### The live suite
 
 `integration/` is the second Python suite and the only place a real model is
-involved (ADR-0026), and it is Ollama's alone: vLLM needs a GPU and a CPU runner
+involved (ADR-0026). It is Ollama's alone: vLLM needs a GPU and a CPU runner
 cannot host one honestly, so that provider's half is asserted in
-`tests/test_providers.py` and named as a gap in ADR-0028. A directory rather than a
-marker, because `pytest.ini` keeps `testpaths = tests`: "nothing in the suite
-touches Ollama" is then a property of where a file sits, not of anyone remembering
-an annotation. Four things there are load-bearing:
+`tests/test_providers.py` and named as a gap in ADR-0028. A directory rather
+than a marker, because `pytest.ini` keeps `testpaths = tests`: "nothing in the
+suite touches Ollama" is then a property of where a file sits, not of anyone
+remembering an annotation. Five things there are load-bearing:
 
-- **The model is real; the web is not.** `search_web` and `enrich` are still faked,
-  over the ten fabricated pages `benchmark/corpus.py` owns and
+- **The model is real; the web is not.** `search_web` and `enrich` are still
+  faked, over the ten fabricated pages `benchmark/corpus.py` owns and
   `benchmark.runner.serving_the_corpus` installs, so a nightly failure caused by
-  DuckDuckGo rate-limiting says nothing about this code. The corpus lives there
-  rather than here because `integration/test_benchmark.py` scores this same run
-  against the answer key beside it (ADR-0036) -- one corpus and one model call for
-  both questions. The fake stops at the transport: `enrich` reads the fabricated
-  text and then runs the real `fetch.condense` over it, so the prompt is shaped as
-  a production prompt is, wide enough for ADR-0019's `num_ctx` question to arise.
+  DuckDuckGo rate-limiting says nothing about this code. The fake stops at the
+  transport: `enrich` reads the fabricated text and then runs the real
+  `fetch.condense` over it, so the prompt is shaped as a production prompt is,
+  wide enough for ADR-0019's `num_ctx` question to arise.
 - **One run, many assertions.** A session-scoped `live_run` fixture runs the
-  pipeline once and each test reads something different off it. The extraction chain
-  is *wrapped* rather than replaced -- a `Recording` delegating `invoke`, which is
-  the whole of a chain's surface, keeps the raw `ProductList` on the way past -- so
-  what runs underneath is the run `BuyAgent` would have made.
+  pipeline once and each test reads something different off it. The extraction
+  chain is *wrapped* rather than replaced -- a `Recording` delegating `invoke`,
+  which is the whole of a chain's surface, keeps the raw `ProductList` on the
+  way past -- so what runs underneath is the run `BuyAgent` would have made.
 - **Almost nothing asserts the model was right.** The assertions are the
-  invariants: every name, figure and quote in the sources, every link a page that
-  was searched, no repeats, the ranking ordered. A 0.6B model is not held to an
-  answer. The exceptions are a smoke test that something was extracted and a second
-  that something was quoted, since every other assertion passes vacuously on an
-  empty list.
+  invariants: every name, figure and quote in the sources, every link a page
+  that was searched, no repeats, the ranking ordered. A 0.6B model is not held
+  to an answer. The exceptions are a smoke test that something was extracted and
+  a second that something was quoted, since every other assertion passes
+  vacuously on an empty list.
 - **An absent Ollama skips locally and fails on the schedule.**
-  `$BUY_AGENT_REQUIRE_OLLAMA`, set by the workflow and nothing else, flips it -- a
-  nightly job that skipped every test it has is a green job that checked nothing.
-  `$BUY_AGENT_TEST_MODEL` moves the tag; `$OLLAMA_MODEL` deliberately does not,
-  that one moving the default the agent ships with.
-- **The same run is also scored.** `integration/test_benchmark.py` puts it through
-  `benchmark.scoring.score_run` and fails under `FLOORS`, one test per metric so a
-  red job names which half slipped. That is the other question -- not "did the
-  promises hold" but "how well did it do" -- and it needs the answer key the four
-  points above deliberately do without.
+  `$BUY_AGENT_REQUIRE_OLLAMA`, set by the workflow and nothing else, flips it --
+  a nightly job that skipped every test it has is a green job that checked
+  nothing. `$BUY_AGENT_TEST_MODEL` moves the tag; `$OLLAMA_MODEL` deliberately
+  does not, that one moving the default the agent ships with.
+- **The same run is also scored.** `integration/test_benchmark.py` puts it
+  through `benchmark.scoring.score_run` and fails under `FLOORS`, one test per
+  metric so a red job names which half slipped. That is the other question --
+  not "did the promises hold" but "how well did it do" -- and it needs the
+  answer key the four points above deliberately do without.
 
 ### The benchmark
 
 `benchmark/` is the answer key the invariants above cannot have, and the scorer
-over it. It owns the corpus, so `integration/` reads it back and the nightly job
-asks both questions of one model call. ADR-0036 has the reasoning and
+over it. It owns the corpus, which is why `integration/` reads it back: one
+corpus and one model call answer both questions. ADR-0036 has the reasoning and
 `docs/testing.md` the metric table; four rules hold here.
 
-- **The key is per-product sets, not one right answer.** `answers.py` records every
-  `(price, currency)` and every `(rating, review_count)` a page prints for each
-  product; the canonical value beside each set exists only to build the ranking the
-  run should have produced. `329 USD` is a pairing no page printed and so one wrong
-  price, not two right halves (ADR-0022).
-- **`scoring.METRICS` is the one place a metric is declared** -- its weight and what
-  it scores on an empty denominator -- and a `Scorecard` is `right out of` per name,
-  so nothing recomputes a ratio. Where the pipeline has a rule the scorer uses it:
-  `verification.distinctive_words`, `word_coverage` and `NAME_COVERAGE` for names
-  -- the bar `mentions_name` sets, applied both ways -- the *condensed* page text
-  for quotes, `rank_products` for the ideal order.
-- **The floors are a tripwire, not a target.** Set where a 0.6B model happens to sit
-  today, the nightly would fail for a reworded prompt, which is how a scheduled run
-  gets ignored. Raising one is a commit of its own quoting the runs that justify it.
+- **The key is per-product sets, not one right answer.** `answers.py` records
+  every `(price, currency)` and every `(rating, review_count)` a page prints for
+  each product; the canonical value beside each set exists only to build the
+  ranking the run should have produced. `329 USD` is a pairing no page printed
+  and so one wrong price, not two right halves (ADR-0022).
+- **`scoring.METRICS` is the one place a metric is declared** -- its weight and
+  what it scores on an empty denominator -- and a `Scorecard` is `right out of`
+  per name, so nothing recomputes a ratio. Where the pipeline has a rule the
+  scorer uses it: `verification.distinctive_words`, `word_coverage` and
+  `NAME_COVERAGE` for names -- the bar `mentions_name` sets, applied both ways
+  -- the *condensed* page text for quotes, `rank_products` for the ideal order.
+- **The floors are a tripwire, not a target.** Set where a 0.6B model happens to
+  sit today, the nightly would fail for a reworded prompt, which is how a
+  scheduled run gets ignored. Raising one is a commit of its own quoting the
+  runs that justify it.
 - **Editing the corpus means re-running both scripted answers.** `PERFECT` must
   score exactly 1.000 -- which is what says the key is *reachable* rather than a
-  silent ceiling under every number the nightly reports -- and `SLOPPY` is wrong in
-  eight ways, pinned to the exact counts each mistake should produce.
+  silent ceiling under every number the nightly reports -- and `SLOPPY` is wrong
+  in eight ways, pinned to the exact counts each mistake should produce.
 
 ### The scripts
 
@@ -1316,52 +1224,55 @@ Both Python scripts in `scripts/` are tested like the rest, by the same rule as
 `clean_products`: whatever decides an answer belongs where it is testable rather
 than in a workflow's shell. `mutation_report.py` decides whether a mutation run
 passes; `update_ollama.py` decides what "updated" means -- a digest that moved
-between the listing before the pulls and the one after, since `ollama pull` reports
-`success` whether it replaced anything or not. It is the one thing in `scripts/`
-that imports from `buy_agent` (`providers.OLLAMA` for the `$OLLAMA_HOST` defaults),
-which is why it runs as `python -m scripts.update_ollama` from the repository root
-rather than by path.
+between the listing before the pulls and the one after, since `ollama pull`
+reports `success` whether it replaced anything or not. It is the one thing in
+`scripts/` that imports from `buy_agent` (`providers.OLLAMA` for the
+`$OLLAMA_HOST` defaults), which is why it runs as `python -m
+scripts.update_ollama` from the repository root rather than by path.
 
-`scripts/start.ps1` is the README's "Starting it on localhost" as one command with
-no arguments (ADR-0023) -- venv, Ollama, `ollama pull`, `ng build`, the server, the
-browser, each step skipped when already done. It decides nothing the rest of the
-project decides: the provider, model and address are read off one `AgentConfig()`
-with a `python -c`, so `$BUY_AGENT_PROVIDER`, `$OLLAMA_MODEL`/`$OLLAMA_HOST` and
-`$VLLM_MODEL`/`$VLLM_HOST` still reach it and no default is written down twice. Off
-one config rather than three constants, because the pair belongs to the provider.
-Ollama is the only server it starts -- the install-and-pull half is behind a
-provider check, and anything else is waited for at `/models` and named rather than
-launched, a vLLM needing a GPU, a served model and flags this script has no business
-choosing. Paying is the same shape one step further: the AP2 SDK is an optional
-install and somebody else's git repository, so it is fetched only where the
-environment already names a rail, a merchant, a key or a mandate -- the settings
-nothing but a payment reads -- installed with the two commands `mandates.INSTALL`
-spells out, and then asked for again, pip exiting 0 for an install that cannot be
-imported being this dependency's documented failure. A run that skips it says which
-variable to set, since a page that silently never offers to buy anything is the
-confusing half of optional. Its seven agreements with the rest of the project are
-in `tests/test_conventions.py`: no default's value appears in the script, the URL
-it opens a browser at is the one `server.build_parser` binds, the build it probes
-for is the one `server.DEFAULT_UI_DIR` serves, the Python and Node it sends you to
-install are the ones `ci.yml` pins, the SDK is installed the way `mandates.INSTALL`
-says and reported by asking `mandates.available()` rather than by looking, and
-every `$BUY_AGENT_*` it reads is one the package reads too.
+`scripts/start.ps1` is the README's "Starting it on localhost" as one command
+with no arguments (ADR-0023) -- venv, Ollama, `ollama pull`, `ng build`, the
+server, the browser, each step skipped when already done. It decides nothing the
+rest of the project decides: the provider, model and address are read off one
+`AgentConfig()` with a `python -c`, so `$BUY_AGENT_PROVIDER`,
+`$OLLAMA_MODEL`/`$OLLAMA_HOST` and `$VLLM_MODEL`/`$VLLM_HOST` still reach it and
+no default is written down twice. Off one config rather than three constants,
+because the pair belongs to the provider. Ollama is the only server it starts --
+the install-and-pull half is behind a provider check, and anything else is
+waited for at `/models` and named rather than launched, a vLLM needing a GPU, a
+served model and flags this script has no business choosing. Paying is the same
+shape one step further: the AP2 SDK is an optional install and somebody else's
+git repository, so it is fetched only where the environment already names a
+rail, a merchant, a key or a mandate -- the settings nothing but a payment reads
+-- installed with the two commands `mandates.INSTALL` spells out, and then asked
+for again, pip exiting 0 for an install that cannot be imported being this
+dependency's documented failure. A run that skips it says which variable to set,
+since a page that silently never offers to buy anything is the confusing half of
+optional. Its seven agreements with the rest of the project are in
+`tests/test_conventions.py`. No default's value appears in the script. The URL
+it opens a browser at is the one `server.build_parser` binds, and the build it
+probes for is the one `server.DEFAULT_UI_DIR` serves. The Python and Node it
+sends you to install are the ones `ci.yml` pins. The SDK is installed the way
+`mandates.INSTALL` says, and reported by asking `mandates.available()` rather
+than by looking. And every `$BUY_AGENT_*` it reads is one the package reads too.
 
-`tests/test_start_script.py` cannot run the script -- it installs, downloads, starts
-two servers and opens a browser -- so it does everything short of that through
-`tests/start_script_probe.ps1`. The probe parses the script into an AST, lifts the
-function definitions out and dot-sources them on their own, leaving the body unrun,
-then writes what it found and what those functions did as one JSON document: `Run`
-is given this suite's own interpreter, so its `$LASTEXITCODE` check is exercised
-against a real process, and `Answers` is given a stubbed `Invoke-WebRequest` and a
-clock that only moves when it sleeps, so its polling loop is exercised without a
-network or a wait. The AST also enforces the rule the script's error handling rests
-on: every program it runs goes through `Run`, since a native command that fails
-raises nothing whatever `$ErrorActionPreference` says. One PowerShell process for
-the whole module, starting one costing about as long as the rest of the suite;
-`pwsh` or `powershell`, whichever is on PATH, and the module skips where there is
-neither.
+`tests/test_start_script.py` cannot run the script -- it installs, downloads,
+starts two servers and opens a browser -- so it does everything short of that
+through `tests/start_script_probe.ps1`. The probe parses the script into an AST,
+lifts the function definitions out and dot-sources them on their own, leaving
+the body unrun, then writes what it found and what those functions did as one
+JSON document: `Run` is given this suite's own interpreter, so its
+`$LASTEXITCODE` check is exercised against a real process, and `Answers` is
+given a stubbed `Invoke-WebRequest` and a clock that only moves when it sleeps,
+so its polling loop is exercised without a network or a wait. The AST also
+enforces the rule the script's error handling rests on: every program it runs
+goes through `Run`, since a native command that fails raises nothing whatever
+`$ErrorActionPreference` says. One PowerShell process for the whole module,
+starting one costing about as long as the rest of the suite; `pwsh` or
+`powershell`, whichever is on PATH, and the module skips where there is neither.
 
 ## Environment
 
-Development happens on Windows with PowerShell as the default shell; prefer PowerShell syntax for terminal commands, or use the Bash tool explicitly for POSIX scripts.
+Development happens on Windows with PowerShell as the default shell; prefer
+PowerShell syntax for terminal commands, or use the Bash tool explicitly for
+POSIX scripts.

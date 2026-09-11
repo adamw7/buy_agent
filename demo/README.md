@@ -47,10 +47,10 @@ rather than Ollama, and `GET /api/models` answers from a list rather than
 asking. Neither Ollama nor the network is needed to reproduce either recording.
 
 The book titles and their authors are real, and so are the laptop model names.
-The shops, the prices, the ratings, the review counts, the weights and the quoted
-verdicts are invented, and the hosts are all `*.example`, which cannot resolve.
-Nothing on those pages is a claim about a real seller, a real reviewer or a real
-price.
+The shops, the prices, the ratings, the review counts, the weights and the
+quoted verdicts are invented, and the hosts are all `*.example`, which cannot
+resolve. Nothing on those pages is a claim about a real seller, a real reviewer
+or a real price.
 
 ## The link at the end
 
@@ -62,9 +62,9 @@ that opens is the one `attribute_sources` put there instead, and the recording
 ends on the difference between a grounded link and an invented one.
 
 Those hosts cannot resolve, so nothing is fetched: `record.mjs` answers for
-`*.example` itself, with the same page text `server.py` handed the pipeline, laid
-out as the page it is pretending to be. `wwii-books-1944-45.mpg` was recorded
-before the flag existed and stops at the results.
+`*.example` itself, with the same page text `server.py` handed the pipeline,
+laid out as the page it is pretending to be. `wwii-books-1944-45.mpg` was
+recorded before the flag existed and stops at the results.
 
 ## Recording them again
 
