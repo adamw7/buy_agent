@@ -161,11 +161,11 @@ def live_config(tiny_model: str, base_url: str) -> AgentConfig:
     instead of thinking until the context runs out is one of the things a live
     run is here to find out -- which needs a prompt wide enough for the question
     to arise. Ten condensed pages put the extraction prompt at ~9.5k characters,
-    near enough 2.4k tokens: comfortable on the 8192 this asks for, and about
-    1.7k left for thinking and JSON on Ollama's 4096 default, which is where a
-    thinking model runs out. It is not the ~4.3k a ten-result run of real pages
-    reaches -- fabricated pages are thinner than fetched ones -- but it is the
-    same order, where three pages of prose were not.
+    near enough 2.4k tokens: comfortable on the 16384 this asks for (ADR-0050),
+    and about 1.7k left for thinking and JSON on Ollama's 4096 default, which is
+    where a thinking model runs out. It is not the ~4.3k a ten-result run of real
+    pages reaches -- fabricated pages are thinner than fetched ones -- but it is
+    the same order, where three pages of prose were not.
 
     ``search_results`` is therefore the shipped default rather than a number
     chosen here. ``num_products`` is below the seven distinct products the pages

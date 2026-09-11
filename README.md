@@ -105,7 +105,7 @@ python -m buy_agent "headphones" --max-price 200 --min-rating 4.5 --min-reviews 
 | `--min-reviews` | no limit | Report nothing whose rating averages fewer reviews |
 | `--cache-ttl` | `86400` | Seconds a page, and the model's answer about it, stay usable on disk; `0` is off |
 | `--temperature` | `0.0` | Model temperature, 0-2; extraction is a copying task |
-| `--num-ctx` | `8192` | Context window in tokens (Ollama only) |
+| `--num-ctx` | `16384` | Context window in tokens (Ollama only) |
 | `--think` / `--no-think` | `--no-think` | Force thinking mode on or off |
 | `--no-fetch` | off | Use search snippets only, without opening the result pages |
 | `--json` | -- | Also write every result to a JSON file |
@@ -182,13 +182,15 @@ machine or network is inside that decision, not an exception to it.
 ### Thinking models
 
 The default is one, so the two settings a thinking model needs are the defaults
-too: thinking off, and an 8192-token window. Left to itself such a model fails
+too: thinking off, and a 16384-token window. Left to itself such a model fails
 -- the extraction prompt runs to roughly 4.3k tokens, so inside Ollama's own
 4096 the model spends what is left thinking, is cut off before it writes any
 JSON, and the run ends with `Invalid json output:` and nothing after the colon.
-The wider window is also what gets you the full ten products rather than five.
+The wider window is also what gets you the full ten products rather than five:
+the prompt is only half of what has to fit, the JSON describing ten products
+with what was said about each being the other half (ADR-0050).
 
-So `--no-think` and `--num-ctx 8192` are no longer worth typing: `qwen3.5`,
+So `--no-think` and `--num-ctx 16384` are no longer worth typing: `qwen3.5`,
 `gemma4`, `lfm2.5`, anything listing the `thinking` capability, is already
 covered, and a model that cannot think ignores both. Only a model you
 specifically want to hear reasoning from wants the flags back:

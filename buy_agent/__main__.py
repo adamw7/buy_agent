@@ -59,8 +59,8 @@ NOTHING_FOUND = 3
 PAYMENT_FAILED = 4
 
 #: What ``--num-ctx`` holds when it was not given. A sentinel rather than the
-#: config's default: "8192" and "the default, which is 8192" are the same number
-#: and different requests, and only the first is worth a warning.
+#: config's default: the default typed out and the default left alone are the same
+#: number and different requests, and only the first is worth a warning.
 _UNSET = object()
 
 

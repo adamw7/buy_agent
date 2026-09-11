@@ -65,9 +65,10 @@ def settings(**overrides: object) -> AgentConfig:
 #: so one worded that way here would be testing nothing.
 #:
 #: Ten of them, which is what ``search_results`` ships as, and each dense, because
-#: the *width* of the prompt is under test too: ADR-0019's ``num_ctx=8192`` and
-#: ``reasoning=False`` are about a prompt that fills the window, and three tidy
-#: pages came to ~675 tokens, where the question cannot arise.
+#: the *width* of the prompt is under test too: the shipped ``num_ctx`` and
+#: ``reasoning=False`` (ADR-0019, ADR-0050) are about a prompt that fills the
+#: window, and three tidy pages came to ~675 tokens, where the question cannot
+#: arise.
 PAGE_TEXT: dict[str, str] = {
     "https://audiosite.example/sony-wh-1000xm5-review": """\
 AudioSite

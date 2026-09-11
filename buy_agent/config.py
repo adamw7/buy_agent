@@ -97,9 +97,10 @@ class AgentConfig:
         temperature: Low by default: extraction is copying, not creation.
         num_ctx: Context window in tokens, or None to leave the server's own alone.
             The extraction prompt runs to ~4.3k tokens, so on Ollama's default 4096 a
-            thinking model has no room left to answer; 8192 because Ollama's default
-            model is one. **Ollama only** -- vLLM fixes its window at startup, which
-            ``Provider.takes_num_ctx`` declares.
+            thinking model has no room left to answer; 16384 because Ollama's default
+            model is one and the JSON for ten products is the answer on top of that
+            prompt (ADR-0050). **Ollama only** -- vLLM fixes its window at startup,
+            which ``Provider.takes_num_ctx`` declares.
         reasoning: Thinking mode: None sends nothing, False (the default) turns
             thinking off, True on. Thinking models need False, spending the remaining
             context reasoning about a copying task; one that cannot think ignores it.
@@ -165,7 +166,7 @@ class AgentConfig:
     base_url: str = ""
     api_key: str = ""
     temperature: float = 0.0
-    num_ctx: int | None = 8192
+    num_ctx: int | None = 16384
     reasoning: bool | None = False
     search_results: int = 10
     num_products: int = 10
