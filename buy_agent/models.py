@@ -160,12 +160,25 @@ class SearchQuery(BaseModel):
 
 
 class Product(BaseModel):
-    """A product candidate, with unknown fields left as ``None``."""
+    """A product candidate, with unknown fields left as ``None``.
+
+    The two figures are held to being *numbers*, which ``float`` alone does not say:
+    ``inf`` and ``nan`` are floats, and either one poisons everything downstream of
+    it. An infinite price makes ``priciest - cheapest`` infinite and every price share
+    a NaN; a NaN score sorts arbitrarily; and ``json.dumps`` writes both as bare
+    ``Infinity`` and ``NaN``, which is not JSON and which a browser refuses to parse
+    -- so a run would answer 200 with a body the page cannot read.
+    :meth:`ExtractedProduct.to_product` already blanks a price like that on the way in
+    from the model, which is why nothing in the pipeline trips this; it is declared
+    here because that is not the only way a ``Product`` is built. ``/api/rank`` and
+    ``/api/pay`` validate one straight out of a request body, and ``json.loads``
+    accepts ``Infinity`` and ``NaN`` as readily as it accepts ``1``.
+    """
 
     name: str
-    price: float | None = None
+    price: Annotated[float | None, Field(allow_inf_nan=False)] = None
     currency: str | None = None
-    rating: float | None = None
+    rating: Annotated[float | None, Field(allow_inf_nan=False)] = None
     review_count: int | None = None
     seller: str | None = None
     url: str | None = None

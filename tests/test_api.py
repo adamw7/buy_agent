@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import httpx
@@ -706,6 +707,36 @@ def test_reordering_says_which_product_it_could_not_read() -> None:
         rank_again(posted(products=[*results_payload(RANKED), {"price": 3.0}]))
 
     assert "products[2]" in str(excinfo.value)
+    assert excinfo.value.field == "products"
+
+
+@pytest.mark.parametrize("figure", ["Infinity", "-Infinity", "NaN"])
+@pytest.mark.parametrize("field", ["price", "rating"])
+def test_reordering_refuses_a_figure_that_is_not_a_number(field, figure) -> None:
+    """``json.loads`` reads ``Infinity`` and ``NaN`` as readily as it reads ``1``,
+    so this is the one door a non-finite figure can arrive at: the model's own is
+    blanked by ``to_product``. Left alone it would rank -- an infinite price makes
+    every price share a NaN -- and then go back out through ``json.dumps``, which
+    writes both bare, giving the page a 200 whose body it cannot parse."""
+    posted_products = json.loads(f'[{{"name": "Sony", "{field}": {figure}}}]')
+
+    with pytest.raises(ApiError) as excinfo:
+        rank_again(posted(products=posted_products))
+
+    assert excinfo.value.status == 400
+    assert excinfo.value.field == "products"
+    assert "finite" in str(excinfo.value)
+
+
+def test_paying_refuses_a_figure_that_is_not_a_number_at_the_door() -> None:
+    """The same door, and the one where it costs more than a broken page: an
+    infinite price clears ``payable``, so the card would offer a Pay button for
+    an amount ``minor_units`` refuses once the cart is built."""
+    with pytest.raises(ApiError) as excinfo:
+        pay_now(json.loads('{"products": [{"name": "Sony", "price": Infinity,'
+                           ' "currency": "USD", "url": "https://example.com/s"}]}'))
+
+    assert excinfo.value.status == 400
     assert excinfo.value.field == "products"
 
 
