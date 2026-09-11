@@ -728,6 +728,19 @@ def test_reordering_refuses_a_figure_that_is_not_a_number(field, figure) -> None
     assert "finite" in str(excinfo.value)
 
 
+@pytest.mark.parametrize("rating", [5.5, 100, -1])
+def test_reordering_refuses_a_rating_off_the_scale(rating: float) -> None:
+    """A rating is a share of the blend and not a quantity -- ``score_product``
+    divides it by 5 -- so one off the scale ranks at a score outside the ``[0, 1]``
+    every reader of a breakdown is owed, and the card draws a meter longer than its
+    own track. The pipeline blanks one in ``to_product``; this is the other door."""
+    with pytest.raises(ApiError) as excinfo:
+        rank_again(posted(products=[{"name": "Sony", "rating": rating}]))
+
+    assert excinfo.value.status == 400
+    assert excinfo.value.field == "products"
+
+
 def test_paying_refuses_a_figure_that_is_not_a_number_at_the_door() -> None:
     """The same door, and the one where it costs more than a broken page: an
     infinite price clears ``payable``, so the card would offer a Pay button for

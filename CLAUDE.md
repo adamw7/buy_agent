@@ -334,7 +334,11 @@ says which fields only qualify another and `_fill_gaps` moves the group. The
 third is the shopper's bounds (ADR-0039): after `deduplicate`, since
 `_fill_gaps` may be what supplies the price they are judged on, and before
 `rank_products`, since price scores relative to the candidate set and the set
-that matters is the one being reported.
+that matters is the one being reported. Which is also why the budget is settled
+against the set it *leaves*: the currency is a fact about the set (ADR-0043) and
+this is the step that changes the set, so `Constraints.apply` re-reads the bound
+until the two agree, rather than applying it in a currency nothing that survived
+was ever held to.
 
 | Module | Responsibility |
 | --- | --- |

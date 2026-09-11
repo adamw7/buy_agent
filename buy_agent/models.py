@@ -173,12 +173,20 @@ class Product(BaseModel):
     here because that is not the only way a ``Product`` is built. ``/api/rank`` and
     ``/api/pay`` validate one straight out of a request body, and ``json.loads``
     accepts ``Infinity`` and ``NaN`` as readily as it accepts ``1``.
+
+    The rating is held to its *scale* for the same reason and by the same rule. It is
+    the one figure here that is not simply a quantity: ``score_product`` divides it by
+    5 to get a share of the blend, so a 100 out of a request body is a share of 20 and
+    a score of 10.2 -- outside the ``[0, 1]`` :class:`ScoreParts` promises, drawn as a
+    meter ten times its own track and added to nothing anybody can read. ``to_product``
+    blanks one off the scale on the way in from the model; a door that takes a whole
+    product has to refuse it, the same way it refuses a price of ``inf``.
     """
 
     name: str
     price: Annotated[float | None, Field(allow_inf_nan=False)] = None
     currency: str | None = None
-    rating: Annotated[float | None, Field(allow_inf_nan=False)] = None
+    rating: Annotated[float | None, Field(allow_inf_nan=False, ge=0, le=5)] = None
     review_count: int | None = None
     seller: str | None = None
     url: str | None = None

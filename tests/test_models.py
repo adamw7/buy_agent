@@ -230,6 +230,19 @@ def test_a_product_refuses_a_figure_that_is_not_a_number(field, figure) -> None:
         Product(name="Sony WH-1000XM5", **{field: figure})
 
 
+@pytest.mark.parametrize("rating", [5.5, 100.0, -1.0])
+def test_a_product_refuses_a_rating_off_the_scale(rating: float) -> None:
+    """The rating is the one figure here that is not simply a quantity:
+    ``score_product`` divides it by 5 to get a share of the blend, so a 100 out of a
+    request body is a share of 20 and a score of 10.2 -- outside the ``[0, 1]``
+    ``ScoreParts`` promises and drawn as a meter ten times its own track. ``-1`` is
+    the *extraction* schema's sentinel and no rating at all by the time a ``Product``
+    is built, which is what ``to_product`` is for. Declared on the field for the
+    reason a non-finite figure is: both doors go through it."""
+    with pytest.raises(ValidationError):
+        Product(name="Sony WH-1000XM5", rating=rating)
+
+
 def test_only_the_name_is_required() -> None:
     """Every other field has a sentinel default, so a sparse answer still parses."""
     converted = ExtractedProduct(name="Thing").to_product()

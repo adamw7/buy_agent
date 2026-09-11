@@ -137,16 +137,14 @@ class Constraints:
         if not self.given:
             return list(products)
 
-        # A fact about the set, worked out here because this is the one place that
-        # has the set -- the reason ``rank_products`` works it out too (ADR-0043).
-        currency = dominant_currency(products)
-        kept: list[Product] = []
-        excluded: list[str] = []
-        for product in products:
-            if self.admits(product, currency):
-                kept.append(product)
-            else:
-                excluded.append(product.name)
+        inside, currency = self._settled(products)
+        held = frozenset(inside)
+        kept = [products[index] for index in inside]
+        excluded = [
+            product.name
+            for index, product in enumerate(products)
+            if index not in held
+        ]
 
         if excluded:
             # The names at DEBUG under the count, as everywhere a product is
@@ -165,6 +163,34 @@ class Constraints:
             self.describe(currency),
         )
         return kept
+
+    def _settled(self, products: Sequence[Product]) -> tuple[list[int], str | None]:
+        """Which products are inside the bounds, by index, and in which currency.
+
+        The currency is a fact about the set (ADR-0043) and this is a function that
+        *changes* the set, which is the whole of why it is asked more than once. Removing
+        every product of the commonest currency leaves the survivors counted in another
+        one, and that one is what the report, the ranking and the cart are then all in --
+        so a budget read once, before the filtering, would be a budget applied in a
+        currency nothing that survived it was ever held to: "at most 92.00 USD" logged
+        over a report of euros, one of them at 95.
+
+        So the bound is re-read against the set it is leaving behind until the two agree.
+        Each pass keeps a subset of the pass before it, and a pass that removes nothing
+        is the fixed point -- which is also the first pass for the runs that have one
+        currency, this costing them a second comparison and nothing else.
+        """
+        inside = list(range(len(products)))
+        while True:
+            currency = dominant_currency(products[index] for index in inside)
+            kept = [index for index in inside if self.admits(products[index], currency)]
+            # Nothing left settles nothing -- an empty set is counted in no currency
+            # at all -- so the answer is the currency that emptied it, which is the
+            # one the line the shopper reads has to name: "0 of 2 within the limits
+            # (at most 1.00)" leaves out the half of the bound nobody typed.
+            if not kept or len(kept) == len(inside):
+                return kept, currency
+            inside = kept
 
     def _set(self) -> Iterator[tuple[Reader, float, Callable[[float, float], bool], str]]:
         """The rows of :data:`_BOUNDS` the shopper actually gave a number for."""
