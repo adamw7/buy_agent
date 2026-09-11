@@ -218,6 +218,18 @@ def test_a_price_that_overflowed_a_float_is_not_a_price() -> None:
     assert overflowed.to_product().price_label() == "price unknown"
 
 
+@pytest.mark.parametrize("figure", [float("inf"), float("-inf"), float("nan")])
+@pytest.mark.parametrize("field", ["price", "rating"])
+def test_a_product_refuses_a_figure_that_is_not_a_number(field, figure) -> None:
+    """``to_product`` blanks one on the way in from the model, but that is not the
+    only way a ``Product`` is built: ``/api/rank`` and ``/api/pay`` validate one
+    straight out of a request body, and ``json.loads`` reads ``Infinity`` and
+    ``NaN`` as readily as it reads ``1``. So the rule is declared on the field
+    rather than at one of the two doors, where the other would go on taking it."""
+    with pytest.raises(ValidationError):
+        Product(name="Sony WH-1000XM5", **{field: figure})
+
+
 def test_only_the_name_is_required() -> None:
     """Every other field has a sentinel default, so a sparse answer still parses."""
     converted = ExtractedProduct(name="Thing").to_product()
