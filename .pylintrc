@@ -23,6 +23,87 @@ extension-pkg-allow-list = lxml.etree
 # the machine least able to do anything about it.
 ignored-modules = ap2, jwcrypto, cryptography
 
+# Pylint ships twenty-five checkers it does not load, and the default set was
+# where this started rather than where it stops. Each one below states a rule the
+# package already holds everywhere, which is the mirror of the `disable` block
+# further down: a checker is loaded here because the answer it wants is the answer
+# already written into every module, and left out where this project answers
+# differently. Each was run over `buy_agent/` before it was added, and the three
+# of the fifteen that had anything to say were answered by *fixing* the twelve
+# lines they named: an `except` clause in `payment.minor_units` naming a class
+# beside its own ancestor, a loop variable reassigned in its own body in
+# `verification.verify_numbers`, and ten `typing.Callable`s in the three modules
+# that had not caught up with the eight already spelling it `collections.abc`.
+# Fixing them is what makes a newly loaded checker a check; configuring around
+# them would have made it a preference (ADR-0049).
+#
+# The ten left out are left out by that same rule, and for the same kind of reason
+# the three checks below are off. `magic_value` fires on two dozen comparisons
+# whose numbers -- the 0.6 name-coverage bar, the five-word run a quote is checked
+# in, an HTTP status -- are each argued for in prose beside them, and a name
+# holding the value would move the argument away from the code. `broad_try_clause`
+# wants one statement per `try`, where `minor_units` has a comment saying exactly
+# why `int()` is inside the guard with the `quantize` before it. `code_style` would
+# rewrite twenty-eight `if` statements into walrus assignments, which is a house
+# style nobody chose. `mccabe` would put a ceiling on branching, and
+# `tests/test_architecture.py` has already declined that decision in as many
+# words: a ceiling on lines, methods or cohesion is a policy nobody has made.
+# `while_used` would ban the two polling loops that are the one thing `while` is
+# for, and `consider_refactoring_into_while_condition` has nothing to say about
+# either of them. `no_self_use` fires on `BuyAgentHandler._models`, which is one
+# of a family of route methods reached the same way and written the same shape:
+# making that one a function would say something about the routing that is not
+# true. And `bad_builtin`, `set_membership` and `consider_ternary_expression` find
+# nothing here and would be taste if they did.
+load-plugins =
+    # What a docstring and a comment have to be. `docparams` runs at its defaults,
+    # so a docstring with no sections is left alone -- the docstrings here are prose
+    # about why, which is what `missing-function-docstring` is turned off for below
+    # -- but a section somebody did write has to be true of the code under it.
+    # `tests/test_conventions.py` already reads `BuyAgent.run`'s `Raises:` against
+    # `api._STATUS`; this is that rule for the other hundred-odd docstrings, where a
+    # renamed parameter or a newly raised exception otherwise leaves a section that
+    # still reads as current. `empty_comment` catches the bare `#`, which is the
+    # comment-shaped version of what the `# noqa` codes ADR-0048 deleted had become.
+    pylint.extensions.docparams,
+    pylint.extensions.docstyle,
+    pylint.extensions.empty_comment,
+
+    # What an exception, a name and a loop variable may do. The first is the one
+    # that found something: this project's failures are a hierarchy on purpose --
+    # `RailUnreachableError` under `PaymentError`, ordered subclass-first in
+    # `api.PAY_STATUS` -- so a tuple naming an ancestor beside its own child reads
+    # as two cases being handled where there is one, and hides which of them the
+    # sentence beside it is about.
+    pylint.extensions.overlapping_exceptions,
+    pylint.extensions.redefined_loop_name,
+    pylint.extensions.redefined_variable_type,
+    pylint.extensions.dunder,
+    pylint.extensions.eq_without_hash,
+
+    # Control flow that reads as what it does. An `else` whose whole body is an
+    # `if`, an `elif` indented as a sibling of an outer branch it is nested inside,
+    # a constant on the left of a comparison, a dict built empty and then filled a
+    # line later, a loop that exists to compute `any()` -- each is a shape this
+    # package does not have, and each is one a later edit can leave behind while
+    # every test still passes, because every one of them runs.
+    pylint.extensions.check_elif,
+    pylint.extensions.confusing_elif,
+    pylint.extensions.comparison_placement,
+    pylint.extensions.dict_init_mutate,
+    pylint.extensions.for_any_all,
+
+    # Imports and the types they carry. Which module may import which is most of
+    # what `CLAUDE.md` says and the whole of what `tests/test_architecture.py`
+    # asserts (ADR-0047) -- but that graph is over this package's own modules, and
+    # `import-private-name` is the same mistake one library further out: a `_name`
+    # imported from somebody else's package is a dependency on something they never
+    # promised. `deprecated-typing-alias` holds the spelling the package already
+    # uses: `collections.abc.Callable`, `list[Product]`, `str | None`, and nothing
+    # out of `typing` that 3.13 answers with a builtin.
+    pylint.extensions.private_import,
+    pylint.extensions.typing
+
 [FORMAT]
 # What the package is written to already: the widest line in `buy_agent/` is 98.
 # Also pylint's own default, and written down here because it is a number somebody
@@ -41,6 +122,19 @@ enable =
     # `broad-exception-caught`, never `W0718`. A code is a thing to go and look up,
     # which is the one thing a comment beside the line is there to save.
     use-symbolic-message-instead,
+    # The rest of that family. Every one of these is a way for a check to stop
+    # running with nothing going red: a pragma pylint could not parse, the
+    # `disable-msg=` spelling it stopped reading years ago, a whole file turned off
+    # from its first line, and a raw checker that could not read the source at all.
+    # All four are informational and off by default, which leaves the default a
+    # linter that skips something and mentions it in a message nobody switched on.
+    # `locally-disabled` and `suppressed-message` are the two of the family that
+    # stay off: they fire on every pragma that is doing its job, which here is every
+    # pragma there is, and the prose above each of those already says what it is for.
+    bad-inline-option,
+    deprecated-pragma,
+    file-ignored,
+    raw-checker-failed,
 
 disable =
     # A docstring says what a name cannot. `price_label`, `total` and `do_GET` all

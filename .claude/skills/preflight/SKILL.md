@@ -35,8 +35,9 @@ python -m pylint buy_agent
   `integration/`. That is deliberate -- see below.
 - pylint runs over `buy_agent/` and nothing else, and has to come out at 10.00
   with no message at all: `.pylintrc` turns off the checks this project has
-  answered differently and every remaining one that fires is suppressed on its own
-  line with its reason (ADR-0048). A new message is a line to fix or a pragma to
+  answered differently, loads fifteen of the optional checkers pylint does not run
+  by itself, and every remaining message is suppressed on its own line with its
+  reason (ADR-0048, ADR-0049). A new message is a line to fix or a pragma to
   write, not a number to let slip.
 
 ## UI (Node 22.22.3)

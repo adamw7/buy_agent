@@ -6,8 +6,9 @@ import argparse
 import json
 import logging
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, get_args
+from typing import Any, get_args
 
 from buy_agent import mandates, payment
 from buy_agent.agent import BuyAgent, ModelUnavailableError

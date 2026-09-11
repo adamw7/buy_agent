@@ -301,8 +301,7 @@ def verify_numbers(products: Sequence[Product], haystack: str) -> list[Product]:
         if updates:
             dropped += 1
             logger.debug("Unsupported %s for %r", "/".join(sorted(updates)), product.name)
-            product = product.model_copy(update=updates)
-        verified.append(product)
+        verified.append(product.model_copy(update=updates) if updates else product)
 
     if dropped:
         logger.info("Dropped unsupported figures on %d product(s)", dropped)

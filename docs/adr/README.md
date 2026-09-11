@@ -57,6 +57,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0046](0046-pay-on-the-shoppers-behalf-with-ap2.md) | Pay on the shopper's behalf, with AP2 mandates and a rail table | Accepted |
 | [0047](0047-check-the-import-graph-with-archunit.md) | Check the import graph against the rules already written down | Accepted |
 | [0048](0048-lint-the-package-with-pylint.md) | Lint the package with pylint, and write down every answer | Accepted |
+| [0049](0049-load-the-optional-pylint-checkers.md) | Load the optional pylint checkers that state a rule already held | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written
