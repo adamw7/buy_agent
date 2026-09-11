@@ -38,6 +38,7 @@ which is the only way to check that two lists agree about what is *not* in them.
 from __future__ import annotations
 
 import ast
+import fnmatch
 import inspect
 import json
 import os
@@ -558,6 +559,8 @@ def test_every_record_a_record_points_at_exists(path: Path) -> None:
 # -- the container image -------------------------------------------------------
 
 _DOCKERFILE = _ROOT / "Dockerfile"
+_DOCKERIGNORE = _ROOT / ".dockerignore"
+_GITIGNORE = _ROOT / ".gitignore"
 _CI = _ROOT / ".github" / "workflows" / "ci.yml"
 _MUTATION = _ROOT / ".github" / "workflows" / "mutation.yml"
 _INTEGRATION = _ROOT / ".github" / "workflows" / "integration.yml"
@@ -621,6 +624,104 @@ def test_the_image_installs_the_runtime_dependencies_only() -> None:
     """pytest and coverage in an image are weight, and a wider surface to patch."""
     assert "requirements-dev.txt" not in dockerfile()
     assert re.search(r"^RUN pip install .* -r requirements\.txt$", dockerfile(), re.M)
+
+
+# -- what the build is shown ---------------------------------------------------
+
+
+def ignore_lines(path: Path) -> list[str]:
+    """Every pattern one ignore file declares, its comments and blanks taken out."""
+    return [
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+def ignore_patterns(path: Path) -> set[str]:
+    """The same, spelled so two ignore files can be compared.
+
+    A trailing ``/``, a leading ``/`` and a leading ``**/`` each say where a pattern
+    matches and nothing about what it names, and the two files spell the same entry
+    differently: ``.venv`` beside ``.venv/``, ``__pycache__/`` beside
+    ``**/__pycache__/``.
+    """
+    return {line.rstrip("/").removeprefix("**/").removeprefix("/") for line in ignore_lines(path)}
+
+
+def test_the_build_context_leaves_out_what_working_here_leaves_behind() -> None:
+    """`.dockerignore` says it is read off `.gitignore`; this is that sentence.
+
+    The context is uploaded whole, so everything a working checkout has accumulated --
+    the virtualenv, the caches, the coverage data -- goes to the daemon unless this
+    file says otherwise. Nothing else can notice: the image comes out correct either
+    way, only slower and fatter, and no pull request builds one (ADR-0030).
+    """
+    missing = ignore_patterns(_GITIGNORE) - ignore_patterns(_DOCKERIGNORE)
+
+    assert not missing, f"git leaves these behind, the build context takes them: {sorted(missing)}"
+
+
+def context_copies() -> list[str]:
+    """What the image copies out of the build context, off the ``COPY`` lines.
+
+    ``COPY --from=`` is left out: that copies from another *stage*, which is built
+    rather than uploaded, and names a path in that stage's own filesystem. The last
+    argument of each line is the destination inside the image.
+    """
+    sources = [
+        source
+        for line in dockerfile().splitlines()
+        if line.startswith("COPY ") and not line.startswith("COPY --from=")
+        for source in line.split()[1:-1]
+    ]
+    assert sources, "the image copies nothing out of the build context"
+    return sources
+
+
+def _matches(pattern: list[str], segments: list[str]) -> bool:
+    """Whether one pattern, split on ``/``, matches a path split the same way.
+
+    Docker matches segment by segment, and a ``*`` stops at a ``/`` where ``**`` does
+    not -- which is why ``coverage/`` is the root's own and ``ui/coverage/`` has to be
+    written out beside it.
+    """
+    if pattern and pattern[0] == "**":
+        return any(_matches(pattern[1:], segments[at:]) for at in range(len(segments) + 1))
+    return len(pattern) == len(segments) and all(
+        fnmatch.fnmatchcase(segment, part)
+        for part, segment in zip(pattern, segments, strict=True)
+    )
+
+
+def excluded_from_the_build_context(path: str) -> str | None:
+    """The `.dockerignore` pattern keeping ``path`` out, or None for one it lets in.
+
+    A pattern excludes everything under a directory it names, so the path is offered
+    a level at a time: ``docs/`` is what keeps ``docs/adr/README.md`` out.
+    """
+    segments = path.strip("/").split("/")
+    for pattern in ignore_lines(_DOCKERIGNORE):
+        parts = pattern.rstrip("/").split("/")
+        if any(_matches(parts, segments[:depth]) for depth in range(1, len(segments) + 1)):
+            return pattern
+    return None
+
+
+def test_the_build_context_holds_everything_the_image_copies() -> None:
+    """The same file read the other way, where being wrong stops the build outright.
+
+    `.dockerignore` is applied before a single ``COPY`` runs, so a pattern wide enough
+    to catch what a stage asks for -- ``requirements*.txt`` over the runtime
+    dependencies, ``ui/*`` over the lockfile the Node stage installs from -- is a
+    build that halts on a file it cannot find. The four tests above hold the
+    ``Dockerfile`` to what the rest of the project does; this holds the one file that
+    decides whether the ``Dockerfile`` can see it.
+    """
+    for source in context_copies():
+        pattern = excluded_from_the_build_context(source)
+
+        assert pattern is None, f"the image copies {source}, dropped by {pattern!r}"
 
 
 # -- the two runners -----------------------------------------------------------

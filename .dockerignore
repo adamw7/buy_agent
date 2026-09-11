@@ -13,7 +13,10 @@ Dockerfile
 # off `.gitignore`, which is the list of what working in this repository leaves
 # behind -- and what is left behind is what the build has least use for. Every
 # spelling of the virtualenv, not just the one the README makes, since the build
-# context is uploaded whole and a stray `venv/` is the largest thing here.
+# context is uploaded whole and a stray `venv/` is the largest thing here. The
+# four `ui/` lines are the other half of that list: `.gitignore` hands the UI's
+# own leavings to `ui/.gitignore`, and `ui/` is the one directory here the build
+# copies whole, so a pattern matched at the root reaches none of them.
 .venv/
 venv/
 env/
@@ -21,8 +24,10 @@ ENV/
 ui/node_modules/
 ui/dist/
 ui/.angular/
+ui/coverage/
 **/__pycache__/
 *.py[codz]
+*$py.class
 .pytest_cache/
 mutation-results.txt
 *.log
