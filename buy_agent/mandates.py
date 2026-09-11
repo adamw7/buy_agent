@@ -180,11 +180,15 @@ def available() -> bool:
 
 def _jwk(private_key: Any, kid: str) -> Any:
     """A jwcrypto key carrying a key id, which every signature here is traced by."""
-    JWK = _jwk_class()  # a class, and named as the SDK names it
+    # Lower-case rather than the SDK's own ``JWK``: whether pylint reads that name
+    # as a class alias depends on ``jwcrypto`` being importable, and the SDK is an
+    # optional install -- so the upper-case spelling linted clean where it was
+    # installed and failed with ``invalid-name`` on a checkout without it.
+    jwk_class = _jwk_class()
 
-    material = json.loads(JWK.from_pyca(private_key).export())
+    material = json.loads(jwk_class.from_pyca(private_key).export())
     material["kid"] = kid
-    return JWK(**material)
+    return jwk_class(**material)
 
 
 def generate_key(kid: str = "agent-ephemeral") -> Any:
@@ -212,7 +216,7 @@ def load_key(*, required: bool) -> tuple[Any, bool]:
             that is not a private key this can sign with.
     """
     _sdk()  # jwcrypto is the SDK's own stack: fail with its sentence, not an ImportError
-    JWK = _jwk_class()  # a class, and named as the SDK names it
+    jwk_class = _jwk_class()
 
     location = os.getenv(KEY_PATH, "").strip()
     if not location:
@@ -225,7 +229,7 @@ def load_key(*, required: bool) -> tuple[Any, bool]:
         return generate_key(), False
 
     try:
-        key = JWK.from_pem(Path(location).read_bytes())
+        key = jwk_class.from_pem(Path(location).read_bytes())
     except (OSError, ValueError) as exc:
         raise MandateError(f"Could not read the signing key at {location} ({exc}).") from exc
     if not key.has_private:
