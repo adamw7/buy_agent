@@ -8,7 +8,7 @@ import pytest
 
 from buy_agent.config import AgentConfig
 from buy_agent.constraints import Constraints
-from buy_agent.models import Product
+from buy_agent.models import Product, dominant_currency
 
 
 def product(name: str, **figures) -> Product:
@@ -232,12 +232,41 @@ def test_what_a_budget_in_one_currency_admits(
     assert [p.name for p in Constraints(max_price=200.0).apply(products)] == kept
 
 
+def test_the_budget_is_read_in_the_currency_the_report_is_counted_in(caplog) -> None:
+    """The bound changes the set, and the set is what says which currency it is
+    counted in (ADR-0043) -- so the two have to be settled together.
+
+    Read once, before the filtering, the budget here would have been applied in
+    dollars, dropped both dollar products, and left a report counted in euros with a
+    250.00 EUR product in it, under a line saying "at most 200.00 USD". Nothing that
+    survived would ever have been held to the bound the run said it applied."""
+    products = [
+        Product(name="Dear", price=300.0, currency="USD"),
+        Product(name="Dearer", price=400.0, currency="USD"),
+        Product(name="Cheap", price=100.0, currency="EUR"),
+        Product(name="Over", price=250.0, currency="EUR"),
+    ]
+
+    with caplog.at_level(logging.DEBUG, logger="buy_agent.constraints"):
+        kept = Constraints(max_price=200.0).apply(products)
+
+    assert [entry.name for entry in kept] == ["Cheap"]
+    assert dominant_currency(kept) == "EUR"
+    assert "1 of 4 product(s) are within the limits (at most 200.00 EUR)" in caplog.text
+    # The count is over what arrived, and every name that went is still named once.
+    assert "'Dear', 'Dearer', 'Over'" in caplog.text
+
+
 @pytest.mark.parametrize(
     ("products", "expected"),
     [
         # The part of the bound nobody typed: the number came from the shopper
         # and the currency from whatever the pages were printing.
         pytest.param([UNDER], "at most 200.00 USD", id="a currency the pages named"),
+        # Nothing left is counted in no currency at all, so the one to name is the
+        # one that emptied the set: "(at most 200.00)" drops the half of the bound
+        # nobody typed from the one report that most needs it.
+        pytest.param([OVER], "at most 200.00 USD", id="a currency nothing survived"),
         # Nothing to say, and "at most 200.00 None" would be worse than the
         # sentence the report always had.
         pytest.param([Product(name="Under", price=100.0)], "(at most 200.00)", id="no currency"),

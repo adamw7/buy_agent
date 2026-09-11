@@ -83,6 +83,18 @@ def test_a_product_whose_price_grounding_blanked_may_not_be() -> None:
     assert "nothing to authorise" in (payable(unpriced, "USD") or "")
 
 
+@pytest.mark.parametrize("price", [0.0, -42.5])
+def test_a_price_that_is_no_amount_may_not_be_paid_either(price: float) -> None:
+    """The other way a price can fail to be one. ``to_product`` blanks anything at or
+    below zero on the way in from the model, so a figure like this arrived through a
+    door that takes a whole product -- and left to the ``is None`` test above it built
+    a cart, put a Pay button on the card and signed a mandate for nothing."""
+    odd = SONY.model_copy(update={"price": price})
+
+    assert "not an amount to send" in (payable(odd, "USD") or "")
+    assert amount_for(odd, "USD") is None
+
+
 def test_a_run_where_no_page_named_a_currency_has_no_amount_to_send() -> None:
     assert "not an amount" in (payable(SONY, None) or "")
 

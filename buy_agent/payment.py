@@ -9,8 +9,8 @@ mandate authorised one.
 The rule here is the ranking rule turned around. Grounding already blanks every
 figure the sources did not print (ADR-0006) and links only pages that were
 searched (ADR-0017), so **a product whose price is a blank is a product nothing
-may be paid for**. :func:`payable` therefore asks only for a price, a currency the
-run can place it in (ADR-0043) and a link.
+may be paid for**. :func:`payable` therefore asks only for a price that is an
+amount, a currency the run can place it in (ADR-0043) and a link.
 
 The money never becomes a float on the wire: AP2 counts in minor units, so
 :func:`minor_units` converts once through :class:`~decimal.Decimal`.
@@ -178,8 +178,9 @@ def minor_units(price: float, currency: str) -> int:
 def _check(product: Product, currency: str | None) -> tuple[float, str]:
     """The price and the currency this product may be paid in, or a refusal.
 
-    Every branch names something the *sources* did not establish, and each carries a
-    sentence: "cannot pay for this" with no reason reads as a broken button.
+    Every branch names something that is not an amount to send -- what the *sources*
+    did not establish, or a figure that is no amount whatever they printed -- and each
+    carries a sentence: "cannot pay for this" with no reason reads as a broken button.
 
     ``currency`` is the run's own (:func:`~buy_agent.models.dominant_currency`), so a
     price outside it is one this run cannot place (ADR-0043) and cannot authorise.
@@ -194,6 +195,13 @@ def _check(product: Product, currency: str | None) -> tuple[float, str]:
         raise PaymentError(
             f"No source printed a price for {product.name}, so there is nothing to "
             f"authorise. Grounding blanks a figure the pages do not back.",
+            field="products",
+        )
+    if product.price <= 0:
+        raise PaymentError(
+            f"{product.name} is priced at {product.price:,.2f}, which is not an amount "
+            f"to send: a payment is something somebody is owed. A figure like that is "
+            f"blanked on the way in from the model, so one here came off a request.",
             field="products",
         )
     if currency is None:
