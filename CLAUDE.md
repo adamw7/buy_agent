@@ -254,7 +254,13 @@ way it is.
 - `.pylintrc` is the one of the four that holds no number: the linter has to come
   out with no message at all. Every check this project has answered differently
   is turned off there with the answer, and every line the tool misreads carries a
-  `# pylint: disable` and the sentence saying why (ADR-0048).
+  `# pylint: disable` and the sentence saying why (ADR-0048). Which checks *run*
+  is the same decision the other way about: fifteen of pylint's twenty-five
+  optional checkers are loaded there, each one stating a rule this package
+  already holds in every module, and the ten left out carry their reason beside
+  the ones that are in (ADR-0049). A checker is run over the package
+  before it is added and what it finds is fixed rather than configured around,
+  which is the difference between a check and a preference.
 - `ui/scripts/check-coverage.mjs` holds the UI's floor, 98% of statements and
   lines. The Angular unit-test builder reads a vitest config's coverage
   *reporters* but does not fail a run on its `thresholds`, so the floor has to be
@@ -1067,7 +1073,10 @@ the other is otherwise invisible to both suites. It asserts that
   runs pylint is run from, and no line of the package takes a check away without
   saying why: a `# pylint: disable` with no prose above it is a suppression
   nobody can date, which is what the `# noqa` codes it replaced had become
-  (ADR-0048);
+  (ADR-0048) -- nor does that file name a check by its code, `W0718` in its own
+  `enable` or `disable` being the thing `use-symbolic-message-instead` is
+  switched on to stop, which pylint applies to the pragmas and not to the file
+  that switches it on (ADR-0049);
 - every skill in `.claude/skills/` is named after its own directory, is
   described where this file introduces them, and names only files, tests and
   tables that exist -- `add-option` the two the form declares, `preflight` the

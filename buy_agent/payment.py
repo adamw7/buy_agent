@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
@@ -168,7 +168,10 @@ def minor_units(price: float, currency: str) -> int:
         # Inside the guard because this is where a NaN or an infinity fails:
         # ``quantize`` answers NaN happily, and only ``int`` refuses it.
         return int(scaled)
-    except (ArithmeticError, InvalidOperation, ValueError) as exc:
+    # ``decimal.InvalidOperation`` is an ``ArithmeticError`` and so is every other
+    # ``DecimalException`` -- naming it as well would be one class caught twice and
+    # the rest of them, ``Overflow`` included, still caught only by accident.
+    except (ArithmeticError, ValueError) as exc:
         raise PaymentError(f"{price!r} is not a price this can pay.") from exc
 
 

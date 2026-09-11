@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -38,6 +38,8 @@ from buy_agent import mandates
 from buy_agent.payment import Cart, PaymentError, Settlement
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from buy_agent.config import AgentConfig
     from buy_agent.mandates import Authorisation, SignedCheckout
 

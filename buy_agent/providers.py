@@ -26,7 +26,7 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import openai
@@ -35,7 +35,7 @@ from ollama import Client, RequestError, ResponseError
 from buy_agent.chat import ChatModel, SchemaT, UnreadableAnswerError, read_answer
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from buy_agent.chat import Message
     from buy_agent.config import AgentConfig

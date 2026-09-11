@@ -22,7 +22,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-1831 Python tests and 192 UI tests. Nothing in either suite touches the network
+1835 Python tests and 192 UI tests. Nothing in either suite touches the network
 or a model server: the model is faked through the `llm=` argument of `BuyAgent`
 -- a class with one `answer` method, which is the whole of `chat.ChatModel`,
 both the search backend and the page fetcher are monkeypatched, the two clients
@@ -121,6 +121,23 @@ spellings. `tests/test_conventions.py` fails a suppression that carries no
 reason, and pylint's own `useless-suppression` fails one that has stopped
 suppressing anything -- which is what the `# noqa` codes it replaced had quietly
 become, written for a linter no command here ever ran.
+
+The checks that run are chosen the same way round (ADR-0049). Pylint loads
+twenty-five of its checkers only when asked, and `.pylintrc` asks for fifteen of
+them: the docstring sections held against the code beneath them, the `except`
+naming a class beside its own ancestor, the loop variable reassigned in its own
+body, the private name imported out of another package, the `typing` spelling
+3.13 answers with a builtin, and ten more, each stating a rule every module here
+already follows. The ten left out are left out in the same file and for the same
+kind of reason as the three that are off -- a ceiling on branching is a policy
+`tests/test_architecture.py` has already declined, a comparison against a number
+this project argues for in prose is not a magic value, a `try` wider than one
+statement is what `payment.minor_units` has a comment about. A checker is run
+over the package before it is added and what it finds is fixed rather than
+configured around: between them the fifteen found an overlapping `except`, a
+rebound loop variable and ten `typing.Callable`s, and none of the three was
+visible to the tests, the coverage floor, the mutation run or the import graph,
+because every one of them ran perfectly.
 
 Both suites are measured and CI fails on a drop: the Python side covers every
 line and branch (`.coveragerc` sets the floor at 99%), and the UI's statements

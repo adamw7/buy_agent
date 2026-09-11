@@ -1851,6 +1851,10 @@ _PYLINT_RUN = re.compile(r"python -m pylint ([\w/ .-]+)")
 #: ``disable-next`` form, whatever it goes on to name.
 _SUPPRESSION = re.compile(r"^\s*#\s*pylint:\s*disable(-next)?=")
 
+#: A pylint message named by its code -- ``W0718`` -- rather than by its name.
+#: The trailing comma is the one the settings file's own lists are written with.
+_MESSAGE_CODE = re.compile(r"^[CEFIRW]\d{4},?$")
+
 
 def test_the_linter_checks_what_coverage_measures() -> None:
     """Three tools now read the same package, and each says so in its own file:
@@ -1874,6 +1878,21 @@ def test_the_linter_is_configured_where_it_is_run_from() -> None:
 
     settings = ini_values(_PYLINTRC, "MESSAGES CONTROL", "disable")
     assert settings, "nothing is turned off, so the reasons for it went with the file"
+
+
+def test_the_linter_is_configured_in_the_spelling_it_demands() -> None:
+    """`use-symbolic-message-instead` is on, so every pragma in the package names
+    its check as a name and never as a code. Pylint applies that to the pragmas and
+    not to the file that switches it on: `disable = W0718` is read without a word.
+    A code there is the thing that check exists to stop, one indirection further
+    out -- nobody reading the file can tell what has been turned off without going
+    to look it up, and the paragraph written above each one is addressed to exactly
+    the reader who is not going to."""
+    for key in ("enable", "disable"):
+        for message in ini_values(_PYLINTRC, "MESSAGES CONTROL", key):
+            assert not _MESSAGE_CODE.match(message), (
+                f".pylintrc {key}s {message}, which says nothing about what it is"
+            )
 
 
 @pytest.mark.parametrize("path", package_modules(), ids=lambda path: path.name)
