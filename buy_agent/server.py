@@ -256,12 +256,15 @@ def _install_relay() -> None:
 class BuyAgentHandler(BaseHTTPRequestHandler):
     """Routes ``/api`` to the agent and everything else to the built UI."""
 
-    # Two of this class's spellings are ``BaseHTTPRequestHandler``'s rather than
-    # this project's, and changing either would be changing what the base class
-    # dispatches on: a method per HTTP verb, named for the verb as it arrives on
-    # the wire, and ``close_connection``, which the base class sets while handling
-    # a request and not in its ``__init__``.
-    # pylint: disable=invalid-name,attribute-defined-outside-init
+    # ``close_connection`` is ``BaseHTTPRequestHandler``'s rather than this
+    # project's: the base class sets it while handling a request and not in its
+    # ``__init__``, and the eight places below that set it are answering the base
+    # class rather than defining state of their own. Class-wide because those eight
+    # are spread over as many methods. The verb methods are the other spelling this
+    # class does not choose, and each says so on its own line rather than here: a
+    # class-wide ``invalid-name`` would also stop holding every *other* name in a
+    # four-hundred-line class to the rule the rest of the package keeps.
+    # pylint: disable=attribute-defined-outside-init
 
     server_version = "buy_agent"
     protocol_version = "HTTP/1.1"
@@ -343,6 +346,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
     # -- routing ---------------------------------------------------------------
 
+    # The verb as it arrives on the wire, which is what the base class dispatches on.
+    # pylint: disable-next=invalid-name
     def do_GET(self) -> None:
         if not self._admits():
             self._refuse()
@@ -380,6 +385,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             logger.exception("Unexpected failure answering %s", url.path)
             self._send_json(500, {"error": f"Unexpected failure: {exc}"})
 
+    # The verb as it arrives on the wire, which is what the base class dispatches on.
+    # pylint: disable-next=invalid-name
     def do_POST(self) -> None:
         if not self._admits():
             self._refuse()
@@ -411,6 +418,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             logger.exception("Unexpected failure during a search")
             self._send_json(500, {"error": f"Unexpected failure: {exc}"})
 
+    # The verb as it arrives on the wire, which is what the base class dispatches on.
+    # pylint: disable-next=invalid-name
     def do_HEAD(self) -> None:
         """Answer HEAD like GET, minus the body -- but never by running a search."""
         if not self._admits():
