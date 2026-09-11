@@ -56,6 +56,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0045](0045-report-the-weights-a-score-was-blended-by.md) | Report the weights a score was blended by | Accepted |
 | [0046](0046-pay-on-the-shoppers-behalf-with-ap2.md) | Pay on the shopper's behalf, with AP2 mandates and a rail table | Accepted |
 | [0047](0047-check-the-import-graph-with-archunit.md) | Check the import graph against the rules already written down | Accepted |
+| [0048](0048-lint-the-package-with-pylint.md) | Lint the package with pylint, and write down every answer | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

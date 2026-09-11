@@ -61,6 +61,7 @@ coverage.xml
 coverage/
 htmlcov/
 pytest.ini
+.pylintrc
 requirements-dev.txt
 *.md
 

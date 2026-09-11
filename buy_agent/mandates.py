@@ -28,6 +28,11 @@ every run, paying or not. A missing SDK has to be a sentence naming one command,
 not an ``ImportError`` out of ``--help``.
 """
 
+# Said once rather than on each of the eleven lines below: every import of the SDK
+# here is deferred into the function that needs it, which is what the paragraph
+# above is about.
+# pylint: disable=import-outside-toplevel
+
 from __future__ import annotations
 
 import json
@@ -121,9 +126,11 @@ def _sdk() -> Any:
         MandateError: naming the one command that installs it.
     """
     try:
-        import ap2.sdk.jwt_helper  # noqa: F401, PLC0415 -- deferred, see the module docstring
-        import ap2.sdk.mandate  # noqa: PLC0415
-        import ap2.sdk.utils  # noqa: F401, PLC0415
+        # Two of the three are imported for whether they import at all, which is
+        # the question being asked; the third is what the answer is read off.
+        import ap2.sdk.jwt_helper
+        import ap2.sdk.mandate
+        import ap2.sdk.utils
 
         return ap2.sdk
     except ImportError as exc:
@@ -139,7 +146,7 @@ def _jwk_class() -> Any:
     ``cryptography`` present, its ``cffi`` not -- fails exactly here.
     """
     try:
-        from jwcrypto.jwk import JWK  # noqa: PLC0415 -- part of the deferred SDK stack
+        from jwcrypto.jwk import JWK  # part of the deferred SDK stack
     except ImportError as exc:
         raise MandateError(_missing(exc)) from exc
     return JWK
@@ -173,7 +180,7 @@ def available() -> bool:
 
 def _jwk(private_key: Any, kid: str) -> Any:
     """A jwcrypto key carrying a key id, which every signature here is traced by."""
-    JWK = _jwk_class()  # noqa: N806 -- a class, named as the SDK names it
+    JWK = _jwk_class()  # a class, and named as the SDK names it
 
     material = json.loads(JWK.from_pyca(private_key).export())
     material["kid"] = kid
@@ -183,7 +190,7 @@ def _jwk(private_key: Any, kid: str) -> Any:
 def generate_key(kid: str = "agent-ephemeral") -> Any:
     """A fresh P-256 key, living exactly as long as this process does."""
     try:
-        from cryptography.hazmat.primitives.asymmetric import ec  # noqa: PLC0415
+        from cryptography.hazmat.primitives.asymmetric import ec
     except ImportError as exc:
         raise MandateError(_missing(exc)) from exc
     return _jwk(ec.generate_private_key(ec.SECP256R1()), kid)
@@ -205,7 +212,7 @@ def load_key(*, required: bool) -> tuple[Any, bool]:
             that is not a private key this can sign with.
     """
     _sdk()  # jwcrypto is the SDK's own stack: fail with its sentence, not an ImportError
-    JWK = _jwk_class()  # noqa: N806 -- a class, named as the SDK names it
+    JWK = _jwk_class()  # a class, and named as the SDK names it
 
     location = os.getenv(KEY_PATH, "").strip()
     if not location:
@@ -385,12 +392,10 @@ def _payment_mandate(cart: Cart, checkout: SignedCheckout, now: int) -> Any:
     how the specification binds a payment to the checkout it pays for, and an invented
     one would leave the two halves free to describe different carts.
     """
-    from ap2.sdk.generated.payment_mandate import PaymentMandate  # noqa: PLC0415
-    from ap2.sdk.generated.types.amount import Amount  # noqa: PLC0415
-    from ap2.sdk.generated.types.merchant import Merchant  # noqa: PLC0415
-    from ap2.sdk.generated.types.payment_instrument import (  # noqa: PLC0415
-        PaymentInstrument,
-    )
+    from ap2.sdk.generated.payment_mandate import PaymentMandate
+    from ap2.sdk.generated.types.amount import Amount
+    from ap2.sdk.generated.types.merchant import Merchant
+    from ap2.sdk.generated.types.payment_instrument import PaymentInstrument
 
     return PaymentMandate(
         transaction_id=checkout.hash,
@@ -408,7 +413,7 @@ def _payment_mandate(cart: Cart, checkout: SignedCheckout, now: int) -> Any:
 
 def _checkout_mandate(checkout: SignedCheckout, now: int) -> Any:
     """The closed Checkout Mandate: this cart, at this price, from this merchant."""
-    from ap2.sdk.generated.checkout_mandate import CheckoutMandate  # noqa: PLC0415
+    from ap2.sdk.generated.checkout_mandate import CheckoutMandate
 
     return CheckoutMandate(
         checkout_jwt=checkout.jwt,
@@ -433,7 +438,7 @@ def verify(
             constraint being broken; it is not a mandate.
     """
     sdk = _sdk()
-    from ap2.sdk.payment_mandate_chain import PaymentMandateChain  # noqa: PLC0415
+    from ap2.sdk.payment_mandate_chain import PaymentMandateChain
 
     try:
         payloads = sdk.mandate.MandateClient().verify(
@@ -443,6 +448,6 @@ def verify(
             expected_nonce=nonce,
         )
         parsed = PaymentMandateChain.parse(payloads)
-    except Exception as exc:  # noqa: BLE001 -- every failure here is the one thing
+    except Exception as exc:  # every failure here is the one thing
         raise MandateError(f"The mandate chain did not verify ({exc}).") from exc
     return parsed.verify(expected_transaction_id=transaction_id)

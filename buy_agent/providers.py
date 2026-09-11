@@ -251,7 +251,9 @@ def _ollama_capability(client: Client, name: str) -> InstalledModel:
     """
     try:
         capabilities = client.show(name).capabilities
-    except Exception:  # noqa: BLE001 -- any failure means "cannot say", not "cannot run"
+    # Any failure here means "cannot say", not "cannot run".
+    # pylint: disable-next=broad-exception-caught
+    except Exception:
         return InstalledModel(name, completion=True)
     return InstalledModel(
         name, completion=capabilities is None or _COMPLETION in capabilities
@@ -460,7 +462,10 @@ def _listed(config: AgentConfig, *, completing: bool = False) -> str:
     """
     try:
         models = config.model_server.installed(config)
-    except Exception:  # noqa: BLE001 -- any transport failure means "cannot say"
+    # Any transport failure means "cannot say", and a hint is already being
+    # written: the second failure must not replace it with a traceback.
+    # pylint: disable-next=broad-exception-caught
+    except Exception:
         return "unknown"
     if completing:
         models = [model for model in models if model.completion]

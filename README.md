@@ -718,6 +718,7 @@ them out
 
 ```powershell
 python -m pytest              # the Python suite
+python -m pylint buy_agent    # ...and the linter over the package it covers
 cd ui; npm test               # the UI's own tests, in jsdom
 python -m pytest integration  # ...and against a real model, if one is pulled
 
@@ -747,7 +748,8 @@ through the whole real pipeline with no model at all and must come out at 1.000.
 
 What the counts are, what `tests/test_conventions.py` checks that coverage
 cannot, what `tests/test_architecture.py` reads off the import graph instead
-(ADR-0047), what the benchmark measures, and the mutation run that grades the
+(ADR-0047), what pylint is configured to say and what it is deliberately not
+(ADR-0048), what the benchmark measures, and the mutation run that grades the
 suite every Saturday are in [Tests](docs/testing.md).
 
 ## Limitations

@@ -1,15 +1,17 @@
 # Tests
 
 Two suites, one per language, and the checks that watch them: coverage floors on
-both, cross-module conventions, a PowerShell script neither suite can run, a
-nightly run against a real model, a benchmark scored against a fixed answer key,
-and a weekly mutation run. Everything the [README](../README.md) leaves out.
+both, a linter over the package, cross-module conventions, a PowerShell script
+neither suite can run, a nightly run against a real model, a benchmark scored
+against a fixed answer key, and a weekly mutation run. Everything the
+[README](../README.md) leaves out.
 
 ```powershell
 python -m pytest              # whole suite
 python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
 
 python -m coverage run -m pytest ; python -m coverage report   # with coverage
+python -m pylint buy_agent    # the linter, from the repository root
 
 cd ui; npm test               # the UI's own tests, in jsdom
 cd ui; npm run test:coverage  # the same, with a coverage floor
@@ -20,7 +22,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-1805 Python tests and 192 UI tests. Nothing in either suite touches the network or
+1831 Python tests and 192 UI tests. Nothing in either suite touches the network or
 a model server: the model is faked through the `llm=` argument of `BuyAgent` -- a class
 with one `answer` method, which is the whole of `chat.ChatModel`, both
 the search backend and the page fetcher are monkeypatched, the two clients
@@ -54,7 +56,7 @@ Without that SDK the 73 tests that need it **skip**, the way
 `tests/test_start_script.py` skips where there is no PowerShell: `needs_ap2` in
 `tests/conftest.py` is the marker, and it asks `mandates.available()` once at
 import. So a checkout set up with `requirements-dev.txt` alone reads
-`1719 passed, 86 skipped` rather than 73 failures claiming the project is
+`1745 passed, 86 skipped` rather than 73 failures claiming the project is
 broken when one optional feature is simply not installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide
 anything nothing here is skipped and the coverage floor still has to be met --
@@ -94,6 +96,28 @@ start failing tests for being slow; at or over the five minutes
 `integration.yml` gives the whole job, an Ollama that accepted the request and
 never answered would be a cancelled job naming no test at all.
 
+A lint failure fails the Python job too, after the tests rather than before them:
+`python -m pylint buy_agent` runs last in the job, since a job stops at its first
+failing step and of the two the tests are what a change is about. The target is
+the package `.coveragerc` measures and `setup.cfg` mutates, and a convention test
+holds the three together. The test trees are deliberately outside it: pytest's
+fixtures shadow their own names by design and its tests say what they assert in
+the name rather than in a docstring, so linting them would mean turning off the
+checks that give the package's own gate most of its value (ADR-0048).
+
+It has no threshold, unlike the two floors below: a run has to come out with no
+message at all. `.pylintrc` turns off three checks -- the docstring on every
+function, the class with too few methods, the dataclass with too many fields --
+each because this project has already answered that question differently, and
+each with the answer written beside it. Everything else that fires is suppressed
+on the line it fires on, with prose above it saying why the tool is wrong there:
+a tuple of exception classes built from `api._STATUS` at run time, `parser.error`
+exiting rather than returning, `BaseHTTPRequestHandler`'s own spellings.
+`tests/test_conventions.py` fails a suppression that carries no reason, and
+pylint's own `useless-suppression` fails one that has stopped suppressing
+anything -- which is what the `# noqa` codes it replaced had quietly become,
+written for a linter no command here ever ran.
+
 Both suites are measured and CI fails on a drop: the Python side covers every line
 and branch (`.coveragerc` sets the floor at 99%), and the UI's statements and
 lines sit just under 100% (`ui/scripts/check-coverage.mjs`, floor 98%). Coverage
@@ -109,9 +133,10 @@ server's own defaults; the four workflows agreeing on the version of every actio
 they share and on the Python and Node they run; the release archive carrying the
 UI build where the server looks for it; the nightly run pulling the model the live
 tests ask for and leaving its own cap room to fail a stopped model first; the
-decision log agreeing with its own index; and every module in
-the package logging under the package's own name, in the deferred form a handler
-can still read, leaving stdout to the report.
+decision log agreeing with its own index; the linter reading the package the
+other two tools measure and no line of it taking a check away without saying why;
+and every module in the package logging under the package's own name, in the
+deferred form a handler can still read, leaving stdout to the report.
 
 The rule those last ones are the declared half of is exercised in
 `tests/test_logging_contract.py`: the eight steps that take something away each
@@ -157,13 +182,13 @@ module added to neither layer or to both is a test failure rather than an
 exemption.
 
 Both suites run on Windows and on Linux, on different triggers.
-`.github/workflows/ci.yml` spreads its two jobs -- `coverage run -m pytest` on
-Python 3.13, `npm run test:coverage && npm run build` on Node 22.22.3 -- over
-`ubuntu-latest` and `windows-latest`, with `fail-fast` off so a failure on one
-platform still reports the other. This project is written on Windows and its
-runners were Linux, each checking the half of the differences the other hides: a
-path separator, a default encoding, a socket that resets where the other closes, a
-`mimetypes` lookup that reads the registry (ADR-0020). What gates a merge is the
+`.github/workflows/ci.yml` spreads its two jobs -- `coverage run -m pytest` and
+then `pylint buy_agent` on Python 3.13, `npm run test:coverage && npm run build`
+on Node 22.22.3 -- over `ubuntu-latest` and `windows-latest`, with `fail-fast` off
+so a failure on one platform still reports the other. This project is written on
+Windows and its runners were Linux, each checking the half of the differences the
+other hides: a path separator, a default encoding, a socket that resets where the
+other closes, a `mimetypes` lookup that reads the registry (ADR-0020). What gates a merge is the
 Linux half: a push to `main` and a pull request run those two jobs and no more.
 Windows joins the matrix on the schedule -- 04:09 UTC on Saturdays -- and on
 `workflow_dispatch`, which is how a branch that touched one of the things above

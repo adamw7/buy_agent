@@ -70,7 +70,6 @@ class ChatModel(Protocol):
         Raises:
             UnreadableAnswerError: if what came back cannot be read as one.
         """
-        ...  # pragma: no cover -- a protocol's body is never run
 
 
 @runtime_checkable
@@ -84,7 +83,6 @@ class Closable(Protocol):
 
     def close(self) -> None:
         """Let go of it. Asked by whoever opened it, once, and never mid-answer."""
-        ...  # pragma: no cover -- a protocol's body is never run
 
 
 def release(held: object) -> None:

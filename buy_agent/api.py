@@ -259,6 +259,10 @@ def run_search(
     try:
         agent = agent_factory(config)  # type: ignore[arg-type]
         ranked = agent.run(request, sort_by=sort_by, checkpoint=checkpoint)
+    # The three failures are a table, so the clause catching them is built out of it
+    # rather than written down again -- and a tuple assembled at run time is one
+    # pylint cannot read exception classes out of, here or on the ``from`` beside it.
+    # pylint: disable=catching-non-exception, bad-exception-cause
     except tuple(_STATUS) as exc:
         raise ApiError(str(exc), _status_for(exc, _STATUS)) from exc
     finally:
@@ -306,7 +310,10 @@ def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
 
 def mandate_support() -> bool:
     """Is the optional AP2 SDK installed? Imported here so nothing else asks."""
-    from buy_agent import mandates  # noqa: PLC0415 -- see mandates' module docstring
+    # Deferred, for the reason mandates' own module docstring gives: the SDK is an
+    # optional install and this is the question of whether it is installed.
+    # pylint: disable-next=import-outside-toplevel
+    from buy_agent import mandates
 
     return mandates.available()
 
@@ -409,7 +416,7 @@ def _witnessed(data: Mapping[str, Any], cart: Cart) -> None:
 def _same_price(approved: Mapping[str, Any], price: float) -> bool:
     """Is the echoed price the cart's, to the nearest hundredth of a unit?"""
     try:
-        return abs(float(approved.get("price", "nan")) - price) < 0.005  # noqa: PLR2004
+        return abs(float(approved.get("price", "nan")) - price) < 0.005
     except (TypeError, ValueError):
         return False
 
@@ -591,7 +598,10 @@ def installed_models(provider: str, base_url: str) -> dict[str, Any]:
     try:
         config = AgentConfig(provider=provider, base_url=base_url)
         models = config.model_server.installed(config)
-    except Exception as exc:  # noqa: BLE001 -- any transport failure means "not there"
+    # Any transport failure means "not there", which is the answer being written:
+    # this endpoint reports an unreachable server rather than failing with it.
+    # pylint: disable-next=broad-exception-caught
+    except Exception as exc:
         logger.debug("Could not list %s models at %s", label, base_url, exc_info=True)
         failed = {**status, "reachable": False, "models": [], "detail": str(exc)}
         # A config that never got built named a provider nothing can serve, so

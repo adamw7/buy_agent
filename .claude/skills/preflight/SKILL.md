@@ -1,6 +1,6 @@
 ---
 name: preflight
-description: Run the full gate CI applies -- both test suites and both coverage floors -- before committing or pushing. Use when asked to check, verify, or validate a change, when finishing work on a branch, or before opening a pull request. Not for a single failing test, which is faster run directly.
+description: Run the full gate CI applies -- both test suites, both coverage floors and the linter -- before committing or pushing. Use when asked to check, verify, or validate a change, when finishing work on a branch, or before opening a pull request. Not for a single failing test, which is faster run directly.
 ---
 
 # Preflight
@@ -15,6 +15,7 @@ request, on Linux; Windows runs the same two on Saturdays and on a manual run
 ```powershell
 python -m coverage run -m pytest
 python -m coverage report
+python -m pylint buy_agent
 ```
 
 - The floor is `fail_under = 99` over branches as well as lines. The suite covers
@@ -28,10 +29,15 @@ python -m coverage report
   floor cannot be met -- so a `.venv` without it fails the gate on coverage, not
   on a red test. Add it with `pip install -r requirements-ap2-deps.txt` and then
   `pip install --no-deps -r requirements-ap2.txt`; the flag belongs to the second
-  command only. A machine with both prerequisites reads `1768 passed, 13
+  command only. A machine with both prerequisites reads `1818 passed, 13
   skipped`.
 - `pytest.ini` sets `testpaths = tests`, so a bare run cannot reach
   `integration/`. That is deliberate -- see below.
+- pylint runs over `buy_agent/` and nothing else, and has to come out at 10.00
+  with no message at all: `.pylintrc` turns off the checks this project has
+  answered differently and every remaining one that fires is suppressed on its own
+  line with its reason (ADR-0048). A new message is a line to fix or a pragma to
+  write, not a number to let slip.
 
 ## UI (Node 22.22.3)
 
@@ -45,7 +51,9 @@ npm run build
   and deliberately no branch floor. Do not add one.
 - `npm run build` is part of the gate, not an extra: a template error is
   invisible to the unit tests.
-- Formatting: `npx prettier --write "src/**/*"`. There is no Python linter.
+- Formatting: `npx prettier --write "src/**/*"`. The Python half has a linter and
+  no formatter: pylint above, run from the repository root so it finds
+  `.pylintrc`.
 
 ## What this does *not* cover
 

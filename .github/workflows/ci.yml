@@ -78,6 +78,13 @@ jobs:
       - name: Check coverage
         run: python -m coverage report
 
+      # Last, so a red lint never hides a red test: a job stops at its first
+      # failing step, and of the two the tests are what the change is about.
+      # `.pylintrc` says what it checks and what it deliberately does not
+      # (ADR-0048); the AP2 step above is why the deferred SDK imports resolve.
+      - name: Run pylint
+        run: python -m pylint buy_agent
+
   ui:
     name: ng test (Node 22, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}

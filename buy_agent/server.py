@@ -227,7 +227,9 @@ class _LogRelay(logging.Handler):
                     "message": record.getMessage(),
                 }
             )
-        except Exception:  # noqa: BLE001 -- a broken relay must not break the run
+        # A broken relay must not break the run it is only reporting on.
+        # pylint: disable-next=broad-exception-caught
+        except Exception:
             self.handleError(record)
 
     def attach(self, sink: queue.Queue[Any]) -> None:
@@ -253,6 +255,13 @@ def _install_relay() -> None:
 
 class BuyAgentHandler(BaseHTTPRequestHandler):
     """Routes ``/api`` to the agent and everything else to the built UI."""
+
+    # Two of this class's spellings are ``BaseHTTPRequestHandler``'s rather than
+    # this project's, and changing either would be changing what the base class
+    # dispatches on: a method per HTTP verb, named for the verb as it arrives on
+    # the wire, and ``close_connection``, which the base class sets while handling
+    # a request and not in its ``__init__``.
+    # pylint: disable=invalid-name,attribute-defined-outside-init
 
     server_version = "buy_agent"
     protocol_version = "HTTP/1.1"
@@ -334,7 +343,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
     # -- routing ---------------------------------------------------------------
 
-    def do_GET(self) -> None:  # noqa: N802 -- BaseHTTPRequestHandler's spelling
+    def do_GET(self) -> None:
         if not self._admits():
             self._refuse()
             return
@@ -359,7 +368,10 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
                 self._send_json(404, {"error": f"No such endpoint: {url.path}"})
             else:
                 self._serve_static(url.path)
-        except Exception as exc:  # noqa: BLE001 -- a 500 beats a dropped connection
+        # A 500 beats a dropped connection: an exception out of a handler escapes
+        # to socketserver, which closes the socket with nothing written to it.
+        # pylint: disable-next=broad-exception-caught
+        except Exception as exc:
             # Why both handlers have one: an exception here escapes to
             # socketserver, which closes the socket unanswered, and the page reads
             # that as the agent server being down. ``$BUY_AGENT_PROVIDER=olama``
@@ -368,7 +380,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             logger.exception("Unexpected failure answering %s", url.path)
             self._send_json(500, {"error": f"Unexpected failure: {exc}"})
 
-    def do_POST(self) -> None:  # noqa: N802 -- BaseHTTPRequestHandler's spelling
+    def do_POST(self) -> None:
         if not self._admits():
             self._refuse()
             return
@@ -391,13 +403,15 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             self._send_json(200, run(payload))
         except ApiError as exc:
             self._send_json(exc.status, exc.payload())
-        except Exception as exc:  # noqa: BLE001 -- a 500 beats a dropped connection
+        # A 500 beats a dropped connection, as above.
+        # pylint: disable-next=broad-exception-caught
+        except Exception as exc:
             # For the reason ``do_GET`` has one, and because the stream answers
             # such failures with a ``failure`` event: this endpoint has to match.
             logger.exception("Unexpected failure during a search")
             self._send_json(500, {"error": f"Unexpected failure: {exc}"})
 
-    def do_HEAD(self) -> None:  # noqa: N802 -- BaseHTTPRequestHandler's spelling
+    def do_HEAD(self) -> None:
         """Answer HEAD like GET, minus the body -- but never by running a search."""
         if not self._admits():
             self._refuse()
@@ -486,7 +500,10 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
                 logger.info("Run stopped before %s: nobody is reading it", where)
             except ApiError as exc:
                 outcome["error"] = (exc.status, exc.payload())
-            except Exception as exc:  # noqa: BLE001 -- the stream reports, never crashes
+            # The stream reports its failures and never crashes on one: the status
+            # line is spent, so a ``failure`` event is all that is left to send.
+            # pylint: disable-next=broad-exception-caught
+            except Exception as exc:
                 logger.exception("Unexpected failure during a streamed search")
                 outcome["error"] = (500, {"error": f"Unexpected failure: {exc}"})
             finally:
@@ -658,7 +675,9 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             return False
         return True
 
-    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+    # ``format`` shadows the builtin and is the base class's own parameter name.
+    # pylint: disable-next=redefined-builtin
+    def log_message(self, format: str, *args: Any) -> None:
         """Send request logging through logging, not straight to stderr."""
         logger.debug("%s - %s", self.address_string(), format % args)
 

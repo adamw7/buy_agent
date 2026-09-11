@@ -14,3 +14,10 @@ archunitpython==1.5.0
 # hours of nothing and locally is a process to go and find. Test-only, like the
 # two above: nothing in buy_agent/ imports it, so it stays out of the image.
 pytest-timeout==2.4.0
+
+# The linter `.github/workflows/ci.yml` runs over `buy_agent/` after the tests,
+# configured by `.pylintrc` and recorded in ADR-0048. Test-only like the three
+# above -- nothing in `buy_agent/` imports it, so it stays out of the image -- and
+# it reads the package rather than running it, so a lint costs no model, no
+# network and no run.
+pylint==4.0.8

@@ -105,7 +105,7 @@ def _dry_run_settle(
     cart: Cart, authorisation: Authorisation, config: AgentConfig
 ) -> Settlement:
     """Report what would have happened, and charge nobody."""
-    del config
+    del authorisation, config
     return Settlement(
         paid=False,
         detail=(

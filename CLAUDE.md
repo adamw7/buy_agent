@@ -43,6 +43,7 @@ python -m pytest tests/test_ranking.py        # one file
 python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
 python -m pytest -k verification              # by name
 python -m coverage run -m pytest ; python -m coverage report   # with coverage
+python -m pylint buy_agent                    # the linter, from the root (ADR-0048)
 
 ollama pull qwen3:0.6b ; python -m pytest integration   # against a real model
 
@@ -86,12 +87,13 @@ npm start                                     # dev server on :4200, proxying /a
 `ui/` is a separate, ordinary Angular workspace with its own `package.json` and
 tests: Angular 22 on Node 22.22.3+, 24.15+ or 26+ (older Node is refused by the
 Angular CLI, not by anything here), and nothing on the Python side needs Node.
-There is no Python linter; the UI has Prettier
-(`npx prettier --write "src/**/*"`). Without `ui/dist/ui/browser` the API still
-answers and the page is a 503 saying how to build it (`--ui-dir` points at a build
-elsewhere) -- as a small HTML page for a client whose `Accept` says it is a
-browser, which is who reads that message, and as the same sentence in JSON for
-everyone else.
+The Python half has a linter and no formatter -- pylint, over the package and from
+the repository root, where it finds `.pylintrc` (ADR-0048) -- and the UI has it the
+other way about: Prettier (`npx prettier --write "src/**/*"`) and nothing linting
+it. Without `ui/dist/ui/browser` the API still answers and the page is a 503 saying
+how to build it (`--ui-dir` points at a build elsewhere) -- as a small HTML page
+for a client whose `Accept` says it is a browser, which is who reads that message,
+and as the same sentence in JSON for everyone else.
 
 ### The container
 
@@ -115,10 +117,10 @@ pins, its copy destination and its `EXPOSE` in step.
 
 `.dockerignore` narrows what the build sees: `tests/`, `integration/`,
 `benchmark/`, `docs/`, `scripts/`, `demo/`, `.github/`, `.claude/`, every Markdown
-file, the dev and mutation requirements with `setup.cfg`, whatever working here
-leaves behind -- `.gitignore`'s own list, every spelling of the virtualenv
-included -- and `.env`, which is the one thing kept out on purpose rather than for
-its size. So the Node stage builds from source rather than copying a stale local
+file, the dev and mutation requirements with `setup.cfg` and `.pylintrc`, whatever
+working here leaves behind -- `.gitignore`'s own list, every spelling of the
+virtualenv included -- and `.env`, which is the one thing kept out on purpose
+rather than for its size. So the Node stage builds from source rather than copying a stale local
 `dist/`, and `demo/` -- a video the size of the rest put together -- never reaches
 the daemon. `tests/test_conventions.py` reads it from both sides: everything
 `.gitignore` names is named here too, which is the sentence the file opens with,
@@ -184,8 +186,10 @@ number nothing reads. `reasoning` *is* shared: Ollama's `think`, vLLM's
 ### CI and the three workflows beside it
 
 `.github/workflows/ci.yml` runs two jobs for pushes to `main` and every pull
-request: `coverage run -m pytest` plus `coverage report` on Python 3.13, and
-`npm run test:coverage && npm run build` in `ui/` on Node 22.22.3. Either platform
+request: `coverage run -m pytest`, `coverage report` and then `pylint buy_agent`
+on Python 3.13, and `npm run test:coverage && npm run build` in `ui/` on Node
+22.22.3. The lint is last in its job on purpose: a job stops at its first failing
+step, and of the two the tests are what a change is about. Either platform
 alone leaves half the platform differences unchecked (ADR-0020), so both jobs are
 still matrixed over `ubuntu-latest` and `windows-latest` -- but not on the same
 trigger (ADR-0037): a push and a pull request are gated on Linux, and Windows joins
@@ -244,10 +248,17 @@ six-hour cap. A minute is the wrong number for a real model, so
 `integration.LIVE_TIMEOUT_SECONDS` instead, which a convention test holds between
 the cap above and the five minutes `integration.yml` gives the whole job -- over
 the first or a slow CPU answer fails; at the second the job's own cap fires first
-and names no test. `.coveragerc`
-holds the Python floor (99%, against 100% actual) with `branch = true`, so the
-floor is over branches as well as lines; the one exclusion is the
-`if __name__ == "__main__"` guard, covered instead by spawning a real interpreter.
+and names no test. `.coveragerc` holds the Python floor (99%, against 100%
+actual) with `branch = true`, so the floor is over branches as well as lines; the
+one exclusion is the `if __name__ == "__main__"` guard, covered instead by
+spawning a real interpreter.
+`.pylintrc` is the third file of that kind and the one that holds no number: the
+linter has to come out with no message at all, since every check this project has
+answered differently is turned off there with the answer, and every line the tool
+misreads carries a `# pylint: disable` and the sentence saying why (ADR-0048) --
+which `tests/test_conventions.py` reads back, pylint's own `useless-suppression`
+failing a pragma that has stopped suppressing anything.
+
 `ui/scripts/check-coverage.mjs` holds the UI's (98% of statements and lines): the
 Angular unit-test builder reads a vitest config's coverage *reporters* but does not
 fail a run on its `thresholds`, so the floor has to be checked separately or it is
@@ -264,8 +275,8 @@ a new record superseding it rather than an edit to the old one -- numbers are ne
 reused, and accepted records are not rewritten. `tests/test_conventions.py` checks
 that the index and the directory agree, so a new ADR is two edits: the file and its
 row in the index. `docs/adr/0000-template.md` is the starting point. The log runs
-to ADR-0047 and every record is Accepted but ADR-0020, which ADR-0037 supersedes,
-so the next free number is 0048.
+to ADR-0048 and every record is Accepted but ADR-0020, which ADR-0037 supersedes,
+so the next free number is 0049.
 
 `.claude/skills/` holds the chores that span those files: `add-option` walks a new
 setting through `config.py`, both front doors, `agent.types.ts` and the form;
@@ -1056,7 +1067,7 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1805 tests run in about eight seconds: most of that is the three that spawn an
+1831 tests run in about eight seconds: most of that is the three that spawn an
 interpreter -- two for what only a real import can answer (`python -m buy_agent`
 still runs as a script, and still imports with `$BUY_AGENT_RAIL` misspelt), one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
@@ -1064,13 +1075,13 @@ PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliber
 Nothing else should sleep, so a run that takes much longer still means something is
 reaching out.
 
-Two optional prerequisites decide how many of those 1805 *run*, and neither is a
+Two optional prerequisites decide how many of those 1831 *run*, and neither is a
 failure when it is absent. With neither `pwsh` nor `powershell`, 13 of the 19 in
 `tests/test_start_script.py` skip. Without the optional AP2 SDK, the 73 that sign
 or verify a mandate skip on `needs_ap2` -- the marker in `tests/conftest.py`,
 which is `needs_powershell` for the other one and asks `mandates.available()`
-once at import. So a machine with both reads `1792 passed, 13 skipped`, and a
-checkout set up with `requirements-dev.txt` alone reads `1719 passed, 86
+once at import. So a machine with both reads `1818 passed, 13 skipped`, and a
+checkout set up with `requirements-dev.txt` alone reads `1745 passed, 86
 skipped` rather than 73 red tests saying the project is broken when one optional
 feature is not installed. Skipping is only ever the local convenience: `ci.yml`
 and `mutation.yml` each install the SDK in a step of their own, and the 100%
@@ -1136,7 +1147,11 @@ that
 - the Saturday mutation run mutates the package `.coveragerc` measures, on the
   Python `ci.yml` pins, with every file these tests open -- or import from outside
   `buy_agent`, `benchmark/` and `integration/` included -- named in mutmut's
-  `also_copy`.
+  `also_copy`;
+- the linter reads that same package, `.pylintrc` sits where every command that
+  runs pylint is run from, and no line of the package takes a check away without
+  saying why: a `# pylint: disable` with no prose above it is a suppression nobody
+  can date, which is what the `# noqa` codes it replaced had become (ADR-0048);
 - every skill in `.claude/skills/` is named after its own directory, is described
   where this file introduces them, and names only files, tests and tables that
   exist -- `add-option` the two the form declares, `preflight` the checking

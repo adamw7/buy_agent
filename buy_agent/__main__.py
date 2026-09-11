@@ -390,6 +390,9 @@ def _bought(ranked: list[RankedProduct], config: AgentConfig) -> bool:
     return True
 
 
+# ``parser.error`` exits rather than returning, so the ``except`` below ends the
+# process and pylint reads it as a branch that falls off the end with no value.
+# pylint: disable-next=inconsistent-return-statements
 def _configured(parser: argparse.ArgumentParser, **settings: Any) -> AgentConfig:
     """The run's config, with the one thing it refuses said the way a flag is.
 
