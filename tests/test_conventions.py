@@ -567,6 +567,7 @@ _INTEGRATION = _ROOT / ".github" / "workflows" / "integration.yml"
 _MUTMUT = _ROOT / "setup.cfg"
 _COVERAGERC = _ROOT / ".coveragerc"
 _PYTEST_INI = _ROOT / "pytest.ini"
+_PYLINTRC = _ROOT / ".pylintrc"
 
 
 def dockerfile() -> str:
@@ -1839,3 +1840,56 @@ def test_every_entry_point_wires_its_verbose_flag_to_the_level(entry_point: str)
         for call in configured
         for keyword in call.keywords
     ), f"{entry_point} has a --verbose flag that changes nothing"
+
+
+# -- the linter ----------------------------------------------------------------
+
+#: ``python -m pylint <target>``, wherever a workflow or a skill runs it.
+_PYLINT_RUN = re.compile(r"python -m pylint ([\w/ .-]+)")
+
+#: A suppression written into the package: ``# pylint: disable=`` or its
+#: ``disable-next`` form, whatever it goes on to name.
+_SUPPRESSION = re.compile(r"^\s*#\s*pylint:\s*disable(-next)?=")
+
+
+def test_the_linter_checks_what_coverage_measures() -> None:
+    """Three tools now read the same package, and each says so in its own file:
+    `.coveragerc` measures it, `setup.cfg` mutates it, and `ci.yml` lints it. A
+    module that one of them has stopped naming keeps the reassuring output of the
+    other two -- which for the linter means a whole directory nobody is reading,
+    since a target pylint is not given is not a target it complains about."""
+    linted = _PYLINT_RUN.findall(_CI.read_text(encoding="utf-8"))
+
+    assert linted, "ci.yml no longer runs pylint; this rule has outlived it"
+    for target in linted:
+        assert target.split() == ini_values(_COVERAGERC, "run", "source")
+
+
+def test_the_linter_is_configured_where_it_is_run_from() -> None:
+    """pylint reads `.pylintrc` out of the working directory, and every command
+    that runs it here runs from the repository root -- so the file has to be at the
+    root and not beside the package. Moved into `buy_agent/`, it would still be
+    found by a lint of the package and silently not by anything else."""
+    assert _PYLINTRC.exists(), "the linter's settings are gone; ci.yml still runs it"
+
+    settings = ini_values(_PYLINTRC, "MESSAGES CONTROL", "disable")
+    assert settings, "nothing is turned off, so the reasons for it went with the file"
+
+
+@pytest.mark.parametrize("path", package_modules(), ids=lambda path: path.name)
+def test_every_suppression_says_why(path: Path) -> None:
+    """The rule every heuristic in this package already follows, applied to the
+    linter's own: a suppression takes a check away, so it says what for. Pylint
+    holds the other half itself -- `useless-suppression` fails a pragma that has
+    stopped suppressing anything -- but it cannot tell prose from silence, and a
+    bare `# pylint: disable=` is the shape that spreads: the next one copies it,
+    and nothing left says whether either was a decision or a way past a red run."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+
+    for number, line in enumerate(lines):
+        if not _SUPPRESSION.match(line):
+            continue
+        above = lines[number - 1].strip() if number else ""
+        assert above.startswith("#") and not _SUPPRESSION.match(above), (
+            f"{path.name}:{number + 1} suppresses a check and says nothing about why"
+        )

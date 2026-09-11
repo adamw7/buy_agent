@@ -1,0 +1,72 @@
+# Settings for pylint, which `.github/workflows/ci.yml` runs over `buy_agent/`
+# beside the tests (ADR-0048). Like `setup.cfg` and `pytest.ini` this is not a
+# packaging file: the project is run from a checkout and never installed, which is
+# why the settings are here rather than in a `pyproject.toml` table.
+#
+# Nothing below is a default that looked noisy. A check turned off is one whose
+# question this project has already answered differently, with the answer written
+# out; a check that fires once is suppressed on the line it fires on, carrying its
+# reason, and stays on everywhere else. That is the whole of the arrangement: what
+# holds for the package is here, what holds for one line is there.
+
+[MAIN]
+# `lxml.etree.ParserError`, which `fetch.py` catches, lives in a C extension, and
+# a member of one can only be found by importing it. lxml is pinned in
+# `requirements.txt`, so a lint that imports it needs nothing a run does not.
+extension-pkg-allow-list = lxml.etree
+
+# The optional AP2 SDK and the two libraries it signs with. `mandates.py` defers
+# every one of those imports because a checkout may not have them (ADR-0046), and
+# the suite answers an absent SDK by skipping 73 tests rather than failing them.
+# Left resolvable, this is the one check here that would be red on a checkout the
+# tests call fine -- and it would be red only where the SDK is missing, which is
+# the machine least able to do anything about it.
+ignored-modules = ap2, jwcrypto, cryptography
+
+[FORMAT]
+# What the package is written to already: the widest line in `buy_agent/` is 98.
+# Also pylint's own default, and written down here because it is a number somebody
+# chose rather than one to discover by tripping over it.
+max-line-length = 100
+
+[MESSAGES CONTROL]
+enable =
+    # A suppression that has stopped suppressing anything is a comment addressed to
+    # nobody -- which is exactly what the `# noqa` codes this file replaced had
+    # become, written for a linter no command ever ran. Off by pylint's default; on
+    # here, so a pragma outlived by the fix that made it unnecessary is a failure on
+    # the line it sits on rather than a line nobody rereads.
+    useless-suppression,
+    # And a suppression names the check in the spelling the rest of the file uses:
+    # `broad-exception-caught`, never `W0718`. A code is a thing to go and look up,
+    # which is the one thing a comment beside the line is there to save.
+    use-symbolic-message-instead,
+
+disable =
+    # A docstring says what a name cannot. `price_label`, `total` and `do_GET` all
+    # say it, and the thirteen docstrings this asks for would each restate a
+    # method name in a package whose comments are its reasoning. Module and class
+    # docstrings are deliberately *not* exempted: every module here has one, and
+    # that is where the reasoning starts.
+    missing-function-docstring,
+    # `ChatModel` and `Closable` have one method apiece, on purpose: "a stand-in
+    # is a class with one method" is the seam `tests/conftest.py`,
+    # `benchmark/scripted.py` and `demo/server.py` each go through. Counting
+    # methods measures that seam rather than the design behind it.
+    too-few-public-methods,
+    # Every class this fires on is a declaration. `AgentConfig` has 25 fields
+    # because every run setting is one and adding the next is what
+    # `.claude/skills/add-option` walks through; a row of `providers.PROVIDERS` or
+    # `rails.RAILS` has ten because a row carries everything that differs between
+    # one server or one counterparty and another (ADR-0029, ADR-0046). A ceiling
+    # would fire on the next option rather than on a design.
+    too-many-instance-attributes,
+
+[DESIGN]
+# Set at the widest the package is today rather than at a round number -- the way
+# `benchmark/scoring.py`'s floors are set, and for the same reason: a tripwire
+# that is not where the thing already stands catches nothing until long after.
+# `fetch.enrich` is the widest on both counts, and it takes six settings because
+# a pipeline step is handed them rather than reading the config (ADR-0047).
+max-args = 6
+max-locals = 16

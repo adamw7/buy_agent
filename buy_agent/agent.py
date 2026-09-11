@@ -259,8 +259,10 @@ class BuyAgent:
             refined = self._invoke(self.query_chain, {"request": request})
         except ModelUnavailableError:
             raise
+        # A bad query is recoverable -- searching the raw request still works, so
+        # what went wrong is narrower than the catch and the catch is deliberate.
+        # pylint: disable-next=broad-exception-caught
         except Exception:
-            # A bad query is recoverable -- searching the raw request still works.
             logger.warning("Query refinement failed; using the raw request", exc_info=True)
             return request
 
