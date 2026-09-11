@@ -176,9 +176,11 @@ deliberately renamed on the way out: `AgentConfig.reasoning` is `--think`
 It pairs with `num_ctx`: the extraction prompt runs to ~4.3k tokens, so on
 Ollama's default 4096 window a thinking model reasons until the context is gone
 and never emits any JSON. Ollama's default model is `gemma4:12b`, which thinks,
-so `reasoning` defaults to `False` and `num_ctx` to `8192`. A model that cannot
-think ignores both; one that wants its own behaviour back is given
-`num_ctx=None, reasoning=None`, reachable from neither front end (ADR-0019).
+so `reasoning` defaults to `False` and `num_ctx` to `16384` -- the prompt being
+only half of what has to fit, the JSON for ten products the other (ADR-0050). A
+model that cannot think ignores both; one that wants its own behaviour back is
+given `num_ctx=None, reasoning=None`, reachable from neither front end
+(ADR-0019).
 `num_ctx` is the one setting the two providers do not share -- vLLM fixes its
 window with `--max-model-len` at startup, so `Provider.takes_num_ctx` is false
 there, the value is not sent, and both front ends say so rather than accepting a

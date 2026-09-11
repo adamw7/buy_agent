@@ -139,7 +139,7 @@ def test_context_and_thinking_default_to_suiting_the_default_model() -> None:
     """DEFAULT_MODEL thinks, so out of the box it is told not to, and given room."""
     config = AgentConfig()
 
-    assert config.num_ctx == 8192
+    assert config.num_ctx == 16384
     assert config.reasoning is False
 
 

@@ -471,7 +471,7 @@ def test_the_defaults_reach_the_chat_model(ollama_request) -> None:
     """DEFAULT_MODEL thinks, so the defaults that make it usable have to arrive."""
     _refine(AgentConfig())
 
-    assert ollama_request["options"]["num_ctx"] == 8192
+    assert ollama_request["options"]["num_ctx"] == 16384
     assert ollama_request["think"] is False
 
 

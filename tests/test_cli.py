@@ -170,7 +170,7 @@ def test_context_and_thinking_default_to_the_config(fake_agent) -> None:
     """Every flag defaults to its AgentConfig field, thinking mode included."""
     main(["headphones"])
     config = fake_agent["config"]
-    assert config.num_ctx == 8192
+    assert config.num_ctx == 16384
     assert config.reasoning is False
 
 

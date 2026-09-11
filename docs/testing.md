@@ -231,7 +231,7 @@ platform the script is actually for.
 Everything above fakes the model, which leaves the half of this project that is
 a *claim about Ollama* checked nowhere: that a JSON schema compiled into a
 decoding grammar makes `"N/A"` in a number impossible (ADR-0004), that
-`reasoning=False` and `num_ctx=8192` are what make a thinking model answer at
+`reasoning=False` and `num_ctx=16384` are what make a thinking model answer at
 all (ADR-0019), and that a stopped server arrives as a raw `httpx` error rather
 than an `OSError`. The unit tests raise those errors themselves, which proves
 the provider's `transport_errors` contains them and nothing about what Ollama
