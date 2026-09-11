@@ -437,7 +437,18 @@ describe('App', () => {
     await fixture.whenStable();
 
     const page = fixture.nativeElement as HTMLElement;
-    expect(page.querySelector('.banner.quiet')!.textContent).toContain('Nothing came back');
+    const said = page.querySelector('.banner.quiet')!.textContent!;
+    expect(said).toContain('Nothing came back');
+    /* All three of the things that end a run with nothing, because naming only
+       the two the pipeline does is what sent a reader looking at the web for a
+       report their own Min reviews had emptied. The limits are the one of the
+       three that is a box on this page. */
+    expect(said).toContain('no pages worth reading');
+    expect(said).toContain('survived grounding');
+    expect(said).toContain('limits you set');
+    /* And no guess at which: the run logs a line for whichever it was, and the
+       panel holding it is on the page above this. */
+    expect(said).toContain('Progress');
   });
 
   it('says the connection went, and stops looking busy', async () => {

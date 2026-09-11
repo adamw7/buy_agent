@@ -173,10 +173,18 @@
         }
       </section>
     } @else {
+      <!-- Three things end a run with nothing, and this used to name two of
+           them: the third is the shopper's own limits, which is the one a
+           reader can do something about and the one the sentence sent them
+           looking elsewhere for. Which of the three it was is not guessed at
+           here -- the run logs a line for whichever it was (an empty search, an
+           empty extraction, or "0 of 7 product(s) are within the limits"), and
+           that line is in the panel directly above this. -->
       <p class="card banner quiet">
-        Nothing came back for “{{ found.request }}”. Either the search found no pages worth reading,
-        or nothing on them survived grounding — every figure shown here has to appear in the
-        sources.
+        Nothing came back for “{{ found.request }}”. The search may have found no pages worth
+        reading; nothing on them may have survived grounding — every figure shown here has to appear
+        in the sources; or the limits you set may have excluded everything that did. Progress,
+        above, says which.
       </p>
     }
   }

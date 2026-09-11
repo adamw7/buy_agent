@@ -319,7 +319,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Extract from search snippets only, without opening the result pages "
         "(much faster, but snippets rarely quote a price).",
     )
-    parser.add_argument("--json", type=Path, help="Also write all results to this JSON file.")
+    parser.add_argument(
+        "--json",
+        type=Path,
+        # A path and not a format: left to argparse the flag read "--json JSON",
+        # which is the one metavar on here that says the value again instead of
+        # saying what it is -- and reads like a switch asking for JSON on stdout,
+        # which is where the report already goes.
+        metavar="FILE",
+        help="Also write all results, not only the top ones, to this JSON file.",
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging.")
     return parser
 
