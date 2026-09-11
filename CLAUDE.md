@@ -120,8 +120,14 @@ leaves behind -- `.gitignore`'s own list, every spelling of the virtualenv
 included -- and `.env`, which is the one thing kept out on purpose rather than for
 its size. So the Node stage builds from source rather than copying a stale local
 `dist/`, and `demo/` -- a video the size of the rest put together -- never reaches
-the daemon. Nothing tests that file, so a path added to one of those directories
-is only kept out of the image by keeping this list current.
+the daemon. `tests/test_conventions.py` reads it from both sides: everything
+`.gitignore` names is named here too, which is the sentence the file opens with,
+and nothing the `Dockerfile` copies is caught by any of it, which is the mistake
+that stops a build rather than quietly fattening one. Neither says anything about
+a *new* top-level directory, so one added without a line here is still uploaded
+whole. Patterns match from the root, so the UI's own leavings are written out
+(`ui/dist/`, `ui/coverage/`): `ui/` is the one directory copied whole, and a
+`coverage/` matched at the root reaches nothing inside it.
 
 ### Settings and their environment
 
@@ -1050,7 +1056,7 @@ arrived, the headers and the body being separate writes that can land in separat
 segments, and the one asserting that a body refused unread ends the connection
 reads to EOF instead.
 
-1803 tests run in about eight seconds: most of that is the three that spawn an
+1805 tests run in about eight seconds: most of that is the three that spawn an
 interpreter -- two for what only a real import can answer (`python -m buy_agent`
 still runs as a script, and still imports with `$BUY_AGENT_RAIL` misspelt), one
 PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliberate
@@ -1058,13 +1064,13 @@ PowerShell for the whole of `tests/test_start_script.py` -- plus 1.0s of deliber
 Nothing else should sleep, so a run that takes much longer still means something is
 reaching out.
 
-Two optional prerequisites decide how many of those 1803 *run*, and neither is a
+Two optional prerequisites decide how many of those 1805 *run*, and neither is a
 failure when it is absent. With neither `pwsh` nor `powershell`, 13 of the 19 in
 `tests/test_start_script.py` skip. Without the optional AP2 SDK, the 73 that sign
 or verify a mandate skip on `needs_ap2` -- the marker in `tests/conftest.py`,
 which is `needs_powershell` for the other one and asks `mandates.available()`
-once at import. So a machine with both reads `1790 passed, 13 skipped`, and a
-checkout set up with `requirements-dev.txt` alone reads `1717 passed, 86
+once at import. So a machine with both reads `1792 passed, 13 skipped`, and a
+checkout set up with `requirements-dev.txt` alone reads `1719 passed, 86
 skipped` rather than 73 red tests saying the project is broken when one optional
 feature is not installed. Skipping is only ever the local convenience: `ci.yml`
 and `mutation.yml` each install the SDK in a step of their own, and the 100%
@@ -1106,7 +1112,8 @@ that
   never sends is a refusal marking a box that is not there (ADR-0033);
 - the `Dockerfile` pins the versions CI tests against, copies the built UI where
   the server looks, exposes the port it binds and installs the runtime dependencies
-  only;
+  only, and `.dockerignore` keeps out everything `.gitignore` does while keeping in
+  everything those `COPY` lines ask for;
 - every job in `ci.yml` names both a Windows and a Linux runner between them and
   holds a merge up for neither, over the events the workflow actually runs on
   (ADR-0037), and sets up exactly
