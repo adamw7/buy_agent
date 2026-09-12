@@ -326,6 +326,10 @@ luxury.
 python -m buy_agent "headphones" --pay --spend-limit 250
 ```
 
+None of those three do anything on their own, so a run given one without `--pay`
+says which word is missing rather than spending its minute and then buying
+nothing.
+
 Signing needs a key. `$BUY_AGENT_AP2_KEY` points at an EC P-256 private key --
 `openssl ecparam -genkey -name prime256v1 -noout -out agent-key.pem` -- and the
 dry run will generate a throwaway one and say so rather than refusing, since it

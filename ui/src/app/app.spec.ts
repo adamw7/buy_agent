@@ -35,6 +35,7 @@ const product = (rank: number, name: string) => ({
   cannot_pay: null,
   pay_currency: 'USD',
   pay_label: `${100 * rank}.00 USD`,
+  pay_merchant: 'shop.example',
   name,
   price: 100 * rank,
   currency: 'USD',

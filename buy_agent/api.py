@@ -35,6 +35,7 @@ from buy_agent.payment import (
     amount_for,
     amount_label,
     cart_for,
+    merchant_for,
     pay_for,
     payable,
     unattended,
@@ -470,14 +471,17 @@ def product_payload(entry: RankedProduct, currency: str | None = None) -> dict[s
     frequently not the product's own figures: a page printing a bare "329.00" leaves
     ``currency`` null while the cart is in the run's currency (ADR-0043). A card
     restating ``price_label`` showed unnamed money and echoed a null currency back,
-    which no approval matches. Both are null exactly when ``cannot_pay`` is a
-    sentence.
+    which no approval matches. ``pay_merchant`` is the third of the same kind: who the
+    cart will name, which is the seller a page printed *or* the site it is on, so a
+    surface falling back to ``seller`` asked for a purchase naming nobody whenever no
+    page printed one. All three are null exactly when ``cannot_pay`` is a sentence.
     """
     terms = amount_for(entry.product, currency)
     return {
         "cannot_pay": payable(entry.product, currency),
         "pay_currency": terms[1] if terms else None,
         "pay_label": amount_label(*terms) if terms else None,
+        "pay_merchant": merchant_for(entry.product) if terms else None,
         "rank": entry.rank,
         "score": round(entry.score, 4),
         # What that score is made of, so a card can say why a product placed

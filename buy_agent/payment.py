@@ -265,6 +265,19 @@ def amount_label(price: float, currency: str) -> str:
     return f"{price:,.2f} {currency}"
 
 
+def merchant_for(product: Product) -> str:
+    """Who a payment for this product would go to, as the cart will name them.
+
+    The seller a page printed, or failing that the site the page is on -- the only
+    two identities a run ever knows. Named here and read by :func:`cart_for` rather
+    than worked out inside it, because a surface asking somebody to approve a payment
+    has to say who is being paid *before* there is a cart to read it off, and the
+    seller is frequently blank: a card falling back to ``Product.seller`` asked for a
+    purchase naming nobody exactly where the cart names a host.
+    """
+    return product.seller or _host(product.url)
+
+
 def cart_for(product: Product, products: Sequence[Product], config: AgentConfig) -> Cart:
     """The cart for one product of a finished run.
 
@@ -290,7 +303,7 @@ def cart_for(product: Product, products: Sequence[Product], config: AgentConfig)
         price=price,
         currency=currency,
         amount=minor_units(price, currency),
-        merchant=product.seller or _host(product.url),
+        merchant=merchant_for(product),
         url=product.url or "",
         item_id=product.dedup_key.replace(" ", "-")[:120],
     )

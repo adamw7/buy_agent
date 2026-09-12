@@ -64,6 +64,26 @@ PAYMENT_FAILED = 4
 _UNSET = object()
 
 
+#: The paying settings, and how each tells a value somebody typed from one left
+#: alone. Only ``--pay`` turns any of them into behaviour, so a run without it
+#: ignores all three -- a mistake the form cannot make, drawing none of them until
+#: Pay for the top product is on. The CLI has no panel to hide, so it says so
+#: instead, the way ``--num-ctx`` is called out on a server that fixes its window.
+#: ``--rail`` is measured against :data:`~buy_agent.config.DEFAULT_RAIL` rather than
+#: against a sentinel: ``$BUY_AGENT_RAIL`` is how a machine is pointed at one
+#: counterparty for good, and a standing answer is not somebody asking to buy.
+_PAYING_FLAGS: tuple[tuple[str, str, Callable[[Any], bool]], ...] = (
+    ("--rail", "rail", lambda value: value != DEFAULT_RAIL),
+    ("--merchant-url", "merchant_url", bool),
+    ("--spend-limit", "spend_limit", lambda value: value is not None),
+)
+
+
+def _idle_paying_flags(args: argparse.Namespace) -> list[str]:
+    """Which paying flags this command line carried that nothing in it will read."""
+    return [flag for flag, field, given in _PAYING_FLAGS if given(getattr(args, field))]
+
+
 def _provider_defaults(setting: str) -> str:
     """One column of :data:`buy_agent.providers.PROVIDERS`, as ``--help`` prints it.
 
@@ -450,6 +470,16 @@ def main(argv: list[str] | None = None) -> int:
         merchant_url=args.merchant_url,
         spend_limit=args.spend_limit,
     )
+
+    if not config.pay and (idle := _idle_paying_flags(args)):
+        # Said rather than dropped, for the reason the context window below is: a
+        # run that spends its minute and then buys nothing reads as a rail that
+        # failed, and the one word missing is the flag that would have paid.
+        logger.warning(
+            "Nothing will be bought: %s %s nothing without --pay.",
+            ", ".join(idle),
+            "does" if len(idle) == 1 else "do",
+        )
 
     if args.num_ctx is not _UNSET and not config.model_server.takes_num_ctx:
         # The form disables the field; the CLI has none to disable, so it says so

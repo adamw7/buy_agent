@@ -8,6 +8,7 @@ const SONY: RankedProduct = {
   cannot_pay: null,
   pay_currency: 'USD',
   pay_label: '328.00 USD',
+  pay_merchant: 'Amazon',
   rank: 1,
   score: 0.912,
   breakdown: {
@@ -48,6 +49,7 @@ const UNKNOWN: RankedProduct = {
   cannot_pay: 'No source printed a price for Anker Q30, so there is nothing to authorise.',
   pay_currency: null,
   pay_label: null,
+  pay_merchant: null,
   price: null,
   rating: null,
   seller: null,
@@ -69,6 +71,16 @@ const BARE: RankedProduct = {
   price_label: '179.00',
   pay_currency: 'USD',
   pay_label: '179.00 USD',
+};
+
+/** A product off a page that named no seller, which is most of them: the cart
+ *  falls back to the site, and so does what the confirmation says. */
+const ANONYMOUS: RankedProduct = {
+  ...SONY,
+  rank: 3,
+  name: 'Soundcore Space Q45',
+  seller: null,
+  pay_merchant: 'audiosite.example',
 };
 
 const RECEIPT = receipt();
@@ -323,8 +335,21 @@ describe('ProductCard, paying', () => {
     const confirm = card.querySelector('.confirm')!;
     expect(confirm.textContent).toContain('328.00 USD');
     expect(confirm.textContent).toContain('Sony WH-1000XM5');
+    expect(confirm.textContent).toContain('Amazon');
     expect(confirm.textContent).toContain('HTTP endpoint');
     expect(confirm.textContent).toContain('will be charged');
+  });
+
+  it('names the site where no page printed a seller', async () => {
+    /* `pay_merchant` and not `seller`: the cart falls back to the site the page
+       is on, and most pages print no seller -- so a confirmation reading the
+       product's own field asked for a purchase naming nobody at all, which is
+       the one thing a person most needs before authorising one. */
+    const { fixture, card } = await payable(ANONYMOUS, { canPay: true, rail: CHARGES });
+    card.querySelector<HTMLButtonElement>('.pay')!.click();
+    await fixture.whenStable();
+
+    expect(card.querySelector('.confirm')!.textContent).toContain('audiosite.example');
   });
 
   it('says plainly when the rail charges nobody', async () => {
