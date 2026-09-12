@@ -48,11 +48,17 @@ from archunitpython import (
     project_layers,
 )
 
+from tests.conftest import SOURCE_ROOT
+
 #: The package under analysis, as an absolute path: these tests run from wherever
 #: pytest was started, and the Saturday mutation run starts them from a copy of
-#: the tree under ``mutants/`` (``setup.cfg``), where the only honest answer to
-#: "which package" is the one beside this file.
-_PACKAGE = str(Path(__file__).resolve().parent.parent / "buy_agent")
+#: the tree under ``mutants/`` (``setup.cfg``) whose every module opens with an
+#: import of the tester's own trampoline. That copy is the code as *run* and
+#: these are rules about the code as *written*, so the graph is read from the
+#: tree the copy was made of and answers the same on a Saturday as on any other
+#: day -- and ``server.py``, whose rule is "not whatever else the package
+#: imports", needs no exemption for a name no line of it asked for.
+_PACKAGE = str(SOURCE_ROOT / "buy_agent")
 
 #: An import under ``if TYPE_CHECKING:`` is a name, not a dependency -- see the
 #: module docstring. Every rule here is checked with these.

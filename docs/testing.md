@@ -386,4 +386,10 @@ python -m mutmut browse                     # or read them one mutant at a time
 ```
 
 A run copies the tree to `mutants/` and tests the copy, so both that directory
-and `mutation-results.txt` are ignored by git.
+and `mutation-results.txt` are ignored by git. The copy's package is the code as
+run -- every module opening with mutmut's trampoline and holding every mutant of
+every line at once -- so the two files that read source rather than run it,
+`tests/test_conventions.py` and `tests/test_architecture.py`, read the package
+from the tree the copy was made of (`conftest.SOURCE_ROOT`). Everything else
+they open the copy carries unchanged, which is what `also_copy` is for and what
+`test_a_mutation_run_copies_everything_the_tests_reach_for` reads back.
