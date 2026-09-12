@@ -22,7 +22,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-1851 Python tests and 192 UI tests. Nothing in either suite touches the network
+1878 Python tests and 192 UI tests. Nothing in either suite touches the network
 or a model server: the model is faked through the `llm=` argument of `BuyAgent`
 -- a class with one `answer` method, which is the whole of `chat.ChatModel`,
 both the search backend and the page fetcher are monkeypatched, the two clients
@@ -57,8 +57,8 @@ Without that SDK the 73 tests that need it **skip**, the way
 `tests/conftest.py` is the marker, and it asks `mandates.available()` once at
 import. `needs_powershell` is the other, and with neither `pwsh` nor
 `powershell` on PATH 13 of the 19 tests in that file sit out. So a machine with
-the SDK and no PowerShell reads `1851 passed, 13 skipped`, and a checkout set up
-with `requirements-dev.txt` alone reads `1778 passed, 86 skipped` rather than 73
+the SDK and no PowerShell reads `1878 passed, 13 skipped`, and a checkout set up
+with `requirements-dev.txt` alone reads `1805 passed, 86 skipped` rather than 73
 failures claiming the project is broken when one optional feature is simply not
 installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide
@@ -156,7 +156,11 @@ release archive carrying the UI build where the server looks for it; the nightly
 run pulling the model the live tests ask for and leaving its own cap room to
 fail a stopped model first; the decision log agreeing with its own index; the
 linter reading the package the other two tools measure and no line of it taking
-a check away without saying why; and every module in the package logging under
+a check away without saying why; every type named for a failure being one, and
+nothing but the `__main__` guard ending the process; the suite's own
+hygiene -- no test switched off outright, nothing sleeping but the server tests
+that need a run to still be going, and the environment changed through
+`monkeypatch` rather than written; and every module in the package logging under
 the package's own name, in the deferred form a handler can still read, leaving
 stdout to the report.
 
@@ -170,10 +174,13 @@ Those are the rules that span a *declaration*. `tests/test_architecture.py` is
 the other half -- the rules that span an *import* -- and it asserts them against
 the import graph with
 [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython), which parses
-the package with `ast` and answers rules about the result (ADR-0047). Nineteen
+the package with `ast` and answers rules about the result (ADR-0047). Twenty-one
 rules, every one the executable form of a sentence already written down: the
-package has no import cycles and imports none of the five trees that import it;
-every module sits in a layer that reaches only downward, so the pipeline never
+package has no import cycles and imports none of the five trees that import it,
+and starts no process of its own -- installing Ollama, pulling a model and
+opening a browser are `scripts/start.ps1`'s (ADR-0023), and a child process is
+the one way out of this one that no fake in the suite could answer; every
+module sits in a layer that reaches only downward, so the pipeline never
 reads the config and never pays, paying never asks the model, and the model seam
 knows nothing about products; `buy_agent/__init__.py` imports the four modules
 it re-exports from and no others, since importing any submodule runs it first;
@@ -181,7 +188,9 @@ it re-exports from and no others, since importing any submodule runs it first;
 about no module of the package in return; `providers.py` the only one that
 imports a model client and `search.py` the only one that imports the search
 backend, which is what the suite's fakes rest on; `fetch.py` the only one that
-parses HTML; the three that speak HTTP are the three that are patched;
+parses HTML; the three that speak HTTP are the three that are patched, and the
+standard library's own network -- a socket, a `urllib.request` -- belongs to
+`server.py`, which is one on purpose and listens rather than calls out;
 `argparse` belongs to the two modules handed an `argv`; the server imports
 nothing outside the standard library, read off the graph rather than off
 `requirements.txt`, while `api.py` reaches no socket, thread or queue; the two
@@ -200,9 +209,23 @@ modules check first that each one exists: a renamed module fails the rule about
 it instead of quietly turning it into a no-op. The layers are guarded the same
 way and for the same reason -- an edge to or from a file in no layer is skipped,
 and a module named in two layers may reach whatever either row allows -- so a
-twentieth test holds the layer table against the directory and counts the
+twenty-second test holds the layer table against the directory and counts the
 placings, and a module added to neither layer or to both is a test failure
 rather than an exemption.
+
+Two of those rules, and five in `tests/test_conventions.py` beside them, are
+[ArchUnit](https://www.archunit.org) rules from
+[adamw7/tools](https://github.com/adamw7/tools) read in this project's terms:
+the package starts no process and reaches no socket of its own, a type named
+`*Error` really is raisable, nothing but the `__main__` guard ends the process,
+no test is switched off outright, nothing in either suite sleeps but the server
+tests that need a run to still be going, and the environment is changed through
+`monkeypatch` rather than written. Every one of them is a sentence this project
+had already decided and nothing was checking, which is the difference between
+porting a rule and adopting a rulebook: the Java-shaped ones -- a logger is a
+constant, an abstract class carries the prefix, `@BeforeAll` is static -- say
+nothing here, and the rules about layers, cycles and one seam per module were
+already the file above.
 
 Both suites run on Windows and on Linux, on different triggers.
 `.github/workflows/ci.yml` spreads its two jobs -- `coverage run -m pytest` and
