@@ -596,6 +596,62 @@ def test_a_context_window_the_provider_takes_is_not_called_out(fake_agent, caplo
     assert "ignored" not in caplog.text
 
 
+@pytest.mark.parametrize(
+    ("flag", "value"),
+    [("--rail", "http"), ("--merchant-url", "https://pay.example"), ("--spend-limit", "250")],
+)
+def test_a_paying_flag_without_pay_is_called_out(
+    fake_agent, caplog, flag: str, value: str
+) -> None:
+    """The form draws none of these until Pay for the top product is on.
+
+    The CLI has no panel to hide, so a run that spends its minute and then buys
+    nothing says which word was missing -- rather than reading like a rail that
+    failed.
+    """
+    with caplog.at_level(logging.WARNING):
+        main(["headphones", flag, value])
+
+    assert f"Nothing will be bought: {flag} does nothing without --pay." in caplog.text
+
+
+def test_every_paying_flag_that_was_given_is_named_at_once(fake_agent, caplog) -> None:
+    """One line for the lot: three warnings for one forgotten word is three
+    things to read and one thing to fix."""
+    with caplog.at_level(logging.WARNING):
+        main(["headphones", "--rail", "http", "--spend-limit", "250"])
+
+    assert "--rail, --spend-limit do nothing without --pay" in caplog.text
+
+
+def test_the_paying_flags_are_not_called_out_on_a_run_that_pays(fake_agent, caplog) -> None:
+    with caplog.at_level(logging.WARNING):
+        main(["headphones", "--pay", "--rail", "dry-run", "--spend-limit", "250"])
+
+    assert "without --pay" not in caplog.text
+
+
+def test_a_run_that_asked_for_none_of_them_is_not_called_out(fake_agent, caplog) -> None:
+    with caplog.at_level(logging.WARNING):
+        main(["headphones"])
+
+    assert "without --pay" not in caplog.text
+
+
+def test_a_rail_the_environment_set_is_not_read_as_asking_to_buy(
+    fake_agent, caplog, monkeypatch
+) -> None:
+    """``$BUY_AGENT_RAIL`` is how a machine is pointed at one counterparty for
+    good, and a standing answer is not somebody asking to buy something. So the
+    rail is measured against what this machine defaults to, not against dry-run."""
+    monkeypatch.setattr(main_module, "DEFAULT_RAIL", "http")
+
+    with caplog.at_level(logging.WARNING):
+        main(["headphones"])
+
+    assert "without --pay" not in caplog.text
+
+
 def test_every_flag_is_documented_in_the_help() -> None:
     """--help is the only documentation the CLI has."""
     help_text = build_parser().format_help()

@@ -712,7 +712,14 @@ seeds the web form.
   `spend_limit` is an ordinary bounded number whose range is `max_price`'s, and
   a different promise: that one filters what is reported and admits a product it
   cannot judge, this one has to be cleared before money moves and refuses what
-  it cannot judge.
+  it cannot judge. The other three mean nothing at all without `pay`, and the two
+  doors say so differently because only one of them can: the form draws none of
+  them until the box is ticked, while the CLI has no panel to hide and names
+  whichever were given in one line (`_idle_paying_flags`), the way `--num-ctx` is
+  called out on a server that fixes its window. A rail is measured against
+  `DEFAULT_RAIL` rather than against a sentinel, `$BUY_AGENT_RAIL` being how a
+  machine is pointed at one counterparty for good -- and a sentinel there would
+  cost the `_checked` refusal that makes a misspelt one a usage error.
 - **`weights`** is the one field neither door fills in: `RankingWeights` is
   reachable only by constructing an `AgentConfig` in Python, so rebalancing the
   blended score is a code change and not a flag.
@@ -769,10 +776,14 @@ everything else to the built Angular app, unknown paths falling back to
 - **The browser decides nothing.** Ranking, grounding, whether a product may be
   bought at all, and even the wording of an unknown price all stay in Python.
   `cannot_pay` is Python's sentence, from the same check the payment goes
-  through. `pay_currency` and `pay_label` beside it are what that purchase would
-  be *for*, which is frequently not the product's own figures: a page that
-  printed a bare "329.00" is priced in the run's currency (ADR-0043), so
-  `currency` is null while the cart is in USD. `product_payload` sends
+  through. `pay_currency`, `pay_label` and `pay_merchant` beside it are what that
+  purchase would be *for* and who it would go *to*, which is frequently not the
+  product's own figures: a page that printed a bare "329.00" is priced in the
+  run's currency (ADR-0043), so `currency` is null while the cart is in USD, and
+  a page that printed no seller is paid at the site it is on, so `seller` is null
+  while the cart names `audiosite.example`. All three come out of the same check
+  `cannot_pay` does, so all three are null together and `payment.merchant_for` is
+  asked by the payload and by `cart_for` alike. `product_payload` sends
   `price_label` and `rating_label` next to the raw figures. `sort_by` is a
   request parameter rather than a client-side re-sort, for a finished run too
   (ADR-0035). `installed_models` sends each model's `completion` beside its
@@ -884,10 +895,13 @@ rules a change to them may not break.
   failed run and a stopped one only. `transcript()` appends the failure message,
   which never reached the panel as a log line.
 - **Buying takes two clicks, and the second restates the cart.** Title, the cart's
-  `pay_label`, merchant, rail, and whether anybody is charged -- the cart the
-  mandates will carry, never the product's own figures (ADR-0043). The card emits
-  those three fields for the server to check against the cart it builds itself,
-  and shows Python's `cannot_pay` where there is no button to offer.
+  `pay_label`, its `pay_merchant`, rail, and whether anybody is charged -- the cart
+  the mandates will carry, never the product's own figures (ADR-0043), which is why
+  the merchant is read off `pay_merchant` and not off `seller`: most pages print no
+  seller, and a confirmation reading that one named nobody at all for most products.
+  The card emits three of those fields -- title, price, currency -- for the server
+  to check against the cart it builds itself, and shows Python's `cannot_pay` where
+  there is no button to offer.
 - **A receipt is keyed by product name, in `App.receipts` and in both loops.** A
   re-sort ranks the same products again from 1 (ADR-0035), so tracking by index
   moves a purchase onto whatever lands at that rank next.

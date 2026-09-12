@@ -105,9 +105,13 @@
                the currency the payment will actually be made in, which for a
                page that printed a bare figure is the run's rather than none at
                all (ADR-0043). A Trusted Surface that names no unit is not one. -->
+          <!-- `pay_merchant` and not `seller`: this names who the cart will be
+               paid to, which is the site the page is on wherever no page printed
+               a seller -- and no page usually does, so the one thing a person
+               most needs before authorising was the one thing left out. -->
           Pay <strong>{{ product().pay_label }}</strong> for {{ product().name }}
-          @if (product().seller) {
-            to {{ product().seller }}
+          @if (product().pay_merchant; as merchant) {
+            to {{ merchant }}
           }
           @if (rail(); as chosen) {
             <br />

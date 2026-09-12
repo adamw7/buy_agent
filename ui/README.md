@@ -130,8 +130,12 @@ cart's label and not the product's: a page that printed a bare "329.00" leaves
 `price_label` with no unit on it while the purchase is in the run's currency all
 the same
 ([ADR-0043](../docs/adr/0043-compare-prices-only-within-one-currency.md)), and a
-surface that names no money is not one. A single button would be a purchase made
-by a misclick on a card in a list.
+surface that names no money is not one. The cart's merchant for the same reason:
+`pay_merchant` is the seller a page printed *or* the site it is on, and most
+pages print no seller -- so a confirmation reading the product's own `seller`
+asked for a purchase naming nobody at all, which is the field a person most
+needs before agreeing to one. A single button would be a purchase made by a
+misclick on a card in a list.
 
 What it emits is the three fields a person was shown, which the server holds
 against the cart it builds itself. The card decides nothing else, and a product

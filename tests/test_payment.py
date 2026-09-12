@@ -23,6 +23,7 @@ from buy_agent.payment import (
     amount_for,
     amount_label,
     cart_for,
+    merchant_for,
     minor_units,
     payable,
     pay_for,
@@ -160,6 +161,19 @@ def test_a_cart_falls_back_to_the_site_when_no_seller_was_printed() -> None:
     anonymous = SONY.model_copy(update={"seller": None})
 
     assert cart_for(anonymous, [anonymous], AgentConfig(pay=True)).merchant == "audiosite.example"
+
+
+def test_the_merchant_a_cart_will_name_is_askable_without_a_cart() -> None:
+    """What a surface has to say before there is a cart to read it off.
+
+    The confirmation on a card names who is being paid, and it is drawn from the
+    products a run answered with rather than from a cart the server has not built
+    yet -- so the answer is one function, asked by both.
+    """
+    anonymous = SONY.model_copy(update={"seller": None})
+
+    assert merchant_for(SONY) == cart_for(SONY, [SONY], AgentConfig(pay=True)).merchant
+    assert merchant_for(anonymous) == "audiosite.example"
 
 
 def test_the_currency_is_the_runs_and_not_the_products() -> None:

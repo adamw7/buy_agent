@@ -1230,9 +1230,29 @@ def test_the_products_carry_the_money_a_purchase_would_be_in() -> None:
     assert accentum["pay_label"] == "179.00 USD"
 
 
+def test_the_products_carry_who_a_purchase_would_pay() -> None:
+    """The cart's merchant, which is the site wherever no page printed a seller.
+
+    Sent because the card restates the cart before authorising it. Left to read
+    the product's own ``seller``, the confirmation named nobody at all for every
+    product no page printed one for -- which is most of them, and exactly the
+    field a person needs before agreeing to pay.
+    """
+    anonymous = Product(
+        name="Sennheiser Accentum", price=179.0, currency="USD", url="https://x.example/s"
+    )
+    ranked = rank_products([PAYABLE, anonymous], weights=RankingWeights())
+
+    by_name = {entry["name"]: entry for entry in results_payload(ranked)}
+
+    assert by_name["Sony WH-1000XM5"]["pay_merchant"] == "AudioSite"
+    assert by_name["Sennheiser Accentum"]["seller"] is None
+    assert by_name["Sennheiser Accentum"]["pay_merchant"] == "x.example"
+
+
 def test_a_product_that_cannot_be_bought_names_no_amount_either() -> None:
-    """Both come out of the same check ``cannot_pay`` does, so there is never a
-    button drawn on an amount nothing would authorise."""
+    """All three come out of the same check ``cannot_pay`` does, so there is never
+    a button drawn on an amount nothing would authorise."""
     unpriced = Product(name="Anker Q30", url="https://x.example/a")
 
     payload = results_payload(rank_products([unpriced], weights=RankingWeights()))[0]
@@ -1240,6 +1260,7 @@ def test_a_product_that_cannot_be_bought_names_no_amount_either() -> None:
     assert payload["cannot_pay"] is not None
     assert payload["pay_currency"] is None
     assert payload["pay_label"] is None
+    assert payload["pay_merchant"] is None
 
 
 @needs_ap2
