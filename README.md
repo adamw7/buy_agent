@@ -761,9 +761,77 @@ run is scored as well as checked, and `--scripted perfect` puts a hand-written
 answer through the whole real pipeline with no model at all and must come out at
 1.000.
 
+### The shape, read off the imports
+
+Which module may know about which is the thing this project says most often and
+the thing least able to break loudly: an import in the wrong direction runs
+perfectly. It passes that module's own tests, keeps the coverage floor, survives
+the mutation run, and shows up years later as the reason two things cannot be
+moved apart. `tests/test_architecture.py` is where those sentences are
+executable -- twenty-one rules over the import graph, parsed out of the package
+with [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython), costing
+no model, no network and no run
+([ADR-0047](docs/adr/0047-check-the-import-graph-with-archunit.md)).
+
+- **The package is a line, and the line runs one way.** No import cycles, and
+  none of the five trees that import it -- `tests/`, `integration/`,
+  `benchmark/`, `demo/`, `scripts/` -- is imported back.
+  `buy_agent/__init__.py` imports the four modules it re-exports from and no
+  others, since importing any submodule runs it first: a `from` line there
+  naming `payment` would put the optional AP2 stack behind `import buy_agent`.
+- **Every module sits in a layer that reaches only downward** -- entry points,
+  web, orchestration, pipeline, paying, model access, settings, domain. Four of
+  those edges are decisions rather than tiers. The pipeline never reads the
+  config, which is what lets `rank_products`, `ground` and `Constraints` be
+  tested with three arguments and no environment. The pipeline never pays, so no
+  step of a run can spend money it was not asked to (ADR-0046). Paying never
+  asks the model, which is "never pay on an unverified number" as an import.
+  And the model seam carries a prompt, a schema and an answer without ever
+  knowing what an answer means (ADR-0038).
+- **One seam, one module.** `mandates.py` alone imports the AP2 SDK (ADR-0046),
+  `providers.py` alone a model client (ADR-0029), `search.py` alone the search
+  backend (ADR-0021), `fetch.py` alone the HTML parser. The three modules that
+  speak HTTP are exactly the three the suite patches, so a fourth would be a
+  request no fake answers; `argparse` belongs to the two modules handed an
+  `argv`, a parser below them being a third set of defaults.
+- **The socket is the server's alone.** `server.py` is a standard-library HTTP
+  server on purpose and only ever listens on it (ADR-0010), so a `socket`, an
+  `ssl` or a `urllib.request` anywhere else is a module reaching out on its own.
+  It also imports nothing outside the standard library -- read off the graph
+  rather than off `requirements.txt`, so a dependency added tomorrow is covered
+  without anybody writing the rule down again -- while `api.py` reaches no
+  socket, thread or queue, which is what leaves the payloads testable by calling
+  a function.
+- **The package starts no process.** `subprocess`, `multiprocessing` and
+  `webbrowser` are nobody's here: installing Ollama, pulling a model, building
+  the UI and opening the page are `scripts/start.ps1`'s (ADR-0023), and the
+  container starts neither model server either (ADR-0015). It is the one way out
+  of the package that no fake in the suite could answer -- a child process would
+  see neither the fake model nor the fake search nor the scratch cache
+  directory, and a server that opened a browser would open it where nobody is
+  sitting.
+- **The steps take values and answer values.** Nothing in the pipeline or the
+  domain reads an environment variable, a file, a clock or a random number,
+  which is the half of "the pipeline never reads the config" no layer can state
+  and what says a remembered answer (ADR-0044) is the same answer. The steps do not chain
+  themselves either: the order of the pipeline is `BuyAgent.run`'s to know, so a
+  joint argued in one place stays a joint that can be moved. And nothing that
+  decides the answer -- the ranking, the bounds, the grounding, the types --
+  may reach the model, the fetcher or the search (ADR-0002).
+
+Two things about how they are written. An import under `if TYPE_CHECKING:` does
+not count, because it never runs: it is how this package already spells "I name
+this type and do not use this module", and it is what lets `providers.py` take
+an `AgentConfig` while importing nothing from `config`. And a negated rule whose
+subject matches nothing *passes*, which is the one way a file like this can be
+worse than no file, so every helper that names modules checks they exist and a
+twenty-second test counts the layer placings -- a module renamed out of a rule,
+left out of the layer table or named in two of its rows fails a test instead of
+quietly becoming an exemption.
+
 What the counts are, what `tests/test_conventions.py` checks that coverage
-cannot, what `tests/test_architecture.py` reads off the import graph instead
-(ADR-0047), what pylint is configured to say and what it is deliberately not
+cannot, each of those twenty-one import rules written out beside the sentence it
+came from, what pylint is configured to say and what it is deliberately not
 (ADR-0048), what the benchmark measures, and the mutation run that grades the
 suite every Saturday are in [Tests](docs/testing.md).
 
