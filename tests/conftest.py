@@ -1,10 +1,12 @@
-"""Shared fakes. No test in this suite touches the network, Ollama or the
-developer's own cache directory, and none of them leaves a logger set."""
+"""Shared fakes, and where to read this project back off its own disk. No test in
+this suite touches the network, Ollama or the developer's own cache directory, and
+none of them leaves a logger set."""
 
 from __future__ import annotations
 
 import logging
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -24,7 +26,21 @@ from buy_agent.search import SearchResult
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
+
+
+#: This repository as it is written, which is not always the tree the suite is
+#: running in. ``mutmut run`` copies everything to ``mutants/`` and runs there
+#: against a package carrying every mutant of every module at once --
+#: ``logger.info(None)`` beside the line it was made from, an inverted branch
+#: beside the branch. Two files here are made of rules read off that source rather
+#: than exercised -- ``tests/test_conventions.py`` and ``tests/test_architecture.py``
+#: -- and a rule read off the source is a rule about the code as *written*, so
+#: they read the package from here and answer the same on a Saturday as on any
+#: other day. Everything else the copy carries it carries unchanged, so the docs,
+#: the workflows, the skills and the TypeScript are read where they sit.
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+if SOURCE_ROOT.name == "mutants":
+    SOURCE_ROOT = SOURCE_ROOT.parent
 
 
 #: Skips a test that cannot run without the optional AP2 SDK, the way

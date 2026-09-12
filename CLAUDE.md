@@ -224,7 +224,13 @@ the matrix is over platforms only, one Python and one Node, since the
   `scripts/mutation_report.py` turns a run into the job summary and fails it
   under 75% (ADR-0016). A run copies the tree to `mutants/` and tests the copy,
   so anything the suite reads off disk or imports from outside `buy_agent` has
-  to be named in `also_copy`, or the run dies at collection.
+  to be named in `also_copy`, or the run dies at collection. What the copy holds
+  of the package is the code as *run*: every module of it opens with the
+  tester's trampoline and carries every mutant of every line at once. So the two
+  files made of rules read off the source rather than exercised --
+  `tests/test_conventions.py` and `tests/test_architecture.py` -- read the
+  package from the tree the copy was made of (`conftest.SOURCE_ROOT`), and
+  everything else, which the copy carries unchanged, where it sits.
 - **`release.yml`** runs when a release is *published* (and on
   `workflow_dispatch` with a tag, so a failed upload can be retried without
   re-cutting the release) and puts two packages on GitHub:
@@ -1086,8 +1092,9 @@ the other is otherwise invisible to both suites. It asserts that
   and sections ADR-0001 asks for, and cites only records that exist;
 - the Saturday mutation run mutates the package `.coveragerc` measures, on the
   Python `ci.yml` pins, with every file these tests open -- or import from
-  outside `buy_agent`, `benchmark/` and `integration/` included -- named in
-  mutmut's `also_copy`;
+  outside `buy_agent`, `benchmark/` and `integration/` included, plus the files
+  at the top of the tree they name and the paths the skills point at, neither of
+  which any constant carries -- named in mutmut's `also_copy`;
 - the linter reads that same package, `.pylintrc` sits where every command that
   runs pylint is run from, and no line of the package takes a check away without
   saying why: a `# pylint: disable` with no prose above it is a suppression

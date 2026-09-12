@@ -79,7 +79,7 @@ from buy_agent.payment import PaymentError
 from buy_agent.providers import PROVIDERS, InstalledModel, provider_options
 from buy_agent.rails import RAILS, rail_options
 from buy_agent.models import Product
-from tests.conftest import needs_ap2, payable_product, ranked_product, said
+from tests.conftest import SOURCE_ROOT, needs_ap2, payable_product, ranked_product, said
 from buy_agent.ranking import SortBy
 from buy_agent.server import DEFAULT_UI_DIR
 from buy_agent.server import build_parser as build_server_parser
@@ -87,6 +87,13 @@ import integration
 from integration import LIVE_TIMEOUT_SECONDS, REQUIRE_ENV_VAR, TINY_MODEL
 
 _ROOT = Path(__file__).resolve().parents[1]
+
+#: The package these rules are read off, which is the one under ``_ROOT`` every
+#: day but Saturday: a mutation run copies the tree to mutants/ and puts every
+#: mutant of every module into the copy at once, and what is written down here is
+#: what the code says rather than what one mutant of it would (``SOURCE_ROOT``).
+_PACKAGE = SOURCE_ROOT / "buy_agent"
+
 _TYPES_TS = _ROOT / "ui" / "src" / "app" / "agent.types.ts"
 _FORM_TS = _ROOT / "ui" / "src" / "app" / "search-form" / "search-form.ts"
 _FORM_HTML = _ROOT / "ui" / "src" / "app" / "search-form" / "search-form.html"
@@ -116,7 +123,7 @@ def caught_by_main() -> set[str]:
     file, and an ``OSError`` from a path the user mistyped is not one of the
     pipeline's failure modes -- the report has already been logged by then.
     """
-    tree = ast.parse((_ROOT / "buy_agent" / "__main__.py").read_text(encoding="utf-8"))
+    tree = ast.parse((_PACKAGE / "__main__.py").read_text(encoding="utf-8"))
     main = next(
         node
         for node in ast.walk(tree)
@@ -473,7 +480,7 @@ def test_a_run_leaves_the_process_in_one_shape_however_it_leaves() -> None:
     """``--json``, the API's answer and the page's Download results button hand
     over the same document, because all three are ``results_payload``. Written
     twice, the file a script parses and the file a shopper downloads drift."""
-    written = ast.parse((_ROOT / "buy_agent" / "__main__.py").read_text(encoding="utf-8"))
+    written = ast.parse((_PACKAGE / "__main__.py").read_text(encoding="utf-8"))
     called = {
         node.func.id
         for node in ast.walk(written)
@@ -1003,10 +1010,9 @@ def environment_settings_the_package_reads() -> set[str]:
     """Every ``$BUY_AGENT_*`` the package actually reads: those named where they are
     read, plus the two ``mandates`` holds as constants because a secret's variable is
     quoted in the sentence about it as often as it is read."""
-    package = Path(mandates_module.__file__).resolve().parent
     named = {
         name
-        for module in sorted(package.glob("*.py"))
+        for module in sorted(_PACKAGE.glob("*.py"))
         for name in re.findall(
             r'os\.(?:getenv|environ(?:\.get)?)\(\s*"(BUY_AGENT_[A-Z0-9_]+)"',
             module.read_text(encoding="utf-8"),
@@ -1347,12 +1353,18 @@ def files_read() -> list[Path]:
     """The paths these tests open, off the ``_NAME`` constants declared above.
 
     A Path that arrived by import -- ``DEFAULT_UI_DIR`` -- is one they compare
-    against rather than read, so only this module's own constants count.
+    against rather than read, so only this module's own constants count. One of
+    them leaves this tree rather than pointing into it: ``_PACKAGE`` is read from
+    the source a mutation run copied (``SOURCE_ROOT``), and no copy carries the
+    thing it was made from.
     """
     return [
         value
         for name, value in globals().items()
-        if name.startswith("_") and isinstance(value, Path) and value != _ROOT
+        if name.startswith("_")
+        and isinstance(value, Path)
+        and value != _ROOT
+        and value.is_relative_to(_ROOT)
     ]
 
 
@@ -1375,6 +1387,43 @@ def files_imported() -> list[Path]:
     ]
 
 
+def files_named_at_the_root() -> list[Path]:
+    """Every file at the top of the repository whose name these tests say out loud.
+
+    ``files_read`` sees the paths they declare as constants; this sees the ones
+    they build from a bare name at the moment they look -- the requirements files
+    the session hook hands pip, the `CLAUDE.md` a skill points at -- which no
+    constant carries and nothing therefore checks. The top of the tree is where
+    that matters and the only place it is asked about: everything else the suite
+    opens is inside a directory ``also_copy`` already names, and a name that is
+    not a file up here is somebody's prose.
+    """
+    at_the_root = {path.name: path for path in _ROOT.iterdir() if path.is_file()}
+    return [
+        at_the_root[node.value]
+        for path in sorted((_ROOT / "tests").glob("*.py"))
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Constant) and node.value in at_the_root
+    ]
+
+
+def files_the_skills_name() -> list[Path]:
+    """Every path a skill in `.claude/skills` points at, as this suite resolves it.
+
+    `test_every_file_a_skill_names_exists` opens each of them against the root it
+    is run from, which under mutants/ is the copy -- so a checklist step naming a
+    directory nothing copies fails the Saturday run and nothing else. Only the
+    ones written as a path are asked about here; a bare filename is looked for
+    anywhere in the tree, and the copy carries the directories it would be in.
+    """
+    return [
+        _ROOT / token
+        for skill in skills()
+        for token in paths_a_skill_names(skill)
+        if "/" in token
+    ]
+
+
 def test_a_mutation_run_copies_everything_the_tests_reach_for() -> None:
     """A mutation run tests a copy of the tree under mutants/, and this suite both
     reads files rather than importing them and imports from outside the package
@@ -1388,7 +1437,7 @@ def test_a_mutation_run_copies_everything_the_tests_reach_for() -> None:
         + ini_values(_MUTMUT, "mutmut", "source_paths")
     )
     copied = [_ROOT / name for name in also_copy]
-    needed = files_read() + files_imported()
+    needed = files_read() + files_imported() + files_named_at_the_root() + files_the_skills_name()
 
     assert needed, "the suite reads and imports nothing; this test has outlived its rule"
     for path in needed:
@@ -1479,7 +1528,7 @@ def _payment_handlers() -> set[str]:
     three-failure agreement (ADR-0009) is about ``BuyAgent.run``, and a payment
     happens after it has returned.
     """
-    tree = ast.parse((_ROOT / "buy_agent" / "__main__.py").read_text(encoding="utf-8"))
+    tree = ast.parse((_PACKAGE / "__main__.py").read_text(encoding="utf-8"))
     bought = next(
         node
         for node in ast.walk(tree)
@@ -1500,7 +1549,7 @@ def test_only_the_mandates_module_imports_the_ap2_sdk() -> None:
     becomes an ImportError."""
     importers = {
         path.name
-        for path in (_ROOT / "buy_agent").glob("*.py")
+        for path in _PACKAGE.glob("*.py")
         if re.search(r"^\s*(from ap2|import ap2)", path.read_text(encoding="utf-8"), re.M)
     }
 
@@ -1572,6 +1621,23 @@ def quoted(text: str) -> list[str]:
     return re.findall(r"`([^`\n]+)`", text)
 
 
+def paths_a_skill_names(path: Path) -> list[str]:
+    """Every file and directory a skill points at, written the way it writes it.
+
+    Two tests read this: the one below, which asks whether each is still there,
+    and the mutation run's, which asks whether the copy under mutants/ carries
+    it. They are the same question a week apart -- a skill naming a path nothing
+    copies is a Saturday that dies at collection over a checklist nobody ran.
+    """
+    return [
+        token
+        for token in quoted(skill_body(path))
+        if " " not in token
+        and not any(mark in token for mark in _PLACEHOLDERS)
+        and (token.endswith("/") or token.endswith(_PATH_SUFFIXES))
+    ]
+
+
 #: Directories a walk of this repository has no business entering: a virtual
 #: environment and an npm tree are somebody else's files, and the other three are
 #: this project's own output. Pruned as the walk goes rather than filtered after,
@@ -1626,11 +1692,7 @@ def test_every_file_a_skill_names_exists(path: Path) -> None:
     old tree and the run stays green."""
     names = repo_filenames()
 
-    for token in quoted(skill_body(path)):
-        if " " in token or any(mark in token for mark in _PLACEHOLDERS):
-            continue
-        if not (token.endswith("/") or token.endswith(_PATH_SUFFIXES)):
-            continue
+    for token in paths_a_skill_names(path):
         if "/" in token:
             assert (_ROOT / token).exists(), f"{path.parent.name} names {token}, which is gone"
         else:
@@ -1712,8 +1774,6 @@ def test_every_skill_is_one_the_project_documents() -> None:
 
 
 # -- what the run says, and where it says it -----------------------------------
-
-_PACKAGE = _ROOT / "buy_agent"
 
 #: The methods a logger answers to. ``warn`` is the deprecated spelling and is on
 #: the list so a call to it is held to these rules rather than slipping past them.
