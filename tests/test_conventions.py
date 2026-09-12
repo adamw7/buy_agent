@@ -1026,6 +1026,79 @@ def test_the_startup_script_names_settings_that_exist() -> None:
     assert named <= environment_settings_the_package_reads()
 
 
+# -- the session hook ----------------------------------------------------------
+
+_HOOK = _ROOT / ".claude" / "hooks" / "session-start.sh"
+
+
+def session_hook() -> str:
+    return _HOOK.read_text(encoding="utf-8")
+
+
+def hook_pip_installs() -> list[list[str]]:
+    """Every ``pip install`` the session hook runs, as its own argument list.
+
+    The same reading `script_pip_installs` does of the startup script, in the
+    other shell: the interpreter and the repository root are variables there, so
+    what is compared is the flags and the files.
+    """
+    return [
+        [
+            word.replace('"', "").replace("$root/", "")
+            for word in call.split()
+            if word not in _PIP_NOISE
+        ]
+        for call in re.findall(r"-m pip install ([^;>]+)", session_hook())
+    ]
+
+
+def test_the_session_hook_installs_the_ap2_sdk_the_way_mandates_says_to() -> None:
+    """The rule `scripts/start.ps1` is held to, for the same reason and one shell
+    over. A hook that installed those two files its own way -- one command, or
+    ``--no-deps`` across both -- would leave the SDK unimportable or
+    ``cryptography`` without ``cffi``, and a session that starts that way runs a
+    suite where the payment tests skip and the coverage floor cannot be met: a red
+    gate for a checkout CI would pass, which is the one failure a hook meant to
+    make a session runnable must not cause."""
+    wanted = [command.split()[2:] for command in mandates_module.INSTALL.split(" && ")]
+    ran = hook_pip_installs()
+
+    assert wanted, "mandates.INSTALL no longer names anything to install"
+    for command in wanted:
+        assert command in ran, f"the session hook never runs: pip install {' '.join(command)}"
+
+
+def test_the_session_hook_installs_requirements_files_that_are_there() -> None:
+    """Every file it hands pip, including the dev requirements the suite itself
+    needs. A renamed one is not a red run: the hook warns, the session starts, and
+    the first test run is an import error nobody connects to a startup message
+    that scrolled past."""
+    named = [
+        word
+        for call in hook_pip_installs()
+        for previous, word in zip(call, call[1:])
+        if previous == "-r"
+    ]
+
+    assert "requirements-dev.txt" in named, "the session hook installs no dev requirements"
+    for name in named:
+        assert (_ROOT / name).is_file(), f"the session hook installs a file that is not there: {name}"
+
+
+def test_the_session_hook_reads_both_toolchain_pins_out_of_ci() -> None:
+    """`ci.yml` is the one pin the Dockerfile, the startup script and
+    docs/testing.md already chase, and a hook writing either version down again is
+    a fifth copy -- one that quietly sets a session up on a toolchain no job has
+    run. It reads both keys and holds neither literally."""
+    source = session_hook()
+
+    for key in ("node-version", "python-version"):
+        assert key in source, f"the session hook never reads {key} out of ci.yml"
+        assert ci_version(key) not in source, (
+            f"{ci_version(key)} is ci.yml's to say, not the session hook's"
+        )
+
+
 # -- the nightly integration run -----------------------------------------------
 
 #: The five minutes `.github/workflows/integration.yml` gives itself, which

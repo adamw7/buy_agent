@@ -303,14 +303,27 @@ Node below the one `ci.yml` pins, which the Angular CLI refuses outright, so
 every session used to open by hunting for another interpreter and finding none.
 The hook fetches the pinned build into `/opt/node-<version>`, leaves it on
 `$PATH` through `$CLAUDE_ENV_FILE` -- the Bash tool starting a fresh shell per
-call, so exporting it is not enough -- and runs `npm install` in `ui/`. It reads
-the version out of `ci.yml` rather than writing it down again, by the rule
+call, so exporting it is not enough -- and runs `npm install` in `ui/`. Those
+images ship no Python dependencies at all, so it does the other half too, which
+is `ci.yml`'s Python job and not a second opinion about it: a `.venv`,
+`requirements-dev.txt`, and then the AP2 SDK in an install of its own for the
+reasons `requirements-ap2.txt` gives -- optional to a *run* but not to the
+suite, where without it the payment tests skip and the coverage floor cannot be
+reached, so a session without it reports a red gate for a checkout CI would
+pass. That venv goes on `$PATH` the same way the interpreter does. It reads both
+versions out of `ci.yml` rather than writing them down again, by the rule
 `scripts/start.ps1` follows: that file is the one pin the `Dockerfile`, the
 start script and `docs/testing.md` already chase, and a fourth copy is a fourth
-thing to bump. It is a no-op outside a remote session (`$CLAUDE_CODE_REMOTE`), a
-no-op once the interpreter is unpacked, and every failure in it is a warning
-rather than a stop -- a session that starts with the old Node is the situation
-it was written for, not worse than it.
+thing to bump. Only Node's pin is *held* to, though: there is no portable Python
+build to fetch, so an interpreter under that pin is named at startup and used
+anyway, which is the platform difference `ci.yml` matrixes for rather than a
+session that cannot run the suite. It is a no-op outside a remote session
+(`$CLAUDE_CODE_REMOTE`), a no-op once the interpreter is unpacked and the venv
+carries a stamp newer than every requirements file, and every failure in it is a
+warning rather than a stop -- a session that starts with the old Node is the
+situation it was written for, not worse than it. Each half stands alone for that
+reason: Node failing to download leaves the venv installed, and the line it
+prints at the end says which of the two actually happened.
 
 The pipeline is deliberately **not** a tool-calling agent loop. The LLM is used
 for the two steps it is reliable at, and ordinary Python does everything else,
