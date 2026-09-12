@@ -8,13 +8,16 @@ best 3.
 
 ![The search form, with its settings open](docs/ui.png)
 
-Two runs of that page are recorded in `demo/`, fifteen seconds and twenty-two:
-[`wwii-books-1944-45.mpg`](demo/wwii-books-1944-45.mpg), which ends on the top 3
-with the rest folded away, and
-[`laptops-under-1000.mpg`](demo/laptops-under-1000.mpg), which ends on the shop
-page behind the top product's link. They are MPEG-1 in a program stream, which
-no browser plays inline, so both links download. [The web UI](#the-web-ui) below
-is what they show, written down.
+Three runs of that page are recorded in `demo/`:
+[`wwii-books-1944-45.mpg`](demo/wwii-books-1944-45.mpg), fifteen seconds ending
+on the top 3 with the rest folded away;
+[`wwii-books-1944-45-with-sound.mpg`](demo/wwii-books-1944-45-with-sound.mpg),
+fourteen seconds of the same run with a soundtrack, in which the six log lines
+that are the pipeline catching the model out each get a note of their own; and
+[`laptops-under-1000.mpg`](demo/laptops-under-1000.mpg), twenty-two seconds
+ending on the shop page behind the top product's link. They are MPEG-1 in a
+program stream, which no browser plays inline, so every link downloads.
+[The web UI](#the-web-ui) below is what they show, written down.
 
 ```
 $ python -m buy_agent "wireless noise cancelling headphones under $200"
@@ -510,12 +513,14 @@ the address field under Settings, point the run at another machine. To work on
 the UI itself, run the Angular dev server rather than rebuilding for every
 change -- see [The dev server](#the-dev-server).
 
-The two recordings at the top of this page are of this page. Everything in them
-between the search and the ranking is the real pipeline -- only DuckDuckGo, the
-page fetches and the model are scripted stand-ins -- so the progress panel is
-showing grounding actually throwing figures, quotes and links away.
-[demo/README.md](demo/README.md) says what is real in them, what is not, and how
-to record them -- and the picture -- again.
+The three recordings at the top of this page are of this page. Everything in
+them between the search and the ranking is the real pipeline -- only DuckDuckGo,
+the page fetches and the model are scripted stand-ins -- so the progress panel
+is showing grounding actually throwing figures, quotes and links away. The one
+with sound has none captured either: Chromium records no audio, so the track is
+synthesised from a cue per thing that happened, which is how a dropped figure
+can be heard as well as read. [demo/README.md](demo/README.md) says what is real
+in them, what is not, and how to record them -- and the picture -- again.
 
 The page takes the same settings the CLI takes as flags, shows the agent's log
 lines as the run happens, and lists the ranked products with a link to the page

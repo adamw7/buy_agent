@@ -1,18 +1,20 @@
 # The recorded UI demos
 
-Two runs of the UI, recorded in Chromium at 1280x720 and 25fps, no audio,
-MPEG-1 in a program stream so they play anywhere.
+Three runs of the UI, recorded in Chromium at 1280x720 and 25fps, MPEG-1 in a
+program stream so they play anywhere -- two of them silent and the third with a
+soundtrack, MP2 being the audio that stream carries.
 
-| Video | The shopper asks for | Ends on |
-| --- | --- | --- |
-| `wwii-books-1944-45.mpg` | *"wwii books about war in Europe 1944-45"* | the top 3, with the rest folded away |
-| `laptops-under-1000.mpg` | *"new laptop below 1000 USD, not too heavy or loud. windows 11 installed"* | the shop page behind the top product's link |
+| Video | The shopper asks for | Ends on | Sound |
+| --- | --- | --- | --- |
+| `wwii-books-1944-45.mpg` | *"wwii books about war in Europe 1944-45"* | the top 3, with the rest folded away | no |
+| `wwii-books-1944-45-with-sound.mpg` | the same | the same | yes |
+| `laptops-under-1000.mpg` | *"new laptop below 1000 USD, not too heavy or loud. windows 11 installed"* | the shop page behind the top product's link | no |
 
-Both take the same shape: the request typed into the form, the progress panel
-filling in as the pipeline works, and the top 3 of what survived grounding
+All three take the same shape: the request typed into the form, the progress
+panel filling in as the pipeline works, and the top 3 of what survived grounding
 landing on the page with the rest folded away underneath. The laptops one then
 clicks through to what the shopper actually came for -- see *The link at the
-end* below. Fifteen seconds and twenty-two.
+end* below. Fourteen seconds, fourteen and twenty-two.
 
 Each has a script of its own -- `books.py` and `laptops.py` -- holding the ten
 pages that demo searches and the answer the fake model gives when it is asked to
@@ -38,6 +40,32 @@ ways a small model is wrong, and the panel shows each of them being caught:
 | `Dropped 1 opinion(s) the sources never printed` | A verdict nobody wrote |
 | `Dropped 1 link(s) to pages that were never searched` | A link to a page the agent never saw |
 | `Merged 1 duplicate listing(s)` | One product listed twice, in two currencies |
+
+## The soundtrack
+
+Chromium records no audio, so there is none in the run to capture and none of
+this is a clip laid over it. `record.mjs` writes down a *cue* per thing that
+happened -- every key of the request, the two clicks, each line as it arrives in
+the progress panel, the results landing -- and `sound.py` synthesises those into
+a WAV of exactly the video's length, which is then muxed in as MP2. Every sound
+in it is a few sine waves under an envelope, so a recording taken again on
+another machine comes out the same and nothing here is sampled or licensed from
+anywhere.
+
+The point of it is the fifth column of the table above. A log line that *took
+something away* gets a note of its own -- lower, longer and unmistakable beside
+the ordinary ticks -- so the six catches are audible without the panel being
+read. `TOOK_SOMETHING_AWAY` in `record.mjs` is what decides which those are, and
+it matches the verb rather than the count: a seventh heuristic says `Discarded`,
+`Dropped` or `Merged` too, or it is not one that took anything away.
+
+Most of a run's lines arrive in the same millisecond -- the model answers and
+then five heuristics report at once -- and twenty notes struck together are one
+loud chord that says nothing. `sound.spread` pushes them apart by `LINE_GAP`,
+never earlier than the line they are about, so the same twenty read as the
+flurry they are. For the same reason the mix is *limited* rather than
+normalised: scaling the track by its loudest moment would let that one pile-up
+decide how loud the typing was.
 
 ## What is not
 
@@ -84,7 +112,16 @@ node demo/record.mjs --url http://127.0.0.1:8000 --script laptops --follow-link 
 python -m demo.server --script books --pace 0.6 --port 8000      # the other one
 node demo/record.mjs --url http://127.0.0.1:8000 --script books `
     --out demo/wwii-books-1944-45.mpg
+
+python -m demo.server --script books --pace 0.45 --port 8000     # and the third
+node demo/record.mjs --url http://127.0.0.1:8000 --script books --sound `
+    --out demo/wwii-books-1944-45-with-sound.mpg
 ```
+
+`--sound` is the only difference between the last two but the pace, which is a
+notch quicker there to keep the take inside fifteen seconds. The recorder prints
+the length and the number of cues it collected, so a take that drifts out of
+that says so without anybody opening it.
 
 `--script` is passed to both, and has to name the same one twice: the server
 searches that fabricated web, and the recorder reads the request to type and the
@@ -93,10 +130,10 @@ written down a second time in JavaScript. `--request` types something else,
 though each script's pages are written for its own.
 
 `record.mjs` needs Playwright (locally installed or global -- it looks in both),
-Python on PATH to read the script with, and an ffmpeg with the `mpeg` muxer and
-the `mpeg1video` encoder. The build Playwright ships beside its browsers has
-neither of the last two, so a system ffmpeg is preferred; `--ffmpeg` names a
-third.
+Python on PATH -- to read the script with, and to synthesise the track with --
+and an ffmpeg with the `mpeg` muxer and the `mpeg1video` encoder, plus `mp2` for
+a take with sound in it. The build Playwright ships beside its browsers has none
+of those, so a system ffmpeg is preferred; `--ffmpeg` names a third.
 
 ## The README's picture
 

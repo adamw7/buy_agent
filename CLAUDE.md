@@ -22,8 +22,9 @@ mandates rather than a stored card (ADR-0046).
 `docs/models.md` (keeping Ollama's models current), `docs/docker.md` (the web
 tier as a container, and what a release publishes), `docs/testing.md` (both
 suites, the coverage floors, the nightly run, the benchmark and the mutation
-run) and `demo/README.md` (two recorded runs of the UI, the still the README
-shows, and the harness that took all three).
+run) and `demo/README.md` (three recorded runs of the UI, one of them with a
+synthesised soundtrack, the still the README shows, and the harness that took
+all four).
 
 The rules below are the *rules*. `docs/adr/` is why each exists and what was
 rejected; the module docstrings carry the local detail. Prefer adding a rule
@@ -940,8 +941,8 @@ a public bind gets. Angular components are tested in jsdom with `TestBed`,
 
 ### demo/
 
-`demo/README.md` says what the two recordings show, what is real in them and how
-to take them again. Three things about the directory hold here.
+`demo/README.md` says what the three recordings show, what is real in them and
+how to take them again. Four things about the directory hold here.
 
 - `demo/server.py` starts the *real* `buy_agent.server` with only `search_web`,
   `enrich` and the chat model replaced, so everything between the search and the
@@ -950,6 +951,14 @@ to take them again. Three things about the directory hold here.
   small model is wrong, which is what puts `clean_products`, `ground`,
   `verify_opinions`, `attribute_sources` and `deduplicate` each catching one in
   the progress panel.
+- The sound is synthesised, because there is none to record: Chromium captures
+  no audio, so `record.mjs` writes down a cue per thing that happened and
+  `sound.py` turns those into the WAV that is muxed in. Which means the two
+  halves are decided in different places and have to agree about one thing --
+  `record.mjs` says which log lines *took something away* and so earn a note of
+  their own, matching the verb rather than the count, and `sound.py` says what
+  that note is. Nothing is sampled or licensed: every voice there is a few sine
+  waves under an envelope, so a recording taken again comes out the same.
 - A third demo is a module offering the same five names `books.py` and
   `laptops.py` do, plus a row in `server.SCRIPTS`. `docs/ui.png` is taken off
   this server rather than off `buy_agent.server`, the model dropdown and the
