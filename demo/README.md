@@ -1,7 +1,7 @@
 # The recorded UI demos
 
-Three runs of the UI, recorded in Chromium at 1280x720 and 25fps, MPEG-1 in a
-program stream so they play anywhere -- two of them silent and the third with a
+Three runs of the UI, recorded in Chromium at 1280x720 and 25fps, in a program
+stream so they play anywhere -- two of them silent and the third with a
 soundtrack, MP2 being the audio that stream carries.
 
 | Video | The shopper asks for | Ends on | Sound |
@@ -40,6 +40,23 @@ ways a small model is wrong, and the panel shows each of them being caught:
 | `Dropped 1 opinion(s) the sources never printed` | A verdict nobody wrote |
 | `Dropped 1 link(s) to pages that were never searched` | A link to a page the agent never saw |
 | `Merged 1 duplicate listing(s)` | One product listed twice, in two currencies |
+
+## Why MPEG-2 and not MPEG-1
+
+The first two recordings are MPEG-1, and for this picture that was the wrong
+format: 1280x720 is far outside MPEG-1's constrained parameters, so the encoder
+declares a video buffer of 6 KB while its own keyframes run to 50, and every
+pack the muxer writes violates the system target decoder. A player that ignores
+all of that shows the film, which is why those two look fine. One that has to
+schedule an audio track against the same model has no slack to ignore, and opens
+nothing at all.
+
+So the third take states its rate and its buffer rather than leaving them to
+`-q:v`, and uses the codec whose levels this frame size is inside. It is still
+one `.mpg` program stream and still plays anywhere -- more places, in fact, an
+MPEG-2 program stream being the DVD lineage. `VIDEO` in `record.mjs` is the
+whole of that decision, and the two silent recordings predate it: re-taking
+either with `record.mjs` as it stands now writes MPEG-2 as well.
 
 ## The soundtrack
 
@@ -131,9 +148,10 @@ though each script's pages are written for its own.
 
 `record.mjs` needs Playwright (locally installed or global -- it looks in both),
 Python on PATH -- to read the script with, and to synthesise the track with --
-and an ffmpeg with the `mpeg` muxer and the `mpeg1video` encoder, plus `mp2` for
-a take with sound in it. The build Playwright ships beside its browsers has none
-of those, so a system ffmpeg is preferred; `--ffmpeg` names a third.
+and an ffmpeg with the `mpeg` muxer and the `mpeg2video` and `mp2` encoders. The
+build Playwright ships beside its browsers has none of those -- it is stripped
+down to WebM and VP8, which is what recording needs -- so a system ffmpeg is
+preferred; `--ffmpeg` names a third.
 
 ## The README's picture
 

@@ -942,7 +942,7 @@ a public bind gets. Angular components are tested in jsdom with `TestBed`,
 ### demo/
 
 `demo/README.md` says what the three recordings show, what is real in them and
-how to take them again. Four things about the directory hold here.
+how to take them again. Five things about the directory hold here.
 
 - `demo/server.py` starts the *real* `buy_agent.server` with only `search_web`,
   `enrich` and the chat model replaced, so everything between the search and the
@@ -951,6 +951,14 @@ how to take them again. Four things about the directory hold here.
   small model is wrong, which is what puts `clean_products`, `ground`,
   `verify_opinions`, `attribute_sources` and `deduplicate` each catching one in
   the progress panel.
+- The picture is MPEG-2 in a program stream, stating its own rate and buffer.
+  MPEG-1 is what the first two recordings used and it is the wrong format for
+  1280x720: the encoder declares a video buffer smaller than its own keyframes
+  and every pack violates the system target decoder, which a player showing
+  video alone ignores and one scheduling an audio track against it cannot. So a
+  take with sound in it opened nowhere until the codec moved. `VIDEO` in
+  `record.mjs` is that decision whole, and it is the one thing in the directory
+  a new recording may not quietly go back on.
 - The sound is synthesised, because there is none to record: Chromium captures
   no audio, so `record.mjs` writes down a cue per thing that happened and
   `sound.py` turns those into the WAV that is muxed in. Which means the two

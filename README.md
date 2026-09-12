@@ -15,7 +15,7 @@ on the top 3 with the rest folded away;
 fourteen seconds of the same run with a soundtrack, in which the six log lines
 that are the pipeline catching the model out each get a note of their own; and
 [`laptops-under-1000.mpg`](demo/laptops-under-1000.mpg), twenty-two seconds
-ending on the shop page behind the top product's link. They are MPEG-1 in a
+ending on the shop page behind the top product's link. All three are MPEG in a
 program stream, which no browser plays inline, so every link downloads.
 [The web UI](#the-web-ui) below is what they show, written down.
 

@@ -163,6 +163,36 @@ ${lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('\n')}
 </main></body></html>`;
 }
 
+/**
+ * How the picture is written: MPEG-2 video in a program stream, still a `.mpg`.
+ *
+ * MPEG-1 is what the first two recordings used and it is the wrong format for
+ * this picture. 1280x720 is far outside MPEG-1's constrained parameters, so the
+ * encoder declares a video buffer smaller than a single one of its own
+ * keyframes and every pack the muxer writes violates the system target decoder.
+ * A lenient player ignores all of that and shows the film; a player that has to
+ * schedule an audio track against the same model gives up and opens nothing.
+ *
+ * So the rate and the buffer are stated rather than left to `-q:v`, and the
+ * codec is the one whose levels this frame size is inside. An MPEG-2 program
+ * stream is the DVD lineage -- the format with the widest player support there
+ * is -- and it is what `.mpg` means to everything that reads one.
+ */
+const VIDEO = [
+  '-c:v',
+  'mpeg2video',
+  '-b:v',
+  '3000k',
+  '-maxrate',
+  '3500k',
+  '-bufsize',
+  '1835008',
+  '-r',
+  '25',
+  '-f',
+  'mpeg',
+];
+
 /** Scroll smoothly to an element, so the recording pans rather than jumps. */
 async function reveal(page, selector, settle = 750) {
   cue('scroll');
@@ -328,30 +358,14 @@ const stitch =
         '[v]',
       ]
     : ['-map', '0:v'];
-// MP2 is the audio an MPEG-1 program stream carries, so a recording with sound
-// in it is still the one format that plays anywhere.
+// MP2 is the audio an MPEG program stream carries, so a recording with sound in
+// it is still the one format that plays anywhere.
 const audio = track
   ? ['-map', `${takes.length}:a`, '-c:a', 'mp2', '-b:a', '192k', '-ar', '44100', '-shortest']
   : ['-an'];
-const encode = spawnSync(
-  ffmpeg,
-  [
-    ...['-y'],
-    ...inputs,
-    ...stitch,
-    ...audio,
-    '-c:v',
-    'mpeg1video',
-    '-q:v',
-    '4',
-    '-r',
-    '25',
-    '-f',
-    'mpeg',
-    out,
-  ],
-  { stdio: ['ignore', 'ignore', 'pipe'] },
-);
+const encode = spawnSync(ffmpeg, ['-y', ...inputs, ...stitch, ...audio, ...VIDEO, out], {
+  stdio: ['ignore', 'ignore', 'pipe'],
+});
 if (encode.status !== 0) {
   throw new Error(`ffmpeg failed:\n${encode.stderr?.toString() ?? ''}`);
 }
