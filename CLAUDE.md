@@ -143,7 +143,12 @@ the server's disk is not a browser's to choose -- while *how long* an entry
 lasts is the ordinary `cache_ttl` setting, one number for both kinds, 0 meaning
 "read every page off the web and ask the model every question". A sampled run
 (`temperature` above 0) is never remembered whatever the setting says: it has no
-one answer to remember.
+one answer to remember. *How much* it may hold is `cache.MAX_BYTES`, per kind and
+per directory, enforced on the way in by `prune` deleting the oldest first
+(ADR-0052): age is no bound on size, `cache_ttl` may be set to the thirty days
+`LIMITS` allows, and what is stored is the whole visible text of a page rather
+than the excerpt a prompt saw. Expiry is asked first because it is free. The cap
+is a constant and not a setting, for the reason the directory is not one.
 
 Paying adds two settings of the same kind, and for the same reason.
 `$BUY_AGENT_AP2_KEY` is the EC P-256 key mandates are signed with -- a secret,
@@ -185,7 +190,16 @@ given `num_ctx=None, reasoning=None`, reachable from neither front end
 window with `--max-model-len` at startup, so `Provider.takes_num_ctx` is false
 there, the value is not sent, and both front ends say so rather than accepting a
 number nothing reads. `reasoning` *is* shared: Ollama's `think`, vLLM's
-`chat_template_kwargs.enable_thinking`.
+`chat_template_kwargs.enable_thinking`. So is `model_timeout`, the longest one
+question may take: both rows set it on the client they build and neither asks
+twice -- the OpenAI client is given `max_retries=0`, a client retrying behind the
+number making it mean three times itself (ADR-0051). Left unset it was not a long
+wait but no wait at all on Ollama, whose client disables httpx's own, so a server
+that took the prompt and went quiet hung the run and `_too_slow_hint` was a
+sentence nothing could reach. It is deliberately not in the fingerprint a
+remembered answer is filed under: how long a run would have waited decides
+nothing about what the model said. The listing keeps its own five seconds, a form
+waiting on it (ADR-0032).
 
 ### CI and the three workflows beside it
 
@@ -380,7 +394,7 @@ was ever held to.
 | `api.py` | Request options in, ranked products out -- the web-facing half worth testing |
 | `server.py` | A stdlib HTTP server: the JSON API, the event stream, the built UI |
 
-### Fourteen conventions
+### Fifteen conventions
 
 - **A model server is one row in one table, reached one way.**
   `providers.PROVIDERS` holds each server whole -- its defaults (`model`,
@@ -552,7 +566,14 @@ was ever held to.
   there rather than counted as two currencies half a set is then unplaceable in.
   Only the spellings that name one currency are folded -- `¥` is the yen's and
   the yuan's alike, and an ambiguous one left as written is a price the run
-  cannot place, which is what the rule above already has an answer for. The cost
+  cannot place, which is what the rule above already has an answer for. Those two
+  tables are one rule across two modules and neither module can hold it: every
+  sign and spelling `fetch`'s `_CURRENCY_SIGNS` and `_CURRENCY_WORDS` keep a price
+  *line* for has to be one `models._currency` can place, or the line is taken off
+  a page to be scored on nothing -- and a currency missing from the first is every
+  price on a shop dropped before the model sees it, which is what `--region
+  pl-pl` used to be until `zł` was added. `tests/test_conventions.py` holds them
+  to each other, with `¥` named there as the one deliberate exception. The cost
   of that rule is that 0.5 means two different things, so `score_product`
   answers a `ScoreParts` whose `neutral` names the criteria that were assumed
   rather than read, and both front ends show it (ADR-0041). It is decided there
@@ -588,6 +609,20 @@ was ever held to.
   be afforded. The merge is the case to remember, since nothing was dropped at
   all: the folded entry keeps the shorter of the two names and the other is
   simply gone.
+- **The web is asked twice and the model once, and the clock is handed in.** A
+  step of the pipeline holds no clock: `fetch.py` and `search.py` take a `wait`
+  and `BuyAgent` passes `time.sleep`, the way it passes `checkpoint` down
+  (ADR-0034, ADR-0053). `None` -- every other caller, and every test -- asks once.
+  What is worth asking twice is narrow and on each side of it: a page answering
+  429 or 503, after `Retry-After` seconds where it named them, capped and floored
+  and never read as a date, since that would mean subtracting a clock this module
+  does not hold; and any search failure that is not "matched nothing", `ddgs`
+  raising only when every engine it asked failed. A 403, a 404, a timeout and a
+  search that worked are answers, and asking again buys two of the same. The model
+  is the other way about: `model_timeout` bounds one question and nothing retries
+  it (ADR-0051), a repeated 4.3k-token prompt being the most expensive thing here.
+  Every stand-in for `search_web` and `enrich` therefore takes the keyword, as
+  every stand-in for `BuyAgent` takes `checkpoint`.
 - **Model output is never trusted as judgement.** The model reports article
   headlines as products; `clean_products` filters them. Anything that decides
   the answer -- filtering, scoring, ordering -- belongs in Python, where it is
@@ -1068,6 +1103,9 @@ the other is otherwise invisible to both suites. It asserts that
   `BuyAgent.run`'s documented `Raises` name the same three failures;
 - `ranking.SortBy`, `api.SORT_OPTIONS`, `--sort-by`'s choices and the TypeScript
   `SortBy` union offer the same criteria;
+- every currency `fetch` will keep a price line for is one `models._currency` can
+  place, and every sign it names as unplaceable is one `fetch` actually reads -- so
+  the exemption cannot outlive its reason either (ADR-0043);
 - every provider in `providers.PROVIDERS` is offered by `--provider`, by
   `api.PROVIDER_OPTIONS` and in the rows the form's picker is built from, and
   `ProviderOption` is mirrored in TypeScript;

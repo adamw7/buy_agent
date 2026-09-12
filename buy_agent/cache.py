@@ -6,6 +6,10 @@ its *visible text* rather than the condensed excerpt, so moving ``page_chars`` o
 ``opinion_chars`` does not replay a stale one; both are stored whole, so a cached
 run reports what a fresh one would have.
 
+Both are bounded twice over: by age, which is ``cache_ttl``, and by size, which
+is :data:`MAX_BYTES` and is what keeps a long-lived cache from being every page
+ever read (ADR-0052).
+
 Every operation is best-effort. Nothing here raises: an unwritable directory, a
 half-written entry and a full disk all read as a miss.
 """
@@ -34,6 +38,19 @@ logger = logging.getLogger(__name__)
 #: How long a stored entry stays usable, in seconds. A day: prices move slower
 #: than that, so two runs an afternoon apart compare the same pages.
 DEFAULT_TTL = 86_400.0
+
+#: How much disk one kind of entry may take up, oldest first out. Age alone is no
+#: bound on size: ``cache_ttl`` may be set to the thirty days
+#: :data:`buy_agent.config.LIMITS` allows, a stored page is the whole visible text
+#: of one rather than the excerpt a prompt saw (ADR-0040), and nothing here ever
+#: deleted an entry that had not expired -- so a month of shopping was a month of
+#: pages (ADR-0052).
+#:
+#: A quarter of a gigabyte per kind, which is thousands of pages: the cap is there
+#: to have an upper bound at all, not to make a run choose between pages. It has
+#: no flag and no form field, for the reason ``$BUY_AGENT_CACHE_DIR`` has none --
+#: how much of the server's disk this may use is not a browser's to decide.
+MAX_BYTES = 256 * 1024 * 1024
 
 #: Under the directory each platform keeps disposable things in: deleting the
 #: whole of it costs one slow run.
@@ -71,9 +88,15 @@ class DiskCache:
     a hash being no promise that one page's text is not standing in for another's.
     """
 
-    def __init__(self, directory: Path, *, ttl: float = DEFAULT_TTL) -> None:
+    def __init__(
+        self, directory: Path, *, ttl: float = DEFAULT_TTL, max_bytes: int = MAX_BYTES
+    ) -> None:
         self.directory = directory
         self.ttl = ttl
+        #: The most this directory may hold once the expired entries are out of
+        #: it -- a bound on disk rather than on age, which :meth:`prune` enforces
+        #: by deleting the oldest first (ADR-0052).
+        self.max_bytes = max_bytes
 
     def get(self, key: str) -> str | None:
         """The text stored for ``key``, or None for a miss.
@@ -119,7 +142,7 @@ class DiskCache:
                     Path(temporary).unlink(missing_ok=True)
 
     def prune(self) -> int:
-        """Delete every entry past its time to live, and say how many went.
+        """Delete what has expired and what no longer fits, and say how many went.
 
         Entries expire on the way out, so this changes no answer: it keeps the
         directory from being every page ever read. The half-written files a
@@ -128,16 +151,26 @@ class DiskCache:
         what makes taking them safe, one a live run is writing being younger than
         the time to live. They are not entries, so they are reported at DEBUG
         rather than counted in the answer.
+
+        Age is only half of it. What survives the cutoff is held to
+        :attr:`max_bytes` as well, oldest first out (ADR-0052), so the size of
+        this directory is bounded by something other than how often anybody
+        shops. The two are asked in that order because expiry is free: an entry
+        nobody may read again is no reason to delete one somebody may.
         """
         cutoff = time.time() - self.ttl
         removed = 0
         leftovers = 0
+        live: list[tuple[float, int, Path]] = []
         # ``glob`` answers an empty iterator for a directory it cannot list, so
-        # with the two calls below guarded this cannot raise -- which is what
+        # with the three calls below guarded this cannot raise -- which is what
         # lets ``open_cache`` call it unguarded.
         for path in (*self.directory.glob("*.json"), *self.directory.glob("*.tmp")):
             try:
-                if path.stat().st_mtime >= cutoff:
+                stat = path.stat()
+                if stat.st_mtime >= cutoff:
+                    if path.suffix == ".json":
+                        live.append((stat.st_mtime, stat.st_size, path))
                     continue
                 path.unlink()
             except OSError:  # a file another run is replacing right now
@@ -150,7 +183,44 @@ class DiskCache:
             logger.debug(
                 "Cleared %d abandoned temporary file(s) in %s", leftovers, self.directory
             )
-        return removed
+        return removed + self._evict(live)
+
+    def _evict(self, live: list[tuple[float, int, Path]]) -> int:
+        """Delete the oldest of ``live`` until the rest fits, and say how many went.
+
+        Oldest first because that is the order they stop being worth keeping in: every
+        entry here is still readable, so the only thing to choose between them by is
+        which run is least likely to ask again. Sorted by modification time, which is
+        also what the expiry above reads -- a cache with one clock rather than two.
+
+        Each ``(mtime, size, path)`` comes from the single ``stat`` the caller already
+        made: asking again here would be a second answer about a file another run may
+        be replacing, and a size read twice is a budget that does not add up.
+        """
+        total = sum(size for _, size, _ in live)
+        if total <= self.max_bytes:
+            return 0
+        evicted = 0
+        for _, size, path in sorted(live):
+            try:
+                path.unlink()
+            except OSError:  # as above: another run got there first
+                continue
+            evicted += 1
+            total -= size
+            if total <= self.max_bytes:
+                break
+        # DEBUG like everything else here: a cache tidying itself is nobody's
+        # news, and the line a shopper reads about the cache is ``enrich``'s
+        # count of how many pages came off disk.
+        logger.debug(
+            "Dropped %d cached entr%s from %s to stay under %d bytes",
+            evicted,
+            "y" if evicted == 1 else "ies",
+            self.directory,
+            self.max_bytes,
+        )
+        return evicted
 
     def _path(self, key: str) -> Path:
         return self.directory / f"{hashlib.sha256(key.encode('utf-8')).hexdigest()}.json"

@@ -151,6 +151,16 @@ def test_context_and_thinking_can_still_be_left_to_the_model() -> None:
     assert config.reasoning is None
 
 
+def test_one_question_has_a_longest_it_may_take() -> None:
+    """Ten minutes, which is what the OpenAI client already gave a vLLM and what
+    Ollama gave nobody: its client disables httpx's timeout unless told one, so a
+    server that went quiet holding the prompt hung the run outright (ADR-0051)."""
+    config = AgentConfig()
+
+    assert config.model_timeout == 600.0
+    assert LIMITS["model_timeout"] == (1, 3600)
+
+
 def test_each_config_gets_its_own_weights() -> None:
     """A shared default would let one run's tuning leak into the next."""
     first, second = AgentConfig(), AgentConfig()

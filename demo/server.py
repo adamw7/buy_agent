@@ -86,7 +86,9 @@ def install_fake_web(script: ModuleType, pace: float = 1.0) -> None:
     the same kind of corpus it checks against in production.
     """
 
-    def search(query: str, *, max_results: int = 10, region: str = "us-en") -> list:
+    def search(
+        query: str, *, max_results: int = 10, region: str = "us-en", **_: object
+    ) -> list:
         return [result.model_copy() for result in script.PAGES[:max_results]]
 
     def enrich(

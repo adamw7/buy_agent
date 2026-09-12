@@ -11,6 +11,7 @@ The last section is the other half of it: a model whose answers are remembered
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 
@@ -529,3 +530,129 @@ def test_closing_one_wrapped_around_a_model_that_holds_nothing_is_a_no_op(
     """The cache itself holds nothing open: it is a directory, and every entry is
     opened and closed inside the call that reads or writes it."""
     _remembering(tmp_path, FakeLLM()).close()
+
+
+# -- how big it may get --------------------------------------------------------
+
+
+def _filled(directory: Path, *keys: str) -> DiskCache:
+    """A cache holding one entry per key, all the same size as each other.
+
+    Equal sizes are the point: what the eviction below chooses between them by is
+    age, and a test where the oldest also happened to be the biggest would pass
+    whichever rule were written.
+    """
+    cache = DiskCache(directory, ttl=3600)
+    for key in keys:
+        cache.put(key, "x" * 10)
+    return cache
+
+
+def test_an_over_full_cache_drops_its_oldest_entries(tmp_path: Path) -> None:
+    """Age is no bound on size: nothing here ever deleted an unexpired entry, so a
+    month of shopping at the TTL ceiling was a month of pages (ADR-0052)."""
+    cache = _filled(tmp_path, "https://a", "https://b", "https://c")
+    _age(cache, "https://a", seconds=200)
+    _age(cache, "https://b", seconds=100)
+    one = _entry(cache, "https://c").stat().st_size
+
+    tight = DiskCache(tmp_path, ttl=3600, max_bytes=one * 2)
+
+    assert tight.prune() == 1, "one entry over, so one entry out"
+    assert cache.get("https://a") is None, "the oldest is the one nobody will ask for"
+    assert (cache.get("https://b"), cache.get("https://c")) == ("x" * 10, "x" * 10)
+
+
+def test_a_cache_inside_its_cap_is_left_alone(tmp_path: Path) -> None:
+    """The common case, and it has to cost nothing: every run opens the cache."""
+    cache = _filled(tmp_path, "https://a", "https://b")
+
+    assert cache.prune() == 0
+    assert cache.get("https://a") == "x" * 10
+
+
+def test_the_count_covers_what_expired_and_what_would_not_fit(tmp_path: Path) -> None:
+    """One number for both, because they are one sentence: this is how many entries
+    the directory no longer holds."""
+    cache = _filled(tmp_path, "https://a", "https://b", "https://c")
+    _age(cache, "https://a", seconds=7200)  # past the TTL
+    _age(cache, "https://b", seconds=100)
+    one = _entry(cache, "https://c").stat().st_size
+
+    tight = DiskCache(tmp_path, ttl=3600, max_bytes=one)
+
+    assert tight.prune() == 2, "one expired, and one of the two left over the cap"
+    assert cache.get("https://c") == "x" * 10
+
+
+def test_expiry_is_asked_before_the_cap(tmp_path: Path) -> None:
+    """In that order because expiry is free: an entry nobody may read again is no
+    reason to delete one somebody may."""
+    cache = _filled(tmp_path, "https://old", "https://new")
+    _age(cache, "https://old", seconds=7200)
+    one = _entry(cache, "https://new").stat().st_size
+
+    tight = DiskCache(tmp_path, ttl=3600, max_bytes=one)
+
+    assert tight.prune() == 1
+    assert cache.get("https://new") == "x" * 10, "the cap had nothing left to do"
+
+
+def test_an_entry_that_vanishes_mid_eviction_is_not_a_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Another run may be replacing the very file this one chose, and nothing in
+    this module raises. The budget is still met: the next-oldest goes instead."""
+    cache = _filled(tmp_path, "https://a", "https://b", "https://c")
+    _age(cache, "https://a", seconds=200)
+    _age(cache, "https://b", seconds=100)
+    oldest = _entry(cache, "https://a")
+    one = _entry(cache, "https://c").stat().st_size
+    unlink = Path.unlink
+
+    def flaky(self: Path, *args: object, **kwargs: object) -> None:
+        if self == oldest:
+            raise OSError("another run got there first")
+        unlink(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "unlink", flaky)
+    tight = DiskCache(tmp_path, ttl=3600, max_bytes=one * 2)
+
+    assert tight.prune() == 1
+    assert cache.get("https://b") is None, "the one that could be taken was"
+    assert cache.get("https://a") == "x" * 10
+
+
+@pytest.mark.parametrize(
+    ("cap_in_entries", "said"),
+    [(2, "Dropped 1 cached entry"), (1, "Dropped 2 cached entries")],
+)
+def test_an_eviction_says_how_many_went(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, cap_in_entries: int, said: str
+) -> None:
+    """At DEBUG like the rest of this module: a cache tidying itself is nobody's
+    news, and the line a shopper reads about it is ``enrich``'s count of how many
+    pages came off disk."""
+    cache = _filled(tmp_path, "https://a", "https://b", "https://c")
+    one = _entry(cache, "https://c").stat().st_size
+
+    with caplog.at_level(logging.DEBUG):
+        DiskCache(tmp_path, ttl=3600, max_bytes=one * cap_in_entries).prune()
+
+    assert said in caplog.text
+
+
+def test_a_cache_that_cannot_be_tidied_is_not_a_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every candidate refusing to go leaves the directory over its cap, and the run
+    carries on regardless: nothing in this module raises, and a cache that is too big
+    is still a cache (ADR-0052)."""
+    cache = _filled(tmp_path, "https://a", "https://b")
+    one = _entry(cache, "https://b").stat().st_size
+    monkeypatch.setattr(Path, "unlink", _raising(OSError("read-only filesystem")))
+
+    tight = DiskCache(tmp_path, ttl=3600, max_bytes=one)
+
+    assert tight.prune() == 0  # no raise
+    assert cache.get("https://a") == "x" * 10

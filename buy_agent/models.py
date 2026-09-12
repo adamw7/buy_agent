@@ -42,7 +42,14 @@ _MAX_OPINION_LENGTH = 240
 #: yuan's, ``kr`` is three countries': an ambiguous sign left as written is a
 #: price this run cannot place, which is ADR-0043's answer, while a guess would
 #: place it wrongly. ``$`` is the one guess, the currencies sharing it spelling
-#: themselves ``C$`` and ``A$`` where it matters.
+#: themselves ``C$`` and ``A$`` where it matters. By the same rule "Rs" is absent
+#: (three countries' rupee) and "lira" (a currency and a historical one), while
+#: the signs beside them are each one currency's.
+#:
+#: Every sign and spelling :mod:`buy_agent.fetch` will keep a price line for has
+#: to be placeable here, or that line is read off a page and then scored on
+#: nothing; ``tests/test_conventions.py`` holds the two tables to it, with ``¥``
+#: named as the deliberate exception.
 _CURRENCY_ALIASES = {
     "$": "USD",
     "US$": "USD",
@@ -55,6 +62,12 @@ _CURRENCY_ALIASES = {
     "POUND": "GBP",
     "POUNDS": "GBP",
     "ZŁ": "PLN",
+    "KČ": "CZK",
+    "₹": "INR",
+    "₩": "KRW",
+    "₪": "ILS",
+    "₺": "TRY",
+    "R$": "BRL",
     "C$": "CAD",
     "CA$": "CAD",
     "A$": "AUD",

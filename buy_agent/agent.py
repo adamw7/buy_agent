@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from time import sleep
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 from buy_agent.cache import remember_answers
@@ -37,6 +38,13 @@ logger = logging.getLogger(__name__)
 #: has gone stops one (ADR-0034).
 Checkpoint: TypeAlias = "Callable[[str], None]"
 
+#: How the two steps that talk to the web wait before asking a second time. The
+#: clock lives here rather than in either of them: a step of the pipeline is given
+#: what it needs and looks nothing up, least of all something that moves on its own
+#: (ADR-0053). ``time.sleep`` is the whole of it, and a test that patches ``enrich``
+#: or ``search_web`` is handed it and never calls it.
+Wait: TypeAlias = "Callable[[float], None]"
+
 
 def every_step_passes(_step: str) -> None:
     """The default checkpoint: nobody is watching, so every boundary passes."""
@@ -56,11 +64,13 @@ class ModelUnavailableError(RuntimeError):
 def _asks_the_same_question(config: AgentConfig) -> dict[str, object]:
     """Everything besides the prompt that decides what a model answers (ADR-0044).
 
-    Two settings are deliberately absent. ``api_key`` is a secret and the key is
+    Three settings are deliberately absent. ``api_key`` is a secret and the key is
     written to a file; ``temperature`` is a constant here, only a run at zero being
-    remembered at all. ``num_ctx`` goes in only where the provider sends it: vLLM
-    fixes its window at startup, so including it would miss on a setting that server
-    never saw.
+    remembered at all; and ``model_timeout`` decides how long an answer may take and
+    not what it says, so a run that waited ten minutes for one may hand it to a run
+    that would have waited two (ADR-0051). ``num_ctx`` goes in only where the provider
+    sends it: vLLM fixes its window at startup, so including it would miss on a
+    setting that server never saw.
     """
     fingerprint: dict[str, object] = {
         "provider": config.provider,
@@ -177,6 +187,7 @@ class BuyAgent:
                 opinion_chars=self.config.opinion_chars,
                 timeout=self.config.fetch_timeout,
                 cache_ttl=self.config.cache_ttl,
+                wait=sleep,
             )
 
         checkpoint("extract")
@@ -210,11 +221,17 @@ class BuyAgent:
 
         The width is shared out rather than multiplied -- five sources at ten results each
         would fetch fifty pages for a report of three.
+
+        Every search here is handed the :data:`Wait` that lets it ask a second time, a
+        rate limit being about the minute rather than the query (ADR-0053). Per source
+        and not per run: one named site refusing is not the others' turn to wait.
         """
         sources = self.config.sources
         width = self.config.search_results
         if not sources:
-            return search_web(query, max_results=width, region=self.config.region)
+            return search_web(
+                query, max_results=width, region=self.config.region, wait=sleep
+            )
 
         logger.info(
             "Searching %d named source(s): %s",
@@ -225,7 +242,10 @@ class BuyAgent:
         pooled: dict[str, SearchResult] = {}
         for source in sources:
             found = search_web(
-                source.site_query(query), max_results=share, region=self.config.region
+                source.site_query(query),
+                max_results=share,
+                region=self.config.region,
+                wait=sleep,
             )
             kept = [result for result in found if source.covers(result.url)]
             if len(kept) != len(found):

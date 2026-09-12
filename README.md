@@ -106,6 +106,7 @@ python -m buy_agent "headphones" --max-price 200 --min-rating 4.5 --min-reviews 
 | `--cache-ttl` | `86400` | Seconds a page, and the model's answer about it, stay usable on disk; `0` is off |
 | `--temperature` | `0.0` | Model temperature, 0-2; extraction is a copying task |
 | `--num-ctx` | `16384` | Context window in tokens (Ollama only) |
+| `--model-timeout` | `600` | Seconds to wait for one answer; asked once, so this is the whole wait |
 | `--think` / `--no-think` | `--no-think` | Force thinking mode on or off |
 | `--no-fetch` | off | Use search snippets only, without opening the result pages |
 | `--json` | -- | Also write every result to a JSON file |
@@ -372,6 +373,14 @@ cache invisible to grounding. Only pages that were actually read are stored: a
 Every failure -- an unwritable directory, a corrupt entry, a full disk -- is a
 cache miss and never a failed run
 ([ADR-0040](docs/adr/0040-cache-the-page-text-on-disk.md)).
+
+It is bounded twice over. `--cache-ttl` is how long an entry stays usable, and
+`cache.MAX_BYTES` is how much one kind of them may take up -- 256 MB per
+directory, oldest first out, enforced when a run opens the cache. Age alone was no
+bound on size: the TTL ceiling is thirty days, what is stored is the whole text of
+a page rather than the excerpt, and nothing ever deleted an entry that had not
+expired, so a month of shopping was a month of pages on a disk nobody was watching
+([ADR-0052](docs/adr/0052-cap-the-cache-by-size-as-well-as-age.md)).
 
 What the model answered is kept the same way, under a key holding the whole
 question: the prompt with those pages in it, the schema, the model, the server
@@ -817,7 +826,10 @@ no model, no network and no run
 - **The steps take values and answer values.** Nothing in the pipeline or the
   domain reads an environment variable, a file, a clock or a random number,
   which is the half of "the pipeline never reads the config" no layer can state
-  and what says a remembered answer (ADR-0044) is the same answer. The steps do not chain
+  and what says a remembered answer (ADR-0044) is the same answer. It is why a
+  page asked to come back later waits by a clock `BuyAgent` hands down rather than
+  one `fetch` imports (ADR-0053): waiting is not deciding, and the rule is an
+  import away from either. The steps do not chain
   themselves either: the order of the pipeline is `BuyAgent.run`'s to know, so a
   joint argued in one place stays a joint that can be moved. And nothing that
   decides the answer -- the ranking, the bounds, the grounding, the types --
@@ -889,13 +901,21 @@ suite every Saturday are in [Tests](docs/testing.md).
   (`{url}/checkout`, `{url}/payment`) are this project's choice and are the part
   to expect to adjust for whatever you integrate with. The mandates inside them
   are the standard's.
+- A shop or a search that says "come back later" is asked once more, and only
+  that: a 429 or a 503 waits the `Retry-After` it named, capped at five seconds,
+  and a search whose every engine failed waits two (ADR-0053). A 403, a 404 and a
+  timeout are answers, not invitations. The model is the other way about -- one
+  question, bounded by `--model-timeout`, never repeated (ADR-0051) -- so a model
+  server that went quiet holding the prompt now ends the run with the remedy
+  rather than hanging it.
 - Some shops answer with JavaScript-rendered pages or a 403; those results fall
   back to their snippet rather than failing the run. Which is why the run says
   how the fetching went, on the CLI and in the browser alike: "Got usable page
   text from 0 of 10 result(s): 7 refused (403), 2 timed out". Grounding blanks
   every figure the pages did not back, so a report of "price unknown" throughout
   is either a bad model or nothing having been read, and that line is which.
-- DuckDuckGo rate-limits heavy use; the agent reports this as a `SearchError`.
+- DuckDuckGo rate-limits heavy use; the agent asks a second time and then reports
+  it as a `SearchError`.
 - Only `lfm2.5` (1.2B) has been measured end to end for *speed*: it works, takes
   ~75s, and most of that is extraction. The failure modes above are the ones a
   small model shows, so a larger model should improve on them -- `python -m

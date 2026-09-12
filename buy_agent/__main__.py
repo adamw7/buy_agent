@@ -326,6 +326,18 @@ def build_parser() -> argparse.ArgumentParser:
         "Ollama only -- vLLM fixes its window with --max-model-len when it starts.",
     )
     parser.add_argument(
+        "--model-timeout",
+        type=_bounded(float, "model_timeout"),
+        default=_DEFAULTS.model_timeout,
+        metavar="SECONDS",
+        help=f"How long to wait for one answer from the model server (default: "
+        f"{_DEFAULTS.model_timeout:g}). Asked once and not retried, so this is the "
+        "whole wait: a server that took the prompt and went quiet ends the run with "
+        "something to act on rather than hanging it. A slow model on a long prompt "
+        "is what the wait is for -- try a smaller model or a smaller --num-ctx "
+        "before a bigger number here.",
+    )
+    parser.add_argument(
         "--think",
         action=argparse.BooleanOptionalAction,
         default=_DEFAULTS.reasoning,
@@ -452,6 +464,7 @@ def main(argv: list[str] | None = None) -> int:
         base_url=args.base_url,
         temperature=args.temperature,
         num_ctx=_DEFAULTS.num_ctx if args.num_ctx is _UNSET else args.num_ctx,
+        model_timeout=args.model_timeout,
         reasoning=args.think,
         search_results=max(args.results, args.top),
         num_products=args.results,

@@ -66,7 +66,9 @@ def serving_the_corpus(
     """
     served: list[SearchResult] = []
 
-    def search(query: str, *, max_results: int = 10, region: str = "us-en") -> list:
+    def search(
+        query: str, *, max_results: int = 10, region: str = "us-en", **_: object
+    ) -> list:
         return [result.model_copy() for result in pages[:max_results]]
 
     def enrich(

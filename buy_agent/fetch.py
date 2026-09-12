@@ -37,18 +37,38 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 )
 
-_CURRENCY_SIGNS = "$€£¥"  # dollar, euro, pound, yen
+#: The signs a price may be written with, one character each. Every one of them
+#: is a currency :func:`buy_agent.models._currency` can place, except ``¥``, which
+#: is the yen's and the yuan's alike and is deliberately left unplaceable
+#: (ADR-0043) -- the line is still kept, the figure still grounds, and the price
+#: is one this run cannot compare. ``tests/test_conventions.py`` holds the two
+#: tables to that, a sign read here and unplaceable there being a price taken off
+#: a page and then scored on nothing.
+#:
+#: A sign of more than one character cannot go in a character class, and the ones
+#: that matter need no row: ``R$``, ``C$`` and ``US$`` all carry the ``$`` this
+#: already matches.
+_CURRENCY_SIGNS = "$€£¥₹₩₪₺"  # dollar, euro, pound, yen, rupee, won, shekel, lira
 #: The same currencies as their ISO codes, a page being as likely to print
 #: "129 EUR" as "€129". Every sign above has its code here, or a price would be
 #: read off one page and not off the next for no reason a reader could work out.
-_CURRENCY_CODES = r"USD|EUR|GBP|JPY|PLN|CHF|SEK|CAD|AUD"
+#:
+#: ``TRY`` is the one sign above whose code is left out: it is an English word,
+#: and matched case-insensitively beside a digit it takes "Try 3 of these" as a
+#: price line. The sign carries that currency; a lost "129 TRY" costs one line.
+_CURRENCY_CODES = (
+    r"USD|EUR|GBP|JPY|PLN|CHF|SEK|CAD|AUD"
+    r"|INR|KRW|ILS|BRL|CZK|HUF|MXN|NZD|SGD|DKK|NOK|CNY|ZAR"
+)
 
 #: The rule above the other way round: a sign of more than one character is one
 #: :data:`_CURRENCY_SIGNS` cannot carry. A shop searched with ``--region pl-pl``
 #: prints "599 zł" and almost never "599 PLN", so without this every price line on
 #: it was dropped here, invisibly. Unambiguous, which is why "kr" is not here, and
 #: :data:`~buy_agent.models._CURRENCY_ALIASES` folds it onto ``PLN`` (ADR-0043).
-_CURRENCY_WORDS = _CURRENCY_CODES + r"|zł"
+#: ``Kč`` is the Czech shop's spelling of the same thing, and "Ft" is left out for
+#: the reason ``TRY`` is: lower-cased it is a unit of length.
+_CURRENCY_WORDS = _CURRENCY_CODES + r"|zł|Kč"
 
 _PRICE = re.compile(
     r"[" + re.escape(_CURRENCY_SIGNS) + r"]\s?\d"
@@ -112,6 +132,22 @@ _MIN_OPINION = 25
 #: is a ceiling: ``timeout`` is the wait between chunks rather than for the
 #: transfer, and ``condense`` runs on text already in memory, eight pages at once.
 _MAX_PAGE_BYTES = 4 * 1024 * 1024
+
+#: The two statuses that mean "ask again later" rather than "no". Everything else
+#: a shop answers is an answer: a 403 is a refusal, a 404 is a page that is not
+#: there, and asking either twice is two identical failures and twice the wait
+#: (ADR-0053).
+_RETRY_STATUSES = frozenset({429, 503})
+
+#: How long to wait before asking again where the answer did not say. A rate limit
+#: is usually sent without a ``Retry-After``, and a second is the difference
+#: between a page lost and a page read.
+_RETRY_WAIT = 1.0
+
+#: The longest a ``Retry-After`` is honoured. A shop asking for an hour is a page
+#: to go without: eight fetches share one run, and the shopper is waiting on all
+#: of them.
+_MAX_RETRY_WAIT = 5.0
 
 
 #: How a page's failure is named in the tally :func:`enrich` logs. Past tense
@@ -248,6 +284,7 @@ def fetch_page(
     max_chars: int,
     opinion_chars: int = 400,
     cache: DiskCache | None = None,
+    wait: Callable[[float], None] | None = None,
 ) -> PageText:
     """Read one URL -- off the cache or off the web -- and condense it.
 
@@ -260,11 +297,15 @@ def fetch_page(
     went into it, so a page read off disk yields what the web would at these budgets
     (ADR-0040). Only a page that was read is stored: a 403 stays live, so a shop that
     has stopped refusing is noticed on the next run.
+
+    ``wait`` is how this may pause before asking a second time, and ``None`` -- the
+    default -- is a fetch that asks once. A step of the pipeline holds no clock of its
+    own, so the waiting is handed in by whoever is orchestrating the run (ADR-0053).
     """
     text = cache.get(url) if cache else None
     cached = text is not None
     if text is None:
-        page = read_page(client, url)
+        page = read_page(client, url, wait=wait)
         if page.problem:
             return page
         text = page.text
@@ -278,7 +319,9 @@ def fetch_page(
     return PageText(kept, None, cached)
 
 
-def read_page(client: httpx.Client, url: str) -> PageText:
+def read_page(
+    client: httpx.Client, url: str, *, wait: Callable[[float], None] | None = None
+) -> PageText:
     """One page's visible text, or the phrase saying why there is none.
 
     Split from the condensing above it because this half is what a cache can stand in
@@ -292,24 +335,19 @@ def read_page(client: httpx.Client, url: str) -> PageText:
 
     Streamed rather than fetched whole, so the body is bounded by
     :data:`_MAX_PAGE_BYTES` and the content type is read before any of it.
+
+    Given a ``wait``, a server that said to come back later is asked once more and
+    once only: that is what turns a rate-limited shop into a slow page rather than a
+    blank one (ADR-0053). Without one, every answer is final.
     """
     try:
-        with client.stream("GET", url) as response:
-            response.raise_for_status()
-
-            content_type = response.headers.get("content-type", "html")
-            if "html" not in content_type:
-                logger.debug("Skipped %s: served as %r", url, content_type)
-                return PageText("", _NOT_HTML)
-
-            markup = _read_capped(response, url)
+        fetched = _markup(client, url)
     except (httpx.HTTPError, httpx.InvalidURL) as exc:
-        # The URL and the exception stay at DEBUG: one line per result is ten
-        # lines of narration, and the tally carries the shape of the trouble.
-        logger.debug("Could not fetch %s: %s", url, exc)
-        return PageText("", describe_failure(exc))
+        fetched = _asked_again(client, url, exc, wait)
+    if fetched.problem:
+        return fetched
 
-    text = html_to_text(markup)
+    text = html_to_text(fetched.text)
     if not text:
         # Markup nothing could parse, named rather than left as empty text: it
         # keeps ``PageText``'s rule that text is empty exactly when a problem says
@@ -317,6 +355,82 @@ def read_page(client: httpx.Client, url: str) -> PageText:
         logger.debug("Nothing could be read out of %s", url)
         return PageText("", _NOTHING_KEPT)
     return PageText(text)
+
+
+def _markup(client: httpx.Client, url: str) -> PageText:
+    """One request: the page's markup, or the phrase saying it was not HTML.
+
+    :class:`PageText` one step early -- the markup rather than the text read out of it
+    -- because this is the half that may be asked twice, and both of its answers have
+    to come back the same shape whichever attempt produced them. Transport failures are
+    left to raise: which of them is worth a second try is :func:`_come_back_in`'s to
+    say, and it needs the exception to say it.
+    """
+    with client.stream("GET", url) as response:
+        response.raise_for_status()
+
+        content_type = response.headers.get("content-type", "html")
+        if "html" not in content_type:
+            logger.debug("Skipped %s: served as %r", url, content_type)
+            return PageText("", _NOT_HTML)
+
+        return PageText(_read_capped(response, url))
+
+
+def _asked_again(
+    client: httpx.Client,
+    url: str,
+    exc: Exception,
+    wait: Callable[[float], None] | None,
+) -> PageText:
+    """The page on a second attempt, where this failure was worth one.
+
+    Worth one exactly where a ``wait`` was given and the server said to come back:
+    anything else is this failure, named for the tally. The second attempt is final
+    whatever it answers -- a shop asking twice is one this run is not going to get.
+    """
+    # Asked in this order and in one condition, so there is no third state to
+    # cover: no clock to wait by, or nothing worth waiting for, and the delay is
+    # only read where the first of those passed.
+    if wait is None or (delay := _come_back_in(exc)) is None:
+        # The URL and the exception stay at DEBUG: one line per result is ten
+        # lines of narration, and the tally carries the shape of the trouble.
+        logger.debug("Could not fetch %s: %s", url, exc)
+        return PageText("", describe_failure(exc))
+
+    # INFO, unlike the line above it, and the one per-page line here that is: this
+    # one is time the shopper is spending rather than a page they are not getting,
+    # and a run that took ten seconds longer should say which pages asked for them.
+    logger.info("%s asked to be tried again; waiting %.1fs", url, delay)
+    wait(delay)
+    try:
+        return _markup(client, url)
+    except (httpx.HTTPError, httpx.InvalidURL) as again:
+        logger.debug("Could not fetch %s after waiting: %s", url, again)
+        return PageText("", describe_failure(again))
+
+
+def _come_back_in(exc: Exception) -> float | None:
+    """How long this failure says to wait before asking again, or None for "do not".
+
+    Only a response that said so: :data:`_RETRY_STATUSES` are the two statuses meaning
+    "later", and ``Retry-After`` is how long. A missing or unreadable header still gets
+    :data:`_RETRY_WAIT`, a rate limit being the case worth one more try however it was
+    phrased -- and the ``HTTP-date`` form of that header counts as unreadable here,
+    since reading it means subtracting a clock this module does not hold (ADR-0053).
+
+    The answer is capped by :data:`_MAX_RETRY_WAIT` and floored at zero: a header is
+    whatever a shop chose to send, including an hour and including a negative number.
+    """
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return None
+    if exc.response.status_code not in _RETRY_STATUSES:
+        return None
+    try:
+        asked = float(exc.response.headers.get("retry-after", ""))
+    except ValueError:
+        return _RETRY_WAIT
+    return min(max(asked, 0.0), _MAX_RETRY_WAIT)
 
 
 def _read_capped(response: httpx.Response, url: str) -> str:
@@ -379,6 +493,7 @@ def enrich(
     timeout: float = 8.0,
     workers: int = 8,
     cache_ttl: float = 0.0,
+    wait: Callable[[float], None] | None = None,
 ) -> list[SearchResult]:
     """Attach condensed page content to each result, in parallel.
 
@@ -389,6 +504,11 @@ def enrich(
     off the web. The cache is opened and pruned here rather than passed in, for the
     reason the HTTP client is: this is the function that knows when the fetching starts
     and when it is done (ADR-0040).
+
+    ``wait`` is handed down to every page, so a shop that rate-limits this run is asked
+    a second time rather than written off (ADR-0053). It is a parameter and not a
+    ``time.sleep`` written here because a step of the pipeline is given what it needs
+    and goes looking for nothing -- least of all a clock.
 
     The tally at the end says how many pages came off disk and how the rest failed --
     "7 refused (403), 2 timed out". Grounding blanks every figure the pages did not
@@ -410,6 +530,7 @@ def enrich(
             max_chars=max_chars,
             opinion_chars=opinion_chars,
             cache=cache,
+            wait=wait,
         )
         pages = list(pool.map(read, urls))
 

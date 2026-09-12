@@ -88,6 +88,7 @@ def test_options_reach_the_config() -> None:
             "region": "pl-pl",
             "temperature": 0.4,
             "num_ctx": 8192,
+            "model_timeout": 45,
             "think": False,
             "fetch": False,
             "sort_by": "price",
@@ -99,6 +100,7 @@ def test_options_reach_the_config() -> None:
     assert config.region == "pl-pl"
     assert config.temperature == 0.4
     assert config.num_ctx == 8192
+    assert config.model_timeout == 45.0
     assert config.reasoning is False
     assert config.fetch_pages is False
     assert sort_by == "price"
@@ -249,6 +251,8 @@ def test_searching_covers_the_wider_of_results_and_top() -> None:
         ({"top": 50}, "top_n", 50),
         ({"num_ctx": 1}, "num_ctx", 1),
         ({"num_ctx": 1_000_000}, "num_ctx", 1_000_000),
+        ({"model_timeout": 1}, "model_timeout", 1.0),
+        ({"model_timeout": 3600}, "model_timeout", 3600.0),
         ({"temperature": 0.0}, "temperature", 0.0),
         ({"temperature": 2.0}, "temperature", 2.0),
     ],
@@ -267,6 +271,8 @@ def test_both_ends_of_a_range_are_inside_it(data: dict, field: str, expected) ->
         {"top": 51},
         {"num_ctx": 0},
         {"num_ctx": 1_000_001},
+        {"model_timeout": 0},
+        {"model_timeout": 3601},
         {"temperature": 2.1},
         {"temperature": -0.1},
     ],
@@ -370,6 +376,7 @@ def test_the_limits_are_the_ones_both_doors_hold_a_request_to() -> None:
         "top",
         "temperature",
         "num_ctx",
+        "model_timeout",
         "max_price",
         "min_rating",
         "min_reviews",

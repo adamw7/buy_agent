@@ -29,7 +29,7 @@ python -m pylint buy_agent
   floor cannot be met -- so a `.venv` without it fails the gate on coverage, not
   on a red test. Add it with `pip install -r requirements-ap2-deps.txt` and then
   `pip install --no-deps -r requirements-ap2.txt`; the flag belongs to the second
-  command only. A machine with both prerequisites reads `1887 passed, 13
+  command only. A machine with both prerequisites reads `1974 passed, 13
   skipped`.
 - `pytest.ini` sets `testpaths = tests`, so a bare run cannot reach
   `integration/`. That is deliberate -- see below.

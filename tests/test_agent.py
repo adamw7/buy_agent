@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from time import sleep
 from types import SimpleNamespace
 
 import pytest
@@ -28,7 +29,9 @@ def agent_factory(monkeypatch):
     def build(llm: FakeLLM, results: list, **config_kwargs) -> tuple[BuyAgent, list]:
         calls: list[dict] = []
 
-        def fake_search(query: str, *, max_results: int = 10, region: str = "us-en") -> list:
+        def fake_search(
+            query: str, *, max_results: int = 10, region: str = "us-en", **_: object
+        ) -> list:
             calls.append({"query": query, "max_results": max_results, "region": region})
             return results
 
@@ -363,6 +366,20 @@ def test_a_product_the_sources_never_mention_is_dropped(
     assert [entry.product.name for entry in ranked] == ["Sony WH-1000XM5"]
 
 
+def test_the_wait_on_an_answer_is_not_part_of_the_question() -> None:
+    """What a model says does not depend on how long this run would have waited, so
+    two runs differing only in that are asking one question (ADR-0044, ADR-0051).
+
+    The fingerprint is what a remembered answer is filed under, so a setting in here
+    that decides nothing about the answer costs a model call for no reason.
+    """
+    patient = _asks_the_same_question(AgentConfig(model_timeout=600.0))
+    hurried = _asks_the_same_question(AgentConfig(model_timeout=5.0))
+
+    assert patient == hurried
+    assert "model_timeout" not in patient
+
+
 def test_result_pages_are_fetched_by_default(
     agent_factory, search_results, extracted_products
 ) -> None:
@@ -376,6 +393,9 @@ def test_result_pages_are_fetched_by_default(
         "opinion_chars": 400,
         "timeout": 8.0,
         "cache_ttl": DEFAULT_TTL,
+        # The clock the fetching waits by, which a step of the pipeline is given
+        # rather than holding (ADR-0053).
+        "wait": sleep,
     }
 
 
@@ -405,6 +425,7 @@ def test_the_page_budget_and_timeout_are_the_config_s_own(
         "opinion_chars": 99,
         "timeout": 2.5,
         "cache_ttl": 60.0,
+        "wait": sleep,
     }
 
 
@@ -1031,7 +1052,9 @@ def source_search(monkeypatch):
         asked: list[tuple[str, int]] = []
         reached: list[str] = []
 
-        def fake_search(query: str, *, max_results: int = 10, region: str = "us-en") -> list:
+        def fake_search(
+            query: str, *, max_results: int = 10, region: str = "us-en", **_: object
+        ) -> list:
             asked.append((query, max_results))
             return pages.get(query, [])
 
