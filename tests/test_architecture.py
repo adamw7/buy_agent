@@ -329,6 +329,43 @@ def test_the_package_imports_none_of_the_trees_that_import_it() -> None:
     )
 
 
+def test_the_package_starts_no_process() -> None:
+    """Every way this project runs puts the package inside somebody else's
+    process: ``python -m buy_agent``, a ``ThreadingHTTPServer`` serving one
+    person, a container whose ``ENTRYPOINT`` is the interpreter, and a caller who
+    imported ``BuyAgent`` for the six names ``__init__`` re-exports. A run leaves
+    that process exactly four times -- a search and three kinds of HTTP request
+    -- and every one of the four is patched in the suite at the module that
+    imported the transport.
+
+    A child process is the fifth way out and the one nothing here could patch. It
+    would not see the ``FakeLLM``, the faked ``search_web`` or the scratch
+    ``$BUY_AGENT_CACHE_DIR`` the autouse fixture points a test at; it would
+    inherit the environment a test is holding still and answer with an exit code
+    no assertion here is written against. The project does start processes, and
+    all of it is deliberately outside the package: ``scripts/start.ps1`` installs
+    Ollama, pulls a model and builds the UI (ADR-0023), and the suite spawns an
+    interpreter for the three questions only a real import can answer. Starting a
+    server is the script's business; a run's business is asking one that is
+    already there, which is also why neither model server is in the image
+    (ADR-0015).
+
+    ``webbrowser`` is on the list because it is the one a server would reach for
+    by accident. Opening the page is the start script's last step, on the machine
+    somebody is sitting at; a server that opened one would open it on the machine
+    it is served from, where nobody is.
+    """
+    assert_passes(
+        project_files(_PACKAGE)
+        .should_not()
+        .depend_on_external_modules()
+        .matching("subprocess*")
+        .matching("multiprocessing*")
+        .matching("webbrowser*")
+        .because("the package is a guest in whatever process runs it"),
+        _OPTIONS,
+    )
+
 # -- one seam, one module ------------------------------------------------------
 
 
@@ -438,6 +475,47 @@ def test_only_the_three_modules_that_speak_to_somebody_import_httpx() -> None:
         .depend_on_external_modules()
         .matching("httpx*")
         .because("three modules reach the network, and the suite patches all three"),
+        _OPTIONS,
+    )
+
+
+def test_the_standard_library_s_network_is_the_server_s_alone() -> None:
+    """The rule above says the three modules that reach out reach out through
+    ``httpx``, which is what makes all three patchable in one line each. This is
+    the half that says there is no second way: a module that opened a socket of
+    its own, or read a URL with ``urllib.request``, would be making a request no
+    fake could answer and no test could see -- and it would pass the ``httpx``
+    rule the whole time it did so, because the rule above is about a
+    *distribution* and this one is about the machine underneath it.
+
+    ``server.py`` is the exemption, and it is the reason the rule is worth
+    writing rather than an awkwardness in it. That module *is* a socket,
+    deliberately and with nothing under it (ADR-0010), so the one module allowed
+    to name the standard library's network is the one whose whole job is to
+    listen on it. Listening is also the whole of what it does with it: who may
+    talk to it is ADR-0018's admission check, and nothing in the package calls
+    back out through it.
+
+    ``urllib.parse`` is deliberately not on the list and never will be. Splitting
+    a URL is string handling -- ``sources.py`` reads a host out of a spec,
+    ``payment.py`` names a merchant from a source page (ADR-0046), ``server.py``
+    reads a query string -- and none of the three opens anything to do it.
+    """
+    assert_passes(
+        project_files(_PACKAGE)
+        .with_name(every_module_but("server.py"))
+        .should_not()
+        .depend_on_external_modules()
+        .matching("socket*")
+        .matching("ssl*")
+        .matching("http.client*")
+        .matching("http.server*")
+        .matching("urllib.request*")
+        .matching("urllib.error*")
+        .matching("ftplib*")
+        .matching("smtplib*")
+        .matching("xmlrpc*")
+        .because("one module listens; the three that call out are the patched three"),
         _OPTIONS,
     )
 

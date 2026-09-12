@@ -1024,7 +1024,9 @@ answer (`python -m buy_agent` still runs as a script, and still imports with
 `$BUY_AGENT_RAIL` misspelt), one PowerShell for the whole of
 `tests/test_start_script.py` -- plus 1.0s of deliberate `StubAgent.delay` in the
 three server tests that need a run to still be going. A run that takes much
-longer means something is reaching out.
+longer means something is reaching out. `tests/test_conventions.py` holds that
+file to being the only one that sleeps, since a tenth of a second added anywhere
+else is paid by everybody and noticed by nobody.
 
 **Two optional prerequisites decide how many of them run, and neither is a
 failure when it is absent.** With neither `pwsh` nor `powershell`, most of
@@ -1113,7 +1115,23 @@ the other is otherwise invisible to both suites. It asserts that
   each entry point wires its `--verbose` flag to the level. Every one of those
   is invisible where it is broken: the line still reaches a terminal, and only
   the browser's progress panel, a `> top.txt` or a `-v` nobody ran is any the
-  wiser.
+  wiser;
+- every type named for a failure is one -- a class whose name ends in `Error`
+  reaches `BaseException` -- and nothing but the `if __name__` guard ends the
+  process. `main` answers a code and the guard spends it; a `sys.exit` further
+  in is the one failure the three-failure agreement cannot catch, since
+  `SystemExit` is a `BaseException` and goes past every `except Exception`
+  above it -- in a worker thread silently, which is the stream stopping mid-run
+  with no `failure` event to say why. The converse of the naming rule is
+  deliberately not asserted: `server._Stopped` is raisable and is not a failure
+  (ADR-0034);
+- and the suite keeps its own three: no test is switched off outright -- both
+  markers are `skipif`, which names what is missing rather than saying a test is
+  off -- nothing sleeps but `tests/test_server.py`, where a run has to still be
+  going while a second request arrives, and the environment is changed through
+  `monkeypatch` rather than written, `os.environ` being one dictionary for the
+  whole process and the leak landing on a later test rather than the one that
+  caused it.
 
 ### The architecture tests
 
@@ -1122,13 +1140,20 @@ the other half -- the rules that span an *import* -- asserted against the import
 graph with [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython)
 (ADR-0047). Which module may know about which is what this file says most often,
 and an import in the wrong direction runs perfectly: it passes that module's own
-tests, keeps the coverage floor and survives the mutation run. Nineteen rules,
+tests, keeps the coverage floor and survives the mutation run. Twenty-one rules,
 each the executable form of a sentence written down here or in a record, and a
-twentieth test that keeps them honest:
+twenty-second test that keeps them honest:
 
 - the package has **no import cycles**, and imports **none of the five trees
   that import it** -- `tests/`, `integration/`, `benchmark/`, `demo/`,
   `scripts/`, none of which is in the image or the release archive;
+- the package **starts no process**: `subprocess`, `multiprocessing` and
+  `webbrowser` are nobody's here. Installing Ollama, pulling a model, building
+  the UI and opening the page are `scripts/start.ps1`'s (ADR-0023), and the
+  container starts neither model server either (ADR-0015). A child process is
+  the one way out of this one that no fake in the suite could answer: it would
+  not see the `FakeLLM`, the faked `search_web` or the scratch cache directory,
+  and a server that opened a browser would open it where nobody is sitting;
 - every module sits in a **layer that reaches only downward** -- entry points,
   web, orchestration, pipeline, paying, model access, settings, domain -- with
   the four edges that are decisions named in the test: the pipeline never reads
@@ -1143,6 +1168,12 @@ twentieth test that keeps them honest:
   fourth is a request from a module nobody thought made any, and `argparse`
   belongs to the two modules handed an `argv`: a parser below them is a third
   set of defaults, and one that answers a bad value by exiting the process;
+- **the standard library's network is `server.py`'s alone** -- a socket, an
+  `ssl`, an `http.client`, a `urllib.request`. The rule above is about a
+  distribution and this one is about the machine underneath it: a module that
+  opened its own socket would pass that one while making a request no fake could
+  answer. `server.py` *is* a socket on purpose (ADR-0010) and only listens on
+  it; `urllib.parse` is string handling and is deliberately not on the list;
 - **`buy_agent/__init__.py` imports the four modules it re-exports from** and no
   others. It is the file both rules above let off, so it is the one that needs a
   rule of its own -- and importing any submodule runs it first, so a `from` line
@@ -1183,7 +1214,7 @@ nothing *passes*, which is the one way this file could be worse than no file:
 is really a module of the package, so a rename fails the rule about that module
 rather than quietly making it a no-op. A module in no layer is exempt in that
 same silent way, and one named in *two* is free to reach whatever either row
-allows, so the twentieth test collects the placings and counts them. Size is
+allows, so the twenty-second test collects the placings and counts them. Size is
 deliberately not asserted: a ceiling on lines, methods or cohesion would be a
 policy nobody has decided.
 

@@ -38,6 +38,7 @@ which is the only way to check that two lists agree about what is *not* in them.
 from __future__ import annotations
 
 import ast
+import builtins
 import fnmatch
 import inspect
 import json
@@ -1274,6 +1275,155 @@ def test_no_test_is_hidden_by_another_of_the_same_name() -> None:
             assert not shadowed, f"{module.relative_to(_ROOT)} defines {shadowed} twice"
 
 
+#: The one test module allowed to sleep, and the reason the rule below is not
+#: "nobody sleeps": three server tests need a run to still be going while a
+#: second request arrives, which is a wall clock and nothing else.
+_MAY_SLEEP = "test_server.py"
+
+
+def suite_modules() -> list[Path]:
+    """Every module of both Python suites, found rather than listed."""
+    found = sorted(
+        module for suite in (_UNIT_TESTS, _LIVE_TESTS) for module in suite.rglob("*.py")
+    )
+    assert found, "no test modules; this section has outlived its rules"
+    return found
+
+
+def attribute_calls(tree: ast.AST, receiver: str, methods: set[str]) -> list[ast.Call]:
+    """Every ``receiver.method(...)`` in one parsed module."""
+    return [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in methods
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == receiver
+    ]
+
+
+def test_no_test_is_switched_off_where_nobody_will_look() -> None:
+    """A skip that asks no question is a test nobody is running and nobody is
+    told about.
+
+    Both suites do skip, and both do it conditionally: ``needs_ap2`` asks
+    ``mandates.available()`` and ``needs_powershell`` asks PATH, so what they say
+    is "this machine cannot answer" rather than "this test is off". That is the
+    whole difference. A ``skipif`` names the thing to install and comes back the
+    moment it is there; a bare ``skip`` or an ``xfail`` comes back when somebody
+    reads the summary line, and nothing here makes them. The coverage floor will
+    not: the lines the switched-off test guarded are reached by whatever else
+    touches them, so 99% is met while the case nobody runs is the case nobody is
+    told about.
+
+    It is the rule the two markers are already keeping, written down so the third
+    marker is the one that has to argue for itself.
+    """
+    for module in suite_modules():
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        off = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute)
+            and node.attr in {"skip", "xfail"}
+            and isinstance(node.value, ast.Attribute)
+            and node.value.attr == "mark"
+        ]
+        assert not off, (
+            f"{module.relative_to(_ROOT)}:{off[0]} switches a test off outright; "
+            "skipif names what is missing instead"
+        )
+
+
+def test_nothing_in_the_suite_sleeps_but_the_one_that_has_to() -> None:
+    """The suite takes about eight seconds and every second of that is somebody's
+    wait.
+
+    Most of it is the three tests that spawn an interpreter for what only a real
+    import can answer, and one second of it is deliberate: ``StubAgent.delay``
+    holds a run open so the server tests can ask what a *running* run does --
+    stream a second request, refuse a ``HEAD``, stop when the reader goes away
+    (ADR-0034). Those are the only questions here a clock is the answer to, and
+    even there the waiting is a poll with a deadline rather than a fixed guess.
+
+    Anywhere else a sleep is one of two things: a slow test, or a fast test
+    hiding a race that will fail on a loaded runner and pass on a re-run. Both
+    are paid for by everybody, every run, and a suite that reaches eight seconds
+    a tenth at a time is one nobody notices getting slower.
+    """
+    for module in suite_modules():
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        slept = [call.lineno for call in attribute_calls(tree, "time", {"sleep"})]
+        assert not slept or module.name == _MAY_SLEEP, (
+            f"{module.relative_to(_ROOT)}:{slept[0]} sleeps; only {_MAY_SLEEP} may"
+        )
+
+
+def names_the_environment(node: ast.AST) -> bool:
+    """Whether ``node`` is ``os.environ`` under either of its two spellings."""
+    return (isinstance(node, ast.Attribute) and node.attr == "environ") or (
+        isinstance(node, ast.Name) and node.id == "environ"
+    )
+
+
+def environment_writes(tree: ast.AST) -> list[int]:
+    """Every line of one module that changes the process environment itself."""
+    changed = {"pop", "update", "clear", "setdefault"}
+    lines: list[int] = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and (
+                (node.func.attr in changed and names_the_environment(node.func.value))
+                or node.func.attr in {"putenv", "unsetenv"}
+            )
+        ):
+            lines.append(node.lineno)
+        targets = (
+            node.targets
+            if isinstance(node, (ast.Assign, ast.Delete))
+            else [node.target]
+            if isinstance(node, ast.AugAssign)
+            else []
+        )
+        lines += [
+            node.lineno
+            for target in targets
+            if isinstance(target, ast.Subscript) and names_the_environment(target.value)
+        ]
+    return sorted(lines)
+
+
+def test_a_test_changes_the_environment_through_the_fixture_that_undoes_it() -> None:
+    """``os.environ`` is one dictionary for the whole process, so a test that
+    writes it directly writes it for every test after it.
+
+    This suite leans on that dictionary more than most. An autouse fixture points
+    ``$BUY_AGENT_CACHE_DIR`` at a scratch directory per test so no run can be
+    answered by another run's question (ADR-0044), and unsets the three paying
+    variables so a developer who has configured a key and a mandate does not run
+    a suite that signs with them. ``tests/test_config.py``,
+    ``tests/test_providers.py`` and ``tests/test_rails.py`` then reload their
+    modules to re-read what those variables default to. Every one of those is a
+    test reading the environment as though it were the only thing in the process.
+
+    ``monkeypatch`` is the difference between changing it and leaking it: it
+    records the old value and puts it back at teardown, including when the test
+    fails, which a ``finally`` written in the test is one early ``assert`` away
+    from not doing. A leak does not fail the test that caused it -- it fails a
+    test later in the file, or one on another machine where the files happened to
+    be collected in a different order.
+    """
+    for module in suite_modules():
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        written = environment_writes(tree)
+        assert not written, (
+            f"{module.relative_to(_ROOT)}:{written[0]} writes the environment itself; "
+            "monkeypatch is what puts it back"
+        )
+
 # -- the Saturday mutation run -------------------------------------------------
 
 # mutmut copies these two into the tree it tests without being asked, as it does
@@ -1973,6 +2123,125 @@ def test_every_entry_point_wires_its_verbose_flag_to_the_level(entry_point: str)
         for call in configured
         for keyword in call.keywords
     ), f"{entry_point} has a --verbose flag that changes nothing"
+
+
+# -- what a failure is called, and how a run ends ------------------------------
+
+
+def declared_classes() -> dict[str, tuple[str, ...]]:
+    """Every class the package declares, against the names it derives from."""
+    declared: dict[str, tuple[str, ...]] = {}
+    for path in package_modules():
+        for node in ast.walk(module_tree(path)):
+            if isinstance(node, ast.ClassDef):
+                declared[node.name] = tuple(
+                    base.id for base in node.bases if isinstance(base, ast.Name)
+                )
+    return declared
+
+
+def raisable(
+    name: str, declared: dict[str, tuple[str, ...]], seen: tuple[str, ...] = ()
+) -> bool:
+    """Whether ``name`` reaches ``BaseException`` through what the package declares."""
+    builtin = getattr(builtins, name, None)
+    if isinstance(builtin, type) and issubclass(builtin, BaseException):
+        return True
+    if name in seen or name not in declared:
+        return False
+    return any(raisable(base, declared, (*seen, name)) for base in declared[name])
+
+
+def test_every_type_named_for_a_failure_is_one() -> None:
+    """A name ending in ``Error`` is this package's one promise about a type made
+    in the name itself: that it can be raised.
+
+    Three lists are keyed by those types and held against each other above --
+    ``api._STATUS``, ``api.PAY_STATUS`` and the ``except`` tuple in
+    ``__main__.main`` -- and every one of them reads a class as a class. A type
+    named for a failure that was not one would sit in any of them perfectly, and
+    be found by whoever first tried to raise it rather than here.
+
+    The other direction is deliberately not asserted, and ``server._Stopped`` is
+    the reason. A stopped run is not a failure (ADR-0034), which is why it stays
+    out of ``_STATUS``, out of ``main`` and out of ``run``'s ``Raises`` -- naming
+    it for one would say the opposite of what it means. So the rule holds one
+    way: every ``*Error`` is raisable, not every raisable thing is an ``*Error``.
+    """
+    declared = declared_classes()
+    misnamed = [
+        name
+        for name in declared
+        if name.endswith("Error") and not raisable(name, declared)
+    ]
+
+    assert not misnamed, f"named for a failure without being one: {misnamed}"
+
+
+def names_a_stop(raised: ast.expr | None) -> bool:
+    """Whether a ``raise`` names ``SystemExit``, called or bare."""
+    named = raised.func if isinstance(raised, ast.Call) else raised
+    return isinstance(named, ast.Name) and named.id == "SystemExit"
+
+
+def guarded_lines(tree: ast.Module) -> range | None:
+    """The lines of ``if __name__ == "__main__":``, if a module has that guard."""
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.If)
+            and isinstance(node.test, ast.Compare)
+            and isinstance(node.test.left, ast.Name)
+            and node.test.left.id == "__name__"
+        ):
+            return range(node.lineno, (node.body[-1].end_lineno or node.lineno) + 1)
+    return None
+
+
+@pytest.mark.parametrize("path", package_modules(), ids=lambda path: path.name)
+def test_nothing_but_the_guard_ends_the_process(path: Path) -> None:
+    """A run answers with a code; it does not spend one.
+
+    ``main`` returns 0, 1, 3, 4 or 130 -- the codes ``--help`` ends by listing --
+    and the guard at the bottom of the module is what hands that to ``sys.exit``.
+    ``server.main`` is the same shape. Two lines in the package end a process, and
+    both of them are the last line of a module nobody imports for anything else.
+
+    Anywhere else it would be the one failure none of the three lists can catch,
+    because it is not a failure: ``SystemExit`` derives from ``BaseException``
+    precisely so that it goes straight past an ``except Exception``. What it would
+    cost depends on who is running, and every one of them is somebody this package
+    promises not to do that to. A Python caller who imported ``BuyAgent`` for the
+    six names ``__init__`` re-exports loses their process mid-call. A container
+    whose ``ENTRYPOINT`` is the interpreter reports a code the API never chose. And
+    the server is the quiet one: a run happens in a worker thread, where a
+    ``SystemExit`` ends that thread and nothing else -- the stream stops mid-run
+    with no ``failure`` event, no status line left to spend, and a browser reading
+    it as the server having gone.
+
+    ``argparse``'s own exit 2 is the exception the ``Failures`` section already
+    names, and it needs no exemption here: it is raised inside the parser, by the
+    two modules an ``argv`` belongs to, which is the rule ``tests/test_architecture.py``
+    holds ``argparse`` itself to.
+    """
+    tree = module_tree(path)
+    guard = guarded_lines(tree)
+    ending = [
+        node.lineno
+        for node in ast.walk(tree)
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"exit", "_exit"}
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id in {"sys", "os"}
+        )
+        or (isinstance(node, ast.Raise) and names_a_stop(node.exc))
+    ]
+
+    for line in ending:
+        assert guard is not None and line in guard, (
+            f"{path.name}:{line} ends the process outside the __main__ guard"
+        )
 
 
 # -- the linter ----------------------------------------------------------------
