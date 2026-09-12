@@ -25,6 +25,16 @@
     'custom.regex',
   ],
 
+  // `requirements-ap2-deps.txt` is invisible to the pip manager's own default:
+  // it allows one `-word` after "requirements" and this name has two, so the
+  // file carrying `cryptography` was never read and no pull request for it was
+  // ever possible -- four majors of the library mandates are signed with went
+  // by unseen. The field is mergeable, so this adds the file rather than
+  // replacing the four the default already finds.
+  pip_requirements: {
+    managerFilePatterns: ['/(^|/)requirements-ap2-deps\\.txt$/'],
+  },
+
   customManagers: [
     {
       // Node and Python are quoted in prose as well as pinned in YAML. Renovate
