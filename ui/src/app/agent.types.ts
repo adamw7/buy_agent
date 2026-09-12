@@ -160,6 +160,9 @@ export interface AgentDefaults {
   base_url: string;
   temperature: number;
   num_ctx: number | null;
+  /** The longest one answer may take, in seconds. Both servers are given it and
+   *  neither is asked twice, so it is the whole wait (ADR-0051). */
+  model_timeout: number;
   think: boolean | null;
   results: number;
   top: number;
@@ -263,6 +266,7 @@ export interface SearchOptions {
   sort_by?: SortBy;
   temperature?: number | null;
   num_ctx?: number | null;
+  model_timeout?: number | null;
   /** Two-valued: the tri-state's `null` cannot be sent -- see `Thinking`. */
   think?: boolean;
   fetch?: boolean;

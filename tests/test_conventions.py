@@ -74,7 +74,9 @@ from buy_agent.api import (
     sources_payload,
 )
 from buy_agent.config import LIMITS, AgentConfig, parse_region
+import buy_agent.fetch as fetch_module
 import buy_agent.mandates as mandates_module
+import buy_agent.models as models_module
 import buy_agent.providers as providers_module
 from buy_agent.payment import PaymentError
 from buy_agent.providers import PROVIDERS, InstalledModel, provider_options
@@ -269,6 +271,7 @@ def _typescript_sort_union() -> str:
         ("top_n", "--top", "top"),
         ("temperature", "--temperature", "temperature"),
         ("num_ctx", "--num-ctx", "num_ctx"),
+        ("model_timeout", "--model-timeout", "model_timeout"),
     ],
 )
 def test_both_front_doors_hold_a_number_to_the_same_range(
@@ -390,6 +393,59 @@ def test_the_default_region_is_one_both_front_doors_take() -> None:
 
     assert parse_region(region) == region
     assert parse_options({"region": region})[0].region == region
+
+
+# -- the currencies a price may be read in -------------------------------------
+
+
+#: A currency code, which is what everything downstream of the extraction compares
+#: prices by.
+_ISO_CODE = re.compile(r"[A-Z]{3}")
+
+#: The one spelling :mod:`buy_agent.fetch` keeps a price line for that
+#: :mod:`buy_agent.models` deliberately cannot place: ``¥`` is the yen's sign and
+#: the yuan's alike, and a guess would put half a set on the wrong scale (ADR-0043).
+#: Named here rather than worked out, so a second ambiguous sign is a line in this
+#: file and an argument to go with it.
+_AMBIGUOUS = frozenset("¥")
+
+
+def _price_spellings() -> list[str]:
+    """Every way of writing a currency that makes ``fetch`` keep a line.
+
+    Both tables are deliberately literal -- single characters and plain words, no
+    regex escapes -- so splitting the alternation is reading the declaration rather
+    than parsing a pattern.
+    """
+    return [*fetch_module._CURRENCY_SIGNS, *fetch_module._CURRENCY_WORDS.split("|")]
+
+
+@pytest.mark.parametrize("spelling", _price_spellings())
+def test_every_currency_a_price_is_read_in_is_one_the_run_can_place(spelling: str) -> None:
+    """The two tables are one rule across two modules, and neither module can hold it.
+
+    ``fetch`` decides which lines reach the model -- a page whose prices it cannot
+    see contributes none, which is how ``--region pl-pl`` once lost every figure on
+    every Polish shop, invisibly. ``models`` decides which spellings are the same
+    currency, and a price in a spelling it does not know is one this run cannot
+    place: it scores ``NEUTRAL``, sinks in a price sort, passes every bound and
+    cannot be paid for (ADR-0043). So a sign added to one table and not the other is
+    a line taken off a page to be scored on nothing.
+    """
+    placed = models_module._currency(spelling)
+
+    if spelling in _AMBIGUOUS:
+        assert placed == spelling, "an ambiguous sign is left as written, never guessed"
+    else:
+        assert placed is not None and _ISO_CODE.fullmatch(placed), (
+            f"{spelling!r} is read as a price and placed as {placed!r}"
+        )
+
+
+def test_the_unplaceable_signs_are_ones_a_price_is_actually_read_in() -> None:
+    """The exemption above read the other way, so it cannot outlive its reason: a
+    sign dropped from ``fetch`` leaves a row here excusing nothing."""
+    assert _AMBIGUOUS <= set(_price_spellings())
 
 
 # -- the payloads the browser is typed against ---------------------------------

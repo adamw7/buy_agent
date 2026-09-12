@@ -160,7 +160,9 @@ disable =
 # Set at the widest the package is today rather than at a round number -- the way
 # `benchmark/scoring.py`'s floors are set, and for the same reason: a tripwire
 # that is not where the thing already stands catches nothing until long after.
-# `fetch.enrich` is the widest on both counts, and it takes six settings because
-# a pipeline step is handed them rather than reading the config (ADR-0047).
-max-args = 6
-max-locals = 16
+# `fetch.enrich` is the widest on both counts, and it takes seven settings because
+# a pipeline step is handed them rather than reading the config (ADR-0047) -- the
+# seventh being the clock it waits by before asking a page again, which is a value
+# for that same reason (ADR-0053).
+max-args = 7
+max-locals = 17

@@ -12,7 +12,7 @@ import logging
 import pytest
 from ddgs.exceptions import DDGSException
 
-from buy_agent.search import _NO_RESULTS, SearchError, SearchResult, search_web
+from buy_agent.search import _NO_RESULTS, _RETRY_WAIT, SearchError, SearchResult, search_web
 
 
 def stub_ddgs(monkeypatch, *, results=None, error: Exception | None = None) -> dict:
@@ -140,3 +140,99 @@ def test_an_unexpected_error_is_not_disguised_as_a_search_failure(monkeypatch) -
 
     with pytest.raises(TypeError, match="bug in the wrapper"):
         search_web("headphones")
+
+
+def stub_sequence(monkeypatch, *answers) -> list[str]:
+    """Point ``search_web`` at a backend giving each answer in turn.
+
+    The retry is about the second search, so the stub has to be able to fail once and
+    work afterwards -- which one that raises forever, or answers forever, cannot say.
+    """
+    remaining = list(answers)
+    asked: list[str] = []
+
+    class FakeDDGS:
+        def text(self, query: str, **_: object) -> list[dict]:
+            asked.append(query)
+            answer = remaining.pop(0) if len(remaining) > 1 else remaining[0]
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+    monkeypatch.setattr("buy_agent.search.DDGS", FakeDDGS)
+    return asked
+
+
+def test_a_failed_search_is_asked_once_more(monkeypatch) -> None:
+    """One search is the whole of a run's input, so the one that failed is worth
+    asking twice -- a lost page leaves nine, a lost search leaves nothing (ADR-0053)."""
+    asked = stub_sequence(
+        monkeypatch,
+        DDGSException("rate limit"),
+        [{"title": "Sony XM5", "href": "https://shop/x", "body": "$328"}],
+    )
+    waits: list[float] = []
+
+    results = search_web("headphones", wait=waits.append)
+
+    assert [result.title for result in results] == ["Sony XM5"]
+    assert waits == [_RETRY_WAIT]
+    assert len(asked) == 2
+
+
+def test_a_search_that_fails_twice_is_the_failure_it_always_was(monkeypatch) -> None:
+    """The second failure is final, and carries its own message: a backend that is
+    down stays down, and the sentence the shopper reads is the last thing it said."""
+    asked = stub_sequence(
+        monkeypatch, DDGSException("rate limit"), DDGSException("still rate limited")
+    )
+
+    with pytest.raises(SearchError, match="still rate limited"):
+        search_web("headphones", wait=lambda _: None)
+
+    assert len(asked) == 2
+
+
+def test_a_search_is_asked_once_where_there_is_nothing_to_wait_by(monkeypatch) -> None:
+    """The default: a step handed no clock does not wait, and the failure is immediate."""
+    asked = stub_sequence(monkeypatch, DDGSException("rate limit"))
+
+    with pytest.raises(SearchError, match="rate limit"):
+        search_web("headphones")
+
+    assert len(asked) == 1
+
+
+def test_a_search_that_matched_nothing_is_never_asked_again(monkeypatch) -> None:
+    """It worked. Asking again would match nothing twice and cost the wait to find
+    out -- which is the difference between an answer and a failure."""
+    asked = stub_sequence(monkeypatch, DDGSException(_NO_RESULTS))
+    waits: list[float] = []
+
+    assert search_web("headphones", wait=waits.append) == []
+    assert (waits, len(asked)) == ([], 1)
+
+
+def test_a_search_that_matched_nothing_on_the_second_try_is_still_an_answer(
+    monkeypatch,
+) -> None:
+    """The no-results check is inside the loop, so it is asked of both attempts.
+
+    A backend that failed and then had nothing is a search that worked: reported as
+    a ``SearchError`` it would be "DuckDuckGo is unreachable" over a running one.
+    """
+    asked = stub_sequence(monkeypatch, DDGSException("rate limit"), DDGSException(_NO_RESULTS))
+
+    assert search_web("headphones", wait=lambda _: None) == []
+    assert len(asked) == 2
+
+
+def test_the_retry_says_what_it_is_waiting_for(monkeypatch, caplog) -> None:
+    """At WARNING: this is the failure the run would have ended on, and the line is
+    what tells a run that took two seconds longer from one that nearly stopped."""
+    stub_sequence(monkeypatch, DDGSException("rate limit"), [])
+
+    with caplog.at_level(logging.WARNING):
+        search_web("headphones", wait=lambda _: None)
+
+    assert "asking again in 2s" in caplog.text

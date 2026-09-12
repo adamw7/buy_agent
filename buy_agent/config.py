@@ -31,6 +31,10 @@ LIMITS: dict[str, tuple[int, int]] = {
     "top_n": (1, 50),
     "temperature": (0, 2),
     "num_ctx": (1, 1_000_000),
+    # The longest one question may take. A ceiling of an hour rather than of a
+    # day: past that the shopper has gone, and a floor of 1 because a second is
+    # a legitimate thing to ask for of a server that is meant to be warm.
+    "model_timeout": (1, 3600),
     # The shopper's own three (ADR-0039). Their ranges are what a *number* may be
     # rather than what a sensible bound is; the ceilings make a slip on the
     # keyboard a usage error rather than an empty report.
@@ -101,6 +105,12 @@ class AgentConfig:
             model is one and the JSON for ten products is the answer on top of that
             prompt (ADR-0050). **Ollama only** -- vLLM fixes its window at startup,
             which ``Provider.takes_num_ctx`` declares.
+        model_timeout: The longest to wait for one answer, in seconds. Both servers
+            are given it, neither asked twice: a question that timed out is a hint
+            about the model rather than a question to repeat, and a setting a retry
+            could multiply would not be the wait it names (ADR-0051). It is not part
+            of what makes an answer reusable, a slow answer and a fast one being the
+            same answer (ADR-0044).
         reasoning: Thinking mode: None sends nothing, False (the default) turns
             thinking off, True on. Thinking models need False, spending the remaining
             context reasoning about a copying task; one that cannot think ignores it.
@@ -167,6 +177,7 @@ class AgentConfig:
     api_key: str = ""
     temperature: float = 0.0
     num_ctx: int | None = 16384
+    model_timeout: float = 600.0
     reasoning: bool | None = False
     search_results: int = 10
     num_products: int = 10

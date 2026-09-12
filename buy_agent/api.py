@@ -92,6 +92,7 @@ _BOUNDED: dict[str, str] = {
         for field in (
             "temperature",
             "num_ctx",
+            "model_timeout",
             "max_price",
             "min_rating",
             "min_reviews",
@@ -186,6 +187,9 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         base_url=_read(data, "base_url", "", _as_text),
         temperature=_read(data, "temperature", defaults.temperature, _bounded(float)),
         num_ctx=_read(data, "num_ctx", defaults.num_ctx, _bounded(int)),
+        model_timeout=_read(
+            data, "model_timeout", defaults.model_timeout, _bounded(float)
+        ),
         reasoning=_read(data, "think", defaults.reasoning, _as_bool),
         # Searching fewer pages than we report would cap the report -- as in the CLI.
         search_results=max(num_products, top_n),
@@ -515,6 +519,7 @@ def defaults_payload() -> dict[str, Any]:
         "base_url": defaults.base_url,
         "temperature": defaults.temperature,
         "num_ctx": defaults.num_ctx,
+        "model_timeout": defaults.model_timeout,
         "think": defaults.reasoning,
         "results": defaults.num_products,
         "top": defaults.top_n,

@@ -161,6 +161,18 @@ def test_context_and_thinking_flags_reach_the_config(fake_agent) -> None:
     assert config.reasoning is False
 
 
+def test_the_wait_on_the_model_reaches_the_config(fake_agent) -> None:
+    main(["headphones", "--model-timeout", "45"])
+
+    assert fake_agent["config"].model_timeout == 45.0
+
+
+def test_the_wait_on_the_model_defaults_to_the_config_s_own(fake_agent) -> None:
+    main(["headphones"])
+
+    assert fake_agent["config"].model_timeout == AgentConfig().model_timeout
+
+
 def test_thinking_can_be_forced_on(fake_agent) -> None:
     main(["headphones", "--think"])
     assert fake_agent["config"].reasoning is True
@@ -529,6 +541,8 @@ def test_writing_the_json_is_logged(fake_agent, tmp_path, caplog) -> None:
         ("--temperature", "2.5"),
         ("--temperature", "-1"),
         ("--num-ctx", "0"),
+        ("--model-timeout", "0"),
+        ("--model-timeout", "3601"),
     ],
 )
 def test_a_number_outside_its_range_is_a_usage_error(flag: str, value: str) -> None:
@@ -558,7 +572,9 @@ def test_a_refused_number_is_told_the_range_and_what_it_gave(capsys) -> None:
     assert f"must be between {minimum} and {maximum}; got 500" in error
 
 
-@pytest.mark.parametrize("field", ["num_products", "top_n", "temperature", "num_ctx"])
+@pytest.mark.parametrize(
+    "field", ["num_products", "top_n", "temperature", "num_ctx", "model_timeout"]
+)
 def test_the_bounds_are_the_config_s_own(field: str) -> None:
     """Written down here as well, the CLI would come to accept what the API refuses."""
     assert field in LIMITS

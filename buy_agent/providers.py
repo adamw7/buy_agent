@@ -15,6 +15,11 @@ being embedding models no run can use, which costs a second question per tag
 :data:`Provider.takes_num_ctx` declares that once, so no front end offers a
 setting that does nothing.
 
+What they do share is how long a question may take. ``model_timeout`` is set on
+both clients, and both are told to ask once: the wait a shopper sets is the wait
+they get, where a client retrying behind it would make the number mean three
+times itself (ADR-0051).
+
 Nothing is imported from :mod:`buy_agent.config`: a config is what this module is
 handed, and ``AgentConfig.model_server`` is the one place a name becomes
 behaviour.
@@ -50,6 +55,10 @@ _NO_KEY = "EMPTY"
 #: per-request timeout on the client *and* the deadline the capability probes
 #: share, the client's own bounding one question while Ollama's listing asks one
 #: per tag (ADR-0032) -- fifty tags would otherwise be fifty timeouts.
+#:
+#: Deliberately not ``model_timeout``: that one is how long a shopper will wait
+#: for an answer to a 4.3k-token prompt, and this is how long a page will wait to
+#: draw a dropdown (ADR-0051).
 _LIST_TIMEOUT = 5.0
 
 #: What an Ollama model's capabilities must include to answer a prompt at all.
@@ -161,9 +170,15 @@ class _OllamaChat:
 
 
 def _ollama_chat_model(config: AgentConfig) -> ChatModel:
-    """Ollama takes the window and the thinking switch as request options."""
+    """Ollama takes the window and the thinking switch as request options.
+
+    The timeout goes on the *client*, which is where ollama's own takes one and passes
+    it to httpx. Left out it is not a long wait but no wait at all -- ``timeout=None``
+    disables httpx's, so a server that took the prompt and went quiet hung the run with
+    nothing to catch and ``_too_slow_hint`` unreachable (ADR-0051).
+    """
     return _OllamaChat(
-        client=Client(config.base_url),
+        client=Client(config.base_url, timeout=config.model_timeout),
         model=config.model,
         temperature=config.temperature,
         num_ctx=config.num_ctx,
@@ -336,7 +351,8 @@ def _vllm_chat_model(config: AgentConfig) -> ChatModel:
     """vLLM through its OpenAI-compatible API.
 
     ``num_ctx`` is deliberately not passed: vLLM fixes the window at startup and would
-    reject an unknown field (:data:`Provider.takes_num_ctx`). ``reasoning`` keeps its
+    reject an unknown field (:data:`Provider.takes_num_ctx`). ``model_timeout`` is, both
+    servers being equally able to go quiet holding a prompt. ``reasoning`` keeps its
     tri-state -- ``None`` leaves the chat template alone, True and False set the
     ``enable_thinking`` those templates read (ADR-0019).
     """
@@ -345,7 +361,14 @@ def _vllm_chat_model(config: AgentConfig) -> ChatModel:
         extra_body["chat_template_kwargs"] = {"enable_thinking": config.reasoning}
     return _VLLMChat(
         client=openai.OpenAI(
-            base_url=config.base_url, api_key=config.api_key or _NO_KEY
+            base_url=config.base_url,
+            api_key=config.api_key or _NO_KEY,
+            timeout=config.model_timeout,
+            # Asked once. This client retries twice by default, so the wait a
+            # shopper set would be a third of the wait they got -- and a prompt
+            # this size is not one to send three times to a server that is
+            # already too slow for it (ADR-0051).
+            max_retries=0,
         ),
         model=config.model,
         temperature=config.temperature,

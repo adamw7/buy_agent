@@ -156,6 +156,7 @@ export class SearchForm {
   protected readonly sortBy = signal<SortBy>('score');
   protected readonly temperature = signal<number | null>(0);
   protected readonly numCtx = signal<number | null>(null);
+  protected readonly modelTimeout = signal<number | null>(null);
   protected readonly thinking = signal<Thinking>('off');
   protected readonly fetchPages = signal(true);
   // Paying, and who through. `pay` is deliberately *not* remembered below: the other
@@ -239,6 +240,7 @@ export class SearchForm {
     // so `null` is a value its parser accepts. Settings saved before the field existed
     // carry no key, and `restore` leaves those to the seeded default.
     numCtx: setting(this.numCtx, (d) => d.num_ctx, asNumberOrNull),
+    modelTimeout: setting(this.modelTimeout, (d) => d.model_timeout, asNumberOrNull),
     thinking: setting(this.thinking, (d) => toThinking(d.think), asThinking),
     fetchPages: setting(this.fetchPages, (d) => d.fetch, asBoolean),
     // Checked against the rails this server offers, for the reason `provider` is:
@@ -369,6 +371,9 @@ export class SearchForm {
           ? 'Thinking models need the room to answer; the default leaves it.'
           : `${this.providerLabel()} is started with the window it serves, so this is not a per-run setting there.`,
       off: () => !this.takesNumCtx(),
+    }),
+    field('model_timeout', 'Wait for the model', this.modelTimeout, {
+      hint: 'Seconds to wait for one answer. Asked once, so this is the whole wait.',
     }),
     field('cache_ttl', 'Cache pages for', this.cacheTtl, {
       hint: 'Seconds a page, and the answer about it, stay usable. 0 is off.',
@@ -586,6 +591,7 @@ export class SearchForm {
       sort_by: this.sortBy(),
       temperature: this.sent('temperature'),
       num_ctx: this.sent('num_ctx'),
+      model_timeout: this.sent('model_timeout'),
       think: fromThinking(this.thinking()),
       fetch: this.fetchPages(),
       pay: this.pay(),

@@ -149,6 +149,28 @@ describe('SearchForm', () => {
     expect(submitted[0].cache_ttl).toBe(0);
   });
 
+  it('sends how long the model may take to answer', async () => {
+    await type('input[name="request"]', 'headphones');
+    await type('input[name="model_timeout"]', '45');
+    await send();
+
+    expect(submitted[0].model_timeout).toBe(45);
+  });
+
+  it('holds the wait on the model to the range the server shipped', async () => {
+    /* An hour is the ceiling, and a shopper who typed a day should be told on the
+       box rather than by a run that is refused once it is opened (ADR-0033). */
+    await type('input[name="request"]', 'headphones');
+    await type('input[name="model_timeout"]', '86400');
+
+    expect(problem('model_timeout')).toContain('Between 1 and 3600');
+    expect(submit().disabled).toBe(true);
+  });
+
+  it('offers the wait the server defaults to rather than a number of its own', async () => {
+    expect(element<HTMLInputElement>('input[name="model_timeout"]').placeholder).toBe('600');
+  });
+
   it('holds each bound to the range the server shipped for it', async () => {
     /* Every one of them, not the first: each is a field of its own, and a mark
        that lands on none of them is a greyed-out button with no visible reason. */

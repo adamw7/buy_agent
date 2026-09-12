@@ -135,6 +135,9 @@ def chatting(monkeypatch):
         class FakeClient:
             def __init__(self, base_url: str, **kwargs) -> None:
                 sent["base_url"] = base_url
+                # Everything else the client was built with -- the wait, which is
+                # on the client here and on the request nowhere (ADR-0051).
+                sent["client"] = kwargs
 
             @staticmethod
             def chat(**kwargs):
@@ -970,3 +973,46 @@ def test_the_listing_budget_covers_the_listing_and_not_each_tag(monkeypatch) -> 
     assert started.is_set(), "the probes did go out"
     assert [model.name for model in models] == ["a:1", "b:1", "c:1"]
     assert all(model.completion for model in models), "a tag that did not say is offered"
+
+
+# -- how long one question may take --------------------------------------------
+
+
+def test_ollamas_client_is_given_the_wait_the_config_sets(chatting) -> None:
+    """On the client because that is where ollama's own takes one.
+
+    Left off it was not a long wait but no wait at all: ollama passes ``timeout``
+    straight to httpx, and ``None`` there disables httpx's own -- so a server that
+    took the prompt and went quiet hung the run with nothing to catch and
+    ``_too_slow_hint`` unreachable (ADR-0051).
+    """
+    sent = asked(AgentConfig(provider="ollama", model_timeout=12.5), chatting())
+
+    assert sent["client"]["timeout"] == 12.5
+
+
+def test_vllms_client_is_given_the_same_wait(completing) -> None:
+    """Both servers are equally able to go quiet holding a prompt, so this is the
+    one setting of its kind that needs no row on either provider."""
+    sent = asked(AgentConfig(provider="vllm", model_timeout=12.5), completing())
+
+    assert sent["client"]["timeout"] == 12.5
+
+
+def test_vllm_is_asked_once(completing) -> None:
+    """The OpenAI client retries twice by default, which would make the wait a
+    shopper set a third of the wait they got -- and a 4.3k-token prompt is not one
+    to send three times to a server already too slow for it (ADR-0051)."""
+    sent = asked(VLLM_CONFIG, completing())
+
+    assert sent["client"]["max_retries"] == 0
+
+
+def test_the_listing_keeps_its_own_short_wait(pulled) -> None:
+    """Deliberately not ``model_timeout``: that is how long a shopper will wait for
+    an answer, and this is how long a page will wait to draw a dropdown."""
+    asked_for = pulled(["gemma4:12b"])
+
+    providers_module.OLLAMA.installed(AgentConfig(provider="ollama", model_timeout=600.0))
+
+    assert asked_for["tags"]["timeout"] == providers_module._LIST_TIMEOUT

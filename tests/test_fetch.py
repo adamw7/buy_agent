@@ -11,7 +11,9 @@ import pytest
 
 from buy_agent.cache import DiskCache
 from buy_agent.fetch import (
+    _MAX_RETRY_WAIT,
     _MAX_SEGMENT,
+    _RETRY_WAIT,
     PageText,
     condense,
     describe_failure,
@@ -131,11 +133,41 @@ def stub_client(monkeypatch, handler) -> None:
     monkeypatch.setattr("buy_agent.fetch.httpx.Client", fake_client(handler))
 
 
-def make_response(url: str, body: str, *, status: int = 200, content_type: str = "text/html"):
+def make_response(
+    url: str,
+    body: str,
+    *,
+    status: int = 200,
+    content_type: str = "text/html",
+    retry_after: str | None = None,
+):
+    headers = {"content-type": content_type}
+    if retry_after is not None:
+        headers["retry-after"] = retry_after
     return httpx.Response(
-        status, text=body, headers={"content-type": content_type},
-        request=httpx.Request("GET", url),
+        status, text=body, headers=headers, request=httpx.Request("GET", url),
     )
+
+
+def answering(*responses):
+    """A handler giving each answer in turn, and the list of what it was asked.
+
+    The retrying below is the one behaviour here that is about the *second* request,
+    so a stub answering the same thing forever cannot show it: what says a page was
+    asked again is that the second answer is the one that came back. The last answer
+    stands for every request after it, so a test says only as much as it means to.
+    """
+    answers = list(responses)
+    asked: list[str] = []
+
+    def handler(url: str):
+        asked.append(url)
+        answer = answers.pop(0) if len(answers) > 1 else answers[0]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    return handler, asked
 
 
 def test_fetch_page_condenses_a_live_page(monkeypatch) -> None:
@@ -965,3 +997,183 @@ def test_a_run_that_cached_nothing_says_nothing_about_a_cache(
 def _refuses_to_be_called(url: str):
     """A transport nothing may reach: a cache hit must not open a socket."""
     raise AssertionError(f"{url} was fetched when it should have come off the cache")
+
+
+def test_a_rate_limited_page_is_asked_again_after_the_wait_it_asked_for(monkeypatch) -> None:
+    """A 429 is "later", not "no" -- and the shop said how much later (ADR-0053).
+
+    Without this a rate-limited shop is a blank page and a figure grounding then
+    blanks, which reads exactly like a model that missed one.
+    """
+    handler, asked = answering(
+        make_response("https://shop.example", PAGE, status=429, retry_after="2"),
+        make_response("https://shop.example", PAGE),
+    )
+    stub_client(monkeypatch, handler)
+    waits: list[float] = []
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://shop.example", max_chars=1000, wait=waits.append)
+
+    assert "$129.99" in page.text
+    assert page.problem is None
+    assert waits == [2.0], "the wait the shop asked for, and one of them"
+    assert len(asked) == 2
+
+
+def test_a_page_that_asks_again_without_saying_when_still_gets_one_more_try(
+    monkeypatch,
+) -> None:
+    """Most rate limits arrive with no ``Retry-After`` at all, so the default is
+    what decides whether this helps in practice."""
+    handler, asked = answering(
+        make_response("https://shop.example", PAGE, status=429),
+        make_response("https://shop.example", PAGE),
+    )
+    stub_client(monkeypatch, handler)
+    waits: list[float] = []
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://shop.example", max_chars=1000, wait=waits.append)
+
+    assert waits == [_RETRY_WAIT]
+    assert "$129.99" in page.text
+    assert len(asked) == 2
+
+
+@pytest.mark.parametrize(
+    ("asked_for", "waited"),
+    [
+        ("3600", _MAX_RETRY_WAIT),  # an hour is a page to go without
+        ("-5", 0.0),  # whatever a shop sends, this is a wait
+        ("Wed, 21 Oct 2026 07:28:00 GMT", _RETRY_WAIT),  # the date form needs a clock
+        ("soon", _RETRY_WAIT),  # and so does nonsense, to the same answer
+    ],
+)
+def test_what_a_retry_after_header_is_allowed_to_ask_for(
+    monkeypatch, asked_for: str, waited: float
+) -> None:
+    """The header is whatever the shop chose to send, so every shape of it has an
+    answer here -- and none of them is "wait as long as you are told"."""
+    handler, _ = answering(
+        make_response("https://shop.example", PAGE, status=429, retry_after=asked_for),
+        make_response("https://shop.example", PAGE),
+    )
+    stub_client(monkeypatch, handler)
+    waits: list[float] = []
+
+    with httpx.Client() as client:
+        fetch_page(client, "https://shop.example", max_chars=1000, wait=waits.append)
+
+    assert waits == [waited]
+
+
+def test_a_503_is_asked_again_too(monkeypatch) -> None:
+    """The other status that means "later": a shop restarting is not a shop refusing."""
+    handler, asked = answering(
+        make_response("https://shop.example", PAGE, status=503),
+        make_response("https://shop.example", PAGE),
+    )
+    stub_client(monkeypatch, handler)
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://shop.example", max_chars=1000, wait=lambda _: None)
+
+    assert "$129.99" in page.text
+    assert len(asked) == 2
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        make_response("https://shop.example", PAGE, status=403),
+        make_response("https://shop.example", PAGE, status=404),
+        httpx.ConnectError("refused"),
+        httpx.ConnectTimeout("too slow"),
+    ],
+)
+def test_an_answer_that_is_not_come_back_later_is_asked_once(monkeypatch, answer) -> None:
+    """A refusal, a missing page and a server that is not there are all answers.
+
+    Asking twice makes them two identical failures and twice the wait -- and a
+    timeout in particular is already the whole of ``--fetch-timeout`` spent.
+    """
+    handler, asked = answering(answer, make_response("https://shop.example", PAGE))
+    stub_client(monkeypatch, handler)
+    waits: list[float] = []
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://shop.example", max_chars=1000, wait=waits.append)
+
+    assert page.text == ""
+    assert waits == []
+    assert len(asked) == 1
+
+
+def test_a_page_is_asked_once_where_there_is_nothing_to_wait_by(monkeypatch) -> None:
+    """The default, and what every caller but ``BuyAgent`` gets: a step of the
+    pipeline holds no clock, so one handed none does not wait (ADR-0053)."""
+    handler, asked = answering(
+        make_response("https://shop.example", PAGE, status=429, retry_after="1"),
+        make_response("https://shop.example", PAGE),
+    )
+    stub_client(monkeypatch, handler)
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://shop.example", max_chars=1000)
+
+    assert page == PageText("", "rate-limited (429)")
+    assert len(asked) == 1
+
+
+def test_the_second_answer_is_the_last_one(monkeypatch) -> None:
+    """Asked again and refused again, the page is gone and says how.
+
+    The phrase is the *second* failure's: that is the one the tally should count,
+    a shop that rate-limited and then fell over being a shop that fell over.
+    """
+    handler, asked = answering(
+        make_response("https://shop.example", PAGE, status=429),
+        httpx.ConnectError("refused"),
+    )
+    stub_client(monkeypatch, handler)
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://shop.example", max_chars=1000, wait=lambda _: None)
+
+    assert page == PageText("", "could not be reached")
+    assert len(asked) == 2
+
+
+def test_the_waiting_is_said_out_loud(monkeypatch, caplog) -> None:
+    """At INFO, unlike every other per-page line: this one is time the shopper is
+    spending rather than a page they are not getting."""
+    handler, _ = answering(
+        make_response("https://shop.example", PAGE, status=429, retry_after="2"),
+        make_response("https://shop.example", PAGE),
+    )
+    stub_client(monkeypatch, handler)
+
+    with caplog.at_level(logging.INFO), httpx.Client() as client:
+        fetch_page(client, "https://shop.example", max_chars=1000, wait=lambda _: None)
+
+    assert "asked to be tried again; waiting 2.0s" in caplog.text
+
+
+def test_enrich_hands_every_page_the_wait(monkeypatch) -> None:
+    """The whole point of the parameter: ``BuyAgent`` passes one clock and every
+    page in the pool fetches by it."""
+    handler, asked = answering(
+        make_response("https://a.example", PAGE, status=429),
+        make_response("https://a.example", PAGE),
+    )
+    stub_client(monkeypatch, handler)
+    waits: list[float] = []
+
+    enriched = enrich(
+        [SearchResult(url="https://a.example")], max_chars=1000, wait=waits.append
+    )
+
+    assert "$129.99" in enriched[0].content
+    assert waits == [_RETRY_WAIT]
+    assert len(asked) == 2
