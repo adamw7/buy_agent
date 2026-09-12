@@ -104,7 +104,7 @@ docker run --rm -p 8000:8000 buy-agent
 docker run --rm buy-agent -m buy_agent "espresso machine"
 ```
 
-A `node:22.22.3-bookworm-slim` stage builds `ui/`; a `python:3.13-slim` stage
+A `node:22.23.2-bookworm-slim` stage builds `ui/`; a `python:3.14-slim` stage
 installs `requirements.txt` and gets the build copied to `ui/dist/ui/browser`
 beside the package, where `server.DEFAULT_UI_DIR` looks. Neither model server is
 in the image or started by it (ADR-0015): the container talks to the host's
@@ -191,8 +191,8 @@ number nothing reads. `reasoning` *is* shared: Ollama's `think`, vLLM's
 
 `.github/workflows/ci.yml` runs two jobs for pushes to `main` and every pull
 request: `coverage run -m pytest`, `coverage report` and then `pylint buy_agent`
-on Python 3.13, and `npm run test:coverage && npm run build` in `ui/` on Node
-22.22.3. The lint is last in its job on purpose: a job stops at its first
+on Python 3.14, and `npm run test:coverage && npm run build` in `ui/` on Node
+22.23.2. The lint is last in its job on purpose: a job stops at its first
 failing step, and of the two the tests are what a change is about. Either
 platform alone leaves half the platform differences unchecked (ADR-0020), so
 both jobs are still matrixed over `ubuntu-latest` and `windows-latest`. Not on

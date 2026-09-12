@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   mutmut:
-    name: mutmut (Python 3.13)
+    name: mutmut (Python 3.14)
     runs-on: ubuntu-latest
     # A full run is a couple of minutes on a four-core runner; an hour is the
     # guard against a mutant that hangs the suite in a way mutmut's own timeout
@@ -34,7 +34,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: "3.14"
           cache: pip
           cache-dependency-path: requirements-mutation.txt
 
