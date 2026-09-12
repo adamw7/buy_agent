@@ -10,7 +10,7 @@ request, on Linux; Windows runs the same two on Saturdays and on a manual run
 (ADR-0037). This is the same gate, locally. Run it from the repository root with
 `.venv` active.
 
-## Python (Python 3.13)
+## Python (Python 3.14)
 
 ```powershell
 python -m coverage run -m pytest
@@ -40,7 +40,7 @@ python -m pylint buy_agent
   reason (ADR-0048, ADR-0049). A new message is a line to fix or a pragma to
   write, not a number to let slip.
 
-## UI (Node 22.22.3)
+## UI (Node 22.23.2)
 
 ```powershell
 cd ui

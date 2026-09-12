@@ -7,7 +7,7 @@
 
 # -- stage 1: build the UI ----------------------------------------------------
 # The Node version CI builds with; the Angular CLI refuses anything older.
-FROM node:22.22.3-bookworm-slim AS ui
+FROM node:22.23.2-bookworm-slim AS ui
 
 WORKDIR /ui
 
@@ -20,7 +20,7 @@ RUN npm run build
 
 # -- stage 2: the server and the pipeline -------------------------------------
 # The Python version CI tests against.
-FROM python:3.13-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

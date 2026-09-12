@@ -98,7 +98,7 @@ try {
         Note '.venv is already there'
     } else {
         if (-not (Have 'python')) {
-            throw 'python is not on PATH -- install Python 3.13 from https://www.python.org/downloads/'
+            throw 'python is not on PATH -- install Python 3.14 from https://www.python.org/downloads/'
         }
         Run 'python' @('-m', 'venv', '.venv') 'could not create .venv'
     }
@@ -203,7 +203,7 @@ try {
         Note 'ui\dist\ui\browser is already built -- rebuild with `npm run build` in ui\ after changing it'
     } elseif (-not (Have 'npm')) {
         Note 'npm is not on PATH, so the page will be a 503 -- the API still answers'
-        Note 'install Node 22.22.3+ from https://nodejs.org and run this again for the page'
+        Note 'install Node 22.23.2+ from https://nodejs.org and run this again for the page'
     } else {
         Push-Location (Join-Path $root 'ui')
         try {

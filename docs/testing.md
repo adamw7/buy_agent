@@ -127,7 +127,7 @@ twenty-five of its checkers only when asked, and `.pylintrc` asks for fifteen of
 them: the docstring sections held against the code beneath them, the `except`
 naming a class beside its own ancestor, the loop variable reassigned in its own
 body, the private name imported out of another package, the `typing` spelling
-3.13 answers with a builtin, and ten more, each stating a rule every module here
+3.14 answers with a builtin, and ten more, each stating a rule every module here
 already follows. The ten left out are left out in the same file and for the same
 kind of reason as the three that are off -- a ceiling on branching is a policy
 `tests/test_architecture.py` has already declined, a comparison against a number
@@ -229,8 +229,8 @@ already the file above.
 
 Both suites run on Windows and on Linux, on different triggers.
 `.github/workflows/ci.yml` spreads its two jobs -- `coverage run -m pytest` and
-then `pylint buy_agent` on Python 3.13, `npm run test:coverage && npm run build`
-on Node 22.22.3 -- over `ubuntu-latest` and `windows-latest`, with `fail-fast`
+then `pylint buy_agent` on Python 3.14, `npm run test:coverage && npm run build`
+on Node 22.23.2 -- over `ubuntu-latest` and `windows-latest`, with `fail-fast`
 off so a failure on one platform still reports the other. This project is
 written on Windows and its runners were Linux, each checking the half of the
 differences the other hides: a path separator, a default encoding, a socket that

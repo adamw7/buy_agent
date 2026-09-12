@@ -100,7 +100,7 @@ load-plugins =
     # imported from somebody else's package is a dependency on something they never
     # promised. `deprecated-typing-alias` holds the spelling the package already
     # uses: `collections.abc.Callable`, `list[Product]`, `str | None`, and nothing
-    # out of `typing` that 3.13 answers with a builtin.
+    # out of `typing` that 3.14 answers with a builtin.
     pylint.extensions.private_import,
     pylint.extensions.typing
 

@@ -23,7 +23,7 @@ jobs:
     # given, which is the same question on either platform and twice the runner
     # minutes to ask twice. What is platform-specific here is Ollama's own
     # packaging, and that is Ollama's to test.
-    name: pytest integration (Python 3.13, qwen3:0.6b on CPU)
+    name: pytest integration (Python 3.14, qwen3:0.6b on CPU)
     runs-on: ubuntu-latest
     # Everything: installing Ollama, pulling half a gigabyte of model, and the
     # inference itself on four cores with no GPU. A nightly job that cannot say
@@ -48,7 +48,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: "3.14"
           cache: pip
           cache-dependency-path: requirements-dev.txt
 
