@@ -12,6 +12,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from html import escape
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -87,6 +88,22 @@ def server(tmp_path: Path) -> Iterator[str]:
     StubAgent.delay = 0.0
     with serving(tmp_path) as base:
         yield base
+
+
+def unbuilt_workspace(tmp_path: Path) -> Path:
+    """A ``--ui-dir`` shaped like a real one: an Angular workspace with no build in it.
+
+    ``_workspace_for`` looks three levels up for a ``package.json``, so a bare
+    ``tmp_path`` is the *other* case -- a directory with no workspace above it,
+    which has no build command to be told about. The tests below are about the
+    command, so they need the shape that has one.
+    """
+    workspace = tmp_path / "ui"
+    workspace.mkdir()
+    (workspace / "package.json").write_text("{}", encoding="utf-8")
+    build = workspace / "dist" / "ui" / "browser"
+    build.parent.mkdir(parents=True)
+    return build
 
 
 @contextmanager
@@ -1160,13 +1177,15 @@ def test_writing_to_a_closed_connection_is_reported_rather_than_raised() -> None
 # -- the built app -------------------------------------------------------------
 
 
-def test_an_unbuilt_ui_says_how_to_build_it(server: str) -> None:
-    status, payload = get(f"{server}/")
+def test_an_unbuilt_ui_says_how_to_build_it(tmp_path: Path) -> None:
+    with serving(unbuilt_workspace(tmp_path)) as server:
+        status, payload = get(f"{server}/")
+
     assert status == 503
     assert "npm run build" in payload["error"]
 
 
-def test_an_unbuilt_ui_says_it_to_a_browser_as_a_page(server: str) -> None:
+def test_an_unbuilt_ui_says_it_to_a_browser_as_a_page(tmp_path: Path) -> None:
     """The one client that matters here, and the one that cannot read JSON.
 
     This message is what stands between somebody who has just started the server
@@ -1175,9 +1194,10 @@ def test_an_unbuilt_ui_says_it_to_a_browser_as_a_page(server: str) -> None:
     looking like the crash they are there to prevent. A browser says what it can
     read in ``Accept``; everything else keeps the JSON above.
     """
-    status, page = _call(
-        urllib.request.Request(f"{server}/", headers={"Accept": "text/html,*/*;q=0.8"})
-    )
+    with serving(unbuilt_workspace(tmp_path)) as server:
+        status, page = _call(
+            urllib.request.Request(f"{server}/", headers={"Accept": "text/html,*/*;q=0.8"})
+        )
 
     assert status == 503
     assert page.startswith("<!doctype html>")
@@ -1197,21 +1217,57 @@ def test_the_directory_to_run_npm_in_is_the_workspace() -> None:
     """
     workspace = _workspace_for(DEFAULT_UI_DIR)
 
+    assert workspace is not None
     assert (workspace / "package.json").is_file(), "the directory npm install needs"
     assert (workspace / "angular.json").is_file(), "...and npm run build"
 
 
-def test_a_ui_dir_with_no_workspace_above_it_names_itself(tmp_path: Path) -> None:
-    """A --ui-dir pointing elsewhere has no workspace above it in any knowable
-    place, and inventing one sends the reader to a directory that does not exist."""
-    assert _workspace_for(tmp_path) == tmp_path
+def test_a_ui_dir_with_no_workspace_above_it_is_not_told_to_build(tmp_path: Path) -> None:
+    """A remedy nobody can follow is worse than none.
+
+    A ``--ui-dir`` pointing elsewhere -- a release archive, a copy, a typo -- has
+    no workspace above it in any knowable place, and this used to name the build's
+    own directory anyway: run ``npm install`` in ``/somewhere/browser``, which
+    holds no ``package.json`` and never will. So where there is nothing to build,
+    the message says that and names the one thing that *is* an answer.
+    """
+    assert _workspace_for(tmp_path) is None
 
     with serving(tmp_path) as server:
         status, payload = get(f"{server}/")
 
     assert status == 503
-    assert str(tmp_path) in payload["error"]
-    assert "--ui-dir" in payload["error"]
+    said = payload["error"]
+    assert str(tmp_path) in said
+    assert "--ui-dir" in said
+    assert "npm" not in said, f"nothing to run npm in, so nothing said about npm: {said}"
+
+
+def test_the_page_for_a_ui_dir_with_no_workspace_drops_the_command_too(
+    tmp_path: Path,
+) -> None:
+    """The browser's half of the same: no command block, because there is no command."""
+    with serving(tmp_path) as server:
+        status, page = _call(
+            urllib.request.Request(f"{server}/", headers={"Accept": "text/html"})
+        )
+
+    assert status == 503
+    assert "npm" not in page
+    assert "<pre>" not in page
+    assert escape(str(tmp_path)) in page
+
+
+def test_a_ui_dir_a_reader_names_is_escaped_into_the_page(tmp_path: Path) -> None:
+    """The path in that sentence is somebody's argument, and this is HTML."""
+    awkward = tmp_path / "a<b>&c"
+    awkward.mkdir()
+
+    with serving(awkward) as server:
+        _, page = _call(urllib.request.Request(f"{server}/", headers={"Accept": "text/html"}))
+
+    assert "a<b>&c" not in page
+    assert "a&lt;b&gt;&amp;c" in page
 
 
 def test_the_app_is_served_and_owns_its_own_routes(tmp_path: Path) -> None:
@@ -1351,7 +1407,7 @@ def test_an_unbuilt_ui_is_warned_about_at_startup(monkeypatch, tmp_path: Path, c
     monkeypatch.setattr("buy_agent.server.create_server", lambda *a, **k: FakeHttpd())
 
     with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
-        main(["--ui-dir", str(tmp_path)])
+        main(["--ui-dir", str(unbuilt_workspace(tmp_path))])
 
     assert "npm run build" in caplog.text
 

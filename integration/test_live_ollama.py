@@ -15,7 +15,7 @@ Two of the four are covered here and two are not. A stopped server (raw
 ``httpx``) and a live server answering 404 for an unknown model
 (``ResponseError``) are both reachable from outside the agent. The
 ``httpx.TimeoutException`` branch of ``_ollama_hint`` -- the one that says to
-try a smaller model or a smaller ``--num-ctx`` -- is not: nothing in
+try a smaller model or a smaller context window -- is not: nothing in
 ``AgentConfig`` sets a client timeout, so provoking it live would mean
 constructing the provider's client here by hand, which is the duplication
 ``test_live_extraction`` just stopped doing. It stays a unit test raising the

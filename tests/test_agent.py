@@ -255,7 +255,7 @@ def test_an_unreadable_extraction_is_the_model_failing_not_the_request(
     with pytest.raises(ModelUnavailableError, match="not the JSON this asks for") as caught:
         agent.run("headphones")
 
-    assert "--num-ctx" in str(caught.value), "the remedy Ollama has for too little room"
+    assert "context window" in str(caught.value), "the remedy Ollama has for too little room"
     assert isinstance(caught.value.__cause__, UnreadableAnswerError)
 
 

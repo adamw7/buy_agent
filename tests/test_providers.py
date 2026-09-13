@@ -677,7 +677,7 @@ def test_an_unreadable_answer_names_the_room_ollama_can_be_given() -> None:
     message = hint(OLLAMA_CONFIG, UnreadableAnswerError("Invalid json output: {\"produ"))
 
     assert "not the JSON this asks for" in message
-    assert "--num-ctx" in message and "--no-think" in message
+    assert "context window" in message and "turn thinking off" in message
     assert "ollama serve" not in message and "ollama pull" not in message
 
 
@@ -688,7 +688,7 @@ def test_an_unreadable_answer_names_what_vllm_can_be_given_instead(serving) -> N
 
     assert "not the JSON this asks for" in message
     assert "--max-model-len" in message
-    assert "--num-ctx" not in message and "vllm serve" not in message
+    assert "context window" not in message and "vllm serve" not in message
 
 
 def test_a_half_finished_answer_is_not_read_as_a_missing_model() -> None:

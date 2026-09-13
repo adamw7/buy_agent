@@ -29,10 +29,22 @@ _TRACE_LIBRARIES = ("httpcore",)
 _FORMAT = "%(asctime)s %(levelname)-7s %(name)s | %(message)s"
 _DATEFMT = "%H:%M:%S"
 
+#: How the report itself is written, which is not how the narration is. Every
+#: line of a report carries the same clock, the same level and the same logger --
+#: the run ends and then says what it found -- so the prefix says nothing and
+#: costs thirty columns of an eighty-column terminal, wrapping the quotes that are
+#: the longest thing in it. ``--help`` offers ``> top.txt`` as the way to keep the
+#: answer, and what that caught was a log of it. The *records* are unchanged, so
+#: the browser's progress panel and a ``caplog`` still see one stream with times
+#: on it (:class:`~buy_agent.server._LogRelay` formats its own): this is the
+#: console handler's formatting and nothing else's.
+_REPORT_FORMAT = "%(message)s"
+
 #: The attribute marking the records that *are* the report, as against the
-#: narration around it. One logger and one format either way, so the SSE relay
+#: narration around it. One logger and one *record* either way, so the SSE relay
 #: sees a single stream -- but on a terminal the report goes to stdout, where
-#: ``> top.txt`` catches it and nothing else, and the progress to stderr.
+#: ``> top.txt`` catches it and nothing else and it is written plainly
+#: (:data:`_REPORT_FORMAT`), and the progress to stderr.
 _REPORT = "report"
 
 #: Names the stdout handler, so a second ``configure_logging`` replaces it rather
@@ -80,7 +92,7 @@ def _split_report_from_progress() -> None:
 
     handler = logging.StreamHandler(sys.stdout)
     handler.set_name(_REPORT_HANDLER)
-    handler.setFormatter(logging.Formatter(_FORMAT, datefmt=_DATEFMT))
+    handler.setFormatter(logging.Formatter(_REPORT_FORMAT))
     handler.addFilter(_is_report)
     package.addHandler(handler)
 

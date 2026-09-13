@@ -306,7 +306,7 @@ def test_the_hint_names_the_address_and_the_way_to_sign_without_paying() -> None
     hint = rails.HTTP.hint(http_config(), httpx.ConnectError("refused"))
 
     assert "https://pay.example" in hint
-    assert "--rail dry-run" in hint
+    assert "Dry run" in hint
 
 
 def _classes(errors: tuple[type[BaseException], ...]) -> set[type[BaseException]]:

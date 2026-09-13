@@ -95,6 +95,13 @@ nothing linting it. Without `ui/dist/ui/browser` the API still answers and the
 page is a 503 saying how to build it (`--ui-dir` points at a build elsewhere) --
 as a small HTML page for a client whose `Accept` says it is a browser, which is
 who reads that message, and as the same sentence in JSON for everyone else.
+`_unbuilt_remedy` writes that sentence and there are two of it, because a
+`--ui-dir` with no Angular workspace three levels above it -- a release archive,
+a copy, a typo -- has nowhere to run `npm install` and was told to run it in the
+build's own directory anyway. A remedy nobody can follow is worse than none, so
+where `_workspace_for` answers `None` the message says there is nothing there to
+build and names `--ui-dir` instead. One remedy, three places: the page, the JSON
+and the warning `main` logs at startup.
 
 ### The container
 
@@ -590,7 +597,16 @@ was ever held to.
   installed, and both still reach every other handler -- which keeps the
   browser's progress panel showing one stream and a `caplog` seeing the whole
   run. Only the *console* handler is told to skip the report; a handler writing
-  anywhere else is nobody's stream to take lines out of. `configure_logging`
+  anywhere else is nobody's stream to take lines out of. The two console
+  handlers write the same records differently, which is the other half of the
+  split: the narration keeps `_FORMAT`'s clock, level and step, since the gap
+  between two lines is what tells a four-minute extraction from a four-second
+  one, and the report is written plainly (`_REPORT_FORMAT`), since every line of
+  it shares one timestamp, one level and one logger -- thirty columns
+  distinguishing nothing, wrapping the quotes, and turning the `> top.txt`
+  `--help` offers into a log of the answer rather than the answer. Formatting
+  and not filtering, so the relay behind the browser's panel still builds its
+  own line off `record.created` and `record.name`. `configure_logging`
   sets the level itself rather than leaving it to `basicConfig`, which does
   nothing at all where the root logger already has a handler -- and the level is
   what it silently skips, so `--verbose` asked for DEBUG and got INFO. It
@@ -687,6 +703,21 @@ set `search_results = max(results, top)` -- searching for fewer pages than the
 report intends to show would cap the report. A new option belongs in
 `__main__.build_parser`, `api.parse_options` and `api.defaults_payload`, which
 seeds the web form.
+
+Two of them being two, **a sentence written below either door names the setting
+and never the flag.** `providers.hint`, `rails.hint` and
+`AgentConfig.__post_init__` are read twice: once on a terminal and once in the
+page, where the same words land in a banner or under a labelled box. "Give it
+more room with a larger `--num-ctx`" *is* the form's Context window field, named
+as something nobody looking at the form can type, and "give `--merchant-url`"
+was printed under the box labelled Payment endpoint -- the remedy sitting where
+the sentence was pointing away from. So the shared wording is the setting's
+name, each door shows the setting under that name, and `--help` uses the same
+nouns, which is what leaves the CLI reader a word to look up. Flags of *other*
+programs stay as they are (`vllm serve --max-model-len`, `pip --no-deps`): those
+are the same thing to type at either door. `tests/test_conventions.py` reads the
+flags off both parsers and holds every module below them to it, docstrings
+excepted -- there the flag is the right name for the flag.
 
 - **Numbers** belong in `config.LIMITS` too, where the range is declared once
   and read by both doors: written on each of them, the CLI comes to accept what
@@ -1122,6 +1153,10 @@ the other is otherwise invisible to both suites. It asserts that
   writes no `min` or `max` of its own into its template, and every key
   `parse_options` reads is one `SearchOptions` sends -- a key it reads and the
   form never sends is a refusal marking a box that is not there (ADR-0033);
+- no module below the two modules handed an `argv` puts one of their flags in a
+  sentence, docstrings excepted and other programs' flags allowed: a hint below
+  the doors is read at both, and the browser has no command line to type
+  `--num-ctx` into;
 - the `Dockerfile` pins the versions CI tests against, copies the built UI where
   the server looks, exposes the port it binds and installs the runtime
   dependencies only, and `.dockerignore` keeps out everything `.gitignore` does

@@ -2370,3 +2370,74 @@ def test_every_suppression_says_why(path: Path) -> None:
         assert above.startswith("#") and not _SUPPRESSION.match(above), (
             f"{path.name}:{number + 1} suppresses a check and says nothing about why"
         )
+
+
+#: Flags this project's own messages may name whatever door they arrive at,
+#: because they are not this CLI's: ``--max-model-len`` and ``--api-key`` are
+#: typed at ``vllm serve``, ``--no-deps`` at ``pip``. Somebody reading either
+#: sentence in a browser still has the same thing to type.
+_OTHER_PROGRAMS_FLAGS = frozenset({"--max-model-len", "--api-key", "--no-deps"})
+
+#: The two modules handed an ``argv``, and so the two allowed to name the flags
+#: they parse. Everything below them is read at *both* doors.
+_ARGV_MODULES = frozenset({"__main__.py", "server.py"})
+
+_FLAG = re.compile(r"--[a-z][a-z0-9-]*")
+
+
+def _cli_flags() -> set[str]:
+    """Every flag the two parsers offer, read off the parsers rather than listed."""
+    flags: set[str] = set()
+    for parser in (build_parser(), build_server_parser()):
+        for action in parser._actions:  # pylint: disable=protected-access
+            flags.update(option for option in action.option_strings if option.startswith("--"))
+    return flags - _OTHER_PROGRAMS_FLAGS
+
+
+def _spoken_strings(tree: ast.Module) -> list[ast.Constant]:
+    """Every string literal in a module that is not a docstring.
+
+    A docstring is written for somebody reading the source, where the flag is the
+    right name for the flag. What this is about is the sentences that travel.
+    """
+    docstrings = {
+        ast.get_docstring(node, clean=False)
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    spoken = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if node.value not in docstrings:
+                spoken.append(node)
+    return spoken
+
+
+def test_no_sentence_below_the_two_doors_tells_a_reader_to_type_a_flag() -> None:
+    """A hint the browser shows must not name a command line it does not have.
+
+    ``providers.hint``, ``rails.hint`` and ``AgentConfig.__post_init__`` are below
+    both front doors, so every sentence they write is read twice: once on a
+    terminal and once in the page, where it lands in a banner or under a labelled
+    box. "give it more room with a larger ``--num-ctx``" was the form's Context
+    window field, named as something nobody looking at the form could type, and
+    "give ``--merchant-url``" was printed *under the box labelled Payment
+    endpoint* -- the one place the remedy was already sitting.
+
+    So a shared sentence names the setting and each door shows it under that name;
+    ``--help`` uses the same nouns, which is what leaves the CLI reader a word to
+    look up. The exceptions are flags of *other* programs (:data:`_OTHER_PROGRAMS_FLAGS`),
+    which are the same thing to type at either door.
+    """
+    flags = _cli_flags()
+    assert "--num-ctx" in flags and "--merchant-url" in flags, "the parsers were read"
+
+    for module in package_modules():
+        if module.name in _ARGV_MODULES:
+            continue
+        for node in _spoken_strings(module_tree(module)):
+            named = sorted(set(_FLAG.findall(node.value)) & flags)
+            assert not named, (
+                f"{module.name}:{node.lineno} tells the reader to type {named[0]}, "
+                f"which the browser has no command line for; name the setting instead"
+            )

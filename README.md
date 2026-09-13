@@ -25,16 +25,16 @@ $ python -m buy_agent "wireless noise cancelling headphones under $200"
 18:12:20 INFO  buy_agent.fetch  | Got usable page text from 10 of 10 result(s)
 18:13:24 INFO  buy_agent.agent  | Extracted 9 candidate(s)
 18:13:24 INFO  buy_agent.verif. | Dropped unsupported figures on 4 product(s)
-18:13:24 INFO  buy_agent        | ==============================================================
-18:13:24 INFO  buy_agent        | TOP 3 OF 9 PRODUCTS
-18:13:24 INFO  buy_agent        | ==============================================================
-18:13:24 INFO  buy_agent        | #1  Bose ANC
-18:13:24 INFO  buy_agent        |      score  : 0.967
-18:13:24 INFO  buy_agent        |      price  : 152.00
-18:13:24 INFO  buy_agent        |      rating : 4.7/5 (5,874 reviews)
-18:13:24 INFO  buy_agent        |      url    : https://...
-18:13:24 INFO  buy_agent        |      says   : the noise cancelling is uncanny for the money
-18:13:24 INFO  buy_agent        |      says   : the case is too bulky for a coat pocket
+==============================================================
+TOP 3 OF 9 PRODUCTS
+==============================================================
+#1  Bose ANC
+     score  : 0.967
+     price  : 152.00
+     rating : 4.7/5 (5,874 reviews)
+     url    : https://...
+     says   : the noise cancelling is uncanny for the money
+     says   : the case is too bulky for a coat pocket
 ```
 
 [Architecture](docs/architecture.md) draws the whole of it as C4 diagrams --
@@ -118,6 +118,12 @@ keeps the answer and leaves the narration on screen:
 ```powershell
 python -m buy_agent "gaming laptop under $1500" > top.txt
 ```
+
+The narration is prefixed with a clock, a level and the step that wrote it --
+the gap between two lines is what tells a four-minute extraction from a
+four-second one. The report is not: every line of it shares one timestamp, so
+the prefix would distinguish nothing and take thirty columns off the quotes,
+which are the longest thing in it. `top.txt` is the block above, as printed.
 
 The exit code says which kind of ending it was -- `0` found products, `1` failed
 (the reason is the last line on stderr), `2` is a usage error, `3` is a run that
