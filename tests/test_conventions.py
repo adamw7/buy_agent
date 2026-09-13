@@ -48,6 +48,7 @@ import re
 import sys
 from configparser import ConfigParser
 from functools import cache
+from importlib.metadata import packages_distributions
 from pathlib import Path, PurePosixPath
 from typing import get_args
 
@@ -619,6 +620,93 @@ def test_every_record_a_record_points_at_exists(path: Path) -> None:
     numbers = {other.stem[:4] for other in adr_files()}
 
     assert set(re.findall(r"ADR-(\d{4})", path.read_text(encoding="utf-8"))) <= numbers
+
+
+# -- the dependency list -------------------------------------------------------
+
+_REQUIREMENTS = _ROOT / "requirements.txt"
+
+#: The two files paying is installed from. Read for their names only: what they
+#: pin is optional to a run, so an environment without the AP2 SDK resolves none
+#: of it and the rule below would call ``mandates.py``'s imports unpinned.
+_AP2_REQUIREMENTS = (_ROOT / "requirements-ap2.txt", _ROOT / "requirements-ap2-deps.txt")
+
+
+def distribution(name: str) -> str:
+    """A package name as pip and ``importlib.metadata`` spell it between them."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def pinned_in(path: Path) -> set[str]:
+    """The distributions one requirements file names, its comments taken out.
+
+    The version, the marker and the direct reference are all dropped: what a rule
+    about *which* dependencies exist wants is the name, and ``ap2 @ git+https://``
+    is that name spelt the way a package with no release on PyPI has to be.
+    """
+    names = set()
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.split("#", 1)[0].strip()
+        # A `-r other.txt` line names a file rather than a package.
+        if not line or line.startswith("-"):
+            continue
+        names.add(distribution(re.split(r"[<>=!~;@\[ ]", line, maxsplit=1)[0].strip()))
+    return names
+
+
+def distributions_the_package_imports() -> set[str]:
+    """Every installed distribution ``buy_agent`` has an ``import`` for.
+
+    Read off the source rather than off the import graph, so a deferred import
+    counts: ``mandates.py`` reaches the AP2 SDK inside a function on purpose
+    (ADR-0046), and a rule that only saw module-level imports would call the whole
+    payment stack unused. A name resolving to no installed distribution is the
+    standard library or this package's own, which is what leaves the mapping from
+    module to distribution to ``importlib.metadata`` rather than to a table
+    written down here and gone stale by the next dependency whose two names
+    differ.
+    """
+    installed = packages_distributions()
+    found: set[str] = set()
+    for path in sorted(_PACKAGE.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                modules = [node.module]
+            else:
+                continue
+            for module in modules:
+                found.update(distribution(dist) for dist in installed.get(module.split(".")[0], ()))
+    return found
+
+
+def test_every_runtime_dependency_is_one_the_package_imports() -> None:
+    """A pin nothing imports is weight in the image and a surface to patch.
+
+    "Can anything be dropped" is answered here rather than by reading the list: a
+    dependency that stops being used is invisible to both suites -- every module
+    still passes its own tests, the coverage floor is still met and the mutation
+    run still scores. The converse half is the more useful one on the day it
+    fails: a third-party module imported and pinned nowhere installs on this
+    machine and on nobody else's, since it is arriving behind something that
+    happens to want it today.
+
+    Both halves are over the pinned *name* and never the version, which is
+    ``requirements.txt``'s to say. ``requirements-dev.txt`` and
+    ``requirements-mutation.txt`` are deliberately outside it: pytest, coverage,
+    the linter and mutmut are *run* over this package rather than imported by it,
+    which is the sentence each of those files already opens with. The two paying
+    files are outside the first half for the other reason -- the SDK is optional
+    and a checkout without it pins names nothing here can resolve -- and inside
+    the second, so an import of it still has to be pinned somewhere.
+    """
+    pinned = pinned_in(_REQUIREMENTS)
+    optional = set().union(*(pinned_in(path) for path in _AP2_REQUIREMENTS))
+    imported = distributions_the_package_imports()
+
+    assert not pinned - imported, "pinned in requirements.txt and imported by nothing"
+    assert not imported - pinned - optional, "imported by the package and pinned nowhere"
 
 
 # -- the container image -------------------------------------------------------

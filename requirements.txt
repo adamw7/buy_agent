@@ -1,6 +1,17 @@
 # Direct dependencies, pinned to the versions this was tested against.
 # Transitive packages (httpcore, primp, pydantic-core, ...) are resolved by pip.
 #
+# Direct meaning *imported by the package*, which is the rule
+# tests/test_conventions.py holds this file to in both directions: a pin nothing
+# imports fails, and so does an import pinned in no requirements file. It is not
+# the same as "would not be installed otherwise", and three of the six below are
+# named anyway for that reason -- `ollama` asks for httpx and pydantic, `ddgs`
+# for lxml. Taking one of those lines out drops no package from the image; it
+# drops the *version* this was tested against, leaving the floor some other
+# package happens to want today. Which is also the answer to whether the list
+# can be shortened: only by giving something up -- a model server (ADR-0028) or
+# the search -- and never for free.
+#
 # There is no LangChain here on purpose (ADR-0038): the two model calls are one
 # prompt and one JSON schema each, which `buy_agent/chat.py` is, and a framework
 # for them brought seventeen packages -- a tracing client, a tokeniser and their
