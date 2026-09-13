@@ -160,14 +160,9 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
     defaults = AgentConfig()
     num_products = _read(data, "results", defaults.num_products, _bounded(int))
     top_n = _read(data, "top", defaults.top_n, _bounded(int))
-    sort_by = _read(data, "sort_by", "score", _as_sort_by)
+    sort_by = _read(data, "sort_by", "score", _among(SORT_OPTIONS))
 
-    provider = _read(data, "provider", defaults.provider, _as_text)
-    if provider not in PROVIDER_OPTIONS:
-        raise ApiError(
-            f"provider must be one of {', '.join(PROVIDER_OPTIONS)}; got {provider!r}.",
-            field="provider",
-        )
+    provider = _read(data, "provider", defaults.provider, _among(PROVIDER_OPTIONS))
 
     # Through ``_configured``, so the config's own refusal is answered like
     # every other unusable value rather than escaping as a 500 (ADR-0033).
@@ -200,7 +195,7 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         # Paying is off unless a request asks for it, and the rail decides what
         # asking costs -- the default one charges nobody.
         pay=_read(data, "pay", defaults.pay, _as_bool),
-        rail=_read(data, "rail", defaults.rail, _as_rail),
+        rail=_read(data, "rail", defaults.rail, _among(RAIL_OPTIONS)),
         merchant_url=_read(data, "merchant_url", "", _as_text),
         spend_limit=_read(data, "spend_limit", defaults.spend_limit, _bounded(float)),
     )
@@ -293,7 +288,7 @@ def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
     """
     defaults = AgentConfig()
     request = _read(data, "request", "", _as_text)
-    sort_by = _read(data, "sort_by", "score", _as_sort_by)
+    sort_by = _read(data, "sort_by", "score", _among(SORT_OPTIONS))
     top_n = _read(data, "top", defaults.top_n, _bounded(int))
     # Named rather than left to ``rank_products``'s own fallback, so the weights
     # the answer reports are the ones it ranked by: a re-sort takes no config.
@@ -698,30 +693,27 @@ def _as_text(_key: str, text: str) -> str:
     return text
 
 
-def _as_sort_by(key: str, text: str) -> str:
-    """A ranking criterion, checked against the ones ``rank_products`` sorts by.
+def _among(options: tuple[str, ...]) -> Callable[[str, str], str]:
+    """A parser for the three settings that name a row of a table.
 
-    Read by both doors into the ranking, so a fourth is offered by both the day it is
-    added.
+    The criterion ``rank_products`` sorts by, the model server and the rail: each is
+    whatever its own table holds, so a row added there is offered by this door on the
+    same day. Refused here rather than by ``AgentConfig``'s own ``ValueError`` so the
+    answer carries the field that marks the box (ADR-0033).
+
+    The key is not an argument for the reason :func:`_bounded`'s is not: :func:`_read`
+    already hands it to the parser, and one named here too is a value quietly refused
+    under another setting's name.
     """
-    if text not in SORT_OPTIONS:
-        raise ApiError(
-            f"sort_by must be one of {', '.join(SORT_OPTIONS)}; got {text!r}.", field=key
-        )
-    return text
 
+    def parse(key: str, text: str) -> str:
+        if text not in options:
+            raise ApiError(
+                f"{key} must be one of {', '.join(options)}; got {text!r}.", field=key
+            )
+        return text
 
-def _as_rail(key: str, text: str) -> str:
-    """A payment rail, checked against the ones there are.
-
-    Refused here rather than in ``AgentConfig``'s own ``ValueError`` so the answer
-    carries the field that marks the box (ADR-0033).
-    """
-    if text not in RAIL_OPTIONS:
-        raise ApiError(
-            f"rail must be one of {', '.join(RAIL_OPTIONS)}; got {text!r}.", field=key
-        )
-    return text
+    return parse
 
 
 def _as_region(key: str, text: str) -> str:
