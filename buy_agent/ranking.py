@@ -36,15 +36,11 @@ CRITERIA: tuple[str, ...] = ("rating", "popularity", "price")
 
 #: What each :data:`SortBy` puts first, said as the ordering rather than as the
 #: field. The report needs it: sorted by anything but the score, the block reads
-#: 0.68, 0.98, 0.83 down the left edge and nothing in it says why -- which is a
-#: ranking that looks broken rather than one ordered as it was asked to be. The
-#: browser has the criterion in a control beside the results and a `> top.txt`
-#: has nothing, so the line has to carry it.
-#:
-#: The direction is the half a field name cannot say: "by price" does not
-#: distinguish the cheapest from the dearest, and :func:`rank_products` has a
-#: branch per criterion that decides it. A fourth criterion needs a phrase here,
-#: which ``tests/test_conventions.py`` holds against :data:`SortBy`.
+#: 0.68, 0.98, 0.83 down the left edge and nothing in it says why. The direction is
+#: the half a field name cannot say -- "by price" does not distinguish the cheapest
+#: from the dearest, and :func:`rank_products` has a branch per criterion that
+#: decides it. A fourth criterion needs a phrase here, which
+#: ``tests/test_conventions.py`` holds against :data:`SortBy`.
 ORDERINGS: dict[SortBy, str] = {
     "score": "best score first",
     "price": "cheapest first",
@@ -69,10 +65,9 @@ class RankingWeights:
         """Each criterion's share of the blend, by name, adding up to one.
 
         The weights as a reader needs them rather than as they were written: 0.5 out of
-        1.0 and 5 out of 10 weigh the same. Without them a breakdown cannot be read at all
-        -- "rating 0.94, price 1.00" beside a score of 0.96 invites adding three numbers
-        that were never meant to be added (ADR-0041). Zero throughout for weights totalling
-        nothing, which is the run ``score_product`` scores 0.0 for.
+        1.0 and 5 out of 10 weigh the same. Without them a breakdown cannot be read at
+        all (ADR-0041). Zero throughout for weights totalling nothing, which is the run
+        ``score_product`` scores 0.0 for.
         """
         total = self.total
         return {
@@ -90,11 +85,10 @@ def _price_share(
     :attr:`~buy_agent.models.ScoreParts.neutral` and prints it "assumed": a price
     nobody published, or one in a currency this run cannot place (ADR-0043).
 
-    :data:`NEUTRAL` is the other answer, and deliberately not the same thing. A set
-    with one distinct price has a price that *was* read and simply does not separate
-    anything, so it is returned as the 0.5 it scores rather than as an assumption: a
-    one-product run said "price assumed" over a figure grounding had backed, which is
-    the one thing ``neutral`` exists to tell apart (ADR-0041).
+    :data:`NEUTRAL` is the other answer, and deliberately not the same thing. A set with
+    one distinct price has a price that *was* read and simply does not separate
+    anything, so it is returned as the 0.5 it scores rather than as an assumption
+    (ADR-0041).
 
     ``cheapest`` and ``priciest`` are ``None`` only where no product has a placeable
     price, and then ``placed`` is ``None`` too -- so they are asked after it.
@@ -125,9 +119,8 @@ def score_product(
     says these are different currencies".
 
     The three shares come back beside the blend rather than being added up and
-    forgotten (ADR-0041). Without them a report can say what a product scored but not
-    what it scored *on*: ``NEUTRAL`` is what a product with no rating gets and also
-    what a thoroughly average one gets, and ``neutral`` is what names the difference.
+    forgotten (ADR-0041): ``NEUTRAL`` is what a product with no rating gets and also
+    what a thoroughly average one gets, and ``neutral`` names the difference.
     """
     # ``None`` is "nothing was read", turned into ``NEUTRAL`` once below rather
     # than by testing a share against 0.5: a product priced mid-way through the
@@ -182,10 +175,8 @@ def rank_products(
     price in a currency this set is not counted in sinks with them (ADR-0043).
     """
     weights = weights or RankingWeights()
-    # The scale is the run's own currency and the prices on it: one price in yen
-    # would otherwise put every dollar price at the cheap end of a range five
-    # orders of magnitude wide (ADR-0043). A fact about the set, so worked out
-    # here and passed down.
+    # The scale is the run's own currency and the prices on it (ADR-0043). A fact
+    # about the set, so worked out here and passed down.
     currency = dominant_currency(products)
     prices = [comparable_price(product, currency) for product in products]
     on_the_scale = [price for price in prices if price is not None]

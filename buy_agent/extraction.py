@@ -4,8 +4,8 @@ of the search results -- plus the deterministic clean-up that follows.
 Both chains are answered under a JSON schema, constraining decoding to it, so a
 small local model cannot answer with prose or a half-closed object; how that
 schema is declared is the provider's to say (ADR-0004, ADR-0038). What the model
-still gets wrong is judgement, not syntax: it will happily report "12 Best
-Headphones Under $200" as a product, which is what ``clean_products`` and
+still gets wrong is judgement, not syntax -- it will happily report "12 Best
+Headphones Under $200" as a product -- which is what ``clean_products`` and
 ``deduplicate`` are for.
 """
 
@@ -217,12 +217,10 @@ def clean_products(products: Sequence[Product]) -> list[Product]:
 def deduplicate(products: Sequence[Product], limit: int) -> list[Product]:
     """Drop repeats of the same product, keeping the most complete entry.
 
-    Search results overlap heavily, so without this the top 3 can be one product
-    listed three times. One pass of :func:`merge_variants` does all of it: an exact
-    repeat is the easiest case of a name differing by descriptive words, and a pass of
-    its own for exact names would be the same merge under a second rule about whose
-    name survives. A name with nothing to identify it by is dropped: it can be
-    neither merged nor reported.
+    Search results overlap heavily, so without this the top 3 can be one product listed
+    three times. One pass of :func:`merge_variants` does all of it, an exact repeat
+    being the easiest case of a name differing by descriptive words. A name with nothing
+    to identify it by is dropped: it can be neither merged nor reported.
     """
     named = [product for product in products if product.dedup_key]
     if len(named) != len(products):
@@ -277,8 +275,8 @@ def _same_product(left: str, right: str) -> bool:
 
 #: Fields worth carrying over from a weaker listing, and the list to edit when
 #: one is added to ``Product``. Each moves with whatever only qualifies it
-#: (:data:`~buy_agent.models.QUALIFIERS`): grounding ran first, so only an
-#: invented *pairing* is left to catch. ``opinions`` is deliberately not here.
+#: (:data:`~buy_agent.models.QUALIFIERS`, ADR-0022): grounding ran first, so only
+#: an invented *pairing* is left to catch. ``opinions`` is deliberately not here.
 _MERGEABLE_FIELDS = ("price", "rating", "seller", "url", "notes")
 
 
@@ -303,12 +301,8 @@ def _merge_opinions(winner: Product, loser: Product) -> list[Opinion]:
 
     The only field taken from both: two listings quoting different prices are in
     conflict and one has to win, two reviewers are not. Nothing is invented -- each
-    quote was grounded on its own, and a quote says who it is about by being about the
-    product rather than by sitting next to a figure.
-
-    A quote travels with the page that printed it, the one qualifier here needing no
-    rule of its own (ADR-0042): the pair is one object, so neither listing's link can
-    end up under the other listing's words.
+    quote was grounded on its own. A quote travels with the page that printed it and so
+    needs no qualifier rule of its own (ADR-0042), the pair being one object.
     """
     return distinct_quotes([*winner.opinions, *loser.opinions])
 

@@ -2,10 +2,10 @@
 
 Two shapes of "product" on purpose. ``ExtractedProduct`` is what the LLM is asked
 for: every field concrete, with a sentinel for "unknown" (``-1``, ``""``, ``[]``)
-rather than nullable -- the JSON schema becomes a decoding grammar, and a required
-``number`` makes it structurally impossible for a small model to answer ``"N/A"``
-and fail validation for the whole batch. ``Product`` is the domain model the rest
-of the code uses, where unknown really is ``None``.
+rather than nullable, the JSON schema becoming a decoding grammar in which a
+required ``number`` makes ``"N/A"`` structurally impossible (ADR-0004).
+``Product`` is the domain model the rest of the code uses, where unknown really is
+``None``.
 """
 
 from __future__ import annotations
@@ -34,17 +34,15 @@ _MAX_OPINION_LENGTH = 240
 
 #: How a page's way of naming a currency reads as the ISO code the schema asks
 #: for. The field says "USD or EUR" and a small model hands back what the page
-#: printed, so a set comes out split between "$" and "USD" --  which
-#: :func:`comparable_price` refuses to compare across (ADR-0043), half the prices
-#: then scoring ``NEUTRAL`` for a difference in spelling.
+#: printed, so a set comes out split between "$" and "USD", which
+#: :func:`comparable_price` refuses to compare across (ADR-0043).
 #:
 #: Only spellings that name one currency are here. ``¥`` is the yen's and the
-#: yuan's, ``kr`` is three countries': an ambiguous sign left as written is a
-#: price this run cannot place, which is ADR-0043's answer, while a guess would
-#: place it wrongly. ``$`` is the one guess, the currencies sharing it spelling
-#: themselves ``C$`` and ``A$`` where it matters. By the same rule "Rs" is absent
-#: (three countries' rupee) and "lira" (a currency and a historical one), while
-#: the signs beside them are each one currency's.
+#: yuan's, ``kr`` is three countries': an ambiguous sign is left as written, which
+#: makes it a price this run cannot place rather than one placed wrongly. ``$`` is
+#: the one guess, the currencies sharing it spelling themselves ``C$`` and ``A$``
+#: where it matters; by the same rule "Rs" and "lira" are absent while the signs
+#: beside them are each one currency's.
 #:
 #: Every sign and spelling :mod:`buy_agent.fetch` will keep a price line for has
 #: to be placeable here, or that line is read off a page and then scored on
@@ -143,13 +141,10 @@ class ExtractedProduct(BaseModel):
 class Opinion(BaseModel):
     """One thing a source page said about a product, and the page that said it.
 
-    The quote and its page are one fact: ``verify_opinions`` keeps a verdict only
-    where *one page that mentions this product* printed it (ADR-0025), and following
-    that page is the only way a shopper can check a quote (ADR-0042).
-
-    ``url`` is nullable because a result can carry no URL of its own and the page
-    printed the words all the same. It is never the model's: like ``Product.url`` it
-    is written out of the results that were searched (ADR-0017).
+    The quote and its page are one fact (ADR-0025, ADR-0042). ``url`` is nullable
+    because a result can carry no URL of its own and the page printed the words all the
+    same, and it is never the model's: like ``Product.url`` it is written out of the
+    results that were searched (ADR-0017).
     """
 
     text: str
@@ -230,10 +225,8 @@ class Product(BaseModel):
 #: Fields that describe another field rather than the product (ADR-0022). A
 #: currency is a fact about *that listing's* price and a review count is what
 #: *that listing's* rating was averaged over, so a figure carries its qualifiers
-#: wherever it moves and takes them down wherever it is rejected. Left alone,
-#: either describes a figure it was never printed against: "129.00 EUR" out of a
-#: page saying 129 and one saying "249 EUR". Declared beside the fields it names,
-#: both places that move a figure needing it
+#: wherever it moves and takes them down wherever it is rejected. Declared beside
+#: the fields it names, both places that move a figure needing it
 #: (:func:`buy_agent.extraction._fill_gaps`,
 #: :func:`buy_agent.verification.verify_numbers`).
 QUALIFIERS: dict[str, tuple[str, ...]] = {
@@ -250,8 +243,7 @@ def dominant_currency(products: Iterable[Product]) -> str | None:
     are in different currencies, and they are compared as they always were.
 
     A run's prices are only comparable inside one currency (ADR-0043), and this is the
-    one that gets to be it. Not converted -- no rate is shipped and a stale one is a
-    wrong ranking dressed as a right one.
+    one that gets to be it. Nothing is converted.
     """
     counted = Counter(
         product.currency
@@ -267,13 +259,11 @@ def dominant_currency(products: Iterable[Product]) -> str | None:
 def comparable_price(product: Product, currency: str | None) -> float | None:
     """``product``'s price on this run's own scale, or ``None`` if it is not on it.
 
-    A price printed without a currency is taken as the run's own: that is what every
-    price here was until ADR-0043, and refusing to place the commonest shape of price
-    there is would score most sets on nothing.
-
-    A price in some *other* currency is not a smaller number, it is one this run
-    cannot place. ``None`` says that, which is also what a price nobody published
-    gets -- so an unpriced product needs no case of its own.
+    A price printed without a currency is taken as the run's own, refusing the
+    commonest shape of price there is being a set scored on nothing. A price in some
+    *other* currency is not a smaller number but one this run cannot place (ADR-0043),
+    and ``None`` says that -- which is what a price nobody published gets too, so an
+    unpriced product needs no case of its own.
     """
     on_the_scale = currency is None or product.currency in (None, currency)
     return product.price if on_the_scale else None
@@ -282,11 +272,10 @@ def comparable_price(product: Product, currency: str | None) -> float | None:
 class ScoreParts(BaseModel):
     """What one product's blended score is made of, a share per criterion.
 
-    Reported rather than kept, because a bare 0.62 says nothing about *why* a product
-    placed where it did -- and what a shopper most needs to tell apart is a criterion
-    that scored middling from one never known at all, which
-    :data:`buy_agent.ranking.NEUTRAL` makes look identical (ADR-0041). ``neutral``
-    names the criteria that were assumed rather than read.
+    Reported rather than kept (ADR-0041): a bare 0.62 says nothing about *why* a
+    product placed where it did, and :data:`buy_agent.ranking.NEUTRAL` makes a criterion
+    that scored middling look identical to one never known at all. ``neutral`` names the
+    criteria that were assumed rather than read.
 
     Every share is in ``[0, 1]`` and none is weighted: how much each counts is
     ``RankingWeights``, a setting for the whole run. ``total`` is what they blend to,
@@ -328,7 +317,7 @@ def _currency(value: str) -> str | None:
 
     Upper-cased and read through :data:`_CURRENCY_ALIASES`, so a printed sign and a
     printed code are one currency. An unknown spelling is kept as written rather than
-    blanked: an unrecognised currency is a price this run cannot place, while a blank
+    blanked, an unrecognised currency being a price this run cannot place while a blank
     one is placed on the set's own scale (ADR-0043).
     """
     code = _clean(value).upper()
@@ -352,10 +341,9 @@ def distinct_quotes(values: Iterable[Opinion]) -> list[Opinion]:
 def _quotes(values: list[str]) -> list[Opinion]:
     """Tidy the quoted opinions, dropping blanks, repeats and whole paragraphs.
 
-    Every one comes out pointing at nothing: the model is asked for the words and
-    never for the page, which is
-    :func:`buy_agent.verification.verify_opinions`' to fill in out of the pages that
-    were searched (ADR-0017, ADR-0042).
+    Every one comes out pointing at nothing: the model is asked for the words and never
+    for the page, which :func:`buy_agent.verification.verify_opinions` fills in out of
+    the pages that were searched (ADR-0017, ADR-0042).
     """
     cleaned = (_clean(value) for value in values)
     return distinct_quotes(

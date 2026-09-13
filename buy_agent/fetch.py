@@ -38,16 +38,14 @@ USER_AGENT = (
 )
 
 #: The signs a price may be written with, one character each. Every one of them
-#: is a currency :func:`buy_agent.models._currency` can place, except ``¥``, which
-#: is the yen's and the yuan's alike and is deliberately left unplaceable
-#: (ADR-0043) -- the line is still kept, the figure still grounds, and the price
-#: is one this run cannot compare. ``tests/test_conventions.py`` holds the two
-#: tables to that, a sign read here and unplaceable there being a price taken off
-#: a page and then scored on nothing.
-#:
-#: A sign of more than one character cannot go in a character class, and the ones
-#: that matter need no row: ``R$``, ``C$`` and ``US$`` all carry the ``$`` this
-#: already matches.
+#: is a currency :func:`buy_agent.models._currency` can place, except ``¥``, the
+#: yen's and the yuan's alike and deliberately left unplaceable (ADR-0043) -- the
+#: line is still kept, the figure still grounds, and the price is one this run
+#: cannot compare. ``tests/test_conventions.py`` holds the two tables to that, a
+#: sign read here and unplaceable there being a price taken off a page and then
+#: scored on nothing. A sign of more than one character cannot go in a character
+#: class, and the ones that matter need no row: ``R$``, ``C$`` and ``US$`` all
+#: carry the ``$`` this already matches.
 _CURRENCY_SIGNS = "$€£¥₹₩₪₺"  # dollar, euro, pound, yen, rupee, won, shekel, lira
 #: The same currencies as their ISO codes, a page being as likely to print
 #: "129 EUR" as "€129". Every sign above has its code here, or a price would be
@@ -134,9 +132,8 @@ _MIN_OPINION = 25
 _MAX_PAGE_BYTES = 4 * 1024 * 1024
 
 #: The two statuses that mean "ask again later" rather than "no". Everything else
-#: a shop answers is an answer: a 403 is a refusal, a 404 is a page that is not
-#: there, and asking either twice is two identical failures and twice the wait
-#: (ADR-0053).
+#: a shop answers is an answer -- a 403 is a refusal, a 404 is a page that is not
+#: there -- and asking either twice is two identical failures (ADR-0053).
 _RETRY_STATUSES = frozenset({429, 503})
 
 #: How long to wait before asking again where the answer did not say. A rate limit
@@ -190,7 +187,7 @@ class PageText(NamedTuple):
     carried being the DEBUG line beside it. Set exactly when ``text`` is empty.
 
     ``cached`` says the text came off disk rather than the web (ADR-0040), counted the
-    same way: a run that read nine of its ten pages off disk took seconds, and the
+    same way -- a run that read nine of its ten pages off disk took seconds, and the
     line saying so is what tells that from a web that suddenly got fast.
     """
 
@@ -255,10 +252,10 @@ def condense(text: str, *, max_chars: int, opinion_chars: int = 400) -> str:
             if not take(index):
                 break
             # Then the line above it -- usually the product this is about, shop
-            # pages putting the price under the name. Context is the one thing
-            # here that is not a figure, so it is the one worth going without:
-            # taken first, a long line of it ended the sweep and took every price
-            # below it down, with most of the budget unspent.
+            # pages putting the price under the name. Context is the one thing here
+            # that is not a figure, so it is the one worth going without: taken
+            # first, a long line of it ended the sweep and took every price below it
+            # down, with most of the budget unspent.
             if index:
                 take(index - 1)
 
@@ -289,18 +286,18 @@ def fetch_page(
     """Read one URL -- off the cache or off the web -- and condense it.
 
     Every way of yielding nothing is named rather than collapsed into "": a shop that
-    answered 403, a proxy that swallowed the connection and a page that genuinely
-    quoted no figures are three diagnoses, and without them the run reports the same
-    "0 of 10" for all three.
+    answered 403, a proxy that swallowed the connection and a page that genuinely quoted
+    no figures are three diagnoses, and without them the run reports the same "0 of 10"
+    for all three.
 
     The condensing happens on both paths and the cache only ever holds the text that
     went into it, so a page read off disk yields what the web would at these budgets
-    (ADR-0040). Only a page that was read is stored: a 403 stays live, so a shop that
-    has stopped refusing is noticed on the next run.
+    (ADR-0040). Only a page that was read is stored: a 403 stays live, so a shop that has
+    stopped refusing is noticed on the next run.
 
-    ``wait`` is how this may pause before asking a second time, and ``None`` -- the
-    default -- is a fetch that asks once. A step of the pipeline holds no clock of its
-    own, so the waiting is handed in by whoever is orchestrating the run (ADR-0053).
+    ``wait`` is how this may pause before asking a second time; ``None``, the default,
+    asks once. A step of the pipeline holds no clock of its own, so the waiting is handed
+    in by whoever is orchestrating the run (ADR-0053).
     """
     text = cache.get(url) if cache else None
     cached = text is not None
@@ -328,17 +325,14 @@ def read_page(
     for: the budgets deciding which lines survive are per-run settings, and an excerpt
     stored under one is wrong under the next (ADR-0040).
 
-    ``InvalidURL`` sits beside ``HTTPError`` because it is not one: httpx raises it
-    out of parsing rather than the transport, so ``except httpx.HTTPError`` misses it
-    and a bad port or an unbracketed IPv6 literal would make ``BuyAgent.run`` raise a
-    fourth thing (ADR-0009).
-
-    Streamed rather than fetched whole, so the body is bounded by
+    ``InvalidURL`` sits beside ``HTTPError`` because it is not one: httpx raises it out
+    of parsing rather than the transport, so ``except httpx.HTTPError`` misses it and a
+    bad port or an unbracketed IPv6 literal would make ``BuyAgent.run`` raise a fourth
+    thing (ADR-0009). Streamed rather than fetched whole, so the body is bounded by
     :data:`_MAX_PAGE_BYTES` and the content type is read before any of it.
 
-    Given a ``wait``, a server that said to come back later is asked once more and
-    once only: that is what turns a rate-limited shop into a slow page rather than a
-    blank one (ADR-0053). Without one, every answer is final.
+    Given a ``wait``, a server that said to come back later is asked once more and once
+    only (ADR-0053); without one, every answer is final.
     """
     try:
         fetched = _markup(client, url)
@@ -416,8 +410,8 @@ def _come_back_in(exc: Exception) -> float | None:
     Only a response that said so: :data:`_RETRY_STATUSES` are the two statuses meaning
     "later", and ``Retry-After`` is how long. A missing or unreadable header still gets
     :data:`_RETRY_WAIT`, a rate limit being the case worth one more try however it was
-    phrased -- and the ``HTTP-date`` form of that header counts as unreadable here,
-    since reading it means subtracting a clock this module does not hold (ADR-0053).
+    phrased -- and the ``HTTP-date`` form counts as unreadable here, reading it meaning
+    a clock this module does not hold (ADR-0053).
 
     The answer is capped by :data:`_MAX_RETRY_WAIT` and floored at zero: a header is
     whatever a shop chose to send, including an hour and including a negative number.
@@ -506,9 +500,8 @@ def enrich(
     and when it is done (ADR-0040).
 
     ``wait`` is handed down to every page, so a shop that rate-limits this run is asked
-    a second time rather than written off (ADR-0053). It is a parameter and not a
-    ``time.sleep`` written here because a step of the pipeline is given what it needs
-    and goes looking for nothing -- least of all a clock.
+    a second time rather than written off -- a parameter and not a ``time.sleep``
+    written here, a step of the pipeline holding no clock of its own (ADR-0053).
 
     The tally at the end says how many pages came off disk and how the rest failed --
     "7 refused (403), 2 timed out". Grounding blanks every figure the pages did not

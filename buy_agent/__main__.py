@@ -37,8 +37,8 @@ def _defaults() -> AgentConfig:
 
     Built on a provider and a rail that exist rather than on ``$BUY_AGENT_PROVIDER``
     and ``$BUY_AGENT_RAIL``, which are a shopper's to misspell: resolved at import
-    time, a bad one was a ``ValueError`` out of importing this module, with ``--help``
-    and its list of the names there are unreachable too. Both are still read below,
+    time, a bad one was a ``ValueError`` out of importing this module, ``--help`` and
+    its list of the names there are unreachable with it. Both are still read below,
     where ``_checked`` turns either into the usage error it deserves.
     """
     return AgentConfig(
@@ -67,8 +67,7 @@ _UNSET = object()
 #: The paying settings, and how each tells a value somebody typed from one left
 #: alone. Only ``--pay`` turns any of them into behaviour, so a run without it
 #: ignores all three -- a mistake the form cannot make, drawing none of them until
-#: Pay for the top product is on. The CLI has no panel to hide, so it says so
-#: instead, the way ``--num-ctx`` is called out on a server that fixes its window.
+#: Pay for the top product is on. The CLI has no panel to hide and says so instead.
 #: ``--rail`` is measured against :data:`~buy_agent.config.DEFAULT_RAIL` rather than
 #: against a sentinel: ``$BUY_AGENT_RAIL`` is how a machine is pointed at one
 #: counterparty for good, and a standing answer is not somebody asking to buy.
@@ -127,12 +126,12 @@ def _checked(check: Callable[[str], object]) -> Callable[[str], str]:
     argparse needs: a ``ValueError`` out of a ``type`` function becomes "invalid
     value" with the sentence thrown away, and the sentence is the whole message.
 
-    Checked *here* because two of the four otherwise fail quietly: a source naming no
-    site and a region no engine knows both come back as an empty report with nothing
+    Checked *here* because two of the four otherwise fail quietly, a source naming no
+    site and a region no engine knows both coming back as an empty report with nothing
     to explain it (ADR-0027, ADR-0031). The other two because a ``type`` function also
     runs over a string *default*, where ``choices`` does not --
-    ``$BUY_AGENT_PROVIDER=olama`` sailed past ``choices`` and reached
-    ``AgentConfig``, outside the ``try`` that names the three failures a run has.
+    ``$BUY_AGENT_PROVIDER=olama`` sailed past ``choices`` and reached ``AgentConfig``,
+    outside the ``try`` that names the three failures a run has.
 
     The text comes back as typed rather than as ``check`` read it, so ``main`` parses
     every ``--source`` together and the region is lower-cased where every other caller
@@ -360,9 +359,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         type=Path,
         # A path and not a format: left to argparse the flag read "--json JSON",
-        # which is the one metavar on here that says the value again instead of
-        # saying what it is -- and reads like a switch asking for JSON on stdout,
-        # which is where the report already goes.
+        # the one metavar here that says the value again instead of saying what it
+        # is -- and reads like a switch asking for JSON on stdout, where the report
+        # already goes.
         metavar="FILE",
         help="Also write all results, not only the top ones, to this JSON file.",
     )
@@ -374,9 +373,9 @@ def _approved(cart: payment.Cart, config: AgentConfig) -> bool:
     """Ask the shopper to approve this exact cart, and mean it.
 
     AP2's Trusted Surface, small: the surface showing a person what they are agreeing
-    to before anything is signed. So it restates the cart the mandates will carry --
-    the title, the price, the merchant and which rail -- rather than the request that
-    found it, and says whether the rail can charge anybody.
+    to before anything is signed (ADR-0046). So it restates the cart the mandates will
+    carry -- the title, the price, the merchant and which rail -- rather than the
+    request that found it, and says whether the rail can charge anybody.
 
     The prompt goes to stderr and the answer is read off stdin, keeping the report on
     stdout a report. A run with nothing to type into is **refused**: silence is not
@@ -412,7 +411,7 @@ def _bought(ranked: list[RankedProduct], config: AgentConfig) -> bool:
     naming a rank would be a second way of saying what ``--sort-by`` said. Everything
     that can go wrong is one failure with one sentence
     (:class:`~buy_agent.payment.PaymentError`), caught in its own place rather than
-    added to the three a *run* raises.
+    added to the three a *run* raises (ADR-0009, ADR-0046).
     """
     products = [entry.product for entry in ranked]
     try:
@@ -491,7 +490,7 @@ def main(argv: list[str] | None = None) -> int:
     if not config.pay and (idle := _idle_paying_flags(args)):
         # Said rather than dropped, for the reason the context window below is: a
         # run that spends its minute and then buys nothing reads as a rail that
-        # failed, and the one word missing is the flag that would have paid.
+        # failed.
         logger.warning(
             "Nothing will be bought: %s %s nothing without --pay.",
             ", ".join(idle),
@@ -519,11 +518,10 @@ def main(argv: list[str] | None = None) -> int:
         logger.warning("Interrupted.")
         return 130
     finally:
-        # The agent is this run and nothing after it, so its connection is let
-        # go of here rather than whenever the process ends. Built inside the
-        # guard: a provider that refuses the config is one of the three failures
-        # above, and ``None`` is an agent that was never built. Asked rather than
-        # called outright, this being where the tests put a stand-in.
+        # The agent is this run and nothing after it, so its connection is let go
+        # of here rather than whenever the process ends. Built inside the guard, so
+        # ``None`` is an agent that was never built; asked rather than called
+        # outright, this being where the tests put a stand-in.
         release(agent)
 
     if args.json:

@@ -39,10 +39,9 @@ logger = logging.getLogger(__name__)
 Checkpoint: TypeAlias = "Callable[[str], None]"
 
 #: How the two steps that talk to the web wait before asking a second time. The
-#: clock lives here rather than in either of them: a step of the pipeline is given
-#: what it needs and looks nothing up, least of all something that moves on its own
-#: (ADR-0053). ``time.sleep`` is the whole of it, and a test that patches ``enrich``
-#: or ``search_web`` is handed it and never calls it.
+#: clock lives here rather than in either of them (ADR-0053); ``time.sleep`` is the
+#: whole of it, and a test that patches ``enrich`` or ``search_web`` is handed it
+#: and never calls it.
 Wait: TypeAlias = "Callable[[float], None]"
 
 
@@ -53,11 +52,10 @@ def every_step_passes(_step: str) -> None:
 class ModelUnavailableError(RuntimeError):
     """Raised when the model could not be used: no server, no model, or no answer.
 
-    One exception for both providers: to the shopper it is one thing. Only the
-    sentence differs -- ``ollama pull`` or ``vllm serve`` -- which is the provider's
-    own to write (ADR-0028). A server answering with something other than the JSON it
-    was asked for is the third of these and not a fourth failure mode (ADR-0009):
-    nothing about the request was wrong, and the remedy is the model's.
+    One exception for both providers: to the shopper it is one thing, and only the
+    sentence differs -- ``ollama pull`` or ``vllm serve`` -- which is the provider's own
+    to write (ADR-0028). A server answering with something other than the JSON it was
+    asked for is the third of these and not a fourth (ADR-0009).
     """
 
 
@@ -66,11 +64,10 @@ def _asks_the_same_question(config: AgentConfig) -> dict[str, object]:
 
     Three settings are deliberately absent. ``api_key`` is a secret and the key is
     written to a file; ``temperature`` is a constant here, only a run at zero being
-    remembered at all; and ``model_timeout`` decides how long an answer may take and
-    not what it says, so a run that waited ten minutes for one may hand it to a run
-    that would have waited two (ADR-0051). ``num_ctx`` goes in only where the provider
-    sends it: vLLM fixes its window at startup, so including it would miss on a
-    setting that server never saw.
+    remembered at all; and ``model_timeout`` decides how long an answer may take and not
+    what it says (ADR-0051). ``num_ctx`` goes in only where the provider sends it: vLLM
+    fixes its window at startup, so including it would miss on a setting that server
+    never saw.
     """
     fingerprint: dict[str, object] = {
         "provider": config.provider,
@@ -93,11 +90,10 @@ def _and_list(items: list[str]) -> str:
 class BuyAgent:
     """Finds products for a shopper, ranks them, and logs the best few.
 
-    The control flow is fixed rather than left to the model: the LLM refines the query
-    and reads products out of the results, while searching, ranking and reporting are
-    ordinary code -- which keeps the agent usable with the small local models these
-    servers are typically run with. Which server is answering, ``config.provider``
-    says and nothing here asks (ADR-0028).
+    The control flow is fixed rather than left to the model (ADR-0002): the LLM refines
+    the query and reads products out of the results, while searching, ranking and
+    reporting are ordinary code. Which server is answering, ``config.provider`` says and
+    nothing here asks (ADR-0028).
     """
 
     def __init__(
@@ -153,17 +149,17 @@ class BuyAgent:
 
         Three failures come out of here and no more (ADR-0009). What ``checkpoint``
         raises comes out too, but that is the caller's own exception travelling back
-        rather than a fourth thing this pipeline fails with, which is why it is not in
-        ``Raises`` below.
+        rather than a fourth thing this pipeline fails with, which is why it is absent
+        from ``Raises`` below.
 
         Args:
             request: What the user wants to buy, in their own words.
             sort_by: ``"score"`` (default), ``"price"`` or ``"rating"``.
             checkpoint: Called with the name of each step as it is about to start --
                 ``"search"``, ``"fetch"``, ``"extract"``, ``"rank"`` -- so a caller can
-                end a run it no longer wants. Nothing here catches what it raises, which
-                is how it ends one (ADR-0034). A step boundary is as fine as it gets: a
-                model call already in flight finishes first.
+                end a run it no longer wants, nothing here catching what it raises
+                (ADR-0034). A step boundary is as fine as it gets: a model call already
+                in flight finishes first.
 
         Returns:
             Every product found that is inside the bounds the config carries, best first
@@ -206,8 +202,8 @@ class BuyAgent:
             return []
 
         # After the merging: ``deduplicate`` fills a listing's gaps from another
-        # listing of the same product, so a price known only once the two are
-        # merged would be judged here on a blank (ADR-0039).
+        # listing of the same product, so a price known only once the two are merged
+        # would be judged here on a blank (ADR-0039).
         products = Constraints.from_config(self.config).apply(products)
         if not products:
             return []
@@ -227,15 +223,14 @@ class BuyAgent:
         Named none, this is one search. Named some, it is one search per source
         (``site:`` narrows to a single domain), pooled in the order given (ADR-0027).
         Two things are load-bearing: every result goes through
-        :meth:`~buy_agent.sources.Source.covers` first, so a backend ignoring the operator
-        cannot smuggle in a page from elsewhere, and a page found twice is kept once.
+        :meth:`~buy_agent.sources.Source.covers` first, so a backend ignoring the
+        operator cannot smuggle in a page from elsewhere, and a page found twice is kept
+        once. The width is shared out rather than multiplied -- five sources at ten
+        results each would fetch fifty pages for a report of three.
 
-        The width is shared out rather than multiplied -- five sources at ten results each
-        would fetch fifty pages for a report of three.
-
-        Every search here is handed the :data:`Wait` that lets it ask a second time, a
-        rate limit being about the minute rather than the query (ADR-0053). Per source
-        and not per run: one named site refusing is not the others' turn to wait.
+        Every search here is handed the :data:`Wait` that lets it ask a second time
+        (ADR-0053), per source and not per run: one named site refusing is not the
+        others' turn to wait.
         """
         sources = self.config.sources
         width = self.config.search_results
@@ -282,13 +277,12 @@ class BuyAgent:
     def _sources_note(self) -> str:
         """The named sources, when they are what the search was confined to.
 
-        The stronger of the two suspects, and the one the run cannot recover from: a
-        named source is enforced by construction and there is deliberately no falling
-        back to the wider web, which would report facts off pages the shopper refused
-        (ADR-0027). So a source that does not cover what was asked for is an empty
-        report and nothing else -- while the "Ignored N result(s) from outside ..."
-        lines that say so scroll past a step earlier, at INFO, above a warning that
-        named the query and the region and never them.
+        The stronger of the two suspects, and the one the run cannot recover from:
+        there is deliberately no falling back to the wider web (ADR-0027), so a source
+        that does not cover what was asked for is an empty report and nothing else --
+        while the "Ignored N result(s) from outside ..." lines that say so scroll past a
+        step earlier, at INFO, above a warning that named the query and the region and
+        never them.
         """
         sources = self.config.sources
         if not sources:
@@ -304,9 +298,9 @@ class BuyAgent:
         """The region, when it is one worth suspecting of an empty search.
 
         A region is checked for shape at both front doors, but the shapes outnumber the
-        codes: ``en-us`` is the right shape the wrong way round, and a search engine given
-        it answers with nothing rather than complaining (ADR-0031). The default is left
-        unnamed: it is the one value known to work.
+        codes (ADR-0031): ``en-us`` is the right shape the wrong way round, and a search
+        engine given it answers with nothing rather than complaining. The default is
+        left unnamed, being the one value known to work.
         """
         region = self.config.region
         if region == DEFAULT_REGION:
@@ -365,9 +359,8 @@ class BuyAgent:
     def _invoke(self, chain: Chain[Any], payload: dict[str, Any]) -> Any:
         """Invoke a chain, turning transport errors into an actionable message.
 
-        Which errors those are, and what the message says, is the provider's to answer.
-        Both arrive as one ``ModelUnavailableError`` -- above this line they are one
-        failure (ADR-0009).
+        Which errors those are, and what the message says, is the provider's to answer;
+        both arrive as one ``ModelUnavailableError`` (ADR-0009).
         """
         server = self.config.model_server
         try:

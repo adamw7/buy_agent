@@ -32,13 +32,12 @@ _DATEFMT = "%H:%M:%S"
 
 #: How the report itself is written, which is not how the narration is. Every
 #: line of a report carries the same clock, the same level and the same logger --
-#: the run ends and then says what it found -- so the prefix says nothing and
-#: costs thirty columns of an eighty-column terminal, wrapping the quotes that are
-#: the longest thing in it. ``--help`` offers ``> top.txt`` as the way to keep the
-#: answer, and what that caught was a log of it. The *records* are unchanged, so
-#: the browser's progress panel and a ``caplog`` still see one stream with times
-#: on it (:class:`~buy_agent.server._LogRelay` formats its own): this is the
-#: console handler's formatting and nothing else's.
+#: the run ends and then says what it found -- so the prefix says nothing and costs
+#: thirty columns of an eighty-column terminal, wrapping the quotes that are the
+#: longest thing in it. The *records* are unchanged, so the browser's progress panel
+#: and a ``caplog`` still see one stream with times on it
+#: (:class:`~buy_agent.server._LogRelay` formats its own): this is the console
+#: handler's formatting and nothing else's.
 _REPORT_FORMAT = "%(message)s"
 
 #: The attribute marking the records that *are* the report, as against the
@@ -124,9 +123,8 @@ def _parts(breakdown: ScoreParts, weights: RankingWeights) -> str:
 
     On the score's own line rather than three of its own: it is what the number is
     made of, and a report is read down the left edge. "assumed" and not a blank,
-    because ``NEUTRAL`` is a real 0.5 in the blend (ADR-0041). The ``x0.50`` is the
-    other half: each criterion is scored out of 1, so three beside a total they do not
-    add up to is a sum that looks wrong until the weights are there.
+    ``NEUTRAL`` being a real 0.5 in the blend; the ``x0.50`` is the other half, each
+    criterion being scored out of 1 (ADR-0041).
     """
     fractions = weights.fractions
     return ", ".join(
@@ -147,9 +145,9 @@ def log_top_products(
 
     ``weights`` is what the scores were blended by, for the score line to name: the
     run's own, or the defaults ``rank_products`` would have used. ``sort_by`` is what
-    the block is ordered by, which the heading names for the reason
-    :data:`~buy_agent.ranking.ORDERINGS` gives -- the default included, since a report
-    is read by somebody who did not necessarily type the command that made it.
+    the block is ordered by, which the heading names (:data:`~buy_agent.ranking.ORDERINGS`)
+    -- the default included, a report being read by somebody who did not necessarily
+    type the command that made it.
     """
     weights = weights or RankingWeights()
     if not ranked:

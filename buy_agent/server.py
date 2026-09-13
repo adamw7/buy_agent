@@ -1,14 +1,14 @@
 """A local HTTP server for the Angular UI in ``ui/``.
 
-Stdlib only, on purpose: the dependency list is already the interesting part of
-this project, and a run that takes a minute and serves one person needs no
+Stdlib only, on purpose (ADR-0010): the dependency list is already the interesting
+part of this project, and a run that takes a minute and serves one person needs no
 framework under it.
 
 Two ways to ask for the same thing. ``POST /api/search`` runs the pipeline and
 answers in one JSON response; ``GET /api/search/stream`` is the same run as
 Server-Sent Events (``log`` lines, then ``result`` or ``failure``), which the UI
-uses. Closing that stream ends the run: the first frame that cannot be written
-says the reader has gone, and the pipeline stops at its next step boundary
+uses (ADR-0011). Closing that stream ends the run: the first frame that cannot be
+written says the reader has gone, and the pipeline stops at its next step boundary
 (ADR-0034).
 
 Three endpoints run no pipeline. ``POST /api/rank`` re-orders a finished run
@@ -17,8 +17,8 @@ that a person approved it, and ``GET /api/sources`` reads a Trusted sources fiel
 the way a run would (ADR-0033).
 
 Everything outside ``/api`` is the built Angular app, unknown paths falling back
-to ``index.html``. Both are guarded by :meth:`BuyAgentHandler._admits`: a server
-on loopback is reachable from every page the same browser has open (ADR-0018).
+to ``index.html``. Both are guarded by :meth:`BuyAgentHandler._admits`, a server on
+loopback being reachable from every page the same browser has open (ADR-0018).
 """
 
 from __future__ import annotations
@@ -73,11 +73,11 @@ _MAX_BODY_BYTES = 64 * 1024
 
 #: How long one blocking read or write on a connection may take. Without it a
 #: client that announces a body and never sends it parks a handler thread for the
-#: life of the process. It bounds a socket operation and not a request, so the
-#: slow paths pay nothing -- a run blocks on no socket, and the stream's frames
-#: are sent at worst :data:`_KEEPALIVE_SECONDS` apart. A write that times out is
-#: the ``OSError`` :meth:`BuyAgentHandler._send_event` reads as a reader who has
-#: gone (ADR-0034), and an idle connection is hung up by ``handle_one_request``.
+#: life of the process. It bounds a socket operation and not a request, so the slow
+#: paths pay nothing: a run blocks on no socket, and the stream's frames are sent at
+#: worst :data:`_KEEPALIVE_SECONDS` apart. A write that times out is the ``OSError``
+#: :meth:`BuyAgentHandler._send_event` reads as a reader who has gone (ADR-0034),
+#: and an idle connection is hung up by ``handle_one_request``.
 _REQUEST_TIMEOUT = 30.0
 
 #: Host names that mean "this machine". A ``Host`` outside the allowed set is a
@@ -174,9 +174,8 @@ p {{ color: #5c6470; }}
 class _Stopped(Exception):
     """Raised inside a run whose reader has gone, to end it at a step boundary.
 
-    Deliberately not one of the agent's three failure modes (ADR-0009): nothing
-    failed, and nobody is left to answer with a status. Caught by the worker that
-    raised it and going no further (ADR-0034).
+    Deliberately not one of the agent's three failure modes (ADR-0009), and caught by
+    the worker that raised it (ADR-0034).
     """
 
 
@@ -253,11 +252,11 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
     # ``close_connection`` is ``BaseHTTPRequestHandler``'s rather than this
     # project's: the base class sets it while handling a request and not in its
-    # ``__init__``, and the eight places below that set it are answering the base
+    # ``__init__``, so the eight places below that set it are answering the base
     # class rather than defining state of their own. Class-wide because those eight
     # are spread over as many methods. The verb methods are the other spelling this
     # class does not choose, and each says so on its own line rather than here: a
-    # class-wide ``invalid-name`` would also stop holding every *other* name in a
+    # class-wide ``invalid-name`` would stop holding every *other* name in a
     # four-hundred-line class to the rule the rest of the package keeps.
     # pylint: disable=attribute-defined-outside-init
 
@@ -289,11 +288,10 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         """Whether this request came from the page this server serves (ADR-0018).
 
         There is no authentication and should not be, but loopback is not a boundary a
-        browser respects. A cross-site *write* needs no reply to be worth making: a page
-        elsewhere can open an ``EventSource`` here and the run happens anyway. A
-        cross-site *read* needs the origin to match, which DNS rebinding manufactures. So
-        the fetch metadata and the ``Origin`` say who asked, the ``Host`` says which name
-        they used, and both have to be ours.
+        browser respects: a cross-site *write* needs no reply to be worth making, and a
+        cross-site *read* needs the origin to match, which DNS rebinding manufactures.
+        So the fetch metadata and the ``Origin`` say who asked, the ``Host`` says which
+        name they used, and both have to be ours.
         """
         return self._origin_admits() and self._host_admits()
 
@@ -369,14 +367,13 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             else:
                 self._serve_static(url.path)
         # A 500 beats a dropped connection: an exception out of a handler escapes
-        # to socketserver, which closes the socket with nothing written to it.
+        # to socketserver, which closes the socket unanswered, and the page reads
+        # that as the agent server being down. ``$BUY_AGENT_PROVIDER=olama`` did
+        # exactly that to ``/api/config``, where ``AgentConfig()`` raises and the
+        # sentence naming the real servers never reached anybody. Both verbs have
+        # one, and the stream answers the same failures with a ``failure`` event.
         # pylint: disable-next=broad-exception-caught
         except Exception as exc:
-            # Why both handlers have one: an exception here escapes to
-            # socketserver, which closes the socket unanswered, and the page reads
-            # that as the agent server being down. ``$BUY_AGENT_PROVIDER=olama``
-            # did exactly that to ``/api/config``, where ``AgentConfig()`` raises
-            # and the sentence naming the real servers never reached anybody.
             logger.exception("Unexpected failure answering %s", url.path)
             self._send_json(500, {"error": f"Unexpected failure: {exc}"})
 
@@ -387,8 +384,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             self._refuse()
             return
         url = urlparse(self.path)
-        # Both answer the same shape, and only one runs anything: a re-sort is
-        # the ranking a run ends with, asked for on its own (ADR-0035).
+        # Both answer the same shape, and only one runs anything (ADR-0035).
         endpoints: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
             "/api/search": self._search,
             "/api/rank": rank_again,
@@ -405,11 +401,9 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             self._send_json(200, run(payload))
         except ApiError as exc:
             self._send_json(exc.status, exc.payload())
-        # A 500 beats a dropped connection, as above.
+        # A 500 beats a dropped connection, for the reason ``do_GET`` gives.
         # pylint: disable-next=broad-exception-caught
         except Exception as exc:
-            # For the reason ``do_GET`` has one, and because the stream answers
-            # such failures with a ``failure`` event: this endpoint has to match.
             logger.exception("Unexpected failure during a search")
             self._send_json(500, {"error": f"Unexpected failure: {exc}"})
 
@@ -456,8 +450,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
         The work cannot happen on this thread: the response is written while the run is
         still going, which is the point of the stream. A reader who goes away takes the
-        run with them (ADR-0034) -- the first frame that cannot be written, a log line or
-        the keepalive ping at worst 15 seconds later, sets ``stopped``.
+        run with them (ADR-0034) -- the first frame that cannot be written, a log line
+        or the keepalive ping, sets ``stopped``.
         """
         try:
             self.send_response(200)
@@ -487,9 +481,9 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         """Yield ``log`` events for the run's progress, then ``result`` or ``failure``.
 
         Not ``error``: a browser's EventSource delivers its own transport errors under
-        that name and then reconnects, which would silently restart the run. ``stopped``
-        is the caller's way of ending the run, and nothing is yielded for it -- whoever
-        set it is the reader who has already gone.
+        that name and then reconnects, which would silently restart the run
+        (ADR-0011). ``stopped`` is the caller's way of ending the run, and nothing is
+        yielded for it -- whoever set it is the reader who has already gone.
         """
         _install_relay()
         sink: queue.Queue[Any] = queue.Queue()
@@ -553,12 +547,12 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     def _send_unbuilt(self) -> None:
         """Say the app has not been built, in whatever the asker can read.
 
-        The first thing anybody who ran the server before ``npm run build`` sees, and they
-        see it in a browser -- which renders ``application/json`` as its braces and
+        The first thing anybody who ran the server before ``npm run build`` sees, and
+        they see it in a browser -- which renders ``application/json`` as its braces and
         quotes, so the one useful message arrived looking like a crash. A browser says so
-        in ``Accept``, so it gets the sentence as a page and every other client gets the
-        JSON it was already reading. Which remedy either one carries is
-        :func:`_unbuilt_remedy`'s to decide, once, for both.
+        in ``Accept`` and gets the sentence as a page; every other client gets the JSON it
+        was already reading. Which remedy either carries is :func:`_unbuilt_remedy`'s to
+        decide, once, for both.
         """
         if "text/html" not in self.headers.get("Accept", ""):
             remedy = _unbuilt_remedy(self.ui_dir)
@@ -700,12 +694,11 @@ def _workspace_for(ui_dir: Path) -> Path | None:
 def _unbuilt_remedy(ui_dir: Path) -> str:
     """What to do about a missing build, for whoever is looking at this ``--ui-dir``.
 
-    Two sentences and not one, because the useful half of the old one was a lie
-    half the time: told to build, a reader whose ``--ui-dir`` has no workspace
-    above it was sent to run ``npm install`` in the build's own directory, which
-    holds no ``package.json`` and never will. A remedy that cannot be followed is
-    worse than none -- so where there is nothing to build, this says so and names
-    the thing that *can* be done instead.
+    Two sentences and not one: told to build, a reader whose ``--ui-dir`` has no
+    workspace above it was sent to run ``npm install`` in the build's own directory,
+    which holds no ``package.json`` and never will. A remedy nobody can follow is worse
+    than none, so where there is nothing to build this says so and names what can be
+    done instead.
     """
     workspace = _workspace_for(ui_dir)
     if workspace is None:
@@ -722,10 +715,10 @@ def _unbuilt_remedy(ui_dir: Path) -> str:
 def _unbuilt_remedy_html(ui_dir: Path) -> str:
     """The same two remedies for a browser, which can show the command as a block.
 
-    The markup is here rather than in :data:`_UNBUILT_PAGE` because which of the
-    two goes in decides the shape as well as the words -- one has a command to
-    run and the other has nothing to run at all. Every path is escaped: a
-    ``--ui-dir`` is somebody's argument, and this is HTML.
+    The markup is here rather than in :data:`_UNBUILT_PAGE` because which of the two
+    goes in decides the shape as well as the words: one has a command to run and the
+    other nothing at all. Every path is escaped -- a ``--ui-dir`` is somebody's
+    argument, and this is HTML.
     """
     workspace = _workspace_for(ui_dir)
     if workspace is None:
@@ -842,11 +835,10 @@ def build_parser() -> argparse.ArgumentParser:
         prog="buy_agent.server",
         description="Serve the buy_agent UI and its JSON API on localhost.",
     )
-    # Both name their default, the way every other flag in this project does.
-    # The port is the address somebody is about to type, and the host is the
-    # difference between a server only this machine can reach and one the network
-    # can -- which also turns the ``Host`` check off (ADR-0018). Neither is a
-    # detail to go and read the source for.
+    # Both name their default, the way every other flag in this project does: the
+    # port is the address somebody is about to type, and the host is the difference
+    # between a server only this machine can reach and one the network can -- which
+    # also turns the ``Host`` check off (ADR-0018).
     parser.add_argument(
         "--host",
         default="127.0.0.1",

@@ -1,8 +1,9 @@
 """The AP2 seam: a cart in, a signed mandate chain out, and the check back.
 
-The **only** module that imports ``ap2``, the way :mod:`buy_agent.chat` is the
-only one that talks to a model. Everything above deals in carts and receipts;
-everything AP2 calls a mandate, a disclosure, an SD-JWT or a ``vct`` stops here.
+The **only** module that imports ``ap2`` (ADR-0046), the way :mod:`buy_agent.chat`
+is the only one that talks to a model. Everything above deals in carts and
+receipts; everything AP2 calls a mandate, a disclosure, an SD-JWT or a ``vct``
+stops here.
 
 Two shapes of authorisation, which is the whole of AP2's two modes:
 
@@ -47,12 +48,12 @@ if TYPE_CHECKING:  # pragma: no cover -- import-time typing only
     from buy_agent.rails import Cart
 
 #: Where the agent's own signing key lives. A path and not a flag, for the reason
-#: ``$BUY_AGENT_CACHE_DIR`` is one -- and this one signs payments.
+#: ``$BUY_AGENT_CACHE_DIR`` is one (ADR-0046) -- and this one signs payments.
 KEY_PATH = "BUY_AGENT_AP2_KEY"
 
 #: Where a pre-signed open mandate lives. Its presence is what turns on the
-#: autonomous mode -- the protocol says the open mandate *is* the authority, so
-#: there is no second switch, which would only fail without the file anyway.
+#: autonomous mode, the open mandate being the authority (ADR-0046), so there is no
+#: second switch.
 MANDATE_PATH = "BUY_AGENT_AP2_MANDATE"
 
 #: What to type when the SDK is not installed. One line, so it can be pasted;
@@ -203,10 +204,10 @@ def generate_key(kid: str = "agent-ephemeral") -> Any:
 def load_key(*, required: bool) -> tuple[Any, bool]:
     """The agent's signing key, and whether it came off disk.
 
-    ``required`` is the difference between the two rails. A rail that moves money must
+    ``required`` is the difference between the two rails: one that moves money must
     sign with a key somebody enrolled, an ephemeral one authorising nothing a
-    counterparty could trust. The dry run has no counterparty, so it generates one,
-    says so, and writes a demonstration rather than a credential.
+    counterparty could trust, while the dry run generates one, says so, and writes a
+    demonstration rather than a credential.
 
     Returns:
         The key, and True if it was read from ``$BUY_AGENT_AP2_KEY``.
@@ -336,9 +337,7 @@ def authorise(cart: Cart, checkout: SignedCheckout, *, key: Any, nonce: str) -> 
 
     The **Payment** Mandate is the whole of the difference: a root SD-JWT where a
     person approved this cart, the second hop of the open mandate's chain where one
-    authorised it. Everything after is the same either way -- the Checkout Mandate is
-    this side's signature on the merchant's price whoever agreed to it, and the
-    reference, the transaction id and the binding are the protocol's, not the mode's.
+    authorised it. Everything after is the same either way.
 
     Raises:
         MandateError: if an open mandate is configured and does not authorise this

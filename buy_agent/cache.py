@@ -4,11 +4,8 @@ The pages :mod:`buy_agent.fetch` read (ADR-0040) and the answers a model server
 gave (ADR-0044), on the same rules and the same time to live. A page is stored as
 its *visible text* rather than the condensed excerpt, so moving ``page_chars`` or
 ``opinion_chars`` does not replay a stale one; both are stored whole, so a cached
-run reports what a fresh one would have.
-
-Both are bounded twice over: by age, which is ``cache_ttl``, and by size, which
-is :data:`MAX_BYTES` and is what keeps a long-lived cache from being every page
-ever read (ADR-0052).
+run reports what a fresh one would have. Both are bounded twice over: by age,
+which is ``cache_ttl``, and by size, which is :data:`MAX_BYTES` (ADR-0052).
 
 Every operation is best-effort. Nothing here raises: an unwritable directory, a
 half-written entry and a full disk all read as a miss.
@@ -39,17 +36,12 @@ logger = logging.getLogger(__name__)
 #: than that, so two runs an afternoon apart compare the same pages.
 DEFAULT_TTL = 86_400.0
 
-#: How much disk one kind of entry may take up, oldest first out. Age alone is no
-#: bound on size: ``cache_ttl`` may be set to the thirty days
-#: :data:`buy_agent.config.LIMITS` allows, a stored page is the whole visible text
-#: of one rather than the excerpt a prompt saw (ADR-0040), and nothing here ever
-#: deleted an entry that had not expired -- so a month of shopping was a month of
-#: pages (ADR-0052).
-#:
-#: A quarter of a gigabyte per kind, which is thousands of pages: the cap is there
-#: to have an upper bound at all, not to make a run choose between pages. It has
-#: no flag and no form field, for the reason ``$BUY_AGENT_CACHE_DIR`` has none --
-#: how much of the server's disk this may use is not a browser's to decide.
+#: How much disk one kind of entry may take up, oldest first out -- age alone
+#: being no bound on size (ADR-0052). A quarter of a gigabyte per kind, which is
+#: thousands of pages: the cap is there to have an upper bound at all, not to make
+#: a run choose between pages. It has no flag and no form field, for the reason
+#: ``$BUY_AGENT_CACHE_DIR`` has none -- how much of the server's disk this may use
+#: is not a browser's to decide.
 MAX_BYTES = 256 * 1024 * 1024
 
 #: Under the directory each platform keeps disposable things in: deleting the
@@ -152,11 +144,10 @@ class DiskCache:
         the time to live. They are not entries, so they are reported at DEBUG
         rather than counted in the answer.
 
-        Age is only half of it. What survives the cutoff is held to
-        :attr:`max_bytes` as well, oldest first out (ADR-0052), so the size of
-        this directory is bounded by something other than how often anybody
-        shops. The two are asked in that order because expiry is free: an entry
-        nobody may read again is no reason to delete one somebody may.
+        Age is only half of it: what survives the cutoff is held to
+        :attr:`max_bytes` as well, oldest first out (ADR-0052). The two are asked
+        in that order because expiry is free -- an entry nobody may read again is
+        no reason to delete one somebody may.
         """
         cutoff = time.time() - self.ttl
         removed = 0
@@ -243,10 +234,10 @@ class RememberedAnswers:
     """A model server, with the answers it has already given handed back.
 
     A ``ChatModel`` wrapping a ``ChatModel``, so the pipeline just sees one that is
-    sometimes very fast -- which is why the key holds everything deciding an
-    answer: the messages, the schema and the run's fingerprint, built by the caller
-    since this module has no business knowing what a provider is (ADR-0044). Only
-    an answer is stored; a failure is a state of the world, not a fact about this
+    sometimes very fast -- which is why the key holds everything deciding an answer:
+    the messages, the schema and the run's fingerprint, built by the caller since this
+    module has no business knowing what a provider is (ADR-0044). Only an answer is
+    stored, a failure being a state of the world rather than a fact about this
     question.
     """
 
@@ -311,10 +302,9 @@ def remember_answers(
 ) -> ChatModel:
     """``model``, answering off disk where it may, or ``model`` itself where not.
 
-    Two decisions turn it off, neither a failure. ``ttl <= 0`` is the shopper
-    asking for a live run. ``deterministic`` false is a *sampled* run: a model
-    asked for a different answer each time has none to remember, and replaying one
-    sample would change a run's result, which this may never do (ADR-0044).
+    Two decisions turn it off, neither a failure: ``ttl <= 0`` is the shopper asking
+    for a live run, and ``deterministic`` false is a *sampled* run, which has no one
+    answer to remember (ADR-0044).
     """
     if not deterministic:
         return model
