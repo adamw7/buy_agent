@@ -1,14 +1,4 @@
-"""What a run can reuse from the last one, kept on disk.
-
-The pages :mod:`buy_agent.fetch` read (ADR-0040) and the answers a model server
-gave (ADR-0044), on the same rules and the same time to live. A page is stored as
-its *visible text* rather than the condensed excerpt, so moving ``page_chars`` or
-``opinion_chars`` does not replay a stale one; both are stored whole, so a cached
-run reports what a fresh one would have. Both are bounded twice over: by age,
-which is ``cache_ttl``, and by size, which is :data:`MAX_BYTES` (ADR-0052).
-
-Every operation is best-effort. Nothing here raises: an unwritable directory, a
-half-written entry and a full disk all read as a miss.
+"""What a run can reuse from the last one, kept on disk (ADR-0040, ADR-0044, ADR-0052).
 """
 
 from __future__ import annotations
@@ -32,78 +22,58 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: How long a stored entry stays usable, in seconds. A day: prices move slower
-#: than that, so two runs an afternoon apart compare the same pages.
+#: How long a stored entry stays usable, in seconds.
 DEFAULT_TTL = 86_400.0
 
-#: How much disk one kind of entry may take up, oldest first out -- age alone
-#: being no bound on size (ADR-0052). A quarter of a gigabyte per kind, which is
-#: thousands of pages: the cap is there to have an upper bound at all, not to make
-#: a run choose between pages. It has no flag and no form field, for the reason
-#: ``$BUY_AGENT_CACHE_DIR`` has none -- how much of the server's disk this may use
-#: is not a browser's to decide.
+#: How much disk one kind of entry may take up, oldest first out -- age alone being no
+#: bound on size (ADR-0052).
 MAX_BYTES = 256 * 1024 * 1024
 
-#: Under the directory each platform keeps disposable things in: deleting the
-#: whole of it costs one slow run.
+#: Under the directory each platform keeps disposable things in: deleting the whole of
+#: it costs one slow run.
 _DIRECTORY = "buy-agent"
 
-#: The two kinds of entry, each in its own directory: pruned and counted
-#: separately, and keyed differently -- a URL against a whole request.
+#: The two kinds of entry, each in its own directory: pruned and counted separately, and
+#: keyed differently -- a URL against a whole request.
 PAGES = "pages"
 ANSWERS = "answers"
 
 
 def default_dir(kind: str) -> Path:
-    """Where entries of one kind live.
-
-    ``$BUY_AGENT_CACHE_DIR`` wins outright and holds both kinds, which is how a
-    run is pointed at a scratch directory or a volume. It has no flag and no form
-    field, for the reason ``$VLLM_API_KEY`` has none: a path on the server's disk
-    is not a browser's to choose.
-    """
+    """Where entries of one kind live."""
     named = os.getenv("BUY_AGENT_CACHE_DIR")
     if named:
         return Path(named) / kind
-    # LOCALAPPDATA on Windows, XDG_CACHE_HOME where it is set, and ~/.cache --
-    # which is the fallback on every platform that named neither.
+    # LOCALAPPDATA on Windows, XDG_CACHE_HOME where it is set, and ~/.cache -- which is
+    # the fallback on every platform that named neither.
     base = os.getenv("LOCALAPPDATA") or os.getenv("XDG_CACHE_HOME")
     root = Path(base) if base else Path.home() / ".cache"
     return root / _DIRECTORY / kind
 
 
 class DiskCache:
-    """Text kept on disk under a key, one JSON file each, expiring by age.
-
-    The file name is a hash of the key, so any key becomes a name every filesystem
-    takes; the key itself is stored *inside* the entry and checked on the way out,
-    a hash being no promise that one page's text is not standing in for another's.
-    """
+    """Text kept on disk under a key, one JSON file each, expiring by age."""
 
     def __init__(
         self, directory: Path, *, ttl: float = DEFAULT_TTL, max_bytes: int = MAX_BYTES
     ) -> None:
         self.directory = directory
         self.ttl = ttl
-        #: The most this directory may hold once the expired entries are out of
-        #: it -- a bound on disk rather than on age, which :meth:`prune` enforces
-        #: by deleting the oldest first (ADR-0052).
+        #: The most this directory may hold once the expired entries are out of it -- a
+        #: bound on disk rather than on age, which :meth:`prune` enforces by deleting
+        #: the oldest first (ADR-0052).
         self.max_bytes = max_bytes
 
     def get(self, key: str) -> str | None:
-        """The text stored for ``key``, or None for a miss.
-
-        A miss is everything that is not a fresh, readable entry naming this key.
-        All of them mean "do the work", the direction a cache may be wrong in.
-        """
+        """The text stored for ``key``, or None for a miss."""
         path = self._path(key)
         try:
             if time.time() - path.stat().st_mtime > self.ttl:
                 return None
             entry = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            # ValueError covers both ways a file can fail to be an entry: bytes
-            # that are not UTF-8 (UnicodeDecodeError) and text that is not JSON.
+            # ValueError covers both ways a file can fail to be an entry: bytes that are
+            # not UTF-8 (UnicodeDecodeError) and text that is not JSON.
             return None
         if not isinstance(entry, dict) or entry.get("key") != key:
             return None
@@ -111,13 +81,7 @@ class DiskCache:
         return text if isinstance(text, str) else None
 
     def put(self, key: str, value: str) -> None:
-        """Store ``value`` under ``key``, replacing whatever was there.
-
-        Written to a temporary file and moved into place (``os.replace``, atomic
-        on both platforms), so a reader never sees half an entry. The cleanup is
-        suppressed rather than guarded: it runs inside the handler, and an
-        ``unlink`` raising there would leave this module raising after all.
-        """
+        """Store ``value`` under ``key``, replacing whatever was there."""
         temporary = ""
         try:
             self.directory.mkdir(parents=True, exist_ok=True)
@@ -128,34 +92,22 @@ class DiskCache:
         except OSError:
             logger.debug("Could not cache an entry in %s", self.directory, exc_info=True)
             with suppress(OSError):
-                # Empty only where ``mkstemp`` is what failed, and then there is
-                # nothing on disk to take back.
+                # Empty only where ``mkstemp`` is what failed, and then there is nothing
+                # on disk to take back.
                 if temporary:
                     Path(temporary).unlink(missing_ok=True)
 
     def prune(self) -> int:
-        """Delete what has expired and what no longer fits, and say how many went.
-
-        Entries expire on the way out, so this changes no answer: it keeps the
-        directory from being every page ever read. The half-written files a
-        killed process leaves between ``mkstemp`` and ``os.replace`` go too, on
-        the same cutoff -- nothing else ever looks at them, and the cutoff is
-        what makes taking them safe, one a live run is writing being younger than
-        the time to live. They are not entries, so they are reported at DEBUG
-        rather than counted in the answer.
-
-        Age is only half of it: what survives the cutoff is held to
-        :attr:`max_bytes` as well, oldest first out (ADR-0052). The two are asked
-        in that order because expiry is free -- an entry nobody may read again is
-        no reason to delete one somebody may.
+        """Delete what has expired and what no longer fits, and say how many went
+        (ADR-0052).
         """
         cutoff = time.time() - self.ttl
         removed = 0
         leftovers = 0
         live: list[tuple[float, int, Path]] = []
-        # ``glob`` answers an empty iterator for a directory it cannot list, so
-        # with the three calls below guarded this cannot raise -- which is what
-        # lets ``open_cache`` call it unguarded.
+        # ``glob`` answers an empty iterator for a directory it cannot list, so with the
+        # three calls below guarded this cannot raise -- which is what lets
+        # ``open_cache`` call it unguarded.
         for path in (*self.directory.glob("*.json"), *self.directory.glob("*.tmp")):
             try:
                 stat = path.stat()
@@ -177,17 +129,7 @@ class DiskCache:
         return removed + self._evict(live)
 
     def _evict(self, live: list[tuple[float, int, Path]]) -> int:
-        """Delete the oldest of ``live`` until the rest fits, and say how many went.
-
-        Oldest first because that is the order they stop being worth keeping in: every
-        entry here is still readable, so the only thing to choose between them by is
-        which run is least likely to ask again. Sorted by modification time, which is
-        also what the expiry above reads -- a cache with one clock rather than two.
-
-        Each ``(mtime, size, path)`` comes from the single ``stat`` the caller already
-        made: asking again here would be a second answer about a file another run may
-        be replacing, and a size read twice is a budget that does not add up.
-        """
+        """Delete the oldest of ``live`` until the rest fits, and say how many went."""
         total = sum(size for _, size, _ in live)
         if total <= self.max_bytes:
             return 0
@@ -201,9 +143,9 @@ class DiskCache:
             total -= size
             if total <= self.max_bytes:
                 break
-        # DEBUG like everything else here: a cache tidying itself is nobody's
-        # news, and the line a shopper reads about the cache is ``enrich``'s
-        # count of how many pages came off disk.
+        # DEBUG like everything else here: a cache tidying itself is nobody's news, and
+        # the line a shopper reads about the cache is ``enrich``'s count of how many
+        # pages came off disk.
         logger.debug(
             "Dropped %d cached entr%s from %s to stay under %d bytes",
             evicted,
@@ -218,11 +160,7 @@ class DiskCache:
 
 
 def open_cache(kind: str, ttl: float) -> DiskCache | None:
-    """The cache of one kind a run should use, or None for a run using none.
-
-    ``ttl <= 0`` is how "do all of it fresh" is spelled -- one setting rather than
-    a number and a switch that can disagree, and one for both kinds.
-    """
+    """The cache of one kind a run should use, or None for a run using none."""
     if ttl <= 0:
         return None
     cache = DiskCache(default_dir(kind), ttl=ttl)
@@ -231,15 +169,7 @@ def open_cache(kind: str, ttl: float) -> DiskCache | None:
 
 
 class RememberedAnswers:
-    """A model server, with the answers it has already given handed back.
-
-    A ``ChatModel`` wrapping a ``ChatModel``, so the pipeline just sees one that is
-    sometimes very fast -- which is why the key holds everything deciding an answer:
-    the messages, the schema and the run's fingerprint, built by the caller since this
-    module has no business knowing what a provider is (ADR-0044). Only an answer is
-    stored, a failure being a state of the world rather than a fact about this
-    question.
-    """
+    """A model server, with the answers it has already given handed back (ADR-0044)."""
 
     def __init__(
         self, model: ChatModel, cache: DiskCache, fingerprint: Mapping[str, Any]
@@ -256,8 +186,8 @@ class RememberedAnswers:
             try:
                 remembered = read_answer(stored, schema)
             except UnreadableAnswerError:
-                # A miss like any other: it should not happen, the schema being
-                # part of the key, and it costs a model call rather than a run.
+                # A miss like any other: it should not happen, the schema being part of
+                # the key, and it costs a model call rather than a run.
                 logger.debug("A remembered answer could not be read back")
             else:
                 logger.info("Reused a remembered %s answer", schema.__name__)
@@ -268,19 +198,11 @@ class RememberedAnswers:
         return answer
 
     def close(self) -> None:
-        """Let go of what the model underneath holds open.
-
-        Passed through: this wrapper holds nothing itself, a cache being a
-        directory, while behind it is a client with a connection pool.
-        """
+        """Let go of what the model underneath holds open."""
         release(self.model)
 
     def _key(self, messages: Sequence[Message], schema: type[SchemaT]) -> str:
-        """Everything this question is: the request, the schema, and the run.
-
-        The schema goes in whole rather than by class name, so a field added to
-        ``ExtractedProduct`` (ADR-0004) is a different question rather than the
-        same one with a stale answer.
+        """Everything this question is: the request, the schema, and the run (ADR-0004).
         """
         return json.dumps(
             {
@@ -300,11 +222,8 @@ def remember_answers(
     ttl: float,
     deterministic: bool,
 ) -> ChatModel:
-    """``model``, answering off disk where it may, or ``model`` itself where not.
-
-    Two decisions turn it off, neither a failure: ``ttl <= 0`` is the shopper asking
-    for a live run, and ``deterministic`` false is a *sampled* run, which has no one
-    answer to remember (ADR-0044).
+    """``model``, answering off disk where it may, or ``model`` itself where not
+    (ADR-0044).
     """
     if not deterministic:
         return model

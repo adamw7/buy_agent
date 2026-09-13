@@ -1,12 +1,4 @@
-"""Data models.
-
-Two shapes of "product" on purpose. ``ExtractedProduct`` is what the LLM is asked
-for: every field concrete, with a sentinel for "unknown" (``-1``, ``""``, ``[]``)
-rather than nullable, the JSON schema becoming a decoding grammar in which a
-required ``number`` makes ``"N/A"`` structurally impossible (ADR-0004).
-``Product`` is the domain model the rest of the code uses, where unknown really is
-``None``.
-"""
+"""Data models (ADR-0004)."""
 
 from __future__ import annotations
 
@@ -22,32 +14,14 @@ _UNKNOWN_NUMBER = -1.0
 _WHITESPACE = re.compile(r"\s+")
 _PUNCTUATION = re.compile(r"[^\w\s]")
 
-#: How many opinions a product is reported with. Three fits a card and a log
-#: block, and asking a small model for more trades quotes it read for ones it
-#: wrote.
+#: How many opinions a product is reported with.
 MAX_OPINIONS = 3
 
 #: Longer than this is not a quote any more; it is the model retelling the page.
-#: An over-long one is dropped rather than cut short, the way an over-long name
-#: is: half a sentence attributed to a reviewer says something they did not.
 _MAX_OPINION_LENGTH = 240
 
-#: How a page's way of naming a currency reads as the ISO code the schema asks
-#: for. The field says "USD or EUR" and a small model hands back what the page
-#: printed, so a set comes out split between "$" and "USD", which
-#: :func:`comparable_price` refuses to compare across (ADR-0043).
-#:
-#: Only spellings that name one currency are here. ``¥`` is the yen's and the
-#: yuan's, ``kr`` is three countries': an ambiguous sign is left as written, which
-#: makes it a price this run cannot place rather than one placed wrongly. ``$`` is
-#: the one guess, the currencies sharing it spelling themselves ``C$`` and ``A$``
-#: where it matters; by the same rule "Rs" and "lira" are absent while the signs
-#: beside them are each one currency's.
-#:
-#: Every sign and spelling :mod:`buy_agent.fetch` will keep a price line for has
-#: to be placeable here, or that line is read off a page and then scored on
-#: nothing; ``tests/test_conventions.py`` holds the two tables to it, with ``¥``
-#: named as the deliberate exception.
+#: How a page's way of naming a currency reads as the ISO code the schema asks for
+#: (ADR-0043).
 _CURRENCY_ALIASES = {
     "$": "USD",
     "US$": "USD",
@@ -112,16 +86,12 @@ class ExtractedProduct(BaseModel):
 
     def to_product(self) -> Product:
         """Convert sentinels back into ``None`` and tidy up whitespace."""
-        # Neither qualifier outlives the figure it describes -- :data:`QUALIFIERS`,
-        # one stage earlier than ``verify_numbers``. A model that reads a currency
-        # off a page and no price to go with it has read a fact about nothing.
+        # Neither qualifier outlives the figure it describes -- :data:`QUALIFIERS`, one
+        # stage earlier than ``verify_numbers``.
         rating = self.rating if 0 <= self.rating <= 5 else None
-        # ``> 0`` rather than ``>= 0``, matching ``review_count``: zero is the
-        # other thing a model writes for "unknown", and grounding need only find a
-        # bare "0" in ten pages of "$0 shipping" for ranking to top the report
-        # with it. Finite as well as positive: a model running away on digits
-        # answers ``1e400``, which is ``inf`` -- and ``inf`` grounds on the "inf"
-        # in "information" and turns every price share into a NaN.
+        # ``> 0`` rather than ``>= 0``, matching ``review_count``: zero is the other
+        # thing a model writes for "unknown", and grounding need only find a bare "0" in
+        # ten pages of "$0 shipping" for ranking to top the report with it.
         price = self.price if isfinite(self.price) and self.price > 0 else None
         return Product(
             name=_clean(self.name),
@@ -139,12 +109,8 @@ class ExtractedProduct(BaseModel):
 
 
 class Opinion(BaseModel):
-    """One thing a source page said about a product, and the page that said it.
-
-    The quote and its page are one fact (ADR-0025, ADR-0042). ``url`` is nullable
-    because a result can carry no URL of its own and the page printed the words all the
-    same, and it is never the model's: like ``Product.url`` it is written out of the
-    results that were searched (ADR-0017).
+    """One thing a source page said about a product, and the page that said it (ADR-0025,
+    ADR-0042, ADR-0017).
     """
 
     text: str
@@ -168,28 +134,7 @@ class SearchQuery(BaseModel):
 
 
 class Product(BaseModel):
-    """A product candidate, with unknown fields left as ``None``.
-
-    The two figures are held to being *numbers*, which ``float`` alone does not say:
-    ``inf`` and ``nan`` are floats, and either one poisons everything downstream of
-    it. An infinite price makes ``priciest - cheapest`` infinite and every price share
-    a NaN; a NaN score sorts arbitrarily; and ``json.dumps`` writes both as bare
-    ``Infinity`` and ``NaN``, which is not JSON and which a browser refuses to parse
-    -- so a run would answer 200 with a body the page cannot read.
-    :meth:`ExtractedProduct.to_product` already blanks a price like that on the way in
-    from the model, which is why nothing in the pipeline trips this; it is declared
-    here because that is not the only way a ``Product`` is built. ``/api/rank`` and
-    ``/api/pay`` validate one straight out of a request body, and ``json.loads``
-    accepts ``Infinity`` and ``NaN`` as readily as it accepts ``1``.
-
-    The rating is held to its *scale* for the same reason and by the same rule. It is
-    the one figure here that is not simply a quantity: ``score_product`` divides it by
-    5 to get a share of the blend, so a 100 out of a request body is a share of 20 and
-    a score of 10.2 -- outside the ``[0, 1]`` :class:`ScoreParts` promises, drawn as a
-    meter ten times its own track and added to nothing anybody can read. ``to_product``
-    blanks one off the scale on the way in from the model; a door that takes a whole
-    product has to refuse it, the same way it refuses a price of ``inf``.
-    """
+    """A product candidate, with unknown fields left as ``None``."""
 
     name: str
     price: Annotated[float | None, Field(allow_inf_nan=False)] = None
@@ -198,9 +143,7 @@ class Product(BaseModel):
     review_count: int | None = None
     seller: str | None = None
     url: str | None = None
-    #: What the sources say about it, in their words, each beside the page that
-    #: said it. A list rather than a nullable field: "nobody said anything" and
-    #: "nothing survived grounding" are one empty answer.
+    #: What the sources say about it, in their words, each beside the page that said it.
     opinions: list[Opinion] = []
     notes: str | None = None
 
@@ -222,13 +165,7 @@ class Product(BaseModel):
         return f"{self.rating:.1f}/5{reviews}"
 
 
-#: Fields that describe another field rather than the product (ADR-0022). A
-#: currency is a fact about *that listing's* price and a review count is what
-#: *that listing's* rating was averaged over, so a figure carries its qualifiers
-#: wherever it moves and takes them down wherever it is rejected. Declared beside
-#: the fields it names, both places that move a figure needing it
-#: (:func:`buy_agent.extraction._fill_gaps`,
-#: :func:`buy_agent.verification.verify_numbers`).
+#: Fields that describe another field rather than the product (ADR-0022).
 QUALIFIERS: dict[str, tuple[str, ...]] = {
     "price": ("currency",),
     "rating": ("review_count",),
@@ -236,20 +173,13 @@ QUALIFIERS: dict[str, tuple[str, ...]] = {
 
 
 def dominant_currency(products: Iterable[Product]) -> str | None:
-    """The currency this set of products is priced in, where they agree on one.
-
-    The most common among the priced products that named one, ties going to the first
-    seen. ``None`` where no priced product named one: nothing then says the figures
-    are in different currencies, and they are compared as they always were.
-
-    A run's prices are only comparable inside one currency (ADR-0043), and this is the
-    one that gets to be it. Nothing is converted.
+    """The currency this set of products is priced in, where they agree on one (ADR-0043).
     """
     counted = Counter(
         product.currency
         for product in products
-        # A currency with no price beside it describes nothing (ADR-0022) and so
-        # does not get to decide what the set is counted in.
+        # A currency with no price beside it describes nothing (ADR-0022) and so does
+        # not get to decide what the set is counted in.
         if product.price is not None and product.currency is not None
     )
     # ``most_common`` sorts stably, so equal counts stay in first-seen order.
@@ -257,37 +187,21 @@ def dominant_currency(products: Iterable[Product]) -> str | None:
 
 
 def comparable_price(product: Product, currency: str | None) -> float | None:
-    """``product``'s price on this run's own scale, or ``None`` if it is not on it.
-
-    A price printed without a currency is taken as the run's own, refusing the
-    commonest shape of price there is being a set scored on nothing. A price in some
-    *other* currency is not a smaller number but one this run cannot place (ADR-0043),
-    and ``None`` says that -- which is what a price nobody published gets too, so an
-    unpriced product needs no case of its own.
+    """``product``'s price on this run's own scale, or ``None`` if it is not on it
+    (ADR-0043).
     """
     on_the_scale = currency is None or product.currency in (None, currency)
     return product.price if on_the_scale else None
 
 
 class ScoreParts(BaseModel):
-    """What one product's blended score is made of, a share per criterion.
-
-    Reported rather than kept (ADR-0041): a bare 0.62 says nothing about *why* a
-    product placed where it did, and :data:`buy_agent.ranking.NEUTRAL` makes a criterion
-    that scored middling look identical to one never known at all. ``neutral`` names the
-    criteria that were assumed rather than read.
-
-    Every share is in ``[0, 1]`` and none is weighted: how much each counts is
-    ``RankingWeights``, a setting for the whole run. ``total`` is what they blend to,
-    and the number the ordering was made on.
-    """
+    """What one product's blended score is made of, a share per criterion (ADR-0041)."""
 
     rating: float
     popularity: float
     price: float
     total: float
     #: The criteria this product published nothing for, each scored ``NEUTRAL``.
-    #: A list rather than three booleans: it is read as a set of names.
     neutral: list[str] = []
 
 
@@ -300,11 +214,7 @@ class RankedProduct(BaseModel):
 
     @property
     def score(self) -> float:
-        """The blended score, which is the total of its parts.
-
-        A property and not a field, so there is one number rather than two that agree
-        until somebody constructs a ``RankedProduct`` by hand.
-        """
+        """The blended score, which is the total of its parts."""
         return self.breakdown.total
 
 
@@ -313,25 +223,15 @@ def _clean(value: str) -> str:
 
 
 def _currency(value: str) -> str | None:
-    """The currency a listing named, as the code the rest of the run compares by.
-
-    Upper-cased and read through :data:`_CURRENCY_ALIASES`, so a printed sign and a
-    printed code are one currency. An unknown spelling is kept as written rather than
-    blanked, an unrecognised currency being a price this run cannot place while a blank
-    one is placed on the set's own scale (ADR-0043).
+    """The currency a listing named, as the code the rest of the run compares by
+    (ADR-0043).
     """
     code = _clean(value).upper()
     return _CURRENCY_ALIASES.get(code, code) or None
 
 
 def distinct_quotes(values: Iterable[Opinion]) -> list[Opinion]:
-    """The first spelling of each quote, at most :data:`MAX_OPINIONS` of them.
-
-    Identity is the casefolded *text* and not the pair: two listings quoting one
-    reviewer differ by capitalisation and by which page was read, and are still one
-    quote. Keeping the earlier is the tie-break made everywhere else, and it keeps a
-    quote pointing at the first page that printed it.
-    """
+    """The first spelling of each quote, at most :data:`MAX_OPINIONS` of them."""
     seen: dict[str, Opinion] = {}
     for quote in values:
         seen.setdefault(quote.text.casefold(), quote)
@@ -339,11 +239,8 @@ def distinct_quotes(values: Iterable[Opinion]) -> list[Opinion]:
 
 
 def _quotes(values: list[str]) -> list[Opinion]:
-    """Tidy the quoted opinions, dropping blanks, repeats and whole paragraphs.
-
-    Every one comes out pointing at nothing: the model is asked for the words and never
-    for the page, which :func:`buy_agent.verification.verify_opinions` fills in out of
-    the pages that were searched (ADR-0017, ADR-0042).
+    """Tidy the quoted opinions, dropping blanks, repeats and whole paragraphs (ADR-0017,
+    ADR-0042).
     """
     cleaned = (_clean(value) for value in values)
     return distinct_quotes(

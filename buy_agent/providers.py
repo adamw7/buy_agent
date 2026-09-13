@@ -1,26 +1,5 @@
-"""Which model server the agent talks to: Ollama, or vLLM's OpenAI-compatible API.
-
-Everything that differs between the two lives here, one row per server, so nothing
-above knows which is running (ADR-0028, ADR-0029). A :class:`Provider` answers what
-the config could not: what the server **defaults to** (model, address and key, from
-its own environment variables); what **chat model** a config builds on it; which
-**transport failures** mean "not there" and **how one is phrased**; and **what it
-is serving**, each model with whether it can answer a prompt.
-
-The two are not symmetric. Ollama holds many pulled tags and switches per request,
-taking the context window and the thinking switch with it -- some of those tags
-being embedding models no run can use, which costs a second question per tag
-(ADR-0032); a vLLM serves one model chosen at startup, fixes the window with
-``--max-model-len`` and takes only the thinking switch.
-:data:`Provider.takes_num_ctx` declares that once, so no front end offers a
-setting that does nothing.
-
-What they do share is how long a question may take: ``model_timeout`` is set on
-both clients and both are told to ask once (ADR-0051).
-
-Nothing is imported from :mod:`buy_agent.config`: a config is what this module is
-handed, and ``AgentConfig.model_server`` is the one place a name becomes
-behaviour.
+"""Which model server the agent talks to: Ollama, or vLLM's OpenAI-compatible API
+(ADR-0028, ADR-0029, ADR-0032, ADR-0051).
 """
 
 from __future__ import annotations
@@ -43,44 +22,28 @@ if TYPE_CHECKING:
     from buy_agent.chat import Message
     from buy_agent.config import AgentConfig
 
-#: What the OpenAI client is given when no key is configured. vLLM serves without
-#: one, but the client refuses to send a request with no key at all, so a
-#: placeholder stands in for the header vLLM is not checking.
+#: What the OpenAI client is given when no key is configured. vLLM serves without one,
+#: but the client refuses to send a request with no key at all, so a placeholder stands
+#: in for the header vLLM is not checking.
 _NO_KEY = "EMPTY"
 
-#: How long to wait on a model listing -- all of it, not each request in it.
-#: Short on purpose: it is asked while a form is rendering. The number is a
-#: per-request timeout on the client *and* the deadline the capability probes
-#: share, the client's own bounding one question while Ollama's listing asks one
-#: per tag (ADR-0032) -- fifty tags would otherwise be fifty timeouts. Deliberately
-#: not ``model_timeout``: that is how long a shopper will wait for an answer to a
-#: 4.3k-token prompt, this is how long a page will wait to draw a dropdown
-#: (ADR-0051).
+#: How long to wait on a model listing -- all of it, not each request in it (ADR-0032,
+#: ADR-0051).
 _LIST_TIMEOUT = 5.0
 
-#: What an Ollama model's capabilities must include to answer a prompt at all.
-#: ``ollama show`` reports them and ``ollama list`` does not, which is why the
-#: listing below asks twice (ADR-0032).
+#: What an Ollama model's capabilities must include to answer a prompt at all
+#: (ADR-0032).
 _COMPLETION = "completion"
 
-#: How many of those second questions to have in flight at once: together, the
-#: listing being on one short budget, but capped -- fifty pulled tags should not
-#: get fifty threads to save milliseconds on a local call.
+#: How many of those second questions to have in flight at once: together, the listing
+#: being on one short budget, but capped -- fifty pulled tags should not get fifty
+#: threads to save milliseconds on a local call.
 _PROBES = 8
 
 
 @dataclass(frozen=True, slots=True)
 class InstalledModel:
-    """One model a server is holding, and whether it can answer a chat prompt.
-
-    The second half is not decoration (ADR-0032): Ollama holds whatever has been
-    pulled, often including embedding-only models, and offering one as if a run could
-    use it fails partway through. vLLM serves the one model it was started with, so
-    ``completion`` is true there by construction.
-
-    Attributes:
-        name: The tag, or the repository id -- what a config's ``model`` names.
-        completion: Whether asking it for one is a run that can finish.
+    """One model a server is holding, and whether it can answer a chat prompt (ADR-0032).
     """
 
     name: str
@@ -89,26 +52,7 @@ class InstalledModel:
 
 @dataclass(frozen=True, slots=True)
 class Provider:
-    """One model server: what it defaults to, and how it is talked to.
-
-    Attributes:
-        name: What the CLI, the API and ``$BUY_AGENT_PROVIDER`` call it.
-        label: What a person reads -- "Ollama", "vLLM".
-        model: What a config naming none runs on this server.
-        base_url: Where it listens when a config names no address. vLLM's includes
-            the ``/v1`` its OpenAI API is served under.
-        api_key: Sent when a config carries none. Ollama has no notion of one; vLLM
-            wants one only when started with ``--api-key``, read from the environment
-            and nowhere else -- a secret belongs in no shell history.
-        takes_num_ctx: Whether the context window is a per-request setting. False for
-            vLLM, which fixes it at startup, so ``num_ctx`` is ignored there rather
-            than quietly failing to apply.
-        chat_model: Builds the client this config's run puts its two questions to.
-        installed: Lists what the server is serving and what each can do, raising
-            whatever the transport raises -- both callers phrase that their own way.
-        transport_errors: The exceptions meaning the server could not be reached.
-        hint: Turns one of those into something the user can act on.
-    """
+    """One model server: what it defaults to, and how it is talked to."""
 
     name: str
     label: str
@@ -124,16 +68,7 @@ class Provider:
 
 @dataclass(frozen=True, slots=True)
 class _OllamaChat:
-    """Ollama's own client, asked for one schema-shaped answer.
-
-    ``format`` is the JSON schema itself, which Ollama compiles into a decoding
-    grammar (ADR-0004). The window and the thinking switch are request options, so
-    both travel per call: Ollama switches models between requests.
-
-    Not streamed. Nothing reads a token before the answer is complete, and the
-    non-streaming path is where ollama's client turns a refused connection into a
-    builtin ``ConnectionError`` rather than letting httpx's own out.
-    """
+    """Ollama's own client, asked for one schema-shaped answer (ADR-0004)."""
 
     client: Client
     model: str
@@ -144,8 +79,8 @@ class _OllamaChat:
     def answer(self, messages: Sequence[Message], schema: type[SchemaT]) -> SchemaT:
         """One chat call, read back as ``schema``."""
         options: dict[str, Any] = {"temperature": self.temperature}
-        # Sent only when there is one: ``None`` means "leave the model's own
-        # alone", and a null in the options is not that (ADR-0019).
+        # Sent only when there is one: ``None`` means "leave the model's own alone", and
+        # a null in the options is not that (ADR-0019).
         if self.num_ctx is not None:
             options["num_ctx"] = self.num_ctx
         response = self.client.chat(
@@ -158,21 +93,12 @@ class _OllamaChat:
         return read_answer(response.message.content or "", schema)
 
     def close(self) -> None:
-        """Let go of the connection this client keeps to Ollama.
-
-        The pool underneath is idle between runs and open for as long as whoever built
-        this model holds it, which on the server is one run.
-        """
+        """Let go of the connection this client keeps to Ollama."""
         self.client.close()
 
 
 def _ollama_chat_model(config: AgentConfig) -> ChatModel:
-    """Ollama takes the window and the thinking switch as request options.
-
-    The timeout goes on the *client*, which is where ollama's own takes one and passes
-    it to httpx. Left out it is not a long wait but no wait at all -- ``timeout=None``
-    disables httpx's, so a server that went quiet hung the run (ADR-0051).
-    """
+    """Ollama takes the window and the thinking switch as request options (ADR-0051)."""
     return _OllamaChat(
         client=Client(config.base_url, timeout=config.model_timeout),
         model=config.model,
@@ -183,17 +109,7 @@ def _ollama_chat_model(config: AgentConfig) -> ChatModel:
 
 
 def _ollama_installed(config: AgentConfig) -> list[InstalledModel]:
-    """Every model tag Ollama has pulled, and whether each one can be run.
-
-    Two questions in two places: ``/api/tags`` gives the tags, ``show`` gives one tag's
-    capabilities. The second goes out once per tag, together rather than in turn,
-    :data:`_LIST_TIMEOUT` being the budget for the whole listing (ADR-0032) -- so the
-    deadline starts before the first question.
-
-    A tag that will not say what it can do counts as able to answer: hiding a working
-    model on a failed probe is the worse mistake, and a probe still running when the
-    budget is spent is that same case.
-    """
+    """Every model tag Ollama has pulled, and whether each one can be run (ADR-0032)."""
     deadline = time.monotonic() + _LIST_TIMEOUT
     names = _ollama_tags(config)
     if not names:
@@ -202,18 +118,7 @@ def _ollama_installed(config: AgentConfig) -> list[InstalledModel]:
 
 
 def _ollama_tags(config: AgentConfig) -> list[str]:
-    """What Ollama says it is holding, each tag named the way Ollama named it.
-
-    Read off ``/api/tags`` rather than through the client's typed listing, the one call
-    here that cannot afford a translation: the endpoint spells a tag ``model`` *and*
-    ``name``, ``ollama.ListResponse`` declares only the first, and pydantic discards the
-    rest -- so an entry carrying ``name`` alone was dropped, a pulled model missing from
-    the picker while ``ollama list`` goes on printing it. Reading the answer as it comes
-    also keeps one unparsable entry from failing the listing, which reaches the page as
-    "Ollama unreachable" over a running Ollama. An entry carrying neither spelling is
-    skipped, there being nothing to offer a shopper -- what ``/v1/models`` without an
-    ``id`` is on the other row.
-    """
+    """What Ollama says it is holding, each tag named the way Ollama named it."""
     response = httpx.get(
         _ollama_url(config.base_url, "/api/tags"), timeout=_LIST_TIMEOUT
     )
@@ -226,13 +131,7 @@ def _ollama_tags(config: AgentConfig) -> list[str]:
 
 
 def _ollama_url(base_url: str, path: str) -> str:
-    """An address of Ollama's, joined the way its own client would have joined it.
-
-    ``$OLLAMA_HOST`` is written both ways -- with a scheme and without -- and the chat
-    goes through a client that fills the missing one in. The listing asks httpx
-    directly, so it fills in the same one rather than reporting a running server as
-    unreachable.
-    """
+    """An address of Ollama's, joined the way its own client would have joined it."""
     base = base_url if "://" in base_url else f"http://{base_url}"
     return f"{base.rstrip('/')}{path}"
 
@@ -254,11 +153,7 @@ def _probe(client: Client, names: list[str], deadline: float) -> list[InstalledM
 
 
 def _ollama_capability(client: Client, name: str) -> InstalledModel:
-    """Ask one pulled tag whether it has a completion to give.
-
-    ``capabilities`` is absent on an Ollama too old to report it -- the same answer as
-    a failed probe, nothing here knowing better than the tag.
-    """
+    """Ask one pulled tag whether it has a completion to give."""
     try:
         capabilities = client.show(name).capabilities
     # Any failure here means "cannot say", not "cannot run".
@@ -271,17 +166,9 @@ def _ollama_capability(client: Client, name: str) -> InstalledModel:
 
 
 def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
-    """Turn an Ollama failure into something the user can act on.
-
-    Two cases are Ollama's own, both coming of it holding many tags rather than serving
-    one: a name it does not know is one to pull, and a name it knows with no completion
-    to give is an embedding model, which without this falls through to "start the
-    server" -- wrong, the server having answered (ADR-0032). The other two are what
-    either server would say, written once below.
-    """
-    # Asked before the two string tests below, which read the message: a
-    # half-finished answer is the model's own words, and any of them could say
-    # "not found".
+    """Turn an Ollama failure into something the user can act on (ADR-0032)."""
+    # Asked before the two string tests below, which read the message: a half-finished
+    # answer is the model's own words, and any of them could say "not found".
     if isinstance(exc, UnreadableAnswerError):
         return _unreadable_hint(config, exc)
     if isinstance(exc, httpx.TimeoutException):
@@ -305,14 +192,8 @@ def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
 
 @dataclass(frozen=True, slots=True)
 class _VLLMChat:
-    """vLLM through the OpenAI client, asked for one schema-shaped answer.
-
-    The schema arrives as ``response_format``, which vLLM turns into the constrained
-    decoding Ollama's ``format`` does -- one mechanism, two spellings, which is the
-    sort of difference this module exists to hold (ADR-0004, ADR-0028).
-
-    ``strict`` is deliberately not set: it is OpenAI's stricter dialect, demanding an
-    ``additionalProperties: false`` pydantic does not emit and vLLM does not ask for.
+    """vLLM through the OpenAI client, asked for one schema-shaped answer (ADR-0004,
+    ADR-0028).
     """
 
     client: openai.OpenAI
@@ -343,14 +224,7 @@ class _VLLMChat:
 
 
 def _vllm_chat_model(config: AgentConfig) -> ChatModel:
-    """vLLM through its OpenAI-compatible API.
-
-    ``num_ctx`` is deliberately not passed: vLLM fixes the window at startup and would
-    reject an unknown field (:data:`Provider.takes_num_ctx`). ``model_timeout`` is, both
-    servers being equally able to go quiet holding a prompt. ``reasoning`` keeps its
-    tri-state -- ``None`` leaves the chat template alone, True and False set the
-    ``enable_thinking`` those templates read (ADR-0019).
-    """
+    """vLLM through its OpenAI-compatible API (ADR-0019)."""
     extra_body: dict[str, Any] = {}
     if config.reasoning is not None:
         extra_body["chat_template_kwargs"] = {"enable_thinking": config.reasoning}
@@ -359,9 +233,9 @@ def _vllm_chat_model(config: AgentConfig) -> ChatModel:
             base_url=config.base_url,
             api_key=config.api_key or _NO_KEY,
             timeout=config.model_timeout,
-            # Asked once. This client retries twice by default, so the wait a
-            # shopper set would be a third of the wait they got -- and a prompt
-            # this size is not one to send three times (ADR-0051).
+            # Asked once. This client retries twice by default, so the wait a shopper
+            # set would be a third of the wait they got -- and a prompt this size is not
+            # one to send three times (ADR-0051).
             max_retries=0,
         ),
         model=config.model,
@@ -371,12 +245,7 @@ def _vllm_chat_model(config: AgentConfig) -> ChatModel:
 
 
 def _vllm_installed(config: AgentConfig) -> list[InstalledModel]:
-    """What vLLM is serving -- one model, in the list shape the picker wants.
-
-    Over ``httpx`` rather than the OpenAI client, the whole request being a ``GET`` of
-    ``/v1/models``; ``base_url`` already ends in the API root. There is no second
-    question: a vLLM serves the model it was started for.
-    """
+    """What vLLM is serving -- one model, in the list shape the picker wants."""
     headers = {"Authorization": f"Bearer {config.api_key}"} if config.api_key else {}
     response = httpx.get(
         f"{config.base_url.rstrip('/')}/models", headers=headers, timeout=_LIST_TIMEOUT
@@ -390,12 +259,7 @@ def _vllm_installed(config: AgentConfig) -> list[InstalledModel]:
 
 
 def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
-    """Turn a vLLM failure into something the user can act on.
-
-    Two cases are vLLM's own. A refused key is a server started with ``--api-key``,
-    which Ollama has no notion of. A name it does not know is not something to pull,
-    it serving one model chosen at startup, so the message names both remedies.
-    """
+    """Turn a vLLM failure into something the user can act on."""
     if isinstance(exc, UnreadableAnswerError):
         return _unreadable_hint(config, exc)
     detail = str(exc)
@@ -419,12 +283,7 @@ def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
 
 
 def _too_slow_hint(config: AgentConfig, exc: Exception) -> str:
-    """A server that took the prompt and never came back.
-
-    Only the remedy differs: where the window is a per-request setting there is a
-    smaller one to ask for, and where the server fixed it at startup there is only a
-    shorter prompt to send.
-    """
+    """A server that took the prompt and never came back."""
     server = config.model_server
     smaller = "a smaller context window" if server.takes_num_ctx else "a shorter prompt"
     # A timeout often stringifies to nothing, and "()" says less than the class.
@@ -437,21 +296,14 @@ def _too_slow_hint(config: AgentConfig, exc: Exception) -> str:
 
 
 def _unreadable_hint(config: AgentConfig, exc: Exception) -> str:
-    """A server that answered, with something that is not the JSON asked for.
-
-    The usual cause is room rather than the model being wrong: extraction runs to
-    ~4.3k tokens and the answer is JSON on top, so a window too small for both ends the
-    stream part-way through an object (ADR-0019), and the remedy differs the way
-    :func:`_too_slow_hint`'s does. The failure's message is the answer the model did
-    give, truncated by :func:`buy_agent.chat.read_answer` and to one line here as well;
-    the whole of it is a DEBUG line where it was caught.
+    """A server that answered, with something that is not the JSON asked for (ADR-0019).
     """
     server = config.model_server
     room = (
         "give it more room with a larger context window, or turn thinking off"
         if server.takes_num_ctx
-        # ``--max-model-len`` stays: it is vLLM's own startup flag, which is the
-        # same thing to type wherever this sentence is read.
+        # ``--max-model-len`` stays: it is vLLM's own startup flag, which is the same
+        # thing to type wherever this sentence is read.
         else "ask for fewer products, or restart it with a larger --max-model-len"
     )
     said = str(exc).strip()
@@ -472,16 +324,11 @@ def _unreachable_hint(config: AgentConfig, exc: Exception, start: str) -> str:
 
 
 def _listed(config: AgentConfig, *, completing: bool = False) -> str:
-    """What the server has, for a message -- or "unknown" if it cannot be asked.
-
-    ``completing`` narrows the answer to models that can answer a prompt, which is what
-    to offer someone whose chosen model cannot; elsewhere the whole listing is the
-    useful answer.
-    """
+    """What the server has, for a message -- or "unknown" if it cannot be asked."""
     try:
         models = config.model_server.installed(config)
-    # Any transport failure means "cannot say", and a hint is already being
-    # written: the second failure must not replace it with a traceback.
+    # Any transport failure means "cannot say", and a hint is already being written: the
+    # second failure must not replace it with a traceback.
     # pylint: disable-next=broad-exception-caught
     except Exception:
         return "unknown"
@@ -499,12 +346,10 @@ OLLAMA = Provider(
     takes_num_ctx=True,
     chat_model=_ollama_chat_model,
     installed=_ollama_installed,
-    # Both halves are load-bearing, the ollama client converting exactly one of
-    # its transport failures: a refused connection becomes a builtin
-    # ``ConnectionError``, while a slow model and a dropped stream arrive as raw
-    # ``httpx`` errors, neither an ``OSError``. ``ResponseError`` is a status the
-    # server answered with; ``RequestError`` is ollama's own for a request it will
-    # not send, a different class from httpx's identically named one.
+    # Both halves are load-bearing, the ollama client converting exactly one of its
+    # transport failures: a refused connection becomes a builtin ``ConnectionError``,
+    # while a slow model and a dropped stream arrive as raw ``httpx`` errors, neither an
+    # ``OSError``.
     transport_errors=(ResponseError, RequestError, OSError, httpx.HTTPError),
     hint=_ollama_hint,
 )
@@ -513,33 +358,25 @@ VLLM = Provider(
     name="vllm",
     label="vLLM",
     # A repository id rather than a tag: what ``vllm serve`` is given and what
-    # ``/v1/models`` reports back. The address is the API root, the OpenAI client
-    # appending its paths to whatever it is given.
+    # ``/v1/models`` reports back.
     model=os.getenv("VLLM_MODEL", "Qwen/Qwen3-8B"),
     base_url=os.getenv("VLLM_HOST", "http://localhost:8000/v1"),
     api_key=os.getenv("VLLM_API_KEY", ""),
     takes_num_ctx=False,
     chat_model=_vllm_chat_model,
     installed=_vllm_installed,
-    # ``openai.OpenAIError`` is the root of that client's hierarchy. The other
-    # two are for the listing above, which goes over httpx directly.
+    # ``openai.OpenAIError`` is the root of that client's hierarchy.
     transport_errors=(openai.OpenAIError, OSError, httpx.HTTPError),
     hint=_vllm_hint,
 )
 
-#: Every provider, by the name the CLI, the API and ``$BUY_AGENT_PROVIDER`` use.
-#: Each row carries what a server defaults to *and* how it is talked to, so a
-#: third is a row here and nothing anywhere else (ADR-0029).
+#: Every provider, by the name the CLI, the API and ``$BUY_AGENT_PROVIDER`` use
+#: (ADR-0029).
 PROVIDERS: dict[str, Provider] = {provider.name: provider for provider in (OLLAMA, VLLM)}
 
 
 def provider_for(name: str) -> Provider:
-    """The provider called ``name``.
-
-    Raises:
-        ValueError: naming the ones that do exist, since this is reached from a
-            CLI flag, a form field and an environment variable alike.
-    """
+    """The provider called ``name``."""
     try:
         return PROVIDERS[name]
     except KeyError:
@@ -549,13 +386,7 @@ def provider_for(name: str) -> Provider:
 
 
 def provider_options() -> list[dict[str, object]]:
-    """Every provider a run can be pointed at, as the form's picker needs it.
-
-    Carries each one's defaults, so choosing a provider in the browser fills in the
-    model and address that go with it rather than leaving an Ollama tag in a field a
-    vLLM will refuse. ``api_key`` is deliberately absent: this payload goes to a
-    browser, and that one is a secret.
-    """
+    """Every provider a run can be pointed at, as the form's picker needs it."""
     return [
         {
             "name": server.name,

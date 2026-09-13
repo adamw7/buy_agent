@@ -14,17 +14,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: What ddgs says when every engine answered and none had anything: a query that
-#: matched nothing arrives as an exception like any other. Calling that a
-#: :class:`SearchError` would report "the backend could not be reached" for a
-#: search that worked, and the message is the only discriminator ddgs offers.
-#: Pinned to ``ddgs==9.15.0``, so a rewording shows up as the old 502.
+#: What ddgs says when every engine answered and none had anything: a query that matched
+#: nothing arrives as an exception like any other.
 _NO_RESULTS = "No results found."
 
-#: How long to wait before asking a second time, where the caller handed something
-#: to wait with. ``ddgs`` asks several engines and raises only when every one of
-#: them failed, which is what a rate limit looks like from here (ADR-0053). Two
-#: seconds, the alternative being a run that ends.
+#: How long to wait before asking a second time, where the caller handed something to
+#: wait with (ADR-0053).
 _RETRY_WAIT = 2.0
 
 
@@ -33,11 +28,7 @@ class SearchError(RuntimeError):
 
 
 class SearchResult(BaseModel):
-    """One raw web result, before the LLM makes sense of it.
-
-    ``content`` is the condensed page text, filled in by :mod:`buy_agent.fetch`;
-    it stays empty when fetching is turned off or the page could not be read.
-    """
+    """One raw web result, before the LLM makes sense of it."""
 
     title: str = ""
     url: str = ""
@@ -58,20 +49,7 @@ def search_web(
     region: str = "us-en",
     wait: Callable[[float], None] | None = None,
 ) -> list[SearchResult]:
-    """Run a DuckDuckGo text search and return the results.
-
-    A search that reached the backend and matched nothing returns ``[]`` -- an
-    answer and not a failure, however ddgs spells it (:data:`_NO_RESULTS`).
-
-    Given a ``wait``, a failed search is asked once more after :data:`_RETRY_WAIT`
-    (ADR-0053), one search being the whole of a run's input -- there is no partial
-    answer to carry on with, the way a lost page leaves nine. ``None``, the default,
-    asks once. A search that matched nothing is never asked again: it worked, and it
-    would match nothing twice.
-
-    Raises:
-        SearchError: if DuckDuckGo is unreachable or rate-limits the request.
-    """
+    """Run a DuckDuckGo text search and return the results (ADR-0053)."""
     logger.info("Searching the web for %r (max %d results)", query, max_results)
     attempts_left = 2
     while True:
@@ -86,9 +64,9 @@ def search_web(
             attempts_left -= 1
             if wait is None or not attempts_left:
                 raise SearchError(f"Web search failed for {query!r}: {exc}") from exc
-            # WARNING rather than INFO: this is the failure the run would have
-            # ended on, and the line is what says a run that took two seconds
-            # longer was one that nearly did not happen.
+            # WARNING rather than INFO: this is the failure the run would have ended on,
+            # and the line is what says a run that took two seconds longer was one that
+            # nearly did not happen.
             logger.warning(
                 "Web search failed for %r (%s); asking again in %.0fs",
                 query,

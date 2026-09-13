@@ -1,14 +1,5 @@
-"""Check extracted products against the text they were supposedly read from.
-
-Small models fill gaps -- a figure carried over from the prompt's own example, or
-the example's electric kettle reported as a product -- so nothing reaches the
-ranking unsupported (ADR-0006). A name absent from the sources drops the product;
-an absent price, rating or review count is blanked; a link is worked out from the
-sources rather than read off the model (ADR-0017).
-
-Quotes get the strictest bar, being the one field asked for in words: a quote is
-supported only where *one page that mentions the product* has it as running text
-(ADR-0024, ADR-0025).
+"""Check extracted products against the text they were supposedly read from (ADR-0006,
+ADR-0017, ADR-0024, ADR-0025).
 """
 
 from __future__ import annotations
@@ -28,66 +19,42 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: The two things a comma between digits can mean, told apart by how many digits
-#: follow: three groups thousands ("1,299" is 1299), one or two is a decimal point
-#: ("129,99" is 129.99). Stripping the second like the first made it 12999.
+#: The two things a comma between digits can mean, told apart by how many digits follow:
+#: three groups thousands ("1,299" is 1299), one or two is a decimal point ("129,99" is
+#: 129.99).
 _THOUSANDS_SEPARATOR = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
 _DECIMAL_COMMA = re.compile(r"(?<=\d),(?=\d{1,2}(?!\d))")
 
 #: Fraction of a name's distinctive words that must appear in the sources.
-#: Public because the benchmark scores names by the bar the pipeline sets rather
-#: than by one of its own (:data:`benchmark.scoring.MATCH_COVERAGE`).
 NAME_COVERAGE = 0.6
 
 #: How a quote is compared with the sources: as overlapping runs of this many
-#: consecutive words, of which :data:`_QUOTE_COVERAGE` must be found. A
-#: word-by-word check would pass any sentence assembled out of shared vocabulary.
-#: Not all the runs, so a model topping or tailing a real quote is still quoting;
-#: a word changed in the *middle* breaks every run spanning it, which is the
-#: point.
+#: consecutive words, of which :data:`_QUOTE_COVERAGE` must be found.
 _QUOTE_WINDOW = 5
 _QUOTE_COVERAGE = 0.6
 
-#: A rating is a small number that occurs in text for a hundred other reasons, so
-#: it counts only written like one: "4.3/5", "4.3 out of 5", "4.3 stars", "rated
-#: 4.3". The 0-5 scale only -- ``Product.rating`` always is, so "4.5 out of 10"
-#: would vouch for a claimed 4.5/5 with a score meaning 2.25/5;
-#: :data:`_RATING_OUT_OF_TEN` tells the lead-in form that.
-#:
-#: :data:`~buy_agent.extraction.SUPERLATIVES` make the figure beside them a count
-#: of products -- "we rated the 5 best headphones" -- and are ruled out on both
-#: sides, either being able to carry the tell.
-#:
-#: The hyphen on the ``stars`` branch is the one :mod:`buy_agent.fetch` keeps the
-#: line for: "a 4.5-star average" and "4.5 stars" are one sentence spelled two
-#: ways. It widens nothing, and the other two branches refuse it.
+#: A rating is a small number that occurs in text for a hundred other reasons, so it
+#: counts only written like one: "4.3/5", "4.3 out of 5", "4.3 stars", "rated 4.3".
 _RATING_AFTER = r"(?:\s*(?:/\s*5\b|(?:out\s+of|of)\s+5\b)|[\s-]*stars?\b)"
 #: The gap stays generous -- "rated a solid 4.6" is how pages write it.
 _RATING_BEFORE = rf"(?:rated|rating|score[ds]?)\b(?![^\d]{{0,12}}{SUPERLATIVES}\b)[^\d]{{0,12}}"
 _RATING_OUT_OF_TEN = r"\s*(?:/\s*10\b|(?:out\s+of|of)\s+10\b)"
 
-#: A review count is a small whole number, which is what a year, a model number
-#: and a price all are -- so checked bare it grounds on any of them: "720" out of
-#: "WH-CH720N", "2023" out of a release date. The number counts only where it is
-#: written as a count of somebody, and the nouns are who does the reviewing:
-#: "headphones" would take every figure on the page.
+#: A review count is a small whole number, which is what a year, a model number and a
+#: price all are -- so checked bare it grounds on any of them: "720" out of "WH-CH720N",
+#: "2023" out of a release date.
 _COUNTED = (
     r"(?:reviews?|ratings?|reviewers?|shoppers?|customers?|buyers?|owners?|users?|votes?)"
 )
-#: Two words of room, which is what a page puts between: "3,200 global ratings",
-#: "1,024 verified customer reviews".
+#: Two words of room, which is what a page puts between: "3,200 global ratings", "1,024
+#: verified customer reviews".
 _COUNT_AFTER = rf"\s+(?:\w+\s+){{0,2}}{_COUNTED}\b"
 #: The same gap :data:`_RATING_BEFORE` leaves, for "Reviews (3,200)".
 _COUNT_BEFORE = rf"{_COUNTED}\b[^\d]{{0,12}}"
 
 
 def normalise_numbers(text: str) -> str:
-    """Write every number one way, so the same figure compares equal either side.
-
-    A *dot* is left alone, being already the decimal point on these pages. Both sides
-    come through here: normalising only the pages left a quoted "1,299" unable to
-    match a haystack in which it had already become "1299".
-    """
+    """Write every number one way, so the same figure compares equal either side."""
     return _DECIMAL_COMMA.sub(".", _THOUSANDS_SEPARATOR.sub("", text))
 
 
@@ -99,12 +66,7 @@ def build_haystack(results: Sequence[SearchResult]) -> str:
 
 
 def mentions_number(haystack: str, value: float) -> bool:
-    """Whether ``value`` appears in ``haystack`` as a standalone number.
-
-    ``129`` matches "$129" and "129.99" but not "1129": digits inside a longer number
-    vouch for nothing. A decimal may pick up trailing zeros -- 10000.5 is written
-    "$10,000.50".
-    """
+    """Whether ``value`` appears in ``haystack`` as a standalone number."""
     literal = _as_literal(value)
     padding = "0*" if "." in literal else ""
     pattern = rf"(?<![\d.]){re.escape(literal)}{padding}(?!\d)"
@@ -112,21 +74,12 @@ def mentions_number(haystack: str, value: float) -> bool:
 
 
 def _as_literal(value: float) -> str:
-    """Render a number the way a page would write it: 129.0 -> "129".
-
-    ``.10g`` rather than ``g``: six significant digits turn a real 12999.95 into
-    "13000", matching nothing and costing the product its price.
-    """
+    """Render a number the way a page would write it: 129.0 -> "129"."""
     return f"{value:.0f}" if float(value).is_integer() else f"{value:.10g}"
 
 
 def _same_figure(literal: str) -> str:
-    """What may follow ``literal`` and still be the same figure: trailing zeros.
-
-    A page prints a whole 4 as "4.0" where :func:`_as_literal` renders it "4", which
-    is also the "4" in a printed 4.3. Consuming the zeros and *then* refusing a
-    further digit tells them apart.
-    """
+    """What may follow ``literal`` and still be the same figure: trailing zeros."""
     zeros = r"0*" if "." in literal else r"(?:\.0+)?"
     return rf"{zeros}(?!\.?\d)"
 
@@ -154,39 +107,26 @@ def mentions_review_count(haystack: str, value: float) -> bool:
 
 
 def distinctive_words(name: str) -> list[str]:
-    """The words of ``name`` that identify something rather than describe it.
-
-    Generic words are ignored -- every headphone page says "wireless" -- so what is
-    left is the brand and the model number.
-    """
+    """The words of ``name`` that identify something rather than describe it."""
     return [
         token for token in NAME_TOKENS.findall(name.lower()) if token not in GENERIC_WORDS
     ]
 
 
 def word_coverage(tokens: Sequence[str], text: str) -> float:
-    """Share of ``tokens`` appearing in ``text`` as words of their own.
-
-    A word counts only whole: a substring test would let a page quoting "$1700" vouch
-    for an invented "Bose 700". Nothing to look for covers nothing, which keeps a name
-    with no distinctive word from matching every page.
-    """
+    """Share of ``tokens`` appearing in ``text`` as words of their own."""
     words = frozenset(NAME_TOKENS.findall(text.lower()))
     return sum(token in words for token in tokens) / len(tokens) if tokens else 0.0
 
 
 def mentions_name(haystack: str, name: str) -> bool:
-    """Whether the distinctive words of ``name`` appear in ``haystack``.
-
-    Most of them, not all, since a page may write "WH-CH720N" where the model wrote
-    "Sony WH-CH720N Wireless" -- and both sides are split by the same rule.
-    """
+    """Whether the distinctive words of ``name`` appear in ``haystack``."""
     return word_coverage(distinctive_words(name), haystack) >= NAME_COVERAGE
 
 
 def drop_ungrounded(products: Sequence[Product], haystack: str) -> list[Product]:
-    """Remove products ``haystack`` never mentions: a name absent from every result
-    cannot have been read from one.
+    """Remove products ``haystack`` never mentions: a name absent from every result cannot
+    have been read from one.
     """
     kept: list[Product] = []
     dropped: list[str] = []
@@ -197,9 +137,9 @@ def drop_ungrounded(products: Sequence[Product], haystack: str) -> list[Product]
             dropped.append(product.name)
 
     if dropped:
-        # The count at INFO and the names at DEBUG, as everywhere a product is
-        # removed -- most worth naming here, ``mentions_name`` deciding whether a
-        # product is real at all.
+        # The count at INFO and the names at DEBUG, as everywhere a product is removed
+        # -- most worth naming here, ``mentions_name`` deciding whether a product is
+        # real at all.
         logger.info("Dropped %d product(s) absent from the search results", len(dropped))
         logger.debug(
             "Absent from the search results: %s", ", ".join(repr(name) for name in dropped)
@@ -222,26 +162,14 @@ def source_urls(results: Sequence[SearchResult]) -> set[str]:
 
 
 def _page_haystacks(results: Sequence[SearchResult]) -> list[tuple[str | None, str]]:
-    """Each result on its own, as its URL and the text that page printed.
-
-    The two checks that work page by page -- which page a product links to, and which
-    printed a quote -- both need exactly this, so the pooling is undone once here.
-
-    ``None`` for a result the search returned without a URL. That is not "no page
-    printed it": the page is there and its text is the haystack (ADR-0042).
-    """
+    """Each result on its own, as its URL and the text that page printed (ADR-0042)."""
     return [(result.url or None, build_haystack([result])) for result in results]
 
 
 def attribute_sources(
     products: Sequence[Product], results: Sequence[SearchResult]
 ) -> list[Product]:
-    """Point each product at the searched page that mentions it.
-
-    The model's link is kept only where it names a page that was searched (ADR-0017);
-    otherwise it is the first result whose text mentions the product, and one no page
-    mentions keeps none rather than borrowing one.
-    """
+    """Point each product at the searched page that mentions it (ADR-0017)."""
     known = source_urls(results)
     pages = [(url, text) for url, text in _page_haystacks(results) if url]
 
@@ -252,9 +180,8 @@ def attribute_sources(
         if url is None:
             if product.url:
                 invented += 1
-                # A link is the field the model is worst at and the one the
-                # shopper clicks, so which page it invented is worth having
-                # (ADR-0017).
+                # A link is the field the model is worst at and the one the shopper
+                # clicks, so which page it invented is worth having (ADR-0017).
                 logger.debug("Never searched: %r for %r", product.url, product.name)
             url = next(
                 (page for page, text in pages if mentions_name(text, product.name)), None
@@ -268,11 +195,8 @@ def attribute_sources(
     return attributed
 
 
-#: Each figure that has to be found in the sources, and how it is written when it
-#: is -- a price as a number, a rating and a review count as themselves. A
-#: rejected figure takes its :data:`~buy_agent.models.QUALIFIERS` down with it
-#: (ADR-0022). ``rating`` comes first so a rejected rating blanks the count before
-#: the count is judged alone.
+#: Each figure that has to be found in the sources, and how it is written when it is --
+#: a price as a number, a rating and a review count as themselves (ADR-0022).
 _GROUNDED_FIGURES: tuple[tuple[str, Callable[[str, float], bool]], ...] = (
     ("price", mentions_number),
     ("rating", mentions_rating),
@@ -281,11 +205,7 @@ _GROUNDED_FIGURES: tuple[tuple[str, Callable[[str, float], bool]], ...] = (
 
 
 def verify_numbers(products: Sequence[Product], haystack: str) -> list[Product]:
-    """Blank out any price, rating or review count ``haystack`` does not contain.
-
-    A blanked figure takes whatever only qualified it with it -- see
-    :data:`_GROUNDED_FIGURES`.
-    """
+    """Blank out any price, rating or review count ``haystack`` does not contain."""
     verified: list[Product] = []
     dropped = 0
 
@@ -308,22 +228,12 @@ def verify_numbers(products: Sequence[Product], haystack: str) -> list[Product]:
 
 
 def running_words(text: str) -> str:
-    """``text`` as its words alone, lowercased, normalised and single-spaced.
-
-    Comparing quotes needs the words in order and nothing between them: a page prints
-    "great sound, but heavy" where the model reports "great sound but heavy".
-    """
+    """``text`` as its words alone, lowercased, normalised and single-spaced."""
     return " ".join(NAME_TOKENS.findall(normalise_numbers(text).lower()))
 
 
 def quotes_sources(haystack_words: str, quote: str) -> bool:
-    """Whether ``quote`` reads as running text out of ``haystack_words``.
-
-    Cut into every run of :data:`_QUOTE_WINDOW` consecutive words, each looked for as
-    a phrase; most have to be there, and a quote shorter than one window must appear
-    whole. ``haystack_words`` is one page's :func:`running_words`, computed by the
-    caller rather than per quote.
-    """
+    """Whether ``quote`` reads as running text out of ``haystack_words``."""
     words = running_words(quote).split()
     if not words:
         return False
@@ -338,17 +248,8 @@ def quotes_sources(haystack_words: str, quote: str) -> bool:
 def verify_opinions(
     products: Sequence[Product], results: Sequence[SearchResult]
 ) -> list[Product]:
-    """Keep the quotes a page about this product printed, and say which page.
-
-    Page by page rather than pooled (ADR-0024, ADR-0025) -- the difference between
-    "somebody wrote this" and "somebody wrote this about *this*". A product may be
-    quoted only from pages that mention it, by the rule :func:`attribute_sources` picks
-    its link by, and per quote rather than per product: a model that read one verdict
-    and invented a second has still read one.
-
-    The page that backed a quote is kept on it (ADR-0042): the first that both mentions
-    the product and prints the words, which this loop already has to find. A page
-    carrying no URL still supports its quote and simply links to nothing.
+    """Keep the quotes a page about this product printed, and say which page (ADR-0024,
+    ADR-0025, ADR-0042).
     """
     pages = [(url, text, running_words(text)) for url, text in _page_haystacks(results)]
     verified: list[Product] = []
@@ -360,9 +261,9 @@ def verify_opinions(
         ]
         kept: list[Opinion] = []
         for opinion in product.opinions:
-            # A loop rather than a comprehension: it answers two things at once,
-            # whether any page printed the quote and which was first -- and
-            # ``None`` is taken, a page that printed it and has no URL.
+            # A loop rather than a comprehension: it answers two things at once, whether
+            # any page printed the quote and which was first -- and ``None`` is taken, a
+            # page that printed it and has no URL.
             for url, words in mine:
                 if quotes_sources(words, opinion.text):
                     kept.append(opinion.model_copy(update={"url": url}))
