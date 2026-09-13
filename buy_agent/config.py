@@ -12,8 +12,8 @@ from buy_agent.rails import Rail, rail_for
 from buy_agent.ranking import RankingWeights
 from buy_agent.sources import Source
 
-#: Which model server a run talks to when nothing says otherwise. Ollama, per
-#: ADR-0003; vLLM is the same pipeline over a server someone already runs
+#: Which model server a run talks to when nothing says otherwise: Ollama
+#: (ADR-0003), vLLM being the same pipeline over a server someone already runs
 #: (ADR-0028). What each defaults to is its own row in ``providers.PROVIDERS``.
 DEFAULT_PROVIDER = os.getenv("BUY_AGENT_PROVIDER", "ollama")
 
@@ -36,13 +36,13 @@ LIMITS: dict[str, tuple[int, int]] = {
     # a legitimate thing to ask for of a server that is meant to be warm.
     "model_timeout": (1, 3600),
     # The shopper's own three (ADR-0039). Their ranges are what a *number* may be
-    # rather than what a sensible bound is; the ceilings make a slip on the
-    # keyboard a usage error rather than an empty report.
+    # rather than what a sensible bound is; the ceilings make a slip on the keyboard
+    # a usage error rather than an empty report.
     "max_price": (1, 10_000_000),
     "min_rating": (0, 5),
     "min_reviews": (0, 10_000_000),
-    # 0 is off -- every page read fresh -- and the ceiling is 30 days, past
-    # which a stored price is not evidence of anything (ADR-0040).
+    # 0 is off -- every page read fresh -- and the ceiling is 30 days, past which
+    # a stored price is not evidence of anything (ADR-0040).
     "cache_ttl": (0, 2_592_000),
     # The most one payment may be. Its range is ``max_price``'s and its promise
     # the opposite: that one admits a product it cannot judge, this one refuses.
@@ -56,8 +56,7 @@ DEFAULT_REGION = "us-en"
 
 #: What a search region looks like: a country then a language, hyphenated --
 #: ``us-en``, ``pl-pl``, the three-letter ``hk-tzh``. A shape and not the list of
-#: codes that exist, ddgs asking several engines that each read the halves their
-#: own way -- DuckDuckGo's list refuses ``de-de``, which Google takes (ADR-0031).
+#: codes that exist (ADR-0031).
 REGION = re.compile(r"[a-z]{2}-[a-z]{2,3}")
 
 
@@ -70,8 +69,7 @@ def parse_region(spec: str) -> str:
     Raises:
         ValueError: if it is not a country and a language, hyphenated, naming the
             shape and three codes that have it. It is the one search setting that
-            otherwise fails silently, a region no engine knows reading as the web
-            having nothing to say (ADR-0031).
+            otherwise fails silently (ADR-0031).
     """
     region = spec.strip().lower()
     if not REGION.fullmatch(region):
@@ -100,17 +98,13 @@ class AgentConfig:
             sent the placeholder one checking no key expects.
         temperature: Low by default: extraction is copying, not creation.
         num_ctx: Context window in tokens, or None to leave the server's own alone.
-            The extraction prompt runs to ~4.3k tokens, so on Ollama's default 4096 a
-            thinking model has no room left to answer; 16384 because Ollama's default
-            model is one and the JSON for ten products is the answer on top of that
-            prompt (ADR-0050). **Ollama only** -- vLLM fixes its window at startup,
-            which ``Provider.takes_num_ctx`` declares.
-        model_timeout: The longest to wait for one answer, in seconds. Both servers
-            are given it, neither asked twice: a question that timed out is a hint
-            about the model rather than a question to repeat, and a setting a retry
-            could multiply would not be the wait it names (ADR-0051). It is not part
-            of what makes an answer reusable, a slow answer and a fast one being the
-            same answer (ADR-0044).
+            The extraction prompt runs to ~4.3k tokens and the JSON for ten products
+            is the answer on top of it, so 16384 rather than Ollama's default 4096
+            (ADR-0050). **Ollama only** -- vLLM fixes its window at startup, which
+            ``Provider.takes_num_ctx`` declares.
+        model_timeout: The longest to wait for one answer, in seconds. Both servers are
+            given it and neither asked twice (ADR-0051). It is not part of what makes
+            an answer reusable (ADR-0044).
         reasoning: Thinking mode: None sends nothing, False (the default) turns
             thinking off, True on. Thinking models need False, spending the remaining
             context reasoning about a copying task; one that cannot think ignores it.
@@ -119,10 +113,9 @@ class AgentConfig:
         num_products: How many products to keep after extraction.
         top_n: How many products to log at the end.
         max_price: The most the shopper will pay, or None for no bound. Applied after
-            grounding and before ranking, so what is reported is what was asked for
-            (ADR-0039). Read in the currency the run's prices are counted in, and
-            nothing is converted, so a price in another currency is one this bound
-            cannot judge and does not (ADR-0043).
+            grounding and before ranking (ADR-0039), and read in the currency the run's
+            prices are counted in -- nothing is converted, so a price in another
+            currency is one this bound cannot judge and does not (ADR-0043).
         min_rating: The lowest average review score worth reporting, on
             ``Product.rating``'s 0-5 scale, or None for no bound.
         min_reviews: How many reviews a rating has to be averaged over, or None. A
@@ -132,8 +125,7 @@ class AgentConfig:
             Checked and lower-cased by :func:`parse_region`.
         sources: The sites the shopper will take facts from. Empty searches the whole
             web; given any, the search runs once per source and keeps only what came
-            from one, so every figure and quote was printed by a page the shopper
-            named (ADR-0027).
+            from one (ADR-0027).
         fetch_pages: Read the result pages. Off is snippets only -- faster, but they
             rarely quote a price.
         page_chars: Per-page budget for the lines quoting a price or a rating.
@@ -142,8 +134,7 @@ class AgentConfig:
             prices still contributes a verdict; 0 leaves the opinions unread.
         fetch_timeout: Seconds to wait on any single page.
         cache_ttl: How many seconds a fetched page stays usable on disk; 0 reads every
-            page off the web. A day by default, most of a run being the same ten pages
-            it opened last time (ADR-0040). Where they are kept is
+            page off the web. A day by default (ADR-0040). Where they are kept is
             ``$BUY_AGENT_CACHE_DIR``, which has no flag and no form field.
         pay: Whether the agent may pay for what it found. False, and nothing in a run
             changes: paying happens after one, to one product, on a separate decision.
@@ -155,12 +146,11 @@ class AgentConfig:
             anywhere in this project; the address is the integration.
         spend_limit: The most one payment may be, or None -- read in the currency the
             run's prices are counted in. Unlike the shopper's bounds, a price this run
-            cannot place fails it rather than passing: an amount nobody can place is
-            not an amount to send.
+            cannot place fails it rather than passing (ADR-0046).
         weights: Relative importance of rating, popularity and price when ranking.
 
     Two settings a payment needs have no field, no flag and no form field, for the
-    reason ``$VLLM_API_KEY`` and ``$BUY_AGENT_CACHE_DIR`` have none:
+    reason ``$VLLM_API_KEY`` and ``$BUY_AGENT_CACHE_DIR`` have none (ADR-0046):
     ``$BUY_AGENT_AP2_KEY`` is the key mandates are signed with, and
     ``$BUY_AGENT_AP2_MANDATE`` the pre-signed open mandate whose presence lets the
     agent buy unattended.
@@ -202,8 +192,8 @@ class AgentConfig:
     def rail_used(self) -> Rail:
         """The rail this config names, and everything that differs about it.
 
-        The one place a rail name becomes behaviour -- where the checkout is signed, what
-        a settlement means, which failures mean "not there" -- exactly as for a provider.
+        The one place a rail name becomes behaviour -- where the checkout is signed,
+        what a settlement means, which failures mean "not there" (ADR-0046).
         """
         return rail_for(self.rail)
 
@@ -213,7 +203,7 @@ class AgentConfig:
 
         The one place a provider name becomes behaviour: the chat model, the failures
         meaning "not there", the sentence one carries and the listing behind the model
-        picker all hang off it (ADR-0029).
+        picker (ADR-0029).
         """
         return provider_for(self.provider)
 
@@ -221,9 +211,9 @@ class AgentConfig:
         """Fill in whichever of the three the provider decides.
 
         None can be a plain field default: which value is right depends on a *sibling*
-        field, ``gemma4:12b`` on port 11434 being nonsense for a vLLM. So an unset one is
-        the empty string (ADR-0012), resolved here where both front ends and every Python
-        caller go through it -- and the region is checked here for the same reason.
+        field, ``gemma4:12b`` on port 11434 being nonsense for a vLLM. An unset one is
+        therefore the empty string (ADR-0012), resolved here where both front ends and
+        every Python caller go through it -- as is the region, for the same reason.
         """
         server = self.model_server  # raises for a name nothing can serve
         self.model = self.model or server.model
@@ -234,10 +224,10 @@ class AgentConfig:
         rail = self.rail_used  # raises for a name nothing can pay through
         self.merchant_url = (self.merchant_url or rail.endpoint).rstrip("/")
         if self.pay and rail.needs_endpoint and not self.merchant_url:
-            # Named as the setting and not as the flag: both front doors show
-            # this sentence, and the browser is handed it under a box labelled
-            # "Payment endpoint" with no command line to type ``--merchant-url``
-            # into. The environment variable is one either door's reader can set.
+            # Named as the setting and not as the flag: both front doors show this
+            # sentence, and the browser is handed it under a box labelled "Payment
+            # endpoint" with no command line to type a flag into. The environment
+            # variable is one either door's reader can set.
             raise ValueError(
                 f"Paying through {rail.label} needs an address: give it a payment "
                 f"endpoint, or set $BUY_AGENT_MERCHANT_URL."

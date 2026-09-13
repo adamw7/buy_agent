@@ -1,16 +1,15 @@
 """Paying for a product the run already found, once somebody has said so.
 
-Deliberately *not* a step in :meth:`~buy_agent.agent.BuyAgent.run`: the pipeline
-ends with a ranked report and raises exactly three failures (ADR-0009), while a
-purchase happens afterwards, to one product, on a separate decision. Both front
-doors call :func:`pay_for` themselves, after a person approved a cart or an open
-mandate authorised one.
+Deliberately *not* a step in :meth:`~buy_agent.agent.BuyAgent.run` (ADR-0009,
+ADR-0046): a purchase happens afterwards, to one product, on a separate decision.
+Both front doors call :func:`pay_for` themselves, after a person approved a cart or
+an open mandate authorised one.
 
-The rule here is the ranking rule turned around. Grounding already blanks every
+The rule here is the ranking rule turned around: grounding already blanks every
 figure the sources did not print (ADR-0006) and links only pages that were
 searched (ADR-0017), so **a product whose price is a blank is a product nothing
-may be paid for**. :func:`payable` therefore asks only for a price that is an
-amount, a currency the run can place it in (ADR-0043) and a link.
+may be paid for**. :func:`payable` asks only for a price that is an amount, a
+currency the run can place it in (ADR-0043) and a link.
 
 The money never becomes a float on the wire: AP2 counts in minor units, so
 :func:`minor_units` converts once through :class:`~decimal.Decimal`.
@@ -54,10 +53,9 @@ DEFAULT_INSTRUMENT = "default"
 class PaymentError(Exception):
     """A purchase that did not happen, and why.
 
-    The one failure both front doors report, whatever went wrong underneath. It is
-    not one of the three a *run* raises -- a payment is not a run, which is why it is
-    caught in its own place at both doors. ``field`` names the request key an unusable
-    value arrived under, so the browser can mark that box (ADR-0033).
+    The one failure both front doors report, whatever went wrong underneath, and not
+    one of the three a *run* raises (ADR-0009, ADR-0046). ``field`` names the request
+    key an unusable value arrived under, so the browser can mark that box (ADR-0033).
     """
 
     def __init__(self, message: str, *, field: str | None = None) -> None:
@@ -68,9 +66,9 @@ class PaymentError(Exception):
 class RailUnreachableError(PaymentError):
     """The counterparty could not be reached, or refused to answer at all.
 
-    A subclass rather than a flag: it is the one payment failure that is nothing to do
-    with the request, so it deserves its own HTTP status, and the CLI still catches
-    both by catching the parent.
+    A subclass rather than a flag: the one payment failure that is nothing to do with
+    the request, so it earns its own HTTP status while the CLI still catches both by
+    catching the parent.
     """
 
 
@@ -91,9 +89,9 @@ class Cart(BaseModel):
     """One product, priced, as the thing a mandate can be signed for.
 
     Every field was printed by a page that was searched, which is what makes a cart
-    something the agent may authorise at all. ``amount`` is minor units (cents, yen,
-    fils) because that is what AP2 counts in; ``price`` and ``currency`` sit beside it
-    so a receipt reads without anyone dividing by a hundred.
+    something the agent may authorise at all (ADR-0046). ``amount`` is minor units
+    (cents, yen, fils), what AP2 counts in; ``price`` and ``currency`` sit beside it so
+    a receipt reads without anyone dividing by a hundred.
     """
 
     title: str
@@ -126,9 +124,9 @@ class Receipt(BaseModel):
     """What came of a payment, in the shape both front doors report it.
 
     Never carries the mandate chain: a chain is a credential authorising this purchase
-    to whoever holds it, and a receipt is logged, sent to a browser and saved.
-    ``reference`` -- the SHA-256 of the closed leaf -- is what points back at it,
-    which is what AP2 says a receipt binds by.
+    to whoever holds it, and a receipt is logged, sent to a browser and saved
+    (ADR-0046). ``reference``, the SHA-256 of the closed leaf, is what points back at
+    it.
     """
 
     paid: bool
@@ -180,13 +178,13 @@ def _check(product: Product, currency: str | None) -> tuple[float, str]:
 
     Every branch names something that is not an amount to send -- what the *sources*
     did not establish, or a figure that is no amount whatever they printed -- and each
-    carries a sentence: "cannot pay for this" with no reason reads as a broken button.
+    carries a sentence, "cannot pay for this" with no reason reading as a broken
+    button.
 
     ``currency`` is the run's own (:func:`~buy_agent.models.dominant_currency`), so a
-    price outside it is one this run cannot place (ADR-0043) and cannot authorise.
-    That is deliberately the opposite of the shopper's bounds, which keep a product
-    they cannot judge rather than punish the extractor's miss (ADR-0039): money is not
-    a filter, and an amount nobody can place is not an amount to send.
+    price outside it is one this run cannot place (ADR-0043) and cannot authorise --
+    deliberately the opposite of the shopper's bounds, which keep a product they cannot
+    judge (ADR-0039): an amount nobody can place is not an amount to send.
 
     Raises:
         PaymentError: naming what is missing.
@@ -246,10 +244,10 @@ def amount_for(product: Product, currency: str | None) -> tuple[float, str] | No
     this one in what money it would be if it may. Both are :func:`_check`, the amount
     being decided by the reasoning that decides whether there is one (ADR-0043).
 
-    A front door needs it because a cart's currency is frequently not the product's
-    own: a page printing a bare "329.00" leaves ``Product.currency`` null while the
-    cart is in USD. A surface restating the product's figure showed an amount with no
-    unit and echoed a null currency back, which is not an approval of anything.
+    A front door needs it because a cart's currency is frequently not the product's own:
+    a page printing a bare "329.00" leaves ``Product.currency`` null while the cart is in
+    USD, and a surface restating the product's figure echoed a null currency back, which
+    is not an approval of anything.
     """
     try:
         return _check(product, currency)
@@ -268,12 +266,11 @@ def amount_label(price: float, currency: str) -> str:
 def merchant_for(product: Product) -> str:
     """Who a payment for this product would go to, as the cart will name them.
 
-    The seller a page printed, or failing that the site the page is on -- the only
-    two identities a run ever knows. Named here and read by :func:`cart_for` rather
-    than worked out inside it, because a surface asking somebody to approve a payment
-    has to say who is being paid *before* there is a cart to read it off, and the
-    seller is frequently blank: a card falling back to ``Product.seller`` asked for a
-    purchase naming nobody exactly where the cart names a host.
+    The seller a page printed, or failing that the site the page is on -- the only two
+    identities a run ever knows. Named here and read by :func:`cart_for` rather than
+    worked out inside it, because a surface asking somebody to approve a payment has to
+    say who is being paid *before* there is a cart to read it off (ADR-0046), and the
+    seller is frequently blank.
     """
     return product.seller or _host(product.url)
 
@@ -329,11 +326,10 @@ def unattended() -> bool:
 def pay_for(cart: Cart, config: AgentConfig) -> Receipt:
     """Authorise this cart and present it to the rail, returning what came back.
 
-    The order is the protocol's: the merchant signs a checkout first, because only
-    then is there a price to bind a mandate to; the mandates are signed against that
-    hash; and only a chain that verified is presented. Nothing here decides whether
-    the shopper agreed -- that happened at a front door, an open mandate being the
-    other way of having agreed.
+    The order is the protocol's: the merchant signs a checkout first, there being no
+    price to bind a mandate to before that; the mandates are signed against that hash;
+    and only a chain that verified is presented. Nothing here decides whether the
+    shopper agreed -- that happened at a front door (ADR-0046).
 
     Raises:
         PaymentError: for anything that stopped the purchase, with the sentence the

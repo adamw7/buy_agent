@@ -23,10 +23,8 @@ _NO_RESULTS = "No results found."
 
 #: How long to wait before asking a second time, where the caller handed something
 #: to wait with. ``ddgs`` asks several engines and raises only when every one of
-#: them failed, which is what a rate limit looks like from here -- the one failure
-#: that is about this minute rather than about this query (ADR-0053). Two seconds
-#: because the alternative is a run that ends, and a shopper who runs it again by
-#: hand has waited longer than that.
+#: them failed, which is what a rate limit looks like from here (ADR-0053). Two
+#: seconds, the alternative being a run that ends.
 _RETRY_WAIT = 2.0
 
 
@@ -65,12 +63,11 @@ def search_web(
     A search that reached the backend and matched nothing returns ``[]`` -- an
     answer and not a failure, however ddgs spells it (:data:`_NO_RESULTS`).
 
-    Given a ``wait``, a failed search is asked once more after
-    :data:`_RETRY_WAIT` (ADR-0053): every engine failing at once is the transient
-    case, and one search is the whole of a run's input -- there is no partial
-    answer to carry on with, the way a lost page leaves nine. ``None``, the
-    default, asks once. A search that matched nothing is never asked again: it
-    worked, and it would match nothing twice.
+    Given a ``wait``, a failed search is asked once more after :data:`_RETRY_WAIT`
+    (ADR-0053), one search being the whole of a run's input -- there is no partial
+    answer to carry on with, the way a lost page leaves nine. ``None``, the default,
+    asks once. A search that matched nothing is never asked again: it worked, and it
+    would match nothing twice.
 
     Raises:
         SearchError: if DuckDuckGo is unreachable or rate-limits the request.

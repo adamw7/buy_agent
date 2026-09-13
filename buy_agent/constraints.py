@@ -1,20 +1,16 @@
 """What the shopper will accept, applied to the products before they are ranked.
 
-The request carries the shopper's terms in prose -- "wireless headphones under
-$200" -- and the model keeps them when it rewrites the query, which is as far as a
-search query can take them: a page is returned for matching the words, not for
-obeying them. So the report could be topped by a $900 pair and read as the right
-answer, ``ranking`` scoring price *relative to the candidate set* and the cheapest
-of nine expensive things still scoring 1.0.
-
-This is the other half: bounds said as numbers, checked in Python after the pages
-have been read (ADR-0039). Nothing here is the model's judgement.
+A search query carries the shopper's terms as far as prose can take them -- a page
+is returned for matching the words, not for obeying them -- so the report could be
+topped by a $900 pair and read as the right answer, ``ranking`` scoring price
+*relative to the candidate set*. This is the other half: bounds said as numbers,
+checked in Python after the pages have been read (ADR-0039). Nothing here is the
+model's judgement.
 
 The one rule worth knowing is what happens to a product whose figure is *unknown*:
 it is kept. A blank is the extractor having missed something or the page never
-having printed it, and grounding blanks anything the sources did not back -- so
-dropping blanks would reject products for the model's misses, which is what scores
-missing data ``NEUTRAL`` rather than zero (ADR-0007).
+having printed it, so dropping blanks would reject products for the model's misses
+-- the same reason missing data scores ``NEUTRAL`` rather than zero (ADR-0007).
 """
 
 from __future__ import annotations
@@ -40,11 +36,11 @@ Reader: TypeAlias = "Callable[[Product, str | None], float | None]"
 
 #: One row per bound: the field holding it -- named the same here and on
 #: :class:`~buy_agent.config.AgentConfig`, which lets ``from_config`` be a
-#: comprehension -- how the figure is read off a product, what "outside" means,
-#: and how it reads in the line a run logs. Everything below reads this table, so
-#: a fourth bound is a row here and nothing else (ADR-0039). The price is read by
-#: :func:`~buy_agent.models.comparable_price`, so a price in another currency
-#: reads as unknown and passes (ADR-0043); the other two ignore the currency.
+#: comprehension -- how the figure is read off a product, what "outside" means, and
+#: how it reads in the line a run logs. A fourth bound is a row here and nothing
+#: else (ADR-0039). The price is read by
+#: :func:`~buy_agent.models.comparable_price`, so a price in another currency reads
+#: as unknown and passes (ADR-0043); the other two ignore the currency.
 _BOUNDS: tuple[tuple[str, Reader, Callable[[float, float], bool], str], ...] = (
     ("max_price", comparable_price, operator.gt, "at most {:,.2f}"),
     ("min_rating", lambda p, _: p.rating, operator.lt, "rated at least {:g}"),
@@ -60,10 +56,8 @@ class Constraints:
 
     Attributes:
         max_price: The most the shopper will pay, read in the currency the run's
-            prices are counted in (ADR-0043). Nothing is converted -- a rate table is
-            not this project's to ship, and a stale rate is a wrong answer wearing a
-            right one's clothes -- so a price in another currency is not held against
-            this at all: it is unplaceable, and passes the way an unknown one does.
+            prices are counted in (ADR-0043). Nothing is converted, so a price in
+            another currency is unplaceable and passes the way an unknown one does.
         min_rating: The lowest average review score worth reporting, on the 0-5 scale
             ``Product.rating`` is in.
         min_reviews: How many reviews a rating has to be averaged over. A 5.0 from two
@@ -168,12 +162,11 @@ class Constraints:
         """Which products are inside the bounds, by index, and in which currency.
 
         The currency is a fact about the set (ADR-0043) and this is a function that
-        *changes* the set, which is the whole of why it is asked more than once. Removing
+        *changes* the set, which is the whole of why it is asked more than once: removing
         every product of the commonest currency leaves the survivors counted in another
-        one, and that one is what the report, the ranking and the cart are then all in --
-        so a budget read once, before the filtering, would be a budget applied in a
-        currency nothing that survived it was ever held to: "at most 92.00 USD" logged
-        over a report of euros, one of them at 95.
+        one, so a budget read once, before the filtering, would be applied in a currency
+        nothing that survived it was ever held to -- "at most 92.00 USD" logged over a
+        report of euros, one of them at 95.
 
         So the bound is re-read against the set it is leaving behind until the two agree.
         Each pass keeps a subset of the pass before it, and a pass that removes nothing

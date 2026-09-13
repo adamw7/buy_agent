@@ -2,13 +2,13 @@
 
 Small models fill gaps -- a figure carried over from the prompt's own example, or
 the example's electric kettle reported as a product -- so nothing reaches the
-ranking unsupported. A name absent from the sources drops the product; an absent
-price, rating or review count is blanked (a blank scores neutral, an invented
-price wins the top spot); a link is worked out from the sources rather than read
-off the model.
+ranking unsupported (ADR-0006). A name absent from the sources drops the product;
+an absent price, rating or review count is blanked; a link is worked out from the
+sources rather than read off the model (ADR-0017).
 
 Quotes get the strictest bar, being the one field asked for in words: a quote is
-supported only where *one page that mentions the product* has it as running text.
+supported only where *one page that mentions the product* has it as running text
+(ADR-0024, ADR-0025).
 """
 
 from __future__ import annotations
@@ -49,10 +49,10 @@ _QUOTE_WINDOW = 5
 _QUOTE_COVERAGE = 0.6
 
 #: A rating is a small number that occurs in text for a hundred other reasons, so
-#: it counts only where it is written like one: "4.3/5", "4.3 out of 5", "4.3
-#: stars", "rated 4.3". The 0-5 scale only -- ``Product.rating`` is always out of
-#: 5, so "4.5 out of 10" would vouch for a claimed 4.5/5 with a score meaning
-#: 2.25/5; :data:`_RATING_OUT_OF_TEN` tells the lead-in form that.
+#: it counts only written like one: "4.3/5", "4.3 out of 5", "4.3 stars", "rated
+#: 4.3". The 0-5 scale only -- ``Product.rating`` always is, so "4.5 out of 10"
+#: would vouch for a claimed 4.5/5 with a score meaning 2.25/5;
+#: :data:`_RATING_OUT_OF_TEN` tells the lead-in form that.
 #:
 #: :data:`~buy_agent.extraction.SUPERLATIVES` make the figure beside them a count
 #: of products -- "we rated the 5 best headphones" -- and are ruled out on both
@@ -238,9 +238,7 @@ def attribute_sources(
 ) -> list[Product]:
     """Point each product at the searched page that mentions it.
 
-    A wrong link is worse than a blank -- a blanked price is *shown* as unknown, while
-    a link is what the shopper clicks -- and it is the field the model is worst at. So
-    the model's link is kept only where it names a page that was searched (ADR-0017);
+    The model's link is kept only where it names a page that was searched (ADR-0017);
     otherwise it is the first result whose text mentions the product, and one no page
     mentions keeps none rather than borrowing one.
     """
@@ -255,7 +253,8 @@ def attribute_sources(
             if product.url:
                 invented += 1
                 # A link is the field the model is worst at and the one the
-                # shopper clicks, so which page it invented is worth having.
+                # shopper clicks, so which page it invented is worth having
+                # (ADR-0017).
                 logger.debug("Never searched: %r for %r", product.url, product.name)
             url = next(
                 (page for page, text in pages if mentions_name(text, product.name)), None
@@ -343,14 +342,13 @@ def verify_opinions(
 
     Page by page rather than pooled (ADR-0024, ADR-0025) -- the difference between
     "somebody wrote this" and "somebody wrote this about *this*". A product may be
-    quoted only from pages that mention it, by the rule :func:`attribute_sources`
-    picks its link by, and per quote rather than per product: a model that read one
-    verdict and invented a second has still read one.
+    quoted only from pages that mention it, by the rule :func:`attribute_sources` picks
+    its link by, and per quote rather than per product: a model that read one verdict
+    and invented a second has still read one.
 
-    The page that backed a quote is kept on it (ADR-0042). This loop already has to
-    find it, and it is the only evidence a shopper can follow: the first page that
-    both mentions the product and prints the words. A page carrying no URL still
-    supports its quote and simply links to nothing.
+    The page that backed a quote is kept on it (ADR-0042): the first that both mentions
+    the product and prints the words, which this loop already has to find. A page
+    carrying no URL still supports its quote and simply links to nothing.
     """
     pages = [(url, text, running_words(text)) for url, text in _page_haystacks(results)]
     verified: list[Product] = []

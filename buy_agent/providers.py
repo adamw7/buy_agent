@@ -1,11 +1,11 @@
 """Which model server the agent talks to: Ollama, or vLLM's OpenAI-compatible API.
 
 Everything that differs between the two lives here, one row per server, so nothing
-above knows which is running. A :class:`Provider` answers what the config could
-not: what the server **defaults to** (model, address and key, from its own
-environment variables -- ADR-0029); what **chat model** a config builds on it;
-which **transport failures** mean "not there" and **how one is phrased**; and
-**what it is serving**, each model with whether it can answer a prompt.
+above knows which is running (ADR-0028, ADR-0029). A :class:`Provider` answers what
+the config could not: what the server **defaults to** (model, address and key, from
+its own environment variables); what **chat model** a config builds on it; which
+**transport failures** mean "not there" and **how one is phrased**; and **what it
+is serving**, each model with whether it can answer a prompt.
 
 The two are not symmetric. Ollama holds many pulled tags and switches per request,
 taking the context window and the thinking switch with it -- some of those tags
@@ -15,10 +15,8 @@ being embedding models no run can use, which costs a second question per tag
 :data:`Provider.takes_num_ctx` declares that once, so no front end offers a
 setting that does nothing.
 
-What they do share is how long a question may take. ``model_timeout`` is set on
-both clients, and both are told to ask once: the wait a shopper sets is the wait
-they get, where a client retrying behind it would make the number mean three
-times itself (ADR-0051).
+What they do share is how long a question may take: ``model_timeout`` is set on
+both clients and both are told to ask once (ADR-0051).
 
 Nothing is imported from :mod:`buy_agent.config`: a config is what this module is
 handed, and ``AgentConfig.model_server`` is the one place a name becomes
@@ -54,11 +52,10 @@ _NO_KEY = "EMPTY"
 #: Short on purpose: it is asked while a form is rendering. The number is a
 #: per-request timeout on the client *and* the deadline the capability probes
 #: share, the client's own bounding one question while Ollama's listing asks one
-#: per tag (ADR-0032) -- fifty tags would otherwise be fifty timeouts.
-#:
-#: Deliberately not ``model_timeout``: that one is how long a shopper will wait
-#: for an answer to a 4.3k-token prompt, and this is how long a page will wait to
-#: draw a dropdown (ADR-0051).
+#: per tag (ADR-0032) -- fifty tags would otherwise be fifty timeouts. Deliberately
+#: not ``model_timeout``: that is how long a shopper will wait for an answer to a
+#: 4.3k-token prompt, this is how long a page will wait to draw a dropdown
+#: (ADR-0051).
 _LIST_TIMEOUT = 5.0
 
 #: What an Ollama model's capabilities must include to answer a prompt at all.
@@ -76,10 +73,10 @@ _PROBES = 8
 class InstalledModel:
     """One model a server is holding, and whether it can answer a chat prompt.
 
-    The second half is not decoration: Ollama holds whatever has been pulled, often
-    including embedding-only models, and offering one as if a run could use it fails
-    partway through on a message nothing predicted. vLLM serves the one model it was
-    started with, so ``completion`` is true there by construction.
+    The second half is not decoration (ADR-0032): Ollama holds whatever has been
+    pulled, often including embedding-only models, and offering one as if a run could
+    use it fails partway through. vLLM serves the one model it was started with, so
+    ``completion`` is true there by construction.
 
     Attributes:
         name: The tag, or the repository id -- what a config's ``model`` names.
@@ -174,8 +171,7 @@ def _ollama_chat_model(config: AgentConfig) -> ChatModel:
 
     The timeout goes on the *client*, which is where ollama's own takes one and passes
     it to httpx. Left out it is not a long wait but no wait at all -- ``timeout=None``
-    disables httpx's, so a server that took the prompt and went quiet hung the run with
-    nothing to catch and ``_too_slow_hint`` unreachable (ADR-0051).
+    disables httpx's, so a server that went quiet hung the run (ADR-0051).
     """
     return _OllamaChat(
         client=Client(config.base_url, timeout=config.model_timeout),
@@ -189,10 +185,10 @@ def _ollama_chat_model(config: AgentConfig) -> ChatModel:
 def _ollama_installed(config: AgentConfig) -> list[InstalledModel]:
     """Every model tag Ollama has pulled, and whether each one can be run.
 
-    Two questions in two places: ``/api/tags`` gives the tags, ``show`` gives one
-    tag's capabilities. The second goes out once per tag, together rather than in
-    turn, :data:`_LIST_TIMEOUT` being the budget for the whole listing with a form
-    waiting on it (ADR-0032) -- so the deadline starts before the first question.
+    Two questions in two places: ``/api/tags`` gives the tags, ``show`` gives one tag's
+    capabilities. The second goes out once per tag, together rather than in turn,
+    :data:`_LIST_TIMEOUT` being the budget for the whole listing (ADR-0032) -- so the
+    deadline starts before the first question.
 
     A tag that will not say what it can do counts as able to answer: hiding a working
     model on a failed probe is the worse mistake, and a probe still running when the
@@ -208,16 +204,15 @@ def _ollama_installed(config: AgentConfig) -> list[InstalledModel]:
 def _ollama_tags(config: AgentConfig) -> list[str]:
     """What Ollama says it is holding, each tag named the way Ollama named it.
 
-    Read off ``/api/tags`` rather than through the client's typed listing, the one
-    call here that cannot afford a translation: the endpoint spells a tag ``model``
-    *and* ``name``, ``ollama.ListResponse`` declares only the first, and pydantic
-    discards the rest -- so an entry carrying ``name`` alone used to be dropped, which
-    is a pulled model missing from the picker while ``ollama list`` goes on printing
-    it. Reading the answer as it comes also keeps one unparsable entry from failing
-    the listing, which reaches the page as "Ollama unreachable" over a running Ollama.
-
-    An entry carrying neither spelling is skipped: there is nothing to offer a
-    shopper, which is what ``/v1/models`` without an ``id`` is on the other row.
+    Read off ``/api/tags`` rather than through the client's typed listing, the one call
+    here that cannot afford a translation: the endpoint spells a tag ``model`` *and*
+    ``name``, ``ollama.ListResponse`` declares only the first, and pydantic discards the
+    rest -- so an entry carrying ``name`` alone was dropped, a pulled model missing from
+    the picker while ``ollama list`` goes on printing it. Reading the answer as it comes
+    also keeps one unparsable entry from failing the listing, which reaches the page as
+    "Ollama unreachable" over a running Ollama. An entry carrying neither spelling is
+    skipped, there being nothing to offer a shopper -- what ``/v1/models`` without an
+    ``id`` is on the other row.
     """
     response = httpx.get(
         _ollama_url(config.base_url, "/api/tags"), timeout=_LIST_TIMEOUT
@@ -278,11 +273,11 @@ def _ollama_capability(client: Client, name: str) -> InstalledModel:
 def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
     """Turn an Ollama failure into something the user can act on.
 
-    Two cases are Ollama's own, both coming of it holding many tags rather than
-    serving one: a name it does not know is one to pull, and a name it knows with no
-    completion to give is an embedding model, which without this falls through to
-    "start the server" -- wrong, the server having answered (ADR-0032). The other two
-    are what either server would say, written once below.
+    Two cases are Ollama's own, both coming of it holding many tags rather than serving
+    one: a name it does not know is one to pull, and a name it knows with no completion
+    to give is an embedding model, which without this falls through to "start the
+    server" -- wrong, the server having answered (ADR-0032). The other two are what
+    either server would say, written once below.
     """
     # Asked before the two string tests below, which read the message: a
     # half-finished answer is the model's own words, and any of them could say
@@ -366,8 +361,7 @@ def _vllm_chat_model(config: AgentConfig) -> ChatModel:
             timeout=config.model_timeout,
             # Asked once. This client retries twice by default, so the wait a
             # shopper set would be a third of the wait they got -- and a prompt
-            # this size is not one to send three times to a server that is
-            # already too slow for it (ADR-0051).
+            # this size is not one to send three times (ADR-0051).
             max_retries=0,
         ),
         model=config.model,
@@ -446,11 +440,11 @@ def _unreadable_hint(config: AgentConfig, exc: Exception) -> str:
     """A server that answered, with something that is not the JSON asked for.
 
     The usual cause is room rather than the model being wrong: extraction runs to
-    ~4.3k tokens and the answer is JSON on top, so a window too small for both ends
-    the stream part-way through an object -- ADR-0019's trap, and why the remedy
-    differs the way :func:`_too_slow_hint`'s does. The failure's message is the answer
-    the model did give, truncated by :func:`buy_agent.chat.read_answer` and to one
-    line here as well; the whole of it is a DEBUG line where it was caught.
+    ~4.3k tokens and the answer is JSON on top, so a window too small for both ends the
+    stream part-way through an object (ADR-0019), and the remedy differs the way
+    :func:`_too_slow_hint`'s does. The failure's message is the answer the model did
+    give, truncated by :func:`buy_agent.chat.read_answer` and to one line here as well;
+    the whole of it is a DEBUG line where it was caught.
     """
     server = config.model_server
     room = (
@@ -480,10 +474,9 @@ def _unreachable_hint(config: AgentConfig, exc: Exception, start: str) -> str:
 def _listed(config: AgentConfig, *, completing: bool = False) -> str:
     """What the server has, for a message -- or "unknown" if it cannot be asked.
 
-    A hint is already being written, so a second failure must not replace it with a
-    traceback about the first. ``completing`` narrows the answer to models that can
-    answer a prompt, which is what to offer someone whose chosen model cannot;
-    elsewhere the whole listing is the useful answer.
+    ``completing`` narrows the answer to models that can answer a prompt, which is what
+    to offer someone whose chosen model cannot; elsewhere the whole listing is the
+    useful answer.
     """
     try:
         models = config.model_server.installed(config)

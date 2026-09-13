@@ -1,14 +1,12 @@
 """Who the agent actually pays through: one row per rail, and nothing else.
 
 The same shape :mod:`buy_agent.providers` gives a model server, for the same
-reason. AP2 secures *what* is authorised and says nothing about who you send it to
--- "the exact details of the Commerce Protocol are outside the scope of AP2" -- so
-the counterparty is a choice, and one row per option is a choice a third party can
-be added to without an ``if`` anywhere above this module. A :class:`Rail` answers
-where it **listens**, whether it needs an **address** and an **enrolled key**, how
-a cart becomes a **merchant-signed checkout**, how an authorisation is
-**presented**, which transport failures mean "not there", and **how one is
-phrased**.
+reason: AP2 secures *what* is authorised and says nothing about who you send it
+to, so the counterparty is a choice and a third one is a row here (ADR-0046). A
+:class:`Rail` answers where it **listens**, whether it needs an **address** and an
+**enrolled key**, how a cart becomes a **merchant-signed checkout**, how an
+authorisation is **presented**, which transport failures mean "not there", and
+**how one is phrased**.
 
 Two rails ship, and the default moves no money:
 
@@ -45,8 +43,7 @@ if TYPE_CHECKING:
 
 #: How long to wait on a counterparty. Longer than a page fetch and far longer
 #: than a model listing: a payment processor is entitled to think, and a request
-#: this side gave up on may still have been acted on at the other end -- which is
-#: the one timeout in this project it is worth being patient about.
+#: this side gave up on may still have been acted on at the other end.
 _TIMEOUT = 30.0
 
 #: The order id the dry run stamps on the checkout it signs itself. Fixed rather
@@ -224,9 +221,9 @@ HTTP = Rail(
     hint=_http_hint,
 )
 
-#: Every rail, by the name the CLI, the API and ``$BUY_AGENT_RAIL`` use. The one
-#: table -- each row carries both where a rail is and how it is spoken to, so a
-#: third is a row here and nothing anywhere else.
+#: Every rail, by the name the CLI, the API and ``$BUY_AGENT_RAIL`` use. Each row
+#: carries both where a rail is and how it is spoken to, so a third is a row here
+#: and nothing anywhere else (ADR-0046).
 RAILS: dict[str, Rail] = {rail.name: rail for rail in (DRY_RUN, HTTP)}
 
 

@@ -3,9 +3,8 @@
 Two calls are made of a model, and both want the same three things: a prompt with
 the run's values in it, a schema decoding is constrained to, and the answer parsed
 back into that schema. That is the whole of it -- no tools, no memory, no agent
-loop, the pipeline being fixed by ADR-0002 -- so it is written here rather than
-taken off a framework that brings a tracing client and fifteen other packages to
-carry it (ADR-0038).
+loop (ADR-0002) -- and it is written here rather than taken off a framework
+(ADR-0038).
 
 A :class:`Message` is a ``role``/``content`` mapping, which is what both servers
 take over the wire; :class:`Prompt` fills one pair in, and :class:`Chain` is a
@@ -48,11 +47,10 @@ _QUOTED = 200
 class UnreadableAnswerError(ValueError):
     """The server answered, with something that is not the JSON it was asked for.
 
-    A ``ValueError`` because that is what an answer nobody can use has always been
-    here: uncaught it lands in the three failures ``BuyAgent.run`` documents
-    (ADR-0009) rather than a fourth. It is not meant to reach a shopper that way --
-    ``BuyAgent._extract_products`` turns it into a ``ModelUnavailableError`` carrying
-    the provider's hint, the usual cause being room (ADR-0019).
+    A ``ValueError`` so that uncaught it lands in the three failures ``BuyAgent.run``
+    documents rather than a fourth (ADR-0009). It is not meant to reach a shopper that
+    way: ``BuyAgent._extract_products`` turns it into a ``ModelUnavailableError``
+    carrying the provider's hint, the usual cause being room (ADR-0019).
     """
 
 

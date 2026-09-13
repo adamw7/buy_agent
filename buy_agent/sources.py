@@ -1,10 +1,8 @@
 """The sources a shopper trusts, and what "trusted" is allowed to mean.
 
-Left to itself the agent searches the whole web and reports whatever the first ten
-results printed. A shopper who knows where the good information is can name those
-sites instead, and then every price, rating and quote comes from one of them: the
-pages are what grounding checks against, so narrowing the pages narrows the facts
-(ADR-0027).
+Left to itself the agent searches the whole web. A shopper who knows where the good
+information is can name those sites instead, and then every price, rating and quote
+comes from one of them, the pages being what grounding checks against (ADR-0027).
 
 A source is written the way people say it -- a site, a section of one, a pasted
 URL, or a YouTube handle -- and read down to two parts. The **domain** is
@@ -51,9 +49,9 @@ _ROUTING = frozenset({"c", "user", "channel", "r", "u"})
 #: is a person rather than a site, and there is only one site it could mean.
 _HANDLE_HOST = "youtube.com"
 
-#: What has to follow that ``@``. Checked for the reason a host is: ``--source @``
-#: named its site without naming anything *on* it, so the run searched YouTube for
-#: the literal "@" and reported nothing found (ADR-0027).
+#: What has to follow that ``@``. Checked for the reason a host is: a spec naming
+#: its site without naming anything *on* it searched YouTube for the literal "@"
+#: and reported nothing found (ADR-0027).
 _HANDLE = re.compile(r"@[a-z0-9][a-z0-9._-]*", re.IGNORECASE)
 
 #: Stripped off a host before it is compared: ``www.rtings.com`` and
@@ -183,11 +181,9 @@ def parse_named_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:
     question -- "they asked to narrow the search: to what?" -- where nothing is no
     answer at all.
 
-    The two differ only for a spec that is blank once the separators are taken out,
-    which is the hole ``@`` used to go through: it parses, identifies nothing, and
-    named sources have no fall back to the wider web (ADR-0027). But a blank *widens*
-    rather than narrowing, which is the one version of this mistake nothing downstream
-    can notice.
+    The two differ only for a spec that is blank once the separators are taken out.
+    A blank *widens* rather than narrowing (ADR-0027), which is the one version of
+    this mistake nothing downstream can notice.
 
     Raises:
         ValueError: if ``specs`` names no source, or any of them names no site.
