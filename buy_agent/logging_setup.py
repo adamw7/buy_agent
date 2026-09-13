@@ -6,12 +6,13 @@ import logging
 import sys
 from typing import TYPE_CHECKING
 
-from buy_agent.ranking import CRITERIA, RankingWeights
+from buy_agent.ranking import CRITERIA, ORDERINGS, RankingWeights
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from buy_agent.models import RankedProduct, ScoreParts
+    from buy_agent.ranking import SortBy
 
 logger = logging.getLogger("buy_agent")
 
@@ -29,10 +30,22 @@ _TRACE_LIBRARIES = ("httpcore",)
 _FORMAT = "%(asctime)s %(levelname)-7s %(name)s | %(message)s"
 _DATEFMT = "%H:%M:%S"
 
+#: How the report itself is written, which is not how the narration is. Every
+#: line of a report carries the same clock, the same level and the same logger --
+#: the run ends and then says what it found -- so the prefix says nothing and
+#: costs thirty columns of an eighty-column terminal, wrapping the quotes that are
+#: the longest thing in it. ``--help`` offers ``> top.txt`` as the way to keep the
+#: answer, and what that caught was a log of it. The *records* are unchanged, so
+#: the browser's progress panel and a ``caplog`` still see one stream with times
+#: on it (:class:`~buy_agent.server._LogRelay` formats its own): this is the
+#: console handler's formatting and nothing else's.
+_REPORT_FORMAT = "%(message)s"
+
 #: The attribute marking the records that *are* the report, as against the
-#: narration around it. One logger and one format either way, so the SSE relay
+#: narration around it. One logger and one *record* either way, so the SSE relay
 #: sees a single stream -- but on a terminal the report goes to stdout, where
-#: ``> top.txt`` catches it and nothing else, and the progress to stderr.
+#: ``> top.txt`` catches it and nothing else and it is written plainly
+#: (:data:`_REPORT_FORMAT`), and the progress to stderr.
 _REPORT = "report"
 
 #: Names the stdout handler, so a second ``configure_logging`` replaces it rather
@@ -80,7 +93,7 @@ def _split_report_from_progress() -> None:
 
     handler = logging.StreamHandler(sys.stdout)
     handler.set_name(_REPORT_HANDLER)
-    handler.setFormatter(logging.Formatter(_FORMAT, datefmt=_DATEFMT))
+    handler.setFormatter(logging.Formatter(_REPORT_FORMAT))
     handler.addFilter(_is_report)
     package.addHandler(handler)
 
@@ -128,11 +141,15 @@ def log_top_products(
     top_n: int,
     *,
     weights: RankingWeights | None = None,
+    sort_by: SortBy = "score",
 ) -> None:
     """Log the best ``top_n`` products, one block each.
 
     ``weights`` is what the scores were blended by, for the score line to name: the
-    run's own, or the defaults ``rank_products`` would have used.
+    run's own, or the defaults ``rank_products`` would have used. ``sort_by`` is what
+    the block is ordered by, which the heading names for the reason
+    :data:`~buy_agent.ranking.ORDERINGS` gives -- the default included, since a report
+    is read by somebody who did not necessarily type the command that made it.
     """
     weights = weights or RankingWeights()
     if not ranked:
@@ -143,7 +160,7 @@ def log_top_products(
     top = ranked[:top_n]
     separator = "=" * 62
     _report(separator)
-    _report("TOP %d OF %d PRODUCTS", len(top), len(ranked))
+    _report("TOP %d OF %d PRODUCTS, %s", len(top), len(ranked), ORDERINGS[sort_by].upper())
     _report(separator)
     for entry in top:
         product = entry.product

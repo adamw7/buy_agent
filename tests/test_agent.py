@@ -183,6 +183,59 @@ def test_a_search_that_found_nothing_names_a_region_worth_suspecting(
     assert "us-en" in caplog.text, "the shape is no use without a code that has it"
 
 
+def test_a_search_that_found_nothing_names_the_sources_it_was_confined_to(
+    agent_factory, extracted_products, caplog
+) -> None:
+    """The likeliest reason of all, and the one with no recovery.
+
+    Naming a source is enforced by construction and there is deliberately no falling
+    back to the wider web (ADR-0027), so a source that does not cover the request is
+    an empty report and nothing else. The warning that ends such a run named the
+    query and, where it was suspect, the region -- never the one setting that had
+    actually emptied it.
+    """
+    agent, _ = agent_factory(
+        FakeLLM(products=extracted_products), [], sources=parse_sources(["rtings.com"])
+    )
+
+    with caplog.at_level(logging.WARNING):
+        assert agent.run("espresso machine") == []
+
+    said = caplog.text
+    assert "rtings.com" in said
+    assert "no falling back" in said, "and that there is no wider web to fall back on"
+
+
+def test_several_named_sources_are_listed_as_a_sentence(
+    agent_factory, extracted_products, caplog
+) -> None:
+    """A shopper reads this line; "a, b and c" is how a list of three is written."""
+    agent, _ = agent_factory(
+        FakeLLM(products=extracted_products),
+        [],
+        sources=parse_sources(["rtings.com", "@mkbhd", "wired.com"]),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        agent.run("espresso machine")
+
+    assert "rtings.com, @mkbhd and wired.com were searched" in caplog.text
+
+
+def test_an_empty_search_with_nothing_narrowing_it_stops_after_the_query(
+    agent_factory, extracted_products, caplog
+) -> None:
+    """Neither note applies, so the line is the query and a full stop -- not a
+    sentence left hanging where a note would have gone."""
+    agent, _ = agent_factory(FakeLLM(products=extracted_products), [])
+
+    with caplog.at_level(logging.WARNING):
+        agent.run("obscure thing")
+
+    empty = [line for line in caplog.text.splitlines() if "Search returned nothing" in line]
+    assert empty and empty[0].rstrip().endswith("'."), empty
+
+
 def test_the_default_region_is_not_blamed_for_an_empty_search(
     agent_factory, extracted_products, caplog
 ) -> None:
@@ -255,7 +308,7 @@ def test_an_unreadable_extraction_is_the_model_failing_not_the_request(
     with pytest.raises(ModelUnavailableError, match="not the JSON this asks for") as caught:
         agent.run("headphones")
 
-    assert "--num-ctx" in str(caught.value), "the remedy Ollama has for too little room"
+    assert "context window" in str(caught.value), "the remedy Ollama has for too little room"
     assert isinstance(caught.value.__cause__, UnreadableAnswerError)
 
 

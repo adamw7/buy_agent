@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+import re
 import sys
 
 import pytest
 
 from buy_agent.logging_setup import (
     _NOISY_LIBRARIES,
+    _REPORT_FORMAT,
     _TRACE_LIBRARIES,
     configure_logging,
     log_top_products,
@@ -303,6 +305,58 @@ def test_nothing_found_is_not_reported_on_stdout(split_streams) -> None:
     assert captured.out == ""
 
 
+def test_the_report_on_stdout_carries_no_log_furniture(split_streams) -> None:
+    """``> top.txt`` is asking for the answer, not for a log of it.
+
+    Every line of a report shares one clock, one level and one logger name -- the
+    run ends and then says what it found -- so the prefix distinguishes nothing
+    and takes thirty of an eighty-column terminal's columns off the quotes, which
+    are the longest thing in it.
+    """
+    streams = split_streams()
+
+    log_top_products(ranked(Product(name="Sony WH-1000XM5")), 1)
+
+    lines = streams.readouterr().out.splitlines()
+    assert lines, "the report was written"
+    prefixed = [line for line in lines if re.match(r"^\d\d:\d\d:\d\d ", line)]
+    assert not prefixed, f"no line carries a clock: {prefixed}"
+    assert "INFO" not in "\n".join(lines)
+    assert lines[1].startswith("TOP 1 OF 1 PRODUCTS"), "the title starts at column one"
+    assert "     price  : price unknown" in lines, "and a field keeps its own indent"
+
+
+def test_the_narration_keeps_the_prefix_the_report_drops(basic_config) -> None:
+    """The other half of that: a progress line is read for *when* it happened --
+    the gap between two of them is what tells a four-minute extraction from a
+    four-second one -- and which step wrote it. Only the report is stripped."""
+    configure_logging()
+
+    assert "%(asctime)s" in basic_config["format"]
+    assert "%(name)s" in basic_config["format"]
+    assert "%(asctime)s" not in _REPORT_FORMAT
+    assert "%(name)s" not in _REPORT_FORMAT
+
+
+def test_a_relay_still_sees_the_report_as_an_ordinary_record(split_streams) -> None:
+    """Stripping the prefix is the console handler's formatting and nothing else's.
+
+    The browser's progress panel builds its own line off ``record.created`` and
+    ``record.name`` (:class:`~buy_agent.server._LogRelay`), so a report record has
+    to reach it with both still on it.
+    """
+    seen: list[logging.LogRecord] = []
+    relay = logging.Handler()
+    relay.emit = seen.append  # type: ignore[method-assign]
+    split_streams()
+    logging.getLogger("buy_agent").addHandler(relay)
+
+    log_top_products(ranked(Product(name="Sony WH-1000XM5")), 1)
+
+    assert seen, "the relay saw the report"
+    assert all(record.created and record.name and record.levelname for record in seen)
+
+
 def test_the_report_is_a_block_with_a_rule_at_each_end(report) -> None:
     """The report is what ``> top.txt`` catches and what the browser's panel shows
     as the run's answer, so it has to read as one block rather than as lines that
@@ -412,3 +466,45 @@ def test_the_report_marks_a_share_that_was_assumed_rather_than_read(caplog) -> N
         "rating 0.50 x0.50 assumed, popularity 0.50 x0.20 assumed, price 0.50 x0.30 assumed"
         in caplog.text
     )
+
+
+@pytest.mark.parametrize(
+    ("sort_by", "expected"),
+    [
+        ("score", "BEST SCORE FIRST"),
+        ("price", "CHEAPEST FIRST"),
+        ("rating", "BEST RATED FIRST"),
+    ],
+)
+def test_the_heading_says_what_the_block_is_ordered_by(report, sort_by, expected) -> None:
+    """Sorted by anything but the score, the report is a list of numbers going the
+    wrong way with nothing to explain it.
+
+    ``--sort-by rating`` reports 0.68, then 0.98, then 0.83, because the ordering is
+    the rating and the score is only printed. The browser says which criterion beside
+    the results; the CLI had nowhere at all, so the heading says it -- for the default
+    too, a report being read by whoever was handed it rather than only by whoever
+    typed the command.
+    """
+    log_top_products(ranked(Product(name="Alpha"), Product(name="Beta")), 2, sort_by=sort_by)
+
+    assert f"TOP 2 OF 2 PRODUCTS, {expected}" in report.text
+
+
+def test_the_ordering_named_is_the_one_the_run_sorted_by(report) -> None:
+    """End to end through ``rank_products``, so the heading cannot drift from the sort.
+
+    Beta is dearer and better rated, so the two criteria disagree -- which is what
+    makes the heading worth checking against the order underneath it.
+    """
+    products = [
+        Product(name="Alpha", price=10.0, currency="USD", rating=4.0, review_count=100),
+        Product(name="Beta", price=90.0, currency="USD", rating=5.0, review_count=100),
+    ]
+
+    by_rating = rank_products(products, sort_by="rating")
+    log_top_products(by_rating, 2, sort_by="rating")
+
+    lines = [record.getMessage() for record in report.records]
+    assert "TOP 2 OF 2 PRODUCTS, BEST RATED FIRST" in lines
+    assert lines.index("#1  Beta") < lines.index("#2  Alpha"), "the block really is by rating"

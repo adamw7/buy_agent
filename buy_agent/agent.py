@@ -83,6 +83,13 @@ def _asks_the_same_question(config: AgentConfig) -> dict[str, object]:
     return fingerprint
 
 
+def _and_list(items: list[str]) -> str:
+    """``a``, ``a and b``, ``a, b and c`` -- a list somebody reads rather than parses."""
+    if len(items) < 2:
+        return "".join(items)
+    return f"{', '.join(items[:-1])} and {items[-1]}"
+
+
 class BuyAgent:
     """Finds products for a shopper, ranks them, and logs the best few.
 
@@ -176,7 +183,9 @@ class BuyAgent:
         checkpoint("search")
         results = self._search(query)
         if not results:
-            logger.warning("Search returned nothing for %r%s", query, self._region_note())
+            logger.warning(
+                "Search returned nothing for %r%s", query, self._empty_search_note()
+            )
             return []
 
         if self.config.fetch_pages:
@@ -207,7 +216,9 @@ class BuyAgent:
         # worth not writing for a run nobody is reading any more.
         checkpoint("rank")
         ranked = rank_products(products, weights=self.config.weights, sort_by=sort_by)
-        log_top_products(ranked, self.config.top_n, weights=self.config.weights)
+        log_top_products(
+            ranked, self.config.top_n, weights=self.config.weights, sort_by=sort_by
+        )
         return ranked
 
     def _search(self, query: str) -> list[SearchResult]:
@@ -255,6 +266,39 @@ class BuyAgent:
             for result in kept:
                 pooled.setdefault(result.url, result)
         return list(pooled.values())[:width]
+
+    def _empty_search_note(self) -> str:
+        """What narrowed this search, for the one line that says it found nothing.
+
+        Two things can have narrowed it and both are the shopper's own doing, so the
+        warning names whichever were in play rather than leaving a bare query to be
+        stared at. Composed here rather than concatenated at the call site, since the
+        punctuation depends on which of the two there are: the region note ends the
+        sentence the query opened, and without one the query needs a full stop of its
+        own before the sources note can follow as another.
+        """
+        return f"{self._region_note() or '.'}{self._sources_note()}"
+
+    def _sources_note(self) -> str:
+        """The named sources, when they are what the search was confined to.
+
+        The stronger of the two suspects, and the one the run cannot recover from: a
+        named source is enforced by construction and there is deliberately no falling
+        back to the wider web, which would report facts off pages the shopper refused
+        (ADR-0027). So a source that does not cover what was asked for is an empty
+        report and nothing else -- while the "Ignored N result(s) from outside ..."
+        lines that say so scroll past a step earlier, at INFO, above a warning that
+        named the query and the region and never them.
+        """
+        sources = self.config.sources
+        if not sources:
+            return ""
+        named = _and_list([source.spec for source in sources])
+        was = "was" if len(sources) == 1 else "were"
+        return (
+            f" Only {named} {was} searched, and there is no falling back to the rest "
+            f"of the web: a source that does not cover this leaves nothing to report."
+        )
 
     def _region_note(self) -> str:
         """The region, when it is one worth suspecting of an empty search.

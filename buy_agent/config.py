@@ -234,7 +234,11 @@ class AgentConfig:
         rail = self.rail_used  # raises for a name nothing can pay through
         self.merchant_url = (self.merchant_url or rail.endpoint).rstrip("/")
         if self.pay and rail.needs_endpoint and not self.merchant_url:
+            # Named as the setting and not as the flag: both front doors show
+            # this sentence, and the browser is handed it under a box labelled
+            # "Payment endpoint" with no command line to type ``--merchant-url``
+            # into. The environment variable is one either door's reader can set.
             raise ValueError(
-                f"Paying through {rail.label} needs an address: give --merchant-url "
-                f"or set $BUY_AGENT_MERCHANT_URL."
+                f"Paying through {rail.label} needs an address: give it a payment "
+                f"endpoint, or set $BUY_AGENT_MERCHANT_URL."
             )

@@ -112,8 +112,8 @@ def _dry_run_settle(
         paid=False,
         detail=(
             f"Nothing was charged: the dry-run rail signed and verified an "
-            f"authorisation for {cart.label()} and stopped there. Point --rail at a "
-            f"real one to present it."
+            f"authorisation for {cart.label()} and stopped there. Pay through a "
+            f"rail that moves money to present it."
         ),
     )
 
@@ -188,7 +188,7 @@ def _http_hint(config: AgentConfig, exc: Exception) -> str:
     """Nothing answered, so the endpoint itself is what is missing."""
     return (
         f"Could not reach the payment endpoint at {config.merchant_url} ({exc}). "
-        f"Check --merchant-url, or sign without paying with:  --rail {DRY_RUN.name}"
+        f"Check the address, or sign without paying by paying through {DRY_RUN.label}."
     )
 
 

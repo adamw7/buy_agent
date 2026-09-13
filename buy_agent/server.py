@@ -135,11 +135,9 @@ _CONTENT_TYPES = {
 #: cannot come to say different things.
 _UNBUILT_COMMAND = "npm install && npm run build"
 
-#: The sentence a client that did not ask for HTML gets.
-_UNBUILT = (
-    f"The UI is not built. Run '{_UNBUILT_COMMAND}' in {{workspace}}, or point "
-    f"--ui-dir at a build elsewhere."
-)
+#: The sentence a client that did not ask for HTML gets. The remedy is filled in
+#: per ``--ui-dir`` by :func:`_unbuilt_remedy`, there being two of them.
+_UNBUILT = "The UI is not built. {remedy}"
 
 #: The same answer for a browser. No script and no other origin, so it is served
 #: under the same CSP as the app; the inline ``style`` is what ``style-src``
@@ -165,11 +163,8 @@ p {{ color: #5c6470; }}
 <body>
 <main>
 <h1>buy_agent</h1>
-<p>The API is answering, but the page has not been built yet. Run this in
-<code>{workspace}</code>:</p>
-<pre>{command}</pre>
-<p>Then reload. A build that lives somewhere else is named with
-<code>--ui-dir</code>.</p>
+<p>The API is answering, but the page has not been built yet.</p>
+{remedy}
 </main>
 </body>
 </html>
@@ -562,18 +557,16 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         see it in a browser -- which renders ``application/json`` as its braces and
         quotes, so the one useful message arrived looking like a crash. A browser says so
         in ``Accept``, so it gets the sentence as a page and every other client gets the
-        JSON it was already reading. The sentence itself is written once.
+        JSON it was already reading. Which remedy either one carries is
+        :func:`_unbuilt_remedy`'s to decide, once, for both.
         """
-        workspace = _workspace_for(self.ui_dir)
         if "text/html" not in self.headers.get("Accept", ""):
-            self._send_json(503, {"error": _UNBUILT.format(workspace=workspace)})
+            remedy = _unbuilt_remedy(self.ui_dir)
+            self._send_json(503, {"error": _UNBUILT.format(remedy=remedy)})
             return
         self._send_bytes(
             503,
-            _UNBUILT_PAGE.format(
-                command=escape(_UNBUILT_COMMAND),
-                workspace=escape(str(workspace)),
-            ).encode("utf-8"),
+            _UNBUILT_PAGE.format(remedy=_unbuilt_remedy_html(self.ui_dir)).encode("utf-8"),
             "text/html; charset=utf-8",
         )
 
@@ -691,16 +684,62 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         logger.debug("%s - %s", self.address_string(), format % args)
 
 
-def _workspace_for(ui_dir: Path) -> Path:
+def _workspace_for(ui_dir: Path) -> Path | None:
     """The Angular workspace whose build lands in ``ui_dir`` -- where npm is run.
 
     ``ng build`` writes ``<workspace>/dist/<project>/browser``, so the workspace is
-    three levels up, and it is named only where it really is: a ``--ui-dir`` pointing
-    elsewhere has no knowable workspace above it, and inventing one sends the reader
-    to a directory that exists only once the build has succeeded.
+    three levels up, and it is named only where it really is. ``None`` where it is
+    not: a ``--ui-dir`` pointing elsewhere -- a release archive, a copy, a typo --
+    has no knowable workspace above it, and naming a directory anyway is what
+    :func:`_unbuilt_remedy` has the second sentence for.
     """
     workspace = ui_dir.parent.parent.parent
-    return workspace if (workspace / "package.json").is_file() else ui_dir
+    return workspace if (workspace / "package.json").is_file() else None
+
+
+def _unbuilt_remedy(ui_dir: Path) -> str:
+    """What to do about a missing build, for whoever is looking at this ``--ui-dir``.
+
+    Two sentences and not one, because the useful half of the old one was a lie
+    half the time: told to build, a reader whose ``--ui-dir`` has no workspace
+    above it was sent to run ``npm install`` in the build's own directory, which
+    holds no ``package.json`` and never will. A remedy that cannot be followed is
+    worse than none -- so where there is nothing to build, this says so and names
+    the thing that *can* be done instead.
+    """
+    workspace = _workspace_for(ui_dir)
+    if workspace is None:
+        return (
+            f"There is no Angular workspace above {ui_dir} to build, so point "
+            f"--ui-dir at a build that exists -- ui/dist/ui/browser in a checkout."
+        )
+    return (
+        f"Run '{_UNBUILT_COMMAND}' in {workspace}, or point --ui-dir at a build "
+        f"elsewhere."
+    )
+
+
+def _unbuilt_remedy_html(ui_dir: Path) -> str:
+    """The same two remedies for a browser, which can show the command as a block.
+
+    The markup is here rather than in :data:`_UNBUILT_PAGE` because which of the
+    two goes in decides the shape as well as the words -- one has a command to
+    run and the other has nothing to run at all. Every path is escaped: a
+    ``--ui-dir`` is somebody's argument, and this is HTML.
+    """
+    workspace = _workspace_for(ui_dir)
+    if workspace is None:
+        return (
+            f"<p>There is no Angular workspace above <code>{escape(str(ui_dir))}</code>,"
+            " so there is nothing here to build. Point <code>--ui-dir</code> at a"
+            " build that exists -- <code>ui/dist/ui/browser</code> in a checkout.</p>"
+        )
+    return (
+        f"<p>Run this in <code>{escape(str(workspace))}</code>:</p>"
+        f"<pre>{escape(_UNBUILT_COMMAND)}</pre>"
+        "<p>Then reload. A build that lives somewhere else is named with"
+        " <code>--ui-dir</code>.</p>"
+    )
 
 
 def _browsable_url(host: str, port: int) -> str:
@@ -803,8 +842,24 @@ def build_parser() -> argparse.ArgumentParser:
         prog="buy_agent.server",
         description="Serve the buy_agent UI and its JSON API on localhost.",
     )
-    parser.add_argument("--host", default="127.0.0.1", help="Interface to bind.")
-    parser.add_argument("--port", type=int, default=8000, help="Port to bind.")
+    # Both name their default, the way every other flag in this project does.
+    # The port is the address somebody is about to type, and the host is the
+    # difference between a server only this machine can reach and one the network
+    # can -- which also turns the ``Host`` check off (ADR-0018). Neither is a
+    # detail to go and read the source for.
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Interface to bind (default: 127.0.0.1, this machine only). Binding "
+        "anywhere else answers any Host header unless --allowed-host names one.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port to bind (default: 8000; 0 takes whichever one is free and says "
+        "which at startup).",
+    )
     parser.add_argument(
         "--ui-dir",
         type=Path,
@@ -869,14 +924,12 @@ def main(argv: list[str] | None = None) -> int:
     host, port = httpd.server_address[:2]
     logger.info("buy_agent UI on %s", _browsable_url(str(host), port))
     if not (args.ui_dir / "index.html").is_file():
-        # The same command and workspace the 503 quotes: said at startup to the
-        # shell still on screen, and again to whoever loads the page.
+        # The same remedy the 503 quotes: said at startup to the shell still on
+        # screen, and again to whoever loads the page.
         logger.warning(
-            "No built UI at %s -- the API works, but the page will not. "
-            "Build it with:  %s   (in %s)",
+            "No built UI at %s -- the API works, but the page will not. %s",
             args.ui_dir,
-            _UNBUILT_COMMAND,
-            _workspace_for(args.ui_dir),
+            _unbuilt_remedy(args.ui_dir),
         )
     try:
         httpd.serve_forever()

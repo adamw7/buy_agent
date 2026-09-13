@@ -294,8 +294,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--merchant-url",
         default="",
-        help="The AP2-speaking endpoint a paying rail talks to, empty for the "
-        "rail's own default ($BUY_AGENT_MERCHANT_URL). It is asked for a signed "
+        # "Payment endpoint" is the name the form gives this box, and the name
+        # the refusals below the doors use, so a shopper reading one of those
+        # here has a word to look up.
+        help="Payment endpoint: the AP2-speaking address a paying rail talks to, "
+        "empty for the rail's own default ($BUY_AGENT_MERCHANT_URL). "
+        "It is asked for a signed "
         "checkout at {url}/checkout and presented the mandates at {url}/payment.",
     )
     parser.add_argument(

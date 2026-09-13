@@ -432,7 +432,7 @@ def _too_slow_hint(config: AgentConfig, exc: Exception) -> str:
     shorter prompt to send.
     """
     server = config.model_server
-    smaller = "a smaller --num-ctx" if server.takes_num_ctx else "a shorter prompt"
+    smaller = "a smaller context window" if server.takes_num_ctx else "a shorter prompt"
     # A timeout often stringifies to nothing, and "()" says less than the class.
     detail = str(exc) or type(exc).__name__
     return (
@@ -454,8 +454,10 @@ def _unreadable_hint(config: AgentConfig, exc: Exception) -> str:
     """
     server = config.model_server
     room = (
-        "give it more room with a larger --num-ctx, or turn thinking off with --no-think"
+        "give it more room with a larger context window, or turn thinking off"
         if server.takes_num_ctx
+        # ``--max-model-len`` stays: it is vLLM's own startup flag, which is the
+        # same thing to type wherever this sentence is read.
         else "ask for fewer products, or restart it with a larger --max-model-len"
     )
     said = str(exc).strip()
