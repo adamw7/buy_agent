@@ -322,7 +322,7 @@ def test_the_report_on_stdout_carries_no_log_furniture(split_streams) -> None:
     prefixed = [line for line in lines if re.match(r"^\d\d:\d\d:\d\d ", line)]
     assert not prefixed, f"no line carries a clock: {prefixed}"
     assert "INFO" not in "\n".join(lines)
-    assert lines[1] == "TOP 1 OF 1 PRODUCTS", "the title starts at column one"
+    assert lines[1].startswith("TOP 1 OF 1 PRODUCTS"), "the title starts at column one"
     assert "     price  : price unknown" in lines, "and a field keeps its own indent"
 
 
@@ -466,3 +466,45 @@ def test_the_report_marks_a_share_that_was_assumed_rather_than_read(caplog) -> N
         "rating 0.50 x0.50 assumed, popularity 0.50 x0.20 assumed, price 0.50 x0.30 assumed"
         in caplog.text
     )
+
+
+@pytest.mark.parametrize(
+    ("sort_by", "expected"),
+    [
+        ("score", "BEST SCORE FIRST"),
+        ("price", "CHEAPEST FIRST"),
+        ("rating", "BEST RATED FIRST"),
+    ],
+)
+def test_the_heading_says_what_the_block_is_ordered_by(report, sort_by, expected) -> None:
+    """Sorted by anything but the score, the report is a list of numbers going the
+    wrong way with nothing to explain it.
+
+    ``--sort-by rating`` reports 0.68, then 0.98, then 0.83, because the ordering is
+    the rating and the score is only printed. The browser says which criterion beside
+    the results; the CLI had nowhere at all, so the heading says it -- for the default
+    too, a report being read by whoever was handed it rather than only by whoever
+    typed the command.
+    """
+    log_top_products(ranked(Product(name="Alpha"), Product(name="Beta")), 2, sort_by=sort_by)
+
+    assert f"TOP 2 OF 2 PRODUCTS, {expected}" in report.text
+
+
+def test_the_ordering_named_is_the_one_the_run_sorted_by(report) -> None:
+    """End to end through ``rank_products``, so the heading cannot drift from the sort.
+
+    Beta is dearer and better rated, so the two criteria disagree -- which is what
+    makes the heading worth checking against the order underneath it.
+    """
+    products = [
+        Product(name="Alpha", price=10.0, currency="USD", rating=4.0, review_count=100),
+        Product(name="Beta", price=90.0, currency="USD", rating=5.0, review_count=100),
+    ]
+
+    by_rating = rank_products(products, sort_by="rating")
+    log_top_products(by_rating, 2, sort_by="rating")
+
+    lines = [record.getMessage() for record in report.records]
+    assert "TOP 2 OF 2 PRODUCTS, BEST RATED FIRST" in lines
+    assert lines.index("#1  Beta") < lines.index("#2  Alpha"), "the block really is by rating"

@@ -842,8 +842,24 @@ def build_parser() -> argparse.ArgumentParser:
         prog="buy_agent.server",
         description="Serve the buy_agent UI and its JSON API on localhost.",
     )
-    parser.add_argument("--host", default="127.0.0.1", help="Interface to bind.")
-    parser.add_argument("--port", type=int, default=8000, help="Port to bind.")
+    # Both name their default, the way every other flag in this project does.
+    # The port is the address somebody is about to type, and the host is the
+    # difference between a server only this machine can reach and one the network
+    # can -- which also turns the ``Host`` check off (ADR-0018). Neither is a
+    # detail to go and read the source for.
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Interface to bind (default: 127.0.0.1, this machine only). Binding "
+        "anywhere else answers any Host header unless --allowed-host names one.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port to bind (default: 8000; 0 takes whichever one is free and says "
+        "which at startup).",
+    )
     parser.add_argument(
         "--ui-dir",
         type=Path,

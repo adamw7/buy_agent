@@ -6,12 +6,13 @@ import logging
 import sys
 from typing import TYPE_CHECKING
 
-from buy_agent.ranking import CRITERIA, RankingWeights
+from buy_agent.ranking import CRITERIA, ORDERINGS, RankingWeights
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from buy_agent.models import RankedProduct, ScoreParts
+    from buy_agent.ranking import SortBy
 
 logger = logging.getLogger("buy_agent")
 
@@ -140,11 +141,15 @@ def log_top_products(
     top_n: int,
     *,
     weights: RankingWeights | None = None,
+    sort_by: SortBy = "score",
 ) -> None:
     """Log the best ``top_n`` products, one block each.
 
     ``weights`` is what the scores were blended by, for the score line to name: the
-    run's own, or the defaults ``rank_products`` would have used.
+    run's own, or the defaults ``rank_products`` would have used. ``sort_by`` is what
+    the block is ordered by, which the heading names for the reason
+    :data:`~buy_agent.ranking.ORDERINGS` gives -- the default included, since a report
+    is read by somebody who did not necessarily type the command that made it.
     """
     weights = weights or RankingWeights()
     if not ranked:
@@ -155,7 +160,7 @@ def log_top_products(
     top = ranked[:top_n]
     separator = "=" * 62
     _report(separator)
-    _report("TOP %d OF %d PRODUCTS", len(top), len(ranked))
+    _report("TOP %d OF %d PRODUCTS, %s", len(top), len(ranked), ORDERINGS[sort_by].upper())
     _report(separator)
     for entry in top:
         product = entry.product

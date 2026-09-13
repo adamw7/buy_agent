@@ -37,6 +37,7 @@ which is the only way to check that two lists agree about what is *not* in them.
 
 from __future__ import annotations
 
+import argparse
 import ast
 import builtins
 import fnmatch
@@ -83,7 +84,7 @@ from buy_agent.providers import PROVIDERS, InstalledModel, provider_options
 from buy_agent.rails import RAILS, rail_options
 from buy_agent.models import Product
 from tests.conftest import SOURCE_ROOT, needs_ap2, payable_product, ranked_product, said
-from buy_agent.ranking import SortBy
+from buy_agent.ranking import ORDERINGS, SortBy
 from buy_agent.server import DEFAULT_UI_DIR
 from buy_agent.server import build_parser as build_server_parser
 import integration
@@ -2441,3 +2442,57 @@ def test_no_sentence_below_the_two_doors_tells_a_reader_to_type_a_flag() -> None
                 f"{module.name}:{node.lineno} tells the reader to type {named[0]}, "
                 f"which the browser has no command line for; name the setting instead"
             )
+
+
+def test_every_sort_criterion_has_an_ordering_the_report_can_name() -> None:
+    """A fourth criterion needs a phrase, or the report raises a ``KeyError`` on it.
+
+    ``ORDERINGS`` is what turns "TOP 3 OF 7 PRODUCTS" into a heading that explains
+    itself: sorted by rating the block reads 0.68, 0.98, 0.83 down the left edge,
+    which is a ranking that looks broken until the heading says what it is ordered
+    by. The browser has a control beside the results saying so and a ``> top.txt``
+    has nothing at all, so the line has to carry it.
+    """
+    assert set(ORDERINGS) == set(get_args(SortBy)), (
+        "every criterion --sort-by offers has a phrase, and no phrase names one it "
+        "does not"
+    )
+    for criterion, phrase in ORDERINGS.items():
+        assert "first" in phrase, (
+            f"{criterion!r} reads {phrase!r}; a criterion names a direction, since "
+            '"by price" does not say cheapest from dearest'
+        )
+
+
+#: Flags whose default is the absence of the flag rather than a value: a switch is
+#: off until it is given, and a repeatable one collects nothing until it is. Neither
+#: has a value to print, so neither is held to the rule below.
+def _takes_a_value(action: argparse.Action) -> bool:
+    return action.nargs != 0 and not isinstance(action, argparse._AppendAction)
+
+
+@pytest.mark.parametrize(
+    "parser",
+    [pytest.param(build_parser(), id="cli"), pytest.param(build_server_parser(), id="server")],
+)
+def test_every_flag_that_takes_a_value_names_the_default_it_has(
+    parser: argparse.ArgumentParser,
+) -> None:
+    """``--help`` is the CLI's only documentation, so a default left out is a fact
+    with nowhere else to be read.
+
+    ``--port`` was the one that mattered: the address somebody is about to type,
+    printed as "Port to bind." with the 8000 only in the source. ``--host`` beside
+    it decides whether the machine or the network can reach the server, which also
+    turns the ``Host`` check off (ADR-0018). Every other flag in both parsers
+    already said its own, which is what makes this a rule rather than a preference.
+    """
+    for action in parser._actions:  # pylint: disable=protected-access
+        if not action.option_strings or isinstance(action, argparse._HelpAction):
+            continue
+        if not _takes_a_value(action) or action.default is None:
+            continue
+        assert "default" in (action.help or ""), (
+            f"{action.option_strings[0]} takes a value and defaults to "
+            f"{action.default!r} without saying so in its help"
+        )

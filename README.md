@@ -26,7 +26,7 @@ $ python -m buy_agent "wireless noise cancelling headphones under $200"
 18:13:24 INFO  buy_agent.agent  | Extracted 9 candidate(s)
 18:13:24 INFO  buy_agent.verif. | Dropped unsupported figures on 4 product(s)
 ==============================================================
-TOP 3 OF 9 PRODUCTS
+TOP 3 OF 9 PRODUCTS, BEST SCORE FIRST
 ==============================================================
 #1  Bose ANC
      score  : 0.967
@@ -97,7 +97,7 @@ python -m buy_agent "headphones" --max-price 200 --min-rating 4.5 --min-reviews 
 | `--base-url` | the provider's own | Where that server listens |
 | `--results` | `10` | How many products to find (1-50) |
 | `--top` | `3` | How many to log (1-50) |
-| `--sort-by` | `score` | `score`, `price` or `rating` |
+| `--sort-by` | `score` | `score`, `price` or `rating`; the report's heading names which |
 | `--region` | `us-en` | Search region: a country, then a language -- `uk-en`, `pl-pl` |
 | `--source` | -- | Take the facts from this source only; repeatable |
 | `--max-price` | no limit | Report nothing dearer, in the currency the run's prices are counted in |

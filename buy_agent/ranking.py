@@ -34,6 +34,23 @@ NEUTRAL = 0.5
 #: share.
 CRITERIA: tuple[str, ...] = ("rating", "popularity", "price")
 
+#: What each :data:`SortBy` puts first, said as the ordering rather than as the
+#: field. The report needs it: sorted by anything but the score, the block reads
+#: 0.68, 0.98, 0.83 down the left edge and nothing in it says why -- which is a
+#: ranking that looks broken rather than one ordered as it was asked to be. The
+#: browser has the criterion in a control beside the results and a `> top.txt`
+#: has nothing, so the line has to carry it.
+#:
+#: The direction is the half a field name cannot say: "by price" does not
+#: distinguish the cheapest from the dearest, and :func:`rank_products` has a
+#: branch per criterion that decides it. A fourth criterion needs a phrase here,
+#: which ``tests/test_conventions.py`` holds against :data:`SortBy`.
+ORDERINGS: dict[SortBy, str] = {
+    "score": "best score first",
+    "price": "cheapest first",
+    "rating": "best rated first",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class RankingWeights:
