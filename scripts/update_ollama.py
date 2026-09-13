@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -152,11 +153,14 @@ def describe(outcome: Outcome) -> str:
 
 
 def summary(outcomes: list[Outcome]) -> str:
-    """``3 models: 1 updated, 2 already current.``"""
-    counted = [
-        (kind, sum(1 for outcome in outcomes if status(outcome) == kind)) for kind in LABELS
-    ]
-    parts = [f"{count} {LABELS[kind]}" for kind, count in counted if count]
+    """``3 models: 1 updated, 2 already current.``
+
+    Counted in one pass and read back in :data:`LABELS`' order, which is the order
+    the line lists them in -- a status nothing had is left out rather than printed
+    as a zero.
+    """
+    counted = Counter(status(outcome) for outcome in outcomes)
+    parts = [f"{counted[kind]} {label}" for kind, label in LABELS.items() if counted[kind]]
     return f"{len(outcomes)} model(s): {', '.join(parts)}."
 
 

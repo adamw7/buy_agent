@@ -576,33 +576,29 @@ export class SearchForm {
    *  of "what the boxes hold" would differ on the first field either forgot. */
   private options(): SearchOptions {
     return {
+      // Every number box, off the one table that declares them -- so a new box is a
+      // row there and nothing here, the way it is already a row there and nothing in
+      // the template. First, so the settings written out below always win: `key` is
+      // typed as every key the defaults and a request have in common, which is wider
+      // than the boxes this actually fills in.
+      ...this.numbers(),
       request: this.request().trim(),
       provider: this.provider(),
       model: this.model().trim(),
       base_url: this.baseUrl().trim(),
       region: this.region().trim(),
       sources: this.sources().trim(),
-      results: this.sent('results'),
-      top: this.sent('top'),
-      max_price: this.sent('max_price'),
-      min_rating: this.sent('min_rating'),
-      min_reviews: this.sent('min_reviews'),
-      cache_ttl: this.sent('cache_ttl'),
       sort_by: this.sortBy(),
-      temperature: this.sent('temperature'),
-      num_ctx: this.sent('num_ctx'),
-      model_timeout: this.sent('model_timeout'),
       think: fromThinking(this.thinking()),
       fetch: this.fetchPages(),
       pay: this.pay(),
       rail: this.rail(),
       merchant_url: this.merchantUrl().trim(),
-      spend_limit: this.sent('spend_limit'),
     };
   }
 
   /**
-   * What one number box is sent as: nothing, where this run does not take it.
+   * What the number boxes are sent as: nothing, for one this run does not take.
    *
    * A switched-off box is a setting this run has no use for -- a context window for a
    * vLLM, a spend limit with paying off -- and `null` is how "unset" is spelled over
@@ -610,12 +606,10 @@ export class SearchForm {
    * refusal marking a field that is disabled: a form that would not search, pointing
    * at a box that could not be typed into.
    */
-  private sent(key: NumberField['key']): number | null {
-    // Every key it is called with names a row of the table above, so the lookup
-    // is not expected to miss; one that did reads as the cleared box it would be
-    // drawn as, rather than as whatever a signal read somewhere else still held.
-    const field = this.numberFields.find((row) => row.key === key);
-    return field && !field.off() ? field.value() : null;
+  private numbers(): Pick<SearchOptions, NumberField['key']> {
+    return Object.fromEntries(
+      this.numberFields.map((row) => [row.key, row.off() ? null : row.value()]),
+    );
   }
 
   /**

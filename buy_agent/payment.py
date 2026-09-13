@@ -8,7 +8,7 @@ an open mandate authorised one.
 The rule here is the ranking rule turned around: grounding already blanks every
 figure the sources did not print (ADR-0006) and links only pages that were
 searched (ADR-0017), so **a product whose price is a blank is a product nothing
-may be paid for**. :func:`payable` asks only for a price that is an amount, a
+may be paid for**. :func:`terms_for` asks only for a price that is an amount, a
 currency the run can place it in (ADR-0043) and a link.
 
 The money never becomes a float on the wire: AP2 counts in minor units, so
@@ -223,36 +223,31 @@ def _check(product: Product, currency: str | None) -> tuple[float, str]:
     return price, currency
 
 
-def payable(product: Product, currency: str | None) -> str | None:
-    """Why this product cannot be paid for, or ``None`` if it can.
+def terms_for(
+    product: Product, currency: str | None
+) -> tuple[tuple[float, str] | None, str | None]:
+    """What a cart for this product would be worth, and why there is none if there is not.
 
     The judgement :func:`cart_for` makes, asked without making a cart -- what a front
-    door needs to offer a Pay button only for a product it can pay for. One rule asked
-    twice, rather than a second reading of it in TypeScript (ADR-0033).
+    door needs to offer a Pay button only for a product it can pay for, and to say what
+    it would be buying. One rule asked once, rather than a second reading of it in
+    TypeScript (ADR-0033): the amount and the refusal are the two halves of
+    :func:`_check`, so exactly one of them is ever set and a surface cannot show a price
+    beside a sentence saying there is none.
+
+    A front door needs the amount because a cart's currency is frequently not the
+    product's own: a page printing a bare "329.00" leaves ``Product.currency`` null while
+    the cart is in USD (ADR-0043), and a surface restating the product's figure echoed a
+    null currency back, which is not an approval of anything.
+
+    Returns:
+        ``(price, currency)`` and ``None`` for a product that may be paid for; ``None``
+        and the sentence saying why for one that may not.
     """
     try:
-        _check(product, currency)
+        return _check(product, currency), None
     except PaymentError as exc:
-        return str(exc)
-    return None
-
-
-def amount_for(product: Product, currency: str | None) -> tuple[float, str] | None:
-    """What a cart for this product would be worth, or ``None`` where there is none.
-
-    The other half of :func:`payable`: that one says why a product may not be bought,
-    this one in what money it would be if it may. Both are :func:`_check`, the amount
-    being decided by the reasoning that decides whether there is one (ADR-0043).
-
-    A front door needs it because a cart's currency is frequently not the product's own:
-    a page printing a bare "329.00" leaves ``Product.currency`` null while the cart is in
-    USD, and a surface restating the product's figure echoed a null currency back, which
-    is not an approval of anything.
-    """
-    try:
-        return _check(product, currency)
-    except PaymentError:
-        return None
+        return None, str(exc)
 
 
 def amount_label(price: float, currency: str) -> str:

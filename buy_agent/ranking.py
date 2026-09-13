@@ -180,8 +180,10 @@ def rank_products(
     currency = dominant_currency(products)
     prices = [comparable_price(product, currency) for product in products]
     on_the_scale = [price for price in prices if price is not None]
-    cheapest = min(on_the_scale) if on_the_scale else None
-    priciest = max(on_the_scale) if on_the_scale else None
+    # ``default`` rather than a guard apiece: a set with nothing placeable in it
+    # has no ends, which is the ``None`` ``_price_share`` is asked after.
+    cheapest = min(on_the_scale, default=None)
+    priciest = max(on_the_scale, default=None)
 
     scored = [
         _Scored(
