@@ -1223,6 +1223,16 @@ the other is otherwise invisible to both suites. It asserts that
   outside `buy_agent`, `benchmark/` and `integration/` included, plus the files
   at the top of the tree they name and the paths the skills point at, neither of
   which any constant carries -- named in mutmut's `also_copy`;
+- every dependency `requirements.txt` pins is one the package imports, and every
+  third-party module the package imports is pinned in some requirements file --
+  read off the source with `ast` and mapped to a distribution by
+  `importlib.metadata`, so a deferred import counts and no table of the names
+  that differ has to be kept. Neither half is visible to either suite: a pin
+  nothing imports still passes every module's tests, keeps the coverage floor and
+  survives the mutation run, while an import pinned nowhere installs here and on
+  nobody else's machine. The dev and mutation files are outside it, being run
+  over the package rather than imported by it; the two paying files are outside
+  the first half only, an optional SDK being absent on a checkout that pins it;
 - the linter reads that same package, `.pylintrc` sits where every command that
   runs pylint is run from, and no line of the package takes a check away without
   saying why: a `# pylint: disable` with no prose above it is a suppression

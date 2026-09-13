@@ -57,8 +57,8 @@ Without that SDK the 73 tests that need it **skip**, the way
 `tests/conftest.py` is the marker, and it asks `mandates.available()` once at
 import. `needs_powershell` is the other, and with neither `pwsh` nor
 `powershell` on PATH 13 of the 19 tests in that file sit out. So a machine with
-the SDK and no PowerShell reads `1990 passed, 13 skipped`, and a checkout set up
-with `requirements-dev.txt` alone reads `1917 passed, 86 skipped` rather than 73
+the SDK and no PowerShell reads `1991 passed, 13 skipped`, and a checkout set up
+with `requirements-dev.txt` alone reads `1918 passed, 86 skipped` rather than 73
 failures claiming the project is broken when one optional feature is simply not
 installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide
@@ -155,6 +155,7 @@ version of every action they share and on the Python and Node they run; the
 release archive carrying the UI build where the server looks for it; the nightly
 run pulling the model the live tests ask for and leaving its own cap room to
 fail a stopped model first; the decision log agreeing with its own index; the
+dependency list holding only what the package imports, and holding all of it; the
 linter reading the package the other two tools measure and no line of it taking
 a check away without saying why; every type named for a failure being one, and
 nothing but the `__main__` guard ending the process; the suite's own
