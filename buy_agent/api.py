@@ -30,12 +30,11 @@ from buy_agent.payment import (
     PaymentError,
     RailUnreachableError,
     Receipt,
-    amount_for,
     amount_label,
     cart_for,
     merchant_for,
     pay_for,
-    payable,
+    terms_for,
     unattended,
 )
 from buy_agent.providers import PROVIDERS, provider_options
@@ -457,7 +456,8 @@ def product_payload(entry: RankedProduct, currency: str | None = None) -> dict[s
     browser never reinvents how a blank price reads (ADR-0012) -- ``cannot_pay`` among
     them, the sentence saying why this product may not be bought, made by the same
     function the payment goes through so a Pay button is never offered for what the
-    server would refuse (ADR-0033).
+    server would refuse (ADR-0033). One call, so the sentence and the amount are the
+    two halves of a single answer rather than two that have to agree.
 
     The three beside it are what that purchase would be *for* and who it would go *to*,
     which is frequently not the product's own figures (ADR-0043): a page printing a bare
@@ -465,9 +465,9 @@ def product_payload(entry: RankedProduct, currency: str | None = None) -> dict[s
     seller leaves ``seller`` null while the cart names the site. All three are null
     exactly when ``cannot_pay`` is a sentence.
     """
-    terms = amount_for(entry.product, currency)
+    terms, cannot_pay = terms_for(entry.product, currency)
     return {
-        "cannot_pay": payable(entry.product, currency),
+        "cannot_pay": cannot_pay,
         "pay_currency": terms[1] if terms else None,
         "pay_label": amount_label(*terms) if terms else None,
         "pay_merchant": merchant_for(entry.product) if terms else None,
@@ -755,13 +755,12 @@ def _bounded(kind: Callable[[str], _Number]) -> Callable[[str, str], _Number]:
     range is read off :data:`buy_agent.config.LIMITS` through :data:`_BOUNDED`, so the
     CLI, this and the form cannot disagree, and is quoted back as declared.
     """
-    return partial(_declared_number, kind)
 
+    def parse(key: str, text: str) -> _Number:
+        minimum, maximum = LIMITS[_BOUNDED[key]]
+        return _as_number(kind, minimum, maximum, key, text)
 
-def _declared_number(kind: Callable[[str], _Number], key: str, text: str) -> _Number:
-    """A number held to the range :data:`_BOUNDED` declares for this key."""
-    minimum, maximum = LIMITS[_BOUNDED[key]]
-    return _as_number(kind, minimum, maximum, key, text)
+    return parse
 
 
 def _as_number(

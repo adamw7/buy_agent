@@ -134,11 +134,7 @@ class Constraints:
         inside, currency = self._settled(products)
         held = frozenset(inside)
         kept = [products[index] for index in inside]
-        excluded = [
-            product.name
-            for index, product in enumerate(products)
-            if index not in held
-        ]
+        excluded = [item.name for index, item in enumerate(products) if index not in held]
 
         if excluded:
             # The names at DEBUG under the count, as everywhere a product is

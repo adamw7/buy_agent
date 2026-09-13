@@ -20,12 +20,11 @@ from buy_agent.payment import (
     Cart,
     PaymentError,
     RailUnreachableError,
-    amount_for,
     amount_label,
     cart_for,
     merchant_for,
     minor_units,
-    payable,
+    terms_for,
     pay_for,
     unattended,
 )
@@ -72,8 +71,19 @@ def test_a_price_that_is_not_a_number_is_refused_rather_than_sent() -> None:
 # -- what may be paid for ------------------------------------------------------
 
 
+def refused(product: Product, currency: str | None) -> str:
+    """Why this product may not be paid for, as a string to look into.
+
+    The half of :func:`terms_for` these tests read most, and never a bare ``None``:
+    ``in ""`` is False, so a product that was in fact payable fails the assertion
+    rather than passing it vacuously.
+    """
+    return terms_for(product, currency)[1] or ""
+
+
 def test_a_grounded_product_may_be_paid_for() -> None:
-    assert payable(SONY, "USD") is None
+    """Exactly one half is ever set, which is what one call buys over two."""
+    assert terms_for(SONY, "USD") == ((329.99, "USD"), None)
 
 
 def test_a_product_whose_price_grounding_blanked_may_not_be() -> None:
@@ -81,7 +91,8 @@ def test_a_product_whose_price_grounding_blanked_may_not_be() -> None:
     becomes never pay on one."""
     unpriced = SONY.model_copy(update={"price": None})
 
-    assert "nothing to authorise" in (payable(unpriced, "USD") or "")
+    assert "nothing to authorise" in refused(unpriced, "USD")
+    assert terms_for(unpriced, "USD")[0] is None
 
 
 @pytest.mark.parametrize("price", [0.0, -42.5])
@@ -92,46 +103,37 @@ def test_a_price_that_is_no_amount_may_not_be_paid_either(price: float) -> None:
     a cart, put a Pay button on the card and signed a mandate for nothing."""
     odd = SONY.model_copy(update={"price": price})
 
-    assert "not an amount to send" in (payable(odd, "USD") or "")
-    assert amount_for(odd, "USD") is None
+    assert "not an amount to send" in refused(odd, "USD")
+    assert terms_for(odd, "USD")[0] is None
 
 
 def test_a_run_where_no_page_named_a_currency_has_no_amount_to_send() -> None:
-    assert "not an amount" in (payable(SONY, None) or "")
+    assert "not an amount" in refused(SONY, None)
 
 
-def test_a_price_in_a_currency_the_run_cannot_place_may_not_be_paid(
-) -> None:
+def test_a_price_in_a_currency_the_run_cannot_place_may_not_be_paid() -> None:
     """The opposite of what the shopper's bounds do with the same fact, and
     deliberately: a bound that cannot judge a candidate keeps it (ADR-0039),
     but an amount nobody can place is not an amount to send (ADR-0043)."""
-    reason = payable(SONY, "EUR")
-
-    assert reason is not None
-    assert "Nothing is converted" in reason
+    assert "Nothing is converted" in refused(SONY, "EUR")
+    assert terms_for(SONY, "EUR")[0] is None
 
 
 def test_a_product_with_no_source_page_has_no_merchant_to_pay() -> None:
     unlinked = SONY.model_copy(update={"url": None})
 
-    assert "no source page" in (payable(unlinked, "USD") or "")
+    assert "no source page" in refused(unlinked, "USD")
 
 
 def test_what_a_purchase_would_be_for_is_asked_the_same_way_as_whether() -> None:
-    """``amount_for`` is ``payable``'s other half, off the same check: a front
-    door needs the amount as well as the verdict, because the currency a cart
-    carries is frequently not the product's own -- a page that printed a bare
-    figure is priced in the run's (ADR-0043)."""
+    """The amount is the other half of the same check: a front door needs it as
+    well as the verdict, because the currency a cart carries is frequently not the
+    product's own -- a page that printed a bare figure is priced in the run's
+    (ADR-0043)."""
     bare = SONY.model_copy(update={"currency": None})
 
-    assert amount_for(SONY, "USD") == (329.99, "USD")
-    assert amount_for(bare, "USD") == (329.99, "USD")
+    assert terms_for(bare, "USD") == ((329.99, "USD"), None)
     assert bare.currency is None
-
-
-def test_a_product_that_may_not_be_paid_for_is_worth_no_amount() -> None:
-    assert amount_for(SONY.model_copy(update={"price": None}), "USD") is None
-    assert amount_for(SONY, "EUR") is None
 
 
 def test_every_surface_says_an_amount_the_same_way() -> None:
