@@ -8,7 +8,7 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 import httpx
 import openai
@@ -34,6 +34,14 @@ _LIST_TIMEOUT = 5.0
 #: What an Ollama model's capabilities must include to answer a prompt at all
 #: (ADR-0032).
 _COMPLETION = "completion"
+
+#: What a row turns one of its failures into: a sentence naming what to do about it.
+Hint: TypeAlias = "Callable[[AgentConfig, Exception], str]"
+
+#: How each client says a server took the prompt and never came back: the OpenAI one
+#: raises its own class, and everything else -- both listings included -- arrives as
+#: httpx's. Named once rather than half of it per row.
+_TIMEOUTS = (httpx.TimeoutException, openai.APITimeoutError)
 
 #: How many of those second questions to have in flight at once: together, the listing
 #: being on one short budget, but capped -- fifty pulled tags should not get fifty
@@ -63,7 +71,7 @@ class Provider:
     chat_model: Callable[[AgentConfig], ChatModel]
     installed: Callable[[AgentConfig], list[InstalledModel]]
     transport_errors: tuple[type[BaseException], ...]
-    hint: Callable[[AgentConfig, Exception], str]
+    hint: Hint
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,12 +175,6 @@ def _ollama_capability(client: Client, name: str) -> InstalledModel:
 
 def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
     """Turn an Ollama failure into something the user can act on (ADR-0032)."""
-    # Asked before the two string tests below, which read the message: a half-finished
-    # answer is the model's own words, and any of them could say "not found".
-    if isinstance(exc, UnreadableAnswerError):
-        return _unreadable_hint(config, exc)
-    if isinstance(exc, httpx.TimeoutException):
-        return _too_slow_hint(config, exc)
     lowered = str(exc).lower()
     if "not found" in lowered:
         return (
@@ -260,11 +262,7 @@ def _vllm_installed(config: AgentConfig) -> list[InstalledModel]:
 
 def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
     """Turn a vLLM failure into something the user can act on."""
-    if isinstance(exc, UnreadableAnswerError):
-        return _unreadable_hint(config, exc)
     detail = str(exc)
-    if isinstance(exc, (httpx.TimeoutException, openai.APITimeoutError)):
-        return _too_slow_hint(config, exc)
     if isinstance(exc, openai.AuthenticationError):
         return (
             f"vLLM at {config.base_url} refused the API key ({detail}). "
@@ -280,6 +278,26 @@ def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
             f"with:  vllm serve {config.model}"
         )
     return _unreachable_hint(config, exc, f"vllm serve {config.model}")
+
+
+def _hint(specific: Hint) -> Hint:
+    """A row's ``hint``: the two failures both servers meet, then this one's own.
+
+    Their sentences were already shared -- :func:`_unreadable_hint` and
+    :func:`_too_slow_hint` -- and the deciding was the half still written out on
+    both rows. Asked before either row reads the message, which is the order that
+    matters: a half-finished answer is the model's own words, and any of them could
+    say "not found".
+    """
+
+    def hint(config: AgentConfig, exc: Exception) -> str:
+        if isinstance(exc, UnreadableAnswerError):
+            return _unreadable_hint(config, exc)
+        if isinstance(exc, _TIMEOUTS):
+            return _too_slow_hint(config, exc)
+        return specific(config, exc)
+
+    return hint
 
 
 def _too_slow_hint(config: AgentConfig, exc: Exception) -> str:
@@ -351,7 +369,7 @@ OLLAMA = Provider(
     # while a slow model and a dropped stream arrive as raw ``httpx`` errors, neither an
     # ``OSError``.
     transport_errors=(ResponseError, RequestError, OSError, httpx.HTTPError),
-    hint=_ollama_hint,
+    hint=_hint(_ollama_hint),
 )
 
 VLLM = Provider(
@@ -367,7 +385,7 @@ VLLM = Provider(
     installed=_vllm_installed,
     # ``openai.OpenAIError`` is the root of that client's hierarchy.
     transport_errors=(openai.OpenAIError, OSError, httpx.HTTPError),
-    hint=_vllm_hint,
+    hint=_hint(_vllm_hint),
 )
 
 #: Every provider, by the name the CLI, the API and ``$BUY_AGENT_PROVIDER`` use

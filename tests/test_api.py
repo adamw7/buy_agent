@@ -25,10 +25,17 @@ from buy_agent.api import (
 from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.models import Product
 from buy_agent.ranking import RankingWeights, rank_products
-from tests.conftest import needs_ap2, payable_product, ranked_product, said
 from buy_agent.providers import VLLM
 from buy_agent.search import SearchError
 from buy_agent.sources import Source
+from tests.conftest import (
+    enrolled_key,
+    needs_ap2,
+    open_mandate,
+    payable_product,
+    ranked_product,
+    said,
+)
 
 RANKED = [
     ranked_product(
@@ -497,7 +504,7 @@ def test_each_failure_gets_the_status_it_deserves(error: Exception, status: int)
 def test_the_checkpoint_reaches_the_agent() -> None:
     """Handed through rather than acted on here: the boundaries belong to the pipeline."""
     captured = agent_returning(RANKED)
-    checkpoint = lambda _step: None  # noqa: E731 -- an identity to compare, not a behaviour
+    checkpoint = lambda _step: None  # an identity to compare, not a behaviour
 
     run_search(
         "headphones", AgentConfig(), agent_factory=captured["factory"], checkpoint=checkpoint
@@ -1154,13 +1161,8 @@ def test_an_open_mandate_needs_no_echo_from_the_page(
 ) -> None:
     """That is the whole meaning of the autonomous mode: the mandate is the
     authority, and its constraints are what the cart is held to."""
-    from buy_agent import mandates
-    from tests.test_mandates import open_mandate_file
-
-    agent, _issuer = open_mandate_file(tmp_path / "mandate.json", maximum=40000)
-    (tmp_path / "agent.pem").write_bytes(agent.export_to_pem(private_key=True, password=None))
-    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
-    monkeypatch.setenv(mandates.KEY_PATH, str(tmp_path / "agent.pem"))
+    agent, _issuer = open_mandate(tmp_path, monkeypatch)
+    enrolled_key(tmp_path, monkeypatch, agent)
     body = paying()
     del body["approved"]
 
@@ -1183,10 +1185,9 @@ def test_a_rail_that_could_not_be_reached_is_a_502(
 ) -> None:
     """An endpoint that is down is nothing to do with the request, so 400 would
     send the shopper off to fix a form with nothing wrong with it."""
-    from buy_agent import mandates, rails
-    from tests.test_mandates import write_key
+    from buy_agent import rails
 
-    monkeypatch.setenv(mandates.KEY_PATH, str(write_key(tmp_path / "agent.pem")))
+    enrolled_key(tmp_path, monkeypatch)
 
     def refuse(*_a: object, **_k: object) -> object:
         raise httpx.ConnectError("refused")

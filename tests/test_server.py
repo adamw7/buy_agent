@@ -1419,7 +1419,7 @@ def test_a_public_bind_with_no_named_host_is_warned_about(
     monkeypatch.setattr("buy_agent.server.create_server", lambda *a, **k: FakeHttpd())
 
     with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
-        main(["--host", "0.0.0.0", "--ui-dir", str(tmp_path)])  # noqa: S104
+        main(["--host", "0.0.0.0", "--ui-dir", str(tmp_path)])
 
     assert "--allowed-host" in caplog.text
 
@@ -1434,7 +1434,7 @@ def test_naming_the_host_turns_the_check_back_on(monkeypatch, tmp_path: Path, ca
     monkeypatch.setattr("buy_agent.server.create_server", remember)
 
     with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
-        main(["--host", "0.0.0.0", "--allowed-host", "buy.lan", "--ui-dir", str(tmp_path)])  # noqa: S104
+        main(["--host", "0.0.0.0", "--allowed-host", "buy.lan", "--ui-dir", str(tmp_path)])
 
     assert captured["allowed_hosts"] == frozenset({"buy.lan"})
     assert "--allowed-host" not in caplog.text
@@ -1446,7 +1446,7 @@ def test_naming_the_host_turns_the_check_back_on(monkeypatch, tmp_path: Path, ca
         ("127.0.0.1", "http://127.0.0.1:8000"),
         # An address to listen on rather than one to visit, and a browser given it
         # has nowhere to go; ::1 needs the brackets an address bar reads it by.
-        ("0.0.0.0", "http://127.0.0.1:8000"),  # noqa: S104
+        ("0.0.0.0", "http://127.0.0.1:8000"),
         ("::", "http://[::1]:8000"),
         ("::1", "http://[::1]:8000"),
     ],

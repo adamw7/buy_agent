@@ -79,11 +79,20 @@ install_node() {
 }
 install_node || true
 
-# The Bash tool starts a fresh shell per call, so PATH has to be persisted.
-if [ -n "$node_bin" ] && [ -n "${CLAUDE_ENV_FILE:-}" ] \
-   && ! grep -qsF "$node_bin" "$CLAUDE_ENV_FILE"; then
-  printf 'export PATH="%s:$PATH"\n' "$node_bin" >> "$CLAUDE_ENV_FILE"
-fi
+# The Bash tool starts a fresh shell per call, so a directory this hook puts on
+# PATH is gone by the next one unless it is written down. Both halves below end
+# by asking for that, which is why it is a function rather than the same four
+# lines twice: an interpreter reachable one way and not the other is the failure
+# the whole hook exists to prevent.
+keep_on_path() {
+  local directory=$1
+  if [ -n "$directory" ] && [ -n "${CLAUDE_ENV_FILE:-}" ] \
+     && ! grep -qsF "$directory" "$CLAUDE_ENV_FILE"; then
+    printf 'export PATH="%s:$PATH"\n' "$directory" >> "$CLAUDE_ENV_FILE"
+  fi
+}
+
+keep_on_path "$node_bin"
 
 # ui/ is an ordinary npm workspace; nothing on the Python side needs it.
 #
@@ -190,12 +199,8 @@ install_python() {
 install_python || true
 say "session-start: $py."
 
-# Same reason as Node's: a fresh shell per Bash call, so the venv is reached by
-# PATH rather than by an activate nobody sourced.
-if [ -n "$venv_bin" ] && [ -n "${CLAUDE_ENV_FILE:-}" ] \
-   && ! grep -qsF "$venv_bin" "$CLAUDE_ENV_FILE"; then
-  printf 'export PATH="%s:$PATH"\n' "$venv_bin" >> "$CLAUDE_ENV_FILE"
-fi
+# Reached by PATH rather than by an activate nobody sourced.
+keep_on_path "$venv_bin"
 
 # Which interpreter the venv ended up with is worth a session knowing, the pin
 # being one thing the image is free to be under.

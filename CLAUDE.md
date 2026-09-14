@@ -391,7 +391,7 @@ was ever held to.
 | `verification.py` | Drops products, figures and quotes absent from the sources; links what is left |
 | `constraints.py` | The bounds the shopper set, applied to the products before they are ranked |
 | `ranking.py` | Scoring and sorting, and what each score is made of; no LLM involved |
-| `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain) |
+| `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain), and the one wording an amount of money is written in |
 | `search.py` | DuckDuckGo wrapper -- and nothing else (ADR-0021) |
 | `sources.py` | What a trusted source is: domain, term, `site:` query, `covers` |
 | `providers.py` | Everything that differs between Ollama and vLLM, and nothing else |
@@ -422,7 +422,9 @@ was ever held to.
   anywhere above the table. A setting one server takes and the other does not
   gets a declaration on the row rather than a branch in the CLI, the API and the
   form; a hint sentence both servers would write goes in `_too_slow_hint` or
-  `_unreachable_hint` (ADR-0028, ADR-0029). A row's client holds a connection
+  `_unreachable_hint`, and a *failure* both would answer with one of those -- an
+  unreadable answer, a timeout -- is decided once in `_hint`, above the rows,
+  rather than on each of them (ADR-0028, ADR-0029). A row's client holds a connection
   pool, and letting go of it is the row's own too: each chat model has a
   `close`, `chat.release` is who asks for one where there is one to ask, and
   `BuyAgent.close` is when -- so both front doors build one agent per request

@@ -137,6 +137,17 @@ p {{ color: #5c6470; }}
 """
 
 
+def _unexpected(exc: Exception) -> dict[str, Any]:
+    """The body a failure nothing planned for is answered with, wherever it lands.
+
+    Three places answer one: the two catch-alls below and the worker behind the
+    stream, which has no status line left to spend and says the same thing in a
+    ``failure`` event. Written once, so a browser cannot be told two different
+    things about the same kind of trouble.
+    """
+    return {"error": f"Unexpected failure: {exc}"}
+
+
 class _Stopped(Exception):
     """Raised inside a run whose reader has gone, to end it at a step boundary (ADR-0009,
     ADR-0034).
@@ -311,7 +322,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         # pylint: disable-next=broad-exception-caught
         except Exception as exc:
             logger.exception("Unexpected failure answering %s", url.path)
-            self._send_json(500, {"error": f"Unexpected failure: {exc}"})
+            self._send_json(500, _unexpected(exc))
 
     # The verb as it arrives on the wire, which is what the base class dispatches on.
     # pylint: disable-next=invalid-name
@@ -341,7 +352,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         # pylint: disable-next=broad-exception-caught
         except Exception as exc:
             logger.exception("Unexpected failure during a search")
-            self._send_json(500, {"error": f"Unexpected failure: {exc}"})
+            self._send_json(500, _unexpected(exc))
 
     # The verb as it arrives on the wire, which is what the base class dispatches on.
     # pylint: disable-next=invalid-name
@@ -426,7 +437,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             # pylint: disable-next=broad-exception-caught
             except Exception as exc:
                 logger.exception("Unexpected failure during a streamed search")
-                outcome["error"] = (500, {"error": f"Unexpected failure: {exc}"})
+                outcome["error"] = (500, _unexpected(exc))
             finally:
                 _relay.detach()
                 sink.put(done)

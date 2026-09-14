@@ -8,7 +8,6 @@ a credential provider would run.
 
 from __future__ import annotations
 
-import json
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -17,7 +16,7 @@ import pytest
 from buy_agent import mandates
 from buy_agent.mandates import MandateError
 from buy_agent.payment import Cart
-from tests.conftest import needs_ap2
+from tests.conftest import enrolled_key, needs_ap2, open_mandate
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -38,55 +37,6 @@ def signed_checkout() -> mandates.SignedCheckout:
     """A checkout signed as the merchant, which is what the dry run does."""
     document = mandates.checkout_document(CART, order_id="order-1")
     return mandates.sign_checkout(document, mandates.generate_key("merchant"))
-
-
-def write_key(path: Path) -> Path:
-    """An EC P-256 private key on disk, as ``$BUY_AGENT_AP2_KEY`` names one."""
-    key = mandates.generate_key("agent")
-    path.write_bytes(key.export_to_pem(private_key=True, password=None))
-    return path
-
-
-def open_mandate_file(path: Path, *, maximum: int, payee: str = "audiosite.example") -> Any:
-    """A pre-signed open Payment Mandate, and the agent key it delegates to.
-
-    Built the way a bank or an agent provider would build one: an amount range
-    and an allow-list of payees, with ``cnf`` naming the key allowed to close it.
-    """
-    from ap2.sdk.generated.open_payment_mandate import (
-        AllowedPayees,
-        AmountRange,
-        OpenPaymentMandate,
-    )
-    from ap2.sdk.generated.types.merchant import Merchant
-    from ap2.sdk.mandate import MandateClient
-
-    issuer = mandates.generate_key("issuer")
-    agent = mandates.generate_key("agent")
-    now = int(time.time())
-    token = MandateClient().create(
-        payloads=[
-            OpenPaymentMandate(
-                constraints=[
-                    AmountRange(currency="USD", min=0, max=maximum),
-                    AllowedPayees(
-                        allowed=[
-                            Merchant(id=payee, name="AudioSite", website=f"https://{payee}")
-                        ]
-                    ),
-                ],
-                cnf={"jwk": json.loads(agent.export_public())},
-                iat=now,
-                exp=now + 3600,
-            )
-        ],
-        issuer_key=issuer,
-    )
-    path.write_text(
-        json.dumps({"mandate": token, "issuer_jwk": json.loads(issuer.export_public())}),
-        encoding="utf-8",
-    )
-    return agent, issuer
 
 
 # -- the SDK, and doing without it ---------------------------------------------
@@ -128,7 +78,7 @@ def test_a_missing_sdk_is_one_command_and_not_an_import_error(
 def test_a_key_is_read_off_the_path_the_environment_names(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv(mandates.KEY_PATH, str(write_key(tmp_path / "agent.pem")))
+    enrolled_key(tmp_path, monkeypatch)
 
     key, enrolled = mandates.load_key(required=True)
 
@@ -276,8 +226,7 @@ def test_the_payment_mandate_carries_the_amount_and_never_an_instrument_number()
 def test_an_open_mandate_authorises_a_cart_inside_its_constraints(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    agent, _issuer = open_mandate_file(tmp_path / "mandate.json", maximum=40000)
-    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
+    agent, _issuer = open_mandate(tmp_path, monkeypatch)
 
     authorisation = mandates.authorise(CART, signed_checkout(), key=agent, nonce="n")
 
@@ -292,8 +241,7 @@ def test_an_open_mandate_refuses_a_cart_over_its_amount_range(
     """The constraint is evaluated by the SDK's own evaluator -- the one a
     credential provider runs -- so the refusal is the real one and not a second
     reading of the budget written here."""
-    agent, _issuer = open_mandate_file(tmp_path / "mandate.json", maximum=10000)
-    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
+    agent, _issuer = open_mandate(tmp_path, monkeypatch, maximum=10000)
 
     with pytest.raises(MandateError, match="exceeds maximum"):
         mandates.authorise(CART, signed_checkout(), key=agent, nonce="n")
@@ -303,10 +251,7 @@ def test_an_open_mandate_refuses_a_cart_over_its_amount_range(
 def test_an_open_mandate_refuses_a_merchant_it_does_not_allow(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    agent, _issuer = open_mandate_file(
-        tmp_path / "mandate.json", maximum=40000, payee="somewhere-else.example"
-    )
-    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
+    agent, _issuer = open_mandate(tmp_path, monkeypatch, payee="somewhere-else.example")
 
     with pytest.raises(MandateError, match="does not authorise"):
         mandates.authorise(CART, signed_checkout(), key=agent, nonce="n")
@@ -318,8 +263,7 @@ def test_an_open_mandate_cannot_be_closed_with_the_wrong_key(
 ) -> None:
     """``cnf`` names the one key allowed to close it, which is the whole of the
     delegation: another key signing on top is not a chain that verifies."""
-    open_mandate_file(tmp_path / "mandate.json", maximum=40000)
-    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
+    open_mandate(tmp_path, monkeypatch)
 
     with pytest.raises(MandateError, match="did not verify"):
         mandates.authorise(
@@ -377,8 +321,7 @@ def test_a_chain_presented_to_the_wrong_audience_does_not_verify(
 ) -> None:
     """AP2 binds a presentation to who it is for, so one meant for the credential
     provider cannot be replayed at the merchant."""
-    agent, issuer = open_mandate_file(tmp_path / "mandate.json", maximum=40000)
-    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
+    agent, issuer = open_mandate(tmp_path, monkeypatch)
     authorisation = mandates.authorise(CART, signed_checkout(), key=agent, nonce="n")
 
     with pytest.raises(MandateError, match="did not verify"):
@@ -395,8 +338,7 @@ def test_a_chain_presented_to_the_wrong_audience_does_not_verify(
 def test_a_chain_replayed_with_another_nonce_does_not_verify(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    agent, issuer = open_mandate_file(tmp_path / "mandate.json", maximum=40000)
-    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
+    agent, issuer = open_mandate(tmp_path, monkeypatch)
     authorisation = mandates.authorise(CART, signed_checkout(), key=agent, nonce="first")
 
     with pytest.raises(MandateError, match="did not verify"):
@@ -474,7 +416,7 @@ def test_a_signing_key_read_off_disk_is_identified(
 ) -> None:
     """Every signature here is traceable to a key id; a key with none leaves a
     verifier with a signature and no way to say whose it was."""
-    monkeypatch.setenv(mandates.KEY_PATH, str(write_key(tmp_path / "agent.pem")))
+    enrolled_key(tmp_path, monkeypatch)
 
     key, _enrolled = mandates.load_key(required=True)
 
@@ -528,8 +470,7 @@ def test_a_chain_bound_to_another_checkout_reports_a_violation(
     """The Payment Mandate's ``transaction_id`` *is* the checkout hash, so asking
     about a different one is asking whether this payment pays for that cart --
     and the answer has to be no."""
-    agent, issuer = open_mandate_file(tmp_path / "mandate.json", maximum=40000)
-    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
+    agent, issuer = open_mandate(tmp_path, monkeypatch)
     authorisation = mandates.authorise(CART, signed_checkout(), key=agent, nonce="n")
 
     violations = mandates.verify(
@@ -548,8 +489,7 @@ def test_a_chain_bound_to_another_checkout_reports_a_violation(
 def test_a_chain_asked_about_its_own_checkout_reports_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    agent, issuer = open_mandate_file(tmp_path / "mandate.json", maximum=40000)
-    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
+    agent, issuer = open_mandate(tmp_path, monkeypatch)
     authorisation = mandates.authorise(CART, signed_checkout(), key=agent, nonce="n")
 
     assert (
@@ -573,8 +513,7 @@ def test_an_autonomous_authorisation_carries_two_real_mandates(
     from ap2.sdk.generated.checkout_mandate import CheckoutMandate
     from ap2.sdk.mandate import MandateClient
 
-    agent, issuer = open_mandate_file(tmp_path / "mandate.json", maximum=40000)
-    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
+    agent, issuer = open_mandate(tmp_path, monkeypatch)
     checkout = signed_checkout()
 
     authorisation = mandates.authorise(CART, checkout, key=agent, nonce="n")

@@ -26,9 +26,11 @@ row in `RAILS` and a row nowhere else. Adding one is mostly *not* editing things
   prose about it. The clients differ in what they convert: ollama's turns a
   refused connection into a builtin `ConnectionError` and lets `httpx` errors out
   raw, which is why its tuple is four entries wide.
-- `hint` turns one of those into something the user can type. A sentence both
-  backends would write belongs in `_too_slow_hint` / `_unreachable_hint` rather
-  than in the row.
+- `hint` turns one of those into something the user can type, and only what is
+  *this* backend's own: a sentence both would write belongs in `_too_slow_hint` /
+  `_unreachable_hint`, and in `providers.py` the two failures both servers answer
+  the same way -- an unreadable answer and a timeout -- are already decided above
+  the rows by `_hint`, which every row's own function is wrapped in.
 
 ## 2. What must not happen
 

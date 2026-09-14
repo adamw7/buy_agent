@@ -28,7 +28,7 @@ from buy_agent.payment import (
     pay_for,
     unattended,
 )
-from tests.conftest import needs_ap2, payable_product
+from tests.conftest import enrolled_key, needs_ap2, open_mandate, payable_product
 
 SONY = payable_product(rating=4.6, review_count=1200)
 
@@ -261,9 +261,8 @@ def test_a_rail_that_cannot_be_reached_is_its_own_kind_of_failure(
     import httpx
 
     from buy_agent import rails
-    from tests.test_mandates import write_key
 
-    monkeypatch.setenv(mandates.KEY_PATH, str(write_key(tmp_path / "agent.pem")))
+    enrolled_key(tmp_path, monkeypatch)
 
     def refuse(*_args: Any, **_kwargs: Any) -> Any:
         raise httpx.ConnectError("refused")
@@ -290,12 +289,9 @@ def test_a_receipt_never_carries_the_mandate_chain() -> None:
 def test_an_open_mandate_makes_the_run_unattended(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from tests.test_mandates import open_mandate_file
-
     assert unattended() is False
 
-    open_mandate_file(tmp_path / "mandate.json", maximum=40000)
-    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
+    open_mandate(tmp_path, monkeypatch)
 
     assert unattended() is True
 
@@ -317,12 +313,8 @@ def test_a_broken_mandate_file_is_the_one_failure_a_payment_has(
 def test_paying_on_an_open_mandate_is_reported_as_autonomous(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from tests.test_mandates import open_mandate_file
-
-    agent, _issuer = open_mandate_file(tmp_path / "mandate.json", maximum=40000)
-    (tmp_path / "agent.pem").write_bytes(agent.export_to_pem(private_key=True, password=None))
-    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
-    monkeypatch.setenv(mandates.KEY_PATH, str(tmp_path / "agent.pem"))
+    agent, _issuer = open_mandate(tmp_path, monkeypatch)
+    enrolled_key(tmp_path, monkeypatch, agent)
     config = AgentConfig(pay=True)
 
     receipt = pay_for(cart_for(SONY, [SONY], config), config)
@@ -335,12 +327,8 @@ def test_paying_on_an_open_mandate_is_reported_as_autonomous(
 def test_a_cart_the_open_mandate_does_not_cover_is_refused_before_anything_is_sent(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from tests.test_mandates import open_mandate_file
-
-    agent, _issuer = open_mandate_file(tmp_path / "mandate.json", maximum=1000)
-    (tmp_path / "agent.pem").write_bytes(agent.export_to_pem(private_key=True, password=None))
-    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
-    monkeypatch.setenv(mandates.KEY_PATH, str(tmp_path / "agent.pem"))
+    agent, _issuer = open_mandate(tmp_path, monkeypatch, maximum=1000)
+    enrolled_key(tmp_path, monkeypatch, agent)
     config = AgentConfig(pay=True)
 
     with pytest.raises(PaymentError, match="does not authorise this purchase"):
@@ -383,9 +371,9 @@ def test_a_rail_that_goes_away_between_the_price_and_the_payment_says_so(
     import httpx
 
     from buy_agent import rails
-    from tests.test_mandates import signed_checkout, write_key
+    from tests.test_mandates import signed_checkout
 
-    monkeypatch.setenv(mandates.KEY_PATH, str(write_key(tmp_path / "agent.pem")))
+    enrolled_key(tmp_path, monkeypatch)
     merchant = signed_checkout()
     calls: list[str] = []
 
@@ -590,9 +578,8 @@ def test_an_unreachable_rail_carries_the_transports_own_words(
     import httpx
 
     from buy_agent import rails
-    from tests.test_mandates import write_key
 
-    monkeypatch.setenv(mandates.KEY_PATH, str(write_key(tmp_path / "agent.pem")))
+    enrolled_key(tmp_path, monkeypatch)
     monkeypatch.setattr(
         rails.httpx, "post", lambda *a, **k: (_ for _ in ()).throw(httpx.ConnectError("nowhere"))
     )

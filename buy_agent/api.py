@@ -17,13 +17,12 @@ from buy_agent.agent import (
 )
 from buy_agent.chat import release
 from buy_agent.config import LIMITS, AgentConfig, parse_region
-from buy_agent.models import Product, dominant_currency
+from buy_agent.models import Product, amount_label, dominant_currency
 from buy_agent.payment import (
     Cart,
     PaymentError,
     RailUnreachableError,
     Receipt,
-    amount_label,
     cart_for,
     merchant_for,
     pay_for,

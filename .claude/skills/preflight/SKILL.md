@@ -22,15 +22,15 @@ python -m pylint buy_agent
   essentially every line, so a drop is a new branch with no test, not slack.
 - Expect a few seconds. A run that takes much longer means something is reaching
   the network; find it rather than waiting it out.
-- With neither `pwsh` nor `powershell` on PATH, 13 tests in
-  `tests/test_start_script.py` skip. That is expected off Windows and not a
-  failure.
-- Without the optional AP2 SDK, 73 tests skip on `needs_ap2` and the coverage
-  floor cannot be met -- so a `.venv` without it fails the gate on coverage, not
-  on a red test. Add it with `pip install -r requirements-ap2-deps.txt` and then
-  `pip install --no-deps -r requirements-ap2.txt`; the flag belongs to the second
-  command only. A machine with both prerequisites reads `1974 passed, 13
-  skipped`.
+- Two optional prerequisites decide how many tests run, and neither absent one
+  is a failure: without `pwsh` or `powershell`, `tests/test_start_script.py`
+  skips on `needs_powershell`, and without the optional AP2 SDK the paying tests
+  skip on `needs_ap2` -- which does fail the gate, on coverage rather than on a
+  red test, the floor being unreachable with them sitting out. Add the SDK with
+  `pip install -r requirements-ap2-deps.txt` and then `pip install --no-deps -r
+  requirements-ap2.txt`; the flag belongs to the second command only.
+  What a run should say is in `docs/testing.md`, which is the one place those
+  counts are written down: a second copy here only ever falls behind it.
 - `pytest.ini` sets `testpaths = tests`, so a bare run cannot reach
   `integration/`. That is deliberate -- see below.
 - pylint runs over `buy_agent/` and nothing else, and has to come out at 10.00
