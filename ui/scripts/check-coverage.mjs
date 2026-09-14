@@ -26,14 +26,20 @@ try {
   process.exit(1);
 }
 
-const short = Object.entries(FLOOR).filter(([kind, floor]) => total[kind].pct < floor);
+// One pass: what each kind reads and whether it clears its floor are the same
+// question, and asked twice they are two places for the floor to be read wrong.
+const short = [];
 for (const [kind, floor] of Object.entries(FLOOR)) {
   const { pct, covered, total: count } = total[kind];
-  const verdict = pct < floor ? `below ${floor}%` : 'ok';
+  const under = pct < floor;
+  if (under) {
+    short.push(kind);
+  }
+  const verdict = under ? `below ${floor}%` : 'ok';
   console.log(`${kind.padEnd(11)} ${String(pct).padStart(6)}%  (${covered}/${count})  ${verdict}`);
 }
 
 if (short.length) {
-  console.error(`\nCoverage fell below the floor for: ${short.map(([kind]) => kind).join(', ')}`);
+  console.error(`\nCoverage fell below the floor for: ${short.join(', ')}`);
   process.exit(1);
 }

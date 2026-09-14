@@ -133,7 +133,8 @@ def tiny_model(base_url: str) -> str:
     try:
         probe = AgentConfig(base_url=base_url)
         installed = [model.name for model in probe.model_server.installed(probe)]
-    except Exception as exc:  # noqa: BLE001 -- any transport failure means "not there"
+    # Any transport failure means "not there", which is what this is asking.
+    except Exception as exc:  # pylint: disable=broad-exception-caught
         _absent(f"No Ollama at {base_url} ({exc}). Start it with: ollama serve")
     if tag not in installed:
         _absent(f"Ollama at {base_url} has no {tag!r}. Pull it with: ollama pull {tag}")

@@ -4,8 +4,10 @@ none of them leaves a logger set."""
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -139,6 +141,91 @@ def leave_every_logger_as_it_was() -> Iterator[None]:
     yield
     for logger, level in kept:
         logger.setLevel(level)
+
+
+#: What an open mandate is allowed to be spent on, where a test does not care.
+OPEN_MANDATE_LIMIT = 40_000
+OPEN_MANDATE_PAYEE = "audiosite.example"
+
+
+def open_mandate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    maximum: int = OPEN_MANDATE_LIMIT,
+    payee: str = OPEN_MANDATE_PAYEE,
+) -> tuple[Any, Any]:
+    """Put a pre-signed open mandate where ``$BUY_AGENT_AP2_MANDATE`` will find it.
+
+    Built the way a bank or an agent provider would build one: an amount range and
+    an allow-list of payees, with ``cnf`` naming the key allowed to close it. Four
+    files were writing the file and then pointing the variable at it, two lines
+    apiece, and three of them reached this by importing it out of another test
+    module -- so it lives here, which is where the suite's shared fixtures are.
+
+    Its presence is what puts a run into the human-not-present mode (ADR-0046), so
+    setting the variable is half of what a caller wants and never the other half by
+    accident: :func:`enrolled_key` is the key, asked for separately.
+
+    Returns:
+        The agent key the mandate delegates to, and the issuer's.
+    """
+    from ap2.sdk.generated.open_payment_mandate import (
+        AllowedPayees,
+        AmountRange,
+        OpenPaymentMandate,
+    )
+    from ap2.sdk.generated.types.merchant import Merchant
+    from ap2.sdk.mandate import MandateClient
+
+    issuer = mandates.generate_key("issuer")
+    agent = mandates.generate_key("agent")
+    now = int(time.time())
+    token = MandateClient().create(
+        payloads=[
+            OpenPaymentMandate(
+                constraints=[
+                    AmountRange(currency="USD", min=0, max=maximum),
+                    AllowedPayees(
+                        allowed=[
+                            Merchant(id=payee, name="AudioSite", website=f"https://{payee}")
+                        ]
+                    ),
+                ],
+                cnf={"jwk": json.loads(agent.export_public())},
+                iat=now,
+                exp=now + 3600,
+            )
+        ],
+        issuer_key=issuer,
+    )
+    path = tmp_path / "mandate.json"
+    path.write_text(
+        json.dumps({"mandate": token, "issuer_jwk": json.loads(issuer.export_public())}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(mandates.MANDATE_PATH, str(path))
+    return agent, issuer
+
+
+def enrolled_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: Any | None = None
+) -> Any:
+    """An EC P-256 key on disk, with ``$BUY_AGENT_AP2_KEY`` naming it.
+
+    What tells a signature made with an enrolled key from one made with a key the
+    process invented, which is the difference ``Receipt.enrolled_key`` reports -- so
+    six tests wanted a key on disk and the four that pay on an open mandate wanted
+    *that* mandate's key, which is the argument.
+
+    Returns:
+        The key, whether it was handed in or made here.
+    """
+    key = key or mandates.generate_key("agent")
+    path = tmp_path / "agent.pem"
+    path.write_bytes(key.export_to_pem(private_key=True, password=None))
+    monkeypatch.setenv(mandates.KEY_PATH, str(path))
+    return key
 
 
 class FakeLLM:

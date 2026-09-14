@@ -108,6 +108,20 @@ class ExtractedProduct(BaseModel):
         )
 
 
+def amount_label(price: float, currency: str | None = None) -> str:
+    """An amount as a person reads it, which is how every surface must write it.
+
+    One wording for the card, the report and the cart a payment is authorised for:
+    the figure a page printed and the figure a mandate carries are the same money,
+    and a confirmation that spelt it differently from the product beside it would be
+    asking somebody to agree to two amounts. ``None`` is a price no page gave a
+    currency for, which is a number written without a unit rather than one in the
+    run's own (ADR-0043).
+    """
+    unit = f" {currency}" if currency else ""
+    return f"{price:,.2f}{unit}"
+
+
 class Opinion(BaseModel):
     """One thing a source page said about a product, and the page that said it (ADR-0025,
     ADR-0042, ADR-0017).
@@ -155,8 +169,7 @@ class Product(BaseModel):
     def price_label(self) -> str:
         if self.price is None:
             return "price unknown"
-        currency = f" {self.currency}" if self.currency else ""
-        return f"{self.price:,.2f}{currency}"
+        return amount_label(self.price, self.currency)
 
     def rating_label(self) -> str:
         if self.rating is None:

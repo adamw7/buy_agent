@@ -21,7 +21,13 @@ from buy_agent.providers import PROVIDERS, VLLM
 from buy_agent.rails import RAILS
 from buy_agent.search import SearchError
 from buy_agent.sources import Source
-from tests.conftest import needs_ap2, payable_product, ranked_product
+from tests.conftest import (
+    enrolled_key,
+    needs_ap2,
+    open_mandate,
+    payable_product,
+    ranked_product,
+)
 
 RANKED = [
     ranked_product(Product(name="Sony WH-1000XM5", price=328.0), score=0.9, rank=1),
@@ -946,13 +952,8 @@ def test_a_product_no_source_priced_is_refused_with_the_reason(
 def test_an_open_mandate_pays_without_asking_anybody(
     fake_agent, monkeypatch, tmp_path, caplog
 ) -> None:
-    from buy_agent import mandates
-    from tests.test_mandates import open_mandate_file
-
-    agent, _issuer = open_mandate_file(tmp_path / "mandate.json", maximum=40000)
-    (tmp_path / "agent.pem").write_bytes(agent.export_to_pem(private_key=True, password=None))
-    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "mandate.json"))
-    monkeypatch.setenv(mandates.KEY_PATH, str(tmp_path / "agent.pem"))
+    agent, _issuer = open_mandate(tmp_path, monkeypatch)
+    enrolled_key(tmp_path, monkeypatch, agent)
     fake_agent["result"] = PAYABLE
     # No stdin at all: the point is that nothing asks.
     monkeypatch.setattr(main_module.sys, "stdin", Typed("", tty=False))

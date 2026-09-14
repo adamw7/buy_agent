@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel
 
 from buy_agent import mandates
-from buy_agent.models import Product, comparable_price, dominant_currency
+from buy_agent.models import Product, amount_label, comparable_price, dominant_currency
 
 if TYPE_CHECKING:
     from buy_agent.config import AgentConfig
@@ -161,11 +161,6 @@ def terms_for(
         return _check(product, currency), None
     except PaymentError as exc:
         return None, str(exc)
-
-
-def amount_label(price: float, currency: str) -> str:
-    """An amount as a person reads it, which is how every surface must write it."""
-    return f"{price:,.2f} {currency}"
 
 
 def merchant_for(product: Product) -> str:

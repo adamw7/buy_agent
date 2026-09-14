@@ -169,9 +169,7 @@ class BuyAgent:
         sources = self.config.sources
         width = self.config.search_results
         if not sources:
-            return search_web(
-                query, max_results=width, region=self.config.region, wait=sleep
-            )
+            return self._ask_the_web(query, width)
 
         logger.info(
             "Searching %d named source(s): %s",
@@ -181,12 +179,7 @@ class BuyAgent:
         share = -(-width // len(sources))  # ceiling: every source gets at least one
         pooled: dict[str, SearchResult] = {}
         for source in sources:
-            found = search_web(
-                source.site_query(query),
-                max_results=share,
-                region=self.config.region,
-                wait=sleep,
-            )
+            found = self._ask_the_web(source.site_query(query), share)
             kept = [result for result in found if source.covers(result.url)]
             if len(kept) != len(found):
                 logger.info(
@@ -195,6 +188,16 @@ class BuyAgent:
             for result in kept:
                 pooled.setdefault(result.url, result)
         return list(pooled.values())[:width]
+
+    def _ask_the_web(self, query: str, limit: int) -> list[SearchResult]:
+        """One search, on this run's region and this run's clock (ADR-0053).
+
+        The whole web and one named source are the same request with a different
+        query, so the region and the clock are handed over in one place rather than
+        in each -- a search asked one way in a loop and another way outside it is two
+        searches to keep in step.
+        """
+        return search_web(query, max_results=limit, region=self.config.region, wait=sleep)
 
     def _empty_search_note(self) -> str:
         """What narrowed this search, for the one line that says it found nothing."""

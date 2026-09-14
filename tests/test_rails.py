@@ -30,7 +30,7 @@ class FakeResponse:
         self.text = text
 
     def raise_for_status(self) -> None:
-        if self.status >= 400:  # noqa: PLR2004 -- httpx's own boundary
+        if self.status >= 400:  # httpx's own boundary
             raise httpx.HTTPStatusError(
                 f"{self.status}", request=httpx.Request("POST", "http://x"), response=None  # type: ignore[arg-type]
             )
