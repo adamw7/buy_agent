@@ -19,9 +19,13 @@ convention test that fails if it is skipped.
 - **Numeric** -> add a row to `LIMITS`, keyed by the *field* name, whole numbers
   even for a decimal field (the refusal quotes them back). Check the default is
   inside its own range.
-- **Shaped, not bounded** (like `region`) -> write a `parse_x` function here and
-  call it from `__post_init__`, so a Python caller is refused the same way the
+- **Shaped, not bounded** (like `region`) -> write a `parse_<field>` function here
+  and call it from `__post_init__`, so a Python caller is refused the same way the
   doors refuse. Do not put the rule in the CLI or in `api.py`.
+- A sentence `__post_init__` raises is read on a terminal *and* under a labelled
+  box in the form, so it names the **setting** and never the flag --
+  `test_no_sentence_below_the_two_doors_tells_a_reader_to_type_a_flag` reads every
+  module below the doors for one.
 - **Provider-dependent** -> do not give it a plain default. Default it to `""` /
   `None` and resolve it in `__post_init__` off `self.model_server`, the way
   `model`, `base_url` and `api_key` are (ADR-0012). If one server takes it and the
@@ -33,10 +37,16 @@ convention test that fails if it is skipped.
 - `build_parser`: `add_argument` with `default=_DEFAULTS.<field>` -- never a
   literal repeat of the default.
 - Numeric -> `type=_bounded(int, "<field>")`, so an out-of-range value is a usage
-  error rather than a minute of waiting. Shaped -> a `type=` wrapper like
-  `_region` / `_source` that catches `ValueError` and re-raises
-  `argparse.ArgumentTypeError` **with the original message** (argparse throws a
-  plain `ValueError` away and prints "invalid value", losing the whole point).
+  error rather than a minute of waiting. Shaped -> `type=_checked(parse_region)`,
+  the one wrapper all three fixed-set and shaped flags go through: it calls the
+  rule, catches `ValueError` and re-raises `argparse.ArgumentTypeError` **with the
+  original message** (argparse throws a plain `ValueError` away and prints
+  "invalid value", losing the whole point). Do not write a second wrapper beside
+  it -- the rule it calls is the part that is new.
+- The help text names the default, whatever the flag is: `--help` is the CLI's
+  only documentation, so a default left out is a fact with nowhere to be read.
+  `test_every_flag_that_takes_a_value_names_the_default_it_has` holds both
+  parsers to it.
 - Boolean -> `BooleanOptionalAction` if it needs an off switch; a tri-state whose
   `None` means "send nothing" is not reachable from the CLI on purpose.
 - `main`: pass it into the `AgentConfig(...)` call.
@@ -103,6 +113,10 @@ convention test that fails if it is skipped.
 - Unit tests for the new behaviour in `tests/test_config.py`, `test_cli.py`,
   `test_api.py` and the form's spec -- both suites cover every line, so a new
   branch with no test drops the floor.
+- `docs/testing.md` is the one place the suite's counts are written down, and
+  nothing checks them: run the suite and correct what it says a run reads. Read
+  the numbers off the run, not off this file -- a count copied here would be one
+  more to correct.
 - Update `README.md` and `CLAUDE.md` where they enumerate the options.
 
 ## Finally
