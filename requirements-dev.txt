@@ -6,7 +6,7 @@ coverage==7.16.0
 # has no dependencies of its own -- it parses the package with `ast` -- and
 # nothing in buy_agent/ imports it, so it stays out of requirements.txt and out
 # of the image.
-archunitpython==1.5.0
+archunitpython==1.7.0
 
 # The per-test cap `pytest.ini` sets. pytest has no timeout of its own, so a test
 # that stops -- a patch spelt wrong and a real fetch behind it, a socket nothing
