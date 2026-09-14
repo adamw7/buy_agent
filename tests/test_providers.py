@@ -234,6 +234,12 @@ def pulled(monkeypatch):
                     raise ResponseError(f"model {name!r} not found", 404)
                 return SimpleNamespace(capabilities=reported.get(name, [_COMPLETION]))
 
+            # The listing opens a client of its own, so it closes one of its own --
+            # recorded rather than ignored, ``test_the_listing_lets_go_of_what_it
+            # _opened`` being what says the pool does not outlive the question.
+            def close(self) -> None:
+                asked["closed"] = asked.get("closed", 0) + 1
+
         monkeypatch.setattr("buy_agent.providers.httpx.get", get)
         monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
         return asked
@@ -557,6 +563,22 @@ def test_the_whole_listing_is_held_to_the_one_short_timeout(pulled) -> None:
 
     assert asked["tags"]["timeout"] == providers_module._LIST_TIMEOUT
     assert asked["opened"]["timeout"] == providers_module._LIST_TIMEOUT
+
+
+def test_the_listing_lets_go_of_what_it_opened(pulled) -> None:
+    """The listing opens a client of its own, and closing it is its own too.
+
+    The rule the chat model already follows -- "a row's client holds a connection
+    pool, and letting go of it is the row's own" -- applied to the other place a
+    row opens one. The form asks this on every provider change and every address
+    change, so a pool left to whenever the last reference falls is a socket per
+    question on a server that runs for an afternoon.
+    """
+    asked = pulled(["gemma4:12b"])
+
+    listed(OLLAMA_CONFIG)
+
+    assert asked["closed"] == 1
 
 
 def test_a_tag_that_will_not_say_what_it_can_do_is_still_offered(pulled) -> None:
@@ -953,6 +975,9 @@ def test_the_listing_budget_covers_the_listing_and_not_each_tag(monkeypatch) -> 
             started.set()
             release.wait(timeout=5.0)
             return SimpleNamespace(capabilities=[_COMPLETION])
+
+        def close(self) -> None:
+            pass
 
     def tags(url, **kwargs):
         return SimpleNamespace(

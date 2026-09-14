@@ -835,8 +835,15 @@ everything else to the built Angular app, unknown paths falling back to
 
 - **A run is streamed, not requested.** `GET /api/search/stream` runs the agent
   in a worker thread and relays its log lines as Server-Sent Events while it
-  works. `_LogRelay` routes records by the thread that produced them, which
-  keeps two concurrent runs from seeing each other's progress. Extraction is
+  works. `_LogRelay` routes records by the context the run is being watched
+  through, which keeps two concurrent runs from seeing each other's progress --
+  a thread begins in a context of its own, so the two worker threads are already
+  apart, and a step that fans out into threads of *its* own still reaches the
+  right stream. `fetch.enrich` is the one that does: it reads the result pages in
+  a pool, and `_as_the_caller` is what starts each worker in the context the run
+  is in. Routed by thread id instead, the one INFO line that step writes -- how
+  long a rate-limited page is asking the shopper to wait -- reached the terminal
+  and never the page. Extraction is
   slow and logs nothing while it runs, so a `ping` goes out every 15s to keep
   browsers and proxies from timing the stream out, and every relayed line
   carries the `time` Python logged it at in the CLI's own `%H:%M:%S` -- the gap

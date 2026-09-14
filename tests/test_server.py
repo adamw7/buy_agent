@@ -10,8 +10,11 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import queue
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from contextvars import copy_context
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -1056,7 +1059,8 @@ def test_a_rejected_body_ends_the_connection_rather_than_desyncing_it(
 
 
 def test_two_streams_do_not_see_each_others_progress(server: str) -> None:
-    """Log lines are routed by the thread that produced them.
+    """Log lines are routed by the context the run is being watched through, and
+    a worker thread begins in one of its own.
 
     The delay is what makes this a test of the routing: without it the first run
     finishes and detaches before the second attaches, so there is only ever one
@@ -1485,6 +1489,94 @@ def test_the_log_relay_is_taken_off_the_package_logger_on_the_way_out(
     main(["--ui-dir", str(tmp_path)])
 
     assert _relay not in package_logger.handlers
+
+
+def inherit(context) -> None:
+    """What ``fetch._as_the_caller`` does, for a pool built here to stand in for
+    the one ``enrich`` builds."""
+    for variable, value in context.items():
+        variable.set(value)
+
+
+def test_a_line_from_a_thread_the_run_started_still_reaches_the_stream() -> None:
+    """The relay follows the run, not the thread that happened to log.
+
+    ``fetch.enrich`` reads the result pages in a pool of its own, so the line a
+    rate-limited page writes at INFO -- the one that says how long the shopper is
+    about to spend, and the only INFO line in that step -- comes off a thread the
+    run never started. Routed by thread, it went nowhere: the panel stayed silent
+    through the wait it was there to explain. A pool worker starts in the caller's
+    context now (``fetch._as_the_caller``), and the context is what the relay
+    reads.
+    """
+    sink: queue.Queue[Any] = queue.Queue()
+    package_logger = logging.getLogger("buy_agent")
+    # As a streamed run installs it: progress is logged at INFO, which a logger
+    # left at its default drops before any handler sees it.
+    server_module._install_relay()
+
+    def run() -> None:
+        _relay.attach(sink)
+        try:
+            # A pool whose workers start in this thread's context, which is what
+            # ``enrich`` does and ``tests/test_fetch.py`` holds it to.
+            with ThreadPoolExecutor(
+                max_workers=2, initializer=inherit, initargs=(copy_context(),)
+            ) as pool:
+                list(
+                    pool.map(
+                        lambda url: logging.getLogger("buy_agent.fetch").info(
+                            "%s asked to be tried again; waiting %.1fs", url, 3.0
+                        ),
+                        ["https://a.example", "https://b.example"],
+                    )
+                )
+        finally:
+            _relay.detach()
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    worker.join(timeout=10)
+    package_logger.removeHandler(_relay)
+
+    relayed = []
+    while not sink.empty():
+        relayed.append(sink.get()["message"])
+    assert sorted(relayed) == [
+        "https://a.example asked to be tried again; waiting 3.0s",
+        "https://b.example asked to be tried again; waiting 3.0s",
+    ]
+
+
+def test_a_thread_outside_the_run_is_not_one_of_its_lines() -> None:
+    """The other half: a context is what a line belongs to, and a thread that
+    never took one carries none. Two concurrent runs are two worker threads, each
+    beginning in a context of its own, which is what
+    ``test_two_streams_do_not_see_each_others_progress`` holds from the far side.
+    """
+    sink: queue.Queue[Any] = queue.Queue()
+    package_logger = logging.getLogger("buy_agent")
+    # As a streamed run installs it: progress is logged at INFO, which a logger
+    # left at its default drops before any handler sees it.
+    server_module._install_relay()
+
+    def run() -> None:
+        _relay.attach(sink)
+        try:
+            stranger = threading.Thread(
+                target=logging.getLogger("buy_agent.stub").info, args=("somebody else",)
+            )
+            stranger.start()
+            stranger.join(timeout=10)
+        finally:
+            _relay.detach()
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    worker.join(timeout=10)
+    package_logger.removeHandler(_relay)
+
+    assert sink.empty()
 
 
 def test_a_relay_whose_reader_has_gone_does_not_break_the_run(monkeypatch, caplog) -> None:
