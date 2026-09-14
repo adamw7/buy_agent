@@ -122,7 +122,15 @@ def _ollama_installed(config: AgentConfig) -> list[InstalledModel]:
     names = _ollama_tags(config)
     if not names:
         return []
-    return _probe(Client(config.base_url, timeout=_LIST_TIMEOUT), names, deadline)
+    client = Client(config.base_url, timeout=_LIST_TIMEOUT)
+    try:
+        return _probe(client, names, deadline)
+    finally:
+        # Closed here for the reason a chat model is: the pool this opened is this
+        # function's to let go of, and a listing is asked again on every provider
+        # change. A probe still running past the deadline loses its connection and
+        # answers "cannot say", which is the answer its result was discarded for.
+        client.close()
 
 
 def _ollama_tags(config: AgentConfig) -> list[str]:

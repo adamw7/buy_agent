@@ -12,6 +12,7 @@ import queue
 import sys
 import threading
 import time
+from contextvars import ContextVar
 from functools import partial
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -164,15 +165,21 @@ def _stop_when(stopped: threading.Event) -> Checkpoint:
     return checkpoint
 
 
+#: Where the lines of the run being watched go, or ``None`` for a run nobody is
+#: streaming. A context variable rather than a thread-local: a step that fans out
+#: into threads of its own logs from threads the worker never started, and those
+#: lines are still that run's -- ``fetch.enrich`` reads the result pages in a pool
+#: and is where a rate-limited page says how long it is waiting (ADR-0011). Each
+#: streamed run is a worker thread, and a thread begins in a context of its own, so
+#: two concurrent runs still cannot see each other.
+_sink: ContextVar[queue.Queue[Any] | None] = ContextVar("buy_agent_stream", default=None)
+
+
 class _LogRelay(logging.Handler):
     """Fans ``buy_agent`` log records out to the run that produced them."""
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._local = threading.local()
-
     def emit(self, record: logging.LogRecord) -> None:
-        sink: queue.Queue[Any] | None = getattr(self._local, "sink", None)
+        sink = _sink.get()
         if sink is None:
             return
         try:
@@ -192,10 +199,10 @@ class _LogRelay(logging.Handler):
             self.handleError(record)
 
     def attach(self, sink: queue.Queue[Any]) -> None:
-        self._local.sink = sink
+        _sink.set(sink)
 
     def detach(self) -> None:
-        self._local.sink = None
+        _sink.set(None)
 
 
 _relay = _LogRelay()

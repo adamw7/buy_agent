@@ -6,6 +6,7 @@ import logging
 import re
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import Context, copy_context
 from functools import partial
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -352,6 +353,19 @@ def summarise_failures(problems: Iterable[str]) -> str:
     )
 
 
+def _as_the_caller(context: Context) -> None:
+    """Start a pool worker in the context its caller is running in.
+
+    This is the one step that fans out into threads, and a thread starts in a
+    context of its own: what a worker logged reached no stream, so the one line a
+    rate-limited page writes at INFO -- the time the shopper is spending -- was
+    missing from the browser's progress panel and from nowhere else (ADR-0011).
+    Read rather than entered, the same context being handed to every worker.
+    """
+    for variable, value in context.items():
+        variable.set(value)
+
+
 def enrich(
     results: Sequence[SearchResult],
     *,
@@ -372,7 +386,9 @@ def enrich(
         timeout=timeout,
         follow_redirects=True,
         headers={"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9"},
-    ) as client, ThreadPoolExecutor(max_workers=workers) as pool:
+    ) as client, ThreadPoolExecutor(
+        max_workers=workers, initializer=_as_the_caller, initargs=(copy_context(),)
+    ) as pool:
         read = partial(
             fetch_page,
             client,

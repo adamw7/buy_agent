@@ -856,6 +856,9 @@ def test_installed_models_lists_what_ollama_has(monkeypatch) -> None:
             capability = "embedding" if "embed" in name else "completion"
             return SimpleNamespace(capabilities=[capability])
 
+        def close(self) -> None:
+            """The listing lets go of the client it opened, as a chat model does."""
+
     monkeypatch.setattr("buy_agent.providers.httpx.get", get)
     monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
     assert installed_models("ollama", "http://localhost:11434") == {

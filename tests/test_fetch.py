@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar
 
 import httpx
 import pytest
@@ -544,6 +545,40 @@ def test_a_url_that_could_not_be_fetched_is_still_named_at_debug(monkeypatch, ca
         enrich([SearchResult(url="https://bad.example")], max_chars=1000)
 
     assert "Could not fetch https://bad.example: refused" in caplog.text
+
+
+#: Stands in for whatever the caller is carrying while it waits on ``enrich`` --
+#: the browser's stream is the one that matters, and this is the shape of it.
+_WATCHING: ContextVar[str | None] = ContextVar("watching", default=None)
+
+
+def test_a_page_is_read_in_the_context_its_caller_is_running_in(monkeypatch) -> None:
+    """This is the one step that fans out into threads, and a thread starts with
+    a context of its own.
+
+    Which made the workers invisible to anything the caller had set up around the
+    run: the browser's progress panel is an SSE relay routed by the context a run
+    is being watched through, so the one line a rate-limited page writes at INFO
+    -- the time the shopper is spending -- reached the terminal and never the page
+    (ADR-0011). Asserted here rather than over there because it is this function's
+    promise: a thread it starts behaves as its caller does.
+    """
+    seen: list[str | None] = []
+
+    def read(url: str):
+        seen.append(_WATCHING.get())
+        return make_response(url, PAGE)
+
+    stub_client(monkeypatch, read)
+    results = [SearchResult(url=f"https://{name}.example") for name in ("a", "b", "c")]
+
+    token = _WATCHING.set("this run")
+    try:
+        enrich(results, max_chars=200, workers=3)
+    finally:
+        _WATCHING.reset(token)
+
+    assert seen == ["this run"] * 3
 
 
 def test_pages_are_requested_as_a_browser_would(monkeypatch) -> None:

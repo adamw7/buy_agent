@@ -662,6 +662,9 @@ def installed_models(monkeypatch):
             def show(_name: str):
                 return SimpleNamespace(capabilities=["completion"])
 
+            def close(self) -> None:
+                """The listing lets go of the client it opened."""
+
         monkeypatch.setattr("buy_agent.providers.httpx.get", get)
         monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
 
