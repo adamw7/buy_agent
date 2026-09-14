@@ -31,6 +31,10 @@ row in `RAILS` and a row nowhere else. Adding one is mostly *not* editing things
   `_unreachable_hint`, and in `providers.py` the two failures both servers answer
   the same way -- an unreadable answer and a timeout -- are already decided above
   the rows by `_hint`, which every row's own function is wrapped in.
+- Whatever that sentence says, it names the **setting** and never the flag: it is
+  read once on a terminal and once under a labelled box in the form, where nobody
+  can type one. Every module below the doors is read for one by
+  `test_no_sentence_below_the_two_doors_tells_a_reader_to_type_a_flag`.
 
 ## 2. What must not happen
 
@@ -80,8 +84,14 @@ twin compare field for field.
 
 ## 5. Docs
 
-- `CLAUDE.md`: the first two of the fourteen conventions are these tables, and
-  the paragraph naming each backend's environment variables is beside them.
+- `CLAUDE.md`: the first two conventions in the list are these tables, and the
+  paragraph naming each backend's environment variables is beside them. Do not
+  copy the number the heading counts them by -- a count restated here is one more
+  place to correct, and it has been wrong before.
+- `docs/testing.md` is the one place the suite's counts are written down, and
+  nothing checks them: run the suite and correct what it says a run reads. Read
+  the numbers off the run, for the same reason the count above is not repeated
+  here.
 - `README.md` where it enumerates what can be run against.
 - `scripts/start.ps1` starts Ollama and nothing else on purpose -- anything else
   is waited for at its address and named rather than launched. A new row does not

@@ -14,13 +14,13 @@ new record superseding it.
 
 Read it off the files, never off prose:
 
-```bash
-ls docs/adr/[0-9][0-9][0-9][0-9]-*.md | tail -1
+```powershell
+Get-ChildItem docs/adr/[0-9][0-9][0-9][0-9]-*.md | Select-Object -Last 1
 ```
 
-The next free number is that one plus one, zero-padded to four. (The sentence in
-`CLAUDE.md` naming the next free number is a copy, and copies go stale -- it has
-before. Correct it in step 4, do not trust it in step 1.)
+The next free number is that one plus one, zero-padded to four. `CLAUDE.md` used
+to name the number and went stale doing it; it now points here instead, so there
+is no second copy to read and none to correct.
 
 ## 2. Write the record
 
@@ -52,8 +52,9 @@ status against the record character for character.
 
 ## 4. Keep the prose in step
 
-- `CLAUDE.md`: correct the sentence at the end of the `docs/adr/` paragraph that
-  names how far the log runs and the next free number, and cite the new record
+- `CLAUDE.md`: the `docs/adr/` paragraph ends by saying every record is Accepted
+  but the one that is superseded. A record that is `Proposed`, or that supersedes
+  another, makes that sentence wrong -- correct it. Then cite the new record
   `(ADR-NNNN)` beside whichever convention it explains.
 - If the decision changes a rule, the rule's own paragraph in `CLAUDE.md` is the
   normative text -- update it too. The record explains; it does not instruct.

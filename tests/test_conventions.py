@@ -1967,6 +1967,46 @@ def suite_test_names() -> frozenset[str]:
     return found
 
 
+#: What a skill's prose is read against when it names something that is not a
+#: file: the source this repository keeps, minus the trees ``_NOT_THE_REPOSITORY``
+#: prunes. Markdown is deliberately out of it -- a name is a fact about the code,
+#: and prose vouching for prose is how the two go stale together.
+_CODE_SUFFIXES = (".py", ".ts", ".html", ".json", ".yml", ".cfg", ".ini", ".ps1", ".mjs", ".sh")
+
+
+@cache
+def names_in_the_code() -> frozenset[str]:
+    """Every word this project's own source spells.
+
+    Read off ``SOURCE_ROOT`` for the reason ``_PACKAGE`` is: under mutants/ the
+    package is the code as run, and a name is a fact about the code as written.
+    """
+    found: set[str] = set()
+    for directory, subdirectories, files in os.walk(SOURCE_ROOT):
+        subdirectories[:] = [name for name in subdirectories if name not in _NOT_THE_REPOSITORY]
+        for name in files:
+            if name.endswith(_CODE_SUFFIXES):
+                text = (Path(directory) / name).read_text(encoding="utf-8")
+                found.update(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", text))
+    assert found, "no source found; this section cannot check what a skill names"
+    return frozenset(found)
+
+
+def names_a_skill_names(path: Path) -> list[str]:
+    """Every function, field and table a skill points at, as it writes them.
+
+    A backtick in these files means a name in the code, so what is in one is
+    either that or a path -- and a path carries a suffix or a slash, which is what
+    the test above reads. ``parse_<field>`` and the like are placeholders and do
+    not match an identifier at all.
+    """
+    return [
+        token.removesuffix("()")
+        for token in quoted(skill_body(path))
+        if re.fullmatch(r"_?[A-Za-z][A-Za-z0-9_]*(\(\))?", token)
+    ]
+
+
 @pytest.mark.parametrize("path", skills(), ids=lambda path: path.parent.name)
 def test_every_skill_is_named_after_the_directory_it_is_in(path: Path) -> None:
     """A skill is invoked by the name in its frontmatter and edited by its path, so
@@ -2009,6 +2049,39 @@ def test_every_test_a_skill_names_exists(path: Path) -> None:
         assert any(selector in name for name in names), (
             f"{path.parent.name} selects tests with -k {selector}, which now matches none"
         )
+
+
+@pytest.mark.parametrize("path", skills(), ids=lambda path: path.parent.name)
+def test_every_name_a_skill_names_is_one_the_code_spells(path: Path) -> None:
+    """A step reads "edit this function", and the reader greps for it.
+
+    The rule above asks whether a file a skill points at is still there; this asks
+    the same of a name inside one, which is the half nothing was reading.
+    ``add-option`` sent people to two argparse wrappers by name from the day it was
+    written and neither has ever been in this tree -- a checklist step that turns
+    into a search, in the one file no test opens for any other reason. A word in
+    backticks that is not a name in the code is either gone or was never there;
+    unquote it, or name what really is. (Which is why no rule here spells a name it
+    is saying has gone: written down in the source, it would be a name the source
+    has, and this test would vouch for it.)
+    """
+    spelled = names_in_the_code()
+
+    for name in names_a_skill_names(path):
+        assert name in spelled, f"{path.parent.name} names {name}, which the code does not"
+
+
+@pytest.mark.parametrize("path", skills(), ids=lambda path: path.parent.name)
+def test_every_record_a_skill_points_at_exists(path: Path) -> None:
+    """A skill cites a record for the argument behind a step it is asking for, the
+    way a record cites another -- and a number that resolves to nothing is worse
+    here than there, since a reader following it is mid-change."""
+    numbers = {record.stem[:4] for record in adr_files()}
+
+    cited = set(re.findall(r"ADR-(\d{4})", path.read_text(encoding="utf-8")))
+    assert cited <= numbers, (
+        f"{path.parent.name} cites {sorted(cited - numbers)}, which no record answers to"
+    )
 
 
 def test_the_option_skill_names_the_tables_a_new_setting_joins() -> None:
