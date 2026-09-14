@@ -291,13 +291,13 @@ way it is.
   the ones that are in (ADR-0049). A checker is run over the package
   before it is added and what it finds is fixed rather than configured around,
   which is the difference between a check and a preference.
-- `ui/scripts/check-coverage.mjs` holds the UI's floor, 98% of statements and
-  lines. The Angular unit-test builder reads a vitest config's coverage
-  *reporters* but does not fail a run on its `thresholds`, so the floor has to be
-  checked separately or it is not a floor. Statements and lines only, on purpose:
-  v8 attributes the branches inside a compiled Angular template to positions no
-  test can reach, so a branch floor there would measure the instrumentation.
-  Don't add one.
+- `ui/angular.json` holds the UI's floor on the test target, 98% of statements
+  and lines: `coverageThresholds` is the builder's own, and a run under it exits
+  with an error. Statements and lines only, on purpose: v8 attributes the
+  branches inside a compiled Angular template to positions no test can reach, so
+  a branch floor there would measure the instrumentation. Don't add one -- and
+  the two it is silent about, `branches` and `functions`, are left out rather
+  than set low, an omitted threshold being the only one that cannot drift.
 
 ## Architecture
 

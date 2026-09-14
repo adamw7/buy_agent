@@ -48,8 +48,8 @@ npm run test:coverage
 npm run build
 ```
 
-- The floor is in `ui/scripts/check-coverage.mjs`: 98% of statements and lines,
-  and deliberately no branch floor. Do not add one.
+- The floor is `coverageThresholds` on the test target in `ui/angular.json`: 98%
+  of statements and lines, and deliberately no branch floor. Do not add one.
 - `npm run build` is part of the gate, not an extra: a template error is
   invisible to the unit tests.
 - Formatting: `npx prettier --write "src/**/*"`. The Python half has a linter and

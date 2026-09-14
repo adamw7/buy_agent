@@ -141,8 +141,8 @@ because every one of them ran perfectly.
 
 Both suites are measured and CI fails on a drop: the Python side covers every
 line and branch (`.coveragerc` sets the floor at 99%), and the UI's statements
-and lines sit just under 100% (`ui/scripts/check-coverage.mjs`, floor 98%).
-Coverage that high stops being a useful signal on its own, so
+and lines sit just under 100% (`coverageThresholds` in `ui/angular.json`, floor
+98%). Coverage that high stops being a useful signal on its own, so
 `tests/test_conventions.py` asserts the rules that hold *between* modules, which
 no amount of per-module coverage can protect: the three places a failure mode
 has to be listed; the four places a sort criterion has to be offered; the ranges

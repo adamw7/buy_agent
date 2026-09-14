@@ -76,7 +76,13 @@
           }
         },
         "test": {
-          "builder": "@angular/build:unit-test"
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "coverageThresholds": {
+              "statements": 98,
+              "lines": 98
+            }
+          }
         }
       }
     }
