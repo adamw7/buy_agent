@@ -33,15 +33,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: Called at each of a run's step boundaries with the name of the step about to
-#: start. Raising from it ends the run there, which is how a caller whose client
-#: has gone stops one (ADR-0034).
+#: Called at each of a run's step boundaries with the name of the step about to start
+#: (ADR-0034).
 Checkpoint: TypeAlias = "Callable[[str], None]"
 
-#: How the two steps that talk to the web wait before asking a second time. The
-#: clock lives here rather than in either of them (ADR-0053); ``time.sleep`` is the
-#: whole of it, and a test that patches ``enrich`` or ``search_web`` is handed it
-#: and never calls it.
+#: How the two steps that talk to the web wait before asking a second time (ADR-0053).
 Wait: TypeAlias = "Callable[[float], None]"
 
 
@@ -50,24 +46,14 @@ def every_step_passes(_step: str) -> None:
 
 
 class ModelUnavailableError(RuntimeError):
-    """Raised when the model could not be used: no server, no model, or no answer.
-
-    One exception for both providers: to the shopper it is one thing, and only the
-    sentence differs -- ``ollama pull`` or ``vllm serve`` -- which is the provider's own
-    to write (ADR-0028). A server answering with something other than the JSON it was
-    asked for is the third of these and not a fourth (ADR-0009).
+    """Raised when the model could not be used: no server, no model, or no answer
+    (ADR-0028, ADR-0009).
     """
 
 
 def _asks_the_same_question(config: AgentConfig) -> dict[str, object]:
-    """Everything besides the prompt that decides what a model answers (ADR-0044).
-
-    Three settings are deliberately absent. ``api_key`` is a secret and the key is
-    written to a file; ``temperature`` is a constant here, only a run at zero being
-    remembered at all; and ``model_timeout`` decides how long an answer may take and not
-    what it says (ADR-0051). ``num_ctx`` goes in only where the provider sends it: vLLM
-    fixes its window at startup, so including it would miss on a setting that server
-    never saw.
+    """Everything besides the prompt that decides what a model answers (ADR-0044)
+    (ADR-0051).
     """
     fingerprint: dict[str, object] = {
         "provider": config.provider,
@@ -88,54 +74,31 @@ def _and_list(items: list[str]) -> str:
 
 
 class BuyAgent:
-    """Finds products for a shopper, ranks them, and logs the best few.
-
-    The control flow is fixed rather than left to the model (ADR-0002): the LLM refines
-    the query and reads products out of the results, while searching, ranking and
-    reporting are ordinary code. Which server is answering, ``config.provider`` says and
-    nothing here asks (ADR-0028).
+    """Finds products for a shopper, ranks them, and logs the best few (ADR-0002,
+    ADR-0028).
     """
 
     def __init__(
         self, config: AgentConfig | None = None, *, llm: ChatModel | None = None
     ) -> None:
-        """Build an agent.
-
-        Args:
-            config: Model, search and ranking settings; the defaults are sensible.
-            llm: Chat model to use instead of the provider's own -- the seam the tests
-                inject a fake model through. Given one, nothing is wrapped around it: a
-                remembered answer over a stand-in would be this module deciding what a
-                test meant.
-        """
+        """Build an agent."""
         self.config = config or AgentConfig()
-        # The remembering goes here rather than in ``providers``: it has nothing
-        # to do with which server is answering, so neither row declares it.
+        # The remembering goes here rather than in ``providers``: it has nothing to do
+        # with which server is answering, so neither row declares it.
         self.llm = llm or remember_answers(
             self.config.model_server.chat_model(self.config),
             fingerprint=_asks_the_same_question(self.config),
             ttl=self.config.cache_ttl,
             deterministic=self.config.temperature == 0,
         )
-        #: What :meth:`close` lets go of: the model this agent opened, never one
-        #: it was handed -- closing that would be this agent deciding somebody
-        #: else's lifetime. ``None`` is an agent that opened nothing.
+        #: What :meth:`close` lets go of: the model this agent opened, never one it was
+        #: handed -- closing that would be this agent deciding somebody else's lifetime.
         self._opened = None if llm else self.llm
         self.query_chain = build_query_chain(self.llm)
         self.extraction_chain = build_extraction_chain(self.llm)
 
     def close(self) -> None:
-        """Let go of the connection to the model server this agent opened.
-
-        A *run* is deliberately not what ends it: an agent answers as many requests as it
-        is asked, and closing at the end of one would leave the second raising out of a
-        shut client. The lifetime is the caller's, and both front doors say the same
-        thing -- one agent per request, released when that request is answered.
-
-        No ``with`` here, for the reason neither door uses one: an agent is reached
-        through a factory both let a stand-in into, and a stand-in is a class with a
-        ``run``. A Python caller who wants the block has ``contextlib.closing``.
-        """
+        """Let go of the connection to the model server this agent opened."""
         release(self._opened)
 
     def run(
@@ -145,25 +108,8 @@ class BuyAgent:
         sort_by: SortBy = "score",
         checkpoint: Checkpoint = every_step_passes,
     ) -> list[RankedProduct]:
-        """Search for what the shopper asked for and log the top products.
-
-        Three failures come out of here and no more (ADR-0009). What ``checkpoint``
-        raises comes out too, but that is the caller's own exception travelling back
-        rather than a fourth thing this pipeline fails with, which is why it is absent
-        from ``Raises`` below.
-
-        Args:
-            request: What the user wants to buy, in their own words.
-            sort_by: ``"score"`` (default), ``"price"`` or ``"rating"``.
-            checkpoint: Called with the name of each step as it is about to start --
-                ``"search"``, ``"fetch"``, ``"extract"``, ``"rank"`` -- so a caller can
-                end a run it no longer wants, nothing here catching what it raises
-                (ADR-0034). A step boundary is as fine as it gets: a model call already
-                in flight finishes first.
-
-        Returns:
-            Every product found that is inside the bounds the config carries, best first
-            -- not only the ones logged.
+        """Search for what the shopper asked for and log the top products (ADR-0009,
+        ADR-0034).
 
         Raises:
             ValueError: if the request is empty.
@@ -201,15 +147,15 @@ class BuyAgent:
             logger.warning("No products could be extracted from the search results.")
             return []
 
-        # After the merging: ``deduplicate`` fills a listing's gaps from another
-        # listing of the same product, so a price known only once the two are merged
-        # would be judged here on a blank (ADR-0039).
+        # After the merging: ``deduplicate`` fills a listing's gaps from another listing
+        # of the same product, so a price known only once the two are merged would be
+        # judged here on a blank (ADR-0039).
         products = Constraints.from_config(self.config).apply(products)
         if not products:
             return []
 
-        # Ranking is cheap, but it ends in ``log_top_products``, and a report is
-        # worth not writing for a run nobody is reading any more.
+        # Ranking is cheap, but it ends in ``log_top_products``, and a report is worth
+        # not writing for a run nobody is reading any more.
         checkpoint("rank")
         ranked = rank_products(products, weights=self.config.weights, sort_by=sort_by)
         log_top_products(
@@ -218,19 +164,7 @@ class BuyAgent:
         return ranked
 
     def _search(self, query: str) -> list[SearchResult]:
-        """Search the web, or only the sources the shopper named.
-
-        Named none, this is one search. Named some, it is one search per source
-        (``site:`` narrows to a single domain), pooled in the order given (ADR-0027).
-        Two things are load-bearing: every result goes through
-        :meth:`~buy_agent.sources.Source.covers` first, so a backend ignoring the
-        operator cannot smuggle in a page from elsewhere, and a page found twice is kept
-        once. The width is shared out rather than multiplied -- five sources at ten
-        results each would fetch fifty pages for a report of three.
-
-        Every search here is handed the :data:`Wait` that lets it ask a second time
-        (ADR-0053), per source and not per run: one named site refusing is not the
-        others' turn to wait.
+        """Search the web, or only the sources the shopper named (ADR-0027, ADR-0053).
         """
         sources = self.config.sources
         width = self.config.search_results
@@ -263,26 +197,11 @@ class BuyAgent:
         return list(pooled.values())[:width]
 
     def _empty_search_note(self) -> str:
-        """What narrowed this search, for the one line that says it found nothing.
-
-        Two things can have narrowed it and both are the shopper's own doing, so the
-        warning names whichever were in play rather than leaving a bare query to be
-        stared at. Composed here rather than concatenated at the call site, since the
-        punctuation depends on which of the two there are: the region note ends the
-        sentence the query opened, and without one the query needs a full stop of its
-        own before the sources note can follow as another.
-        """
+        """What narrowed this search, for the one line that says it found nothing."""
         return f"{self._region_note() or '.'}{self._sources_note()}"
 
     def _sources_note(self) -> str:
-        """The named sources, when they are what the search was confined to.
-
-        The stronger of the two suspects, and the one the run cannot recover from:
-        there is deliberately no falling back to the wider web (ADR-0027), so a source
-        that does not cover what was asked for is an empty report and nothing else --
-        while the "Ignored N result(s) from outside ..." lines that say so scroll past a
-        step earlier, at INFO, above a warning that named the query and the region and
-        never them.
+        """The named sources, when they are what the search was confined to (ADR-0027).
         """
         sources = self.config.sources
         if not sources:
@@ -295,13 +214,7 @@ class BuyAgent:
         )
 
     def _region_note(self) -> str:
-        """The region, when it is one worth suspecting of an empty search.
-
-        A region is checked for shape at both front doors, but the shapes outnumber the
-        codes (ADR-0031): ``en-us`` is the right shape the wrong way round, and a search
-        engine given it answers with nothing rather than complaining. The default is
-        left unnamed, being the one value known to work.
-        """
+        """The region, when it is one worth suspecting of an empty search (ADR-0031)."""
         region = self.config.region
         if region == DEFAULT_REGION:
             return ""
@@ -317,8 +230,8 @@ class BuyAgent:
             refined = self._invoke(self.query_chain, {"request": request})
         except ModelUnavailableError:
             raise
-        # A bad query is recoverable -- searching the raw request still works, so
-        # what went wrong is narrower than the catch and the catch is deliberate.
+        # A bad query is recoverable -- searching the raw request still works, so what
+        # went wrong is narrower than the catch and the catch is deliberate.
         # pylint: disable-next=broad-exception-caught
         except Exception:
             logger.warning("Query refinement failed; using the raw request", exc_info=True)
@@ -343,10 +256,9 @@ class BuyAgent:
         try:
             extracted = self._invoke(self.extraction_chain, payload)
         except UnreadableAnswerError as exc:
-            # Caught here rather than in ``_invoke``, which the recoverable step
-            # goes through too: a fumbled query falls back to the raw request,
-            # an unreadable extraction has nothing to. Left a ``ValueError`` it
-            # would blame the shopper's request.
+            # Caught here rather than in ``_invoke``, which the recoverable step goes
+            # through too: a fumbled query falls back to the raw request, an unreadable
+            # extraction has nothing to.
             logger.debug("The model's answer could not be read", exc_info=True)
             server = self.config.model_server
             raise ModelUnavailableError(server.hint(self.config, exc)) from exc
@@ -357,10 +269,7 @@ class BuyAgent:
         return deduplicate(grounded, self.config.num_products)
 
     def _invoke(self, chain: Chain[Any], payload: dict[str, Any]) -> Any:
-        """Invoke a chain, turning transport errors into an actionable message.
-
-        Which errors those are, and what the message says, is the provider's to answer;
-        both arrive as one ``ModelUnavailableError`` (ADR-0009).
+        """Invoke a chain, turning transport errors into an actionable message (ADR-0009).
         """
         server = self.config.model_server
         try:

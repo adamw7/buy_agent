@@ -1,18 +1,5 @@
-"""Paying for a product the run already found, once somebody has said so.
-
-Deliberately *not* a step in :meth:`~buy_agent.agent.BuyAgent.run` (ADR-0009,
-ADR-0046): a purchase happens afterwards, to one product, on a separate decision.
-Both front doors call :func:`pay_for` themselves, after a person approved a cart or
-an open mandate authorised one.
-
-The rule here is the ranking rule turned around: grounding already blanks every
-figure the sources did not print (ADR-0006) and links only pages that were
-searched (ADR-0017), so **a product whose price is a blank is a product nothing
-may be paid for**. :func:`terms_for` asks only for a price that is an amount, a
-currency the run can place it in (ADR-0043) and a link.
-
-The money never becomes a float on the wire: AP2 counts in minor units, so
-:func:`minor_units` converts once through :class:`~decimal.Decimal`.
+"""Paying for a product the run already found, once somebody has said so (ADR-0009,
+ADR-0046, ADR-0006, ADR-0017, ADR-0043).
 """
 
 from __future__ import annotations
@@ -34,9 +21,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: Currencies not counted in hundredths. ISO 4217 gives most an exponent of 2, so
-#: only the exceptions are written down: a table of every currency is one to keep
-#: current for no gain, while one of these wrong is a payment a hundredfold.
+#: Currencies not counted in hundredths. ISO 4217 gives most an exponent of 2, so only
+#: the exceptions are written down: a table of every currency is one to keep current for
+#: no gain, while one of these wrong is a payment a hundredfold.
 _ZERO_DECIMAL = frozenset(
     {
         "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW",
@@ -45,18 +32,12 @@ _ZERO_DECIMAL = frozenset(
 )
 _THREE_DECIMAL = frozenset({"BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"})
 
-#: What a payment instrument is called when the credential provider has not named
-#: one. A reference and never a number: what funds a payment is theirs to hold.
+#: What a payment instrument is called when the credential provider has not named one.
 DEFAULT_INSTRUMENT = "default"
 
 
 class PaymentError(Exception):
-    """A purchase that did not happen, and why.
-
-    The one failure both front doors report, whatever went wrong underneath, and not
-    one of the three a *run* raises (ADR-0009, ADR-0046). ``field`` names the request
-    key an unusable value arrived under, so the browser can mark that box (ADR-0033).
-    """
+    """A purchase that did not happen, and why (ADR-0009, ADR-0046, ADR-0033)."""
 
     def __init__(self, message: str, *, field: str | None = None) -> None:
         super().__init__(message)
@@ -64,35 +45,19 @@ class PaymentError(Exception):
 
 
 class RailUnreachableError(PaymentError):
-    """The counterparty could not be reached, or refused to answer at all.
-
-    A subclass rather than a flag: the one payment failure that is nothing to do with
-    the request, so it earns its own HTTP status while the CLI still catches both by
-    catching the parent.
-    """
+    """The counterparty could not be reached, or refused to answer at all."""
 
 
 @dataclass(frozen=True, slots=True)
 class Settlement:
-    """What a rail says came of presenting the mandates.
-
-    Deliberately small: a rail does transport, and composing the receipt is this
-    module's job. ``paid`` is the whole verdict -- a rail that refused says so in
-    ``detail`` rather than in a status vocabulary every caller would have to know.
-    """
+    """What a rail says came of presenting the mandates."""
 
     paid: bool
     detail: str
 
 
 class Cart(BaseModel):
-    """One product, priced, as the thing a mandate can be signed for.
-
-    Every field was printed by a page that was searched, which is what makes a cart
-    something the agent may authorise at all (ADR-0046). ``amount`` is minor units
-    (cents, yen, fils), what AP2 counts in; ``price`` and ``currency`` sit beside it so
-    a receipt reads without anyone dividing by a hundred.
-    """
+    """One product, priced, as the thing a mandate can be signed for (ADR-0046)."""
 
     title: str
     price: float
@@ -104,14 +69,7 @@ class Cart(BaseModel):
     instrument: str = DEFAULT_INSTRUMENT
 
     def merchant_payload(self) -> dict[str, str]:
-        """The merchant as AP2 names one: an id, a name and where it lives.
-
-        The id is the site the page came from, that being the only identity this pipeline
-        knows -- a seller's name is what a page printed, and two pages print two
-        spellings. Read by :func:`_site`, so an address carrying a user and a password
-        does not put them in a payload that is signed and sent. A URL with no site to read
-        is used as it stands: half an identity is better than none.
-        """
+        """The merchant as AP2 names one: an id, a name and where it lives."""
         host = _site(self.url) or self.url
         return {"id": host, "name": self.merchant, "website": f"https://{host}"}
 
@@ -121,13 +79,7 @@ class Cart(BaseModel):
 
 
 class Receipt(BaseModel):
-    """What came of a payment, in the shape both front doors report it.
-
-    Never carries the mandate chain: a chain is a credential authorising this purchase
-    to whoever holds it, and a receipt is logged, sent to a browser and saved
-    (ADR-0046). ``reference``, the SHA-256 of the closed leaf, is what points back at
-    it.
-    """
+    """What came of a payment, in the shape both front doors report it (ADR-0046)."""
 
     paid: bool
     rail: str
@@ -139,27 +91,15 @@ class Receipt(BaseModel):
     price_label: str
     transaction_id: str
     reference: str
-    #: Whether an open mandate authorised this rather than a person approving the
-    #: cart. Reported because they are not the same promise.
+    #: Whether an open mandate authorised this rather than a person approving the cart.
     autonomous: bool
-    #: Whether the signature was made with an enrolled key or one this process
-    #: invented. False means the chain shows the shape of an authorisation without
-    #: being one, which is the dry run's whole point.
+    #: Whether the signature was made with an enrolled key or one this process invented.
     enrolled_key: bool
     detail: str
 
 
 def minor_units(price: float, currency: str) -> int:
-    """``price`` in the currency's smallest unit, rounded half up.
-
-    Through :class:`~decimal.Decimal` and not by multiplying a float: ``19.99 * 100``
-    is 1998.9999999999998, and a payment is no place to truncate. Half up rather than
-    banker's rounding, that being what a price tag implies.
-
-    Raises:
-        PaymentError: if the price cannot be counted at all -- a NaN or an infinity
-            out of a page nobody should have believed.
-    """
+    """``price`` in the currency's smallest unit, rounded half up."""
     exponent = 0 if currency in _ZERO_DECIMAL else 3 if currency in _THREE_DECIMAL else 2
     try:
         scaled = Decimal(str(price)).scaleb(exponent).quantize(Decimal(1), rounding=ROUND_HALF_UP)
@@ -167,27 +107,15 @@ def minor_units(price: float, currency: str) -> int:
         # ``quantize`` answers NaN happily, and only ``int`` refuses it.
         return int(scaled)
     # ``decimal.InvalidOperation`` is an ``ArithmeticError`` and so is every other
-    # ``DecimalException`` -- naming it as well would be one class caught twice and
-    # the rest of them, ``Overflow`` included, still caught only by accident.
+    # ``DecimalException`` -- naming it as well would be one class caught twice and the
+    # rest of them, ``Overflow`` included, still caught only by accident.
     except (ArithmeticError, ValueError) as exc:
         raise PaymentError(f"{price!r} is not a price this can pay.") from exc
 
 
 def _check(product: Product, currency: str | None) -> tuple[float, str]:
-    """The price and the currency this product may be paid in, or a refusal.
-
-    Every branch names something that is not an amount to send -- what the *sources*
-    did not establish, or a figure that is no amount whatever they printed -- and each
-    carries a sentence, "cannot pay for this" with no reason reading as a broken
-    button.
-
-    ``currency`` is the run's own (:func:`~buy_agent.models.dominant_currency`), so a
-    price outside it is one this run cannot place (ADR-0043) and cannot authorise --
-    deliberately the opposite of the shopper's bounds, which keep a product they cannot
-    judge (ADR-0039): an amount nobody can place is not an amount to send.
-
-    Raises:
-        PaymentError: naming what is missing.
+    """The price and the currency this product may be paid in, or a refusal (ADR-0043,
+    ADR-0039).
     """
     if product.price is None:
         raise PaymentError(
@@ -226,23 +154,8 @@ def _check(product: Product, currency: str | None) -> tuple[float, str]:
 def terms_for(
     product: Product, currency: str | None
 ) -> tuple[tuple[float, str] | None, str | None]:
-    """What a cart for this product would be worth, and why there is none if there is not.
-
-    The judgement :func:`cart_for` makes, asked without making a cart -- what a front
-    door needs to offer a Pay button only for a product it can pay for, and to say what
-    it would be buying. One rule asked once, rather than a second reading of it in
-    TypeScript (ADR-0033): the amount and the refusal are the two halves of
-    :func:`_check`, so exactly one of them is ever set and a surface cannot show a price
-    beside a sentence saying there is none.
-
-    A front door needs the amount because a cart's currency is frequently not the
-    product's own: a page printing a bare "329.00" leaves ``Product.currency`` null while
-    the cart is in USD (ADR-0043), and a surface restating the product's figure echoed a
-    null currency back, which is not an approval of anything.
-
-    Returns:
-        ``(price, currency)`` and ``None`` for a product that may be paid for; ``None``
-        and the sentence saying why for one that may not.
+    """What a cart for this product would be worth, and why there is none if there is not
+    (ADR-0033, ADR-0043).
     """
     try:
         return _check(product, currency), None
@@ -251,35 +164,18 @@ def terms_for(
 
 
 def amount_label(price: float, currency: str) -> str:
-    """An amount as a person reads it, which is how every surface must write it.
-
-    One wording for the CLI's prompt, the card's confirmation and the receipt.
-    """
+    """An amount as a person reads it, which is how every surface must write it."""
     return f"{price:,.2f} {currency}"
 
 
 def merchant_for(product: Product) -> str:
-    """Who a payment for this product would go to, as the cart will name them.
-
-    The seller a page printed, or failing that the site the page is on -- the only two
-    identities a run ever knows. Named here and read by :func:`cart_for` rather than
-    worked out inside it, because a surface asking somebody to approve a payment has to
-    say who is being paid *before* there is a cart to read it off (ADR-0046), and the
-    seller is frequently blank.
+    """Who a payment for this product would go to, as the cart will name them (ADR-0046).
     """
     return product.seller or _host(product.url)
 
 
 def cart_for(product: Product, products: Sequence[Product], config: AgentConfig) -> Cart:
-    """The cart for one product of a finished run.
-
-    ``products`` is the rest of the run, because two judgements here are about the set:
-    which currency the run counts in, and whether this price is on that scale at all.
-
-    Raises:
-        PaymentError: if the product is not payable, or costs more than the shopper's
-            spend limit.
-    """
+    """The cart for one product of a finished run."""
     currency = dominant_currency(products)
     price, currency = _check(product, currency)
 
@@ -302,16 +198,7 @@ def cart_for(product: Product, products: Sequence[Product], config: AgentConfig)
 
 
 def unattended() -> bool:
-    """Is there a pre-signed open mandate to buy on, or must a person be asked?
-
-    Here rather than at each front door, so both ask it the same way and a malformed
-    mandate file arrives as the one failure a payment has.
-
-    Raises:
-        PaymentError: if a mandate is configured and cannot be read. Read as "no
-            mandate", a broken file would quietly drop an unattended run back to
-            waiting for a person who is not there.
-    """
+    """Is there a pre-signed open mandate to buy on, or must a person be asked?"""
     try:
         return mandates.open_mandate() is not None
     except mandates.MandateError as exc:
@@ -319,16 +206,7 @@ def unattended() -> bool:
 
 
 def pay_for(cart: Cart, config: AgentConfig) -> Receipt:
-    """Authorise this cart and present it to the rail, returning what came back.
-
-    The order is the protocol's: the merchant signs a checkout first, there being no
-    price to bind a mandate to before that; the mandates are signed against that hash;
-    and only a chain that verified is presented. Nothing here decides whether the
-    shopper agreed -- that happened at a front door (ADR-0046).
-
-    Raises:
-        PaymentError: for anything that stopped the purchase, with the sentence the
-            rail or the mandate layer wrote.
+    """Authorise this cart and present it to the rail, returning what came back (ADR-0046).
     """
     rail = config.rail_used
     try:
@@ -336,8 +214,8 @@ def pay_for(cart: Cart, config: AgentConfig) -> Receipt:
         signed, nonce = rail.checkout(cart, config)
         authorisation = mandates.authorise(cart, signed, key=key, nonce=nonce)
     except rail.transport_errors as exc:
-        # Both calls to the rail translate the same way: an endpoint down while
-        # being asked for a price is one down while being paid.
+        # Both calls to the rail translate the same way: an endpoint down while being
+        # asked for a price is one down while being paid.
         raise RailUnreachableError(rail.hint(config, exc)) from exc
     except mandates.MandateError as exc:
         raise PaymentError(str(exc)) from exc
@@ -385,18 +263,7 @@ def _host(url: str | None) -> str:
 
 
 def _site(url: str | None) -> str:
-    """A page's host and port, without the credentials some addresses carry.
-
-    Read with :func:`~urllib.parse.urlsplit` rather than by counting slashes:
-    ``https://user:pw@shop.com/p`` split on ``/`` hands back ``user:pw@shop.com``,
-    which became the merchant on the surface a person approves, in a *signed* payload,
-    and in a receipt that is logged and handed to a browser.
-
-    The port stays, being part of where a site is, and so does the case -- folding it
-    would be this function deciding a merchant's identity. ``""`` for an address with
-    no host to read: nothing at all, one with no scheme, and one malformed enough to
-    make ``urlsplit`` raise, as an unclosed IPv6 bracket does.
-    """
+    """A page's host and port, without the credentials some addresses carry."""
     if not url:
         return ""
     try:
