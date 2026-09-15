@@ -29,8 +29,6 @@ from buy_agent.sources import (
         ("//rtings.com/headphones", "rtings.com", "headphones"),
         ("rtings.com:443/headphones", "rtings.com", "headphones"),
         # Credentials sit in front of the host and name a *reader*, not a site.
-        # Left on, the host reads "shopper" -- no dot, so no site, so a URL
-        # pasted straight out of an address bar was refused as naming nothing.
         ("https://shopper@rtings.com/headphones", "rtings.com", "headphones"),
         ("https://shopper:hunter2@www.rtings.com:443/headphones", "rtings.com", "headphones"),
         ("shop.example.co.uk", "shop.example.co.uk", ""),
@@ -72,11 +70,7 @@ def test_an_influencer_is_a_handle_on_the_one_site_handles_live_on(spec, term) -
     ],
 )
 def test_a_subreddit_is_named_by_the_segment_after_the_route(spec, term) -> None:
-    """``/r/`` routes to a subreddit the way ``/c/`` routes to a channel.
-
-    Read as the term itself it narrowed every search on the phrase "r" and threw
-    away the only word the shopper actually typed.
-    """
+    """``/r/`` routes to a subreddit the way ``/c/`` routes to a channel."""
     source = parse_source(spec)
 
     assert (source.domain, source.term) == ("reddit.com", term)
@@ -211,15 +205,7 @@ def test_naming_none_is_not_an_error_but_the_whole_web() -> None:
 
 @pytest.mark.parametrize("spec", ["", "   ", ",", " , , ", [""], ["", "  "], []])
 def test_asking_to_narrow_to_nothing_is_a_refusal(spec: str | list[str]) -> None:
-    """The widening half of the hole ``@`` went through, and the worse half.
-
-    A spec that identifies nothing searched for a phrase no page contains, and
-    the answer was an empty report. A spec that is *blank* does not even do that:
-    it comes back as no sources at all, which is the whole web -- so a shopper who
-    asked for rtings.com and mistyped got facts from every site there is, reported
-    as if they had asked for them. Named sources have no fall back to the wider
-    web (ADR-0027), and this is the one way to reach one.
-    """
+    """The widening half of the hole ``@`` went through, and the worse half."""
     with pytest.raises(ValueError, match="cannot be blank"):
         parse_named_sources(spec)
 
@@ -253,13 +239,7 @@ def test_no_sources_is_an_empty_field_rather_than_a_word_meaning_none() -> None:
 
 @pytest.mark.parametrize("spec", ["@", "@@@", "@/", "@/videos"])
 def test_an_at_sign_naming_no_channel_is_not_a_source(spec: str) -> None:
-    """The one shape that used to name its site without naming anything on it.
-
-    Every other spec goes through the hostname check; this branch went through
-    nothing, so ``--source @`` parsed and then searched YouTube for the literal
-    phrase "@". Named sources have no fall back to the wider web (ADR-0027), so
-    what the shopper got was an empty report with nothing to say about why.
-    """
+    """The one shape that used to name its site without naming anything on it."""
     with pytest.raises(ValueError, match="does not name a source"):
         parse_source(spec)
 

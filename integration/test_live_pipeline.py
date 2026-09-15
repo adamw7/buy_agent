@@ -1,18 +1,4 @@
-"""One real run, read for the promises the pipeline makes whatever the model says.
-
-Almost nothing here asserts that the model got the *right* answer. A 0.6B model
-is not held to that, and a nightly job that failed because it wrote "Sony
-WH-1000XM5 Wireless" where the fixture says "Sony WH-1000XM5" would be a test
-about the model rather than about this code.
-
-What is asserted instead is the set of properties that must hold no matter what
-came back: every name is in the sources, every figure is in the sources, every
-quote was printed on a page about that product, every link is a page that was
-searched, and nothing is listed twice. Those are the guarantees the unit suite
-checks against a ``FakeLLM`` that answers exactly what it was told to -- which
-is the one thing a real model never does. This is where they meet an answer
-nobody wrote.
-"""
+"""One real run, read for the promises the pipeline makes whatever the model says."""
 
 from __future__ import annotations
 
@@ -48,13 +34,7 @@ def haystack(live_run: LiveRun) -> str:
 
 
 def test_the_model_reads_products_out_of_the_pages(live_run: LiveRun) -> None:
-    """The smoke test the rest of this file qualifies.
-
-    Everything else here passes vacuously on an empty answer, so this is the one
-    assertion that fails when the tiny model stops being able to fill in the
-    schema at all -- a model update, an Ollama release that changes how
-    ``json_schema`` decoding works, or a prompt grown past what it can follow.
-    """
+    """The smoke test the rest of this file qualifies."""
     assert live_run.extracted.products, "the model extracted nothing at all"
     assert live_run.ranked, "everything the model extracted was thrown out"
 
@@ -62,21 +42,7 @@ def test_the_model_reads_products_out_of_the_pages(live_run: LiveRun) -> None:
 def test_the_model_quotes_the_pages_rather_than_only_pricing_them(
     live_run: LiveRun,
 ) -> None:
-    """The same smoke test, for the field ADR-0024 and ADR-0025 are about.
-
-    ``test_every_quote_was_printed_on_a_page_about_that_product`` passes
-    vacuously on a run that quoted nothing, exactly as the assertions above
-    would on a run that extracted nothing -- and a model that quotes nothing is
-    the likeliest way for the whole opinion path to go green having checked
-    none of itself.
-
-    Asserted on what the *model* returned, not on what survived grounding. A
-    0.6B model paraphrases, ``verify_opinions`` drops paraphrases, and holding
-    the nightly to a quote surviving that would be holding it to the model
-    being right -- which is the one thing this file refuses to do. What is
-    asserted here is only that the schema and the prompt still get quotes out
-    of it at all.
-    """
+    """The same smoke test, for the field ADR-0024 and ADR-0025 are about."""
     quoted = [item.name for item in live_run.extracted.products if item.opinions]
 
     assert quoted, "the model reported no opinions for any product"
@@ -138,13 +104,9 @@ def test_every_quote_was_printed_on_a_page_about_that_product(products, live_run
 
 
 def test_every_quote_names_the_page_it_was_printed_on(products, live_run) -> None:
-    """ADR-0042. The link is the whole point of keeping it: a quote pointing at a
-    page that never printed it, or at one that was never searched, is worse than
-    no link at all -- it is a citation the shopper follows and does not find.
-
-    Every page in the corpus carries a URL, so a quote that named none would be a
-    bug here rather than the result the search returned without one.
-    """
+    """ADR-0042. The link is the whole point of keeping it: a quote pointing at a page
+    that never printed it, or at one that was never searched, is worse than no link at
+    all -- it is a citation the shopper follows and does not find."""
     by_url = {page.url: page for page in live_run.pages if page.url}
     for product in products:
         for opinion in product.opinions:
@@ -155,25 +117,8 @@ def test_every_quote_names_the_page_it_was_printed_on(products, live_run) -> Non
 
 
 def test_no_product_is_reported_twice(products) -> None:
-    """Eight of the ten pages price the Sony: without ``deduplicate`` one product
-    takes every slot it is listed in.
-
-    Checked by the rule ``deduplicate`` actually merges on and not by
-    ``dedup_key``, which is strictly weaker -- it folds case, punctuation and
-    spacing, so "Sony WH-1000XM5" and "Sony WH-1000XM5 Wireless" are two keys
-    and one product. Dropping ``deduplicate`` from the pipeline left a
-    ``dedup_key`` check entirely green, which is the whole failure it is here
-    to see. Re-running the merge is the property instead: its output is
-    supposed to be a fixed point, so a second pass must find nothing left to
-    fold.
-
-    If this ever fails on names that look correctly merged, suspect the fixed
-    point rather than the run. ``merge_variants`` folds into the first match
-    and ``_combine`` then shortens the name, so three spellings arriving in the
-    wrong order -- "... Wireless", "... Black", then the bare name -- can leave
-    a pair a second pass would still merge. That is worth fixing in
-    ``deduplicate``; it is not worth weakening this back into a key comparison.
-    """
+    """Eight of the ten pages price the Sony: without ``deduplicate`` one product takes
+    every slot it is listed in."""
     keys = [product.dedup_key for product in products]
 
     assert len(keys) == len(set(keys)), keys
@@ -190,7 +135,5 @@ def test_the_ranking_is_ordered_and_numbered(live_run: LiveRun) -> None:
 
 
 def test_no_more_products_are_reported_than_were_asked_for(live_run, live_config) -> None:
-    """``deduplicate``'s limit. The pages name seven distinct products against a
-    ``num_products`` of five, so this is a cap that has to bite -- with a limit
-    above what the pages can yield it passed however the pipeline behaved."""
+    """``deduplicate``'s limit."""
     assert len(live_run.ranked) <= live_config.num_products

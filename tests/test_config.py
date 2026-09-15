@@ -13,13 +13,9 @@ from buy_agent.config import DEFAULT_REGION, LIMITS, AgentConfig, parse_region
 from buy_agent.ranking import RankingWeights
 
 # The rows are reached through the module rather than imported by name, because
-# tests/test_providers.py reloads it: a reload re-runs the module over its own
-# globals, so ``provider_for`` goes on answering with whatever is in the table
-# *now* while a name imported here would still hold the row from before. Bound
-# at import time, the identity assertion below then passes or fails on which
-# file pytest happened to run first -- which is how it survived every ordinary
-# run and broke the Saturday mutation job, whose clean-test pass orders the
-# suite its own way.
+# tests/test_providers.py reloads it: a reload re-runs the module over its own globals, so
+# ``provider_for`` goes on answering with whatever is in the table *now* while a name
+# imported here would still hold the row from before.
 
 
 def test_defaults_are_ten_results_ten_products_and_a_top_three() -> None:
@@ -204,11 +200,7 @@ def test_an_unknown_keyword_is_rejected() -> None:
 
 @pytest.fixture
 def reloaded_config(monkeypatch):
-    """Re-import the module so ``$BUY_AGENT_PROVIDER`` is read again.
-
-    The only environment variable left here: what each *server* defaults to is
-    its row in :data:`buy_agent.providers.PROVIDERS`, and is reloaded there.
-    """
+    """Re-import the module so ``$BUY_AGENT_PROVIDER`` is read again."""
 
     def reload(**environment: str):
         for name, value in environment.items():

@@ -1,6 +1,5 @@
 """What the shopper will accept, applied to the products before they are ranked (ADR-0039,
-ADR-0007).
-"""
+ADR-0007)."""
 
 from __future__ import annotations
 
@@ -44,8 +43,7 @@ class Constraints:
 
     @classmethod
     def from_config(cls, config: AgentConfig) -> Constraints:
-        """The three bounds a run was configured with, off the config that holds them.
-        """
+        """The three bounds a run was configured with, off the config that holds them."""
         return cls(**{name: getattr(config, name) for name, *_ in _BOUNDS})
 
     @property
@@ -101,8 +99,7 @@ class Constraints:
 
     def _settled(self, products: Sequence[Product]) -> tuple[list[int], str | None]:
         """Which products are inside the bounds, by index, and in which currency
-        (ADR-0043).
-        """
+        (ADR-0043)."""
         inside = list(range(len(products)))
         while True:
             currency = dominant_currency(products[index] for index in inside)

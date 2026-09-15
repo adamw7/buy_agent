@@ -25,21 +25,16 @@ LIMITS: dict[str, tuple[int, int]] = {
     "top_n": (1, 50),
     "temperature": (0, 2),
     "num_ctx": (1, 1_000_000),
-    # The longest one question may take. A ceiling of an hour rather than of a day: past
-    # that the shopper has gone, and a floor of 1 because a second is a legitimate thing
-    # to ask for of a server that is meant to be warm.
+    # The longest one question may take.
     "model_timeout": (1, 3600),
-    # The shopper's own three (ADR-0039). Their ranges are what a *number* may be rather
-    # than what a sensible bound is; the ceilings make a slip on the keyboard a usage
-    # error rather than an empty report.
+    # The shopper's own three (ADR-0039).
     "max_price": (1, 10_000_000),
     "min_rating": (0, 5),
     "min_reviews": (0, 10_000_000),
     # 0 is off -- every page read fresh -- and the ceiling is 30 days, past which a
     # stored price is not evidence of anything (ADR-0040).
     "cache_ttl": (0, 2_592_000),
-    # The most one payment may be. Its range is ``max_price``'s and its promise the
-    # opposite: that one admits a product it cannot judge, this one refuses.
+    # The most one payment may be.
     "spend_limit": (1, 10_000_000),
 }
 
@@ -64,9 +59,8 @@ def parse_region(spec: str) -> str:
 
 @dataclass(slots=True)
 class AgentConfig:
-    """Everything the agent needs to know that is not the user's query (ADR-0050, ADR-0051,
-    ADR-0044, ADR-0039, ADR-0043, ADR-0027, ADR-0040, ADR-0046).
-    """
+    """Everything the agent needs to know that is not the user's query (ADR-0050,
+    ADR-0051, ADR-0044, ADR-0039, ADR-0043, ADR-0027, ADR-0040, ADR-0046)."""
 
     provider: str = DEFAULT_PROVIDER
     model: str = ""
@@ -97,14 +91,12 @@ class AgentConfig:
 
     @property
     def rail_used(self) -> Rail:
-        """The rail this config names, and everything that differs about it (ADR-0046).
-        """
+        """The rail this config names, and everything that differs about it (ADR-0046)."""
         return rail_for(self.rail)
 
     @property
     def model_server(self) -> Provider:
-        """The server this config names, and everything that differs about it (ADR-0029).
-        """
+        """The server this config names, and everything that differs about it (ADR-0029)."""
         return provider_for(self.provider)
 
     def __post_init__(self) -> None:

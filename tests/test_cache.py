@@ -1,12 +1,4 @@
-"""The cache: what it stores, what it refuses to answer with, and where.
-
-Nothing here touches the network or a model server -- the cache never does. It is
-a directory, a clock and a hash, and the point of most of these tests is that
-every way of it going wrong comes back as a miss rather than as a failed run.
-
-The last section is the other half of it: a model whose answers are remembered
-(ADR-0044), which is the same store under a key made of the whole question.
-"""
+"""The cache: what it stores, what it refuses to answer with, and where."""
 
 from __future__ import annotations
 
@@ -123,8 +115,7 @@ def test_an_entry_inside_its_time_to_live_is_a_hit(tmp_path: Path) -> None:
         # The other ``ValueError`` a file can raise on the way to being an entry.
         pytest.param(b"\xff\xfe not text", id="not utf-8"),
         pytest.param(b'["a list"]', id="json, but not an entry"),
-        # A hash is not a promise. Answering with this would let one page's text
-        # stand in for another's, which is the one thing a cache must never do.
+        # A hash is not a promise.
         pytest.param(
             json.dumps({"key": "https://elsewhere.example", "value": "else"}).encode(),
             id="another url's entry",
@@ -174,8 +165,7 @@ def test_a_write_that_fails_leaves_nothing_behind(
 def test_a_temporary_file_that_cannot_be_removed_is_not_an_error(
     cache: DiskCache, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Both halves of the failure path fail. There is still nothing to do about
-    it and still nothing worth failing a run for."""
+    """Both halves of the failure path fail."""
     monkeypatch.setattr("buy_agent.cache.os.replace", _raising(OSError("nope")))
     monkeypatch.setattr(Path, "unlink", _raising(OSError("nor that")))
 
@@ -203,13 +193,7 @@ def test_pruning_a_directory_that_is_not_there_removes_nothing(tmp_path: Path) -
 
 
 def test_pruning_clears_a_temporary_file_a_killed_run_left_behind(tmp_path: Path) -> None:
-    """The one file in here nothing else would ever reach.
-
-    ``put`` takes its own back where the write failed, but a process killed
-    between ``mkstemp`` and ``os.replace`` leaves a ``.tmp`` that no key names
-    and no sweep of the entries touches -- so a directory pruned on every run
-    still grew by one file per interrupted one.
-    """
+    """The one file in here nothing else would ever reach."""
     cache = DiskCache(tmp_path, ttl=3600)
     orphan = tmp_path / "leftover.tmp"
     orphan.write_text("half an entry", encoding="utf-8")
@@ -222,12 +206,7 @@ def test_pruning_clears_a_temporary_file_a_killed_run_left_behind(tmp_path: Path
 
 
 def test_pruning_leaves_a_temporary_file_another_run_is_writing(tmp_path: Path) -> None:
-    """The cutoff is what makes taking the leftovers safe.
-
-    A ``.tmp`` younger than the time to live belongs to a run that is still
-    going, and deleting it under that run would turn a slow write into a lost
-    entry -- which is the one thing pruning must not cost.
-    """
+    """The cutoff is what makes taking the leftovers safe."""
     cache = DiskCache(tmp_path, ttl=3600)
     in_flight = tmp_path / "being-written.tmp"
     in_flight.write_text("half an entry", encoding="utf-8")
@@ -239,12 +218,7 @@ def test_pruning_leaves_a_temporary_file_another_run_is_writing(tmp_path: Path) 
 def test_pruning_counts_the_entries_and_reports_the_leftovers(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Two kinds of file, and only one of them is an entry.
-
-    The answer is how many *entries* expired, which is what the number has always
-    meant; a temporary file nobody can read is worth a DEBUG line and not a place
-    in that count.
-    """
+    """Two kinds of file, and only one of them is an entry."""
     cache = DiskCache(tmp_path, ttl=3600)
     cache.put(URL, "old")
     _age(cache, URL, seconds=7200)
@@ -357,12 +331,7 @@ def test_the_two_kinds_of_entry_do_not_share_a_directory(
 
 
 def _entry(cache: DiskCache, url: str) -> Path:
-    """The file holding this URL, so a test can break it in one specific way.
-
-    Asked of the cache rather than worked out here: what the name of an entry is
-    is the cache's own business, and a second copy of the rule would only ever
-    test itself.
-    """
+    """The file holding this URL, so a test can break it in one specific way."""
     entry = cache._path(url)
     assert cache.get(url) is not None, "the entry has to be readable to be broken"
     return entry
@@ -388,11 +357,7 @@ def _raising(exc: Exception):
 
 
 def _remembering(tmp_path: Path, server: FakeLLM, **fingerprint: object):
-    """``server``, remembering into ``tmp_path``. Fingerprint defaults to a run.
-
-    The model is the suite's own ``FakeLLM``: it already records every call, and
-    what these tests read is how many of them got through.
-    """
+    """``server``, remembering into ``tmp_path``."""
     cache = DiskCache(tmp_path / ANSWERS, ttl=DEFAULT_TTL)
     return RememberedAnswers(server, cache, {"model": "gemma4:12b", **fingerprint})
 
@@ -442,8 +407,7 @@ Reworded.model_rebuild(force=True)
     ],
 )
 def test_a_different_question_is_put_to_the_model(ask_again, tmp_path: Path) -> None:
-    """Everything that decides an answer is in the key, so changing any of it
-    misses. The one thing that hits is the same question asked twice."""
+    """Everything that decides an answer is in the key, so changing any of it misses."""
     model = FakeLLM()
     _remembering(tmp_path, model).answer(ASKED, SearchQuery)
 
@@ -536,12 +500,7 @@ def test_closing_one_wrapped_around_a_model_that_holds_nothing_is_a_no_op(
 
 
 def _filled(directory: Path, *keys: str) -> DiskCache:
-    """A cache holding one entry per key, all the same size as each other.
-
-    Equal sizes are the point: what the eviction below chooses between them by is
-    age, and a test where the oldest also happened to be the biggest would pass
-    whichever rule were written.
-    """
+    """A cache holding one entry per key, all the same size as each other."""
     cache = DiskCache(directory, ttl=3600)
     for key in keys:
         cache.put(key, "x" * 10)

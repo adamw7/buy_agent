@@ -61,19 +61,7 @@ def test_missing_data_scores_neutral_not_last() -> None:
 
 
 def test_single_price_ties_on_the_price_criterion() -> None:
-    """One distinct price scores ``NEUTRAL`` and is not an assumption.
-
-    ADR-0041 defines ``neutral`` as the criteria a product "published nothing
-    for, which therefore scored ``NEUTRAL`` rather than being read off a page",
-    and ends by warning against the mistake in the other direction: "wrong in the
-    direction of calling a real measurement a guess". A price every candidate
-    shares was published and was read -- it simply separates nothing -- so the
-    0.5 is the scale's answer and not a stand-in for a figure nobody printed.
-
-    It is the single-product run every time, which is where it read worst: the
-    report printed ``price : 42.00`` and then ``price 0.50 assumed`` underneath
-    it, about the same figure.
-    """
+    """One distinct price scores ``NEUTRAL`` and is not an assumption."""
     score = score_product(
         product("only one", price=42.0),
         cheapest=42.0,
@@ -86,11 +74,7 @@ def test_single_price_ties_on_the_price_criterion() -> None:
 
 
 def test_a_price_nobody_published_is_still_an_assumption() -> None:
-    """The other half of the split, and the one ``neutral`` exists for.
-
-    A blank price scores the same 0.5 as the tie above and means something else
-    entirely: grounding blanked it, or no page ever printed it. That one is named.
-    """
+    """The other half of the split, and the one ``neutral`` exists for."""
     score = score_product(
         product("unpriced"),
         cheapest=42.0,
@@ -103,11 +87,7 @@ def test_a_price_nobody_published_is_still_an_assumption() -> None:
 
 
 def test_a_price_this_run_cannot_place_is_an_assumption_too() -> None:
-    """A figure outside the run's own currency is one it did not read (ADR-0043).
-
-    It has no place between the cheapest and the priciest, the way a blank has
-    none -- so it scores ``NEUTRAL`` and says so, unlike the tie above.
-    """
+    """A figure outside the run's own currency is one it did not read (ADR-0043)."""
     score = score_product(
         product("in yen", price=42_000.0, currency="JPY"),
         cheapest=42.0,
@@ -230,11 +210,10 @@ def test_every_criterion_a_score_has_is_one_the_weights_name() -> None:
 
 
 def test_a_review_count_that_is_not_a_count_scores_neutral() -> None:
-    """A run never makes one -- ``to_product`` blanks anything at or below zero
-    -- but a re-sort ranks whatever products a request carried (ADR-0035), and
-    ``-5`` reviews took ``log10`` outside its domain: a 500 and a traceback for
-    a figure that is simply not a count. Nothing was read, which is what
-    ``NEUTRAL`` says."""
+    """A run never makes one -- ``to_product`` blanks anything at or below zero -- but a
+    re-sort ranks whatever products a request carried (ADR-0035), and ``-5`` reviews
+    took ``log10`` outside its domain: a 500 and a traceback for a figure that is
+    simply not a count."""
     scored = score_product(
         product("x", review_count=-5), cheapest=None, priciest=None, weights=RankingWeights()
     )
@@ -458,9 +437,8 @@ def test_a_price_the_set_cannot_place_says_so(products: list[Product]) -> None:
 
 
 def test_sorting_by_price_sinks_a_price_the_set_cannot_place() -> None:
-    """It sinks with the prices nobody published, for the reason those do:
-    ordering by a figure means ordering by one that means the same thing all the
-    way down the column."""
+    """It sinks with the prices nobody published, for the reason those do: ordering by a
+    figure means ordering by one that means the same thing all the way down the column."""
     ranked = rank_products([YEN, Product(name="Unpriced"), DEARER, USD], sort_by="price")
     names = [entry.product.name for entry in ranked]
 

@@ -1,21 +1,4 @@
-"""What a run says while it is thinning its own results, held in one place.
-
-Eight steps of the pipeline take something away: a product that was a headline
-rather than a thing, one no page mentions, one outside the shopper's bounds, a
-figure the sources do not back, a quote nobody printed, a link to a page nobody
-searched, a name identifying nothing, and a listing folded into another. Every one
-of them says how many at INFO and which at DEBUG, and the pair is the rule --
-neither half is worth much alone. The count is what tells a short report from a
-thin web: three products out of a search that found ten is a filtered answer, and
-without the line it reads as all there was. The name is what makes a wrong drop
-arguable, and it costs a line per product, which is why it waits for ``-v``.
-
-Each step's own test file already pins its wording. What none of them can see is
-the *set*: a ninth step, or an eighth that quietly stopped saying anything, leaves
-every other file green. This is the rule stated once, driven rather than read --
-the two things a reader of a log actually does are run it quiet and run it ``-v``,
-so that is what these do.
-"""
+"""What a run says while it is thinning its own results, held in one place."""
 
 from __future__ import annotations
 
@@ -59,13 +42,7 @@ REAL = "Sony WH-CH720N"
 
 @dataclass(frozen=True)
 class Heuristic:
-    """One step that takes something away, and what one run of it took.
-
-    ``casualty`` is what the DEBUG line has to name -- the product, the link or
-    the name that went. Three of these name the product rather than the figure or
-    the quote they blanked, which is the same answer to the same question: the
-    thing a reader has to be able to go and look at.
-    """
+    """One step that takes something away, and what one run of it took."""
 
     drive: Callable[[], object]
     count: int
@@ -150,14 +127,7 @@ def at(caplog, level: int, heuristic: Heuristic) -> list[logging.LogRecord]:
 
 @CASES
 def test_every_step_that_takes_something_away_says_how_many(caplog, heuristic) -> None:
-    """The count is what a quiet run gets, and what it is for.
-
-    A report of three where the search found ten reads exactly like a search that
-    found three, and the two are different situations: one is a filter doing its
-    job and the other is a reason to search differently. Only the count tells them
-    apart, so it goes out at INFO -- where somebody who did not ask for detail,
-    which is everybody by default, will see it.
-    """
+    """The count is what a quiet run gets, and what it is for."""
     said_out_loud = [
         record for record in at(caplog, logging.INFO, heuristic) if record.levelno >= logging.INFO
     ]
@@ -184,13 +154,7 @@ def test_every_step_that_takes_something_away_names_it_at_debug(caplog, heuristi
 
 @CASES
 def test_a_quiet_run_is_told_how_many_and_not_which(caplog, heuristic) -> None:
-    """The other half of the pair, and the half a stray line breaks silently.
-
-    A step that named its casualties at INFO would put ten lines into every run
-    that dropped ten products, burying the report the run exists to print -- and
-    it would still pass the two tests above. That is the split between the count
-    and the names, asserted from the side that has something to lose.
-    """
+    """The other half of the pair, and the half a stray line breaks silently."""
     quiet = at(caplog, logging.INFO, heuristic)
 
     assert not any(heuristic.casualty in record.getMessage() for record in quiet), (

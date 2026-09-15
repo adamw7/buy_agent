@@ -1,10 +1,4 @@
-/**
- * Handing a file to the browser, for the two things a run leaves behind.
- *
- * A failed run leaves a log to attach to a bug report; a finished one leaves results
- * the next question would otherwise throw away. Both are text the page is already
- * holding, so both are saved the same way, in one place rather than per button.
- */
+/** Handing a file to the browser, for the two things a run leaves behind. */
 export function saveText(filename: string, body: string, type: string): void {
   const href = URL.createObjectURL(new Blob([body], { type: `${type};charset=utf-8` }));
   const link = document.createElement('a');
@@ -17,23 +11,15 @@ export function saveText(filename: string, body: string, type: string): void {
   document.body.append(link);
   link.click();
   link.remove();
-  // And the URL let go on a later turn, not this one: revoking it in the same tick as
-  // the click can cancel the transfer the click has only just asked for. Held
-  // meanwhile -- the blob is the file, and dropping it keeps a page that saves all
-  // afternoon from carrying every one of them.
+  // And the URL let go on a later turn, not this one: revoking it in the same tick as the click can
+  // cancel the transfer the click has only just asked for.
   setTimeout(() => URL.revokeObjectURL(href), RELEASE_AFTER_MS);
 }
 
-/** How long the blob is left reachable after the click. Long enough for any
- *  browser to have started reading it, short enough that nothing accumulates. */
+/** How long the blob is left reachable after the click. */
 const RELEASE_AFTER_MS = 10_000;
 
-/**
- * A name that sorts by when the file was taken, and survives every filesystem.
- *
- * `what` is what the file is -- `log`, `results` -- so the two land side by side in
- * a downloads folder with the run they came from readable off the stamp.
- */
+/** A name that sorts by when the file was taken, and survives every filesystem. */
 export function filename(what: string, extension: string, when: Date): string {
   const stamp = when.toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
   return `buy-agent-${what}-${stamp}.${extension}`;

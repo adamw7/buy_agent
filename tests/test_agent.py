@@ -104,13 +104,7 @@ def test_the_refined_query_is_what_gets_searched(
 def test_every_named_source_is_searched_in_the_shoppers_own_region(
     agent_factory, search_results, extracted_products
 ) -> None:
-    """The other search call, which the test above cannot reach.
-
-    Naming sources takes a different branch -- one search per source rather than
-    one for the web -- and a region dropped there sends a shopper in Poland the
-    American edition of every site they asked for, with nothing in the report to
-    say the setting was ignored.
-    """
+    """The other search call, which the test above cannot reach."""
     llm = FakeLLM(query=SearchQuery(query="headphones"), products=extracted_products)
     agent, calls = agent_factory(
         llm, search_results, region="uk-en", sources=parse_sources("example.com rtings.com")
@@ -186,14 +180,7 @@ def test_a_search_that_found_nothing_names_a_region_worth_suspecting(
 def test_a_search_that_found_nothing_names_the_sources_it_was_confined_to(
     agent_factory, extracted_products, caplog
 ) -> None:
-    """The likeliest reason of all, and the one with no recovery.
-
-    Naming a source is enforced by construction and there is deliberately no falling
-    back to the wider web (ADR-0027), so a source that does not cover the request is
-    an empty report and nothing else. The warning that ends such a run named the
-    query and, where it was suspect, the region -- never the one setting that had
-    actually emptied it.
-    """
+    """The likeliest reason of all, and the one with no recovery."""
     agent, _ = agent_factory(
         FakeLLM(products=extracted_products), [], sources=parse_sources(["rtings.com"])
     )
@@ -290,14 +277,7 @@ def test_unreachable_server_produces_an_actionable_error(
 def test_an_unreadable_extraction_is_the_model_failing_not_the_request(
     agent_factory, search_results, monkeypatch
 ) -> None:
-    """A half-finished answer is a ``ValueError``, and it is not the shopper's.
-
-    ``UnreadableAnswerError`` subclasses ``ValueError``, which ``run`` documents
-    as "the request is empty" and ``api._STATUS`` answers 400 to -- so a model
-    that ran out of room mid-JSON would tell the shopper their request was bad.
-    It is the model that could not be used (ADR-0009), and the sentence says what
-    to do about it.
-    """
+    """A half-finished answer is a ``ValueError``, and it is not the shopper's."""
     agent, _ = agent_factory(FakeLLM(), search_results)
     monkeypatch.setattr(
         agent,
@@ -340,11 +320,7 @@ def test_search_failures_propagate(monkeypatch, extracted_products) -> None:
 
 
 def _failing_chain(error: Exception):
-    """A stand-in chain that raises instead of answering.
-
-    ``invoke`` is the whole of one's surface, so this is a class with one method
-    -- the same shape ``FakeLLM`` is for a model server.
-    """
+    """A stand-in chain that raises instead of answering."""
 
     class Failing:
         @staticmethod
@@ -420,12 +396,8 @@ def test_a_product_the_sources_never_mention_is_dropped(
 
 
 def test_the_wait_on_an_answer_is_not_part_of_the_question() -> None:
-    """What a model says does not depend on how long this run would have waited, so
-    two runs differing only in that are asking one question (ADR-0044, ADR-0051).
-
-    The fingerprint is what a remembered answer is filed under, so a setting in here
-    that decides nothing about the answer costs a model call for no reason.
-    """
+    """What a model says does not depend on how long this run would have waited, so two
+    runs differing only in that are asking one question (ADR-0044, ADR-0051)."""
     patient = _asks_the_same_question(AgentConfig(model_timeout=600.0))
     hurried = _asks_the_same_question(AgentConfig(model_timeout=5.0))
 
@@ -455,12 +427,7 @@ def test_result_pages_are_fetched_by_default(
 def test_the_page_budget_and_timeout_are_the_config_s_own(
     agent_factory, search_results, extracted_products
 ) -> None:
-    """Deliberately not the defaults: asserting those would pin nothing.
-
-    ``page_chars``, ``opinion_chars`` and ``fetch_timeout`` exist to be changed, so
-    the test has to show the config's value arriving rather than a literal that
-    happens to match.
-    """
+    """Deliberately not the defaults: asserting those would pin nothing."""
     agent, calls = agent_factory(
         FakeLLM(products=extracted_products),
         search_results,
@@ -496,14 +463,7 @@ def test_fetching_can_be_turned_off(
 
 @pytest.fixture
 def ollama_request(monkeypatch):
-    """Capture the request the Ollama provider puts a run's settings into.
-
-    There is no wrapper left whose constructor can be read back for them
-    (ADR-0038): the window and the thinking switch are request options and the
-    address belongs to the client, so what says a setting arrived is the call
-    itself. Patched where the provider imported the class, which is the one place
-    either client is named.
-    """
+    """Capture the request the Ollama provider puts a run's settings into."""
     sent: dict = {}
 
     class FakeClient:
@@ -637,13 +597,7 @@ def test_a_setting_the_server_never_sees_is_not_part_of_the_question() -> None:
 
 @pytest.fixture
 def installed_models(monkeypatch):
-    """Stand in for an Ollama being asked what it holds, so nothing opens a socket.
-
-    Both calls it makes: ``GET /api/tags`` for the tags, and ollama's client per
-    tag for what each of them can do. Everything here can answer a prompt --
-    which of them cannot is ``tests/test_providers.py``'s question, not this
-    module's.
-    """
+    """Stand in for an Ollama being asked what it holds, so nothing opens a socket."""
 
     def install(models: list[str] | None, *, error: Exception | None = None) -> None:
         def get(_url, **_kwargs):
@@ -712,9 +666,7 @@ def test_an_unlistable_server_still_gives_the_pull_command(
         RequestError("malformed request"),
         ConnectionError("connection refused"),
         OSError("socket died"),
-        # What the real client actually raises. The ollama client converts a
-        # refused connection and nothing else, so a timeout and a dropped stream
-        # arrive as httpx's own -- which is why both kinds are in the tuple.
+        # What the real client actually raises.
         httpx.ConnectError("[Errno 111] Connection refused"),
         httpx.RemoteProtocolError("the server closed the stream"),
         httpx.ProxyError("no route to the proxy"),
@@ -784,12 +736,7 @@ def test_the_extraction_prompt_gets_the_results_and_the_limit(
 def test_the_configured_weights_reach_the_ranking(
     agent_factory, search_results, extracted_products
 ) -> None:
-    """The default blend puts the cheap Anker first; rating alone puts the Sony there.
-
-    Ranking on the wrong weights is invisible in the output -- it is still a
-    plausible order -- so the only way to see the config arrive is to pick weights
-    that reorder the same products.
-    """
+    """The default blend puts the cheap Anker first; rating alone puts the Sony there."""
     agent, _ = agent_factory(
         FakeLLM(products=extracted_products),
         search_results,
@@ -864,13 +811,7 @@ _JBL_PAGE = "JBL Live 780NC\n$149.00\nRated 4.4 out of 5"
 
 
 def _says_jbl() -> FakeLLM:
-    """A model reporting exactly the figures :data:`_JBL_PAGE` prints.
-
-    Both tests below need the same answer, because the only difference the pair
-    is about is whether the page was read at all. Written out twice, a figure
-    edited on one side would leave the two passing about two different runs and
-    nothing saying so.
-    """
+    """A model reporting exactly the figures :data:`_JBL_PAGE` prints."""
     return FakeLLM(
         products=ProductList(
             products=[
@@ -1061,9 +1002,7 @@ def test_what_the_pages_said_reaches_the_report(agent_factory, caplog) -> None:
 def test_closing_an_agent_closes_the_client_it_opened(
     monkeypatch: pytest.MonkeyPatch, cache_ttl: float, why: str
 ) -> None:
-    """Whichever of the two the agent is holding. The wrapper that remembers
-    answers is the only handle left on the client when a run may reuse them, so
-    the close has to reach through it (ADR-0044)."""
+    """Whichever of the two the agent is holding."""
     closed: list[str] = []
 
     class FakeClient:
@@ -1081,9 +1020,7 @@ def test_closing_an_agent_closes_the_client_it_opened(
 
 
 def test_closing_an_agent_leaves_a_model_it_was_handed_alone() -> None:
-    """A client passed in belongs to whoever passed it. Closing it here would be
-    this agent ending a lifetime that is not its to end -- and the injected model
-    is how every test and both scripted front ends run the pipeline."""
+    """A client passed in belongs to whoever passed it."""
 
     class Pooling(FakeLLM):
         closed = False
@@ -1103,13 +1040,7 @@ def test_closing_an_agent_leaves_a_model_it_was_handed_alone() -> None:
 
 @pytest.fixture
 def source_search(monkeypatch):
-    """An agent whose search backend answers per query.
-
-    ``asked`` records the query and width every search was made with, and
-    ``reached`` the URLs that survived the pooling -- read off ``enrich``, which
-    is the next thing in the pipeline, so what is asserted is what the run went
-    on to read rather than the return of a private method.
-    """
+    """An agent whose search backend answers per query."""
 
     def build(pages: dict[str, list[SearchResult]], llm: FakeLLM, **config_kwargs):
         asked: list[tuple[str, int]] = []
@@ -1176,8 +1107,7 @@ def test_the_search_width_is_shared_out_rather_than_multiplied(source_search) ->
 def test_a_result_from_outside_a_source_never_reaches_the_model(
     source_search, caplog
 ) -> None:
-    """The operator is the backend's promise; this is the check on it. Otherwise a
-    backend that ignored ``site:`` would quietly source the facts from anywhere."""
+    """The operator is the backend's promise; this is the check on it."""
     agent, _, _reached = source_search(
         {
             "headphones site:a.com": [
@@ -1206,8 +1136,7 @@ def test_a_result_from_outside_a_source_never_reaches_the_model(
 
 
 def test_one_page_found_under_two_sources_is_read_once(source_search) -> None:
-    """It is one page. Fetching it twice would cost a slot the second source
-    could have filled with something the shopper has not already seen."""
+    """It is one page."""
     shared = _page("Anker Q30", "https://shop.example/anker")
     agent, _, reached = source_search(
         {
@@ -1261,8 +1190,7 @@ def test_the_pool_is_cut_back_to_the_width_the_run_asked_for(source_search) -> N
 def test_every_step_is_announced_to_the_checkpoint_before_it_starts(
     agent_factory, search_results, extracted_products
 ) -> None:
-    """The boundaries a caller can end a run at, in the order the pipeline reaches
-    them. Only these four: a step not announced is one a stopped run still pays for."""
+    """The boundaries a caller can end a run at, in the order the pipeline reaches them."""
     agent, _ = agent_factory(FakeLLM(products=extracted_products), search_results)
     steps: list[str] = []
 
@@ -1330,11 +1258,9 @@ def test_a_run_stopped_before_ranking_reports_nothing(
 @pytest.mark.parametrize(
     ("bound", "reported"),
     [
-        # The gap this closes: the request says "under $200", the search puts
-        # that in the query, and nothing downstream ever checked it -- so the
-        # $328 pair was reported, and reported as the *best* one where nothing
-        # cheaper came back. The unpriced product survives either bound, which is
-        # the rule about blanks arriving intact from ``constraints``.
+        # The gap this closes: the request says "under $200", the search puts that in the
+        # query, and nothing downstream ever checked it -- so the $328 pair was reported,
+        # and reported as the *best* one where nothing cheaper came back.
         ({"max_price": 200.0}, ["Anker Soundcore Q30", "Unknown Brand Buds"]),
         ({"min_rating": 4.5}, ["Sony WH-1000XM5", "Unknown Brand Buds"]),
     ],
@@ -1364,15 +1290,9 @@ def test_the_ranks_are_renumbered_over_what_survived(
 def test_the_price_scale_is_over_what_survived_the_bounds(
     agent_factory, search_results, extracted_products
 ) -> None:
-    """Price scores relative to the candidate set, so the set has to be the one
-    being reported: scored against the $328 pair that was dropped, the $79 one
-    would be "the cheapest available" on the strength of an option nobody has.
-
-    One price left in the set is no scale, so it ties at ``NEUTRAL`` -- and it is
-    not an *assumption*, the page having printed the figure and grounding having
-    backed it (ADR-0041). The scale collapsing and the figure being missing are
-    two different things, and only the second is named.
-    """
+    """Price scores relative to the candidate set, so the set has to be the one being
+    reported: scored against the $328 pair that was dropped, the $79 one would be "the
+    cheapest available" on the strength of an option nobody has."""
     agent, _ = agent_factory(
         FakeLLM(products=extracted_products), search_results, max_price=200.0
     )
@@ -1389,12 +1309,8 @@ def test_the_price_scale_is_over_what_survived_the_bounds(
 def test_bounds_that_admit_nothing_end_the_run_without_a_report(
     agent_factory, search_results, caplog
 ) -> None:
-    """Not a failure -- the run worked -- so it is the empty answer the CLI turns
-    into its own exit code, with the reason on the way past.
-
-    Every candidate here carries a price, which is what it takes to drop the lot:
-    a product whose price no page printed is kept whatever the budget is.
-    """
+    """Not a failure -- the run worked -- so it is the empty answer the CLI turns into its
+    own exit code, with the reason on the way past."""
     priced = ProductList(
         products=[
             ExtractedProduct(name="Sony WH-1000XM5", price=328.0, currency="USD"),

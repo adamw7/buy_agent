@@ -1,19 +1,4 @@
-"""Run the pipeline over :mod:`benchmark.corpus` and score what comes back.
-
-The model is the only thing a benchmark run is allowed to vary, so everything
-around it is pinned: the same ten pages, the same request, the same widths, the
-same scorer. What is *not* stubbed is the pipeline -- refining, condensing,
-extracting, cleaning, grounding, deduplicating and ranking all really run, which
-is the difference between benchmarking this agent and benchmarking a model.
-
-:func:`serving_the_corpus` is the seam, and it stops at the **transport**, as
-``integration/conftest.py`` and ``demo/server.py`` do: ``search_web`` hands back
-the fixture instead of calling DuckDuckGo, ``enrich`` reads the fabricated text
-instead of fetching a URL -- and then runs the real
-:func:`buy_agent.fetch.condense` over it on the config's own budgets. So the
-prompt the model is scored on is shaped the way a production prompt is, and the
-corpus a quote is checked against is the one the pipeline checked it against.
-"""
+"""Run the pipeline over :mod:`benchmark.corpus` and score what comes back."""
 
 from __future__ import annotations
 
@@ -38,12 +23,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class Report:
-    """One benchmark run: the scorecard, and enough of the run to explain it.
-
-    ``pages`` is the corpus as ``enrich`` left it -- condensed, which is the text
-    the model was shown and the text a quote is scored against. Not
-    :data:`benchmark.corpus.PAGES`, whose ``content`` is still empty.
-    """
+    """One benchmark run: the scorecard, and enough of the run to explain it."""
 
     scorecard: Scorecard
     ranked: list[RankedProduct]
@@ -55,10 +35,6 @@ def serving_the_corpus(
     pages: Sequence[SearchResult] = PAGES, page_text: Mapping[str, str] = PAGE_TEXT
 ) -> Iterator[list[SearchResult]]:
     """Hand every agent the corpus instead of the web, for as long as this is open.
-
-    The two names are replaced on :mod:`buy_agent.agent`, the only module that
-    calls either -- the same single patch point the unit suite relies on, and the
-    reason the fan-out over named sources lives in ``agent.py``.
 
     Yields:
         The enriched results, filled in as the agent asks for them, so a caller

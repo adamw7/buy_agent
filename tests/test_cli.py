@@ -125,12 +125,7 @@ def test_no_json_file_is_written_by_default(fake_agent, tmp_path) -> None:
 
 
 def test_finding_nothing_has_an_exit_code_of_its_own(fake_agent) -> None:
-    """A run that worked and found nothing is not a run that failed.
-
-    Both are non-zero, but a shell told they are the same 1 cannot tell "nobody
-    sells this" from "the model server is down", and the two want different
-    things done about them.
-    """
+    """A run that worked and found nothing is not a run that failed."""
     fake_agent["result"] = []
 
     assert main(["nonexistent gadget"]) == NOTHING_FOUND
@@ -282,14 +277,7 @@ def test_a_source_that_names_no_site_is_a_usage_error_that_says_what_does(capsys
 
 @pytest.mark.parametrize("spec", ["", "   ", ","])
 def test_a_source_flag_naming_nothing_is_a_usage_error_too(spec: str, capsys) -> None:
-    """And the one that used to be silent, rather than an empty report.
-
-    Every other bad spec fails loudly. A blank one parsed to no sources at all,
-    which is not a narrower search but the widest there is: ``--source ""``
-    searched the whole web and said nothing about having done so. On a command
-    line "unset" is spelled by leaving the flag off, so a flag that names nothing
-    is a mistake and gets the shapes that are not.
-    """
+    """And the one that used to be silent, rather than an empty report."""
     with pytest.raises(SystemExit) as exit_info:
         main(["headphones", "--source", spec])
 
@@ -460,10 +448,7 @@ def test_the_json_carries_every_product_field(fake_agent, tmp_path) -> None:
 
 
 def test_the_json_is_shaped_the_way_the_api_shapes_a_run(fake_agent, tmp_path) -> None:
-    """One shaping for every way a run leaves the process. The file this writes,
-    the API's answer and the file the page's Download results button hands over
-    are the same document, so a field added to ``product_payload`` is in all
-    three and the browser never has a shape of its own to write."""
+    """One shaping for every way a run leaves the process."""
     destination = tmp_path / "out.json"
 
     main(["headphones", "--json", str(destination)])
@@ -490,11 +475,7 @@ def test_no_json_is_written_when_the_run_fails(fake_agent, tmp_path) -> None:
 
 
 def test_an_empty_run_still_writes_the_json_it_was_asked_for(fake_agent, tmp_path) -> None:
-    """A script waiting on this file wants an answer, not the absence of one.
-
-    Skipped, the run leaves no file and no reason -- and leaves the *last* run's
-    results sitting there looking current, which is worse than either.
-    """
+    """A script waiting on this file wants an answer, not the absence of one."""
     fake_agent["result"] = []
     destination = tmp_path / "out.json"
 
@@ -515,11 +496,7 @@ def test_a_stale_json_file_is_overwritten_by_an_empty_run(fake_agent, tmp_path) 
 def test_an_unwritable_json_path_is_an_exit_code_not_a_traceback(
     fake_agent, tmp_path, caplog
 ) -> None:
-    """A mistyped ``--json`` path must not end a minute of work in a stack trace.
-
-    The report is already on stderr by the time the file is written, so what
-    failed is the copy. Exit 1 so a script notices, and say which path and why.
-    """
+    """A mistyped ``--json`` path must not end a minute of work in a stack trace."""
     destination = tmp_path / "no-such-directory" / "out.json"
 
     with caplog.at_level(logging.ERROR, logger="buy_agent"):
@@ -562,14 +539,7 @@ def test_a_number_outside_its_range_is_a_usage_error(flag: str, value: str) -> N
 
 
 def test_a_refused_number_is_told_the_range_and_what_it_gave(capsys) -> None:
-    """Exit 2 alone is a shopper reading "invalid value" and guessing.
-
-    The range is the whole content of the refusal -- it is read off
-    ``config.LIMITS`` precisely so the shopper is told the same bounds the API
-    would have told them -- and the value echoes back because argparse prints the
-    flag but not always the number, and "50" mistyped as "500" is the case this
-    catches.
-    """
+    """Exit 2 alone is a shopper reading "invalid value" and guessing."""
     with pytest.raises(SystemExit):
         main(["headphones", "--results", "500"])
 
@@ -592,11 +562,7 @@ def test_the_edge_of_the_range_is_inside_it(fake_agent, flag: str, value: str) -
 
 
 def test_a_context_window_the_provider_ignores_is_called_out(fake_agent, caplog) -> None:
-    """vLLM fixes its window with --max-model-len when it starts.
-
-    The form disables the field and says so; the CLI has no field to disable, so
-    it says it rather than dropping the number without a word.
-    """
+    """vLLM fixes its window with --max-model-len when it starts."""
     with caplog.at_level(logging.WARNING):
         main(["headphones", "--provider", "vllm", "--num-ctx", "4096"])
 
@@ -625,12 +591,7 @@ def test_a_context_window_the_provider_takes_is_not_called_out(fake_agent, caplo
 def test_a_paying_flag_without_pay_is_called_out(
     fake_agent, caplog, flag: str, value: str
 ) -> None:
-    """The form draws none of these until Pay for the top product is on.
-
-    The CLI has no panel to hide, so a run that spends its minute and then buys
-    nothing says which word was missing -- rather than reading like a rail that
-    failed.
-    """
+    """The form draws none of these until Pay for the top product is on."""
     with caplog.at_level(logging.WARNING):
         main(["headphones", flag, value])
 
@@ -663,9 +624,8 @@ def test_a_run_that_asked_for_none_of_them_is_not_called_out(fake_agent, caplog)
 def test_a_rail_the_environment_set_is_not_read_as_asking_to_buy(
     fake_agent, caplog, monkeypatch
 ) -> None:
-    """``$BUY_AGENT_RAIL`` is how a machine is pointed at one counterparty for
-    good, and a standing answer is not somebody asking to buy something. So the
-    rail is measured against what this machine defaults to, not against dry-run."""
+    """``$BUY_AGENT_RAIL`` is how a machine is pointed at one counterparty for good, and a
+    standing answer is not somebody asking to buy something."""
     monkeypatch.setattr(main_module, "DEFAULT_RAIL", "http")
 
     with caplog.at_level(logging.WARNING):
@@ -720,13 +680,7 @@ def test_the_module_is_runnable_as_a_script() -> None:
 
 
 def test_a_misspelt_provider_environment_is_a_usage_error(monkeypatch, capsys) -> None:
-    """``choices`` never sees a default, so the environment used to walk past it.
-
-    ``$BUY_AGENT_PROVIDER=olama`` reached ``AgentConfig`` -- at import time, in
-    the module-level defaults, so the traceback came out before ``main`` ran and
-    took ``--help`` with it. It is the CLI's own kind of mistake, so it gets the
-    CLI's own answer: argparse's exit 2, carrying the servers that do exist.
-    """
+    """``choices`` never sees a default, so the environment used to walk past it."""
     monkeypatch.setattr(main_module, "DEFAULT_PROVIDER", "olama")
     parser = main_module.build_parser()
 
@@ -738,11 +692,7 @@ def test_a_misspelt_provider_environment_is_a_usage_error(monkeypatch, capsys) -
 
 
 def test_the_defaults_survive_a_provider_the_environment_got_wrong(monkeypatch) -> None:
-    """The other half: the module still imports, so --help still lists them.
-
-    Every field but the provider is a plain default that no environment variable
-    can make unusable, and the one that can is refused above rather than here.
-    """
+    """The other half: the module still imports, so --help still lists them."""
     monkeypatch.setattr(main_module, "DEFAULT_PROVIDER", "olama")
 
     defaults = main_module._defaults()
@@ -754,14 +704,7 @@ def test_the_defaults_survive_a_provider_the_environment_got_wrong(monkeypatch) 
 def test_a_provider_the_environment_got_right_is_the_one_the_flags_default_to(
     monkeypatch,
 ) -> None:
-    """The half the fallback above must not swallow.
-
-    ``$BUY_AGENT_PROVIDER`` is how a shopper moves a whole run to the other
-    server, and every flag's default is built off this one config -- so a
-    ``_defaults`` that reached for the first row whatever the environment said
-    would run vLLM's address against Ollama's model, silently, with ``--help``
-    still naming the server they asked for.
-    """
+    """The half the fallback above must not swallow."""
     other = next(name for name in PROVIDERS if name != next(iter(PROVIDERS)))
     monkeypatch.setattr(main_module, "DEFAULT_PROVIDER", other)
 
@@ -773,13 +716,7 @@ def test_a_provider_the_environment_got_right_is_the_one_the_flags_default_to(
 
 @pytest.mark.parametrize(("flag", "setting"), [("--model", "model"), ("--base-url", "base_url")])
 def test_the_help_names_every_provider_s_own_default(flag: str, setting: str) -> None:
-    """Neither flag has one default, so the help lists the lot.
-
-    Read off the table, so a third server appears here by being added there
-    rather than by somebody remembering this sentence -- and read off the
-    *action* rather than out of ``format_help()``, which wraps to a width this
-    suite does not choose.
-    """
+    """Neither flag has one default, so the help lists the lot."""
     listed = main_module._provider_defaults(setting)
 
     assert listed.split(", ") == [
@@ -1025,14 +962,7 @@ def test_a_rail_nothing_can_pay_through_is_a_usage_error(capsys) -> None:
 
 
 def test_a_paying_rail_with_nowhere_to_pay_is_a_usage_error(capsys) -> None:
-    """The one refusal no single flag can make, said the way every other is.
-
-    ``AgentConfig`` checks it, because it is two flags and an environment
-    variable between them and a ``type`` function sees one value at a time. Left
-    to escape ``main``, which builds that config outside every guard it has, it
-    came out as a traceback -- for a mistake that is ``--pay --rail http`` and a
-    ``$BUY_AGENT_MERCHANT_URL`` nobody set.
-    """
+    """The one refusal no single flag can make, said the way every other is."""
     with pytest.raises(SystemExit) as exit_code:
         main(["headphones", "--pay", "--rail", "http", "--merchant-url", ""])
 
@@ -1043,13 +973,7 @@ def test_a_paying_rail_with_nowhere_to_pay_is_a_usage_error(capsys) -> None:
 
 
 def test_a_misspelt_rail_environment_is_a_usage_error(monkeypatch, capsys) -> None:
-    """The rail's half of the provider mistake above, and the same answer.
-
-    ``$BUY_AGENT_RAIL=dryrun`` walked past ``choices`` and reached
-    ``AgentConfig`` in the module-level defaults, so importing this module was a
-    traceback -- which took ``--help`` and its list of the rails there are with
-    it, and every other flag besides.
-    """
+    """The rail's half of the provider mistake above, and the same answer."""
     monkeypatch.setattr(main_module, "DEFAULT_RAIL", "dryrun")
     parser = main_module.build_parser()
 
@@ -1061,14 +985,7 @@ def test_a_misspelt_rail_environment_is_a_usage_error(monkeypatch, capsys) -> No
 
 
 def test_the_module_still_imports_on_a_rail_the_environment_got_wrong() -> None:
-    """The other half, and the only way to ask it: a real variable, a real import.
-
-    ``$BUY_AGENT_RAIL`` is read when ``buy_agent.config`` is imported and
-    ``_DEFAULTS`` is built when this module is, so a misspelt one raised before
-    ``main`` existed -- taking ``--help``, its list of the rails there are and
-    every other flag with it. Monkeypatching cannot reach that: the module is
-    already imported by then.
-    """
+    """The other half, and the only way to ask it: a real variable, a real import."""
     completed = subprocess.run(
         [sys.executable, "-m", "buy_agent", "--help"],
         cwd=Path(__file__).resolve().parents[1],

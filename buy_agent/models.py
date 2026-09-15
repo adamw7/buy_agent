@@ -86,8 +86,7 @@ class ExtractedProduct(BaseModel):
 
 class Opinion(BaseModel):
     """One thing a source page said about a product, and the page that said it (ADR-0025,
-    ADR-0042, ADR-0017).
-    """
+    ADR-0042, ADR-0017)."""
 
     text: str
     url: str | None = None
@@ -148,8 +147,7 @@ QUALIFIERS: dict[str, tuple[str, ...]] = {
 
 
 def dominant_currency(products: Iterable[Product]) -> str | None:
-    """The currency this set of products is priced in, where they agree on one (ADR-0043).
-    """
+    """The currency this set of products is priced in, where they agree on one (ADR-0043)."""
     counted = Counter(
         product.currency
         for product in products
@@ -163,8 +161,7 @@ def dominant_currency(products: Iterable[Product]) -> str | None:
 
 def comparable_price(product: Product, currency: str | None) -> float | None:
     """``product``'s price on this run's own scale, or ``None`` if it is not on it
-    (ADR-0043).
-    """
+    (ADR-0043)."""
     on_the_scale = currency is None or product.currency in (None, currency)
     return product.price if on_the_scale else None
 
@@ -207,8 +204,7 @@ def distinct_quotes(values: Iterable[Opinion]) -> list[Opinion]:
 
 def _quotes(values: list[str]) -> list[Opinion]:
     """Tidy the quoted opinions, dropping blanks, repeats and whole paragraphs (ADR-0017,
-    ADR-0042).
-    """
+    ADR-0042)."""
     cleaned = (_clean(value) for value in values)
     return distinct_quotes(
         Opinion(text=quote)

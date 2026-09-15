@@ -33,11 +33,9 @@ async function render(
 }
 
 /**
- * Catch the download instead of performing it.
- *
- * jsdom has neither object URLs nor navigation, so the two ends of the browser's
- * save-a-file dance are stubbed: what the test wants is the blob that went in
- * and the name the link asked for.
+ * Catch the download instead of performing it. jsdom has neither object URLs nor navigation, so the
+ * two ends of the browser's save-a-file dance are stubbed: what the test wants is the blob that
+ * went in and the name the link asked for.
  */
 function interceptDownload(): { saved: () => HTMLAnchorElement; blobs: Blob[] } {
   const blobs: Blob[] = [];
@@ -58,10 +56,8 @@ function interceptDownload(): { saved: () => HTMLAnchorElement; blobs: Blob[] } 
   return {
     blobs,
     saved: () => {
-      // Still holding the URL: it is given back a turn later, not in the one the
-      // click happened in, where revoking it can cancel the transfer. When that
-      // happens is `save.ts`'s own business and tested there; that it has not
-      // happened yet is what this panel's button depends on.
+      // Still holding the URL: it is given back a turn later, not in the one the click happened in,
+      // where revoking it can cancel the transfer.
       expect(revoked).toEqual([]);
       return links[links.length - 1];
     },
@@ -173,12 +169,7 @@ describe('ProgressLog', () => {
 });
 
 describe('ProgressLog scrolling', () => {
-  /**
-   * Give the panel a real overflow, which jsdom lays nothing out to produce.
-   *
-   * The three numbers are all the component reads, and they are what a browser
-   * would have measured: a scroller a third the height of its contents.
-   */
+  /** Give the panel a real overflow, which jsdom lays nothing out to produce. */
   function measure(element: HTMLElement, scrollTop: number): void {
     for (const [name, value] of Object.entries({
       scrollHeight: 900,
@@ -247,13 +238,8 @@ describe('ProgressLog scrolling', () => {
   });
 
   it('measures the panel after the new lines are in it', async () => {
-    // The one thing `measure` above cannot say, its height being a constant: a
-    // browser's grows as lines land in it. Measured before the render -- which
-    // is when a plain `effect` runs -- the height is the one from before the
-    // line that woke it, and the panel comes to rest a line short of the bottom
-    // every time. The scroll event for that stale position then arrives after
-    // the render, reads the gap as the reader having scrolled away, and the
-    // panel stops following for the rest of the run.
+    // The one thing `measure` above cannot say, its height being a constant: a browser's grows as
+    // lines land in it.
     const fixture = TestBed.createComponent(ProgressLog);
     fixture.componentRef.setInput('lines', LINES);
     fixture.componentRef.setInput('running', true);

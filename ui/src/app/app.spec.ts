@@ -79,8 +79,7 @@ class FakeAgent {
   sourcesResponse = (sources: string): Observable<SourcesCheck> => of({ sources, error: '' });
   unsubscribed = false;
   ranked: RankOptions[] = [];
-  /** What `/api/rank` answers with. A function, so a test can shape the reply
-   *  around what was posted -- which is the whole set, ordered again. */
+  /** What `/api/rank` answers with. */
   rankResponse: (options: RankOptions) => Observable<SearchResult> = (options) =>
     of({
       request: options.request,
@@ -144,8 +143,7 @@ const render = async (): Promise<ComponentFixture<App>> => {
   return fixture;
 };
 
-/** Type into a named field. `left` also fires `change`, which is what the fields
- *  that ask the server something wait for rather than a keystroke. */
+/** Type into a named field. */
 const fill = async (fixture: ComponentFixture<App>, name: string, value: string, left = false) => {
   const field = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
     `input[name="${name}"]`,
@@ -165,9 +163,7 @@ const searchFor = async (fixture: ComponentFixture<App>, request: string) => {
   await fixture.whenStable();
 };
 
-/** One whole run on the page: ask for something, and let the stream answer.
- *  All three blocks below need it, so it takes the fake rather than closing over
- *  one -- each `describe` builds its own in `beforeEach`. */
+/** One whole run on the page: ask for something, and let the stream answer. */
 const ran = async (
   agent: FakeAgent,
   request: string,
@@ -297,8 +293,7 @@ describe('App', () => {
   });
 
   it('says the server is unreachable rather than pretending it has no models', async () => {
-    /* An empty model list and a server that never answered are different things.
-       The pill still names it, out of the defaults the agent server sent. */
+    /** An empty model list and a server that never answered are different things. */
     agent.modelsResponse = throwError(() => new Error('connection refused'));
 
     const page = (await render()).nativeElement as HTMLElement;
@@ -308,8 +303,7 @@ describe('App', () => {
   });
 
   it('shows what to start, as visible text rather than a hover', async () => {
-    /* The pill alone says only that nothing answered. The remedy is Python's
-       sentence, and a title attribute is no use on a touch screen. */
+    /** The pill alone says only that nothing answered. */
     agent.modelsResponse = of({
       ...STATUS,
       reachable: false,
@@ -749,9 +743,7 @@ describe('App results', () => {
   });
 
   it('puts the Rank by control back when the re-order did not happen', async () => {
-    /* The control is the one thing on the page saying what these are sorted by.
-       Left on the criterion that failed it says the wrong thing -- and picking it
-       again fires no `change`, so there was no way to retry either. */
+    /** The control is the one thing on the page saying what these are sorted by. */
     agent.rankResponse = () => throwError(() => new Error('offline'));
     const fixture = await finished();
 
@@ -897,8 +889,7 @@ describe('App paying', () => {
   });
 
   it('says a payment failed beside the products and not in the run banner', async () => {
-    /* The banner at the top means the *run* failed, and this run did not -- it
-       found these. */
+    /** The banner at the top means the *run* failed, and this run did not -- it found these. */
     agent.payResponse = () => throwError(() => ({ error: { error: 'Card declined' } }));
     const fixture = await finished(true);
     await buyTheTopOne(fixture);
@@ -921,9 +912,7 @@ describe('App paying', () => {
     expect(buttons.every((button) => button.disabled)).toBe(true);
   });
 
-  /** Ask for the same products in another order, the way the control beside the
-   *  results does. The fake answers with them reversed and ranked again from 1,
-   *  which is what `rank_products` does to any set it is handed. */
+  /** Ask for the same products in another order, the way the control beside the results does. */
   const reorder = async (fixture: ComponentFixture<App>, criterion: string) => {
     const select = (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>(
       'select[name="resort"]',

@@ -1,9 +1,4 @@
-"""The DuckDuckGo wrapper, with the network stubbed out.
-
-``buy_agent.search.DDGS`` is replaced wholesale rather than having its ``text``
-method patched: the name ``ddgs`` exports is a wrapper that constructs a
-different class, so a patched method on it would never be called.
-"""
+"""The DuckDuckGo wrapper, with the network stubbed out."""
 
 from __future__ import annotations
 
@@ -94,15 +89,7 @@ def test_finding_nothing_is_an_empty_list_not_a_failure(monkeypatch) -> None:
 
 
 def test_the_way_ddgs_itself_spells_finding_nothing_is_not_a_failure(monkeypatch) -> None:
-    """ddgs raises rather than returning [], and that is not a backend failure.
-
-    ``_search_sync`` ends in ``raise DDGSException(err or "No results found.")``,
-    so a query that reached every engine and matched nothing arrives as an
-    exception like any other. Read as one it became ``SearchError`` -- "the web
-    search backend could not be reached", a 502 in the browser -- for a search
-    that worked. The empty-list case above is the fake being kinder than the
-    real thing, which is why it could not catch this on its own.
-    """
+    """ddgs raises rather than returning [], and that is not a backend failure."""
     stub_ddgs(monkeypatch, error=DDGSException(_NO_RESULTS))
 
     assert search_web("something nobody sells") == []
@@ -143,11 +130,7 @@ def test_an_unexpected_error_is_not_disguised_as_a_search_failure(monkeypatch) -
 
 
 def stub_sequence(monkeypatch, *answers) -> list[str]:
-    """Point ``search_web`` at a backend giving each answer in turn.
-
-    The retry is about the second search, so the stub has to be able to fail once and
-    work afterwards -- which one that raises forever, or answers forever, cannot say.
-    """
+    """Point ``search_web`` at a backend giving each answer in turn."""
     remaining = list(answers)
     asked: list[str] = []
 
@@ -204,8 +187,7 @@ def test_a_search_is_asked_once_where_there_is_nothing_to_wait_by(monkeypatch) -
 
 
 def test_a_search_that_matched_nothing_is_never_asked_again(monkeypatch) -> None:
-    """It worked. Asking again would match nothing twice and cost the wait to find
-    out -- which is the difference between an answer and a failure."""
+    """It worked."""
     asked = stub_sequence(monkeypatch, DDGSException(_NO_RESULTS))
     waits: list[float] = []
 
@@ -216,11 +198,7 @@ def test_a_search_that_matched_nothing_is_never_asked_again(monkeypatch) -> None
 def test_a_search_that_matched_nothing_on_the_second_try_is_still_an_answer(
     monkeypatch,
 ) -> None:
-    """The no-results check is inside the loop, so it is asked of both attempts.
-
-    A backend that failed and then had nothing is a search that worked: reported as
-    a ``SearchError`` it would be "DuckDuckGo is unreachable" over a running one.
-    """
+    """The no-results check is inside the loop, so it is asked of both attempts."""
     asked = stub_sequence(monkeypatch, DDGSException("rate limit"), DDGSException(_NO_RESULTS))
 
     assert search_web("headphones", wait=lambda _: None) == []

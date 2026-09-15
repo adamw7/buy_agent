@@ -45,9 +45,7 @@ describe('SearchForm', () => {
     await fixture.whenStable();
   };
 
-  /** Tell the form what the server reported serving, the way the page does.
-   *  A name alone is a model that can answer a prompt; the ones that cannot are
-   *  given as objects, since that is the half the picker has to mark. */
+  /** Tell the form what the server reported serving, the way the page does. */
   const pulled = async (models: (string | InstalledModel)[]) => {
     fixture.componentRef.setInput(
       'status',
@@ -336,9 +334,7 @@ describe('SearchForm', () => {
   });
 
   it('drops a refusal once the box stops holding what was refused', async () => {
-    /* The mark is about what was *sent*. Left standing, fixing the region left
-       the box red and the summary counting a setting to look at, and neither
-       cleared until the next run. */
+    /** The mark is about what was *sent*. */
     await type('input[name="request"]', 'kettle');
     await type('input[name="region"]', 'en-us');
     await send();
@@ -391,8 +387,7 @@ describe('SearchForm', () => {
   });
 
   it('reads a box no environment can judge as holding nothing wrong', async () => {
-    /* `validity` is not everywhere. Absent, nothing is unreadable -- not
-       everything, which would be a form that refuses every number. */
+    /** `validity` is not everywhere. */
     await type('input[name="request"]', 'kettle');
     const input = element<HTMLInputElement>('input[name="results"]');
     Object.defineProperty(input, 'validity', { value: undefined, configurable: true });
@@ -446,11 +441,10 @@ describe('SearchForm', () => {
   });
 
   it('ignores a rank criterion the server no longer offers', async () => {
-    /* The same rule the thinking mode gets, on the field that most needed it:
-       `sort_options` is the server's list and it is free to change, while
-       storage outlives every version of it. Restored unchecked, the Rank by
-       select matched no option and showed nothing, and the run was refused by
-       Python for a value nobody could see on the page. */
+    /**
+     * The same rule the thinking mode gets, on the field that most needed it: `sort_options` is the
+     * server's list and it is free to change, while storage outlives every version of it.
+     */
     localStorage.setItem('buy_agent.settings', JSON.stringify({ sortBy: 'cheapness' }));
 
     const form = await seeded();
@@ -507,9 +501,7 @@ describe('SearchForm', () => {
   });
 
   it('marks a model that cannot answer a prompt rather than hiding it', async () => {
-    /* An embedding model is pulled the same way a chat one is and lists the
-       same. Dropped, a pull made on purpose would silently vanish; offered
-       unmarked, it is a run that fails a minute in. */
+    /** An embedding model is pulled the same way a chat one is and lists the same. */
     await pulled(['llama3.2', { name: 'nomic-embed-text', completion: false }]);
 
     expect(modelNames()).toEqual(['llama3.2', 'nomic-embed-text']);
@@ -747,11 +739,10 @@ describe('SearchForm', () => {
   });
 
   it('keeps a served context window that nothing was remembered against', async () => {
-    /* `null` is a real remembered value for this field -- "use whatever the
-       server defaults to" -- so it cannot fall back the way the others do. That
-       must not turn an absent key into a remembered null: a settings blob
-       written before the field existed has to leave the served default standing,
-       which since gemma4 (ADR-0019) is a window the run actually needs. */
+    /**
+     * `null` is a real remembered value for this field -- "use whatever the server defaults to" --
+     * so it cannot fall back the way the others do.
+     */
     const withCtx: AgentDefaults = { ...DEFAULTS, num_ctx: 8192 };
     const render = async (): Promise<HTMLElement> => {
       const next = TestBed.createComponent(SearchForm);
@@ -1031,8 +1022,7 @@ describe('SearchForm, paying', () => {
   });
 
   it('never remembers that it was allowed to spend money', async () => {
-    /* The other settings are standing answers about this machine. "You may
-       spend my money" is not one of them. */
+    /** The other settings are standing answers about this machine. */
     await tick('pay', true);
     element<HTMLInputElement>('input[name="request"]').value = 'headphones';
     element<HTMLInputElement>('input[name="request"]').dispatchEvent(new Event('input'));

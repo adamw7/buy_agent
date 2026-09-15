@@ -82,16 +82,11 @@ _XML_DECLARATION = re.compile(r"^\s*<\?xml[^>]*\?>")
 _MIN_SEGMENT = 4
 _MAX_SEGMENT = 300
 
-#: An opinion is a sentence, not a figure, so it gets a floor of its own -- which is
-#: what keeps a bare "Pros" heading, whose content is the lines below it, out of the
-#: prompt.
+#: An opinion is a sentence, not a figure, so it gets a floor of its own -- which is what
+#: keeps a bare "Pros" heading, whose content is the lines below it, out of the prompt.
 _MIN_OPINION = 25
 
-#: What the two sweeps are given when a caller does not say. The pipeline never asks:
-#: ``BuyAgent`` hands down ``AgentConfig.page_chars`` and ``opinion_chars``, which is
-#: where a run's budgets are set and the only place they are a setting. These are what
-#: the three signatures below fell back to, and the opinion budget was written out on
-#: all three -- a second set of defaults for one knob, and three copies of it.
+#: What the two sweeps are given when a caller does not say.
 _PAGE_BUDGET = 1200
 _OPINION_BUDGET = 400
 
@@ -221,8 +216,7 @@ def fetch_page(
     wait: Callable[[float], None] | None = None,
 ) -> PageText:
     """Read one URL -- off the cache or off the web -- and condense it (ADR-0040,
-    ADR-0053).
-    """
+    ADR-0053)."""
     text = cache.get(url) if cache else None
     cached = text is not None
     if text is None:
@@ -243,9 +237,8 @@ def fetch_page(
 def read_page(
     client: httpx.Client, url: str, *, wait: Callable[[float], None] | None = None
 ) -> PageText:
-    """One page's visible text, or the phrase saying why there is none (ADR-0040, ADR-0009,
-    ADR-0053).
-    """
+    """One page's visible text, or the phrase saying why there is none (ADR-0040,
+    ADR-0009, ADR-0053)."""
     try:
         fetched = _markup(client, url)
     except (httpx.HTTPError, httpx.InvalidURL) as exc:
@@ -306,8 +299,7 @@ def _asked_again(
 
 def _come_back_in(exc: Exception) -> float | None:
     """How long this failure says to wait before asking again, or None for "do not"
-    (ADR-0053).
-    """
+    (ADR-0053)."""
     if not isinstance(exc, httpx.HTTPStatusError):
         return None
     if exc.response.status_code not in _RETRY_STATUSES:
@@ -356,14 +348,7 @@ def summarise_failures(problems: Iterable[str]) -> str:
 
 
 def _as_the_caller(context: Context) -> None:
-    """Start a pool worker in the context its caller is running in.
-
-    This is the one step that fans out into threads, and a thread starts in a
-    context of its own: what a worker logged reached no stream, so the one line a
-    rate-limited page writes at INFO -- the time the shopper is spending -- was
-    missing from the browser's progress panel and from nowhere else (ADR-0011).
-    Read rather than entered, the same context being handed to every worker.
-    """
+    """Start a pool worker in the context its caller is running in."""
     for variable, value in context.items():
         variable.set(value)
 
@@ -378,8 +363,7 @@ def enrich(
     cache_ttl: float = 0.0,
     wait: Callable[[float], None] | None = None,
 ) -> list[SearchResult]:
-    """Attach condensed page content to each result, in parallel (ADR-0040, ADR-0053).
-    """
+    """Attach condensed page content to each result, in parallel (ADR-0040, ADR-0053)."""
     urls = [result.url for result in results]
     logger.info("Fetching %d result page(s)", len(urls))
     cache = open_cache(PAGES, cache_ttl)

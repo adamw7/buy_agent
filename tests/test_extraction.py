@@ -145,12 +145,7 @@ def test_both_of_those_name_what_they_took_for_the_reader_who_asked(caplog) -> N
 
 
 def test_a_product_named_after_a_superlative_is_kept() -> None:
-    """A brand may open on the word a headline opens on.
-
-    "Best Buy Essentials" is a house brand and "Top Rated" is a shelf label; what
-    says these name one product rather than a category is the model number that
-    follows the brand.
-    """
+    """A brand may open on the word a headline opens on."""
     for name in (
         "Best Buy Essentials BE-HAPB02",
         "Top Rated Sony WH-1000XM5",
@@ -221,10 +216,9 @@ def test_clean_name_strips_publisher_and_trailing_noise() -> None:
 
 
 def test_the_plural_of_a_page_word_comes_off_the_name_too() -> None:
-    """"Deals" is what a heading actually says, and ``_NOT_A_PRODUCT`` knows only
-    that spelling -- so with the singular alone on the stripping side, "... -
-    Deal" left a product and "... - Deals" had the whole product discarded as a
-    page. The same asymmetry sat under "price"."""
+    """"Deals" is what a heading actually says, and ``_NOT_A_PRODUCT`` knows only that
+    spelling -- so with the singular alone on the stripping side, "... - Deal" left a
+    product and "... - Deals" had the whole product discarded as a page."""
     assert clean_name("Sony WH-1000XM5 - Deals") == "Sony WH-1000XM5"
     assert clean_name("Sony WH-1000XM5 | Prices") == "Sony WH-1000XM5"
 
@@ -341,13 +335,7 @@ def test_the_extraction_chain_answers_with_a_product_list() -> None:
 
 
 def test_both_chains_ask_for_a_schema_constrained_answer() -> None:
-    """A schema on every call is what stops a small model answering with prose.
-
-    Asserted on what the model is *handed*, not on how a server declares it: that
-    part differs between the two and is theirs to say (ADR-0004, ADR-0038). What
-    is fixed here is that neither call ever goes out without one, and that each
-    goes out with its own.
-    """
+    """A schema on every call is what stops a small model answering with prose."""
     asked: list[type] = []
 
     class Recorder(FakeLLM):
@@ -503,11 +491,7 @@ def test_only_the_first_publisher_bar_splits_the_name() -> None:
 
 
 def test_colour_variants_are_not_merged_into_one_product() -> None:
-    """Black and white are both generic, but neither name contains the other.
-
-    Without the subset check the symmetric difference is generic on its own, so
-    two genuinely different listings would collapse into one.
-    """
+    """Black and white are both generic, but neither name contains the other."""
     merged = merge_variants(
         [Product(name="Sony WH-CH720N Black"), Product(name="Sony WH-CH720N White")]
     )
@@ -530,11 +514,7 @@ def test_merging_carries_over_the_seller_and_the_notes() -> None:
 
 
 def test_a_listing_with_a_link_beats_one_without() -> None:
-    """A URL counts towards completeness, so the linked listing wins a conflict.
-
-    Both listings fill in ``notes``, and only the winner's survives -- which is
-    the only way to see which of the two was judged the more complete.
-    """
+    """A URL counts towards completeness, so the linked listing wins a conflict."""
     merged = merge_variants(
         [
             Product(name="JBL Live 780NC Wireless Headphones", notes="from the roundup"),
@@ -548,12 +528,7 @@ def test_a_listing_with_a_link_beats_one_without() -> None:
 
 
 def test_a_currency_never_moves_to_a_price_from_another_page() -> None:
-    """Two listings, two prices: the surviving figure keeps its own currency.
-
-    Both halves are grounded -- one page really did say 129, the other really
-    did say "249 EUR" -- so verification cannot catch the pairing, which is
-    invented by the merge itself and would be reported as "129.00 EUR".
-    """
+    """Two listings, two prices: the surviving figure keeps its own currency."""
     merged = merge_variants(
         [
             Product(name="Sony WH-CH720N", price=129.0, review_count=800, url="https://us/a"),
@@ -574,12 +549,7 @@ def test_a_currency_never_moves_to_a_price_from_another_page() -> None:
 
 
 def test_a_review_count_never_moves_to_a_rating_from_another_page() -> None:
-    """A count is what *its own* rating was averaged over, so it stays with it.
-
-    Carried over alone it both misreports the rating -- "4.4/5 (12,000
-    reviews)" -- and lifts the popularity half of the score off a figure that
-    belongs to the 4.9 next door.
-    """
+    """A count is what *its own* rating was averaged over, so it stays with it."""
     merged = merge_variants(
         [
             Product(name="Acme X1", price=100.0, rating=4.4, url="https://a"),
@@ -620,10 +590,8 @@ def test_a_qualifier_moves_when_both_pages_quote_the_same_figure() -> None:
 
 
 def test_an_orphaned_count_is_replaced_along_with_the_rating_it_lost() -> None:
-    """Grounding blanks a rating and its count separately, so a merge can meet
-    a listing holding a count for a rating that is no longer there. Adopting the
-    other listing's rating adopts its count too, rather than pairing the new
-    figure with the leftover."""
+    """Grounding blanks a rating and its count separately, so a merge can meet a listing
+    holding a count for a rating that is no longer there."""
     merged = merge_variants(
         [
             Product(name="Acme X1", price=199.0, review_count=800, url="https://a"),
@@ -653,12 +621,7 @@ def test_exact_duplicates_pair_their_figures_too() -> None:
 
 
 def test_merging_keeps_what_both_pages_said_about_the_product() -> None:
-    """The one field taken from both listings rather than from the fuller one.
-
-    Two pages quoting two prices are in conflict and one has to lose; two
-    reviewers are not, and the shopper asking whether the thing is any good is
-    the reason both pages were read.
-    """
+    """The one field taken from both listings rather than from the fuller one."""
     merged = merge_variants(
         [
             Product(name="JBL Live 780NC", price=149.0, opinions=said("the fit is snug")),

@@ -1,26 +1,4 @@
-"""The failure paths, against a real server rather than a raised exception.
-
-``BuyAgent._invoke`` catches four things, and the docstring explaining why is
-the longest in the module: the ollama client converts exactly one of its
-transport failures, so a refused connection is a builtin ``ConnectionError``
-while a timeout and a dropped stream stay raw ``httpx`` errors that are not
-``OSError``s. The unit suite checks that claim by raising each of those four
-itself -- which proves the ``except`` tuple contains them, and nothing about
-whether they are what Ollama actually raises.
-
-That is what these tests are for. They need no inference and cost nothing: a
-refused connection and a model that is not pulled both answer immediately.
-
-Two of the four are covered here and two are not. A stopped server (raw
-``httpx``) and a live server answering 404 for an unknown model
-(``ResponseError``) are both reachable from outside the agent. The
-``httpx.TimeoutException`` branch of ``_ollama_hint`` -- the one that says to
-try a smaller model or a smaller context window -- is not: nothing in
-``AgentConfig`` sets a client timeout, so provoking it live would mean
-constructing the provider's client here by hand, which is the duplication
-``test_live_extraction`` just stopped doing. It stays a unit test raising the
-exception itself until there is a config field to turn it down.
-"""
+"""The failure paths, against a real server rather than a raised exception."""
 
 from __future__ import annotations
 
@@ -52,10 +30,9 @@ def test_ollama_lists_the_model_the_tests_are_running_on(
 def test_a_live_listing_says_which_models_can_answer_a_prompt(
     live_config: AgentConfig,
 ) -> None:
-    """The half of the listing no faked client can vouch for: ``capabilities``
-    is a real field of a real ``ollama show``, and a rename or a removal there
-    would leave every unit test passing and the picker marking nothing
-    (ADR-0032). The tiny model is a chat model, so it must say so."""
+    """The half of the listing no faked client can vouch for: ``capabilities`` is a real
+    field of a real ``ollama show``, and a rename or a removal there would leave every
+    unit test passing and the picker marking nothing (ADR-0032)."""
     installed = live_config.model_server.installed(live_config)
     entry = next(model for model in installed if model.name == live_config.model)
 
@@ -78,10 +55,7 @@ def test_the_model_picker_reports_a_reachable_server(
 def test_a_stopped_server_is_reported_as_something_to_start(
     live_config: AgentConfig, unreachable_base_url: str
 ) -> None:
-    """The whole reason ``httpx.HTTPError`` is in the ``except`` tuple. Reached
-    through ``run`` rather than through the chain, because query refinement is
-    the one recoverable step and this is the failure it deliberately re-raises
-    instead of falling back to the raw request."""
+    """The whole reason ``httpx.HTTPError`` is in the ``except`` tuple."""
     agent = BuyAgent(replace(live_config, base_url=unreachable_base_url))
 
     with pytest.raises(ModelUnavailableError) as excinfo:
@@ -93,10 +67,8 @@ def test_a_stopped_server_is_reported_as_something_to_start(
 def test_a_model_that_is_not_pulled_is_reported_with_a_pull_command(
     live_config: AgentConfig,
 ) -> None:
-    """A live server answering 404 for an unknown model, which is a different
-    failure from the server being absent and gets a different hint. The hint
-    lists what *is* installed, which needs a second live call to be worth
-    printing."""
+    """A live server answering 404 for an unknown model, which is a different failure from
+    the server being absent and gets a different hint."""
     agent = BuyAgent(replace(live_config, model=_MISSING_MODEL))
 
     with pytest.raises(ModelUnavailableError) as excinfo:

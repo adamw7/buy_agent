@@ -69,9 +69,7 @@ class StubAgent:
         # A second line on the far side of the delay: with two runs overlapping,
         # this is the one produced while both of them have a queue attached.
         logging.getLogger("buy_agent.stub").info("Ranking what came back for %s", request)
-        # Where the real pipeline asks whether anyone is still reading. Standing
-        # in for the boundary before the slow step, which is the one worth
-        # stopping at -- and, on a run nobody stopped, for every boundary passing.
+        # Where the real pipeline asks whether anyone is still reading.
         checkpoint("extract")
         StubAgent.captured["reached"] = "extract"
         if isinstance(StubAgent.result, BaseException):
@@ -81,11 +79,7 @@ class StubAgent:
 
 @pytest.fixture
 def server(tmp_path: Path) -> Iterator[str]:
-    """A live server on a loopback port, with the agent stubbed out.
-
-    Nothing here reaches the network or Ollama: only the socket is real, because
-    routing and status codes are exactly what these tests are about.
-    """
+    """A live server on a loopback port, with the agent stubbed out."""
     StubAgent.captured = {}
     StubAgent.result = RANKED
     StubAgent.delay = 0.0
@@ -94,13 +88,7 @@ def server(tmp_path: Path) -> Iterator[str]:
 
 
 def unbuilt_workspace(tmp_path: Path) -> Path:
-    """A ``--ui-dir`` shaped like a real one: an Angular workspace with no build in it.
-
-    ``_workspace_for`` looks three levels up for a ``package.json``, so a bare
-    ``tmp_path`` is the *other* case -- a directory with no workspace above it,
-    which has no build command to be told about. The tests below are about the
-    command, so they need the shape that has one.
-    """
+    """A ``--ui-dir`` shaped like a real one: an Angular workspace with no build in it."""
     workspace = tmp_path / "ui"
     workspace.mkdir()
     (workspace / "package.json").write_text("{}", encoding="utf-8")
@@ -162,11 +150,7 @@ def _decode(response) -> Any:
 
 
 def raw(base: str, request: bytes) -> str:
-    """Send a request urllib refuses to build, and read the whole reply.
-
-    The headers and the body are separate writes and so can arrive in separate
-    segments; reading once would see the reply without its body about half the time.
-    """
+    """Send a request urllib refuses to build, and read the whole reply."""
     parsed = urlparse(base)
     with socket.create_connection((parsed.hostname, parsed.port), timeout=10) as sock:
         sock.sendall(request)
@@ -188,16 +172,7 @@ def raw(base: str, request: bytes) -> str:
 
 
 def smuggled(base: str, request: bytes, expected: str, note: str) -> None:
-    """Send a request whose body this server will never read, and check it stopped.
-
-    The three shapes that reach it -- a chunked body, a negative length, a length
-    too long or unparseable -- are all answered without the body being read, so on
-    a kept-alive HTTP/1.1 connection whatever is left in the socket becomes the
-    next request line. What each of them has to show is the same three things: the
-    status it deserves, a connection that ends rather than guessing, and exactly
-    one reply on the wire -- a second means the leftovers were answered as a
-    request of their own.
-    """
+    """Send a request whose body this server will never read, and check it stopped."""
     parsed = urlparse(base)
     with socket.create_connection((parsed.hostname, parsed.port), timeout=10) as sock:
         sock.sendall(request)
@@ -209,11 +184,7 @@ def smuggled(base: str, request: bytes, expected: str, note: str) -> None:
 
 
 def ask(base: str, path: str = "/api/config", **headers: str) -> str:
-    """Send a GET with exactly the headers given, and read the whole reply.
-
-    Built by hand because these tests are about headers urllib insists on
-    writing itself -- Host above all, which it derives from the URL.
-    """
+    """Send a GET with exactly the headers given, and read the whole reply."""
     sent = {"Host": urlparse(base).netloc, "Connection": "close"}
     sent |= {name.replace("_", "-"): value for name, value in headers.items()}
     lines = [f"GET {path} HTTP/1.1", *(f"{k}: {v}" for k, v in sent.items())]
@@ -221,12 +192,7 @@ def ask(base: str, path: str = "/api/config", **headers: str) -> str:
 
 
 def until(ready, timeout: float = 5.0) -> bool:
-    """Wait for something a worker thread does, without sleeping a fixed guess.
-
-    The response is finished the moment the stream is abandoned, but the run it
-    stopped is still unwinding on its own thread -- so what happened next has to
-    be waited for rather than assumed to have happened already.
-    """
+    """Wait for something a worker thread does, without sleeping a fixed guess."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if ready():
@@ -356,9 +322,8 @@ def test_a_body_that_is_not_an_object_is_rejected(server: str) -> None:
 
 
 def test_reordering_a_finished_run_never_reaches_the_agent(server: str) -> None:
-    """The point of the endpoint: the browser posts back what it is already
-    holding and Python reorders it, so nothing searches, fetches or extracts
-    (ADR-0035). ``StubAgent.captured`` staying empty is that, exactly."""
+    """The point of the endpoint: the browser posts back what it is already holding and
+    Python reorders it, so nothing searches, fetches or extracts (ADR-0035)."""
     found = post(f"{server}/api/search", {"request": "headphones", "top": 1})[1]
     StubAgent.captured.clear()
 
@@ -387,15 +352,7 @@ def test_a_reorder_of_something_that_is_not_a_run_is_refused(server: str) -> Non
 
 
 def test_a_get_that_raises_is_answered_rather_than_dropped(server: str, monkeypatch) -> None:
-    """The reason ``do_POST`` has a catch-all, on the half that had none.
-
-    ``/api/config`` builds an ``AgentConfig``, which refuses a provider nothing
-    can serve -- so ``$BUY_AGENT_PROVIDER=olama`` made every page load an
-    exception escaping to socketserver, which closes the socket unanswered. The
-    browser reads that as the agent server being down and says so, for a server
-    that is up and answering everything else, while the sentence naming the
-    servers that do exist reaches nobody.
-    """
+    """The reason ``do_POST`` has a catch-all, on the half that had none."""
 
     def explode() -> dict:
         raise ValueError("Unknown provider 'olama'; expected one of ollama, vllm.")
@@ -507,13 +464,8 @@ def test_a_request_with_no_body_is_read_as_an_empty_object(server: str) -> None:
 def test_a_post_with_no_length_header_at_all_is_read_as_an_empty_object(
     server: str,
 ) -> None:
-    """The header absent, rather than present and zero -- which is what a client
-    that meant to send nothing actually sends.
-
-    Read as any length but nothing, the handler blocks on a body that is never
-    coming and the request hangs until the client gives up, on a server whose
-    whole answer to this is "you sent no options".
-    """
+    """The header absent, rather than present and zero -- which is what a client that
+    meant to send nothing actually sends."""
     StubAgent.result = ValueError("Nothing to shop for: the request is empty.")
 
     reply = raw(server, b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
@@ -526,12 +478,7 @@ def test_a_post_with_no_length_header_at_all_is_read_as_an_empty_object(
 
 
 def test_a_page_on_another_site_cannot_start_a_run(server: str) -> None:
-    """The reply it cannot read is not the point -- the run happening is.
-
-    A cross-site POST needs no answer to be worth making: the browser refuses to
-    show it, and ten pages have still been fetched and a model driven on somebody
-    else's say-so. So it is refused before the agent is built, not after.
-    """
+    """The reply it cannot read is not the point -- the run happening is."""
     reply = raw(
         server,
         b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\n"
@@ -546,11 +493,7 @@ def test_a_page_on_another_site_cannot_start_a_run(server: str) -> None:
 
 
 def test_a_cross_site_request_carrying_no_origin_is_still_refused(server: str) -> None:
-    """An <img> or an <iframe> pointed here sends no Origin, only fetch metadata.
-
-    Which is why both are read: Origin covers what fetch metadata a proxy stripped
-    would not, and fetch metadata covers the requests that never carry an Origin.
-    """
+    """An <img> or an <iframe> pointed here sends no Origin, only fetch metadata."""
     reply = ask(server, "/api/search/stream?request=headphones", Sec_Fetch_Site="cross-site")
 
     assert "403" in reply.splitlines()[0]
@@ -558,13 +501,7 @@ def test_a_cross_site_request_carrying_no_origin_is_still_refused(server: str) -
 
 
 def test_a_refusal_names_the_header_that_decided_it(server: str, caplog) -> None:
-    """Origin is the value a reader reaches for, and on this path there is none.
-
-    Fetch metadata is the only thing that refuses a request carrying no Origin,
-    and an absent Origin is admitted rather than refused -- so a line reporting
-    it as '' and saying nothing about the fetch site accuses the one header that
-    was innocent.
-    """
+    """Origin is the value a reader reaches for, and on this path there is none."""
     with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
         assert "403" in ask(server, Sec_Fetch_Site="cross-site").splitlines()[0]
 
@@ -575,13 +512,7 @@ def test_a_refusal_names_the_header_that_decided_it(server: str, caplog) -> None
 def test_a_refusal_names_the_host_when_the_host_is_what_decided_it(
     server: str, caplog
 ) -> None:
-    """The other header a refusal can turn on, and the one a reader least expects.
-
-    A rebinding attempt arrives with a perfectly ordinary Origin and fetch site
-    and a Host this server has never been called -- so the two values the line
-    above asserts both read as innocent, and the name that was actually refused
-    is the only thing that explains the 403.
-    """
+    """The other header a refusal can turn on, and the one a reader least expects."""
     with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
         assert "403" in ask(server, Host="attacker.example").splitlines()[0]
 
@@ -589,12 +520,7 @@ def test_a_refusal_names_the_host_when_the_host_is_what_decided_it(
 
 
 def test_a_refusal_says_what_was_asked_for(server: str, caplog) -> None:
-    """One line per refused request, and a run of them is a scan.
-
-    Without the method and the path they are indistinguishable from each other:
-    what a reader wants to know is whether somebody is walking the API or a
-    browser mis-sent one request.
-    """
+    """One line per refused request, and a run of them is a scan."""
     with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
         ask(server, "/api/models?provider=ollama", Sec_Fetch_Site="cross-site")
 
@@ -602,18 +528,13 @@ def test_a_refusal_says_what_was_asked_for(server: str, caplog) -> None:
 
 
 def test_the_dev_servers_proxy_is_not_a_foreign_site(server: str) -> None:
-    """`npm start` serves the app on :4200 and proxies /api here, Origin and all.
-
-    Loopback is the boundary being drawn, not the port: the attack is a page on
-    the internet, and another port on this machine is the developer's own.
-    """
+    """`npm start` serves the app on :4200 and proxies /api here, Origin and all."""
     reply = ask(server, Origin="http://localhost:4200", Sec_Fetch_Site="same-origin")
 
     assert "200" in reply.splitlines()[0]
     assert OLLAMA.model in reply
-    # Ports do not make a site, so a loopback page calling this one directly --
-    # not through the proxy -- reports same-site. That is the developer, not a
-    # stranger, and the loopback Origin is what says so.
+    # Ports do not make a site, so a loopback page calling this one directly -- not
+    # through the proxy -- reports same-site.
     assert "200" in ask(
         server, Origin="http://127.0.0.1:4200", Sec_Fetch_Site="same-site"
     ).splitlines()[0]
@@ -626,11 +547,7 @@ def test_an_opaque_origin_is_refused(server: str) -> None:
 
 
 def test_a_client_that_is_not_a_browser_is_answered(server: str) -> None:
-    """curl and the scripts POST /api/search was shaped for send none of this.
-
-    Nothing here is an authentication check -- it is the browser's own account of
-    where a request came from, which only a browser gives.
-    """
+    """curl and the scripts POST /api/search was shaped for send none of this."""
     reply = ask(server)
 
     assert "200" in reply.splitlines()[0]
@@ -638,12 +555,7 @@ def test_a_client_that_is_not_a_browser_is_answered(server: str) -> None:
 
 
 def test_a_name_that_merely_resolves_here_is_not_answered(server: str) -> None:
-    """DNS rebinding: evil.example re-points at 127.0.0.1 and is then same-origin.
-
-    At that point every check above passes -- the browser genuinely believes the
-    page and this server share an origin -- and the only thing left that tells
-    them apart is the name the request was addressed to.
-    """
+    """DNS rebinding: evil.example re-points at 127.0.0.1 and is then same-origin."""
     reply = ask(server, Host="evil.example")
 
     assert "403" in reply.splitlines()[0]
@@ -684,14 +596,7 @@ def test_the_stream_carries_the_security_headers_too(server: str) -> None:
 
 
 def test_a_chunked_body_does_not_desync_the_connection(server: str) -> None:
-    """The fourth way, and the one that needs no Content-Length at all.
-
-    ``BaseHTTPRequestHandler`` does not decode chunks, so a body framed by
-    ``Transfer-Encoding`` was read as no body: the request ran with default
-    options and the chunks stayed in the socket, to be parsed as whatever came
-    next on a connection this server had just said it would keep. 411 is what
-    says a length is required, and the connection ends rather than guessing.
-    """
+    """The fourth way, and the one that needs no Content-Length at all."""
     smuggled(
         server,
         b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\n"
@@ -720,12 +625,7 @@ def test_a_chunked_request_never_reaches_the_agent(server: str) -> None:
 
 
 def test_a_negative_content_length_does_not_desync_the_connection(server: str) -> None:
-    """The third way to declare a body this loop will never read.
-
-    An over-long body and an unparseable length both close the connection for
-    this reason; a negative one parses as an integer and used to slip past into
-    "no body at all", leaving the bytes to be read as the next request line.
-    """
+    """The third way to declare a body this loop will never read."""
     smuggled(
         server,
         b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: -1\r\n\r\n"
@@ -736,12 +636,7 @@ def test_a_negative_content_length_does_not_desync_the_connection(server: str) -
 
 
 def read_all(sock: socket.socket) -> bytes:
-    """Read a reply to the end, so closing the socket sends a FIN and not a reset.
-
-    A socket closed with bytes still unread resets the connection, and the server
-    is then reading the next request line off it -- which is a stderr full of
-    ``socketserver`` traceback for a test that passed.
-    """
+    """Read a reply to the end, so closing the socket sends a FIN and not a reset."""
     reply = b""
     while chunk := sock.recv(4096):
         reply += chunk
@@ -749,9 +644,7 @@ def read_all(sock: socket.socket) -> bytes:
 
 
 def wait_until(settled: Callable[[], bool], limit: float = 5.0) -> bool:
-    """Poll until the condition holds, or give up. A handler thread is started and
-    reclaimed by the server on its own schedule, so both are waited for rather
-    than asserted on the instant."""
+    """Poll until the condition holds, or give up."""
     deadline = time.monotonic() + limit
     while not settled() and time.monotonic() < deadline:
         time.sleep(0.02)
@@ -761,15 +654,7 @@ def wait_until(settled: Callable[[], bool], limit: float = 5.0) -> bool:
 def test_a_handler_does_not_wait_on_a_stalled_client_for_ever(
     server: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A body announced and never sent parks the thread reading it.
-
-    Nothing else bounds that wait: the loop blocks in ``rfile.read`` until the
-    declared bytes arrive, and a client that simply stops sending never delivers
-    them. Three such connections used to park three handler threads for the life
-    of the process, and nothing ever reclaimed them -- which is a page in the same
-    browser away (ADR-0018), and needs no bad intent at all: a laptop that sleeps
-    mid-request does it.
-    """
+    """A body announced and never sent parks the thread reading it."""
     monkeypatch.setattr(BuyAgentHandler, "timeout", 0.5)
     before = threading.active_count()
     parsed = urlparse(server)
@@ -798,12 +683,7 @@ def test_a_handler_does_not_wait_on_a_stalled_client_for_ever(
 def test_a_client_that_is_merely_slow_still_gets_its_answer(
     server: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The timeout bounds one blocking read, not a request and not a run.
-
-    Which is the whole reason it can be as short as it is: a search takes a
-    minute and blocks on no socket while it works, and a body that arrives in two
-    writes a moment apart is an ordinary client on an ordinary network.
-    """
+    """The timeout bounds one blocking read, not a request and not a run."""
     monkeypatch.setattr(BuyAgentHandler, "timeout", 0.5)
     body = json.dumps({"products": [{"name": "Sony WH-1000XM5"}]}).encode()
     parsed = urlparse(server)
@@ -823,19 +703,7 @@ def test_a_client_that_is_merely_slow_still_gets_its_answer(
 
 
 def test_a_path_that_cannot_name_a_file_is_answered_not_dropped(tmp_path: Path) -> None:
-    """An encoded NUL cannot name a file, and it is answered rather than dropped.
-
-    The browser cannot tell a dropped socket from a server that died, so the path
-    that cannot name a file is answered the way every other one is.
-
-    The two platforms reach that answer down different lines. On POSIX
-    ``resolve()`` raises ValueError on the NUL and ``_resolve`` catches it; on
-    Windows ``ntpath.realpath`` hands a non-strict caller the path back
-    unchanged, and it is ``is_file()`` -- which swallows the same ValueError --
-    that sends it on to the app. Only the answer is common to both, so only the
-    answer is asserted here; the branch itself is
-    ``test_a_path_the_platform_refuses_to_resolve_is_answered_not_dropped``.
-    """
+    """An encoded NUL cannot name a file, and it is answered rather than dropped."""
     (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
 
     with serving(tmp_path) as base:
@@ -848,17 +716,7 @@ def test_a_path_that_cannot_name_a_file_is_answered_not_dropped(tmp_path: Path) 
 def test_a_path_the_platform_refuses_to_resolve_is_answered_not_dropped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The same answer, with the failure provoked rather than hoped for.
-
-    ``_resolve`` catches OSError and ValueError because an exception there
-    escapes to socketserver, which drops the socket without a reply. Which
-    inputs actually raise is the platform's business -- the encoded NUL above
-    raises on POSIX and does not on Windows -- so the input that used to stand in
-    for "resolve() will not answer" left the branch unrun on the platform this
-    project is written on, and the test above passing said nothing about it.
-    Making resolve() refuse outright is the only way to ask both platforms the
-    same question.
-    """
+    """The same answer, with the failure provoked rather than hoped for."""
     (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
     resolve = Path.resolve
 
@@ -879,11 +737,7 @@ def test_a_path_the_platform_refuses_to_resolve_is_answered_not_dropped(
 
 
 def test_a_server_told_to_answer_any_host_does(tmp_path: Path) -> None:
-    """What a bind to a public interface gets, since its name is not ours to guess.
-
-    The Origin and fetch-metadata checks still stand -- this turns off the one
-    check that needs to know what this server is called.
-    """
+    """What a bind to a public interface gets, since its name is not ours to guess."""
     (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
 
     with serving(tmp_path, allowed_hosts=None) as base:
@@ -892,13 +746,7 @@ def test_a_server_told_to_answer_any_host_does(tmp_path: Path) -> None:
 
 
 def test_the_apps_own_page_is_answered_whatever_the_server_is_called(tmp_path: Path) -> None:
-    """A public bind is reached by a name that is not loopback, and it still works.
-
-    The container binds 0.0.0.0 (ADR-0015) and someone reaches it at buy.lan. Its
-    page then sends an Origin no loopback rule would recognise -- so what admits
-    it is that the Origin and the Host agree, which only this server's own page
-    can manage: the browser writes both.
-    """
+    """A public bind is reached by a name that is not loopback, and it still works."""
     (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
 
     with serving(tmp_path, allowed_hosts=frozenset({"buy.lan"})) as base:
@@ -928,11 +776,7 @@ def test_a_loopback_bind_answers_the_loopback_names_and_what_was_named() -> None
 
 
 def test_a_public_bind_answers_any_host_until_one_is_named() -> None:
-    """The name that reaches a public interface is the operator's to know.
-
-    Guessing it would refuse the container's own users (ADR-0015 binds 0.0.0.0),
-    so the check is off by default there and --allowed-host is what turns it on.
-    """
+    """The name that reaches a public interface is the operator's to know."""
     assert allowed_hosts_for("192.168.1.5") is None
     assert allowed_hosts_for("192.168.1.5", ["buy.lan:8000"]) == frozenset({"buy.lan"})
     assert allowed_hosts_for("127.0.0.1", ["  "]) == _LOOPBACK_HOSTS
@@ -953,12 +797,7 @@ def test_the_stream_relays_progress_then_the_result(server: str) -> None:
 
 
 def test_every_relayed_line_is_timed(server: str) -> None:
-    """The panel is showing the CLI's own lines, and the CLI times them.
-
-    Extraction is slow and says nothing while it runs, so without the time a run
-    that spent four minutes there looks exactly like one that spent four seconds
-    -- on screen, and in the transcript a bug report is built out of.
-    """
+    """The panel is showing the CLI's own lines, and the CLI times them."""
     stream = events(f"{server}/api/search/stream?request=headphones")
 
     logs = [data for name, data in stream if name == "log"]
@@ -995,13 +834,7 @@ def test_a_bad_option_ends_the_stream_before_the_agent_runs(server: str) -> None
 def test_a_paying_rail_with_no_address_is_refused_at_the_box_it_came_from(
     server: str,
 ) -> None:
-    """The form can make this one: pick the rail, leave the address empty.
-
-    It is the config's own refusal rather than a range's, and left to escape
-    ``parse_options`` it reached the page as a 500 reading "Unexpected failure"
-    with a traceback in the log -- a banner about the *server* for a value the
-    request carried, and no box marked (ADR-0033).
-    """
+    """The form can make this one: pick the rail, leave the address empty."""
     name, data = events(
         f"{server}/api/search/stream?request=headphones&pay=true&rail=http"
     )[-1]
@@ -1021,12 +854,7 @@ def test_an_unexpected_failure_still_ends_the_stream(server: str) -> None:
 
 
 def test_an_unexpected_failure_is_a_500_and_not_a_dropped_connection(server: str) -> None:
-    """The one-shot endpoint answers what the stream answers.
-
-    Letting the exception escape hands the socket to socketserver, which closes it
-    without writing anything -- and a browser cannot tell that from the server
-    going away mid-run.
-    """
+    """The one-shot endpoint answers what the stream answers."""
     StubAgent.result = RuntimeError("something nobody predicted")
 
     status, payload = post(f"{server}/api/search", {"request": "headphones"})
@@ -1042,12 +870,7 @@ def test_an_unexpected_failure_is_a_500_and_not_a_dropped_connection(server: str
 def test_a_rejected_body_ends_the_connection_rather_than_desyncing_it(
     server: str, length: bytes, expected: str
 ) -> None:
-    """A body refused unread would otherwise be parsed as the next request.
-
-    Both of these answer without reading the body, so on a kept-alive HTTP/1.1
-    connection the leftover bytes become the next request line -- the client asks
-    for /api/config and gets a 414 off its own JSON.
-    """
+    """A body refused unread would otherwise be parsed as the next request."""
     smuggled(
         server,
         b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: "
@@ -1059,13 +882,8 @@ def test_a_rejected_body_ends_the_connection_rather_than_desyncing_it(
 
 
 def test_two_streams_do_not_see_each_others_progress(server: str) -> None:
-    """Log lines are routed by the context the run is being watched through, and
-    a worker thread begins in one of its own.
-
-    The delay is what makes this a test of the routing: without it the first run
-    finishes and detaches before the second attaches, so there is only ever one
-    queue to choose from and any rule at all would look right.
-    """
+    """Log lines are routed by the context the run is being watched through, and a worker
+    thread begins in one of its own."""
     StubAgent.delay = 0.3
     collected: dict[str, list] = {}
 
@@ -1087,11 +905,7 @@ def test_two_streams_do_not_see_each_others_progress(server: str) -> None:
 
 
 def test_a_quiet_run_is_kept_alive_with_pings(server: str, monkeypatch) -> None:
-    """Extraction is slow and logs nothing, so a real run goes quiet for a minute.
-
-    Browsers and proxies time a silent response out and ``EventSource`` then
-    reconnects, which would start the whole search again.
-    """
+    """Extraction is slow and logs nothing, so a real run goes quiet for a minute."""
     monkeypatch.setattr("buy_agent.server._KEEPALIVE_SECONDS", 0.05)
     StubAgent.delay = 0.4
 
@@ -1101,21 +915,13 @@ def test_a_quiet_run_is_kept_alive_with_pings(server: str, monkeypatch) -> None:
     assert ("ping", {}) in collected, "a quiet stream sent nothing for 0.4s"
     assert names[-1] == "result", "a ping is never the last word"
     assert "failure" not in names, "a quiet stretch is not a failure"
-    # And the stream goes on relaying afterwards. A ping that ended the relay
-    # would still deliver the result -- the worker is waited for either way -- so
-    # what a run costs is everything it went on to say: the panel freezes on the
-    # last line before the quiet stretch and never moves again.
+    # And the stream goes on relaying afterwards.
     after_the_first_ping = names[names.index("ping") :]
     assert "log" in after_the_first_ping, "the progress stopped at the first ping"
 
 
 def test_the_keepalive_is_frequent_enough_to_be_worth_sending() -> None:
-    """The mechanism is only useful if the interval beats what gives up on silence.
-
-    Proxies commonly drop a silent response at 60s and browsers sooner, so the
-    test that exercises the ping has to patch the interval -- which leaves the
-    shipped value itself unpinned unless it is asserted here.
-    """
+    """The mechanism is only useful if the interval beats what gives up on silence."""
     assert 0 < _KEEPALIVE_SECONDS <= 30
 
 
@@ -1133,14 +939,7 @@ def test_a_stream_nobody_is_reading_is_abandoned(server: str, monkeypatch, caplo
 
 
 def test_a_stream_nobody_is_reading_stops_the_run(server: str, monkeypatch, caplog) -> None:
-    """Stop means stop, at the next step boundary the pipeline reaches (ADR-0034).
-
-    The stub spends ``delay`` in its slow step and asks the checkpoint on the far
-    side of it, which is where a real run asks before extraction. So the reader is
-    gone well before the question is put, and the step never happens -- which is
-    the whole point: a run nobody is reading keeps a laptop-sized model server to
-    itself while the shopper is starting their next search.
-    """
+    """Stop means stop, at the next step boundary the pipeline reaches (ADR-0034)."""
     monkeypatch.setattr(BuyAgentHandler, "_send_event", lambda self, event, data: False)
     StubAgent.delay = 0.3
 
@@ -1190,14 +989,7 @@ def test_an_unbuilt_ui_says_how_to_build_it(tmp_path: Path) -> None:
 
 
 def test_an_unbuilt_ui_says_it_to_a_browser_as_a_page(tmp_path: Path) -> None:
-    """The one client that matters here, and the one that cannot read JSON.
-
-    This message is what stands between somebody who has just started the server
-    and a working page, and they are looking at it in a browser -- which renders
-    ``application/json`` as its braces and quotes, so the instructions arrived
-    looking like the crash they are there to prevent. A browser says what it can
-    read in ``Accept``; everything else keeps the JSON above.
-    """
+    """The one client that matters here, and the one that cannot read JSON."""
     with serving(unbuilt_workspace(tmp_path)) as server:
         status, page = _call(
             urllib.request.Request(f"{server}/", headers={"Accept": "text/html,*/*;q=0.8"})
@@ -1212,13 +1004,7 @@ def test_an_unbuilt_ui_says_it_to_a_browser_as_a_page(tmp_path: Path) -> None:
 
 
 def test_the_directory_to_run_npm_in_is_the_workspace() -> None:
-    """Not the build's own parent, which is where this message used to send people.
-
-    ``ng build`` writes ``<workspace>/dist/<project>/browser``, so two levels up is
-    ``ui/dist`` -- a directory that exists only once the build being asked for has
-    already succeeded. The one npm install is run in is ``ui``, and it is named
-    only because it really is there.
-    """
+    """Not the build's own parent, which is where this message used to send people."""
     workspace = _workspace_for(DEFAULT_UI_DIR)
 
     assert workspace is not None
@@ -1227,14 +1013,7 @@ def test_the_directory_to_run_npm_in_is_the_workspace() -> None:
 
 
 def test_a_ui_dir_with_no_workspace_above_it_is_not_told_to_build(tmp_path: Path) -> None:
-    """A remedy nobody can follow is worse than none.
-
-    A ``--ui-dir`` pointing elsewhere -- a release archive, a copy, a typo -- has
-    no workspace above it in any knowable place, and this used to name the build's
-    own directory anyway: run ``npm install`` in ``/somewhere/browser``, which
-    holds no ``package.json`` and never will. So where there is nothing to build,
-    the message says that and names the one thing that *is* an answer.
-    """
+    """A remedy nobody can follow is worse than none."""
     assert _workspace_for(tmp_path) is None
 
     with serving(tmp_path) as server:
@@ -1293,12 +1072,7 @@ def test_the_app_is_served_and_owns_its_own_routes(tmp_path: Path) -> None:
 
 
 def test_the_content_type_table_answers_and_not_the_platform(tmp_path: Path, monkeypatch) -> None:
-    """On Windows ``mimetypes`` reads the registry and can call a .js text/plain.
-
-    A module a browser is handed as text/plain is refused, leaving a blank page
-    and no error -- so the table has to win even where the platform disagrees.
-    The Linux runner agrees with the table, which is why this has to be forced.
-    """
+    """On Windows ``mimetypes`` reads the registry and can call a .js text/plain."""
     monkeypatch.setattr(
         "buy_agent.server.mimetypes.guess_type", lambda *_a, **_k: ("text/plain", None)
     )
@@ -1499,16 +1273,7 @@ def inherit(context) -> None:
 
 
 def test_a_line_from_a_thread_the_run_started_still_reaches_the_stream() -> None:
-    """The relay follows the run, not the thread that happened to log.
-
-    ``fetch.enrich`` reads the result pages in a pool of its own, so the line a
-    rate-limited page writes at INFO -- the one that says how long the shopper is
-    about to spend, and the only INFO line in that step -- comes off a thread the
-    run never started. Routed by thread, it went nowhere: the panel stayed silent
-    through the wait it was there to explain. A pool worker starts in the caller's
-    context now (``fetch._as_the_caller``), and the context is what the relay
-    reads.
-    """
+    """The relay follows the run, not the thread that happened to log."""
     sink: queue.Queue[Any] = queue.Queue()
     package_logger = logging.getLogger("buy_agent")
     # As a streamed run installs it: progress is logged at INFO, which a logger
@@ -1549,11 +1314,8 @@ def test_a_line_from_a_thread_the_run_started_still_reaches_the_stream() -> None
 
 
 def test_a_thread_outside_the_run_is_not_one_of_its_lines() -> None:
-    """The other half: a context is what a line belongs to, and a thread that
-    never took one carries none. Two concurrent runs are two worker threads, each
-    beginning in a context of its own, which is what
-    ``test_two_streams_do_not_see_each_others_progress`` holds from the far side.
-    """
+    """The other half: a context is what a line belongs to, and a thread that never took
+    one carries none."""
     sink: queue.Queue[Any] = queue.Queue()
     package_logger = logging.getLogger("buy_agent")
     # As a streamed run installs it: progress is logged at INFO, which a logger
@@ -1624,12 +1386,7 @@ def test_a_body_nobody_is_left_to_read_is_not_an_error() -> None:
 def test_the_server_refuses_to_start_on_a_provider_nothing_can_serve(
     monkeypatch, caplog
 ) -> None:
-    """Fail where the shell that set it is still on screen.
-
-    Every page load resolves ``$BUY_AGENT_PROVIDER`` -- the form's own defaults
-    are an ``AgentConfig`` -- so a misspelt one is a server that binds a port and
-    then answers 500 to everything it serves. Better to not bind it.
-    """
+    """Fail where the shell that set it is still on screen."""
     monkeypatch.setattr(server_module, "DEFAULT_PROVIDER", "olama")
 
     with caplog.at_level(logging.ERROR):
@@ -1642,13 +1399,7 @@ def test_the_server_refuses_to_start_on_a_provider_nothing_can_serve(
 def test_the_server_refuses_to_start_on_a_rail_nothing_can_pay_through(
     monkeypatch, caplog
 ) -> None:
-    """The rail's half of the check above, and there for the same reason.
-
-    ``AgentConfig`` resolves a provider *and* a rail, and ``GET /api/config``
-    builds one on every page load -- so a misspelt ``$BUY_AGENT_RAIL`` was a
-    server that bound its port and then answered 500 to its own form, with the
-    sentence naming the rails that do exist never reaching anybody.
-    """
+    """The rail's half of the check above, and there for the same reason."""
     monkeypatch.setattr(server_module, "DEFAULT_RAIL", "dryrun")
 
     with caplog.at_level(logging.ERROR):

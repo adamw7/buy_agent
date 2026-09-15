@@ -1,9 +1,4 @@
-"""The seam the model servers are reached through, and the two ways it can fail.
-
-Nothing here builds a provider. What is being checked is the machinery that was
-LangChain's until ADR-0038: a prompt with the run's values in it, a chain that
-binds one to a schema, and an answer read back as that schema or refused.
-"""
+"""The seam the model servers are reached through, and the two ways it can fail."""
 
 from __future__ import annotations
 
@@ -57,12 +52,7 @@ def test_a_hole_the_payload_cannot_fill_is_a_failure_here() -> None:
 
 
 def test_what_is_substituted_in_is_never_scanned_for_holes_of_its_own() -> None:
-    """Ten fetched pages go into a hole, and a page is free to contain braces.
-
-    A shop that prints ``{price}`` in a template it failed to render would
-    otherwise take the run down with a ``KeyError`` between the search and the
-    ranking, for a page nobody chose.
-    """
+    """Ten fetched pages go into a hole, and a page is free to contain braces."""
     _, human = PROMPT.format_messages(request="{price} not {a real hole}", limit=1)
 
     assert human["content"] == "Wanted: {price} not {a real hole}"
@@ -97,9 +87,7 @@ def test_an_answer_is_read_back_as_the_schema_it_was_asked_for() -> None:
 def test_an_answer_that_is_not_the_schema_carries_what_was_said(
     said: str, quoted: str
 ) -> None:
-    """Prose, a half-finished object, the wrong shape, and a dropped stream. The
-    answer itself is the symptom, which is what the provider's hint is written
-    around -- an empty one saying nothing, so it is named instead."""
+    """Prose, a half-finished object, the wrong shape, and a dropped stream."""
     with pytest.raises(UnreadableAnswerError) as caught:
         read_answer(said, SearchQuery)
 
@@ -122,10 +110,9 @@ def test_an_unreadable_answer_is_a_value_error() -> None:
 
 
 def test_a_model_with_one_method_is_not_closable_and_is_passed_over() -> None:
-    """``Closable`` is a second protocol rather than a second method on
-    ``ChatModel`` so that this stays true: a stand-in answers a question and has
-    nothing to close, here as in ``tests/conftest.py``, ``benchmark/scripted.py``
-    and ``demo/server.py``."""
+    """``Closable`` is a second protocol rather than a second method on ``ChatModel`` so
+    that this stays true: a stand-in answers a question and has nothing to close, here
+    as in ``tests/conftest.py``, ``benchmark/scripted.py`` and ``demo/server.py``."""
     model = Recording()
 
     assert not isinstance(model, Closable)

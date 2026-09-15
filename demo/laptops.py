@@ -1,65 +1,18 @@
-"""The fabricated web the laptops demo searches, and what the fake model reads.
-
-The second script, shaped exactly like :mod:`demo.books` and read through the
-same five names: a request, what refining turns it into, ten pages, what those
-pages say, and the answer the scripted model gives when it is asked to read
-products off them.
-
-The shopper asks for three things at once here -- a budget, a weight and a noise
-level -- which is what the pages are written to answer: every laptop page
-carries a price line, a rating line and a verdict about the fans or the kilos,
-because those are the two kinds of line :func:`buy_agent.fetch.condense` keeps
-and everything else on the page is there to be thrown away. Nothing in the
-pipeline reads "not too heavy or loud": the ranking is price, rating and review
-count, and the weights and the fan noise reach the shopper as the quotes on the
-cards. That is the division of labour this project is built on -- the model
-copies what the pages said, and Python decides the order.
-
-The order of :data:`PAGES` is load-bearing for the recording: each laptop's own
-page comes before the two round-ups that merely cross-reference it, because
-``verification.attribute_sources`` links a product to the *first* searched page
-that mentions it. Cross-references are kept to those two pages for the same
-reason -- a name is grounded by its distinctive words, and a page naming a
-second brand in passing can clear that bar for a laptop it is not about.
-
-:data:`EXTRACTED` is what the fake model claims it read off them, and it is
-deliberately imperfect in the six ways a small model is imperfect, so the
-progress log in the recording shows the pipeline doing its job rather than
-agreeing with itself:
-
-* a listicle headline reported as a product, for ``clean_products``;
-* a laptop no page mentions, for ``drop_ungrounded``;
-* a price no page printed, for ``verify_numbers``;
-* a link to a page that was never searched, for ``attribute_sources``;
-* a verdict nobody wrote, for ``verify_opinions``;
-* one laptop listed twice, in two currencies, for ``deduplicate``.
-
-The last two matter to the recording's ending, which follows the top product's
-link: the laptop that comes out first is the one the model gave an invented
-link, so what the click opens is the page grounding put there instead.
-
-The laptop model names are real. The shops, the prices, the ratings, the review
-counts, the weights and the quoted verdicts are invented, on ``*.example`` hosts
-that cannot resolve; none of it is a claim about a real seller, a real reviewer
-or a real machine.
-"""
+"""The fabricated web the laptops demo searches, and what the fake model reads."""
 
 from __future__ import annotations
 
 from buy_agent.models import ExtractedProduct, ProductList
 from buy_agent.search import SearchResult
 
-#: What the shopper types into the form. Three constraints in one sentence, so
-#: refining it into a search query is a step with something to do.
+#: What the shopper types into the form.
 REQUEST = "new laptop below 1000 USD, not too heavy or loud. windows 11 installed"
 
 #: What the fake model refines :data:`REQUEST` into.
 REFINED_QUERY = "lightweight quiet Windows 11 laptop under $1000 price review"
 
-#: What each page in :data:`PAGES` says, before :func:`buy_agent.fetch.condense`
-#: gets to it. Read by ``demo/server.py`` in place of a fetch, and by
-#: ``demo/record.mjs`` to answer for a shop a ``--follow-link`` take clicks
-#: through to -- those hosts cannot resolve.
+#: What each page in :data:`PAGES` says, before :func:`buy_agent.fetch.condense` gets to
+#: it.
 PAGE_TEXT: dict[str, str] = {
     "https://laptopbench.example/msi-modern-14": """\
 Laptop Bench
@@ -271,8 +224,7 @@ PAGES: tuple[SearchResult, ...] = (
     ),
 )
 
-#: What the fake model says it read off :data:`PAGES`. See the module docstring
-#: for what each of the deliberate mistakes is there to exercise.
+#: What the fake model says it read off :data:`PAGES`.
 EXTRACTED = ProductList(
     products=[
         ExtractedProduct(
@@ -320,11 +272,9 @@ EXTRACTED = ProductList(
                 "Reviewers found the aluminium lid sturdy for the price.",
             ],
         ),
-        # The same laptop, priced again in another currency and without a
-        # rating: a real conflict for _fill_gaps to get right rather than two
-        # copies of one listing agreeing with itself (ADR-0022). The names
-        # differ only by words in GENERIC_WORDS, which is what merge_variants
-        # folds together.
+        # The same laptop, priced again in another currency and without a rating: a real
+        # conflict for _fill_gaps to get right rather than two copies of one listing
+        # agreeing with itself (ADR-0022).
         ExtractedProduct(
             name="Lenovo IdeaPad Slim 5 14, new edition",
             price=689.0,

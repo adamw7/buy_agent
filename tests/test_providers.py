@@ -1,19 +1,4 @@
-"""The two model servers, and the four things each of them answers differently.
-
-Nothing here opens a socket. The chat models are asked a question against a fake
-client and the *request* is read back -- what is being checked is that a setting
-reaches the server at all, which is the half no live test can see once it has
-gone wrong, and since ADR-0038 the settings travel per call rather than sitting
-on a wrapper anyone could read off. Everything is driven through fakes standing
-in for the three transports: ollama's own ``Client``, the OpenAI client, and
-``httpx.get`` for vLLM's listing.
-
-The failure messages are asserted on their *wording* rather than their type,
-because the wording is the whole value of ``ModelUnavailableError``: a shopper
-whose vLLM is down is told to run ``vllm serve``, and one whose Ollama has not
-pulled a tag is told to run ``ollama pull``. Swap the two and the exception is
-still raised, still a 503, and useless.
-"""
+"""The two model servers, and the four things each of them answers differently."""
 
 from __future__ import annotations
 
@@ -32,19 +17,15 @@ from buy_agent.config import AgentConfig
 from buy_agent.models import SearchQuery
 from buy_agent.providers import provider_for, provider_options
 
-# The table and its rows are read off the module rather than imported by name,
-# because ``reloaded_providers`` below re-imports it: a reload re-runs the module
-# over its own globals, so ``provider_for`` and ``provider_options`` go on
-# answering with whatever the table holds *now* while a name bound at import time
-# would still hold the rows from before. Which of the two a test compared then
-# decided nothing until pytest ran the reloading tests first -- which is what the
-# Saturday mutation run's clean-test pass does, and every ordinary run does not.
+# The table and its rows are read off the module rather than imported by name, because
+# ``reloaded_providers`` below re-imports it: a reload re-runs the module over its own
+# globals, so ``provider_for`` and ``provider_options`` go on answering with whatever the
+# table holds *now* while a name bound at import time would still hold the rows from
+# before.
 
 OLLAMA_CONFIG = AgentConfig(provider="ollama", model="gemma4:12b")
 
-#: What ``ollama show`` reports for a model that can be prompted at all. Written
-#: out here rather than imported, so a rename of the private constant does not
-#: quietly rename what these tests claim Ollama answers with.
+#: What ``ollama show`` reports for a model that can be prompted at all.
 _COMPLETION = "completion"
 _EMBEDDING = "embedding"
 VLLM_CONFIG = AgentConfig(provider="vllm", model="Qwen/Qwen3-8B")
@@ -68,15 +49,8 @@ def listed(config: AgentConfig) -> list[providers_module.InstalledModel]:
 
 
 def installed(name: str, *, completion: bool) -> providers_module.InstalledModel:
-    """One entry of an expected listing, built through the module for the same
-    reason the rows are read off it.
-
-    A reload rebinds ``InstalledModel`` to a *new* class, and a dataclass compares
-    equal only to its own -- so an expected value built from a name bound at import
-    time stops matching what :func:`listed` answers with the moment a reloading
-    test has run. File order hides that from an ordinary run and not from the
-    mutation run's clean-test pass, which sorts the suite by duration.
-    """
+    """One entry of an expected listing, built through the module for the same reason the
+    rows are read off it."""
     return providers_module.InstalledModel(name, completion=completion)
 
 
@@ -124,11 +98,7 @@ def serving(monkeypatch):
 
 @pytest.fixture
 def chatting(monkeypatch):
-    """Stand in for ollama's ``Client`` being asked a question, capturing it.
-
-    ``answered`` is what the fake model says back, so a test about a request need
-    not care and a test about a bad answer can hand over prose.
-    """
+    """Stand in for ollama's ``Client`` being asked a question, capturing it."""
     sent: dict = {}
 
     def install(answered: str = '{"query": "a refined query"}') -> dict:
@@ -182,17 +152,7 @@ def completing(monkeypatch):
 
 @pytest.fixture
 def pulled(monkeypatch):
-    """Stand in for an Ollama being asked what it holds, so a listing opens no socket.
-
-    Both of the calls a listing makes: ``GET /api/tags`` for the tags, answered
-    the way that endpoint answers -- every entry carrying *both* spellings of its
-    name -- and ollama's ``Client.show`` per tag for what each one can do.
-    ``entries`` replaces that answer with raw ones, which is how a tag spelled
-    only one of the two ways is written down. ``capabilities`` maps a tag to what
-    ``ollama show`` would report -- a tag missing from it is one the probe fails
-    on, which is the third answer that call can give and the one nothing can be
-    concluded from.
-    """
+    """Stand in for an Ollama being asked what it holds, so a listing opens no socket."""
 
     def install(
         models: list[str],
@@ -311,9 +271,7 @@ def asked(config: AgentConfig, sent: dict, schema: type = SearchQuery) -> dict:
 def test_closing_a_chat_model_lets_go_of_the_client_underneath(
     chatting, completing
 ) -> None:
-    """The one thing a chat model holds that outlives the answer. Nothing above
-    here knows there is a connection pool at all, so the agent that opened one
-    says when it is done with it and each row closes its own client."""
+    """The one thing a chat model holds that outlives the answer."""
     ollama_sent, vllm_sent = chatting(), completing()
 
     chat_model(AgentConfig(provider="ollama")).close()
@@ -379,12 +337,7 @@ def test_vllm_is_pointed_at_the_openai_api_it_serves(completing) -> None:
 
 
 def test_vllm_is_asked_to_decode_against_the_schema(completing) -> None:
-    """The same constraint as Ollama's ``format``, in the OpenAI API's spelling.
-
-    ``strict`` is deliberately absent: that is OpenAI's own stricter dialect,
-    which wants ``additionalProperties: false`` on every object -- Pydantic does
-    not emit it and vLLM does not ask for it.
-    """
+    """The same constraint as Ollama's ``format``, in the OpenAI API's spelling."""
     sent = asked(AgentConfig(provider="vllm"), completing(), SearchQuery)
 
     assert sent["response_format"] == {
@@ -476,12 +429,9 @@ def test_ollama_lists_every_tag_it_has_pulled(pulled) -> None:
 def test_a_tag_spelled_only_the_way_ollama_list_prints_it_is_still_offered(
     pulled,
 ) -> None:
-    """``/api/tags`` names a model twice, ``model`` and ``name``, and an entry
-    carrying only the second used to vanish: the client's typed listing declares
-    the first and pydantic discards what it does not declare. What that costs is
-    not a tag missing from a listing -- it is a pulled model missing from the
-    picker, with the shopper's own choice marked "not served" beside the models
-    that survived, while ``ollama list`` goes on printing it."""
+    """``/api/tags`` names a model twice, ``model`` and ``name``, and an entry carrying
+    only the second used to vanish: the client's typed listing declares the first and
+    pydantic discards what it does not declare."""
     pulled(
         [],
         entries=[
@@ -514,10 +464,8 @@ def test_the_tags_are_read_off_ollamas_own_endpoint(pulled) -> None:
 
 @pytest.mark.parametrize("base_url", ["localhost:11434", "http://localhost:11434/"])
 def test_the_address_is_asked_however_it_was_written(pulled, base_url: str) -> None:
-    """``$OLLAMA_HOST`` is written every way -- with the scheme and without it,
-    with a trailing slash and without -- and ollama's client takes all of them for
-    the chat. The listing asks httpx directly, so it has to take them too, rather
-    than reporting a running server as unreachable over the shape of its URL."""
+    """``$OLLAMA_HOST`` is written every way -- with the scheme and without it, with a
+    trailing slash and without -- and ollama's client takes all of them for the chat."""
     asked = pulled(["gemma4:12b"])
 
     listed(AgentConfig(provider="ollama", base_url=base_url))
@@ -526,10 +474,8 @@ def test_the_address_is_asked_however_it_was_written(pulled, base_url: str) -> N
 
 
 def test_a_tag_with_no_completion_to_give_is_listed_as_one(pulled) -> None:
-    """The whole point of asking twice: an embedding model is pulled the same way
-    a chat model is, sits in the same listing, and cannot answer a prompt. Hidden,
-    the picker would silently drop a pull someone made on purpose; unmarked, it is
-    a run that fails a minute in (ADR-0032)."""
+    """The whole point of asking twice: an embedding model is pulled the same way a chat
+    model is, sits in the same listing, and cannot answer a prompt."""
     pulled(
         ["gemma4:12b", "nomic-embed-text"],
         capabilities={
@@ -566,14 +512,7 @@ def test_the_whole_listing_is_held_to_the_one_short_timeout(pulled) -> None:
 
 
 def test_the_listing_lets_go_of_what_it_opened(pulled) -> None:
-    """The listing opens a client of its own, and closing it is its own too.
-
-    The rule the chat model already follows -- "a row's client holds a connection
-    pool, and letting go of it is the row's own" -- applied to the other place a
-    row opens one. The form asks this on every provider change and every address
-    change, so a pool left to whenever the last reference falls is a socket per
-    question on a server that runs for an afternoon.
-    """
+    """The listing opens a client of its own, and closing it is its own too."""
     asked = pulled(["gemma4:12b"])
 
     listed(OLLAMA_CONFIG)
@@ -582,8 +521,7 @@ def test_the_listing_lets_go_of_what_it_opened(pulled) -> None:
 
 
 def test_a_tag_that_will_not_say_what_it_can_do_is_still_offered(pulled) -> None:
-    """The probe failed; nothing was learnt. Marking the model unusable on that
-    would hide a working one, which is the worse of the two mistakes."""
+    """The probe failed; nothing was learnt."""
     pulled(["gemma4:12b", "qwen3:8b"], capabilities={"gemma4:12b": [_COMPLETION]})
 
     assert listed(OLLAMA_CONFIG) == [
@@ -693,9 +631,7 @@ def test_a_slow_vllm_reported_by_httpx_says_the_same_thing() -> None:
 
 
 def test_an_unreadable_answer_names_the_room_ollama_can_be_given() -> None:
-    """A server that answered, badly. Neither "start it" nor "pull it" applies --
-    it is running and it has the tag -- and the usual cause is a window too small
-    for the prompt and its answer both (ADR-0019)."""
+    """A server that answered, badly."""
     message = hint(OLLAMA_CONFIG, UnreadableAnswerError("Invalid json output: {\"produ"))
 
     assert "not the JSON this asks for" in message
@@ -747,9 +683,7 @@ def test_a_refused_key_says_which_variable_sets_one() -> None:
 
 
 def test_a_model_vllm_is_not_serving_names_what_it_is(serving) -> None:
-    """The asymmetry with Ollama that matters most: there is nothing to pull. The
-    server has one model and it is not this one, so the message offers both ways
-    out -- ask for what it has, or restart it for what you wanted."""
+    """The asymmetry with Ollama that matters most: there is nothing to pull."""
     serving(["Qwen/Qwen3-0.6B"])
     message = hint(VLLM_CONFIG, _status_error(openai.NotFoundError, 404))
 
@@ -785,9 +719,8 @@ def test_a_missing_ollama_tag_is_told_to_pull_it(pulled) -> None:
 
 
 def test_a_model_that_cannot_answer_a_prompt_is_named_as_one(pulled) -> None:
-    """Ollama answered, and the run still failed: the tag is there and has no
-    completion to give. Without this the message falls through to "start the
-    server", which is wrong and unactionable -- it is running (ADR-0032)."""
+    """Ollama answered, and the run still failed: the tag is there and has no completion
+    to give."""
     pulled(
         ["gemma4:12b", "nomic-embed-text"],
         capabilities={
@@ -860,16 +793,7 @@ def test_the_two_providers_do_not_share_a_failure_vocabulary() -> None:
 
 @pytest.fixture
 def reloaded_providers(monkeypatch):
-    """Re-import the table so its environment-derived defaults are read again.
-
-    Only this module is reloaded: ``AgentConfig`` resolves through
-    ``provider_for``, which reads the table out of these module globals, so a
-    config built afterwards sees the new rows without ``config`` being reloaded
-    too. The rows the teardown puts back hold the same values but are new
-    objects, and a name another test module imported before the reload still
-    holds the old ones -- so anything comparing rows by identity has to reach
-    them through the module, the way ``tests/test_config.py`` does.
-    """
+    """Re-import the table so its environment-derived defaults are read again."""
 
     def reload(**environment: str):
         for name, value in environment.items():
@@ -924,9 +848,8 @@ def test_the_vllm_defaults_are_a_local_server_too(reloaded_providers, monkeypatc
 
 
 def test_the_key_is_read_from_the_environment(reloaded_providers) -> None:
-    """The one setting with no flag and no form field: it is a secret, so it does
-    not land in a shell history and is not in what the API hands a browser. The
-    other two halves of that are asserted where those two are built."""
+    """The one setting with no flag and no form field: it is a secret, so it does not land
+    in a shell history and is not in what the API hands a browser."""
     reloaded_providers(VLLM_API_KEY="s3cret")
 
     assert AgentConfig(provider="vllm").api_key == "s3cret"
@@ -956,14 +879,7 @@ def _status_error(kind: type[openai.APIStatusError], status: int) -> openai.APIS
 
 
 def test_the_listing_budget_covers_the_listing_and_not_each_tag(monkeypatch) -> None:
-    """``_LIST_TIMEOUT`` on the client bounds one question; a listing asks many.
-
-    Ollama reports capabilities per tag (ADR-0032), so fifty pulled tags on a
-    slow server was fifty timeouts eight at a time -- and the form waited on all
-    of it while being promised a five-second answer. The probes share a deadline
-    now, and one still running when it passes is the case the probe already has a
-    word for: it did not say, so it counts as able to answer.
-    """
+    """``_LIST_TIMEOUT`` on the client bounds one question; a listing asks many."""
     started = threading.Event()
     release = threading.Event()
 
@@ -1004,13 +920,7 @@ def test_the_listing_budget_covers_the_listing_and_not_each_tag(monkeypatch) -> 
 
 
 def test_ollamas_client_is_given_the_wait_the_config_sets(chatting) -> None:
-    """On the client because that is where ollama's own takes one.
-
-    Left off it was not a long wait but no wait at all: ollama passes ``timeout``
-    straight to httpx, and ``None`` there disables httpx's own -- so a server that
-    took the prompt and went quiet hung the run with nothing to catch and
-    ``_too_slow_hint`` unreachable (ADR-0051).
-    """
+    """On the client because that is where ollama's own takes one."""
     sent = asked(AgentConfig(provider="ollama", model_timeout=12.5), chatting())
 
     assert sent["client"]["timeout"] == 12.5

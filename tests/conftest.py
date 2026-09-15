@@ -1,6 +1,4 @@
-"""Shared fakes, and where to read this project back off its own disk. No test in
-this suite touches the network, Ollama or the developer's own cache directory, and
-none of them leaves a logger set."""
+"""Shared fakes, and where to read this project back off its own disk."""
 
 from __future__ import annotations
 
@@ -30,16 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 
-#: This repository as it is written, which is not always the tree the suite is
-#: running in. ``mutmut run`` copies everything to ``mutants/`` and runs there
-#: against a package carrying every mutant of every module at once --
-#: ``logger.info(None)`` beside the line it was made from, an inverted branch
-#: beside the branch. Two files here are made of rules read off that source rather
-#: than exercised -- ``tests/test_conventions.py`` and ``tests/test_architecture.py``
-#: -- and a rule read off the source is a rule about the code as *written*, so
-#: they read the package from here and answer the same on a Saturday as on any
-#: other day. Everything else the copy carries it carries unchanged, so the docs,
-#: the workflows, the skills and the TypeScript are read where they sit.
+#: This repository as it is written, which is not always the tree the suite is running in.
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 if SOURCE_ROOT.name == "mutants":
     SOURCE_ROOT = SOURCE_ROOT.parent
@@ -47,30 +36,6 @@ if SOURCE_ROOT.name == "mutants":
 
 #: Skips a test that cannot run without the optional AP2 SDK, the way
 #: ``tests/test_start_script.py`` skips what cannot run without a PowerShell.
-#: Paying is an optional feature and its SDK is an optional install (two
-#: commands, and somebody else's git repository), so a checkout set up with
-#: ``requirements-dev.txt`` alone has to come back green: seventy-three
-#: *failures* say this project is broken, where seventy-three skips say one
-#: feature was not installed. What the marker must never become is a way of not
-#: noticing the SDK is missing where it is meant to be there -- ``ci.yml`` and
-#: ``mutation.yml`` each install it in a step of their own, so on the runs that
-#: matter nothing here is skipped and the coverage floor still has to be met.
-#:
-#: It covers the whole signing stack and not only the ``ap2`` package: the SDK
-#: imports ``jwcrypto`` and ``cryptography``, the two files install together, and
-#: a test that generates a key needs them whether or not it names ``ap2`` itself.
-#: Four such tests were left unmarked and failed on the very checkout the marker
-#: exists for.
-#:
-#: The other way round costs nothing on the runs that matter and everything on
-#: the one this exists for: a test marked here that would have passed anyway is
-#: one the dev-only checkout never runs, and nothing goes red to say so. So the
-#: marker goes as close to what needs the SDK as pytest allows -- on the
-#: ``pytest.param`` where one case of a parametrised test reaches the signing
-#: stack and another only fakes the import it is about.
-#:
-#: Asked once, at import: ``mandates.available()`` defers the ``ap2`` import, so
-#: this costs one attempted import for the whole session.
 needs_ap2 = pytest.mark.skipif(
     not mandates.available(),
     reason=f"the optional AP2 SDK is not installed -- add it with:  {mandates.INSTALL}",
@@ -86,54 +51,27 @@ def _scratch_cache(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def cache_somewhere_disposable(
     _scratch_cache: Path, request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Point every test's cache at a scratch directory of its own.
-
-    ``autouse``, so "nothing in this suite reads or writes the machine's own
-    cache" is a property of the suite rather than of each test remembering: a
-    test that builds a real ``BuyAgent`` gets a model that remembers its answers
-    on disk (ADR-0044). One directory *per test* rather than one for the suite,
-    because two tests asking one model the same question are two tests, and the
-    second reading the first's answer would pass without ever reaching the model
-    it is about. Nothing is created until something writes.
-    """
+    """Point every test's cache at a scratch directory of its own."""
     named = re.sub(r"[^\w.-]", "_", request.node.name)
     monkeypatch.setenv("BUY_AGENT_CACHE_DIR", str(_scratch_cache / named))
 
 
 @pytest.fixture(autouse=True)
 def pay_with_nothing_of_the_developers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Unset the two payment variables for every test in the suite.
-
-    ``autouse`` for the reason the cache directory is, and more so: these name a
-    signing key and a pre-signed open mandate, so a developer who has set either
-    would otherwise have a suite that signs with their key and buys on their
-    budget. Unset, every test that wants one points at a file it made itself.
-    """
+    """Unset the two payment variables for every test in the suite."""
     monkeypatch.delenv("BUY_AGENT_AP2_KEY", raising=False)
     monkeypatch.delenv("BUY_AGENT_AP2_MANDATE", raising=False)
     monkeypatch.delenv("BUY_AGENT_MERCHANT_URL", raising=False)
 
 
-#: Every logger ``configure_logging`` sets a level on, which is every logger a
-#: test can leave changed for the ones after it. The root is on the list because
-#: that function sets it itself rather than leaving it to ``basicConfig``, which
-#: does nothing where a handler is already installed -- and under pytest one
-#: always is.
+#: Every logger ``configure_logging`` sets a level on, which is every logger a test can
+#: leave changed for the ones after it.
 _LEVELS_CONFIGURE_LOGGING_SETS = ("", "buy_agent", *_NOISY_LIBRARIES, *_TRACE_LIBRARIES)
 
 
 @pytest.fixture(autouse=True)
 def leave_every_logger_as_it_was() -> Iterator[None]:
-    """Put back every level ``configure_logging`` sets, after every test.
-
-    ``autouse`` for the reason the cache directory is: three entry points call
-    that function -- the CLI, the server and the benchmark -- and a test that
-    runs one of them is otherwise deciding how loud every later test is. What
-    that costs is not a failure where it happened but a ``caplog`` assertion
-    going quiet three files further on, or a branch that only runs at a level
-    somebody else already set. A level and not the handlers: those are installed
-    per-test where they matter, and ``caplog`` manages its own.
-    """
+    """Put back every level ``configure_logging`` sets, after every test."""
     kept = [
         (logger, logger.level)
         for logger in map(logging.getLogger, _LEVELS_CONFIGURE_LOGGING_SETS)
@@ -156,16 +94,6 @@ def open_mandate(
     payee: str = OPEN_MANDATE_PAYEE,
 ) -> tuple[Any, Any]:
     """Put a pre-signed open mandate where ``$BUY_AGENT_AP2_MANDATE`` will find it.
-
-    Built the way a bank or an agent provider would build one: an amount range and
-    an allow-list of payees, with ``cnf`` naming the key allowed to close it. Four
-    files were writing the file and then pointing the variable at it, two lines
-    apiece, and three of them reached this by importing it out of another test
-    module -- so it lives here, which is where the suite's shared fixtures are.
-
-    Its presence is what puts a run into the human-not-present mode (ADR-0046), so
-    setting the variable is half of what a caller wants and never the other half by
-    accident: :func:`enrolled_key` is the key, asked for separately.
 
     Returns:
         The agent key the mandate delegates to, and the issuer's.
@@ -213,11 +141,6 @@ def enrolled_key(
 ) -> Any:
     """An EC P-256 key on disk, with ``$BUY_AGENT_AP2_KEY`` naming it.
 
-    What tells a signature made with an enrolled key from one made with a key the
-    process invented, which is the difference ``Receipt.enrolled_key`` reports -- so
-    six tests wanted a key on disk and the four that pay on an open mandate wanted
-    *that* mandate's key, which is the argument.
-
     Returns:
         The key, whether it was handed in or made here.
     """
@@ -229,12 +152,7 @@ def enrolled_key(
 
 
 class FakeLLM:
-    """Stands in for a model server: a canned object per requested schema.
-
-    ``answer`` is the whole of :class:`buy_agent.chat.ChatModel`, so this is a
-    class with one method. The schema it is asked for says which of the two
-    chains is calling. Raising is supported so error paths can be exercised.
-    """
+    """Stands in for a model server: a canned object per requested schema."""
 
     def __init__(
         self,
@@ -256,21 +174,13 @@ class FakeLLM:
 
 
 def said(*quotes: str, page: str | None = None) -> list[Opinion]:
-    """Quotes as a grounded product carries them: words beside the page that
-    printed them (ADR-0042). ``page`` is one link for all of them, which is what
-    a product quoted off a single result has."""
+    """Quotes as a grounded product carries them: words beside the page that printed them
+    (ADR-0042)."""
     return [Opinion(text=quote, url=page) for quote in quotes]
 
 
 def ranked_product(product: Product, *, score: float, rank: int) -> RankedProduct:
-    """One finished ranking entry with the score a test wants it to have.
-
-    ``rank_products`` is what builds these in a run, and its scores fall where
-    the arithmetic puts them -- so a test about something else (a payload's
-    shape, the report's wording, a rounding) says the score it needs and gets a
-    breakdown that agrees with it: three shares blending to exactly that, and
-    ``neutral`` naming whatever this product genuinely published nothing for.
-    """
+    """One finished ranking entry with the score a test wants it to have."""
     assumed = [
         name
         for name, figure in (
@@ -290,15 +200,7 @@ def ranked_product(product: Product, *, score: float, rank: int) -> RankedProduc
 
 
 def payable_product(**extra: Any) -> Product:
-    """A product a run really could pay for, and the one four files needed.
-
-    Priced, in a currency, off a page that was searched: every one of the things
-    ``payment._check`` refuses a product for missing, and every one of them
-    something grounding would have had to leave standing. Written out once
-    because four files were carrying the same seven lines, and a rule added to
-    that check would have had to be answered in all four. ``extra`` overrides as
-    well as adds, so a test about one field says that field and nothing else.
-    """
+    """A product a run really could pay for, and the one four files needed."""
     return Product(
         **{
             "name": "Sony WH-1000XM5",

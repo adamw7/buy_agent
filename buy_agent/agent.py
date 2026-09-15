@@ -47,14 +47,12 @@ def every_step_passes(_step: str) -> None:
 
 class ModelUnavailableError(RuntimeError):
     """Raised when the model could not be used: no server, no model, or no answer
-    (ADR-0028, ADR-0009).
-    """
+    (ADR-0028, ADR-0009)."""
 
 
 def _asks_the_same_question(config: AgentConfig) -> dict[str, object]:
     """Everything besides the prompt that decides what a model answers (ADR-0044)
-    (ADR-0051).
-    """
+    (ADR-0051)."""
     fingerprint: dict[str, object] = {
         "provider": config.provider,
         "model": config.model,
@@ -75,8 +73,7 @@ def _and_list(items: list[str]) -> str:
 
 class BuyAgent:
     """Finds products for a shopper, ranks them, and logs the best few (ADR-0002,
-    ADR-0028).
-    """
+    ADR-0028)."""
 
     def __init__(
         self, config: AgentConfig | None = None, *, llm: ChatModel | None = None
@@ -164,8 +161,7 @@ class BuyAgent:
         return ranked
 
     def _search(self, query: str) -> list[SearchResult]:
-        """Search the web, or only the sources the shopper named (ADR-0027, ADR-0053).
-        """
+        """Search the web, or only the sources the shopper named (ADR-0027, ADR-0053)."""
         sources = self.config.sources
         width = self.config.search_results
         if not sources:
@@ -190,13 +186,7 @@ class BuyAgent:
         return list(pooled.values())[:width]
 
     def _ask_the_web(self, query: str, limit: int) -> list[SearchResult]:
-        """One search, on this run's region and this run's clock (ADR-0053).
-
-        The whole web and one named source are the same request with a different
-        query, so the region and the clock are handed over in one place rather than
-        in each -- a search asked one way in a loop and another way outside it is two
-        searches to keep in step.
-        """
+        """One search, on this run's region and this run's clock (ADR-0053)."""
         return search_web(query, max_results=limit, region=self.config.region, wait=sleep)
 
     def _empty_search_note(self) -> str:
@@ -204,8 +194,7 @@ class BuyAgent:
         return f"{self._region_note() or '.'}{self._sources_note()}"
 
     def _sources_note(self) -> str:
-        """The named sources, when they are what the search was confined to (ADR-0027).
-        """
+        """The named sources, when they are what the search was confined to (ADR-0027)."""
         sources = self.config.sources
         if not sources:
             return ""
@@ -272,8 +261,7 @@ class BuyAgent:
         return deduplicate(grounded, self.config.num_products)
 
     def _invoke(self, chain: Chain[Any], payload: dict[str, Any]) -> Any:
-        """Invoke a chain, turning transport errors into an actionable message (ADR-0009).
-        """
+        """Invoke a chain, turning transport errors into an actionable message (ADR-0009)."""
         server = self.config.model_server
         try:
             return chain.invoke(payload)

@@ -1,5 +1,4 @@
-"""Who the agent actually pays through: one row per rail, and nothing else (ADR-0046).
-"""
+"""Who the agent actually pays through: one row per rail, and nothing else (ADR-0046)."""
 
 from __future__ import annotations
 
@@ -18,9 +17,7 @@ if TYPE_CHECKING:
     from buy_agent.config import AgentConfig
     from buy_agent.mandates import Authorisation, SignedCheckout
 
-#: How long to wait on a counterparty. Longer than a page fetch and far longer than a
-#: model listing: a payment processor is entitled to think, and a request this side gave
-#: up on may still have been acted on at the other end.
+#: How long to wait on a counterparty.
 _TIMEOUT = 30.0
 
 #: The order id the dry run stamps on the checkout it signs itself.

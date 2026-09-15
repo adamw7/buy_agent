@@ -145,14 +145,7 @@ def test_no_sources_asked_for_is_the_whole_web() -> None:
 
 @pytest.mark.parametrize("blank", ["", "   ", [], [""], ["", "  "], ","])
 def test_an_empty_sources_field_is_the_whole_web_too(blank) -> None:
-    """A cleared form field means "unset", the same as every other option.
-
-    Including in the shape only this option arrives in: a list of blanks says
-    what a blank string says. Read as a value it reached ``parse_sources``, came
-    back empty and left the run searching the whole web -- the right answer by
-    accident, arrived at through the path that would give the wrong one for
-    anything with a rule of its own.
-    """
+    """A cleared form field means "unset", the same as every other option."""
     assert parse_options({"sources": blank})[0].sources == ()
 
 
@@ -175,12 +168,8 @@ def test_a_json_body_may_send_them_as_an_array_instead() -> None:
 
 
 def test_an_array_holding_something_that_is_not_text_is_refused_not_a_traceback() -> None:
-    """A JSON array is whatever was posted, so its entries are rendered with
-    ``str`` the way ``_present`` already reads them. Taken as written, ``5``
-    was asked for its ``strip`` and the ``AttributeError`` walked out of the
-    door: a 500 reading "Unexpected failure", with a traceback in the log and no
-    box marked, for exactly the kind of value every other option answers with a
-    400 (ADR-0033)."""
+    """A JSON array is whatever was posted, so its entries are rendered with ``str`` the
+    way ``_present`` already reads them."""
     with pytest.raises(ApiError) as failure:
         parse_options({"sources": ["rtings.com", 5]})
 
@@ -536,10 +525,8 @@ def test_what_a_checkpoint_raises_is_not_turned_into_an_api_error() -> None:
 # -- rank_again, the one entry point that runs no pipeline ---------------------
 
 
-#: Two products the criteria disagree about: the dearer one is better reviewed,
-#: so score puts it first and price puts it last. ``RANKED`` cannot show a
-#: re-sort at all -- its second product has neither a price nor a rating, so it
-#: sinks to the bottom whichever criterion is asked for.
+#: Two products the criteria disagree about: the dearer one is better reviewed, so score
+#: puts it first and price puts it last.
 DISAGREEING = [
     ranked_product(
         Product(name="Sony WH-1000XM5", price=328.0, rating=5.0, review_count=5000),
@@ -562,10 +549,9 @@ def posted(**overrides) -> dict:
 
 
 def test_a_finished_run_can_be_reordered_without_running_it_again() -> None:
-    """The whole point of the endpoint: the same products, the other criterion,
-    and no agent anywhere near it -- ``rank_again`` takes no factory to hand one
-    to (ADR-0035). What used to cost a second search, ten more page fetches and
-    another extraction is this call."""
+    """The whole point of the endpoint: the same products, the other criterion, and no
+    agent anywhere near it -- ``rank_again`` takes no factory to hand one to
+    (ADR-0035)."""
     products = results_payload(DISAGREEING)
 
     by_score = rank_again(posted(products=products, sort_by="score"))
@@ -586,9 +572,8 @@ def test_reordering_answers_the_shape_a_finished_run_answers_with() -> None:
 
 
 def test_a_run_lets_go_of_its_agent_once_the_answer_is_shaped() -> None:
-    """One request, one agent, and the connection it opened closed here rather
-    than whenever the last reference to it happens to fall. The server answers
-    for hours; an agent lives for one of its requests."""
+    """One request, one agent, and the connection it opened closed here rather than
+    whenever the last reference to it happens to fall."""
     captured = agent_returning(RANKED)
     closed: list[bool] = []
     captured["factory"].close = lambda _self: closed.append(True)
@@ -727,11 +712,9 @@ def test_reordering_says_which_product_it_could_not_read() -> None:
 @pytest.mark.parametrize("figure", ["Infinity", "-Infinity", "NaN"])
 @pytest.mark.parametrize("field", ["price", "rating"])
 def test_reordering_refuses_a_figure_that_is_not_a_number(field, figure) -> None:
-    """``json.loads`` reads ``Infinity`` and ``NaN`` as readily as it reads ``1``,
-    so this is the one door a non-finite figure can arrive at: the model's own is
-    blanked by ``to_product``. Left alone it would rank -- an infinite price makes
-    every price share a NaN -- and then go back out through ``json.dumps``, which
-    writes both bare, giving the page a 200 whose body it cannot parse."""
+    """``json.loads`` reads ``Infinity`` and ``NaN`` as readily as it reads ``1``, so this
+    is the one door a non-finite figure can arrive at: the model's own is blanked by
+    ``to_product``."""
     posted_products = json.loads(f'[{{"name": "Sony", "{field}": {figure}}}]')
 
     with pytest.raises(ApiError) as excinfo:
@@ -744,10 +727,9 @@ def test_reordering_refuses_a_figure_that_is_not_a_number(field, figure) -> None
 
 @pytest.mark.parametrize("rating", [5.5, 100, -1])
 def test_reordering_refuses_a_rating_off_the_scale(rating: float) -> None:
-    """A rating is a share of the blend and not a quantity -- ``score_product``
-    divides it by 5 -- so one off the scale ranks at a score outside the ``[0, 1]``
-    every reader of a breakdown is owed, and the card draws a meter longer than its
-    own track. The pipeline blanks one in ``to_product``; this is the other door."""
+    """A rating is a share of the blend and not a quantity -- ``score_product`` divides it
+    by 5 -- so one off the scale ranks at a score outside the ``[0, 1]`` every reader
+    of a breakdown is owed, and the card draws a meter longer than its own track."""
     with pytest.raises(ApiError) as excinfo:
         rank_again(posted(products=[{"name": "Sony", "rating": rating}]))
 
@@ -932,9 +914,8 @@ def test_an_unreachable_ollama_is_a_status_not_an_error(monkeypatch) -> None:
 
 
 def test_an_unreachable_server_says_how_to_start_it(monkeypatch) -> None:
-    """The reason alone leaves the shopper where they were: the pill is the one
-    moment where the fix is a single command, and the provider already writes it.
-    The sentence is Python's so the browser keeps deciding nothing."""
+    """The reason alone leaves the shopper where they were: the pill is the one moment
+    where the fix is a single command, and the provider already writes it."""
 
     def explode(url, **_kwargs):
         raise ConnectionError("connection refused")
@@ -966,9 +947,8 @@ def test_an_unreachable_vllm_is_told_to_start_a_vllm(monkeypatch) -> None:
 
 @pytest.mark.parametrize("spell", [lambda value: value, str], ids=["json", "query string"])
 def test_the_bounds_and_the_cache_reach_the_config(spell) -> None:
-    """Both carriers: a JSON body sends numbers and the stream's query string
-    sends the same options as text, so each has to survive being spelled either
-    way."""
+    """Both carriers: a JSON body sends numbers and the stream's query string sends the
+    same options as text, so each has to survive being spelled either way."""
     config, _ = parse_options(
         {
             key: spell(value)
@@ -1224,11 +1204,9 @@ def test_the_products_carry_whether_each_may_be_bought() -> None:
 
 
 def test_the_products_carry_the_money_a_purchase_would_be_in() -> None:
-    """Which is frequently not the product's own: a page that printed a bare
-    "179.00" is priced in the run's currency (ADR-0043), so ``currency`` is null
-    while the cart is in USD. Sent because the card restates the cart and echoes
-    its currency back -- left to read the product's own, it showed an amount with
-    no unit on it and emitted nothing at all when the button was pressed."""
+    """Which is frequently not the product's own: a page that printed a bare "179.00" is
+    priced in the run's currency (ADR-0043), so ``currency`` is null while the cart is
+    in USD."""
     bare = Product(name="Sennheiser Accentum", price=179.0, url="https://x.example/s")
     ranked = rank_products([PAYABLE, bare], weights=RankingWeights())
 
@@ -1242,13 +1220,7 @@ def test_the_products_carry_the_money_a_purchase_would_be_in() -> None:
 
 
 def test_the_products_carry_who_a_purchase_would_pay() -> None:
-    """The cart's merchant, which is the site wherever no page printed a seller.
-
-    Sent because the card restates the cart before authorising it. Left to read
-    the product's own ``seller``, the confirmation named nobody at all for every
-    product no page printed one for -- which is most of them, and exactly the
-    field a person needs before agreeing to pay.
-    """
+    """The cart's merchant, which is the site wherever no page printed a seller."""
     anonymous = Product(
         name="Sennheiser Accentum", price=179.0, currency="USD", url="https://x.example/s"
     )
@@ -1304,15 +1276,8 @@ def test_a_rail_nothing_can_pay_through_is_refused_by_its_field() -> None:
 
 
 def test_a_paying_rail_with_nowhere_to_pay_is_refused() -> None:
-    """`AgentConfig` refuses it, which is the one thing about these settings the
-    form cannot judge from a range.
-
-    Refused the way every other unusable value is, and not as the bare
-    ``ValueError`` the config raises: that escaped `parse_options` altogether and
-    reached the browser as a 500 reading "Unexpected failure", with a traceback
-    in the server's log and no box marked -- for a mistake the form can make by
-    picking a rail and leaving its address empty.
-    """
+    """`AgentConfig` refuses it, which is the one thing about these settings the form
+    cannot judge from a range."""
     with pytest.raises(ApiError, match="needs an address") as refusal:
         parse_options({"pay": "true", "rail": "http"})
 
@@ -1388,8 +1353,7 @@ def test_an_approval_for_one_product_cannot_buy_another() -> None:
 
 @pytest.mark.parametrize("missing", ["title", "price", "currency"])
 def test_an_approval_missing_any_of_the_three_buys_nothing(missing: str) -> None:
-    """All three are what a person was shown. An approval that left one out would
-    be matched against a default rather than against what they agreed to."""
+    """All three are what a person was shown."""
     approved = {key: value for key, value in APPROVED.items() if key != missing}
 
     with pytest.raises(ApiError) as excinfo:
@@ -1408,8 +1372,7 @@ def test_an_approval_that_is_not_an_object_buys_nothing() -> None:
 
 @needs_ap2
 def test_an_approval_with_spaces_round_the_title_is_still_the_same_approval() -> None:
-    """A browser is free to send what a text node held; the agreement is about
-    the words."""
+    """A browser is free to send what a text node held; the agreement is about the words."""
     padded = {**APPROVED, "title": f"  {APPROVED['title']}  ", "currency": "usd"}
 
     assert pay_now(paying(approved=padded))["receipt"]["title"] == PAYABLE.name

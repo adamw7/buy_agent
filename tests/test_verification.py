@@ -66,14 +66,7 @@ def test_an_invented_review_count_is_dropped() -> None:
 
 
 def test_a_rejected_rating_takes_its_review_count_with_it() -> None:
-    """ADR-0022's pairing, one stage earlier than the merge it was written for.
-
-    12,500 really is in the sources, so checked on its own it survives -- and
-    then qualifies a rating that has just been thrown out. The card reads
-    "unrated" beside nothing, and the ranking still scores the popularity of a
-    count that no longer has a rating to be the popularity of, which is the
-    invented 4.9 earning its place after all.
-    """
+    """ADR-0022's pairing, one stage earlier than the merge it was written for."""
     product = Product(name="Sony WH-CH720N", rating=4.9, review_count=12500)
 
     verified = verify_numbers([product], HAYSTACK)[0]
@@ -111,13 +104,7 @@ def test_verification_never_drops_the_product_itself() -> None:
 
 
 def test_the_products_that_lost_a_figure_are_counted_once_each(caplog) -> None:
-    """The other three grounding steps say what they took; this one says it too.
-
-    Counted per *product* and not per figure -- a listing whose price and rating
-    are both invented is one product the report has less to say about, and the
-    line is what the progress panel shows a shopper who is watching a run thin
-    out. An uncounted product reads as a run that dropped nothing.
-    """
+    """The other three grounding steps say what they took; this one says it too."""
     products = [
         Product(name="Sony WH-CH720N", price=99.0, rating=4.9),
         Product(name="Sony WH-CH720N", price=129.0, rating=4.3),
@@ -157,13 +144,7 @@ def test_thousands_separators_are_normalised() -> None:
 
 
 def test_a_decimal_comma_is_not_a_thousands_separator() -> None:
-    """A euro-language page prices in "129,99", which is 129.99 and not 12999.
-
-    Stripping every comma between digits alike made every price on a German or
-    Polish page a hundred times too big, so a figure the model had read off it
-    correctly was no longer in the haystack and lost its grounding. ``--region
-    pl-pl`` and the currency codes in ``fetch`` are what put those pages in reach.
-    """
+    """A euro-language page prices in "129,99", which is 129.99 and not 12999."""
     haystack = build_haystack([SearchResult(snippet="Cena: 129,99 PLN za sztuke")])
 
     assert mentions_number(haystack, 129.99)
@@ -202,9 +183,7 @@ def test_a_price_written_with_decimals_still_matches() -> None:
         ("A solid 4.6 stars", 4.6),
         ("Rating: 4.6", 4.6),
         ("Rated 5 stars", 5.0),
-        # The same sentence hyphenated, which is how a roundup writes it. The
-        # space form already vouches for this figure, so refusing the hyphen
-        # rested a rating's fate on a page's punctuation and nothing else.
+        # The same sentence hyphenated, which is how a roundup writes it.
         ("A solid 4.6-star average", 4.6),
         ("Our 4.6-Star Pick", 4.6),
     ],
@@ -239,24 +218,12 @@ def test_a_rounded_rating_is_not_treated_as_supported() -> None:
     ],
 )
 def test_a_whole_rating_is_supported_by_the_zero_the_page_printed(snippet, rating) -> None:
-    """A page writing "4.0" states the 4 that was claimed, precisely.
-
-    Ratings are printed to one decimal place whether or not they have one, so
-    this is how a whole rating usually arrives. Refusing it blanked the rating
-    *and* the review count qualifying it, leaving the product neutral on both
-    halves of the score for the page having been exact.
-    """
+    """A page writing "4.0" states the 4 that was claimed, precisely."""
     assert mentions_rating(build_haystack([SearchResult(snippet=snippet)]), rating)
 
 
 def test_a_hyphen_is_only_read_where_a_page_would_write_one() -> None:
-    """It joins a figure to "star" and nowhere else, so nothing new is vouched for.
-
-    A hyphen between a figure and its scale is not a shape any page writes, and
-    reading one would make a range ("4-5") say what a rating says. What the
-    figure itself may be is unchanged: "4.65-star" is no more a printed 4.6 than
-    "4.65/5" is.
-    """
+    """It joins a figure to "star" and nowhere else, so nothing new is vouched for."""
     assert not mentions_rating(build_haystack([SearchResult(snippet="Model 4.6-/5")]), 4.6)
     assert not mentions_rating(build_haystack([SearchResult(snippet="Bundle 4-5 stars")]), 4.0)
     assert not mentions_rating(build_haystack([SearchResult(snippet="Model 4.65-star")]), 4.6)
@@ -401,12 +368,7 @@ def test_verification_copies_rather_than_editing_in_place() -> None:
 
 
 def test_a_bare_zero_is_matched_like_any_other_number() -> None:
-    """What ``mentions_number`` does with a zero, which is nothing special.
-
-    Nothing in the pipeline hands it one any more -- ``to_product`` reads a zero
-    price and a zero review count alike as unknown -- but the rule this function
-    applies should not quietly depend on that.
-    """
+    """What ``mentions_number`` does with a zero, which is nothing special."""
     haystack = build_haystack([SearchResult(snippet="Bundled adapter: $0 with purchase")])
 
     assert mentions_number(haystack, 0)
@@ -471,10 +433,9 @@ def test_grounding_reports_what_it_dropped(caplog) -> None:
 
 
 def test_the_products_grounding_dropped_are_named_for_the_reader_who_asked(caplog) -> None:
-    """``mentions_name`` decides whether a product is real at all, so a real one
-    it happens to fail is the run's worst miss -- and the count alone leaves
-    nothing to find it by. The count at INFO and the names at DEBUG, as
-    everywhere else a product is taken away."""
+    """``mentions_name`` decides whether a product is real at all, so a real one it
+    happens to fail is the run's worst miss -- and the count alone leaves nothing to
+    find it by."""
     with caplog.at_level(logging.DEBUG, logger="buy_agent.verification"):
         ground([Product(name="Bonavita Gooseneck Kettle", price=80.0)], SOURCES)
 
@@ -524,13 +485,7 @@ def test_a_lead_in_word_far_from_the_figure_does_not_vouch_for_it() -> None:
 
 
 def test_a_counted_headline_does_not_vouch_for_a_rating() -> None:
-    """"rated the 5 best headphones" is an article's title, not a 5 out of 5.
-
-    The figure belongs to the noun after it. Any twelve non-digits used to count
-    as "one claim about one product", which handed a listing claiming a perfect
-    score the one page that could never support it. The tell sits on either side
-    of the figure, so both are ruled out.
-    """
+    """"rated the 5 best headphones" is an article's title, not a 5 out of 5."""
     after = build_haystack([SearchResult(snippet="We rated the 5 best headphones of 2026")])
     before = build_haystack([SearchResult(snippet="We rated the top 3 headphones of 2026")])
 
@@ -561,12 +516,7 @@ def test_the_coverage_bar_is_three_distinctive_words_in_five() -> None:
 
 
 def test_half_a_name_is_not_enough_to_ground_it() -> None:
-    """The half-way case, which is what actually fixes the floor at 0.6.
-
-    Three-in-five above and two-in-five below leave every threshold from 0.5 to
-    0.6 looking identical, and a 0.5 bar is the one that lets a model pair a real
-    brand with an invented model number and have it pass.
-    """
+    """The half-way case, which is what actually fixes the floor at 0.6."""
     haystack = build_haystack([SearchResult(snippet="The Bose QuietComfort is $279.")])
 
     assert not mentions_name(haystack, "Bose QuietComfort Ultra 2024"), "2 of 4 is short"
@@ -631,12 +581,7 @@ def test_a_product_no_single_page_mentions_keeps_no_link() -> None:
 
 
 def test_a_name_split_across_two_pages_is_not_attributed_to_either() -> None:
-    """``ground`` clears a name the sources cover jointly; a link needs one page.
-
-    ``drop_ungrounded`` asks whether the results as a whole mention the product,
-    so a name each page only half covers survives -- and then has nowhere to
-    point, because neither page is the one it was found on.
-    """
+    """``ground`` clears a name the sources cover jointly; a link needs one page."""
     pages = [
         SearchResult(url="https://a.example", snippet="Sony WH headphones are here."),
         SearchResult(url="https://b.example", snippet="The CH720N Ultra is in stock."),
@@ -706,13 +651,7 @@ def test_the_searched_pages_are_the_ones_with_urls() -> None:
 
 
 def test_a_model_number_is_not_found_inside_a_longer_number() -> None:
-    """The name check matches words, not substrings.
-
-    ``mentions_number`` is careful that 129 is not read out of 1299; the name
-    check has to be as careful, or the digits of an invented model number are
-    "supported" by any longer number on the page -- one "$1700" vouching for a
-    Bose 700 and a Bose 170 alike.
-    """
+    """The name check matches words, not substrings."""
     sources = [
         SearchResult(
             title="Bose QuietComfort Ultra review",
@@ -797,12 +736,7 @@ def test_an_invented_opinion_is_dropped() -> None:
 
 
 def test_a_quote_assembled_out_of_scattered_words_is_dropped() -> None:
-    """Every word here is in the sources; the sentence is in none of them.
-
-    This is why a quote is checked as runs of words rather than word by word: a
-    small model paraphrasing out of the vocabulary it has just read would clear
-    any bar that only asks whether the words occur.
-    """
+    """Every word here is in the sources; the sentence is in none of them."""
     assert opinions_after("the case is uncanny for a coat pocket") == []
 
 
@@ -834,12 +768,7 @@ def test_the_real_quote_survives_the_invented_one_beside_it() -> None:
 
 
 def test_a_verdict_on_another_product_does_not_transfer_to_this_one() -> None:
-    """The point of checking page by page: "great sound" is the Anker's, not the Sony's.
-
-    Every word of it is in the sources and it is running text of a real page, so
-    one pooled haystack passed it -- which is a genuine reviewer's sentence filed
-    under the wrong product, the failure ADR-0025 closes.
-    """
+    """The point of checking page by page: "great sound" is the Anker's, not the Sony's."""
     assert opinions_after("Great sound, and it ships in black") == []
 
 
@@ -880,12 +809,7 @@ def test_dropped_opinions_are_reported(caplog) -> None:
 
 
 def test_a_grouped_number_in_a_quote_matches_the_page_that_grouped_it() -> None:
-    """Both sides of a quote comparison go through the same normalisation.
-
-    The pages were normalised and the model's own words were not, so a quote of
-    "over 1,299 owners" could never match a haystack in which the page's own
-    "1,299" had already become "1299" -- three words against one.
-    """
+    """Both sides of a quote comparison go through the same normalisation."""
     results = [
         SearchResult(
             title="Sony WH-CH720N review",
@@ -912,8 +836,7 @@ def test_a_grouped_number_in_a_quote_matches_the_page_that_grouped_it() -> None:
     ],
 )
 def test_a_quote_carries_the_page_that_printed_it(arrived_with: str | None) -> None:
-    """The evidence a shopper can follow. Before this a figure could be checked
-    by following the product's link and a quote could not be checked at all."""
+    """The evidence a shopper can follow."""
     product = Product(
         name="Sony WH-CH720N",
         opinions=said("the noise cancelling uncanny for the money", page=arrived_with),
@@ -1003,13 +926,7 @@ def test_review_counts_are_recognised_however_they_are_written(snippet: str) -> 
     ],
 )
 def test_a_count_the_page_wrote_as_something_else_is_not_one(snippet: str, count: int) -> None:
-    """The mistake :func:`mentions_rating` exists to refuse, on the other figure.
-
-    A review count is a small whole number, which is what a model number, a year
-    and a price all are -- so checked as a bare figure it grounded on any of
-    them, and then fed the popularity half of the score. It has to be written as
-    a count of somebody, the way a rating has to be written as a rating.
-    """
+    """The mistake :func:`mentions_rating` exists to refuse, on the other figure."""
     assert not mentions_review_count(build_haystack([SearchResult(snippet=snippet)]), count)
 
 

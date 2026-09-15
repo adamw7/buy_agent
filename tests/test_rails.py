@@ -1,11 +1,4 @@
-"""The rail table, and each row's half of a payment.
-
-Nothing here reaches the network. The HTTP rail's transport is patched where
-:mod:`buy_agent.rails` imported it -- ``rails.httpx.post`` -- by the same rule
-that makes the provider fakes patch ``providers.Client``: patching
-``httpx.post`` itself would work today and stop working the moment the import
-moved.
-"""
+"""The rail table, and each row's half of a payment."""
 
 from __future__ import annotations
 
@@ -42,12 +35,7 @@ class FakeResponse:
 
 
 class Endpoint:
-    """The far end of the HTTP rail: what it was sent, and what it answers.
-
-    ``answers`` is a queue rather than one canned reply, because a payment is two
-    calls -- the checkout and then the settlement -- and the interesting cases
-    are the ones where the second answers differently from the first.
-    """
+    """The far end of the HTTP rail: what it was sent, and what it answers."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []

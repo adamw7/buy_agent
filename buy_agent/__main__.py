@@ -92,8 +92,7 @@ def _bounded(kind: Callable[[str], Any], field: str) -> Callable[[str], Any]:
 
 def _checked(check: Callable[[str], object]) -> Callable[[str], str]:
     """A flag's value as argparse takes it: refused here, and kept as written (ADR-0027,
-    ADR-0031).
-    """
+    ADR-0031)."""
 
     def parse(text: str) -> str:
         try:

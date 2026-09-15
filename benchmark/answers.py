@@ -1,35 +1,4 @@
-"""The answer key: what :mod:`benchmark.corpus` actually says, product by product.
-
-This is the half the live tests in ``integration/`` deliberately do not have.
-They assert the *invariants*, which hold however badly the model read the pages
--- the right bar for a nightly job on a 0.6B model, and the reason nothing there
-can say whether a run got better or worse. So this file writes the right answer
-down. It is not a claim about which headphones anyone should buy: it is a
-transcription of what ten fabricated pages print, which is the only thing the
-pipeline is ever asked to reproduce.
-
-Two things make it a *deterministic* key rather than a wish (ADR-0036):
-
-* Every value is read off the pages **after** :func:`buy_agent.fetch.condense`
-  has been over them, so nothing in it is unreachable -- a line the fetch layer
-  throws away is a figure no run can ever be credited for, and a key demanding
-  one would put a silent ceiling under 1.0. ``tests/test_benchmark.py`` reads
-  that back off the corpus rather than trusting this sentence.
-* Each figure is the **set of values a page printed for that product**, not one
-  right answer. ``$328``, the refurbished ``$269`` and the ``329 EUR`` listing
-  are all things the sources say the Sony costs, and a model reporting any of
-  them has copied rather than invented. The canonical value beside the set has
-  one purpose: building the ranking this run *should* have produced.
-
-That second point is why the key is worth having.
-:func:`buy_agent.verification.verify_numbers` grounds a figure against the
-*pooled* haystack -- which is what makes grounding one cheap pass -- so the
-``$349`` printed for the Bose vouches for a ``$349`` reported for the Sony.
-Cross-product contamination is precisely what pooling cannot see, and per-product
-sets can: :mod:`benchmark.scoring` calls it ``attribution``. Prices and ratings
-are recorded as *pairs* with their qualifiers for ADR-0022's reason one stage on:
-"329 USD" is two figures the corpus prints and a pairing neither of them did.
-"""
+"""The answer key: what :mod:`benchmark.corpus` actually says, product by product."""
 
 from __future__ import annotations
 
@@ -101,8 +70,7 @@ def _entry(
     prices: set[tuple[float, str]],
     pages: set[str],
 ) -> Expected:
-    """One row of the key. The rating pair is the canonical one: no product in
-    this corpus is rated twice, so only ``prices`` is ever more than one pair."""
+    """One row of the key."""
     return Expected(
         name=name,
         price=price,
@@ -115,12 +83,6 @@ def _entry(
 
 
 #: The seven products these ten pages are about, in the order they first appear.
-#:
-#: Seven against a ``num_products`` of five (:data:`benchmark.corpus.NUM_PRODUCTS`)
-#: is deliberate: the run cannot report them all, so a benchmark measuring recall
-#: against all seven would put its own ceiling at 5/7 and never be legible. Recall
-#: is measured against the cap instead -- of the five slots the run has, how many
-#: hold a product that is really there.
 ANSWER_KEY: tuple[Expected, ...] = (
     _entry(
         "Sony WH-1000XM5", 328.0, 4.7, 12_480,

@@ -14,49 +14,22 @@ import type {
   SourcesCheck,
 } from '../agent.types';
 
-/**
- * The model's thinking mode as a `<select>` can hold it.
- *
- * Two states, not the three `AgentConfig.reasoning` carries. The third -- `null`,
- * "leave the model's own behaviour alone" -- is a library-level escape hatch no
- * front end can spell: a blank field means "use the default" (ADR-0012), so
- * offering it here made a third option that silently did what `off` does
- * (ADR-0019).
- */
+/** The model's thinking mode as a `<select>` can hold it. */
 type Thinking = 'on' | 'off';
 
-/**
- * One entry in the model dropdown, and what is wrong with picking it.
- *
- * Two things can be, and neither is a reason to leave the entry out. A name the
- * server is not serving is kept so a remembered setting is never silently swapped
- * for someone else's; a model that cannot answer a prompt is kept so a pull made by
- * mistake is visible (ADR-0032). `note` is empty for an entry that is just a choice.
- */
+/** One entry in the model dropdown, and what is wrong with picking it. */
 interface ModelOption {
   name: string;
   note: string;
 }
 
-/**
- * A value the server refused, and the box it came out of.
- *
- * The second line rather than the first: it is what a run that started anyway comes
- * back with. `field` is the key Python named in its `ApiError`, which is the key the
- * form sends that setting under (ADR-0033).
- */
+/** A value the server refused, and the box it came out of. */
 export interface Rejection {
   field: string;
   message: string;
 }
 
-/**
- * One number box, as the template draws it and the checks read it.
- *
- * `hint` and `off` are functions rather than values because two of them depend on
- * the provider the picker is on: the context window's sentence names the server, and
- * the box is switched off for a vLLM, which fixes its window when it starts.
- */
+/** One number box, as the template draws it and the checks read it. */
 interface NumberField {
   /** The key the value is sent under, the range arrives under and a refusal names --
    *  and, Python answering a default per setting under that same name, the key its
@@ -90,9 +63,7 @@ function field(
 
 const SETTINGS_KEY = 'buy_agent.settings';
 
-/** What a cleared bound box falls back to, said in the box. The other numbers
- *  fall back to a value the server named; these fall back to no bound at all,
- *  and "10" in grey where the answer is "everything" would be a lie. */
+/** What a cleared bound box falls back to, said in the box. */
 const NO_LIMIT = 'No limit';
 
 const EXAMPLES = [
@@ -102,12 +73,7 @@ const EXAMPLES = [
   'running shoes for flat feet',
 ];
 
-/**
- * What to shop for, and the settings the CLI takes as flags.
- *
- * The advanced settings are remembered between visits, being the ones a given
- * machine sets once -- which model is pulled, which region to search.
- */
+/** What to shop for, and the settings the CLI takes as flags. */
 @Component({
   selector: 'app-search-form',
   imports: [FormsModule],
@@ -118,9 +84,7 @@ export class SearchForm {
   readonly defaults = input<AgentDefaults | null>(null);
   readonly status = input<ModelStatus | null>(null);
   readonly running = input(false);
-  /** Whether the model list currently on screen is being replaced. The picker is held
-   *  shut while it is: what it holds is the last server's models, and one of those
-   *  chosen a moment before the new list lands is a model this server never offered. */
+  /** Whether the model list currently on screen is being replaced. */
   readonly checking = input(false);
   /** What the server made of the sources field, last time it was asked. */
   readonly checked = input<SourcesCheck | null>(null);
@@ -131,8 +95,7 @@ export class SearchForm {
   readonly stop = output<void>();
   /** Ask what another server is serving, when the provider or the address changes. */
   readonly refresh = output<ModelSource>();
-  /** Ask whether the sources field names sources. The parse is Python's, so the
-   *  page asks rather than keeping a second copy of it (ADR-0033). */
+  /** Ask whether the sources field names sources. */
   readonly check = output<string>();
 
   protected readonly examples = EXAMPLES;
@@ -143,10 +106,9 @@ export class SearchForm {
   protected readonly baseUrl = signal('');
   protected readonly region = signal('us-en');
   protected readonly sources = signal('');
-  // Every number box is `number | null`, because null is what one holds when it is
-  // cleared -- "use the default" for most (ADR-0012) and "no bound at all" for the
-  // three the shopper sets (ADR-0039). Typed as plain numbers, three of these went
-  // null at runtime the moment somebody emptied the box.
+  // Every number box is `number | null`, because null is what one holds when it is cleared -- "use
+  // the default" for most (ADR-0012) and "no bound at all" for the three the shopper sets
+  // (ADR-0039).
   protected readonly results = signal<number | null>(10);
   protected readonly top = signal<number | null>(3);
   protected readonly maxPrice = signal<number | null>(null);
@@ -159,52 +121,24 @@ export class SearchForm {
   protected readonly modelTimeout = signal<number | null>(null);
   protected readonly thinking = signal<Thinking>('off');
   protected readonly fetchPages = signal(true);
-  // Paying, and who through. `pay` is deliberately *not* remembered below: the other
-  // settings are standing answers about this machine, and "you may spend my money" is
-  // not one of them. The rail and its address are remembered, being configuration
-  // rather than consent.
+  // Paying, and who through.
   protected readonly pay = signal(false);
   protected readonly rail = signal('dry-run');
   protected readonly merchantUrl = signal('');
   protected readonly spendLimit = signal<number | null>(null);
   protected readonly advanced = signal(false);
 
-  /**
-   * The number boxes holding something that is not a number, by their key.
-   *
-   * An `<input type="number">` reports the empty string for text it cannot parse, so
-   * `12abc` reaches `ngModel` as `null` -- which is how a *cleared* box spells "use
-   * the default" (ADR-0012). Left at that, a box visibly full of nonsense was sent as
-   * absent and nothing said a word. The element is the only thing that can still tell
-   * the two apart, so it is asked as the reader types.
-   */
+  /** The number boxes holding something that is not a number, by their key. */
   private readonly unreadable = signal<Record<string, boolean>>({});
 
-  /**
-   * The settings a run was actually started with, for as long as they stand.
-   *
-   * The server's refusal names a field but not the value it refused, and the mark it
-   * leaves is about what was *sent*: fix the region it would not take and the box
-   * stayed red until the next run. Held here so the mark can be dropped the moment the
-   * box stops holding what was refused.
-   */
+  /** The settings a run was actually started with, for as long as they stand. */
   private readonly submitted = signal<SearchOptions | null>(null);
 
-  /**
-   * The settings that are seeded from the server, remembered, and restored.
-   *
-   * One row each, rather than the same ten names written out in `seed`, in `remember`
-   * and again in `restore` -- three lists that only ever drift apart. The key is the
-   * name the setting is stored under; `request` and `advanced` are absent because
-   * neither is remembered.
-   */
+  /** The settings that are seeded from the server, remembered, and restored. */
   private readonly settings: Record<string, Setting> = {
-    // Remembered like the rest, and remembered *with* the two fields it decides: a
-    // browser that switched to vLLM saved that provider's model and address in the same
-    // blob, so restoring them together can never pair one with the other. Checked
-    // against what this server offers rather than taken as text, for the reason
-    // `asThinking` is: a name since dropped leaves the picker matching nothing and the
-    // model and context fields describing a server nobody chose.
+    // Remembered like the rest, and remembered *with* the two fields it decides: a browser that
+    // switched to vLLM saved that provider's model and address in the same blob, so restoring them
+    // together can never pair one with the other.
     provider: setting(
       this.provider,
       (d) => d.provider,
@@ -218,27 +152,21 @@ export class SearchForm {
     sources: setting(this.sources, (d) => d.sources, asText),
     results: setting(this.results, (d) => d.results, asNumber),
     top: setting(this.top, (d) => d.top, asNumber),
-    // The three the shopper sets once and shops under for weeks, so they are remembered
-    // like the rest. `asNumberOrNull` for all four, a cleared box being an answer here:
-    // "no bound", and for the cache "fetch everything fresh".
+    // The three the shopper sets once and shops under for weeks, so they are remembered like the
+    // rest.
     maxPrice: setting(this.maxPrice, (d) => d.max_price, asNumberOrNull),
     minRating: setting(this.minRating, (d) => d.min_rating, asNumberOrNull),
     minReviews: setting(this.minReviews, (d) => d.min_reviews, asNumberOrNull),
     cacheTtl: setting(this.cacheTtl, (d) => d.cache_ttl, asNumberOrNull),
-    // The same check, and the row that most needed it: a cast is not one, and `SortBy`
-    // is a union the server is free to add to and drop from. Restored unchecked, a
-    // criterion no longer offered left the Rank by select showing nothing and the run
-    // refused for a value nobody could see.
+    // The same check, and the row that most needed it: a cast is not one, and `SortBy` is a union
+    // the server is free to add to and drop from.
     sortBy: setting(
       this.sortBy,
       (d) => d.sort_by,
       amongst<SortBy>((d) => d.sort_options),
     ),
     temperature: setting(this.temperature, (d) => d.temperature, asNumber),
-    // The one field a remembered `null` has to win on. Cleared, this box means "whatever
-    // the server defaults to" -- what `numCtxHint` names -- a choice and not an absence,
-    // so `null` is a value its parser accepts. Settings saved before the field existed
-    // carry no key, and `restore` leaves those to the seeded default.
+    // The one field a remembered `null` has to win on.
     numCtx: setting(this.numCtx, (d) => d.num_ctx, asNumberOrNull),
     modelTimeout: setting(this.modelTimeout, (d) => d.model_timeout, asNumberOrNull),
     thinking: setting(this.thinking, (d) => toThinking(d.think), asThinking),
@@ -267,26 +195,18 @@ export class SearchForm {
     () => this.defaults()?.rail_options ?? [],
   );
 
-  /** The row for the rail currently chosen, which carries its address and
-   *  whether it needs one. Absent before the server's defaults land. */
+  /** The row for the rail currently chosen, which carries its address and whether it needs one. */
   protected readonly chosenRail = computed<RailOption | undefined>(() =>
     this.railOptions().find((option) => option.name === this.rail()),
   );
 
-  /** Whether the optional AP2 SDK is installed on the server at all. False, and the
-   *  whole payment block stands down with a sentence rather than offering a switch
-   *  whose only outcome is a message about pip -- the reason the model picker falls
-   *  back to a text box rather than to one unusable entry. */
+  /** Whether the optional AP2 SDK is installed on the server at all. */
   protected readonly payAvailable = computed(() => this.defaults()?.pay_available ?? false);
 
-  /** Whether this rail can charge anybody. Python says so on the row; the page
-   *  only draws it, which is what keeps the warning true when a third rail is
-   *  added there and nowhere else. */
+  /** Whether this rail can charge anybody. */
   protected readonly railSpends = computed(() => this.chosenRail()?.moves_money ?? false);
 
-  /** Whether the address field is a setting on this rail at all. The dry run has
-   *  nowhere to be, so the box is disabled rather than left to be filled in and
-   *  ignored -- exactly what `takesNumCtx` does to the context window. */
+  /** Whether the address field is a setting on this rail at all. */
   protected readonly railNeedsEndpoint = computed(() => this.chosenRail()?.needs_endpoint ?? false);
 
   /** The row for the provider currently chosen, which carries its defaults and
@@ -295,16 +215,12 @@ export class SearchForm {
     this.providerOptions().find((option) => option.name === this.provider()),
   );
 
-  /** What to call this server on screen -- "Ollama", "vLLM". Falls back to the
-   *  bare name, which is what a provider the server knows and this build does not
-   *  would be. */
+  /** What to call this server on screen -- "Ollama", "vLLM". */
   protected readonly providerLabel = computed(
     () => this.chosenProvider()?.label ?? this.provider(),
   );
 
-  /** Whether the context window is a per-run setting at all. It is not for vLLM,
-   *  which fixes it with `--max-model-len` when it starts, so the field is
-   *  disabled rather than left there to be filled in and ignored. */
+  /** Whether the context window is a per-run setting at all. */
   protected readonly takesNumCtx = computed(() => this.chosenProvider()?.takes_num_ctx ?? true);
 
   /** Cleared, the field means "whatever the server defaults to" -- so name it. */
@@ -317,13 +233,8 @@ export class SearchForm {
   });
 
   /**
-   * What the model dropdown offers: everything the server reported, plus the name
-   * currently chosen if that is not among them, each marked with whatever is wrong
-   * with it.
-   *
-   * Empty means there is nothing to pick from -- the server was unreachable, or has
-   * nothing loaded -- and the field falls back to a text box, a dropdown with one
-   * unusable entry being worse than typing.
+   * What the model dropdown offers: everything the server reported, plus the name currently chosen
+   * if that is not among them, each marked with whatever is wrong with it.
    */
   protected readonly modelOptions = computed<ModelOption[]>(() => {
     const installed = this.status()?.models ?? [];
@@ -341,15 +252,7 @@ export class SearchForm {
     return options;
   });
 
-  /**
-   * Every number field, in the order the form draws them.
-   *
-   * The key is the one the server ships the range under, the one its refusals name and
-   * the one the value is sent as, so this table answers "what may this box hold",
-   * "which box was the run refused for" and "what does it say on it". The template
-   * loops over it: written out one at a time these were eight blocks of identical
-   * markup.
-   */
+  /** Every number field, in the order the form draws them. */
   protected readonly numberFields: NumberField[] = [
     field('max_price', 'Max price', this.maxPrice, {
       step: 0.01,
@@ -388,28 +291,18 @@ export class SearchForm {
     }),
   ];
 
-  /** The ranges the server declared, by the key each field is sent under. Empty
-   *  until the defaults land, which is a form that holds nothing to anything yet. */
+  /** The ranges the server declared, by the key each field is sent under. */
   protected readonly limits = computed<Record<string, Limit>>(() => this.defaults()?.limits ?? {});
 
-  /**
-   * What the page itself can say is wrong with a field, by the key it is sent under.
-   * Empty is a form that can be submitted.
-   *
-   * Every one of these is a rule the server declared and this only applies: the
-   * numbers against the ranges `config.LIMITS` shipped, the sources against the
-   * sentence `GET /api/sources` answered with. The server still checks all of it --
-   * this is the earlier line, not the only one (ADR-0033).
-   */
+  /** What the page itself can say is wrong with a field, by the key it is sent under. */
   protected readonly problems = computed<Record<string, string>>(() => {
     const problems: Record<string, string> = {};
     const limits = this.limits();
     const unreadable = this.unreadable();
     for (const { key, value: held, off } of this.numberFields) {
-      // A box this run does not take is not a setting to be held to anything, and it is
-      // disabled -- so a mark on it is one nobody can act on: the button stays off, the
-      // summary counts a setting to look at, and the box it points at cannot be typed
-      // into. Nothing is sent for it either -- see `options`.
+      // A box this run does not take is not a setting to be held to anything, and it is disabled --
+      // so a mark on it is one nobody can act on: the button stays off, the summary counts a
+      // setting to look at, and the box it points at cannot be typed into.
       if (off()) {
         continue;
       }
@@ -433,24 +326,15 @@ export class SearchForm {
     return problems;
   });
 
-  /**
-   * What the server said about the sources field, while it is still about what the
-   * field holds.
-   *
-   * An answer names the spec it was about, so one that arrived for text since typed
-   * over is dropped rather than shown against the new value.
-   */
+  /** What the server said about the sources field, while it is still about what the field holds. */
   private readonly sourcesProblem = computed(() => {
     const checked = this.checked();
     return checked && checked.sources === this.sources().trim() ? checked.error : '';
   });
 
   /**
-   * What to show under each field: what the page worked out, and -- for a field it has
-   * no rule of its own for -- what the server said when it refused the run.
-   *
-   * The page's own wins where both have something to say, because it is about what the
-   * box holds now and the server's is about what was sent.
+   * What to show under each field: what the page worked out, and -- for a field it has no rule of
+   * its own for -- what the server said when it refused the run.
    */
   protected readonly notes = computed<Record<string, string>>(() => {
     const problems = this.problems();
@@ -461,14 +345,7 @@ export class SearchForm {
     return { ...problems, [rejected.field]: rejected.message };
   });
 
-  /**
-   * Whether the field named still holds the value the run was refused for.
-   *
-   * A refusal is about what was sent, so it stops being about anything the moment the
-   * box is changed -- and a mark that outlives the mistake is a red field over a form
-   * with nothing wrong with it. A key that was never sent keeps its mark: unable to
-   * tell, this shows the sentence rather than swallowing it.
-   */
+  /** Whether the field named still holds the value the run was refused for. */
   private stillSent(field: string): boolean {
     const sent = this.submitted();
     if (!sent || !(field in sent)) {
@@ -477,24 +354,10 @@ export class SearchForm {
     return this.options()[field as keyof SearchOptions] === sent[field as keyof SearchOptions];
   }
 
-  /**
-   * How many settings have something to say about them, for the summary to carry.
-   *
-   * What the summary shows once the Settings panel is shut again, and what the effect
-   * in the constructor opens it on -- reachable without touching a thing: a remembered
-   * source or number the server no longer takes is restored, checked and marked before
-   * the form is first drawn.
-   */
+  /** How many settings have something to say about them, for the summary to carry. */
   protected readonly flagged = computed(() => Object.keys(this.notes()).length);
 
-  /**
-   * What a cleared number box falls back to, named in the box itself.
-   *
-   * An empty field means "use the default" (ADR-0012) -- a real answer, and the only
-   * way to ask for the server's own -- but an empty box says nothing about which
-   * number that is. The context window field already names its own; these are the
-   * rest.
-   */
+  /** What a cleared number box falls back to, named in the box itself. */
   protected readonly placeholders = computed<Record<string, string>>(() => {
     const named: Record<string, string> = {};
     const defaults = this.defaults();
@@ -517,17 +380,14 @@ export class SearchForm {
     return named;
   });
 
-  /** Nothing to shop for, or a field the page already knows the server would
-   *  refuse. The second is the point: the ranges and the sources check cost no
-   *  model, no network and no minute of waiting, so they are not worth a run. */
+  /** Nothing to shop for, or a field the page already knows the server would refuse. */
   protected readonly canSubmit = computed(
     () => this.request().trim().length > 0 && Object.keys(this.problems()).length === 0,
   );
 
   constructor() {
-    // The server's defaults arrive after the form has already rendered, so seed the
-    // fields when they land. Seeding runs untracked because it reads the very fields it
-    // fills in -- tracked, the effect would reset the form on every keystroke.
+    // The server's defaults arrive after the form has already rendered, so seed the fields when
+    // they land.
     effect(() => {
       const defaults = this.defaults();
       if (defaults) {
@@ -535,11 +395,7 @@ export class SearchForm {
       }
     });
 
-    // Open the settings the first time there is something in them to read. A mark inside
-    // a closed panel is a mark nobody sees, which is the whole of what ADR-0033 asks --
-    // and where the mark also disables the button, leaving it shut is a page that will
-    // not search and will not say why. Closing it again is the reader's to do, this
-    // firing only when the marks change.
+    // Open the settings the first time there is something in them to read.
     effect(() => {
       if (this.flagged()) {
         this.advanced.set(true);
@@ -553,9 +409,8 @@ export class SearchForm {
       field.seed(defaults);
     }
     this.restore(defaults);
-    // A remembered value is one nobody is about to type, so nothing else would
-    // ever ask about it: a browser holding a bad source would find out a run
-    // later, which is the whole complaint.
+    // A remembered value is one nobody is about to type, so nothing else would ever ask about it: a
+    // browser holding a bad source would find out a run later, which is the whole complaint.
     this.sourcesChanged();
   }
 
@@ -571,16 +426,11 @@ export class SearchForm {
     this.search.emit(options);
   }
 
-  /** Every setting as a run would be asked for it. One place, because `notes`
-   *  compares what the boxes hold now against what was sent, and two spellings
-   *  of "what the boxes hold" would differ on the first field either forgot. */
+  /** Every setting as a run would be asked for it. */
   private options(): SearchOptions {
     return {
-      // Every number box, off the one table that declares them -- so a new box is a
-      // row there and nothing here, the way it is already a row there and nothing in
-      // the template. First, so the settings written out below always win: `key` is
-      // typed as every key the defaults and a request have in common, which is wider
-      // than the boxes this actually fills in.
+      // Every number box, off the one table that declares them -- so a new box is a row there and
+      // nothing here, the way it is already a row there and nothing in the template.
       ...this.numbers(),
       request: this.request().trim(),
       provider: this.provider(),
@@ -597,28 +447,14 @@ export class SearchForm {
     };
   }
 
-  /**
-   * What the number boxes are sent as: nothing, for one this run does not take.
-   *
-   * A switched-off box is a setting this run has no use for -- a context window for a
-   * vLLM, a spend limit with paying off -- and `null` is how "unset" is spelled over
-   * the wire (ADR-0012). Left sending it, a value the box still held came back as a
-   * refusal marking a field that is disabled: a form that would not search, pointing
-   * at a box that could not be typed into.
-   */
+  /** What the number boxes are sent as: nothing, for one this run does not take. */
   private numbers(): Pick<SearchOptions, NumberField['key']> {
     return Object.fromEntries(
       this.numberFields.map((row) => [row.key, row.off() ? null : row.value()]),
     );
   }
 
-  /**
-   * A number box was typed into: ask the element whether it can read it.
-   *
-   * `validity.badInput` is the only thing that can tell `12abc` from an empty box,
-   * both of which reach `ngModel` as `null`. Read defensively -- an environment
-   * without a `ValidityState` is one where nothing is unreadable.
-   */
+  /** A number box was typed into: ask the element whether it can read it. */
   protected numberTyped(key: string, event: Event): void {
     const input = event.target as HTMLInputElement;
     const bad = input.validity?.badInput ?? false;
@@ -629,14 +465,7 @@ export class SearchForm {
     this.request.set(example);
   }
 
-  /**
-   * Another provider was picked: its model and its address come with it.
-   *
-   * Left alone, the two fields would hold the last provider's pair -- an Ollama tag
-   * asked of a vLLM -- which is a run that fails for a reason nothing on the form
-   * explains. The server is then asked what it has, the model list belonging to one
-   * server.
-   */
+  /** Another provider was picked: its model and its address come with it. */
   protected providerChanged(): void {
     const option = this.chosenProvider();
     if (option) {
@@ -646,13 +475,7 @@ export class SearchForm {
     this.serverChanged();
   }
 
-  /**
-   * Another rail was picked: its address comes with it.
-   *
-   * The same care `providerChanged` takes, and for the same reason: left alone, the
-   * field would hold the last rail's endpoint, which is a payment pointed somewhere
-   * nobody chose.
-   */
+  /** Another rail was picked: its address comes with it. */
   protected railChanged(): void {
     const option = this.chosenRail();
     if (option) {
@@ -660,14 +483,7 @@ export class SearchForm {
     }
   }
 
-  /**
-   * The sources field was left: ask the server what it makes of what it holds.
-   *
-   * On leaving rather than on every keystroke: half a spec is not a mistake --
-   * `rtings.co` is on the way to `rtings.com` -- and a request per character would
-   * mark the field for every one of them. Clicking Find products leaves the field
-   * first, so the check still happens before the run.
-   */
+  /** The sources field was left: ask the server what it makes of what it holds. */
   protected sourcesChanged(): void {
     this.check.emit(this.sources().trim());
   }
@@ -693,13 +509,7 @@ export class SearchForm {
     }
   }
 
-  /**
-   * Let anything this browser remembered win over the seeded defaults.
-   *
-   * A key that is absent was never remembered -- a settings blob written before the
-   * field existed -- and leaves the seeded default standing. A key that is there but
-   * holds something its parser will not take is ignored the same way.
-   */
+  /** Let anything this browser remembered win over the seeded defaults. */
   private restore(defaults: AgentDefaults): void {
     let saved: unknown;
     try {
@@ -718,11 +528,7 @@ export class SearchForm {
   }
 }
 
-/** Reads one remembered value, or undefined for anything it will not take.
- *
- *  The server's defaults come with it, because two of these are about what this
- *  server currently offers rather than the shape of the value, and they have landed
- *  by the time anything is restored. */
+/** Reads one remembered value, or undefined for anything it will not take. */
 type Parser<T> = (raw: unknown, defaults: AgentDefaults) => T | undefined;
 
 /** One remembered setting, with the signal's own type closed over. */
@@ -755,14 +561,7 @@ const asBoolean: Parser<boolean> = (raw) => (typeof raw === 'boolean' ? raw : un
 const asNumberOrNull: Parser<number | null> = (raw) =>
   raw === null || typeof raw === 'number' ? raw : undefined;
 
-/**
- * A remembered name the server still offers, and nothing else.
- *
- * The same guard `asThinking` is, over a list that comes down with the defaults
- * rather than one written here: which providers exist and which criteria a run can
- * be sorted by are the server's to say. Anything else is undefined, which leaves the
- * seeded default standing.
- */
+/** A remembered name the server still offers, and nothing else. */
 function amongst<T extends string>(
   offered: (defaults: AgentDefaults) => readonly string[],
 ): Parser<T> {

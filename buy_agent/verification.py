@@ -1,6 +1,5 @@
 """Check extracted products against the text they were supposedly read from (ADR-0006,
-ADR-0017, ADR-0024, ADR-0025).
-"""
+ADR-0017, ADR-0024, ADR-0025)."""
 
 from __future__ import annotations
 
@@ -126,8 +125,7 @@ def mentions_name(haystack: str, name: str) -> bool:
 
 def drop_ungrounded(products: Sequence[Product], haystack: str) -> list[Product]:
     """Remove products ``haystack`` never mentions: a name absent from every result cannot
-    have been read from one.
-    """
+    have been read from one."""
     kept: list[Product] = []
     dropped: list[str] = []
     for product in products:
@@ -249,8 +247,7 @@ def verify_opinions(
     products: Sequence[Product], results: Sequence[SearchResult]
 ) -> list[Product]:
     """Keep the quotes a page about this product printed, and say which page (ADR-0024,
-    ADR-0025, ADR-0042).
-    """
+    ADR-0025, ADR-0042)."""
     pages = [(url, text, running_words(text)) for url, text in _page_haystacks(results)]
     verified: list[Product] = []
     dropped = 0

@@ -63,8 +63,7 @@ def _price_share(
     placed: float | None, cheapest: float | None, priciest: float | None
 ) -> float | None:
     """Where ``placed`` sits between the cheapest and the priciest of the set (ADR-0043,
-    ADR-0041).
-    """
+    ADR-0041)."""
     if placed is None:
         return None
     if cheapest is None or priciest is None or priciest <= cheapest:
@@ -80,9 +79,8 @@ def score_product(
     weights: RankingWeights,
     currency: str | None = None,
 ) -> ScoreParts:
-    """Score one product in ``[0, 1]`` relative to the rest of the candidate set (ADR-0043,
-    ADR-0041).
-    """
+    """Score one product in ``[0, 1]`` relative to the rest of the candidate set
+    (ADR-0043, ADR-0041)."""
     # ``None`` is "nothing was read", turned into ``NEUTRAL`` once below rather than by
     # testing a share against 0.5: a product priced mid-way through the set scores that
     # on the evidence -- see :func:`_price_share`.

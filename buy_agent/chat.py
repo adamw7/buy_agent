@@ -1,6 +1,5 @@
 """The seam between a prompt and a model server's answer: what LangChain used to be
-(ADR-0002, ADR-0038).
-"""
+(ADR-0002, ADR-0038)."""
 
 from __future__ import annotations
 
@@ -34,9 +33,8 @@ _QUOTED = 200
 
 
 class UnreadableAnswerError(ValueError):
-    """The server answered, with something that is not the JSON it was asked for (ADR-0009,
-    ADR-0019).
-    """
+    """The server answered, with something that is not the JSON it was asked for
+    (ADR-0009, ADR-0019)."""
 
 
 class ChatModel(Protocol):
@@ -68,9 +66,7 @@ class Prompt:
     human: str
 
     def format_messages(self, **values: Any) -> list[Message]:
-        """The two turns, filled in. Extra values are ignored: one payload fills both
-        templates, and neither has to name everything the other does.
-        """
+        """The two turns, filled in."""
         return [
             {"role": "system", "content": self.system.format(**values)},
             {"role": "user", "content": self.human.format(**values)},

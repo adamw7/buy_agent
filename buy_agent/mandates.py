@@ -1,9 +1,7 @@
-"""The AP2 seam: a cart in, a signed mandate chain out, and the check back (ADR-0046).
-"""
+"""The AP2 seam: a cart in, a signed mandate chain out, and the check back (ADR-0046)."""
 
-# Said once rather than on each of the eleven lines below: every import of the SDK here
-# is deferred into the function that needs it, which is what the paragraph above is
-# about.
+# Said once rather than on each of the eleven lines below: every import of the SDK here is
+# deferred into the function that needs it, which is what the paragraph above is about.
 # pylint: disable=import-outside-toplevel
 
 from __future__ import annotations
@@ -22,8 +20,7 @@ if TYPE_CHECKING:  # pragma: no cover -- import-time typing only
 #: Where the agent's own signing key lives (ADR-0046).
 KEY_PATH = "BUY_AGENT_AP2_KEY"
 
-#: Where a pre-signed open mandate lives. Its presence is what turns on the autonomous
-#: mode, the open mandate being the authority (ADR-0046), so there is no second switch.
+#: Where a pre-signed open mandate lives.
 MANDATE_PATH = "BUY_AGENT_AP2_MANDATE"
 
 #: What to type when the SDK is not installed.
@@ -35,9 +32,7 @@ INSTALL = (
 #: How long a mandate signed here stays valid.
 TTL_SECONDS = 600
 
-#: Who each mandate is signed for. AP2 binds a presentation to its audience, so the
-#: Payment Mandate meant for the credential provider cannot be replayed at the merchant,
-#: or the other way round.
+#: Who each mandate is signed for.
 MERCHANT_AUDIENCE = "merchant"
 CREDENTIAL_PROVIDER_AUDIENCE = "credential-provider"
 

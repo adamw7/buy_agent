@@ -1,10 +1,4 @@
-"""The AP2 seam: keys, checkouts, and the two shapes of authorisation.
-
-Nothing here is mocked at the crypto layer. A mandate that verifies only against
-a fake verifier is a mandate nobody else would take, so these sign real SD-JWTs
-and read them back through the SDK's own verifier -- which is what a merchant or
-a credential provider would run.
-"""
+"""The AP2 seam: keys, checkouts, and the two shapes of authorisation."""
 
 from __future__ import annotations
 
@@ -360,9 +354,7 @@ def test_a_challenge_is_not_the_same_twice() -> None:
 
 @needs_ap2
 def test_both_mandates_expire() -> None:
-    """A chain is a credential: it authorises this purchase to whoever holds it.
-    Without an expiry, one left in a log is a bearer token for the afternoon --
-    which is why ``TTL_SECONDS`` exists and why it has to reach the payload."""
+    """A chain is a credential: it authorises this purchase to whoever holds it."""
     from ap2.sdk.generated.checkout_mandate import CheckoutMandate
     from ap2.sdk.generated.payment_mandate import PaymentMandate
     from ap2.sdk.mandate import MandateClient
@@ -432,8 +424,7 @@ def test_a_generated_key_is_identified_by_the_name_it_was_asked_for() -> None:
 
 @needs_ap2
 def test_the_instrument_says_who_holds_it_and_never_what_it_is() -> None:
-    """AP2 exists so the agent does not carry the funding instrument. The mandate
-    references one; what it actually is stays with the credential provider."""
+    """AP2 exists so the agent does not carry the funding instrument."""
     from ap2.sdk.generated.payment_mandate import PaymentMandate
     from ap2.sdk.mandate import MandateClient
 
@@ -538,18 +529,8 @@ def test_an_autonomous_authorisation_carries_two_real_mandates(
 def test_a_half_installed_signing_stack_names_what_is_missing(
     monkeypatch: pytest.MonkeyPatch, broken: str
 ) -> None:
-    """`--no-deps` over the wrong file leaves `cryptography` without the `cffi`
-    it is built on. Reported as "the AP2 SDK is not installed" that sends
-    somebody to re-run the command that just broke it, so the module that
-    actually failed is what the sentence names -- and both halves of the signing
-    stack are reached from functions that never touch the SDK itself.
-
-    Only the `jwcrypto` half needs anything installed: it is reached past a
-    `cryptography` import this does not refuse, so the key really is generated
-    before the missing module is named. Refusing `cryptography` fails at the
-    first import and needs no signing stack at all, which is why that half runs
-    on a checkout set up with `requirements-dev.txt` alone -- a marker over both
-    was skipping a test that had everything it needs."""
+    """`--no-deps` over the wrong file leaves `cryptography` without the `cffi` it is
+    built on."""
     import builtins
 
     real = builtins.__import__
@@ -594,9 +575,8 @@ def test_an_import_failure_with_no_module_name_still_reads(
 
 
 def test_the_install_command_installs_the_deps_before_the_sdk() -> None:
-    """Two commands in the right order: `--no-deps` is what the SDK needs and
-    what its dependencies must not get, so the file that resolves normally goes
-    first. Reversed, the flag is applied to the thing that needs resolving."""
+    """Two commands in the right order: `--no-deps` is what the SDK needs and what its
+    dependencies must not get, so the file that resolves normally goes first."""
     deps = mandates.INSTALL.index("requirements-ap2-deps.txt")
     sdk = mandates.INSTALL.index("--no-deps")
 

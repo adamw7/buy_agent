@@ -1,39 +1,4 @@
-"""Rules that hold between modules, where no single module's tests can protect them.
-
-Most of what this codebase gets wrong twice is a list that exists in three places.
-``BuyAgent.run`` raises exactly three things, ``__main__.main`` catches exactly
-those three, and ``api._STATUS`` maps exactly those three onto HTTP statuses --
-and each of the three is tested only against its own idea of the list, so adding a
-fourth failure mode to two of them leaves the suite green while the user gets a
-traceback and the browser gets a 500.
-
-The same shape recurs for the sort criteria and for the payloads
-``ui/src/app/agent.types.ts`` mirrors: a field added on the Python side and
-forgotten on the TypeScript side is a runtime ``undefined`` in the browser that
-neither suite can see, because neither suite can see the other language.
-
-The ``Dockerfile`` is the same shape again, across a file no import reaches: it
-pins the versions CI tests against, copies the built UI to the path
-``server.DEFAULT_UI_DIR`` names, and publishes the port the server binds -- three
-agreements whose failure shows up only in a built container.
-
-The decision log has the same shape: ``docs/adr/README.md`` indexes records that
-live in files beside it, so an unindexed decision -- or an index row still quoting
-a title the record has since changed -- is invisible to every other test here.
-
-The nightly integration run is the shape across a directory this suite cannot
-enter: ``integration/`` is deliberately outside ``testpaths``, so nothing in a
-``python -m pytest`` run collects it, names the model it wants, or notices that
-the workflow pulls a different one.
-
-The Saturday mutation run is the shape at its sharpest: mutmut tests a *copy* of
-the tree, so a file this suite reads or imports and ``setup.cfg`` does not list
-is missing only there. Every path resolves in a normal run, and the weekly one
-dies at collection with nobody watching.
-
-These tests read the declarations themselves rather than exercising behaviour,
-which is the only way to check that two lists agree about what is *not* in them.
-"""
+"""Rules that hold between modules, where no single module's tests can protect them."""
 
 from __future__ import annotations
 
@@ -117,17 +82,7 @@ RANKED = ranked_product(
 
 
 def caught_by_main() -> set[str]:
-    """The exception names ``__main__.main`` lists in its ``except`` tuple.
-
-    Read from the source rather than triggered one at a time: what matters is the
-    membership of the tuple, and a behavioural test can only ever confirm the
-    entries it already knows to try.
-
-    The handlers of the ``try`` that wraps ``BuyAgent(...).run(...)``, rather than
-    every handler in the function. ``main`` also guards writing the ``--json``
-    file, and an ``OSError`` from a path the user mistyped is not one of the
-    pipeline's failure modes -- the report has already been logged by then.
-    """
+    """The exception names ``__main__.main`` lists in its ``except`` tuple."""
     tree = ast.parse((_PACKAGE / "__main__.py").read_text(encoding="utf-8"))
     main = next(
         node
@@ -152,14 +107,7 @@ def caught_by_main() -> set[str]:
 
 
 def documented_raises() -> set[str]:
-    """The exception names ``BuyAgent.run`` promises in its docstring.
-
-    ``inspect.cleandoc`` first, rather than matching the indentation as written:
-    Python 3.13 strips a docstring's common leading whitespace at compile time and
-    earlier versions do not, so the entries sit twelve columns in on 3.12 and four
-    on 3.13. Cleaned, a section heading is flush left and its entries are indented,
-    which is what tells the two apart here.
-    """
+    """The exception names ``BuyAgent.run`` promises in its docstring."""
     body = inspect.cleandoc(BuyAgent.run.__doc__ or "").partition("Raises:")[2]
     return set(re.findall(r"^\s+(\w+):", body, re.MULTILINE))
 
@@ -225,9 +173,8 @@ def test_run_search_gives_each_failure_mode_its_own_status(kind: type) -> None:
 
 
 def test_every_provider_is_offered_everywhere_it_can_be_asked_for() -> None:
-    """Three doors onto one registry -- the flag, the API's check, and the rows the
-    form builds its picker from. A provider missing from one of them is one the
-    other two will happily hand to a config that then refuses it."""
+    """Three doors onto one registry -- the flag, the API's check, and the rows the form
+    builds its picker from."""
     names = set(PROVIDERS)
     cli = {action.dest: action for action in build_parser()._actions}["provider"]
 
@@ -279,11 +226,7 @@ def _typescript_sort_union() -> str:
 def test_both_front_doors_hold_a_number_to_the_same_range(
     field: str, flag: str, key: str
 ) -> None:
-    """A bound written down twice is a CLI that accepts what the API refuses.
-
-    Read off ``config.LIMITS`` on both sides, so the pair moves together: the
-    range is a fact about the field, not about the door it arrived through.
-    """
+    """A bound written down twice is a CLI that accepts what the API refuses."""
     minimum, maximum = LIMITS[field]
 
     for outside in (minimum - 1, maximum + 1):
@@ -303,16 +246,7 @@ def test_a_run_of_the_defaults_is_inside_every_range() -> None:
 
 
 def test_the_form_is_shipped_a_range_for_every_number_it_holds_to_one() -> None:
-    """The other half of the rule above, across the language boundary. The form
-    checks a number before opening a run, and can only check what it was sent: a
-    field left out of the shipped table is one nothing on the page bounds, and a
-    range sent for a field the form does not know is a bound nobody applies
-    (ADR-0033).
-
-    Read off the table the template loops over, which is the same one
-    ``problems()`` checks against the ranges -- so a box that is drawn is a box
-    that is held to something, by construction rather than by a second list.
-    """
+    """The other half of the rule above, across the language boundary."""
     source = _FORM_TS.read_text(encoding="utf-8")
     match = re.search(r"numberFields: NumberField\[\] = \[(.*?)\n  \];", source, re.DOTALL)
     assert match, "no table of number fields in search-form.ts"
@@ -321,15 +255,7 @@ def test_the_form_is_shipped_a_range_for_every_number_it_holds_to_one() -> None:
 
 
 def test_every_number_the_form_bounds_is_one_the_defaults_name() -> None:
-    """The other thing a number box needs from the server, under the same key.
-
-    A cleared box means "use the default" (ADR-0012), and ``placeholders()`` says
-    which number that is by reading ``defaults_payload`` at the key the box is
-    sent under -- rather than by a second list beside ``numberFields``, which went
-    stale every time a box was added. A range shipped for a key the defaults do
-    not answer is then a box whose fallback has no name, and the empty grey it
-    leaves says nothing about what a run would actually use.
-    """
+    """The other thing a number box needs from the server, under the same key."""
     assert set(limits_payload()) <= set(defaults_payload())
 
 
@@ -343,11 +269,8 @@ def test_the_form_takes_its_bounds_from_the_server_rather_than_the_markup() -> N
 
 
 def test_every_key_a_refusal_can_name_is_one_the_form_sends() -> None:
-    """A refusal names the request key its value arrived under, and the page marks
-    the box that key came from. A key ``parse_options`` reads and the form never
-    sends is a mark that lands nowhere; one the form sends and nothing reads is a
-    setting that quietly does nothing (ADR-0033).
-    """
+    """A refusal names the request key its value arrived under, and the page marks the box
+    that key came from."""
     keys = _keys_read_by(parse_options)
 
     # ``request`` is the one thing that is not an option, and ``sources`` is the
@@ -357,12 +280,7 @@ def test_every_key_a_refusal_can_name_is_one_the_form_sends() -> None:
 
 
 def _keys_read_by(reader) -> set[str]:
-    """The request keys a reading function names, read off its ``_read`` calls.
-
-    From the source rather than by trying names at it: what matters is which keys
-    it reads at all, and a behavioural test can only confirm the ones it already
-    knows to send.
-    """
+    """The request keys a reading function names, read off its ``_read`` calls."""
     parsed = ast.parse(inspect.getsource(reader))
     return {
         call.args[1].value
@@ -379,10 +297,9 @@ def _keys_read_by(reader) -> set[str]:
 
 @pytest.mark.parametrize("typo", ["us_en", "en", "us-en-x", "united states"])
 def test_both_front_doors_refuse_the_same_regions(typo: str) -> None:
-    """The other half of the rule ``LIMITS`` carries for the numbers: a shape
-    checked on one door only is a CLI that searches on what the API refuses --
-    and this one fails by returning nothing, so it would look like the web.
-    """
+    """The other half of the rule ``LIMITS`` carries for the numbers: a shape checked on
+    one door only is a CLI that searches on what the API refuses -- and this one fails
+    by returning nothing, so it would look like the web."""
     with pytest.raises(ApiError):
         parse_options({"region": typo})
     with pytest.raises(SystemExit):
@@ -406,26 +323,13 @@ _ISO_CODE = re.compile(r"[A-Z]{3}")
 
 
 def _scanned() -> list[str]:
-    """Every spelling that makes :mod:`buy_agent.fetch` keep a price line.
-
-    Both halves are read off :mod:`buy_agent.money`, which is what declares them --
-    a character class and an alternation of plain words, no regex escapes -- so this
-    is reading the declaration rather than parsing a pattern.
-    """
+    """Every spelling that makes :mod:`buy_agent.fetch` keep a price line."""
     return [*money.SIGNS, *money.WORDS]
 
 
 @pytest.mark.parametrize("spelling", _scanned())
 def test_every_currency_a_price_is_read_in_is_one_the_run_can_place(spelling: str) -> None:
-    """A price kept off a page has to be one the run can then do something with.
-
-    ``money`` decides which spellings are the same currency, and a price in a
-    spelling it does not know is one this run cannot place: it scores ``NEUTRAL``,
-    sinks in a price sort, passes every bound and cannot be paid for (ADR-0043). So
-    a spelling scanned for and not placed is a line taken off a page to be scored on
-    nothing. One table answers both now (ADR-0054); this is what says the two halves
-    it is split into stayed one rule.
-    """
+    """A price kept off a page has to be one the run can then do something with."""
     placed = money.code_for(spelling)
 
     if spelling in money.UNPLACEABLE:
@@ -440,25 +344,7 @@ def test_every_currency_a_price_is_read_in_is_one_the_run_can_place(spelling: st
     "spelling", sorted((money.ALIASES.keys() | money.CODES) - money.UNSCANNED)
 )
 def test_every_currency_the_run_can_place_is_one_a_price_is_read_in(spelling: str) -> None:
-    """The same rule the other way round, which is the direction that was wrong.
-
-    ``fetch`` decides which lines reach the model, and a page whose prices it cannot
-    see contributes none -- which is how ``--region pl-pl`` once lost every figure on
-    every Polish shop, invisibly, until ``zł`` was added to one table and not the
-    other. It was still wrong in three places when the tables were merged: ``money``
-    could place "349 dollars", "1,299 euros" and "8999 TRY", and ``fetch`` kept a
-    line for none of them (ADR-0054).
-
-    :data:`money.UNSCANNED` is left out of the list rather than skipped inside: a
-    skip that asks no question is a case nobody runs, and the test below is what
-    holds that exemption honest.
-
-    Asked through ``quotes_a_figure`` rather than against :data:`money.SIGNS` and
-    :data:`money.WORDS`, because the split between those two is a derivation -- one
-    keeps the signs, the other the words, and ``US$`` is reached by neither on its
-    own. What has to hold is that some half reaches every spelling, so a new one the
-    derivation drops fails here rather than going quiet.
-    """
+    """The same rule the other way round, which is the direction that was wrong."""
     assert fetch_module.quotes_a_figure(f"it sells for {spelling}99") or (
         fetch_module.quotes_a_figure(f"it sells for 99 {spelling}")
     ), f"{spelling!r} is a currency this run can place and no price is ever read in"
@@ -471,10 +357,7 @@ def test_the_unplaceable_signs_are_ones_a_price_is_actually_read_in() -> None:
 
 
 def test_the_unscanned_spellings_are_ones_the_run_can_still_place() -> None:
-    """The other exemption, the same way. ``POUNDS`` is left out of the scan because
-    a page printing it usually means weight -- not because it is not a currency, and
-    a row here naming something ``code_for`` cannot place would be excusing a typo.
-    """
+    """The other exemption, the same way."""
     assert money.UNSCANNED <= money.ALIASES.keys()
     for spelling in money.UNSCANNED:
         assert _ISO_CODE.fullmatch(money.code_for(spelling) or "")
@@ -495,9 +378,8 @@ def test_a_shipped_range_is_mirrored_field_for_field_in_typescript() -> None:
 
 
 def test_the_sources_check_is_mirrored_field_for_field_in_typescript() -> None:
-    """The answer names the spec it was about as well as what is wrong with it,
-    and a form that read only the second would mark a field for text it no longer
-    holds."""
+    """The answer names the spec it was about as well as what is wrong with it, and a form
+    that read only the second would mark a field for text it no longer holds."""
     assert set(ts_interface("SourcesCheck")) == set(sources_payload(""))
 
 
@@ -515,16 +397,14 @@ def test_a_quoted_opinion_is_mirrored_field_for_field_in_typescript() -> None:
 
 
 def test_a_score_s_parts_are_mirrored_field_for_field_in_typescript() -> None:
-    """The card draws one share per criterion and marks the assumed ones, so a
-    part added in Python and forgotten here is an undefined in a percentage
-    (ADR-0041)."""
+    """The card draws one share per criterion and marks the assumed ones, so a part added
+    in Python and forgotten here is an undefined in a percentage (ADR-0041)."""
     assert set(ts_interface("ScoreParts")) == set(product_payload(RANKED)["breakdown"])
 
 
 def test_the_weights_a_run_reports_are_mirrored_field_for_field_in_typescript() -> None:
-    """The card draws each criterion's weight beside its share, since three shares
-    under a total they do not add up to read as parts of it. A weight added in
-    Python and forgotten here is an undefined in that percentage (ADR-0041)."""
+    """The card draws each criterion's weight beside its share, since three shares under a
+    total they do not add up to read as parts of it."""
     ran = run_search("headphones", AgentConfig(), agent_factory=lambda _config: _StubAgent())
 
     assert set(ts_interface("ScoreWeights")) == set(ran["weights"])
@@ -566,9 +446,8 @@ def test_a_re_sort_request_is_mirrored_field_for_field_in_typescript() -> None:
 
 
 def test_a_run_leaves_the_process_in_one_shape_however_it_leaves() -> None:
-    """``--json``, the API's answer and the page's Download results button hand
-    over the same document, because all three are ``results_payload``. Written
-    twice, the file a script parses and the file a shopper downloads drift."""
+    """``--json``, the API's answer and the page's Download results button hand over the
+    same document, because all three are ``results_payload``."""
     written = ast.parse((_PACKAGE / "__main__.py").read_text(encoding="utf-8"))
     called = {
         node.func.id
@@ -656,9 +535,7 @@ def test_every_record_a_record_points_at_exists(path: Path) -> None:
 
 _REQUIREMENTS = _ROOT / "requirements.txt"
 
-#: The two files paying is installed from. Read for their names only: what they
-#: pin is optional to a run, so an environment without the AP2 SDK resolves none
-#: of it and the rule below would call ``mandates.py``'s imports unpinned.
+#: The two files paying is installed from.
 _AP2_REQUIREMENTS = (_ROOT / "requirements-ap2.txt", _ROOT / "requirements-ap2-deps.txt")
 
 
@@ -668,12 +545,7 @@ def distribution(name: str) -> str:
 
 
 def pinned_in(path: Path) -> set[str]:
-    """The distributions one requirements file names, its comments taken out.
-
-    The version, the marker and the direct reference are all dropped: what a rule
-    about *which* dependencies exist wants is the name, and ``ap2 @ git+https://``
-    is that name spelt the way a package with no release on PyPI has to be.
-    """
+    """The distributions one requirements file names, its comments taken out."""
     names = set()
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.split("#", 1)[0].strip()
@@ -685,17 +557,7 @@ def pinned_in(path: Path) -> set[str]:
 
 
 def distributions_the_package_imports() -> set[str]:
-    """Every installed distribution ``buy_agent`` has an ``import`` for.
-
-    Read off the source rather than off the import graph, so a deferred import
-    counts: ``mandates.py`` reaches the AP2 SDK inside a function on purpose
-    (ADR-0046), and a rule that only saw module-level imports would call the whole
-    payment stack unused. A name resolving to no installed distribution is the
-    standard library or this package's own, which is what leaves the mapping from
-    module to distribution to ``importlib.metadata`` rather than to a table
-    written down here and gone stale by the next dependency whose two names
-    differ.
-    """
+    """Every installed distribution ``buy_agent`` has an ``import`` for."""
     installed = packages_distributions()
     found: set[str] = set()
     for path in sorted(_PACKAGE.glob("*.py")):
@@ -712,25 +574,7 @@ def distributions_the_package_imports() -> set[str]:
 
 
 def test_every_runtime_dependency_is_one_the_package_imports() -> None:
-    """A pin nothing imports is weight in the image and a surface to patch.
-
-    "Can anything be dropped" is answered here rather than by reading the list: a
-    dependency that stops being used is invisible to both suites -- every module
-    still passes its own tests, the coverage floor is still met and the mutation
-    run still scores. The converse half is the more useful one on the day it
-    fails: a third-party module imported and pinned nowhere installs on this
-    machine and on nobody else's, since it is arriving behind something that
-    happens to want it today.
-
-    Both halves are over the pinned *name* and never the version, which is
-    ``requirements.txt``'s to say. ``requirements-dev.txt`` and
-    ``requirements-mutation.txt`` are deliberately outside it: pytest, coverage,
-    the linter and mutmut are *run* over this package rather than imported by it,
-    which is the sentence each of those files already opens with. The two paying
-    files are outside the first half for the other reason -- the SDK is optional
-    and a checkout without it pins names nothing here can resolve -- and inside
-    the second, so an import of it still has to be pinned somewhere.
-    """
+    """A pin nothing imports is weight in the image and a surface to patch."""
     pinned = pinned_in(_REQUIREMENTS)
     optional = set().union(*(pinned_in(path) for path in _AP2_REQUIREMENTS))
     imported = distributions_the_package_imports()
@@ -823,36 +667,19 @@ def ignore_lines(path: Path) -> list[str]:
 
 
 def ignore_patterns(path: Path) -> set[str]:
-    """The same, spelled so two ignore files can be compared.
-
-    A trailing ``/``, a leading ``/`` and a leading ``**/`` each say where a pattern
-    matches and nothing about what it names, and the two files spell the same entry
-    differently: ``.venv`` beside ``.venv/``, ``__pycache__/`` beside
-    ``**/__pycache__/``.
-    """
+    """The same, spelled so two ignore files can be compared."""
     return {line.rstrip("/").removeprefix("**/").removeprefix("/") for line in ignore_lines(path)}
 
 
 def test_the_build_context_leaves_out_what_working_here_leaves_behind() -> None:
-    """`.dockerignore` says it is read off `.gitignore`; this is that sentence.
-
-    The context is uploaded whole, so everything a working checkout has accumulated --
-    the virtualenv, the caches, the coverage data -- goes to the daemon unless this
-    file says otherwise. Nothing else can notice: the image comes out correct either
-    way, only slower and fatter, and no pull request builds one (ADR-0030).
-    """
+    """`.dockerignore` says it is read off `.gitignore`; this is that sentence."""
     missing = ignore_patterns(_GITIGNORE) - ignore_patterns(_DOCKERIGNORE)
 
     assert not missing, f"git leaves these behind, the build context takes them: {sorted(missing)}"
 
 
 def context_copies() -> list[str]:
-    """What the image copies out of the build context, off the ``COPY`` lines.
-
-    ``COPY --from=`` is left out: that copies from another *stage*, which is built
-    rather than uploaded, and names a path in that stage's own filesystem. The last
-    argument of each line is the destination inside the image.
-    """
+    """What the image copies out of the build context, off the ``COPY`` lines."""
     sources = [
         source
         for line in dockerfile().splitlines()
@@ -864,12 +691,7 @@ def context_copies() -> list[str]:
 
 
 def _matches(pattern: list[str], segments: list[str]) -> bool:
-    """Whether one pattern, split on ``/``, matches a path split the same way.
-
-    Docker matches segment by segment, and a ``*`` stops at a ``/`` where ``**`` does
-    not -- which is why ``coverage/`` is the root's own and ``ui/coverage/`` has to be
-    written out beside it.
-    """
+    """Whether one pattern, split on ``/``, matches a path split the same way."""
     if pattern and pattern[0] == "**":
         return any(_matches(pattern[1:], segments[at:]) for at in range(len(segments) + 1))
     return len(pattern) == len(segments) and all(
@@ -879,11 +701,7 @@ def _matches(pattern: list[str], segments: list[str]) -> bool:
 
 
 def excluded_from_the_build_context(path: str) -> str | None:
-    """The `.dockerignore` pattern keeping ``path`` out, or None for one it lets in.
-
-    A pattern excludes everything under a directory it names, so the path is offered
-    a level at a time: ``docs/`` is what keeps ``docs/adr/README.md`` out.
-    """
+    """The `.dockerignore` pattern keeping ``path`` out, or None for one it lets in."""
     segments = path.strip("/").split("/")
     for pattern in ignore_lines(_DOCKERIGNORE):
         parts = pattern.rstrip("/").split("/")
@@ -893,15 +711,7 @@ def excluded_from_the_build_context(path: str) -> str | None:
 
 
 def test_the_build_context_holds_everything_the_image_copies() -> None:
-    """The same file read the other way, where being wrong stops the build outright.
-
-    `.dockerignore` is applied before a single ``COPY`` runs, so a pattern wide enough
-    to catch what a stage asks for -- ``requirements*.txt`` over the runtime
-    dependencies, ``ui/*`` over the lockfile the Node stage installs from -- is a
-    build that halts on a file it cannot find. The four tests above hold the
-    ``Dockerfile`` to what the rest of the project does; this holds the one file that
-    decides whether the ``Dockerfile`` can see it.
-    """
+    """The same file read the other way, where being wrong stops the build outright."""
     for source in context_copies():
         pattern = excluded_from_the_build_context(source)
 
@@ -937,30 +747,21 @@ def runner_platforms(runners: str) -> set[str]:
 
 
 def test_every_job_runs_on_windows_as_well_as_linux() -> None:
-    """This project is written on Windows and its jobs run on Linux, so either one
-    alone is a platform nobody checks against. The differences are not exotic --
-    a path separator, a default encoding, a socket that resets where the other
-    closes, a ``mimetypes`` lookup that reads the registry -- and every one of
-    them surfaces on exactly one of the two. Since ADR-0037 the two platforms run
-    on different schedules, but a job that names only one of them anywhere has
-    dropped a platform rather than moved it."""
+    """This project is written on Windows and its jobs run on Linux, so either one alone
+    is a platform nobody checks against."""
     for matrix in ci_matrices():
         assert runner_platforms(matrix["weekly"]).issuperset(_PLATFORMS), matrix[0]
 
 
 def test_no_job_holds_a_merge_up_for_windows() -> None:
-    """The other half of ADR-0037: a push and a pull request are gated on Linux
-    alone. Windows back in that branch is the wait this record moved to Saturday
-    -- two slower runners on every push -- restored by a one-word edit."""
+    """The other half of ADR-0037: a push and a pull request are gated on Linux alone."""
     for matrix in ci_matrices():
         assert runner_platforms(matrix["merge"]) == {"ubuntu"}, matrix[0]
 
 
 def test_windows_runs_on_the_schedule_and_on_a_manual_run() -> None:
     """Weekly, and on demand: a manual run is how a branch that touched a path, an
-    encoding or a socket asks for Windows before it is merged rather than after.
-    An event named here and nowhere in ``on:`` is a branch of the matrix that
-    never runs, which reads as a Windows check and is not one."""
+    encoding or a socket asks for Windows before it is merged rather than after."""
     triggers = re.search(r"^on:\n(?:[ -].*\n|\n)*", _CI.read_text(encoding="utf-8"), re.M)
     assert triggers, "ci.yml says nothing about when it runs"
 
@@ -985,10 +786,8 @@ def test_the_windows_run_is_scheduled_for_saturdays() -> None:
 
 
 def test_ci_sets_up_one_python_and_one_node() -> None:
-    """The Dockerfile, `scripts/start.ps1` and docs/testing.md all pin themselves
-    to the version ci.yml sets up, and each reads it as the one this file names. A job
-    matrixed over two Pythons would leave those three agreeing with whichever
-    happened to be written first, and silently untested against the other."""
+    """The Dockerfile, `scripts/start.ps1` and docs/testing.md all pin themselves to the
+    version ci.yml sets up, and each reads it as the one this file names."""
     source = _CI.read_text(encoding="utf-8")
 
     for key in ("python-version", "node-version"):
@@ -996,11 +795,7 @@ def test_ci_sets_up_one_python_and_one_node() -> None:
 
 
 def workflows() -> list[Path]:
-    """Every workflow in ``.github/workflows``, found rather than listed.
-
-    A fourth workflow is then covered by the rules below on the day it is added,
-    which is the only time anybody would think to check them.
-    """
+    """Every workflow in ``.github/workflows``, found rather than listed."""
     found = sorted((_ROOT / ".github" / "workflows").glob("*.yml"))
     assert found, "no workflows; this section has outlived its rule"
     return found
@@ -1008,14 +803,7 @@ def workflows() -> list[Path]:
 
 @pytest.mark.parametrize("workflow", workflows(), ids=lambda path: path.stem)
 def test_every_workflow_sets_up_the_python_the_tests_run_on(workflow: Path) -> None:
-    """One Python across the repository, checked per workflow rather than per rule.
-
-    Mutants are tested by the same suite CI runs, and the nightly integration run
-    puts that suite in front of a real model; on another interpreter either one is
-    a report about a Python nothing else in this project uses -- and a scheduled
-    job is the worst place to discover a version difference, because it reproduces
-    on nobody's machine and nobody is watching when it does not.
-    """
+    """One Python across the repository, checked per workflow rather than per rule."""
     for version in re.findall(
         r'^\s+python-version: "([^"]+)"', workflow.read_text(encoding="utf-8"), re.M
     ):
@@ -1037,13 +825,9 @@ def test_every_workflow_builds_the_ui_with_the_node_ci_builds_it_with(workflow: 
 
 @pytest.mark.parametrize("workflow", workflows(), ids=lambda path: path.stem)
 def test_every_workflow_starts_from_a_read_only_token(workflow: Path) -> None:
-    """A workflow that declares nothing is handed whatever the repository's default
-    is, which is a setting nothing in here can see and which grants write on plenty
-    of repositories. Every job in this project reads the checkout and runs the
-    tests; the two that publish anything ask for what they need on their own job
-    (`.github/workflows/release.yml`), which is the whole point of a floor -- said
-    once at the top, widened where it is earned, and never inherited by accident.
-    """
+    """A workflow that declares nothing is handed whatever the repository's default is,
+    which is a setting nothing in here can see and which grants write on plenty of
+    repositories."""
     source = workflow.read_text(encoding="utf-8")
     match = re.search(r"^permissions:\n((?:  \w[^\n]*\n)+)", source, re.M)
     assert match, f"{workflow.name} declares no top-level permissions"
@@ -1064,11 +848,9 @@ def action_versions(workflow: Path) -> dict[str, str]:
 
 
 def test_every_workflow_pins_the_same_version_of_a_shared_action() -> None:
-    """`actions/checkout` and `actions/setup-python` are used by all three workflows,
-    and an update that reached only one of them is invisible: each file is valid on
-    its own and every job goes green. What it costs is a scheduled run drifting onto
-    an older action than the one every pull request is checked with -- so a failure
-    that is the action's, not the code's, arrives overnight and reproduces nowhere."""
+    """`actions/checkout` and `actions/setup-python` are used by all three workflows, and
+    an update that reached only one of them is invisible: each file is valid on its own
+    and every job goes green."""
     pinned: dict[str, dict[str, str]] = {}
     for workflow in workflows():
         for action, ref in action_versions(workflow).items():
@@ -1090,9 +872,7 @@ def start_script() -> str:
 
 
 def test_the_startup_script_opens_the_page_the_server_binds() -> None:
-    """It ends by launching a browser at a literal URL. Bound anywhere else, the
-    script's last act is a browser sitting on a dead page while the console beside
-    it fills with the log lines of a server that came up perfectly well."""
+    """It ends by launching a browser at a literal URL."""
     match = re.search(r"^\$url = '(\S+)'$", start_script(), re.M)
     assert match, "the startup script names no URL to open"
 
@@ -1101,12 +881,9 @@ def test_the_startup_script_opens_the_page_the_server_binds() -> None:
 
 def test_the_startup_script_asks_python_for_the_model_and_the_server() -> None:
     """An ``AgentConfig`` already answers to $BUY_AGENT_PROVIDER, $OLLAMA_MODEL,
-    $OLLAMA_HOST, $VLLM_MODEL and $VLLM_HOST, so a tag or a URL copied into the
-    script is a second default that goes stale silently: the script would pull one
-    model and the run would ask for another, or it would wait on a server nothing
-    intends to use. It is read whole, off one config, because the pair belongs to
-    the provider -- reading a model from one variable and an address from another
-    is how the two come to disagree."""
+    $OLLAMA_HOST, $VLLM_MODEL and $VLLM_HOST, so a tag or a URL copied into the script
+    is a second default that goes stale silently: the script would pull one model and
+    the run would ask for another, or it would wait on a server nothing intends to use."""
     source = start_script()
 
     assert "from buy_agent.config import AgentConfig" in source
@@ -1116,11 +893,8 @@ def test_the_startup_script_asks_python_for_the_model_and_the_server() -> None:
 
 
 def test_the_startup_script_looks_for_the_build_the_server_serves() -> None:
-    """It skips the Angular build when one is already there, and the server answers
-    with a 503 telling you to build the UI when ``DEFAULT_UI_DIR`` is empty. Two
-    paths, so two ways to disagree: probe a path the build no longer writes and
-    every run rebuilds it; probe one the server does not read and the script opens
-    a browser at that 503, with nothing on the console to say why."""
+    """It skips the Angular build when one is already there, and the server answers with a
+    503 telling you to build the UI when ``DEFAULT_UI_DIR`` is empty."""
     match = re.search(r"^\$built = Join-Path \$root '(\S+)'$", start_script(), re.M)
     assert match, "the startup script probes nothing before rebuilding the UI"
 
@@ -1130,10 +904,9 @@ def test_the_startup_script_looks_for_the_build_the_server_serves() -> None:
 
 
 def test_the_startup_script_names_the_toolchains_ci_pins() -> None:
-    """The two things it will not install, it says where to get -- and a version
-    named there is a fourth copy of what ci.yml sets up, the Dockerfile pins and
-    docs/testing.md quotes. Sending someone to install a Python or a Node no job has run is
-    the one kind of stale that costs a download to find out about."""
+    """The two things it will not install, it says where to get -- and a version named
+    there is a fourth copy of what ci.yml sets up, the Dockerfile pins and
+    docs/testing.md quotes."""
     source = start_script()
 
     assert f"Python {ci_version('python-version')}" in source
@@ -1158,14 +931,11 @@ def script_pip_installs() -> list[list[str]]:
 
 
 def test_the_startup_script_installs_the_ap2_sdk_the_way_mandates_says_to() -> None:
-    """``mandates.INSTALL`` is the one line this project tells anybody to type when
-    paying will not import, and it is two commands rather than one because
-    ``--no-deps`` is not a per-line option: applied to the file naming the SDK it
-    skips a pydantic pin that collides with this project's, and applied to the file
-    naming what the SDK imports it leaves ``cryptography`` without ``cffi`` and
-    nothing able to sign. A script that installed those files its own way would be
-    a second reading of a flag whose whole point is where it does and does not go
-    -- and the failure is a form that offers a button which cannot be pressed."""
+    """``mandates.INSTALL`` is the one line this project tells anybody to type when paying
+    will not import, and it is two commands rather than one because ``--no-deps`` is
+    not a per-line option: applied to the file naming the SDK it skips a pydantic pin
+    that collides with this project's, and applied to the file naming what the SDK
+    imports it leaves ``cryptography`` without ``cffi`` and nothing able to sign."""
     wanted = [command.split()[2:] for command in mandates_module.INSTALL.split(" && ")]
     ran = script_pip_installs()
 
@@ -1175,10 +945,8 @@ def test_the_startup_script_installs_the_ap2_sdk_the_way_mandates_says_to() -> N
 
 
 def test_the_startup_script_asks_python_whether_paying_is_available() -> None:
-    """``mandates.available()`` is what both front doors ask before offering to pay,
-    so it is what the script reports too. Answered here instead -- a ``pip show``, a
-    directory on disk -- the console would say the page offers to buy something
-    while the page itself, asking the one question that counts, does not."""
+    """``mandates.available()`` is what both front doors ask before offering to pay, so it
+    is what the script reports too."""
     assert "from buy_agent.mandates import available" in start_script()
 
 
@@ -1218,12 +986,7 @@ def session_hook() -> str:
 
 
 def hook_pip_installs() -> list[list[str]]:
-    """Every ``pip install`` the session hook runs, as its own argument list.
-
-    The same reading `script_pip_installs` does of the startup script, in the
-    other shell: the interpreter and the repository root are variables there, so
-    what is compared is the flags and the files.
-    """
+    """Every ``pip install`` the session hook runs, as its own argument list."""
     return [
         [
             word.replace('"', "").replace("$root/", "")
@@ -1235,13 +998,7 @@ def hook_pip_installs() -> list[list[str]]:
 
 
 def test_the_session_hook_installs_the_ap2_sdk_the_way_mandates_says_to() -> None:
-    """The rule `scripts/start.ps1` is held to, for the same reason and one shell
-    over. A hook that installed those two files its own way -- one command, or
-    ``--no-deps`` across both -- would leave the SDK unimportable or
-    ``cryptography`` without ``cffi``, and a session that starts that way runs a
-    suite where the payment tests skip and the coverage floor cannot be met: a red
-    gate for a checkout CI would pass, which is the one failure a hook meant to
-    make a session runnable must not cause."""
+    """The rule `scripts/start.ps1` is held to, for the same reason and one shell over."""
     wanted = [command.split()[2:] for command in mandates_module.INSTALL.split(" && ")]
     ran = hook_pip_installs()
 
@@ -1251,10 +1008,7 @@ def test_the_session_hook_installs_the_ap2_sdk_the_way_mandates_says_to() -> Non
 
 
 def test_the_session_hook_installs_requirements_files_that_are_there() -> None:
-    """Every file it hands pip, including the dev requirements the suite itself
-    needs. A renamed one is not a red run: the hook warns, the session starts, and
-    the first test run is an import error nobody connects to a startup message
-    that scrolled past."""
+    """Every file it hands pip, including the dev requirements the suite itself needs."""
     named = [
         word
         for call in hook_pip_installs()
@@ -1268,10 +1022,9 @@ def test_the_session_hook_installs_requirements_files_that_are_there() -> None:
 
 
 def test_the_session_hook_reads_both_toolchain_pins_out_of_ci() -> None:
-    """`ci.yml` is the one pin the Dockerfile, the startup script and
-    docs/testing.md already chase, and a hook writing either version down again is
-    a fifth copy -- one that quietly sets a session up on a toolchain no job has
-    run. It reads both keys and holds neither literally."""
+    """`ci.yml` is the one pin the Dockerfile, the startup script and docs/testing.md
+    already chase, and a hook writing either version down again is a fifth copy -- one
+    that quietly sets a session up on a toolchain no job has run."""
     source = session_hook()
 
     for key in ("node-version", "python-version"):
@@ -1284,12 +1037,10 @@ def test_the_session_hook_reads_both_toolchain_pins_out_of_ci() -> None:
 # -- the nightly integration run -----------------------------------------------
 
 #: The five minutes `.github/workflows/integration.yml` gives itself, which
-#: docs/testing.md, the README and CLAUDE.md all quote. Everything is inside it:
-#: installing Ollama, pulling the model, and inference on a runner with no GPU.
+#: docs/testing.md, the README and CLAUDE.md all quote.
 _NIGHTLY_BUDGET_MINUTES = 5
 
-#: Where the live tests live. Read off the package rather than written down, so
-#: renaming the directory fails here rather than in a scheduled run.
+#: Where the live tests live.
 _LIVE_TESTS = Path(integration.__file__).resolve().parent
 
 
@@ -1298,14 +1049,7 @@ def integration_workflow() -> str:
 
 
 def test_a_normal_run_cannot_collect_the_tests_that_need_ollama() -> None:
-    """The whole reason ``integration/`` is a directory and not a marker.
-
-    ``pytest.ini`` points ``testpaths`` at ``tests``, and everything under it is
-    promised to touch neither the network nor Ollama -- a promise the README,
-    docs/testing.md and CLAUDE.md all repeat. A marker would leave that resting
-    on ``addopts`` and on nobody forgetting to apply one; a directory outside
-    ``testpaths`` cannot be collected by accident at all.
-    """
+    """The whole reason ``integration/`` is a directory and not a marker."""
     testpaths = ini_values(_PYTEST_INI, "pytest", "testpaths")
 
     assert testpaths, "pytest.ini names no testpaths, so a bare run collects everything"
@@ -1323,27 +1067,22 @@ def test_the_nightly_run_runs_the_tests_a_normal_run_leaves_out() -> None:
 
 
 def test_the_nightly_run_pulls_the_model_the_live_tests_ask_for() -> None:
-    """Two names for one model, in a workflow and in a package that never import
-    each other. Pull a different tag and every test skips -- or, with
-    :data:`REQUIRE_ENV_VAR` set, every test fails on a machine that has Ollama
-    running perfectly well."""
+    """Two names for one model, in a workflow and in a package that never import each
+    other."""
     assert re.search(
         rf"^\s+run: ollama pull {re.escape(TINY_MODEL)}$", integration_workflow(), re.M
     )
 
 
 def test_the_nightly_run_refuses_to_pass_by_skipping() -> None:
-    """A live test whose model is absent skips, which is right on a developer's
-    machine and worthless on a schedule: an Ollama that failed to install would
-    give a green nightly job that checked nothing at all. The workflow sets this,
-    and it is the only thing that does."""
+    """A live test whose model is absent skips, which is right on a developer's machine
+    and worthless on a schedule: an Ollama that failed to install would give a green
+    nightly job that checked nothing at all."""
     assert re.search(rf'^\s+{REQUIRE_ENV_VAR}: "1"$', integration_workflow(), re.M)
 
 
 def test_the_nightly_run_is_nightly_and_capped() -> None:
-    """Every day, off the hour, and bounded. The cap is the load-bearing half: the
-    model is small enough to pull and answer inside it, and the day it is not, a
-    red run says so instead of the job spending runner minutes nobody reads."""
+    """Every day, off the hour, and bounded."""
     minute, _hour, day_of_month, month, day_of_week = cron(_INTEGRATION)
 
     assert (day_of_week, day_of_month, month) == ("*", "*", "*")
@@ -1354,27 +1093,16 @@ def test_the_nightly_run_is_nightly_and_capped() -> None:
 
 
 def test_a_stopped_model_fails_a_live_test_before_it_fails_the_job() -> None:
-    """The live tests' own cap, held against the two numbers it sits between.
-
-    ``pytest.ini`` caps every test at a minute, which is a stopped test on a
-    faked model and a slow answer on a real one -- so ``integration/conftest.py``
-    marks these with :data:`LIVE_TIMEOUT_SECONDS` instead. Both ends of that are
-    load-bearing. Under the unit suite's cap it would be the tighter number and
-    a CPU model would start failing tests for answering; at or over the job's own
-    :data:`_NIGHTLY_BUDGET_MINUTES` it could never fire first, and an Ollama that
-    took the request and never answered would be a cancelled job naming no test
-    at all -- which is the failure this exists to report.
-    """
+    """The live tests' own cap, held against the two numbers it sits between."""
     unit_cap = int(ini_values(_PYTEST_INI, "pytest", "timeout")[0])
 
     assert unit_cap < LIVE_TIMEOUT_SECONDS < _NIGHTLY_BUDGET_MINUTES * 60
 
 
 def test_the_nightly_run_is_never_a_gate_on_a_pull_request() -> None:
-    """Like the mutation run and for the same reason: it takes minutes where the
-    suite takes seconds, and it depends on a third party's install script and a
-    model tag that can be re-pulled under it. Neither is something a merge should
-    wait on."""
+    """Like the mutation run and for the same reason: it takes minutes where the suite
+    takes seconds, and it depends on a third party's install script and a model tag
+    that can be re-pulled under it."""
     for workflow in (_INTEGRATION, _MUTATION):
         assert "pull_request" not in workflow.read_text(encoding="utf-8"), workflow.name
 
@@ -1389,11 +1117,9 @@ def release_workflow() -> str:
 
 
 def test_the_release_archive_carries_the_built_ui_where_the_server_looks() -> None:
-    """The `Dockerfile`'s agreement again, in a third place and with a slower
-    failure: an archive whose UI landed anywhere else unpacks perfectly, installs
-    perfectly, and serves the 503 that says to build a UI its downloader has no
-    Node to build. The workflow's own smoke test asks the packaged server for the
-    page, so the two of them fail together rather than either alone going quiet."""
+    """The `Dockerfile`'s agreement again, in a third place and with a slower failure: an
+    archive whose UI landed anywhere else unpacks perfectly, installs perfectly, and
+    serves the 503 that says to build a UI its downloader has no Node to build."""
     match = re.search(r"^\s+UI_DIST: (\S+)$", release_workflow(), re.M)
     assert match, "the release workflow names no destination for the UI build"
 
@@ -1401,12 +1127,8 @@ def test_the_release_archive_carries_the_built_ui_where_the_server_looks() -> No
 
 
 def test_the_release_packages_the_tag_it_uploads_to() -> None:
-    """Both jobs check out ``$TAG`` -- the release's own tag, or the one a manual
-    re-run names -- and not the branch the workflow file happens to sit on. A
-    checkout left at the default packages whatever main has moved on to since and
-    attaches it to an older release, which is the one packaging mistake nothing
-    downstream can detect: the assets are internally consistent, they install,
-    they serve, and they are not the code the tag names."""
+    """Both jobs check out ``$TAG`` -- the release's own tag, or the one a manual re-run
+    names -- and not the branch the workflow file happens to sit on."""
     source = release_workflow()
     checkouts = len(re.findall(r"^\s+- uses: actions/checkout@", source, re.M))
 
@@ -1433,17 +1155,8 @@ def shadowed_names(source: Path) -> list[str]:
 
 
 def test_no_test_is_hidden_by_another_of_the_same_name() -> None:
-    """A test module is imported like any other, so a second ``def`` of a name
-    replaces the first and pytest collects only what is left.
-
-    It is the one mistake in a test file that nothing else here can see. Coverage
-    cannot: the shadowed body is usually a near-copy of the one that survives, so
-    every line in it is covered by the other. The mutation run cannot either --
-    it mutates the package, not the suite. And the failure is silent in the
-    direction that matters: the cases nobody is running are the cases nobody is
-    told about, which is exactly how a rewritten test comes to be pasted in
-    rather than edited over.
-    """
+    """A test module is imported like any other, so a second ``def`` of a name replaces
+    the first and pytest collects only what is left."""
     for suite in (_UNIT_TESTS, _LIVE_TESTS):
         for module in sorted(suite.rglob("*.py")):
             shadowed = shadowed_names(module)
@@ -1479,22 +1192,7 @@ def attribute_calls(tree: ast.AST, receiver: str, methods: set[str]) -> list[ast
 
 
 def test_no_test_is_switched_off_where_nobody_will_look() -> None:
-    """A skip that asks no question is a test nobody is running and nobody is
-    told about.
-
-    Both suites do skip, and both do it conditionally: ``needs_ap2`` asks
-    ``mandates.available()`` and ``needs_powershell`` asks PATH, so what they say
-    is "this machine cannot answer" rather than "this test is off". That is the
-    whole difference. A ``skipif`` names the thing to install and comes back the
-    moment it is there; a bare ``skip`` or an ``xfail`` comes back when somebody
-    reads the summary line, and nothing here makes them. The coverage floor will
-    not: the lines the switched-off test guarded are reached by whatever else
-    touches them, so 99% is met while the case nobody runs is the case nobody is
-    told about.
-
-    It is the rule the two markers are already keeping, written down so the third
-    marker is the one that has to argue for itself.
-    """
+    """A skip that asks no question is a test nobody is running and nobody is told about."""
     for module in suite_modules():
         tree = ast.parse(module.read_text(encoding="utf-8"))
         off = [
@@ -1512,21 +1210,7 @@ def test_no_test_is_switched_off_where_nobody_will_look() -> None:
 
 
 def test_nothing_in_the_suite_sleeps_but_the_one_that_has_to() -> None:
-    """The suite takes about eight seconds and every second of that is somebody's
-    wait.
-
-    Most of it is the three tests that spawn an interpreter for what only a real
-    import can answer, and one second of it is deliberate: ``StubAgent.delay``
-    holds a run open so the server tests can ask what a *running* run does --
-    stream a second request, refuse a ``HEAD``, stop when the reader goes away
-    (ADR-0034). Those are the only questions here a clock is the answer to, and
-    even there the waiting is a poll with a deadline rather than a fixed guess.
-
-    Anywhere else a sleep is one of two things: a slow test, or a fast test
-    hiding a race that will fail on a loaded runner and pass on a re-run. Both
-    are paid for by everybody, every run, and a suite that reaches eight seconds
-    a tenth at a time is one nobody notices getting slower.
-    """
+    """The suite takes about eight seconds and every second of that is somebody's wait."""
     for module in suite_modules():
         tree = ast.parse(module.read_text(encoding="utf-8"))
         slept = [call.lineno for call in attribute_calls(tree, "time", {"sleep"})]
@@ -1572,25 +1256,8 @@ def environment_writes(tree: ast.AST) -> list[int]:
 
 
 def test_a_test_changes_the_environment_through_the_fixture_that_undoes_it() -> None:
-    """``os.environ`` is one dictionary for the whole process, so a test that
-    writes it directly writes it for every test after it.
-
-    This suite leans on that dictionary more than most. An autouse fixture points
-    ``$BUY_AGENT_CACHE_DIR`` at a scratch directory per test so no run can be
-    answered by another run's question (ADR-0044), and unsets the three paying
-    variables so a developer who has configured a key and a mandate does not run
-    a suite that signs with them. ``tests/test_config.py``,
-    ``tests/test_providers.py`` and ``tests/test_rails.py`` then reload their
-    modules to re-read what those variables default to. Every one of those is a
-    test reading the environment as though it were the only thing in the process.
-
-    ``monkeypatch`` is the difference between changing it and leaking it: it
-    records the old value and puts it back at teardown, including when the test
-    fails, which a ``finally`` written in the test is one early ``assert`` away
-    from not doing. A leak does not fail the test that caused it -- it fails a
-    test later in the file, or one on another machine where the files happened to
-    be collected in a different order.
-    """
+    """``os.environ`` is one dictionary for the whole process, so a test that writes it
+    directly writes it for every test after it."""
     for module in suite_modules():
         tree = ast.parse(module.read_text(encoding="utf-8"))
         written = environment_writes(tree)
@@ -1608,9 +1275,8 @@ _COPIED_ANYWAY = ("tests", "setup.cfg")
 
 
 def test_the_mutation_run_mutates_what_coverage_measures() -> None:
-    """Coverage says which lines ran; mutation testing says whether anything would
-    have noticed had they run differently. A package measured by one and not the
-    other has the reassuring number and none of the checking behind it."""
+    """Coverage says which lines ran; mutation testing says whether anything would have
+    noticed had they run differently."""
     assert ini_values(_MUTMUT, "mutmut", "source_paths") == ini_values(_COVERAGERC, "run", "source")
 
 
@@ -1624,11 +1290,7 @@ def test_the_mutation_run_is_scheduled_for_saturdays() -> None:
     assert minute != "0", "the top of the hour is where scheduled runs queue"
 
 
-#: The one test module that reloads a module of the package under test. A reload
-#: re-runs ``providers.py`` over its own ``__dict__``, so a *function* imported
-#: from it beforehand goes on reading the new table -- its globals are that dict --
-#: while a *class* is rebound to a brand new object, and a dataclass compares equal
-#: only to its own class.
+#: The one test module that reloads a module of the package under test.
 _RELOADS = _ROOT / "tests" / "test_providers.py"
 
 
@@ -1644,25 +1306,7 @@ def names_imported_from(source: Path, module: str) -> list[str]:
 
 
 def test_the_module_that_reloads_providers_binds_nothing_a_reload_replaces() -> None:
-    """The suite must not care what order it runs in, and this is the one place it
-    could.
-
-    ``tests/test_providers.py`` reloads ``buy_agent.providers`` to re-read its
-    environment-derived defaults. Anything that module imported *by name* from
-    ``providers`` beforehand still points at the pre-reload object, so an expected
-    value built from a class imported that way stops matching what the reloaded
-    code answers with -- ``InstalledModel(...) != InstalledModel(...)``, the two
-    being different classes with the same fields.
-
-    A normal run never sees it: the reloading tests sit at the bottom of the file
-    and pytest runs a file top to bottom. The mutation run's clean-test pass sorts
-    the suite by duration instead, so it fails there -- before a single mutant has
-    been tried, on a Saturday, with nobody watching.
-
-    Functions are safe and are what this leaves room for: a reload rebinds the
-    name in the module's namespace, but the old function object shares that same
-    namespace and so goes on reading the table the reload just wrote.
-    """
+    """The suite must not care what order it runs in, and this is the one place it could."""
     imported = names_imported_from(_RELOADS, "buy_agent.providers")
 
     assert imported, "the module no longer imports from providers; this rule has moved"
@@ -1675,14 +1319,7 @@ def test_the_module_that_reloads_providers_binds_nothing_a_reload_replaces() -> 
 
 
 def files_read() -> list[Path]:
-    """The paths these tests open, off the ``_NAME`` constants declared above.
-
-    A Path that arrived by import -- ``DEFAULT_UI_DIR`` -- is one they compare
-    against rather than read, so only this module's own constants count. One of
-    them leaves this tree rather than pointing into it: ``_PACKAGE`` is read from
-    the source a mutation run copied (``SOURCE_ROOT``), and no copy carries the
-    thing it was made from.
-    """
+    """The paths these tests open, off the ``_NAME`` constants declared above."""
     return [
         value
         for name, value in globals().items()
@@ -1694,13 +1331,7 @@ def files_read() -> list[Path]:
 
 
 def files_imported() -> list[Path]:
-    """Every module the suite has imported from a file in this repository.
-
-    ``sys.modules`` is the honest answer to "what does the suite need on disk":
-    pytest imports every test module before it runs the first test, so a helper
-    imported by any of them is in here. Installed packages are not -- except in a
-    virtual environment inside the repository, hence the site-packages check.
-    """
+    """Every module the suite has imported from a file in this repository."""
     mutated = [_ROOT / name for name in ini_values(_MUTMUT, "mutmut", "source_paths")]
     files = (getattr(module, "__file__", None) for module in list(sys.modules.values()))
     return [
@@ -1713,16 +1344,7 @@ def files_imported() -> list[Path]:
 
 
 def files_named_at_the_root() -> list[Path]:
-    """Every file at the top of the repository whose name these tests say out loud.
-
-    ``files_read`` sees the paths they declare as constants; this sees the ones
-    they build from a bare name at the moment they look -- the requirements files
-    the session hook hands pip, the `CLAUDE.md` a skill points at -- which no
-    constant carries and nothing therefore checks. The top of the tree is where
-    that matters and the only place it is asked about: everything else the suite
-    opens is inside a directory ``also_copy`` already names, and a name that is
-    not a file up here is somebody's prose.
-    """
+    """Every file at the top of the repository whose name these tests say out loud."""
     at_the_root = {path.name: path for path in _ROOT.iterdir() if path.is_file()}
     return [
         at_the_root[node.value]
@@ -1733,14 +1355,7 @@ def files_named_at_the_root() -> list[Path]:
 
 
 def files_the_skills_name() -> list[Path]:
-    """Every path a skill in `.claude/skills` points at, as this suite resolves it.
-
-    `test_every_file_a_skill_names_exists` opens each of them against the root it
-    is run from, which under mutants/ is the copy -- so a checklist step naming a
-    directory nothing copies fails the Saturday run and nothing else. Only the
-    ones written as a path are asked about here; a bare filename is looked for
-    anywhere in the tree, and the copy carries the directories it would be in.
-    """
+    """Every path a skill in `.claude/skills` points at, as this suite resolves it."""
     return [
         _ROOT / token
         for skill in skills()
@@ -1750,11 +1365,9 @@ def files_the_skills_name() -> list[Path]:
 
 
 def test_a_mutation_run_copies_everything_the_tests_reach_for() -> None:
-    """A mutation run tests a copy of the tree under mutants/, and this suite both
-    reads files rather than importing them and imports from outside the package
-    being mutated. Whatever ``also_copy`` leaves behind is missing only there, so
-    the whole Saturday run dies at collection -- and nothing in a normal run,
-    where every path resolves, can see it coming."""
+    """A mutation run tests a copy of the tree under mutants/, and this suite both reads
+    files rather than importing them and imports from outside the package being
+    mutated."""
     also_copy = (
         ini_values(_MUTMUT, "mutmut", "also_copy")
         + list(_COPIED_ANYWAY)
@@ -1809,20 +1422,16 @@ def test_a_receipt_is_mirrored_field_for_field_in_typescript() -> None:
 
 
 def test_every_key_a_payment_reads_is_one_the_page_sends() -> None:
-    """``PayOptions`` is what the browser posts; a key ``pay_now`` reads and the
-    page never sends is a refusal for a box that is not there (ADR-0033). The
-    settings it shares with a search are read by ``parse_options`` and travel on
-    ``SearchOptions``, so both interfaces count."""
+    """``PayOptions`` is what the browser posts; a key ``pay_now`` reads and the page
+    never sends is a refusal for a box that is not there (ADR-0033)."""
     sent = set(ts_interface("PayOptions")) | set(ts_interface("SearchOptions"))
 
     assert _keys_read_by(pay_now) <= sent
 
 
 def test_the_payment_failures_the_cli_catches_are_the_ones_the_api_maps() -> None:
-    """A payment fails at its own door, not the run's -- so these are their own
-    table rather than three more rows in ``_STATUS``. Named in one place and not
-    the other, a failure reaches the shopper as a traceback and the browser as a
-    500."""
+    """A payment fails at its own door, not the run's -- so these are their own table
+    rather than three more rows in ``_STATUS``."""
     # One name on the CLI side, because every payment failure is a
     # ``PaymentError`` -- ``RailUnreachableError`` is a subclass, which is the
     # whole point of it: the API can answer 502 for the one failure that is
@@ -1847,12 +1456,7 @@ def test_the_payment_statuses_are_ordered_subclass_first() -> None:
 
 
 def _payment_handlers() -> set[str]:
-    """What ``main`` catches around the payment, read off the source.
-
-    Its own ``try``, and read separately from the one guarding the run: the
-    three-failure agreement (ADR-0009) is about ``BuyAgent.run``, and a payment
-    happens after it has returned.
-    """
+    """What ``main`` catches around the payment, read off the source."""
     tree = ast.parse((_PACKAGE / "__main__.py").read_text(encoding="utf-8"))
     bought = next(
         node
@@ -1868,10 +1472,8 @@ def _payment_handlers() -> set[str]:
 
 
 def test_only_the_mandates_module_imports_the_ap2_sdk() -> None:
-    """The seam rule this project applies to a model server and a search backend,
-    applied to the protocol: everything above `mandates` deals in carts and
-    receipts. A second importer is a second place a missing optional dependency
-    becomes an ImportError."""
+    """The seam rule this project applies to a model server and a search backend, applied
+    to the protocol: everything above `mandates` deals in carts and receipts."""
     importers = {
         path.name
         for path in _PACKAGE.glob("*.py")
@@ -1882,9 +1484,8 @@ def test_only_the_mandates_module_imports_the_ap2_sdk() -> None:
 
 
 def test_the_payment_settings_are_offered_at_both_doors() -> None:
-    """The rule `.claude/skills/add-option` writes down, checked for the four
-    settings paying adds: a flag, a request key, and a default the form is
-    seeded from."""
+    """The rule `.claude/skills/add-option` writes down, checked for the four settings
+    paying adds: a flag, a request key, and a default the form is seeded from."""
     flags = {action.dest for action in build_parser()._actions}
     defaults = defaults_payload()
 
@@ -1912,23 +1513,14 @@ _PLACEHOLDERS = ("NNNN", "<", "*", "[")
 
 
 def skills() -> list[Path]:
-    """Every skill in `.claude/skills`, found rather than listed.
-
-    A fourth skill is then held to the rules below on the day it is added, which
-    is the only time anybody would think to check them.
-    """
+    """Every skill in `.claude/skills`, found rather than listed."""
     found = sorted(_SKILLS.glob("*/SKILL.md"))
     assert found, "no skills; this section has outlived its rule"
     return found
 
 
 def skill_body(path: Path) -> str:
-    """A skill's prose, with its fenced code blocks removed.
-
-    The blocks are commands rather than references -- `ls docs/adr/[0-9]...` names
-    a glob, not a file -- and the one place a command matters is checked against
-    the workflow that runs it instead.
-    """
+    """A skill's prose, with its fenced code blocks removed."""
     return re.sub(r"^```.*?^```", "", path.read_text(encoding="utf-8"), flags=re.M | re.S)
 
 
@@ -1947,13 +1539,7 @@ def quoted(text: str) -> list[str]:
 
 
 def paths_a_skill_names(path: Path) -> list[str]:
-    """Every file and directory a skill points at, written the way it writes it.
-
-    Two tests read this: the one below, which asks whether each is still there,
-    and the mutation run's, which asks whether the copy under mutants/ carries
-    it. They are the same question a week apart -- a skill naming a path nothing
-    copies is a Saturday that dies at collection over a checklist nobody ran.
-    """
+    """Every file and directory a skill points at, written the way it writes it."""
     return [
         token
         for token in quoted(skill_body(path))
@@ -1963,11 +1549,9 @@ def paths_a_skill_names(path: Path) -> list[str]:
     ]
 
 
-#: Directories a walk of this repository has no business entering: a virtual
-#: environment and an npm tree are somebody else's files, and the other three are
-#: this project's own output. Pruned as the walk goes rather than filtered after,
-#: `.venv` alone being tens of thousands of paths and this suite being fast on
-#: purpose.
+#: Directories a walk of this repository has no business entering: a virtual environment
+#: and an npm tree are somebody else's files, and the other three are this project's own
+#: output.
 _NOT_THE_REPOSITORY = frozenset(
     {".git", ".venv", "node_modules", "mutants", "__pycache__", ".angular", "dist"}
 )
@@ -1997,20 +1581,14 @@ def suite_test_names() -> frozenset[str]:
     return found
 
 
-#: What a skill's prose is read against when it names something that is not a
-#: file: the source this repository keeps, minus the trees ``_NOT_THE_REPOSITORY``
-#: prunes. Markdown is deliberately out of it -- a name is a fact about the code,
-#: and prose vouching for prose is how the two go stale together.
+#: What a skill's prose is read against when it names something that is not a file: the
+#: source this repository keeps, minus the trees ``_NOT_THE_REPOSITORY`` prunes.
 _CODE_SUFFIXES = (".py", ".ts", ".html", ".json", ".yml", ".cfg", ".ini", ".ps1", ".mjs", ".sh")
 
 
 @cache
 def names_in_the_code() -> frozenset[str]:
-    """Every word this project's own source spells.
-
-    Read off ``SOURCE_ROOT`` for the reason ``_PACKAGE`` is: under mutants/ the
-    package is the code as run, and a name is a fact about the code as written.
-    """
+    """Every word this project's own source spells."""
     found: set[str] = set()
     for directory, subdirectories, files in os.walk(SOURCE_ROOT):
         subdirectories[:] = [name for name in subdirectories if name not in _NOT_THE_REPOSITORY]
@@ -2023,13 +1601,7 @@ def names_in_the_code() -> frozenset[str]:
 
 
 def names_a_skill_names(path: Path) -> list[str]:
-    """Every function, field and table a skill points at, as it writes them.
-
-    A backtick in these files means a name in the code, so what is in one is
-    either that or a path -- and a path carries a suffix or a slash, which is what
-    the test above reads. ``parse_<field>`` and the like are placeholders and do
-    not match an identifier at all.
-    """
+    """Every function, field and table a skill points at, as it writes them."""
     return [
         token.removesuffix("()")
         for token in quoted(skill_body(path))
@@ -2039,10 +1611,9 @@ def names_a_skill_names(path: Path) -> list[str]:
 
 @pytest.mark.parametrize("path", skills(), ids=lambda path: path.parent.name)
 def test_every_skill_is_named_after_the_directory_it_is_in(path: Path) -> None:
-    """A skill is invoked by the name in its frontmatter and edited by its path, so
-    a mismatch is a file somebody corrects while the thing that runs goes on
-    saying what it said. The description is the whole of what decides whether it
-    is reached for at all, so an empty one is a skill nobody finds."""
+    """A skill is invoked by the name in its frontmatter and edited by its path, so a
+    mismatch is a file somebody corrects while the thing that runs goes on saying what
+    it said."""
     header = frontmatter(path)
 
     assert header.get("name") == path.parent.name, path
@@ -2051,10 +1622,8 @@ def test_every_skill_is_named_after_the_directory_it_is_in(path: Path) -> None:
 
 @pytest.mark.parametrize("path", skills(), ids=lambda path: path.parent.name)
 def test_every_file_a_skill_names_exists(path: Path) -> None:
-    """A skill is a checklist over files, and a renamed file turns one step of it
-    into a search for something that is not there. Nothing else in either suite
-    reads these, so a move that updates every import leaves them pointing at the
-    old tree and the run stays green."""
+    """A skill is a checklist over files, and a renamed file turns one step of it into a
+    search for something that is not there."""
     names = repo_filenames()
 
     for token in paths_a_skill_names(path):
@@ -2066,9 +1635,7 @@ def test_every_file_a_skill_names_exists(path: Path) -> None:
 
 @pytest.mark.parametrize("path", skills(), ids=lambda path: path.parent.name)
 def test_every_test_a_skill_names_exists(path: Path) -> None:
-    """The step a skill ends on is usually "and this test will fail if you skipped
-    it". A renamed test makes that a promise about nothing, which is worse than no
-    promise: the reader stops looking for what would have caught them."""
+    """The step a skill ends on is usually "and this test will fail if you skipped it"."""
     body = skill_body(path)
     names = suite_test_names()
 
@@ -2083,18 +1650,7 @@ def test_every_test_a_skill_names_exists(path: Path) -> None:
 
 @pytest.mark.parametrize("path", skills(), ids=lambda path: path.parent.name)
 def test_every_name_a_skill_names_is_one_the_code_spells(path: Path) -> None:
-    """A step reads "edit this function", and the reader greps for it.
-
-    The rule above asks whether a file a skill points at is still there; this asks
-    the same of a name inside one, which is the half nothing was reading.
-    ``add-option`` sent people to two argparse wrappers by name from the day it was
-    written and neither has ever been in this tree -- a checklist step that turns
-    into a search, in the one file no test opens for any other reason. A word in
-    backticks that is not a name in the code is either gone or was never there;
-    unquote it, or name what really is. (Which is why no rule here spells a name it
-    is saying has gone: written down in the source, it would be a name the source
-    has, and this test would vouch for it.)
-    """
+    """A step reads "edit this function", and the reader greps for it."""
     spelled = names_in_the_code()
 
     for name in names_a_skill_names(path):
@@ -2115,12 +1671,8 @@ def test_every_record_a_skill_points_at_exists(path: Path) -> None:
 
 
 def test_the_option_skill_names_the_tables_a_new_setting_joins() -> None:
-    """The form declares one table of number boxes and one of remembered settings,
-    and `.claude/skills/add-option` is a walk through both. It named `numbers`
-    long after the table became `numberFields` -- so the step said to add a row to
-    a table that is not there, and then to write markup the template had stopped
-    needing. Read the names off the declarations, which is the only copy that
-    cannot be wrong."""
+    """The form declares one table of number boxes and one of remembered settings, and
+    `.claude/skills/add-option` is a walk through both."""
     form = _FORM_TS.read_text(encoding="utf-8")
     body = skill_body(_SKILLS / "add-option" / "SKILL.md")
 
@@ -2134,11 +1686,7 @@ def test_the_option_skill_names_the_tables_a_new_setting_joins() -> None:
 
 
 def test_the_preflight_skill_runs_what_ci_runs() -> None:
-    """`.claude/skills/preflight` claims to be the CI gate, locally. A step added to
-    ci.yml and not to it is a check that first runs on a pushed branch, which is
-    the whole thing the skill exists to avoid. Installing dependencies is not a
-    gate -- it is what a `.venv` already did -- so it is the checking steps that
-    have to agree."""
+    """`.claude/skills/preflight` claims to be the CI gate, locally."""
     steps = re.findall(
         r"^      - name: (.+)\n        run: (.+)$", _CI.read_text(encoding="utf-8"), re.M
     )
@@ -2161,20 +1709,15 @@ def test_the_preflight_skill_names_the_toolchains_ci_pins() -> None:
 
 
 def test_every_skill_is_one_the_project_documents() -> None:
-    """CLAUDE.md introduces `.claude/skills/` by naming what is in it, which is
-    where anybody reads about them before there is a reason to invoke one. A skill
-    added and not named there is one nothing points at; a skill named there and
-    since deleted is an instruction to run something that is gone."""
+    """CLAUDE.md introduces `.claude/skills/` by naming what is in it, which is where
+    anybody reads about them before there is a reason to invoke one."""
     described = (_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
 
     for path in skills():
         assert f"`{path.parent.name}`" in described, f"CLAUDE.md does not name {path.parent.name}"
 
 
-#: How CLAUDE.md counts its own conventions: a number spelt out, in the heading over
-#: them. Only as far as anybody would write in a heading -- a list past this has
-#: stopped being one somebody reads in order, which is the next rule rather than this
-#: one.
+#: How CLAUDE.md counts its own conventions: a number spelt out, in the heading over them.
 _NUMBER_WORDS = {
     "Ten": 10, "Eleven": 11, "Twelve": 12, "Thirteen": 13, "Fourteen": 14,
     "Fifteen": 15, "Sixteen": 16, "Seventeen": 17, "Eighteen": 18, "Nineteen": 19,
@@ -2183,16 +1726,8 @@ _NUMBER_WORDS = {
 
 
 def test_the_conventions_heading_counts_the_conventions_under_it() -> None:
-    """CLAUDE.md numbers that section in its heading, and the number is the one
-    thing there no reader can check without counting.
-
-    It had already drifted: the report's ordering convention arrived as a
-    sixteenth bullet under a heading that still said fifteen, and stayed wrong
-    through six merges, because nothing anywhere counts them. A heading that
-    miscounts is the mildest possible failure and exactly the one this file exists
-    for -- a list said to be one length and written at another, with no test in
-    either suite able to see it.
-    """
+    """CLAUDE.md numbers that section in its heading, and the number is the one thing
+    there no reader can check without counting."""
     written = (_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
 
     heading = re.search(r"^### (\w+) conventions$", written, re.M)
@@ -2208,8 +1743,7 @@ def test_the_conventions_heading_counts_the_conventions_under_it() -> None:
 
 # -- what the run says, and where it says it -----------------------------------
 
-#: The methods a logger answers to. ``warn`` is the deprecated spelling and is on
-#: the list so a call to it is held to these rules rather than slipping past them.
+#: The methods a logger answers to.
 _LEVELS = ("debug", "info", "warning", "error", "exception", "critical", "warn")
 
 #: The one whose message is its *second* argument, the first being the level.
@@ -2217,11 +1751,7 @@ _LEVEL_FIRST = "log"
 
 
 def package_modules() -> list[Path]:
-    """Every module in the package, found rather than listed.
-
-    A module added is then held to the rules below on the day it arrives, which is
-    the only day anybody would think to check them.
-    """
+    """Every module in the package, found rather than listed."""
     found = sorted(_PACKAGE.glob("*.py"))
     assert found, "no package modules; this section has outlived its rule"
     return found
@@ -2233,13 +1763,7 @@ def module_tree(path: Path) -> ast.Module:
 
 
 def logging_calls(path: Path) -> list[ast.Call]:
-    """Every ``logger.<level>(...)`` in one module.
-
-    Matched on the receiver as well as the method, because ``error`` is also what
-    an ``ArgumentParser`` answers to -- ``parser.error(str(exc))`` in ``__main__``
-    is a usage message and not a log line, and the message rule below would fail
-    it for the one thing it is right to do.
-    """
+    """Every ``logger.<level>(...)`` in one module."""
     return [
         node
         for node in ast.walk(module_tree(path))
@@ -2275,14 +1799,7 @@ def names_attribute(node: ast.AST, attribute: str) -> bool:
 
 @pytest.mark.parametrize("path", package_modules(), ids=lambda path: path.name)
 def test_every_module_logs_under_the_package_name(path: Path) -> None:
-    """Every line a run writes has to reach the ``buy_agent`` logger.
-
-    Both halves of what the report is hang off that one name: the stdout/stderr
-    split installs its handler there, and so does the relay behind the browser's
-    progress panel. A module that got its logger from anywhere else would keep
-    working -- the root logger still prints it -- while vanishing from the panel
-    and from the ``> top.txt`` split, which no test of that module would see.
-    """
+    """Every line a run writes has to reach the ``buy_agent`` logger."""
     got_from = module_logger(path)
     if got_from is None:
         assert not logging_calls(path), f"{path.name} logs without a logger of its own"
@@ -2297,14 +1814,7 @@ def test_every_module_logs_under_the_package_name(path: Path) -> None:
 
 @pytest.mark.parametrize("path", package_modules(), ids=lambda path: path.name)
 def test_every_log_line_leaves_its_formatting_to_the_logger(path: Path) -> None:
-    """A message is a format string with its arguments beside it, never an f-string.
-
-    Two things rest on that. A record's ``args`` survive to whoever handles it, so
-    a filter or the SSE relay can read the line the run meant rather than one
-    already flattened; and a DEBUG line inside a loop over ten pages costs nothing
-    on a run that did not ask for DEBUG, which is what makes it affordable to write
-    one per dropped product.
-    """
+    """A message is a format string with its arguments beside it, never an f-string."""
     for call in logging_calls(path):
         assert call.args, f"{path.name}:{call.lineno} logs nothing"
         message = call.args[1] if call.func.attr == _LEVEL_FIRST else call.args[0]
@@ -2312,9 +1822,8 @@ def test_every_log_line_leaves_its_formatting_to_the_logger(path: Path) -> None:
             isinstance(argument, ast.Starred) for argument in call.args
         ):
             # A message passed on with its own ``*args`` behind it -- which is
-            # ``_report``, the one function whose whole job is to hand a caller's
-            # line to the logger with the mark on it. Nothing is formatted here
-            # either; it is the same deferral one call further out.
+            # ``_report``, the one function whose whole job is to hand a caller's line to
+            # the logger with the mark on it.
             continue
         assert isinstance(message, ast.Constant) and isinstance(message.value, str), (
             f"{path.name}:{call.lineno} formats its own message"
@@ -2323,14 +1832,7 @@ def test_every_log_line_leaves_its_formatting_to_the_logger(path: Path) -> None:
 
 @pytest.mark.parametrize("path", package_modules(), ids=lambda path: path.name)
 def test_nothing_but_the_report_handler_writes_to_stdout(path: Path) -> None:
-    """stdout is the report's, and a ``> top.txt`` catches whatever else lands there.
-
-    That is the whole of what the split promises, and it is a promise about the
-    stream rather than about any one logger -- so a ``print`` anywhere in the
-    package breaks it whether or not the report is even running. The prompt
-    ``--pay`` writes goes to stderr for the same reason: it is a question, and a
-    redirect asking for the answer should not catch it.
-    """
+    """stdout is the report's, and a ``> top.txt`` catches whatever else lands there."""
     for node in ast.walk(module_tree(path)):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             assert node.func.id != "print", f"{path.name}:{node.lineno} prints"
@@ -2347,12 +1849,7 @@ def test_nothing_but_the_report_handler_writes_to_stdout(path: Path) -> None:
 
 @pytest.mark.parametrize("path", package_modules(), ids=lambda path: path.name)
 def test_only_the_report_marks_a_record_as_the_report(path: Path) -> None:
-    """``extra={"report": True}`` is what sends a line to stdout instead of stderr.
-
-    It is set in exactly one function, and the reason to keep it there is that the
-    mark is invisible: a narration line marked by mistake reads the same on a
-    terminal, where both streams land together, and lands in the redirect anyway.
-    """
+    """``extra={"report": True}`` is what sends a line to stdout instead of stderr."""
     for call in logging_calls(path):
         marked = [keyword for keyword in call.keywords if keyword.arg == "extra"]
         assert not marked or path.name == "logging_setup.py", (
@@ -2362,13 +1859,7 @@ def test_only_the_report_marks_a_record_as_the_report(path: Path) -> None:
 
 @pytest.mark.parametrize("path", package_modules(), ids=lambda path: path.name)
 def test_only_the_logging_module_configures_logging(path: Path) -> None:
-    """One function decides how loud a process is, and it is not a library's call.
-
-    ``basicConfig`` installs a handler on the root logger and sets a level for
-    everything in the process, so a module doing it at import would decide that
-    for an embedder who imported ``BuyAgent`` -- and quietly do nothing where the
-    embedder had already configured logging themselves.
-    """
+    """One function decides how loud a process is, and it is not a library's call."""
     if path.name == "logging_setup.py":
         return
 
@@ -2378,14 +1869,8 @@ def test_only_the_logging_module_configures_logging(path: Path) -> None:
 
 @pytest.mark.parametrize("entry_point", ["__main__.py", "server.py"])
 def test_every_entry_point_wires_its_verbose_flag_to_the_level(entry_point: str) -> None:
-    """``-v`` is a flag on two parsers and a level in one function, and the wiring
-    between them is a line each that nothing else would miss.
-
-    Left out, the flag parses, the help still advertises it, and the run is as
-    quiet as it was -- which is the failure ``configure_logging`` already guards
-    against from the other end, where ``basicConfig`` silently declines to set the
-    level it was given.
-    """
+    """``-v`` is a flag on two parsers and a level in one function, and the wiring between
+    them is a line each that nothing else would miss."""
     tree = module_tree(_PACKAGE / entry_point)
     main = next(
         node
@@ -2436,21 +1921,8 @@ def raisable(
 
 
 def test_every_type_named_for_a_failure_is_one() -> None:
-    """A name ending in ``Error`` is this package's one promise about a type made
-    in the name itself: that it can be raised.
-
-    Three lists are keyed by those types and held against each other above --
-    ``api._STATUS``, ``api.PAY_STATUS`` and the ``except`` tuple in
-    ``__main__.main`` -- and every one of them reads a class as a class. A type
-    named for a failure that was not one would sit in any of them perfectly, and
-    be found by whoever first tried to raise it rather than here.
-
-    The other direction is deliberately not asserted, and ``server._Stopped`` is
-    the reason. A stopped run is not a failure (ADR-0034), which is why it stays
-    out of ``_STATUS``, out of ``main`` and out of ``run``'s ``Raises`` -- naming
-    it for one would say the opposite of what it means. So the rule holds one
-    way: every ``*Error`` is raisable, not every raisable thing is an ``*Error``.
-    """
+    """A name ending in ``Error`` is this package's one promise about a type made in the
+    name itself: that it can be raised."""
     declared = declared_classes()
     misnamed = [
         name
@@ -2482,30 +1954,7 @@ def guarded_lines(tree: ast.Module) -> range | None:
 
 @pytest.mark.parametrize("path", package_modules(), ids=lambda path: path.name)
 def test_nothing_but_the_guard_ends_the_process(path: Path) -> None:
-    """A run answers with a code; it does not spend one.
-
-    ``main`` returns 0, 1, 3, 4 or 130 -- the codes ``--help`` ends by listing --
-    and the guard at the bottom of the module is what hands that to ``sys.exit``.
-    ``server.main`` is the same shape. Two lines in the package end a process, and
-    both of them are the last line of a module nobody imports for anything else.
-
-    Anywhere else it would be the one failure none of the three lists can catch,
-    because it is not a failure: ``SystemExit`` derives from ``BaseException``
-    precisely so that it goes straight past an ``except Exception``. What it would
-    cost depends on who is running, and every one of them is somebody this package
-    promises not to do that to. A Python caller who imported ``BuyAgent`` for the
-    six names ``__init__`` re-exports loses their process mid-call. A container
-    whose ``ENTRYPOINT`` is the interpreter reports a code the API never chose. And
-    the server is the quiet one: a run happens in a worker thread, where a
-    ``SystemExit`` ends that thread and nothing else -- the stream stops mid-run
-    with no ``failure`` event, no status line left to spend, and a browser reading
-    it as the server having gone.
-
-    ``argparse``'s own exit 2 is the exception the ``Failures`` section already
-    names, and it needs no exemption here: it is raised inside the parser, by the
-    two modules an ``argv`` belongs to, which is the rule ``tests/test_architecture.py``
-    holds ``argparse`` itself to.
-    """
+    """A run answers with a code; it does not spend one."""
     tree = module_tree(path)
     guard = guarded_lines(tree)
     ending = [
@@ -2537,16 +1986,12 @@ _PYLINT_RUN = re.compile(r"python -m pylint ([\w/ .-]+)")
 _SUPPRESSION = re.compile(r"^\s*#\s*pylint:\s*disable(-next)?=")
 
 #: A pylint message named by its code -- ``W0718`` -- rather than by its name.
-#: The trailing comma is the one the settings file's own lists are written with.
 _MESSAGE_CODE = re.compile(r"^[CEFIRW]\d{4},?$")
 
 
 def test_the_linter_checks_what_coverage_measures() -> None:
     """Three tools now read the same package, and each says so in its own file:
-    `.coveragerc` measures it, `setup.cfg` mutates it, and `ci.yml` lints it. A
-    module that one of them has stopped naming keeps the reassuring output of the
-    other two -- which for the linter means a whole directory nobody is reading,
-    since a target pylint is not given is not a target it complains about."""
+    `.coveragerc` measures it, `setup.cfg` mutates it, and `ci.yml` lints it."""
     linted = _PYLINT_RUN.findall(_CI.read_text(encoding="utf-8"))
 
     assert linted, "ci.yml no longer runs pylint; this rule has outlived it"
@@ -2555,10 +2000,9 @@ def test_the_linter_checks_what_coverage_measures() -> None:
 
 
 def test_the_linter_is_configured_where_it_is_run_from() -> None:
-    """pylint reads `.pylintrc` out of the working directory, and every command
-    that runs it here runs from the repository root -- so the file has to be at the
-    root and not beside the package. Moved into `buy_agent/`, it would still be
-    found by a lint of the package and silently not by anything else."""
+    """pylint reads `.pylintrc` out of the working directory, and every command that runs
+    it here runs from the repository root -- so the file has to be at the root and not
+    beside the package."""
     assert _PYLINTRC.exists(), "the linter's settings are gone; ci.yml still runs it"
 
     settings = ini_values(_PYLINTRC, "MESSAGES CONTROL", "disable")
@@ -2566,13 +2010,8 @@ def test_the_linter_is_configured_where_it_is_run_from() -> None:
 
 
 def test_the_linter_is_configured_in_the_spelling_it_demands() -> None:
-    """`use-symbolic-message-instead` is on, so every pragma in the package names
-    its check as a name and never as a code. Pylint applies that to the pragmas and
-    not to the file that switches it on: `disable = W0718` is read without a word.
-    A code there is the thing that check exists to stop, one indirection further
-    out -- nobody reading the file can tell what has been turned off without going
-    to look it up, and the paragraph written above each one is addressed to exactly
-    the reader who is not going to."""
+    """`use-symbolic-message-instead` is on, so every pragma in the package names its
+    check as a name and never as a code."""
     for key in ("enable", "disable"):
         for message in ini_values(_PYLINTRC, "MESSAGES CONTROL", key):
             assert not _MESSAGE_CODE.match(message), (
@@ -2582,12 +2021,8 @@ def test_the_linter_is_configured_in_the_spelling_it_demands() -> None:
 
 @pytest.mark.parametrize("path", package_modules(), ids=lambda path: path.name)
 def test_every_suppression_says_why(path: Path) -> None:
-    """The rule every heuristic in this package already follows, applied to the
-    linter's own: a suppression takes a check away, so it says what for. Pylint
-    holds the other half itself -- `useless-suppression` fails a pragma that has
-    stopped suppressing anything -- but it cannot tell prose from silence, and a
-    bare `# pylint: disable=` is the shape that spreads: the next one copies it,
-    and nothing left says whether either was a decision or a way past a red run."""
+    """The rule every heuristic in this package already follows, applied to the linter's
+    own: a suppression takes a check away, so it says what for."""
     lines = path.read_text(encoding="utf-8").splitlines()
 
     for number, line in enumerate(lines):
@@ -2599,10 +2034,9 @@ def test_every_suppression_says_why(path: Path) -> None:
         )
 
 
-#: Flags this project's own messages may name whatever door they arrive at,
-#: because they are not this CLI's: ``--max-model-len`` and ``--api-key`` are
-#: typed at ``vllm serve``, ``--no-deps`` at ``pip``. Somebody reading either
-#: sentence in a browser still has the same thing to type.
+#: Flags this project's own messages may name whatever door they arrive at, because they
+#: are not this CLI's: ``--max-model-len`` and ``--api-key`` are typed at ``vllm serve``,
+#: ``--no-deps`` at ``pip``.
 _OTHER_PROGRAMS_FLAGS = frozenset({"--max-model-len", "--api-key", "--no-deps"})
 
 #: The two modules handed an ``argv``, and so the two allowed to name the flags
@@ -2622,11 +2056,7 @@ def _cli_flags() -> set[str]:
 
 
 def _spoken_strings(tree: ast.Module) -> list[ast.Constant]:
-    """Every string literal in a module that is not a docstring.
-
-    A docstring is written for somebody reading the source, where the flag is the
-    right name for the flag. What this is about is the sentences that travel.
-    """
+    """Every string literal in a module that is not a docstring."""
     docstrings = {
         ast.get_docstring(node, clean=False)
         for node in ast.walk(tree)
@@ -2641,21 +2071,7 @@ def _spoken_strings(tree: ast.Module) -> list[ast.Constant]:
 
 
 def test_no_sentence_below_the_two_doors_tells_a_reader_to_type_a_flag() -> None:
-    """A hint the browser shows must not name a command line it does not have.
-
-    ``providers.hint``, ``rails.hint`` and ``AgentConfig.__post_init__`` are below
-    both front doors, so every sentence they write is read twice: once on a
-    terminal and once in the page, where it lands in a banner or under a labelled
-    box. "give it more room with a larger ``--num-ctx``" was the form's Context
-    window field, named as something nobody looking at the form could type, and
-    "give ``--merchant-url``" was printed *under the box labelled Payment
-    endpoint* -- the one place the remedy was already sitting.
-
-    So a shared sentence names the setting and each door shows it under that name;
-    ``--help`` uses the same nouns, which is what leaves the CLI reader a word to
-    look up. The exceptions are flags of *other* programs (:data:`_OTHER_PROGRAMS_FLAGS`),
-    which are the same thing to type at either door.
-    """
+    """A hint the browser shows must not name a command line it does not have."""
     flags = _cli_flags()
     assert "--num-ctx" in flags and "--merchant-url" in flags, "the parsers were read"
 
@@ -2671,14 +2087,7 @@ def test_no_sentence_below_the_two_doors_tells_a_reader_to_type_a_flag() -> None
 
 
 def test_every_sort_criterion_has_an_ordering_the_report_can_name() -> None:
-    """A fourth criterion needs a phrase, or the report raises a ``KeyError`` on it.
-
-    ``ORDERINGS`` is what turns "TOP 3 OF 7 PRODUCTS" into a heading that explains
-    itself: sorted by rating the block reads 0.68, 0.98, 0.83 down the left edge,
-    which is a ranking that looks broken until the heading says what it is ordered
-    by. The browser has a control beside the results saying so and a ``> top.txt``
-    has nothing at all, so the line has to carry it.
-    """
+    """A fourth criterion needs a phrase, or the report raises a ``KeyError`` on it."""
     assert set(ORDERINGS) == set(get_args(SortBy)), (
         "every criterion --sort-by offers has a phrase, and no phrase names one it "
         "does not"
@@ -2690,9 +2099,8 @@ def test_every_sort_criterion_has_an_ordering_the_report_can_name() -> None:
         )
 
 
-#: Flags whose default is the absence of the flag rather than a value: a switch is
-#: off until it is given, and a repeatable one collects nothing until it is. Neither
-#: has a value to print, so neither is held to the rule below.
+#: Flags whose default is the absence of the flag rather than a value: a switch is off
+#: until it is given, and a repeatable one collects nothing until it is.
 def _takes_a_value(action: argparse.Action) -> bool:
     return action.nargs != 0 and not isinstance(action, argparse._AppendAction)
 
@@ -2704,15 +2112,8 @@ def _takes_a_value(action: argparse.Action) -> bool:
 def test_every_flag_that_takes_a_value_names_the_default_it_has(
     parser: argparse.ArgumentParser,
 ) -> None:
-    """``--help`` is the CLI's only documentation, so a default left out is a fact
-    with nowhere else to be read.
-
-    ``--port`` was the one that mattered: the address somebody is about to type,
-    printed as "Port to bind." with the 8000 only in the source. ``--host`` beside
-    it decides whether the machine or the network can reach the server, which also
-    turns the ``Host`` check off (ADR-0018). Every other flag in both parsers
-    already said its own, which is what makes this a rule rather than a preference.
-    """
+    """``--help`` is the CLI's only documentation, so a default left out is a fact with
+    nowhere else to be read."""
     for action in parser._actions:  # pylint: disable=protected-access
         if not action.option_strings or isinstance(action, argparse._HelpAction):
             continue

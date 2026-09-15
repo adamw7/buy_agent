@@ -1,10 +1,4 @@
-"""What may be paid for, for how much, and what comes back.
-
-The rule under most of this is the ranking rule turned around: grounding blanks
-every figure the sources did not print (ADR-0006), so a blank price is not a
-product to buy. These are the tests that say the payment side reads those blanks
-the way the rest of the pipeline writes them.
-"""
+"""What may be paid for, for how much, and what comes back."""
 
 from __future__ import annotations
 
@@ -38,12 +32,7 @@ BOSE = Product(name="Bose QC Ultra", price=379.0, currency="USD", url="https://x
 
 
 def refused(product: Product, currency: str | None) -> str:
-    """Why this product may not be paid for, as a string to look into.
-
-    The half of :func:`terms_for` these tests read most, and never a bare ``None``:
-    ``in ""`` is False, so a product that was in fact payable fails the assertion
-    rather than passing it vacuously.
-    """
+    """Why this product may not be paid for, as a string to look into."""
     return terms_for(product, currency)[1] or ""
 
 
@@ -63,10 +52,7 @@ def test_a_product_whose_price_grounding_blanked_may_not_be() -> None:
 
 @pytest.mark.parametrize("price", [0.0, -42.5])
 def test_a_price_that_is_no_amount_may_not_be_paid_either(price: float) -> None:
-    """The other way a price can fail to be one. ``to_product`` blanks anything at or
-    below zero on the way in from the model, so a figure like this arrived through a
-    door that takes a whole product -- and left to the ``is None`` test above it built
-    a cart, put a Pay button on the card and signed a mandate for nothing."""
+    """The other way a price can fail to be one."""
     odd = SONY.model_copy(update={"price": price})
 
     assert "not an amount to send" in refused(odd, "USD")
@@ -92,10 +78,9 @@ def test_a_product_with_no_source_page_has_no_merchant_to_pay() -> None:
 
 
 def test_what_a_purchase_would_be_for_is_asked_the_same_way_as_whether() -> None:
-    """The amount is the other half of the same check: a front door needs it as
-    well as the verdict, because the currency a cart carries is frequently not the
-    product's own -- a page that printed a bare figure is priced in the run's
-    (ADR-0043)."""
+    """The amount is the other half of the same check: a front door needs it as well as
+    the verdict, because the currency a cart carries is frequently not the product's
+    own -- a page that printed a bare figure is priced in the run's (ADR-0043)."""
     bare = SONY.model_copy(update={"currency": None})
 
     assert terms_for(bare, "USD") == ((329.99, "USD"), None)
@@ -103,16 +88,9 @@ def test_what_a_purchase_would_be_for_is_asked_the_same_way_as_whether() -> None
 
 
 def test_a_figure_the_cart_cannot_count_is_refused_as_a_payment_would_be() -> None:
-    """``money.minor_units`` raises a ``ValueError``, knowing nothing about who is
-    being paid; the refusal a shopper sees is this module's, and it names the field
-    the form marks (ADR-0033).
-
-    Not a defensive catch: ``Product`` refuses an infinite price at the door, but a
-    *finite* 1e308 is a product pydantic builds and ``_check`` passes, and scaling it
-    into minor units overflows the decimal context. Left untranslated it would reach
-    ``pay_now``, which catches ``PaymentError`` and not ``ValueError``, and the
-    browser would get a 500 for a number.
-    """
+    """``money.minor_units`` raises a ``ValueError``, knowing nothing about who is being
+    paid; the refusal a shopper sees is this module's, and it names the field the form
+    marks (ADR-0033)."""
     with pytest.raises(PaymentError, match="not a price") as excinfo:
         cart_for(
             Product(name="Odd", price=1e308, currency="USD", url="https://x.example/o"),
@@ -153,12 +131,7 @@ def test_a_cart_falls_back_to_the_site_when_no_seller_was_printed() -> None:
 
 
 def test_the_merchant_a_cart_will_name_is_askable_without_a_cart() -> None:
-    """What a surface has to say before there is a cart to read it off.
-
-    The confirmation on a card names who is being paid, and it is drawn from the
-    products a run answered with rather than from a cart the server has not built
-    yet -- so the answer is one function, asked by both.
-    """
+    """What a surface has to say before there is a cart to read it off."""
     anonymous = SONY.model_copy(update={"seller": None})
 
     assert merchant_for(SONY) == cart_for(SONY, [SONY], AgentConfig(pay=True)).merchant
@@ -405,15 +378,8 @@ def test_a_page_with_no_scheme_names_no_merchant_of_its_own() -> None:
 
 
 def test_a_password_in_an_address_never_becomes_the_merchant() -> None:
-    """The merchant is read off the page's address, and an address can carry a
-    user and a password.
-
-    Counted by slashes, ``https://shopper:hunter2@audiosite.example/xm5`` made
-    the merchant ``shopper:hunter2@audiosite.example`` -- which is the name shown
-    on the surface a person approves, the name in a *signed* AP2 payload, and the
-    name written into a receipt that is logged and handed to a browser. Three
-    places a password has no business being.
-    """
+    """The merchant is read off the page's address, and an address can carry a user and a
+    password."""
     odd = SONY.model_copy(
         update={"seller": None, "url": "https://shopper:hunter2@audiosite.example/xm5"}
     )
@@ -431,8 +397,7 @@ def test_a_password_in_an_address_never_becomes_the_merchant() -> None:
 
 
 def test_a_port_is_part_of_where_a_site_is_and_stays() -> None:
-    """Only the credentials are a secret. A shop served on another port is a
-    different address, and dropping it would name a site nobody is serving."""
+    """Only the credentials are a secret."""
     odd = SONY.model_copy(
         update={"seller": None, "url": "https://audiosite.example:8443/xm5"}
     )
@@ -452,13 +417,7 @@ def test_an_address_that_names_nothing_at_all_names_no_merchant() -> None:
 
 
 def test_an_address_too_malformed_to_read_names_no_merchant() -> None:
-    """An unclosed IPv6 bracket makes ``urlsplit`` itself raise.
-
-    Counted by slashes this used to answer with whatever sat between the second
-    and third one; read properly it has to be caught, or a page with a mangled
-    address turns a payment into a ``ValueError`` nothing above it catches -- and
-    ``PaymentError`` is the one failure paying has.
-    """
+    """An unclosed IPv6 bracket makes ``urlsplit`` itself raise."""
     assert payment._site("https://[::1/p") == ""
     assert payment._host("https://[::1/p") == "unknown merchant"
 
@@ -478,9 +437,7 @@ def test_an_address_with_no_site_in_it_is_used_as_it_stands() -> None:
 
 
 def test_a_cart_priced_exactly_at_the_spend_limit_is_allowed() -> None:
-    """The bound is a *limit*, so the number itself is inside it. Off by one the
-    other way, a shopper who set their budget to the price they had in mind could
-    never buy the thing they set it for."""
+    """The bound is a *limit*, so the number itself is inside it."""
     cart = cart_for(SONY, [SONY], AgentConfig(pay=True, spend_limit=329.99))
 
     assert cart.amount == 32999
@@ -492,9 +449,8 @@ def test_a_penny_over_the_spend_limit_is_refused() -> None:
 
 
 def test_a_cart_is_counted_in_the_currencys_own_units_and_not_always_hundredths() -> None:
-    """`minor_units` knows JPY has no minor unit; this is what says `cart_for`
-    actually tells it which currency. Told nothing, a 4,980 yen pair of
-    headphones becomes an authorisation for 498,000."""
+    """`minor_units` knows JPY has no minor unit; this is what says `cart_for` actually
+    tells it which currency."""
     yen = payable_product(price=4980.0, currency="JPY")
 
     assert cart_for(yen, [yen], AgentConfig(pay=True)).amount == 4980
@@ -534,8 +490,7 @@ def test_a_very_long_name_is_cut_to_an_id_a_merchant_can_hold() -> None:
 def test_every_refusal_names_the_field_the_browser_should_mark(
     product: Product, expected: str
 ) -> None:
-    """`field` is what marks the box (ADR-0033). A refusal that names none is a
-    sentence in a banner with nothing on the page to attach it to."""
+    """`field` is what marks the box (ADR-0033)."""
     with pytest.raises(PaymentError) as excinfo:
         cart_for(product, [product], AgentConfig(pay=True))
 

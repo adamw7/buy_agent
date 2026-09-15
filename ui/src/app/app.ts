@@ -21,12 +21,7 @@ import { filename, saveText } from './save';
 import { SearchForm } from './search-form/search-form';
 import type { Rejection } from './search-form/search-form';
 
-/**
- * The page: ask for something, watch the agent work, read the ranked answer.
- *
- * The pipeline itself stays where it was -- this is a second front end onto the
- * same `BuyAgent.run()` the CLI drives, not a second implementation of it.
- */
+/** The page: ask for something, watch the agent work, read the ranked answer. */
 @Component({
   selector: 'app-root',
   imports: [SearchForm, ProgressLog, ProductCard],
@@ -41,62 +36,33 @@ export class App {
   protected readonly logs = signal<LogLine[]>([]);
   protected readonly result = signal<SearchResult | null>(null);
   protected readonly failure = signal<string | null>(null);
-  /** The failure again, where it was about one setting: the form marks that box.
-   *  Kept beside `failure` rather than derived from it, because which field a
-   *  message is about is Python's answer and not a sentence to read (ADR-0033). */
+  /** The failure again, where it was about one setting: the form marks that box. */
   protected readonly rejected = signal<Rejection | null>(null);
   /** What the server made of the sources field, for the form to show. */
   protected readonly sourcesCheck = signal<SourcesCheck | null>(null);
   protected readonly running = signal(false);
   protected readonly started = signal(false);
-  /** A run the reader ended themselves. Its own flag and not `failure`: nothing
-   *  failed, so no banner and no alert -- but the log is worth keeping all the
-   *  same, a run somebody stopped being exactly the one that was going wrong. */
+  /** A run the reader ended themselves. */
   protected readonly stopped = signal(false);
-  /** The model server currently being asked what it serves, or null for none in flight.
-   *  The server and not a bare flag, because the pill has to name what it is waiting on
-   *  and that is not what `status` holds: a provider just picked is being asked about
-   *  while the last one's answer is still on screen. */
+  /** The model server currently being asked what it serves, or null for none in flight. */
   private readonly asking = signal<ModelSource | null>(null);
-  /** Whether a listing is in flight. The one wait on this page with nothing else
-   *  to say it is happening: `/api/models` is a call per pulled tag on a
-   *  five-second budget, so a dead server takes the whole of it. */
+  /** Whether a listing is in flight. */
   protected readonly checking = computed(() => this.asking() !== null);
-  /** A re-sort in flight. Its own flag and not `running`: the form stays usable
-   *  through it, because nothing is being searched -- this is one request over
-   *  products the page already has. */
+  /** A re-sort in flight. */
   protected readonly reordering = signal(false);
-  /** A re-sort that did not happen, said beside the results it did not change. Not in
-   *  `failure`: that one means the run failed and the log panel offers a bug report on
-   *  the strength of it, while this leaves a finished run on the screen. */
+  /** A re-sort that did not happen, said beside the results it did not change. */
   protected readonly reorderFailed = signal<string | null>(null);
 
-  /**
-   * The settings the run on screen was started with.
-   *
-   * Paying reads its rail, its endpoint and its spend limit off *the run*, not off the
-   * form as it stands now: a reader who typed a different limit after the results
-   * landed has not re-run anything, and a payment configured from the boxes would go
-   * out under settings that produced nothing on screen.
-   */
+  /** The settings the run on screen was started with. */
   private readonly ranWith = signal<SearchOptions | null>(null);
 
   /** The product being paid for, by name -- one payment at a time, page-wide. */
   protected readonly paying = signal<string | null>(null);
 
-  /**
-   * What came of each payment, by the name of the product it bought.
-   *
-   * By the name and not the rank, which is the slot rather than the thing in it: a
-   * re-sort ranks the same products again from 1 (ADR-0035), so a receipt kept under
-   * `3` moved to whatever came third next -- shown against a product nobody bought,
-   * while the one that was bought got a Pay button for a second go. A name is what a
-   * run identifies a product by everywhere else.
-   */
+  /** What came of each payment, by the name of the product it bought. */
   protected readonly receipts = signal<Record<string, Receipt>>({});
 
-  /** A payment that did not happen. Its own banner, beside the products: the
-   *  run itself worked, and `failure` means the run did not. */
+  /** A payment that did not happen. */
   protected readonly payFailed = signal<string | null>(null);
 
   /** Whether this page may pay at all: the server can, and the run asked it to. */
@@ -130,14 +96,7 @@ export class App {
     return result ? result.products.slice(result.top_n) : [];
   });
 
-  /**
-   * What to do about a model server that did not answer, shown under the pill.
-   *
-   * Python's sentence, not one written here: the provider already knows what to start,
-   * what key to set and what tag to pull, and a second wording in TypeScript would be
-   * a second thing to keep true. Null whenever the server is reachable -- and when
-   * nothing came back to ask, which is the agent server itself being down.
-   */
+  /** What to do about a model server that did not answer, shown under the pill. */
   protected readonly unreachable = computed(() => {
     const server = this.status();
     // Nothing while a listing is in flight: the remedy under the pill is about the last
@@ -149,9 +108,7 @@ export class App {
     return server.hint ?? null;
   });
 
-  /** What to call the server being asked about, for the pill to say while it is
-   *  being asked. Whichever of the two has arrived names it -- the status when
-   *  there is one, the defaults on the very first load, when there is not. */
+  /** What to call the server being asked about, for the pill to say while it is being asked. */
   protected readonly serverLabel = computed(() =>
     this.labelFor(
       this.asking()?.provider ?? this.status()?.provider ?? this.defaults()?.provider ?? '',
@@ -165,9 +122,7 @@ export class App {
    *  an answer that arrives second not being the answer to the second question. */
   private reorder: Subscription | null = null;
   private listing: Subscription | null = null;
-  /** A payment in flight. Never cancelled by a newer one -- `payFor` refuses to
-   *  start a second while one is running, because a purchase abandoned halfway
-   *  is not a question the page has moved on from; it is money in the air. */
+  /** A payment in flight. */
   private pay: Subscription | null = null;
 
   constructor() {
@@ -187,13 +142,7 @@ export class App {
     });
   }
 
-  /**
-   * Ask what a model server is serving: the one named, or the one already shown.
-   *
-   * The provider travels with the address because the two are one question -- the same
-   * URL is asked one way for Ollama and another for vLLM, and half an answer would
-   * list the wrong server's models.
-   */
+  /** Ask what a model server is serving: the one named, or the one already shown. */
   protected refreshModels(source?: ModelSource): void {
     const target = source ?? this.current();
     if (!target) {
@@ -226,9 +175,7 @@ export class App {
     });
   }
 
-  /** The server the pill is currently reporting on, for a re-ask with no argument.
-   *  `ModelStatus` and `AgentDefaults` both name a provider and an address, so
-   *  whichever of the two has arrived answers the same question. */
+  /** The server the pill is currently reporting on, for a re-ask with no argument. */
   private current(): ModelSource | null {
     const shown = this.status() ?? this.defaults();
     return shown ? { provider: shown.provider, base_url: shown.base_url } : null;
@@ -240,14 +187,7 @@ export class App {
     return option?.label ?? provider;
   }
 
-  /**
-   * Ask what the sources field holds, before a run is worth starting.
-   *
-   * The form has no rule of its own for a source, so the answer comes from the same
-   * `parse_sources` a run would have used (ADR-0033). An empty field is the whole web,
-   * which is nothing to ask about; a server that did not answer leaves the field
-   * unmarked, the banner already saying the agent is down.
-   */
+  /** Ask what the sources field holds, before a run is worth starting. */
   protected checkSources(sources: string): void {
     if (!sources) {
       this.sourcesCheck.set(null);
@@ -261,10 +201,9 @@ export class App {
 
   protected start(options: SearchOptions): void {
     this.run?.unsubscribe();
-    // A re-sort still in flight is about the run being replaced: left running, its answer
-    // lands on a cleared page and puts the last search's products back under a progress
-    // panel narrating the next one. Reachable by asking for one and searching again
-    // before it answers.
+    // A re-sort still in flight is about the run being replaced: left running, its answer lands on
+    // a cleared page and puts the last search's products back under a progress panel narrating the
+    // next one.
     this.reorder?.unsubscribe();
     this.reorder = null;
     this.reordering.set(false);
@@ -304,14 +243,7 @@ export class App {
     });
   }
 
-  /**
-   * Ask for the same products in another order, without searching for them again.
-   *
-   * "Rank by" was a search option and nothing else, so changing it after a run spent
-   * the minute a second time to reorder products already on the screen. The ordering
-   * is still Python's: the products go back and come back ranked by the function every
-   * run ends with, which is the line ADR-0035 draws.
-   */
+  /** Ask for the same products in another order, without searching for them again. */
   protected resort(control: HTMLSelectElement): void {
     const sortBy = control.value as SortBy;
     const found = this.result();
@@ -337,25 +269,14 @@ export class App {
             `Could not re-order these by ${sortBy}; they are still ranked by ` +
               `${found.sort_by}. ${refusal(failure)}`,
           );
-          // Put the control back to the order these products are actually in. Angular cannot:
-          // the reader moved the select, `found.sort_by` never moved with it, so every
-          // `selected` binding still evaluates to what it did. Left alone, the one control
-          // saying what these are sorted by names an order they are not in -- and choosing that
-          // criterion again fires no `change`.
+          // Put the control back to the order these products are actually in.
           control.value = found.sort_by;
           this.reordering.set(false);
         },
       });
   }
 
-  /**
-   * Buy one of these products, having been shown that somebody approved it.
-   *
-   * The card witnessed the approval and this passes it on unchanged; everything that
-   * decides what the purchase *is* happens in Python, which builds the cart from the
-   * same products and refuses unless the approval matches it. So a page showing a
-   * stale price cannot buy at that price (ADR-0012).
-   */
+  /** Buy one of these products, having been shown that somebody approved it. */
   protected payFor(
     product: RankedProduct,
     approved: { title: string; price: number; currency: string },
@@ -391,14 +312,7 @@ export class App {
       });
   }
 
-  /**
-   * Hand the finished run over as a file.
-   *
-   * The page is thrown away by the next question and the run took a minute, so a
-   * shopper comparing two searches had nothing to compare with. What is written is
-   * what the server sent, which is what `--json` writes: the browser saves the answer
-   * rather than composing one of its own.
-   */
+  /** Hand the finished run over as a file. */
   protected downloadResults(): void {
     saveText(
       filename('results', 'json', new Date()),
@@ -407,29 +321,17 @@ export class App {
     );
   }
 
-  /**
-   * Stop the run: close the stream, and say what that does and does not reach.
-   *
-   * Closing the stream is what stops the run -- the server notices the reader has gone
-   * and ends the pipeline at its next step (ADR-0034) -- but "at its next step" is the
-   * part a shopper has to be told. A call already in flight finishes first, so someone
-   * who hits Stop and searches again has two runs on one model server. The line says
-   * so, because nothing else on the page can.
-   */
+  /** Stop the run: close the stream, and say what that does and does not reach. */
   protected stop(): void {
     this.run?.unsubscribe();
     this.run = null;
     this.running.set(false);
-    // What the log panel offers its transcript on. A stopped run is not a failure and
-    // gets no banner, but it is the other run that leaves nothing on the page to look at
-    // -- and somebody who stopped one because it had gone quiet is exactly who needs the
-    // file.
+    // What the log panel offers its transcript on.
     this.stopped.set(true);
     this.logs.update((lines) => [
       ...lines,
-      // The only line the browser writes itself, so it is the only one timed off
-      // the browser's clock -- in the format Python sends the rest in, since the
-      // panel shows them in one column.
+      // The only line the browser writes itself, so it is the only one timed off the browser's
+      // clock -- in the format Python sends the rest in, since the panel shows them in one column.
       {
         time: now(),
         level: 'WARNING',
@@ -448,15 +350,7 @@ function now(): string {
   return new Date().toTimeString().slice(0, 8);
 }
 
-/**
- * Why a request failed: the server's own sentence, or a guess where it sent none.
- *
- * The browser decides nothing, and that includes the diagnosis. `POST /api/rank`
- * refuses things it can name -- fifty products with six quotes each is a body past
- * the server's cap -- and writing "Is the agent server still running?" over the top
- * of that told a shopper to go looking for a server that had answered. The guess is
- * kept for the one case with nothing to read: a request that reached nothing at all.
- */
+/** Why a request failed: the server's own sentence, or a guess where it sent none. */
 function refusal(failure: unknown): string {
   const answered = (failure as { error?: { error?: unknown } } | null)?.error?.error;
   const said = typeof answered === 'string' ? answered.trim() : '';
