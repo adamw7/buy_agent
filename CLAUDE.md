@@ -391,7 +391,8 @@ was ever held to.
 | `verification.py` | Drops products, figures and quotes absent from the sources; links what is left |
 | `constraints.py` | The bounds the shopper set, applied to the products before they are ranked |
 | `ranking.py` | Scoring and sorting, and what each score is made of; no LLM involved |
-| `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain), and the one wording an amount of money is written in |
+| `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain), and which currency a set is counted in |
+| `money.py` | Every currency table: how a spelling is placed, which ones a page is scanned for, how an amount is written and counted (ADR-0054) |
 | `search.py` | DuckDuckGo wrapper -- and nothing else (ADR-0021) |
 | `sources.py` | What a trusted source is: domain, term, `site:` query, `covers` |
 | `providers.py` | Everything that differs between Ollama and vLLM, and nothing else |
@@ -571,19 +572,22 @@ was ever held to.
   (ADR-0043). A bare price is taken as the set's own. Both places that hold one
   price against another -- `rank_products` and `Constraints` -- go through that
   one function; a third would have to. Which currency a listing named is settled
-  once, in `models._currency`: the schema asks for a code and a small model
+  once, in `money.code_for`: the schema asks for a code and a small model
   hands back the sign the page printed, so `$` and `USD` are folded together
   there rather than counted as two currencies half a set is then unplaceable in.
-  Only the spellings that name one currency are folded -- `¥` is the yen's and
-  the yuan's alike, and an ambiguous one left as written is a price the run
-  cannot place, which is what the rule above already has an answer for. Those two
-  tables are one rule across two modules and neither module can hold it: every
-  sign and spelling `fetch`'s `_CURRENCY_SIGNS` and `_CURRENCY_WORDS` keep a price
-  *line* for has to be one `models._currency` can place, or the line is taken off
-  a page to be scored on nothing -- and a currency missing from the first is every
-  price on a shop dropped before the model sees it, which is what `--region
-  pl-pl` used to be until `zł` was added. `tests/test_conventions.py` holds them
-  to each other, with `¥` named there as the one deliberate exception. The cost
+  That table is `money.py`'s whole reason for existing (ADR-0054). Which
+  spellings are folded and which spellings make `fetch` keep a price *line* are
+  one rule -- a currency `fetch` cannot see is every price on that shop dropped
+  before the model sees it, which is what `--region pl-pl` was until `zł` was
+  added to one table and not the other -- so `fetch` scans with `money.SIGNS` and
+  `money.WORDS`, both *derived* from the one table rather than written beside it,
+  and a currency is added there and nowhere else. Two exemptions are named, each
+  with its sentence and each held from both sides by
+  `tests/test_conventions.py`: `UNPLACEABLE` is read off a page and never placed
+  (`¥` is the yen's and the yuan's alike, and an ambiguous one left as written is
+  a price the run cannot place, which is what the rule above already has an
+  answer for), and `UNSCANNED` is placed and never read off a page ("pounds" is a
+  unit of mass, and scanning for it would keep a line per weight). The cost
   of that rule is that 0.5 means two different things, so `score_product`
   answers a `ScoreParts` whose `neutral` names the criteria that were assumed
   rather than read, and both front ends show it (ADR-0041). It is decided there
@@ -1178,9 +1182,11 @@ the other is otherwise invisible to both suites. It asserts that
   `BuyAgent.run`'s documented `Raises` name the same three failures;
 - `ranking.SortBy`, `api.SORT_OPTIONS`, `--sort-by`'s choices and the TypeScript
   `SortBy` union offer the same criteria;
-- every currency `fetch` will keep a price line for is one `models._currency` can
-  place, and every sign it names as unplaceable is one `fetch` actually reads -- so
-  the exemption cannot outlive its reason either (ADR-0043);
+- every currency `fetch` will keep a price line for is one `money.code_for` can
+  place, and every currency it can place is one `fetch` keeps a line for -- asked
+  through `quotes_a_figure`, since the `SIGNS`/`WORDS` split is a derivation and
+  `US$` is reached by neither half on its own -- with both exemptions checked from
+  the other side too, so neither can outlive its reason (ADR-0043, ADR-0054);
 - every provider in `providers.PROVIDERS` is offered by `--provider`, by
   `api.PROVIDER_OPTIONS` and in the rows the form's picker is built from, and
   `ProviderOption` is mirrored in TypeScript;

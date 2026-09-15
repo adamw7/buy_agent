@@ -78,7 +78,7 @@ from buy_agent.api import (
 from buy_agent.config import LIMITS, AgentConfig, parse_region
 import buy_agent.fetch as fetch_module
 import buy_agent.mandates as mandates_module
-import buy_agent.models as models_module
+import buy_agent.money as money
 import buy_agent.providers as providers_module
 from buy_agent.payment import PaymentError
 from buy_agent.providers import PROVIDERS, InstalledModel, provider_options
@@ -404,39 +404,31 @@ def test_the_default_region_is_one_both_front_doors_take() -> None:
 #: prices by.
 _ISO_CODE = re.compile(r"[A-Z]{3}")
 
-#: The one spelling :mod:`buy_agent.fetch` keeps a price line for that
-#: :mod:`buy_agent.models` deliberately cannot place: ``¥`` is the yen's sign and
-#: the yuan's alike, and a guess would put half a set on the wrong scale (ADR-0043).
-#: Named here rather than worked out, so a second ambiguous sign is a line in this
-#: file and an argument to go with it.
-_AMBIGUOUS = frozenset("¥")
 
+def _scanned() -> list[str]:
+    """Every spelling that makes :mod:`buy_agent.fetch` keep a price line.
 
-def _price_spellings() -> list[str]:
-    """Every way of writing a currency that makes ``fetch`` keep a line.
-
-    Both tables are deliberately literal -- single characters and plain words, no
-    regex escapes -- so splitting the alternation is reading the declaration rather
-    than parsing a pattern.
+    Both halves are read off :mod:`buy_agent.money`, which is what declares them --
+    a character class and an alternation of plain words, no regex escapes -- so this
+    is reading the declaration rather than parsing a pattern.
     """
-    return [*fetch_module._CURRENCY_SIGNS, *fetch_module._CURRENCY_WORDS.split("|")]
+    return [*money.SIGNS, *money.WORDS]
 
 
-@pytest.mark.parametrize("spelling", _price_spellings())
+@pytest.mark.parametrize("spelling", _scanned())
 def test_every_currency_a_price_is_read_in_is_one_the_run_can_place(spelling: str) -> None:
-    """The two tables are one rule across two modules, and neither module can hold it.
+    """A price kept off a page has to be one the run can then do something with.
 
-    ``fetch`` decides which lines reach the model -- a page whose prices it cannot
-    see contributes none, which is how ``--region pl-pl`` once lost every figure on
-    every Polish shop, invisibly. ``models`` decides which spellings are the same
-    currency, and a price in a spelling it does not know is one this run cannot
-    place: it scores ``NEUTRAL``, sinks in a price sort, passes every bound and
-    cannot be paid for (ADR-0043). So a sign added to one table and not the other is
-    a line taken off a page to be scored on nothing.
+    ``money`` decides which spellings are the same currency, and a price in a
+    spelling it does not know is one this run cannot place: it scores ``NEUTRAL``,
+    sinks in a price sort, passes every bound and cannot be paid for (ADR-0043). So
+    a spelling scanned for and not placed is a line taken off a page to be scored on
+    nothing. One table answers both now (ADR-0054); this is what says the two halves
+    it is split into stayed one rule.
     """
-    placed = models_module._currency(spelling)
+    placed = money.code_for(spelling)
 
-    if spelling in _AMBIGUOUS:
+    if spelling in money.UNPLACEABLE:
         assert placed == spelling, "an ambiguous sign is left as written, never guessed"
     else:
         assert placed is not None and _ISO_CODE.fullmatch(placed), (
@@ -444,10 +436,48 @@ def test_every_currency_a_price_is_read_in_is_one_the_run_can_place(spelling: st
         )
 
 
+@pytest.mark.parametrize(
+    "spelling", sorted((money.ALIASES.keys() | money.CODES) - money.UNSCANNED)
+)
+def test_every_currency_the_run_can_place_is_one_a_price_is_read_in(spelling: str) -> None:
+    """The same rule the other way round, which is the direction that was wrong.
+
+    ``fetch`` decides which lines reach the model, and a page whose prices it cannot
+    see contributes none -- which is how ``--region pl-pl`` once lost every figure on
+    every Polish shop, invisibly, until ``zł`` was added to one table and not the
+    other. It was still wrong in three places when the tables were merged: ``money``
+    could place "349 dollars", "1,299 euros" and "8999 TRY", and ``fetch`` kept a
+    line for none of them (ADR-0054).
+
+    :data:`money.UNSCANNED` is left out of the list rather than skipped inside: a
+    skip that asks no question is a case nobody runs, and the test below is what
+    holds that exemption honest.
+
+    Asked through ``quotes_a_figure`` rather than against :data:`money.SIGNS` and
+    :data:`money.WORDS`, because the split between those two is a derivation -- one
+    keeps the signs, the other the words, and ``US$`` is reached by neither on its
+    own. What has to hold is that some half reaches every spelling, so a new one the
+    derivation drops fails here rather than going quiet.
+    """
+    assert fetch_module.quotes_a_figure(f"it sells for {spelling}99") or (
+        fetch_module.quotes_a_figure(f"it sells for 99 {spelling}")
+    ), f"{spelling!r} is a currency this run can place and no price is ever read in"
+
+
 def test_the_unplaceable_signs_are_ones_a_price_is_actually_read_in() -> None:
-    """The exemption above read the other way, so it cannot outlive its reason: a
-    sign dropped from ``fetch`` leaves a row here excusing nothing."""
-    assert _AMBIGUOUS <= set(_price_spellings())
+    """One exemption read the other way, so it cannot outlive its reason: a sign
+    dropped from the scan leaves a row excusing nothing."""
+    assert money.UNPLACEABLE <= set(_scanned())
+
+
+def test_the_unscanned_spellings_are_ones_the_run_can_still_place() -> None:
+    """The other exemption, the same way. ``POUNDS`` is left out of the scan because
+    a page printing it usually means weight -- not because it is not a currency, and
+    a row here naming something ``code_for`` cannot place would be excusing a typo.
+    """
+    assert money.UNSCANNED <= money.ALIASES.keys()
+    for spelling in money.UNSCANNED:
+        assert _ISO_CODE.fullmatch(money.code_for(spelling) or "")
 
 
 # -- the payloads the browser is typed against ---------------------------------

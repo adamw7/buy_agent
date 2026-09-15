@@ -87,7 +87,7 @@ _LAYERS: dict[str, tuple[str, ...]] = {
     "paying": ("payment.py", "rails.py", "mandates.py"),
     "model access": ("chat.py", "providers.py", "cache.py"),
     "settings": ("config.py", "logging_setup.py"),
-    "domain": ("models.py", "sources.py"),
+    "domain": ("models.py", "money.py", "sources.py"),
 }
 
 #: Which layer may reach which, and nothing else. Four of these rows are a

@@ -14,6 +14,7 @@ import httpx
 from lxml import html as lxml_html
 
 from buy_agent.cache import PAGES, DiskCache, open_cache
+from buy_agent.money import SIGNS, WORDS
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
@@ -28,21 +29,14 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 )
 
-#: The signs a price may be written with, one character each (ADR-0043).
-_CURRENCY_SIGNS = "$€£¥₹₩₪₺"  # dollar, euro, pound, yen, rupee, won, shekel, lira
-#: The same currencies as their ISO codes, a page being as likely to print "129 EUR" as
-#: "€129".
-_CURRENCY_CODES = (
-    r"USD|EUR|GBP|JPY|PLN|CHF|SEK|CAD|AUD"
-    r"|INR|KRW|ILS|BRL|CZK|HUF|MXN|NZD|SGD|DKK|NOK|CNY|ZAR"
-)
-
-#: The rule above the other way round: a sign of more than one character is one
-#: :data:`_CURRENCY_SIGNS` cannot carry (ADR-0043).
-_CURRENCY_WORDS = _CURRENCY_CODES + r"|zł|Kč"
+#: Which spellings make a line worth keeping is :mod:`buy_agent.money`'s to say, not
+#: this module's: a currency it can place and this one cannot see is every price on a
+#: shop dropped before the model ever sees it, which is what ``--region pl-pl`` was
+#: until ``zł`` was added to one table and not the other (ADR-0043, ADR-0054).
+_CURRENCY_WORDS = "|".join(WORDS)
 
 _PRICE = re.compile(
-    r"[" + re.escape(_CURRENCY_SIGNS) + r"]\s?\d"
+    r"[" + re.escape(SIGNS) + r"]\s?\d"
     r"|\b(?:" + _CURRENCY_WORDS + r")\b\s*\d"
     r"|\d\s*(?:" + _CURRENCY_WORDS + r")\b",
     re.IGNORECASE,
