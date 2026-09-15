@@ -154,6 +154,28 @@ def make_response(
     )
 
 
+def one_reachable_one_not(monkeypatch) -> list[SearchResult]:
+    """Two results, of which the second's page refuses the connection.
+
+    Two tests want this and ask different things of it -- that the reachable page
+    still arrives, and that the tally says which of the two did not -- so the
+    stub they share is here rather than spelt out in each, the way a handler
+    added to one and not the other would be two different runs being asserted
+    about.
+    """
+
+    def handler(url: str):
+        if "bad" in url:
+            raise httpx.ConnectError("refused")
+        return make_response(url, PAGE)
+
+    stub_client(monkeypatch, handler)
+    return [
+        SearchResult(title="ok", url="https://good.example"),
+        SearchResult(title="down", url="https://bad.example"),
+    ]
+
+
 def answering(*responses):
     """A handler giving each answer in turn, and the list of what it was asked.
 
@@ -265,16 +287,7 @@ def test_enrich_attaches_content_to_each_result(monkeypatch) -> None:
 
 
 def test_one_unreachable_page_does_not_lose_the_others(monkeypatch) -> None:
-    def handler(url: str):
-        if "bad" in url:
-            raise httpx.ConnectError("refused")
-        return make_response(url, PAGE)
-
-    stub_client(monkeypatch, handler)
-    results = [
-        SearchResult(title="ok", url="https://good.example"),
-        SearchResult(title="down", url="https://bad.example"),
-    ]
+    results = one_reachable_one_not(monkeypatch)
 
     enriched = enrich(results, max_chars=1000)
 
@@ -433,16 +446,7 @@ def test_enriching_nothing_fetches_nothing(monkeypatch) -> None:
 
 
 def test_enrich_reports_how_many_pages_were_usable(monkeypatch, caplog) -> None:
-    def handler(url: str):
-        if "bad" in url:
-            raise httpx.ConnectError("refused")
-        return make_response(url, PAGE)
-
-    stub_client(monkeypatch, handler)
-    results = [
-        SearchResult(title="ok", url="https://good.example"),
-        SearchResult(title="down", url="https://bad.example"),
-    ]
+    results = one_reachable_one_not(monkeypatch)
 
     with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
         enrich(results, max_chars=1000)

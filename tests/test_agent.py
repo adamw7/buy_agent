@@ -859,12 +859,19 @@ def _one_page(content: str) -> tuple[list, list]:
     return found, [found[0].model_copy(update={"content": content})]
 
 
-def test_a_figure_only_on_the_fetched_page_is_still_grounded(monkeypatch) -> None:
-    """Extraction and verification must be handed the same text, or nothing passes."""
-    found, fetched = _one_page("JBL Live 780NC\n$149.00\nRated 4.4 out of 5")
-    monkeypatch.setattr("buy_agent.agent.search_web", lambda *_a, **_k: found)
-    monkeypatch.setattr("buy_agent.agent.enrich", lambda _results, **_k: fetched)
-    llm = FakeLLM(
+#: The page the two tests below are handed, and the figures :func:`_says_jbl` reports.
+_JBL_PAGE = "JBL Live 780NC\n$149.00\nRated 4.4 out of 5"
+
+
+def _says_jbl() -> FakeLLM:
+    """A model reporting exactly the figures :data:`_JBL_PAGE` prints.
+
+    Both tests below need the same answer, because the only difference the pair
+    is about is whether the page was read at all. Written out twice, a figure
+    edited on one side would leave the two passing about two different runs and
+    nothing saying so.
+    """
+    return FakeLLM(
         products=ProductList(
             products=[
                 ExtractedProduct(name="JBL Live 780NC", price=149.0, currency="USD", rating=4.4)
@@ -872,7 +879,14 @@ def test_a_figure_only_on_the_fetched_page_is_still_grounded(monkeypatch) -> Non
         )
     )
 
-    ranked = BuyAgent(AgentConfig(), llm=llm).run("headphones")
+
+def test_a_figure_only_on_the_fetched_page_is_still_grounded(monkeypatch) -> None:
+    """Extraction and verification must be handed the same text, or nothing passes."""
+    found, fetched = _one_page(_JBL_PAGE)
+    monkeypatch.setattr("buy_agent.agent.search_web", lambda *_a, **_k: found)
+    monkeypatch.setattr("buy_agent.agent.enrich", lambda _results, **_k: fetched)
+
+    ranked = BuyAgent(AgentConfig(), llm=_says_jbl()).run("headphones")
 
     assert ranked[0].product.price == 149.0
     assert ranked[0].product.rating == 4.4
@@ -880,17 +894,10 @@ def test_a_figure_only_on_the_fetched_page_is_still_grounded(monkeypatch) -> Non
 
 def test_without_the_page_the_same_figures_are_unsupported(monkeypatch) -> None:
     """Snippets alone back nothing, so with --no-fetch the figures are blanked."""
-    found, _ = _one_page("JBL Live 780NC\n$149.00\nRated 4.4 out of 5")
+    found, _ = _one_page(_JBL_PAGE)
     monkeypatch.setattr("buy_agent.agent.search_web", lambda *_a, **_k: found)
-    llm = FakeLLM(
-        products=ProductList(
-            products=[
-                ExtractedProduct(name="JBL Live 780NC", price=149.0, currency="USD", rating=4.4)
-            ]
-        )
-    )
 
-    ranked = BuyAgent(AgentConfig(fetch_pages=False), llm=llm).run("headphones")
+    ranked = BuyAgent(AgentConfig(fetch_pages=False), llm=_says_jbl()).run("headphones")
 
     assert ranked[0].product.name == "JBL Live 780NC"
     assert ranked[0].product.price is None

@@ -87,6 +87,14 @@ _MAX_SEGMENT = 300
 #: prompt.
 _MIN_OPINION = 25
 
+#: What the two sweeps are given when a caller does not say. The pipeline never asks:
+#: ``BuyAgent`` hands down ``AgentConfig.page_chars`` and ``opinion_chars``, which is
+#: where a run's budgets are set and the only place they are a setting. These are what
+#: the three signatures below fell back to, and the opinion budget was written out on
+#: all three -- a second set of defaults for one knob, and three copies of it.
+_PAGE_BUDGET = 1200
+_OPINION_BUDGET = 400
+
 #: How much of one page is read before the rest is dropped.
 _MAX_PAGE_BYTES = 4 * 1024 * 1024
 
@@ -149,7 +157,7 @@ def html_to_text(markup: str) -> str:
     return "\n".join(document.itertext())
 
 
-def condense(text: str, *, max_chars: int, opinion_chars: int = 400) -> str:
+def condense(text: str, *, max_chars: int, opinion_chars: int = _OPINION_BUDGET) -> str:
     """Keep the lines that quote a figure or pass judgement, and nothing else."""
     segments = [_WHITESPACE.sub(" ", raw).strip() for raw in _SEGMENT_BREAK.split(text)]
     segments = [segment for segment in segments if segment]
@@ -208,7 +216,7 @@ def fetch_page(
     url: str,
     *,
     max_chars: int,
-    opinion_chars: int = 400,
+    opinion_chars: int = _OPINION_BUDGET,
     cache: DiskCache | None = None,
     wait: Callable[[float], None] | None = None,
 ) -> PageText:
@@ -363,8 +371,8 @@ def _as_the_caller(context: Context) -> None:
 def enrich(
     results: Sequence[SearchResult],
     *,
-    max_chars: int = 1200,
-    opinion_chars: int = 400,
+    max_chars: int = _PAGE_BUDGET,
+    opinion_chars: int = _OPINION_BUDGET,
     timeout: float = 8.0,
     workers: int = 8,
     cache_ttl: float = 0.0,

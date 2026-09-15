@@ -79,7 +79,7 @@ def parse_source(spec: str) -> Source:
     """Read one source out of what the shopper wrote."""
     spec = spec.strip()
     if not spec:
-        raise ValueError(f"A source cannot be blank. {_SHAPES}")
+        raise _not_a_source_at_all()
 
     if spec.startswith("@"):
         handle = spec.split("/")[0]
@@ -102,6 +102,18 @@ def _not_a_source(spec: str) -> ValueError:
     return ValueError(f"{spec!r} does not name a source. {_SHAPES}")
 
 
+def _not_a_source_at_all() -> ValueError:
+    """The refusal for a spec naming nothing at all, which two callers reach.
+
+    :func:`parse_source` meets it as a spec that is blank on its own, and
+    :func:`parse_named_sources` as a ``--source ""`` that would otherwise come
+    back as no sources and widen the search to the whole web (ADR-0027). One
+    sentence, for the reason :func:`_not_a_source` is one: a shopper reading
+    either needs the same shapes back.
+    """
+    return ValueError(f"A source cannot be blank. {_SHAPES}")
+
+
 def parse_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:
     """Every source in ``specs``, in the order given and without repeats."""
     sources: dict[tuple[str, str], Source] = {}
@@ -120,7 +132,7 @@ def parse_named_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:
     """
     sources = parse_sources(specs)
     if not sources:
-        raise ValueError(f"A source cannot be blank. {_SHAPES}")
+        raise _not_a_source_at_all()
     return sources
 
 
