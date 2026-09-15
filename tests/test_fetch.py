@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import importlib
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import ContextVar
@@ -10,6 +11,8 @@ from contextvars import ContextVar
 import httpx
 import pytest
 
+import buy_agent.fetch as fetch_module
+from buy_agent import money
 from buy_agent.cache import DiskCache
 from buy_agent.fetch import (
     _MAX_RETRY_WAIT,
@@ -21,6 +24,7 @@ from buy_agent.fetch import (
     enrich,
     fetch_page,
     html_to_text,
+    quotes_a_figure,
     summarise_failures,
 )
 from buy_agent.search import SearchResult
@@ -296,10 +300,59 @@ def test_one_unreachable_page_does_not_lose_the_others(monkeypatch) -> None:
         # A hyphen is how a review roundup writes the figure a shop writes with
         # a space, and it is the same rating either way.
         "Sony WH-CH720N is a 4.5-star pick",
+        # The three the tables disagreed about until they were merged (ADR-0054).
+        # ``money`` placed all three and this sweep kept a line for none of them,
+        # so a page pricing in words, or in the one currency whose sign had no
+        # code beside it, reached the model with its price already gone.
+        "Sony WH-CH720N sells for 349 dollars",
+        "Sony WH-CH720N is yours for 1,299 euros",
+        "Sony WH-CH720N kostar 8999 TRY idag",
     ],
 )
 def test_prices_and_ratings_are_recognised_in_several_shapes(line: str) -> None:
     assert condense(line, max_chars=200) == line
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "The Sony WH-CH720N weighs 2 pounds with the case",
+        "At 1.5 pounds it is the lightest of the three",
+    ],
+)
+def test_a_figure_in_pounds_of_weight_is_not_a_price(line: str) -> None:
+    """Why ``money.UNSCANNED`` exists, exercised rather than declared.
+
+    "Pounds" is GBP to ``code_for`` -- a model handing it back in the currency
+    field means the currency -- and a unit of mass to a page. A review of a 2 lb
+    laptop prints the second far more often than a shop prints the first, so the
+    word is placed and never scanned for, and these lines stay off the prompt.
+    """
+    assert condense(line, max_chars=200) == ""
+
+
+def test_the_price_pattern_is_built_from_the_currency_tables() -> None:
+    """Derived, not copied (ADR-0054). The bug this replaced was a currency in
+    one table and not the other, which no amount of care in either module could
+    have caught -- so what is asserted is that there is no second table to fall
+    behind: a spelling ``money`` gains is one this sweep keeps a line for, with
+    nothing here edited.
+
+    Reloaded rather than reached for by name, because the pattern is compiled
+    once at import: a module that read the tables at import and then went its own
+    way would pass every other test in this file.
+    """
+    assert not quotes_a_figure("it costs 42 QUATLOOS")
+
+    original = money.WORDS
+    try:
+        money.WORDS = (*original, "QUATLOOS")
+        assert importlib.reload(fetch_module).quotes_a_figure("it costs 42 QUATLOOS")
+    finally:
+        money.WORDS = original
+        importlib.reload(fetch_module)
+
+    assert not fetch_module.quotes_a_figure("it costs 42 QUATLOOS")
 
 
 def test_a_wall_of_text_is_dropped_even_when_it_quotes_a_price() -> None:

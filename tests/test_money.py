@@ -11,7 +11,17 @@ from __future__ import annotations
 
 import pytest
 
-from buy_agent.money import ALIASES, CODES, SIGNS, WORDS, amount_label, code_for, minor_units
+from buy_agent.money import (
+    ALIASES,
+    CODES,
+    SIGNS,
+    UNPLACEABLE,
+    UNSCANNED,
+    WORDS,
+    amount_label,
+    code_for,
+    minor_units,
+)
 
 
 # -- placing a spelling --------------------------------------------------------
@@ -56,6 +66,21 @@ def test_the_signs_are_single_characters_and_the_words_are_letters() -> None:
     trusted."""
     assert all(len(sign) == 1 and not sign.isalpha() for sign in SIGNS)
     assert all(word.isalpha() for word in WORDS)
+
+
+def test_the_derivation_applies_both_exemptions() -> None:
+    """Each is subtracted from exactly one half, and the halves are what ``fetch``
+    scans with -- so an exemption that failed to reach the derivation would be a
+    sentence in this module and no behaviour anywhere.
+
+    ``UNPLACEABLE`` is a sign kept *in*, since it is read off a page and only
+    never placed; ``UNSCANNED`` is a word taken *out*, since it is placed and only
+    never read. Getting either backwards is silent: the first would stop keeping
+    the yen's price lines, the second would keep a line per laptop weight.
+    """
+    assert UNPLACEABLE <= set(SIGNS), "read off a page, so it stays in the scan"
+    assert not UNSCANNED & set(WORDS), "never read off a page, so it is out of it"
+    assert UNSCANNED <= ALIASES.keys(), "...and still a spelling the table places"
 
 
 def test_every_currency_with_a_sign_is_scanned_for_by_its_code_too() -> None:
