@@ -716,9 +716,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="HOST",
         help=(
-            "Extra Host header to answer, repeatable. The loopback names are "
-            "always answered; anything else is refused, so that a name pointed "
-            "at this machine cannot pass itself off as this server."
+            "Extra Host header to answer, repeatable, so that a name pointed at "
+            "this machine cannot pass itself off as this server. A loopback bind "
+            "answers the loopback names as well; a public one answers these and "
+            "nothing else, and any Host at all where none were named."
         ),
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging.")
