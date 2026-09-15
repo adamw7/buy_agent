@@ -8,6 +8,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import Context, copy_context
 from functools import partial
+from math import isnan
 from typing import TYPE_CHECKING, NamedTuple
 
 import httpx
@@ -158,7 +159,11 @@ def condense(text: str, *, max_chars: int, opinion_chars: int = _OPINION_BUDGET)
     segments = [segment for segment in segments if segment]
 
     taken: set[int] = set()
-    seen: set[str] = set()
+    # What the excerpt already holds, each match paired with the line above it: a
+    # repeat is the same words about the same thing and not the same words. Two
+    # products a page prices alike print that figure twice, and keyed on the words
+    # alone the second was dropped -- leaving its name over the next one's price.
+    seen: set[tuple[str, str]] = set()
 
     def sweep(matches: Callable[[str], bool], *, floor: int, budget: int) -> None:
         """Take every line ``matches`` accepts, until this sweep's budget runs out."""
@@ -168,12 +173,12 @@ def condense(text: str, *, max_chars: int, opinion_chars: int = _OPINION_BUDGET)
             """Add a segment; False once the budget is spent."""
             nonlocal spent
             segment = segments[index]
-            # Already taken by the other sweep: kept, and paid for over there.
-            if segment in seen or len(segment) > _MAX_SEGMENT:
+            # Already in the excerpt -- taken by the other sweep, or as the line
+            # above the match before this one: kept, and paid for where it was.
+            if index in taken or len(segment) > _MAX_SEGMENT:
                 return True
             if spent + len(segment) > budget:
                 return False
-            seen.add(segment)
             taken.add(index)
             spent += len(segment) + 1
             return True
@@ -181,11 +186,17 @@ def condense(text: str, *, max_chars: int, opinion_chars: int = _OPINION_BUDGET)
         for index, segment in enumerate(segments):
             if not (floor <= len(segment) <= _MAX_SEGMENT) or not matches(segment):
                 continue
+            # The line above is what tells one of these apart from the next, so it is
+            # half of what makes this line one the excerpt already has.
+            entry = (segments[index - 1] if index else "", segment)
+            if entry in seen:
+                continue
             # The matching line first, and a match that will not fit still ends the
             # sweep: the prompt is the page read top down, so skipping an expensive
             # listing for a cheap one below reorders its argument.
             if not take(index):
                 break
+            seen.add(entry)
             # Then the line above it -- usually the product this is about, shop pages
             # putting the price under the name.
             if index:
@@ -307,6 +318,12 @@ def _come_back_in(exc: Exception) -> float | None:
     try:
         asked = float(exc.response.headers.get("retry-after", ""))
     except ValueError:
+        return _RETRY_WAIT
+    # Neither the floor nor the cap holds a NaN -- every comparison against one is
+    # false, so it comes through both and ends the whole run at ``time.sleep``, one
+    # page's header costing every other page's fetch. A header naming no number is
+    # what a date already is here.
+    if isnan(asked):
         return _RETRY_WAIT
     return min(max(asked, 0.0), _MAX_RETRY_WAIT)
 

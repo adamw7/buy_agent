@@ -94,6 +94,21 @@ def test_repeated_lines_appear_once() -> None:
     assert condense(repeated, max_chars=1000).count("$129.00") == 1
 
 
+def test_the_same_figure_under_two_names_is_two_figures() -> None:
+    """A repeat is the same words about the same thing, not the same words. Two
+    products a page prices alike print that figure twice, and deduplicating by the
+    words alone dropped the second -- leaving its name standing over the price of
+    whatever came next."""
+    page = "Sony WH-1000XM5\n$349.00\nBose QuietComfort Ultra\n$349.00"
+
+    assert condense(page, max_chars=1000).splitlines() == [
+        "Sony WH-1000XM5",
+        "$349.00",
+        "Bose QuietComfort Ultra",
+        "$349.00",
+    ]
+
+
 def test_boilerplate_without_figures_condenses_to_nothing() -> None:
     assert condense("About us\nContact\nPrivacy policy\n", max_chars=1000) == ""
 
@@ -1021,6 +1036,10 @@ def test_a_page_that_asks_again_without_saying_when_still_gets_one_more_try(
         ("-5", 0.0),  # whatever a shop sends, this is a wait
         ("Wed, 21 Oct 2026 07:28:00 GMT", _RETRY_WAIT),  # the date form needs a clock
         ("soon", _RETRY_WAIT),  # and so does nonsense, to the same answer
+        # ``float`` reads this one, and then it passes the floor and the cap alike --
+        # every comparison against a NaN being false -- and reaches ``time.sleep``,
+        # which refuses it and ends the run over one shop's header.
+        ("nan", _RETRY_WAIT),
     ],
 )
 def test_what_a_retry_after_header_is_allowed_to_ask_for(
