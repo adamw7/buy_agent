@@ -653,6 +653,62 @@ describe('SearchForm', () => {
     expect(field().placeholder).toBe('Fixed when vLLM starts');
   });
 
+  it('sends the CPU-only switch along with the request', async () => {
+    const box = element<HTMLInputElement>('input[name="cpu_only"]');
+    expect(box.checked).toBe(false);
+
+    box.checked = true;
+    box.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    await type('input[name="request"]', 'kettle');
+    await send();
+
+    expect(submitted[0].cpu_only).toBe(true);
+  });
+
+  it('closes the CPU-only box for a provider that chose its own device', async () => {
+    /* vLLM is started on the device it serves from, so a switch to type into would
+       be a setting that quietly does nothing -- disabled rather than gone, so the
+       sentence saying why is still on screen to read. */
+    const box = () => element<HTMLInputElement>('input[name="cpu_only"]');
+    const said = () => box().closest('.field')!.querySelector('small')!.textContent;
+    expect(box().disabled).toBe(false);
+    expect(said()).toContain('leaves the card free');
+
+    await choose('select[name="provider"]', 'vllm');
+
+    expect(box().disabled).toBe(true);
+    expect(said()).toContain('vLLM is started on the device it serves from');
+  });
+
+  it('sends nothing for a device switch the provider has taken away', async () => {
+    /* The rule the context window follows: a switch this run cannot honour is not
+       a setting it had, so it is left out rather than sent to be ignored. */
+    const box = element<HTMLInputElement>('input[name="cpu_only"]');
+    box.checked = true;
+    box.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    await choose('select[name="provider"]', 'vllm');
+    await type('input[name="request"]', 'kettle');
+    await send();
+
+    expect(submitted[0].cpu_only).toBeUndefined();
+  });
+
+  it('remembers whether this machine keeps the model off its card', async () => {
+    /* A standing answer about the hardware, not a question per search. */
+    const box = element<HTMLInputElement>('input[name="cpu_only"]');
+    box.checked = true;
+    box.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    await type('input[name="request"]', 'kettle');
+    await send();
+
+    const form = await seeded();
+
+    expect(form.querySelector<HTMLInputElement>('input[name="cpu_only"]')!.checked).toBe(true);
+  });
+
   it('remembers the provider with the pair that belongs to it', async () => {
     /* Saved together, so a restore can never put one provider's model against
        the other one's address. */

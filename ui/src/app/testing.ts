@@ -15,6 +15,7 @@ export const OLLAMA: ProviderOption = {
   model: 'llama3.2',
   base_url: 'http://localhost:11434',
   takes_num_ctx: true,
+  takes_cpu_only: true,
 };
 
 export const VLLM: ProviderOption = {
@@ -23,6 +24,7 @@ export const VLLM: ProviderOption = {
   model: 'Qwen/Qwen3-8B',
   base_url: 'http://localhost:8000/v1',
   takes_num_ctx: false,
+  takes_cpu_only: false,
 };
 
 /** The rail that charges nobody, and the one that would. */
@@ -70,6 +72,7 @@ export function defaults(overrides: Partial<AgentDefaults> = {}): AgentDefaults 
     num_ctx: null,
     model_timeout: 600,
     think: null,
+    cpu_only: false,
     results: 10,
     top: 3,
     max_price: null,

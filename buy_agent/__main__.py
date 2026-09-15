@@ -302,6 +302,15 @@ def build_parser() -> argparse.ArgumentParser:
         "never answer; a model that cannot think ignores either.",
     )
     parser.add_argument(
+        "--cpu-only",
+        action=argparse.BooleanOptionalAction,
+        default=_DEFAULTS.cpu_only,
+        help="Keep the model off the GPU entirely (default: --no-cpu-only, which "
+        "leaves the offload to the model server). Slower, but it leaves the card "
+        "free and runs a model too large to fit on it. Ollama only -- vLLM picks "
+        "its device when it starts.",
+    )
+    parser.add_argument(
         "--no-fetch",
         dest="fetch",
         action="store_false",
@@ -392,6 +401,7 @@ def main(argv: list[str] | None = None) -> int:
         num_ctx=_DEFAULTS.num_ctx if args.num_ctx is _UNSET else args.num_ctx,
         model_timeout=args.model_timeout,
         reasoning=args.think,
+        cpu_only=args.cpu_only,
         search_results=max(args.results, args.top),
         num_products=args.results,
         top_n=args.top,
@@ -427,6 +437,15 @@ def main(argv: list[str] | None = None) -> int:
             "--num-ctx %s is ignored on this run.",
             config.model_server.label,
             args.num_ctx,
+        )
+
+    if args.cpu_only and not config.model_server.takes_cpu_only:
+        # The same warning for the same reason: a switch the run cannot honour is worth
+        # a line rather than a card quietly staying busy.
+        logger.warning(
+            "%s chooses its device when it starts (--device), so --cpu-only is "
+            "ignored on this run.",
+            config.model_server.label,
         )
 
     agent = None

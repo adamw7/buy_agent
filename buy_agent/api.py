@@ -144,6 +144,7 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
             data, "model_timeout", defaults.model_timeout, _bounded(float)
         ),
         reasoning=_read(data, "think", defaults.reasoning, _as_bool),
+        cpu_only=_read(data, "cpu_only", defaults.cpu_only, _as_bool),
         # Searching fewer pages than we report would cap the report -- as in the CLI.
         search_results=max(num_products, top_n),
         num_products=num_products,
@@ -349,6 +350,7 @@ def defaults_payload() -> dict[str, Any]:
         "num_ctx": defaults.num_ctx,
         "model_timeout": defaults.model_timeout,
         "think": defaults.reasoning,
+        "cpu_only": defaults.cpu_only,
         "results": defaults.num_products,
         "top": defaults.top_n,
         # None, which the form shows as an empty box meaning "no bound" (ADR-0039).

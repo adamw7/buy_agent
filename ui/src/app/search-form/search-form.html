@@ -196,6 +196,24 @@
         <small>Thinking models are cut off before they answer; leave this off for them.</small>
       </label>
 
+      <!-- Disabled rather than hidden where the server picked its own device, the
+           way the context window is: a switch that disappears with the provider
+           leaves nobody anywhere to read why. The `small` sits outside the
+           checkbox label, which is a flex row and would put the sentence beside
+           the box rather than under it. -->
+      <div class="field">
+        <label class="checkbox">
+          <input
+            name="cpu_only"
+            type="checkbox"
+            [(ngModel)]="cpuOnly"
+            [disabled]="running() || !takesCpuOnly()"
+          />
+          <span>Run on CPU only</span>
+        </label>
+        <small>{{ cpuOnlyHint() }}</small>
+      </div>
+
       <label class="field checkbox">
         <input name="fetch" type="checkbox" [(ngModel)]="fetchPages" [disabled]="running()" />
         <span>Read the result pages</span>
