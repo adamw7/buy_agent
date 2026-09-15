@@ -59,13 +59,20 @@ def test_a_spelling_nothing_knows_is_handed_back_rather_than_guessed_at() -> Non
 # -- what the scan is built from -----------------------------------------------
 
 
-def test_the_signs_are_single_characters_and_the_words_are_letters() -> None:
+def test_the_signs_are_symbols_and_the_words_are_letters() -> None:
     """``fetch`` scans with the first as a character class and the second between
     word boundaries, so a spelling in the wrong half is a pattern that cannot
     match. The split is a derivation, which is why it is asserted rather than
-    trusted."""
-    assert all(len(sign) == 1 and not sign.isalpha() for sign in SIGNS)
-    assert all(word.isalpha() for word in WORDS)
+    trusted.
+
+    Asked as a repeated character rather than as a length, because ``SIGNS`` is one
+    string and iterating a string yields characters: every element is one character
+    long whatever the derivation did. What a multi-character spelling let in
+    actually looks like is a doubled ``$`` -- ``US$`` and ``C$`` each bring one.
+    """
+    assert len(SIGNS) == len(set(SIGNS)), "a repeated character is a spelling let in whole"
+    assert not any(sign.isalpha() for sign in SIGNS), "a sign is a symbol, never a letter"
+    assert all(word.isalpha() for word in WORDS), "a word is scanned between boundaries"
 
 
 def test_the_derivation_applies_both_exemptions() -> None:

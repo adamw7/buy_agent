@@ -72,7 +72,7 @@ class ExtractedProduct(BaseModel):
         return Product(
             name=_clean(self.name),
             price=price,
-            currency=code_for(_clean(self.currency)) if price is not None else None,
+            currency=code_for(self.currency) if price is not None else None,
             rating=rating,
             review_count=(
                 self.review_count if rating is not None and self.review_count > 0 else None

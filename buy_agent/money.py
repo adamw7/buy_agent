@@ -61,9 +61,9 @@ UNSCANNED = frozenset({"POUND", "POUNDS"})
 #: "€129". Every currency the table above can place is one of them -- so a sign added
 #: there is scanned for by its code too, with nobody having to write the code down as
 #: well -- plus the ones no sign of their own reaches.
-CODES: frozenset[str] = frozenset(ALIASES.values()) | frozenset(
-    {"JPY", "CHF", "SEK", "HUF", "MXN", "NZD", "SGD", "DKK", "NOK", "CNY", "ZAR"}
-)
+CODES: frozenset[str] = frozenset(ALIASES.values()) | {
+    "JPY", "CHF", "SEK", "HUF", "MXN", "NZD", "SGD", "DKK", "NOK", "CNY", "ZAR"
+}
 
 #: Every way a currency may be written beside a figure, the two exemptions applied.
 _SPELLINGS: frozenset[str] = (ALIASES.keys() | CODES | UNPLACEABLE) - UNSCANNED
