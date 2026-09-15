@@ -1,20 +1,4 @@
-"""Serve the real UI against one of the scripted runs in :mod:`demo`.
-
-``python -m demo.server`` is ``python -m buy_agent.server`` with two names
-replaced -- ``search_web`` and ``enrich`` -- and a fake chat model in place of the
-provider's own, through the ``agent_factory=`` seam ``create_server`` already has
-for the tests. Everything else on the page is the shipped code path.
-
-``--script`` picks which fabricated web that run searches. A script is a module
-offering the five names the run needs -- ``REQUEST``, ``REFINED_QUERY``,
-``PAGES``, ``PAGE_TEXT`` and ``EXTRACTED`` -- so a third demo is a module beside
-:mod:`demo.books` and a row in :data:`SCRIPTS`.
-
-The waits are the point of the pacing flags. A real run spends most of a minute
-inside two model calls that log nothing, which is dead air in a recording, so
-``--pace`` scales the stand-in delays: 1.0 keeps them long enough that the
-progress log fills in rather than appearing all at once, and 0 removes them.
-"""
+"""Serve the real UI against one of the scripted runs in :mod:`demo`."""
 
 from __future__ import annotations
 
@@ -49,20 +33,14 @@ logger = logging.getLogger(__name__)
 #: ``demo.server`` reaches the console and never reaches the browser.
 fetch_logger = logging.getLogger("buy_agent.fetch")
 
-#: Seconds each stand-in step spends, before ``--pace`` scales it. Roughly the
-#: shape of a real run -- refining is one short answer, extraction is ten pages
-#: of JSON -- with two orders of magnitude taken off the clock.
+#: Seconds each stand-in step spends, before ``--pace`` scales it.
 REFINE_SECONDS = 1.1
 FETCH_SECONDS = 1.6
 EXTRACT_SECONDS = 2.6
 
 
 class ScriptedLLM:
-    """Stands in for a model server, answering from the script after a pause.
-
-    ``answer`` is the entire surface the two chains use, and the schema it is
-    asked for is what says which of the two is calling.
-    """
+    """Stands in for a model server, answering from the script after a pause."""
 
     def __init__(self, script: ModuleType, pace: float = 1.0) -> None:
         self.script = script
@@ -77,14 +55,7 @@ class ScriptedLLM:
 
 
 def install_fake_web(script: ModuleType, pace: float = 1.0) -> None:
-    """Point the agent at the script's own pages instead of at the web.
-
-    The fake stops at the transport, as ``integration/conftest.py``'s does: the
-    text comes from the fixture rather than from a URL, and then goes through the
-    real :func:`buy_agent.fetch.condense` on the config's own budgets. Grounding
-    runs over that condensed text, so what the pipeline checks against here is
-    the same kind of corpus it checks against in production.
-    """
+    """Point the agent at the script's own pages instead of at the web."""
 
     def search(
         query: str, *, max_results: int = 10, region: str = "us-en", **_: object
@@ -121,9 +92,7 @@ def install_fake_web(script: ModuleType, pace: float = 1.0) -> None:
     agent_module.search_web, agent_module.enrich = search, enrich
 
 
-#: What ``GET /api/models`` answers with. Ollama is not running here, and the
-#: header pill saying so would be the first thing a viewer of the recording
-#: read -- so the model picker is scripted along with the rest of the run.
+#: What ``GET /api/models`` answers with.
 DEMO_MODELS = ("gemma4:12b", "qwen3:8b", "llama4:8b", "lfm2.5")
 
 

@@ -1,24 +1,11 @@
-"""The fixed web this benchmark searches, and the run settings it searches with.
-
-Moved here from ``integration/conftest.py``, which now reads it back: a corpus
-and its answer key have to be one thing that cannot drift apart, and it keeps the
-nightly job to *one* model call, :mod:`integration.test_benchmark` scoring the
-same run the invariant tests read.
-
-The product names are real; the sites are ``*.example`` hosts that cannot
-resolve, and every price, rating, review count and verdict is invented.
-"""
+"""The fixed web this benchmark searches, and the run settings it searches with."""
 
 from __future__ import annotations
 
 from buy_agent.config import AgentConfig
 from buy_agent.search import SearchResult
 
-#: How many products the run keeps, and how many it reports. Below the seven
-#: distinct products :data:`PAGE_TEXT` names, so ``deduplicate``'s limit is a cap
-#: that has to bite rather than a ceiling nothing reaches -- which is also why
-#: :func:`benchmark.scoring.score_run` measures recall against the *cap* and not
-#: against the whole answer key.
+#: How many products the run keeps, and how many it reports.
 NUM_PRODUCTS = 5
 TOP_N = 3
 
@@ -26,49 +13,24 @@ TOP_N = 3
 def settings(**overrides: object) -> AgentConfig:
     """The config a benchmark run uses: the shipped defaults, on this corpus.
 
-    Only the widths move. ``temperature``, ``num_ctx`` and ``reasoning`` stay as
-    the agent ships them (ADR-0019) -- whether those defaults still make a small
-    model answer with JSON rather than think until the context runs out is one of
-    the things a live run is here to find out, which needs a prompt wide enough
-    for the question to arise. Ten condensed pages put the extraction prompt at
-    ~9.5k characters, near enough 2.4k tokens.
-
     Args:
         **overrides: Fields to set instead -- the model and the server, which
-            belong to whoever is being scored rather than to the corpus, and
-            ``num_products`` where a run is given more room.
+        belong to whoever is being scored rather than to the corpus, and
+        ``num_products`` where a run is given more room.
     """
     fields: dict[str, object] = {
         "search_results": len(PAGES),
         "num_products": NUM_PRODUCTS,
         "top_n": TOP_N,
-        # Nothing here is remembered between runs (ADR-0044). The pages are the
-        # corpus and never fetched, so the page half would do nothing -- but the
-        # *answers* are the thing being measured, and a scored run that replayed
-        # yesterday's would report yesterday's model. A benchmark asks the model.
+        # Nothing here is remembered between runs (ADR-0044).
         "cache_ttl": 0,
     }
     return AgentConfig(**(fields | overrides))  # type: ignore[arg-type]
 
 
-#: The pages behind the results, as :func:`buy_agent.fetch.fetch_page` would have
-#: found them: a product name, the line carrying the figure, a few lines of
-#: verdict, and the navigation, specifications and legal boilerplate that make up
-#: most of a real page. Fabricated, an assertion about a real shop's listing being
-#: a nightly failure about the shop.
-#:
-#: Written to be *condensed*, not read. Every line meant to survive is one
-#: :func:`buy_agent.fetch.quotes_a_figure` or
-#: :func:`buy_agent.fetch.reads_like_an_opinion` accepts, and the rest is there to
-#: be discarded -- the half a fixture of tidy prose cannot test. A verdict worded
-#: outside ``fetch._OPINION``'s vocabulary never reaches the model in production,
-#: so one worded that way here would be testing nothing.
-#:
-#: Ten of them, which is what ``search_results`` ships as, and each dense, because
-#: the *width* of the prompt is under test too: the shipped ``num_ctx`` and
-#: ``reasoning=False`` (ADR-0019, ADR-0050) are about a prompt that fills the
-#: window, and three tidy pages came to ~675 tokens, where the question cannot
-#: arise.
+#: The pages behind the results, as :func:`buy_agent.fetch.fetch_page` would have found
+#: them: a product name, the line carrying the figure, a few lines of verdict, and the
+#: navigation, specifications and legal boilerplate that make up most of a real page.
 PAGE_TEXT: dict[str, str] = {
     "https://audiosite.example/sony-wh-1000xm5-review": """\
 AudioSite
@@ -276,16 +238,10 @@ Advertise with us
 """,
 }
 
-#: The web a benchmark run searches, as ``search_web`` returns it: title, URL and
-#: snippet, ``content`` still empty because nothing has been fetched yet --
-#: :func:`benchmark.runner.serving_the_corpus` fills it in as
-#: :mod:`buy_agent.fetch` would.
-#:
-#: The third is a listicle, the mistake this pipeline exists to catch: a small
-#: model reports its headline as a product, and ``clean_products`` is what stops
-#: it reaching the top 3. The fourth prices the Sony a second time, in another
-#: currency and without a rating, so ``extraction._fill_gaps`` has a real conflict
-#: to get right rather than two copies of one listing (ADR-0022).
+#: The web a benchmark run searches, as ``search_web`` returns it: title, URL and snippet,
+#: ``content`` still empty because nothing has been fetched yet --
+#: :func:`benchmark.runner.serving_the_corpus` fills it in as :mod:`buy_agent.fetch`
+#: would.
 PAGES: tuple[SearchResult, ...] = (
     SearchResult(
         title="Sony WH-1000XM5 review: still the one to beat | AudioSite",
@@ -339,9 +295,6 @@ PAGES: tuple[SearchResult, ...] = (
     ),
 )
 
-#: What the shopper typed. Deliberately vague, so query refinement has something
-#: to do. Nothing downstream reads "comfortable" or "for flights" -- the ranking
-#: is price, rating and review count, and comfort reaches the shopper as the
-#: quoted verdicts -- so the benchmark scores neither.
+#: What the shopper typed.
 REQUEST = "comfortable noise cancelling headphones for flights, under $350"
 

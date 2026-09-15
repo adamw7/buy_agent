@@ -75,8 +75,7 @@ def _split_report_from_progress() -> None:
 
     # The record still propagates to whatever basicConfig put on the root, so the other
     # half of the split is telling that handler to leave the report alone -- only the
-    # console one, a handler writing elsewhere being nobody's stream to take lines out
-    # of.
+    # console one, a handler writing elsewhere being nobody's stream to take lines out of.
     for console in logging.getLogger().handlers:
         if getattr(console, "stream", None) is sys.stderr and _not_report not in console.filters:
             console.addFilter(_not_report)
@@ -96,8 +95,7 @@ def _report(message: str, *args: object) -> None:
 
 
 def _parts(breakdown: ScoreParts, weights: RankingWeights) -> str:
-    """The three scores behind a blend, each with the weight it went in at (ADR-0041).
-    """
+    """The three scores behind a blend, each with the weight it went in at (ADR-0041)."""
     fractions = weights.fractions
     return ", ".join(
         f"{name} {getattr(breakdown, name):.2f} x{fractions[name]:.2f}"

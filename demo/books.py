@@ -1,51 +1,18 @@
-"""The fabricated web the WWII books demo searches, and what the fake model reads.
-
-Shaped the way ``integration/conftest.py`` shapes its own fixtures: a title, the
-line under it carrying a figure, a few lines of verdict, and the navigation and
-legal boilerplate that make up most of a real page. Written to be *condensed*
-rather than read -- every line meant to survive
-:func:`buy_agent.fetch.condense` is one ``quotes_a_figure`` or
-``reads_like_an_opinion`` accepts, and the rest is there to be thrown away.
-
-The order of :data:`PAGES` is load-bearing for the recording: each book's own
-page comes before the two round-ups that merely cross-reference it, because
-``verification.attribute_sources`` links a product to the *first* searched page
-that mentions it. Cross-references are therefore kept to those two pages, where
-they still give the pooled haystack something to agree with.
-
-:data:`EXTRACTED` is what the fake model claims it read off them, and it is
-deliberately imperfect in the six ways a small model is imperfect, so the
-progress log in the recording shows the pipeline doing its job rather than
-agreeing with itself:
-
-* a listicle headline reported as a product, for ``clean_products``;
-* a book no page mentions, for ``drop_ungrounded``;
-* a price no page printed, for ``verify_numbers``;
-* a link to a page that was never searched, for ``attribute_sources``;
-* a verdict nobody wrote, for ``verify_opinions``;
-* one book listed twice, in two currencies, for ``deduplicate``.
-
-The book titles and authors are real. The shops, the prices, the ratings, the
-review counts and the quoted verdicts are invented, on ``*.example`` hosts that
-cannot resolve; none of it is a claim about a real seller or a real reviewer.
-"""
+"""The fabricated web the WWII books demo searches, and what the fake model reads."""
 
 from __future__ import annotations
 
 from buy_agent.models import ExtractedProduct, ProductList
 from buy_agent.search import SearchResult
 
-#: What the shopper types into the form. Vague enough that refining it into a
-#: search query is a step with something to do.
+#: What the shopper types into the form.
 REQUEST = "wwii books about war in Europe 1944-45"
 
 #: What the fake model refines :data:`REQUEST` into.
 REFINED_QUERY = "best WWII history books Western Front Europe 1944 1945 buy"
 
-#: What each page in :data:`PAGES` says, before :func:`buy_agent.fetch.condense`
-#: gets to it. Read by ``demo/server.py`` in place of a fetch, and by
-#: ``demo/record.mjs`` to answer for a shop a ``--follow-link`` take clicks
-#: through to -- those hosts cannot resolve.
+#: What each page in :data:`PAGES` says, before :func:`buy_agent.fetch.condense` gets to
+#: it.
 PAGE_TEXT: dict[str, str] = {
     "https://warhistorydesk.example/guns-at-last-light": """\
 War History Desk
@@ -262,8 +229,7 @@ PAGES: tuple[SearchResult, ...] = (
     ),
 )
 
-#: What the fake model says it read off :data:`PAGES`. See the module docstring
-#: for what each of the deliberate mistakes is there to exercise.
+#: What the fake model says it read off :data:`PAGES`.
 EXTRACTED = ProductList(
     products=[
         ExtractedProduct(
@@ -294,10 +260,9 @@ EXTRACTED = ProductList(
                 "Readers found the maps sparse for a campaign this complicated.",
             ],
         ),
-        # The same book, priced again in another currency and without a rating:
-        # a real conflict for _fill_gaps to get right rather than two copies of
-        # one listing agreeing with itself (ADR-0022). The names differ only by
-        # words in GENERIC_WORDS, which is what merge_variants folds together.
+        # The same book, priced again in another currency and without a rating: a real
+        # conflict for _fill_gaps to get right rather than two copies of one listing
+        # agreeing with itself (ADR-0022).
         ExtractedProduct(
             name="D-Day: The Battle for Normandy, new edition",
             price=16.0,

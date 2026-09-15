@@ -1,11 +1,4 @@
-"""How an amount of money is written, read off a page, placed and counted.
-
-One table answers all four questions (ADR-0054). The rules that span it and the
-modules reading it -- every spelling scanned for is one that can be placed, and
-every spelling that can be placed is one a price is read in -- are in
-``tests/test_conventions.py``, where the cross-module rules live. What is here is
-the table's own behaviour.
-"""
+"""How an amount of money is written, read off a page, placed and counted."""
 
 from __future__ import annotations
 
@@ -60,31 +53,17 @@ def test_a_spelling_nothing_knows_is_handed_back_rather_than_guessed_at() -> Non
 
 
 def test_the_signs_are_symbols_and_the_words_are_letters() -> None:
-    """``fetch`` scans with the first as a character class and the second between
-    word boundaries, so a spelling in the wrong half is a pattern that cannot
-    match. The split is a derivation, which is why it is asserted rather than
-    trusted.
-
-    Asked as a repeated character rather than as a length, because ``SIGNS`` is one
-    string and iterating a string yields characters: every element is one character
-    long whatever the derivation did. What a multi-character spelling let in
-    actually looks like is a doubled ``$`` -- ``US$`` and ``C$`` each bring one.
-    """
+    """``fetch`` scans with the first as a character class and the second between word
+    boundaries, so a spelling in the wrong half is a pattern that cannot match."""
     assert len(SIGNS) == len(set(SIGNS)), "a repeated character is a spelling let in whole"
     assert not any(sign.isalpha() for sign in SIGNS), "a sign is a symbol, never a letter"
     assert all(word.isalpha() for word in WORDS), "a word is scanned between boundaries"
 
 
 def test_the_derivation_applies_both_exemptions() -> None:
-    """Each is subtracted from exactly one half, and the halves are what ``fetch``
-    scans with -- so an exemption that failed to reach the derivation would be a
-    sentence in this module and no behaviour anywhere.
-
-    ``UNPLACEABLE`` is a sign kept *in*, since it is read off a page and only
-    never placed; ``UNSCANNED`` is a word taken *out*, since it is placed and only
-    never read. Getting either backwards is silent: the first would stop keeping
-    the yen's price lines, the second would keep a line per laptop weight.
-    """
+    """Each is subtracted from exactly one half, and the halves are what ``fetch`` scans
+    with -- so an exemption that failed to reach the derivation would be a sentence in
+    this module and no behaviour anywhere."""
     assert UNPLACEABLE <= set(SIGNS), "read off a page, so it stays in the scan"
     assert not UNSCANNED & set(WORDS), "never read off a page, so it is out of it"
     assert UNSCANNED <= ALIASES.keys(), "...and still a spelling the table places"

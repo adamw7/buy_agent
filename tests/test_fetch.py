@@ -56,15 +56,7 @@ def test_unparseable_markup_yields_no_text() -> None:
 
 
 def test_a_page_that_opens_with_an_xml_declaration_is_still_read() -> None:
-    """XHTML pages carry one, and lxml refuses a *str* that does.
-
-    The body arrives decoded -- httpx read the charset off the header -- so by
-    the time it gets here the declaration names an encoding nothing is in any
-    more, and lxml raises ``ValueError`` rather than parsing. Swallowed, every
-    figure and verdict on such a page was lost and ``enrich`` counted it under
-    "quoted no prices and no verdicts", which is what a page that parsed and had
-    none is called.
-    """
+    """XHTML pages carry one, and lxml refuses a *str* that does."""
     text = html_to_text(
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<html xmlns="http://www.w3.org/1999/xhtml"><body>'
@@ -107,12 +99,7 @@ def test_boilerplate_without_figures_condenses_to_nothing() -> None:
 
 
 def fake_client(handler, captured: dict | None = None):
-    """A stand-in for ``httpx.Client`` that answers ``handler``.
-
-    ``stream`` and not ``get``: the fetch reads the content type off the headers
-    and then stops at ``fetch._MAX_PAGE_BYTES``, so what it asks of a client is a
-    response it can iterate rather than one already whole.
-    """
+    """A stand-in for ``httpx.Client`` that answers ``handler``."""
 
     class FakeClient:
         def __init__(self, **kwargs) -> None:
@@ -155,14 +142,7 @@ def make_response(
 
 
 def one_reachable_one_not(monkeypatch) -> list[SearchResult]:
-    """Two results, of which the second's page refuses the connection.
-
-    Two tests want this and ask different things of it -- that the reachable page
-    still arrives, and that the tally says which of the two did not -- so the
-    stub they share is here rather than spelt out in each, the way a handler
-    added to one and not the other would be two different runs being asserted
-    about.
-    """
+    """Two results, of which the second's page refuses the connection."""
 
     def handler(url: str):
         if "bad" in url:
@@ -177,13 +157,7 @@ def one_reachable_one_not(monkeypatch) -> list[SearchResult]:
 
 
 def answering(*responses):
-    """A handler giving each answer in turn, and the list of what it was asked.
-
-    The retrying below is the one behaviour here that is about the *second* request,
-    so a stub answering the same thing forever cannot show it: what says a page was
-    asked again is that the second answer is the one that came back. The last answer
-    stands for every request after it, so a test says only as much as it means to.
-    """
+    """A handler giving each answer in turn, and the list of what it was asked."""
     answers = list(responses)
     asked: list[str] = []
 
@@ -218,11 +192,7 @@ def test_a_failed_request_yields_no_content(monkeypatch) -> None:
 
 
 def test_a_url_httpx_will_not_parse_yields_no_content(monkeypatch) -> None:
-    """``InvalidURL`` is not an ``HTTPError``, so it needs naming separately.
-
-    httpx raises it out of parsing rather than out of the transport, which puts
-    it under ``Exception`` and outside the tuple that catches everything else.
-    """
+    """``InvalidURL`` is not an ``HTTPError``, so it needs naming separately."""
 
     def explode(url: str):
         raise httpx.InvalidURL("Invalid port: ':1'")
@@ -235,14 +205,7 @@ def test_a_url_httpx_will_not_parse_yields_no_content(monkeypatch) -> None:
 
 
 def test_a_malformed_href_does_not_bring_the_run_down() -> None:
-    """The real client, on the real parse, with no stub in the way.
-
-    A DuckDuckGo href with a bad port, an unbracketed IPv6 literal or a hostname
-    IDNA refuses used to escape the pool and out of ``BuyAgent.run`` -- a
-    traceback on the CLI and a 500 in the browser, from a link the agent only
-    ever meant to skip. Nothing here reaches the network: httpx refuses these
-    while building the URL, before there is a socket to open.
-    """
+    """The real client, on the real parse, with no stub in the way."""
     results = [
         SearchResult(title="bad port", url="http://[::1/", snippet="s"),
         SearchResult(title="bad idna", url="http://\udcff.example/", snippet="s"),
@@ -304,19 +267,14 @@ def test_one_unreachable_page_does_not_lose_the_others(monkeypatch) -> None:
         # Every sign the sweep knows has its code beside it: a page printing
         # "129000 JPY" quotes a price as plainly as one printing "¥129000".
         "Sony WH-CH720N 129000 JPY today",
-        # ...and the other way round, for the one currency whose sign is a word
-        # rather than a character. A Polish shop writes "599 zł" and hardly ever
-        # "599 PLN", so the code alone kept the price line off exactly the pages
-        # a pl-pl search returns.
+        # ...and the other way round, for the one currency whose sign is a word rather
+        # than a character.
         "Sony WH-CH720N za 599 zł dzisiaj",
         "Sony WH-CH720N zł 599 dzisiaj",
         # A hyphen is how a review roundup writes the figure a shop writes with
         # a space, and it is the same rating either way.
         "Sony WH-CH720N is a 4.5-star pick",
         # The three the tables disagreed about until they were merged (ADR-0054).
-        # ``money`` placed all three and this sweep kept a line for none of them,
-        # so a page pricing in words, or in the one currency whose sign had no
-        # code beside it, reached the model with its price already gone.
         "Sony WH-CH720N sells for 349 dollars",
         "Sony WH-CH720N is yours for 1,299 euros",
         "Sony WH-CH720N kostar 8999 TRY idag",
@@ -334,27 +292,12 @@ def test_prices_and_ratings_are_recognised_in_several_shapes(line: str) -> None:
     ],
 )
 def test_a_figure_in_pounds_of_weight_is_not_a_price(line: str) -> None:
-    """Why ``money.UNSCANNED`` exists, exercised rather than declared.
-
-    "Pounds" is GBP to ``code_for`` -- a model handing it back in the currency
-    field means the currency -- and a unit of mass to a page. A review of a 2 lb
-    laptop prints the second far more often than a shop prints the first, so the
-    word is placed and never scanned for, and these lines stay off the prompt.
-    """
+    """Why ``money.UNSCANNED`` exists, exercised rather than declared."""
     assert condense(line, max_chars=200) == ""
 
 
 def test_the_price_pattern_is_built_from_the_currency_tables() -> None:
-    """Derived, not copied (ADR-0054). The bug this replaced was a currency in
-    one table and not the other, which no amount of care in either module could
-    have caught -- so what is asserted is that there is no second table to fall
-    behind: a spelling ``money`` gains is one this sweep keeps a line for, with
-    nothing here edited.
-
-    Reloaded rather than reached for by name, because the pattern is compiled
-    once at import: a module that read the tables at import and then went its own
-    way would pass every other test in this file.
-    """
+    """Derived, not copied (ADR-0054)."""
     assert not quotes_a_figure("it costs 42 QUATLOOS")
 
     original = money.WORDS
@@ -474,12 +417,7 @@ def test_enrich_reports_how_many_pages_were_usable(monkeypatch, caplog) -> None:
     ],
 )
 def test_each_kind_of_failure_gets_its_own_words(exc: Exception, expected: str) -> None:
-    """Grouped by what it means, not by httpx's class tree.
-
-    A ``ConnectTimeout`` is a ``TimeoutException`` and not a ``ConnectError``,
-    and a ``ProxyError`` is not a ``NetworkError`` -- but a shopper reading the
-    tally has one question about each, so they are counted as one thing.
-    """
+    """Grouped by what it means, not by httpx's class tree."""
     assert describe_failure(exc) == expected
 
 
@@ -516,11 +454,7 @@ def test_nothing_going_wrong_summarises_to_nothing() -> None:
 
 
 def test_the_tally_names_the_kinds_of_failure_and_not_the_urls(monkeypatch, caplog) -> None:
-    """The diagnosis the run already had and used to throw away.
-
-    Three refusals, a timeout and a page that simply said nothing are five
-    different things to do next, and without this they were all "0 of 5".
-    """
+    """The diagnosis the run already had and used to throw away."""
 
     def handler(url: str):
         if "slow" in url:
@@ -610,16 +544,8 @@ _WATCHING: ContextVar[str | None] = ContextVar("watching", default=None)
 
 
 def test_a_page_is_read_in_the_context_its_caller_is_running_in(monkeypatch) -> None:
-    """This is the one step that fans out into threads, and a thread starts with
-    a context of its own.
-
-    Which made the workers invisible to anything the caller had set up around the
-    run: the browser's progress panel is an SSE relay routed by the context a run
-    is being watched through, so the one line a rate-limited page writes at INFO
-    -- the time the shopper is spending -- reached the terminal and never the page
-    (ADR-0011). Asserted here rather than over there because it is this function's
-    promise: a thread it starts behaves as its caller does.
-    """
+    """This is the one step that fans out into threads, and a thread starts with a context
+    of its own."""
     seen: list[str | None] = []
 
     def read(url: str):
@@ -667,12 +593,7 @@ def test_the_character_budget_is_per_page(monkeypatch) -> None:
 
 
 def test_a_line_that_exactly_fills_the_budget_is_kept() -> None:
-    """The budget is what may be spent, not what must be left over.
-
-    Off by one the other way, a page whose figures happen to come to exactly
-    ``page_chars`` loses its last line -- and the boundary is where a ceiling is
-    got wrong, every other length passing either version of the test.
-    """
+    """The budget is what may be spent, not what must be left over."""
     text = "Price $10\nPrice $20"
     assert len(text) == 19
 
@@ -680,14 +601,8 @@ def test_a_line_that_exactly_fills_the_budget_is_kept() -> None:
 
 
 def test_a_spent_budget_stops_the_sweep_rather_than_skipping_the_line() -> None:
-    """A page is read top down, and the prompt is an excerpt rather than a
-    best-fit selection.
-
-    Skipping the line that would not fit and carrying on takes a cheaper one from
-    further down the page -- so the prompt quietly reorders the page's own
-    argument, dropping the expensive listing the shopper is being shown and
-    keeping the afterthought below it.
-    """
+    """A page is read top down, and the prompt is an excerpt rather than a best-fit
+    selection."""
     text = "Price $10\nA rather longer line about this one at $20 here\nPrice $30"
 
     condensed = condense(text, max_chars=25)
@@ -696,15 +611,7 @@ def test_a_spent_budget_stops_the_sweep_rather_than_skipping_the_line() -> None:
 
 
 def test_context_that_will_not_fit_is_gone_without_the_figure_going_with_it() -> None:
-    """The line above a match is furniture, and furniture is what to go without.
-
-    A match that will not fit ends the sweep, which is the rule above. Its
-    *context* is the one line taken here that is not a figure at all, so a long
-    one must not end anything: taken first, ninety characters of prose ended the
-    page and took every price below it down as well, with three quarters of the
-    budget still unspent. Grounding then blanks the figures that never arrived,
-    which reads as an extractor that missed them.
-    """
+    """The line above a match is furniture, and furniture is what to go without."""
     text = "\n".join(["Sony WH-1000XM5", "$399.00", "X" * 90, "$249.00", "$99.00"])
 
     condensed = condense(text, max_chars=100, opinion_chars=0)
@@ -714,12 +621,7 @@ def test_context_that_will_not_fit_is_gone_without_the_figure_going_with_it() ->
 
 
 def test_a_figure_is_kept_even_where_its_context_line_was_not() -> None:
-    """The pair is not atomic: the figure is what the ranking is made of.
-
-    With room for the price and not for the name above it, the price is still
-    what reaches the prompt -- and taking the two in that order is also what
-    stops the budget being spent on a name whose price then would not fit.
-    """
+    """The pair is not atomic: the figure is what the ranking is made of."""
     text = "A rather longer product name than the budget will stretch to\n$249.00"
 
     assert condense(text, max_chars=20, opinion_chars=0) == "$249.00"
@@ -759,12 +661,7 @@ def test_pages_are_asked_for_in_english(monkeypatch) -> None:
 
 
 def test_the_fetch_defaults_are_the_ones_the_agent_relies_on(monkeypatch) -> None:
-    """The eight-second cap and the eight-way pool are the defaults, not just kwargs.
-
-    Every other test here passes ``timeout`` explicitly, which pins the argument
-    and leaves the default free to drift -- and the default is what a caller that
-    omits it actually gets.
-    """
+    """The eight-second cap and the eight-way pool are the defaults, not just kwargs."""
     captured: dict = {}
 
     pool = ThreadPoolExecutor
@@ -899,13 +796,7 @@ def test_a_product_called_pro_is_not_mistaken_for_a_pros_list() -> None:
 
 
 def test_a_page_is_read_only_as_far_as_the_ceiling(monkeypatch) -> None:
-    """Neither of the other two bounds is a bound on how much arrives.
-
-    ``timeout`` is the wait between chunks rather than for the transfer, so a
-    large, steady response never trips it, and ``condense`` runs on text already
-    in memory -- with eight of these in flight. A page cut mid-tag still parses,
-    which is why the rest is dropped rather than the page refused.
-    """
+    """Neither of the other two bounds is a bound on how much arrives."""
     monkeypatch.setattr("buy_agent.fetch._MAX_PAGE_BYTES", 64)
     body = "<p>Sony WH-CH720N $129.00</p>" + "<p>filler</p>" * 500
     stub_client(monkeypatch, lambda url: make_response(url, body))
@@ -944,11 +835,7 @@ def test_a_page_served_as_something_else_is_dropped_before_its_body(monkeypatch)
 
 
 def test_a_cached_page_is_condensed_rather_than_fetched(monkeypatch, tmp_path) -> None:
-    """The whole point: the network is not touched, and the answer is the same.
-
-    Same text through the same ``condense``, so a cached run extracts from what a
-    fresh one would have -- which is what makes the cache invisible to grounding.
-    """
+    """The whole point: the network is not touched, and the answer is the same."""
     cache = DiskCache(tmp_path, ttl=3600)
     cache.put("https://shop.example", html_to_text(PAGE))
     stub_client(monkeypatch, _refuses_to_be_called)
@@ -972,10 +859,8 @@ def test_a_fetched_page_is_stored_and_marked_as_not_cached(monkeypatch, tmp_path
 
 
 def test_what_is_stored_is_the_page_and_not_the_excerpt(monkeypatch, tmp_path) -> None:
-    """``page_chars`` decides which lines survive into the prompt and is a
-    per-run setting, so an excerpt stored under one budget is the wrong excerpt
-    under the next. Stored whole, a wider budget widens the excerpt from the
-    cache exactly as it would from the web."""
+    """``page_chars`` decides which lines survive into the prompt and is a per-run
+    setting, so an excerpt stored under one budget is the wrong excerpt under the next."""
     cache = DiskCache(tmp_path, ttl=3600)
     stub_client(monkeypatch, lambda url: make_response(url, PAGE))
 
@@ -1092,11 +977,7 @@ def _refuses_to_be_called(url: str):
 
 
 def test_a_rate_limited_page_is_asked_again_after_the_wait_it_asked_for(monkeypatch) -> None:
-    """A 429 is "later", not "no" -- and the shop said how much later (ADR-0053).
-
-    Without this a rate-limited shop is a blank page and a figure grounding then
-    blanks, which reads exactly like a model that missed one.
-    """
+    """A 429 is "later", not "no" -- and the shop said how much later (ADR-0053)."""
     handler, asked = answering(
         make_response("https://shop.example", PAGE, status=429, retry_after="2"),
         make_response("https://shop.example", PAGE),
@@ -1185,11 +1066,7 @@ def test_a_503_is_asked_again_too(monkeypatch) -> None:
     ],
 )
 def test_an_answer_that_is_not_come_back_later_is_asked_once(monkeypatch, answer) -> None:
-    """A refusal, a missing page and a server that is not there are all answers.
-
-    Asking twice makes them two identical failures and twice the wait -- and a
-    timeout in particular is already the whole of ``--fetch-timeout`` spent.
-    """
+    """A refusal, a missing page and a server that is not there are all answers."""
     handler, asked = answering(answer, make_response("https://shop.example", PAGE))
     stub_client(monkeypatch, handler)
     waits: list[float] = []
@@ -1219,11 +1096,7 @@ def test_a_page_is_asked_once_where_there_is_nothing_to_wait_by(monkeypatch) -> 
 
 
 def test_the_second_answer_is_the_last_one(monkeypatch) -> None:
-    """Asked again and refused again, the page is gone and says how.
-
-    The phrase is the *second* failure's: that is the one the tally should count,
-    a shop that rate-limited and then fell over being a shop that fell over.
-    """
+    """Asked again and refused again, the page is gone and says how."""
     handler, asked = answering(
         make_response("https://shop.example", PAGE, status=429),
         httpx.ConnectError("refused"),

@@ -1,6 +1,5 @@
 """Which model server the agent talks to: Ollama, or vLLM's OpenAI-compatible API
-(ADR-0028, ADR-0029, ADR-0032, ADR-0051).
-"""
+(ADR-0028, ADR-0029, ADR-0032, ADR-0051)."""
 
 from __future__ import annotations
 
@@ -31,8 +30,7 @@ _NO_KEY = "EMPTY"
 #: ADR-0051).
 _LIST_TIMEOUT = 5.0
 
-#: What an Ollama model's capabilities must include to answer a prompt at all
-#: (ADR-0032).
+#: What an Ollama model's capabilities must include to answer a prompt at all (ADR-0032).
 _COMPLETION = "completion"
 
 #: What a row turns one of its failures into: a sentence naming what to do about it.
@@ -51,8 +49,7 @@ _PROBES = 8
 
 @dataclass(frozen=True, slots=True)
 class InstalledModel:
-    """One model a server is holding, and whether it can answer a chat prompt (ADR-0032).
-    """
+    """One model a server is holding, and whether it can answer a chat prompt (ADR-0032)."""
 
     name: str
     completion: bool
@@ -127,9 +124,7 @@ def _ollama_installed(config: AgentConfig) -> list[InstalledModel]:
         return _probe(client, names, deadline)
     finally:
         # Closed here for the reason a chat model is: the pool this opened is this
-        # function's to let go of, and a listing is asked again on every provider
-        # change. A probe still running past the deadline loses its connection and
-        # answers "cannot say", which is the answer its result was discarded for.
+        # function's to let go of, and a listing is asked again on every provider change.
         client.close()
 
 
@@ -203,8 +198,7 @@ def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
 @dataclass(frozen=True, slots=True)
 class _VLLMChat:
     """vLLM through the OpenAI client, asked for one schema-shaped answer (ADR-0004,
-    ADR-0028).
-    """
+    ADR-0028)."""
 
     client: openai.OpenAI
     model: str
@@ -243,9 +237,7 @@ def _vllm_chat_model(config: AgentConfig) -> ChatModel:
             base_url=config.base_url,
             api_key=config.api_key or _NO_KEY,
             timeout=config.model_timeout,
-            # Asked once. This client retries twice by default, so the wait a shopper
-            # set would be a third of the wait they got -- and a prompt this size is not
-            # one to send three times (ADR-0051).
+            # Asked once.
             max_retries=0,
         ),
         model=config.model,
@@ -289,14 +281,7 @@ def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
 
 
 def _hint(specific: Hint) -> Hint:
-    """A row's ``hint``: the two failures both servers meet, then this one's own.
-
-    Their sentences were already shared -- :func:`_unreadable_hint` and
-    :func:`_too_slow_hint` -- and the deciding was the half still written out on
-    both rows. Asked before either row reads the message, which is the order that
-    matters: a half-finished answer is the model's own words, and any of them could
-    say "not found".
-    """
+    """A row's ``hint``: the two failures both servers meet, then this one's own."""
 
     def hint(config: AgentConfig, exc: Exception) -> str:
         if isinstance(exc, UnreadableAnswerError):
@@ -322,8 +307,7 @@ def _too_slow_hint(config: AgentConfig, exc: Exception) -> str:
 
 
 def _unreadable_hint(config: AgentConfig, exc: Exception) -> str:
-    """A server that answered, with something that is not the JSON asked for (ADR-0019).
-    """
+    """A server that answered, with something that is not the JSON asked for (ADR-0019)."""
     server = config.model_server
     room = (
         "give it more room with a larger context window, or turn thinking off"

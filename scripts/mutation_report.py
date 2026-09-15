@@ -1,24 +1,4 @@
-"""Turn a mutmut run into a report, and hold a floor under the mutation score.
-
-`coverage` says which lines ran; it cannot say whether anything would have
-noticed had they run differently. Mutation testing answers that by breaking the
-code on purpose -- an `and` for an `or`, a `+= 1` for a `= 1` -- and asking
-whether the suite fails. A mutant the suite still passes on is a line that is
-covered and unchecked, which is exactly what a suite at 100% coverage can no
-longer point at (see ADR-0016).
-
-This reads the output of `mutmut results --all true`, one
-``    <mutant name>: <status>`` line per mutant, because that is mutmut's only
-stable textual view of a finished run; its JSON export carries the totals but not
-which mutants they are, and importing mutmut's own state module would tie this to
-internals that move between releases.
-
-What comes out is Markdown, for `$GITHUB_STEP_SUMMARY`: the score, a row per
-module, and the functions the survivors cluster in -- the answer to "where does
-the next test go". The exit code is 1 when the score falls under FLOOR, so that a
-module arriving with thin tests fails the Saturday run rather than sitting in an
-artifact nobody opens.
-"""
+"""Turn a mutmut run into a report, and hold a floor under the mutation score."""
 
 from __future__ import annotations
 
@@ -27,13 +7,10 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-# Below this, the run fails. It sits under the score the suite holds today rather
-# than at it: a mutation score moves a little with the mutants mutmut chooses to
-# generate, and a floor that fails on noise is a floor nobody keeps.
+# Below this, the run fails.
 FLOOR = 75.0
 
-# A mutant is caught when the suite reacts to it at all. A timeout is a reaction:
-# the mutant sent the tests into a loop rather than past a missing assertion.
+# A mutant is caught when the suite reacts to it at all.
 CAUGHT = frozenset({"killed", "timeout", "caught by type check"})
 
 # Mutants that were never put to the tests, and so say nothing about them.
@@ -46,11 +23,7 @@ _ROWS = 25
 
 
 def parse(text: str) -> list[tuple[str, str]]:
-    """Every mutant in a results listing, as ``(name without its number, status)``.
-
-    The number is what makes two mutants of one function distinct; dropping it is
-    what lets them be counted together as a place tests are missing.
-    """
+    """Every mutant in a results listing, as ``(name without its number, status)``."""
     return [
         (match.group("mutant"), match.group("status"))
         for match in map(_RESULT.match, text.splitlines())
@@ -64,13 +37,7 @@ def module_of(mutant: str) -> str:
 
 
 def readable(mutant: str) -> str:
-    """Undo mutmut's name mangling, which is what a reader trips over.
-
-    mutmut rewrites each function into numbered copies of itself, so the name it
-    reports is not the name in the file: a function gains an ``x`` prefix, and a
-    method's class is joined on with ``ǁ`` rather than a dot, which would collide
-    with the module path. ``xǁBuyAgentǁrun`` is ``BuyAgent.run``.
-    """
+    """Undo mutmut's name mangling, which is what a reader trips over."""
     module, _, name = mutant.rpartition(".")
     name = name.removeprefix("x")
     if name[:1] in ("_", "ǁ"):
@@ -84,11 +51,7 @@ def caught(statuses: Counter[str]) -> int:
 
 
 def score(statuses: Counter[str]) -> float | None:
-    """Caught mutants as a percentage of the ones that were actually tested.
-
-    ``None`` when nothing was: an empty run has no score, and reporting 0% or
-    100% for one would read as a verdict on the suite.
-    """
+    """Caught mutants as a percentage of the ones that were actually tested."""
     checked = sum(count for status, count in statuses.items() if status not in UNCHECKED)
     if not checked:
         return None

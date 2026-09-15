@@ -1,11 +1,4 @@
-"""The script that brings Ollama's models up to date.
-
-`scripts/update_ollama.py` decides what "updated" means -- a digest that moved
-between two listings, not the `success` a pull prints either way -- and by the
-rule the rest of this codebase follows, whatever decides an answer is tested.
-
-The client is faked rather than reached: no test here talks to Ollama.
-"""
+"""The script that brings Ollama's models up to date."""
 
 from __future__ import annotations
 
@@ -46,12 +39,7 @@ class FakeProgress:
 
 
 class FakeClient:
-    """An Ollama whose pulls land the digests it was told they would.
-
-    ``installed`` is what the server holds now; ``pulls`` is the digest a tag
-    gets when it is pulled (a tag missing from it is already current); ``fails``
-    is the error a pull of that tag raises instead.
-    """
+    """An Ollama whose pulls land the digests it was told they would."""
 
     def __init__(
         self,

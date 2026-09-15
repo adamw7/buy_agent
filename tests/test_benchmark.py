@@ -1,20 +1,4 @@
-"""The benchmark, checked without a model: is the score it reports the right one?
-
-A benchmark decides an answer, so by this project's own rule it belongs where it
-is testable rather than in a nightly job's output. The two scripted runs in
-:mod:`benchmark.scripted` are how: both go through the *real* pipeline, with only
-the model replaced, so what is pinned here is the whole thing end to end and not
-the arithmetic in :mod:`benchmark.scoring` alone.
-
-``PERFECT`` scoring 1.000 is the load-bearing one. It says the answer key is
-*reachable*: a figure the fetch layer condenses away, a quote grounding refuses,
-a name ``clean_products`` rewrites would each show up here as a reference run
-that cannot reach full marks -- rather than as a silent ceiling under every
-number the nightly ever reports, which nothing would notice. ``SLOPPY`` is the
-other end, scored to the exact counts each of its eight mistakes should produce,
-which is what turns "the scorer returned 0.701" into "it noticed the Bose's price
-on the Sony, the shop reported as a product, and the paraphrase".
-"""
+"""The benchmark, checked without a model: is the score it reports the right one?"""
 
 from __future__ import annotations
 
@@ -66,9 +50,8 @@ def sloppy() -> Scorecard:
 
 @pytest.fixture(scope="module")
 def served() -> tuple[SearchResult, ...]:
-    """Every page as the model is shown it: condensed, which is the only text the
-    answer key is allowed to be about. The raw fixture is mostly navigation and
-    legal boilerplate the fetch layer throws away."""
+    """Every page as the model is shown it: condensed, which is the only text the answer
+    key is allowed to be about."""
     with serving_the_corpus() as pages:
         agent_module.enrich(agent_module.search_web(REQUEST, max_results=len(PAGES)))
         return tuple(pages)
@@ -100,17 +83,7 @@ def test_the_corpus_pages_and_their_text_are_the_same_ten() -> None:
 def test_every_answer_is_printed_in_the_corpus(
     entry: Expected, corpus: str, served: tuple[SearchResult, ...]
 ) -> None:
-    """The test that keeps :mod:`benchmark.answers` a transcription rather than a
-    wish. Every name, every figure canonical and alternative alike, and every
-    page listed for a product -- read off the *condensed* corpus and checked the
-    way grounding checks them, because a line the fetch layer throws away is a
-    figure no run can ever be credited for and a page that does not mention the
-    product is a link the pipeline would never have made.
-
-    The canonical figures are checked to be among the printed ones as well:
-    ``as_product`` says USD, so a canonical price read off the euro listing would
-    rank the run against a pairing no page printed.
-    """
+    """The test that keeps :mod:`benchmark.answers` a transcription rather than a wish."""
     assert mentions_name(corpus, entry.name)
     assert (entry.price, "USD") in entry.prices
     assert (entry.rating, entry.review_count) in entry.ratings
@@ -135,9 +108,7 @@ def test_a_name_missing_a_descriptive_word_is_the_same_product() -> None:
 
 
 def test_a_brand_on_its_own_identifies_nothing() -> None:
-    """Why :func:`identifies` looks both ways. Forwards alone, every distinctive
-    word of "Sony" is in "Sony WH-1000XM5" and a model would score full marks for
-    naming brands."""
+    """Why :func:`identifies` looks both ways."""
     assert identifies("Sony", SONY) == 0.0
     assert best_match("Sony") is None
 
@@ -204,8 +175,7 @@ def test_a_qualifier_is_judged_with_the_figure_it_qualifies() -> None:
 
 
 def test_a_blank_figure_is_a_miss_and_not_an_error() -> None:
-    """Grounding blanks what it cannot back, so a blank is the pipeline working.
-    It costs ``figures`` and must not cost ``attribution``."""
+    """Grounding blanks what it cannot back, so a blank is the pipeline working."""
     assert figure_verdicts(Product(name="Sony WH-1000XM5"), SONY) == [None, None, None]
 
     card = score_run([Product(name="Sony WH-1000XM5")], [])
@@ -217,8 +187,7 @@ def test_a_blank_figure_is_a_miss_and_not_an_error() -> None:
 
 
 def test_the_perfect_run_scores_full_marks(perfect: Scorecard) -> None:
-    """The reference. If this drops, the answer key has gone out of step with the
-    corpus or with the pipeline -- not with the model, of which there is none."""
+    """The reference."""
     assert perfect.score == pytest.approx(1.0)
     assert perfect.metrics == {name: pytest.approx(1.0) for name in METRICS}
     assert perfect.counts["identified"] == (5, 5)
@@ -236,26 +205,7 @@ def test_the_perfect_run_clears_every_floor(perfect: Scorecard) -> None:
 
 
 def test_the_sloppy_run_scores_exactly_what_its_mistakes_cost(sloppy: Scorecard) -> None:
-    """The whole scorecard, pinned. Any change to the scorer, the corpus or the
-    key that moves a number moves this, which is what makes a benchmark score
-    comparable between two runs a month apart.
-
-    Reading the counts: five entries scored out of the seven the model reported,
-    because ``clean_products`` dropped the listicle headline and the cap took the
-    Sennheiser. Of those five, three are real products (one shop invented, one
-    repeat). They fill in all nine of their figures and get seven right, the
-    other two being somebody else's; all three link home; and of their three
-    quotes one is a paraphrase.
-
-    Two of the three ranked pairs come out in the key's order. The third is the
-    "349 EUR" the corpus never printed (ADR-0022) reaching the ranking: a price in
-    a currency this set is not counted in cannot be placed on its scale, so it
-    scores ``NEUTRAL`` (ADR-0043) -- which is *better* than the priciest thing in
-    the set, and lifts the Bose above the Sony the key puts ahead of it. The
-    figure was already marked wrong under ``figures``; this is the second place
-    the same mistake shows up, and the reason it is worth scoring the order at
-    all.
-    """
+    """The whole scorecard, pinned."""
     assert sloppy.counts == {
         "identified": (3, 5),
         "genuine": (3, 5),
@@ -271,10 +221,9 @@ def test_the_sloppy_run_scores_exactly_what_its_mistakes_cost(sloppy: Scorecard)
 
 
 def test_the_scorer_catches_the_three_the_pipeline_cannot(sloppy: Scorecard) -> None:
-    """The argument for the benchmark, as counts: a shop reported as a product, a
-    product reported twice under names ``deduplicate`` does not merge, and two
-    figures printed for somebody else. Every invariant
-    ``integration/test_live_pipeline.py`` asserts holds on this same answer."""
+    """The argument for the benchmark, as counts: a shop reported as a product, a product
+    reported twice under names ``deduplicate`` does not merge, and two figures printed
+    for somebody else."""
     right, reported = sloppy.counts["attribution"]
 
     assert (sloppy.invented, sloppy.repeated) == (1, 1)
@@ -293,11 +242,8 @@ def test_a_ranking_in_the_wrong_order_scores_less(perfect: Scorecard) -> None:
 
 
 def test_a_run_that_reported_nothing_falls_under_every_floor() -> None:
-    """The five metrics measured over what was *found* go vacuous on an empty
-    answer, so each answers 0.0 rather than "nothing was wrong". The three error
-    halves honestly stay at 1.0 -- nothing reported is nothing misattributed --
-    which is why the overall floor has to sit above what those three alone can
-    carry, or a model that answered nothing would pass the nightly."""
+    """The five metrics measured over what was *found* go vacuous on an empty answer, so
+    each answers 0.0 rather than "nothing was wrong"."""
     card = score_run([], [])
 
     assert card.metrics["identified"] == 0.0
@@ -327,9 +273,7 @@ def test_a_quote_is_checked_against_the_condensed_page() -> None:
 
 
 def test_the_corpus_is_put_back_when_the_run_is_over() -> None:
-    """Two names on :mod:`buy_agent.agent` are replaced for the length of a run.
-    Left replaced, every later test would search a corpus it never asked for --
-    and one that forgot to fake the web would pass."""
+    """Two names on :mod:`buy_agent.agent` are replaced for the length of a run."""
     original = agent_module.search_web, agent_module.enrich
 
     with serving_the_corpus():
@@ -360,9 +304,8 @@ def test_widening_the_run_widens_the_slots() -> None:
 
 
 def test_the_command_line_scores_a_scripted_run(capsys: pytest.CaptureFixture) -> None:
-    """The reference run is reachable with nothing installed and nothing running,
-    which is what makes it usable as a reference. The agent's own narration and
-    top-3 report stay quiet, so a shell redirect catches the scorecard."""
+    """The reference run is reachable with nothing installed and nothing running, which is
+    what makes it usable as a reference."""
     code = benchmark_main.main(["--scripted", "perfect"])
     printed = capsys.readouterr().out
 

@@ -1,5 +1,4 @@
-/* Global design tokens and the primitives the components share.
-   Component stylesheets only hold what is genuinely local to them. */
+/** Global design tokens and the primitives the components share. */
 
 :root {
   color-scheme: light dark;

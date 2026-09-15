@@ -1,6 +1,5 @@
 """Paying for a product the run already found, once somebody has said so (ADR-0009,
-ADR-0046, ADR-0006, ADR-0017, ADR-0043).
-"""
+ADR-0046, ADR-0006, ADR-0017, ADR-0043)."""
 
 from __future__ import annotations
 
@@ -89,8 +88,7 @@ class Receipt(BaseModel):
 
 def _check(product: Product, currency: str | None) -> tuple[float, str]:
     """The price and the currency this product may be paid in, or a refusal (ADR-0043,
-    ADR-0039).
-    """
+    ADR-0039)."""
     if product.price is None:
         raise PaymentError(
             f"No source printed a price for {product.name}, so there is nothing to "
@@ -129,8 +127,7 @@ def terms_for(
     product: Product, currency: str | None
 ) -> tuple[tuple[float, str] | None, str | None]:
     """What a cart for this product would be worth, and why there is none if there is not
-    (ADR-0033, ADR-0043).
-    """
+    (ADR-0033, ADR-0043)."""
     try:
         return _check(product, currency), None
     except PaymentError as exc:
@@ -138,8 +135,7 @@ def terms_for(
 
 
 def merchant_for(product: Product) -> str:
-    """Who a payment for this product would go to, as the cart will name them (ADR-0046).
-    """
+    """Who a payment for this product would go to, as the cart will name them (ADR-0046)."""
     return product.seller or _host(product.url)
 
 

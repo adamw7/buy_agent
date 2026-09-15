@@ -1,6 +1,5 @@
 """A local HTTP server for the Angular UI in ``ui/`` (ADR-0010, ADR-0011, ADR-0034,
-ADR-0035, ADR-0033, ADR-0018).
-"""
+ADR-0035, ADR-0033, ADR-0018)."""
 
 from __future__ import annotations
 
@@ -48,11 +47,7 @@ DEFAULT_UI_DIR = Path(__file__).resolve().parent.parent / "ui" / "dist" / "ui" /
 
 #: Where the server listens when nothing says otherwise: this machine only, on the port
 #: the ``Dockerfile``'s ``EXPOSE`` and the URL ``scripts/start.ps1`` opens a browser at
-#: are both held to by a convention test. Each was written out three times in here too
-#: -- in ``create_server``'s signature, as the flag's default, and again in the sentence
-#: that flag's help prints -- and that last copy is the one nothing was holding:
-#: ``test_every_flag_that_takes_a_value_names_the_default_it_has`` reads that the help
-#: says "default" and cannot read that it says the right one.
+#: are both held to by a convention test.
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
 
@@ -65,18 +60,13 @@ _MAX_BODY_BYTES = 64 * 1024
 #: How long one blocking read or write on a connection may take (ADR-0034).
 _REQUEST_TIMEOUT = 30.0
 
-#: Host names that mean "this machine". A ``Host`` outside the allowed set is a name
-#: that resolved here without being one of ours -- DNS rebinding. 0.0.0.0 is
-#: deliberately absent: an address to *bind*, never one a browser addresses, so counting
-#: it would read the container's bind (ADR-0015) as loopback.
+#: Host names that mean "this machine".
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 #: The ``Sec-Fetch-Site`` value meaning a page on another site made the request.
 _CROSS_SITE = "cross-site"
 
-#: Headers on every response. The app loads everything from its own origin, so the
-#: policy is ``'self'`` throughout -- with ``'unsafe-inline'`` for styles only, which
-#: Angular's per-component ``<style>`` blocks need.
+#: Headers on every response.
 _SECURITY_HEADERS = (
     ("X-Content-Type-Options", "nosniff"),
     ("Referrer-Policy", "no-referrer"),
@@ -108,17 +98,13 @@ _CONTENT_TYPES = {
 }
 
 
-#: What to run to get a page. One command, quoted by every answer that names it -- the
-#: page, the JSON and the warning ``main`` logs at startup -- so the three cannot come
-#: to say different things.
+#: What to run to get a page.
 _UNBUILT_COMMAND = "npm install && npm run build"
 
 #: The sentence a client that did not ask for HTML gets.
 _UNBUILT = "The UI is not built. {remedy}"
 
-#: The same answer for a browser. No script and no other origin, so it is served under
-#: the same CSP as the app; the inline ``style`` is what ``style-src`` already allows
-#: for Angular's own.
+#: The same answer for a browser.
 _UNBUILT_PAGE = """<!doctype html>
 <html lang="en">
 <head>
@@ -149,30 +135,18 @@ p {{ color: #5c6470; }}
 
 
 def _unexpected(exc: Exception) -> dict[str, Any]:
-    """The body a failure nothing planned for is answered with, wherever it lands.
-
-    Three places answer one: the two catch-alls below and the worker behind the
-    stream, which has no status line left to spend and says the same thing in a
-    ``failure`` event. Written once, so a browser cannot be told two different
-    things about the same kind of trouble.
-    """
+    """The body a failure nothing planned for is answered with, wherever it lands."""
     return {"error": f"Unexpected failure: {exc}"}
 
 
 def _no_such_endpoint(path: str) -> dict[str, Any]:
-    """The body a path under ``/api`` that routes nowhere is answered with.
-
-    Written once for the reason above: ``do_GET`` and ``do_POST`` each have a table
-    of endpoints and each falls through it, and a 404 spelt differently either side
-    of the verb reads as two different kinds of missing.
-    """
+    """The body a path under ``/api`` that routes nowhere is answered with."""
     return {"error": f"No such endpoint: {path}"}
 
 
 class _Stopped(Exception):
     """Raised inside a run whose reader has gone, to end it at a step boundary (ADR-0009,
-    ADR-0034).
-    """
+    ADR-0034)."""
 
 
 def _stop_when(stopped: threading.Event) -> Checkpoint:
@@ -185,13 +159,7 @@ def _stop_when(stopped: threading.Event) -> Checkpoint:
     return checkpoint
 
 
-#: Where the lines of the run being watched go, or ``None`` for a run nobody is
-#: streaming. A context variable rather than a thread-local: a step that fans out
-#: into threads of its own logs from threads the worker never started, and those
-#: lines are still that run's -- ``fetch.enrich`` reads the result pages in a pool
-#: and is where a rate-limited page says how long it is waiting (ADR-0011). Each
-#: streamed run is a worker thread, and a thread begins in a context of its own, so
-#: two concurrent runs still cannot see each other.
+#: Where the lines of the run being watched go, or ``None`` for a run nobody is streaming.
 _sink: ContextVar[queue.Queue[Any] | None] = ContextVar("buy_agent_stream", default=None)
 
 
@@ -416,8 +384,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
     def _stream_search(self, params: dict[str, str]) -> None:
         """Run a search in a worker thread, relaying its log lines as they arrive
-        (ADR-0034).
-        """
+        (ADR-0034)."""
         try:
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -444,8 +411,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         self, params: dict[str, str], stopped: threading.Event
     ) -> Iterator[tuple[str, Any]]:
         """Yield ``log`` events for the run's progress, then ``result`` or ``failure``
-        (ADR-0011).
-        """
+        (ADR-0011)."""
         _install_relay()
         sink: queue.Queue[Any] = queue.Queue()
         done = object()

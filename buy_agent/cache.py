@@ -1,5 +1,4 @@
-"""What a run can reuse from the last one, kept on disk (ADR-0040, ADR-0044, ADR-0052).
-"""
+"""What a run can reuse from the last one, kept on disk (ADR-0040, ADR-0044, ADR-0052)."""
 
 from __future__ import annotations
 
@@ -99,8 +98,7 @@ class DiskCache:
 
     def prune(self) -> int:
         """Delete what has expired and what no longer fits, and say how many went
-        (ADR-0052).
-        """
+        (ADR-0052)."""
         cutoff = time.time() - self.ttl
         removed = 0
         leftovers = 0
@@ -202,8 +200,7 @@ class RememberedAnswers:
         release(self.model)
 
     def _key(self, messages: Sequence[Message], schema: type[SchemaT]) -> str:
-        """Everything this question is: the request, the schema, and the run (ADR-0004).
-        """
+        """Everything this question is: the request, the schema, and the run (ADR-0004)."""
         return json.dumps(
             {
                 **self.fingerprint,
@@ -223,8 +220,7 @@ def remember_answers(
     deterministic: bool,
 ) -> ChatModel:
     """``model``, answering off disk where it may, or ``model`` itself where not
-    (ADR-0044).
-    """
+    (ADR-0044)."""
     if not deterministic:
         return model
     cache = open_cache(ANSWERS, ttl)

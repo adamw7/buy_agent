@@ -1,10 +1,4 @@
-"""``python -m benchmark`` -- run the benchmark and print the scorecard.
-
-The metrics against their floors, then the products the run reported, so a score
-that moved can be read beside the answer that moved it. ``--json`` keeps the same
-numbers as a record, which is how two runs a month apart are compared without
-either being repeated. Exits 1 where a floor was missed.
-"""
+"""``python -m benchmark`` -- run the benchmark and print the scorecard."""
 
 from __future__ import annotations
 

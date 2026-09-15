@@ -1,41 +1,4 @@
-"""Two answers written by hand, so the benchmark can run with no model at all.
-
-A benchmark whose only reference point is a live model tells you a number and
-nothing about whether the number is right. These do the other half: fixed
-:class:`~buy_agent.models.ProductList` answers put through the *real* pipeline,
-so ``--scripted perfect`` scores 1.000 and ``--scripted sloppy`` scores exactly
-what ``tests/test_benchmark.py`` says, on any machine, with nothing installed but
-the runtime dependencies. That is what makes the scorer testable: every metric
-has a scripted run that moves it and one that does not, which is the only way to
-tell a scorer that measures something from one that returns 1.0.
-
-:data:`SLOPPY` is wrong in the eight ways a small model is wrong. Four the
-pipeline catches, so the scorecard never sees them; four it cannot, and those
-are what a benchmark exists for (ADR-0036):
-
-* a listicle headline reported as a product -- ``clean_products`` drops it;
-* a link to a page that was never searched -- ``attribute_sources`` replaces it;
-* a verdict nobody wrote -- ``verify_opinions`` drops it;
-* a paraphrase with a word changed near the end -- ``verify_opinions`` *keeps*
-  it, tolerating a word at either end by design (ADR-0025), and the scorecard
-  marks it under ``faithful``;
-* the publisher's own name reported as a product -- not a headline, so
-  ``clean_products`` keeps it, and every word of it is in the sources, so
-  grounding does too. ``genuine``;
-* one product listed twice, once without its brand -- ``deduplicate`` merges
-  names differing by *descriptive* words and "Anker" is not one. ``genuine``
-  again, and why the scorecard counts ``invented`` and ``repeated`` apart;
-* the Bose's price reported for the Sony -- both figures are in the corpus and
-  ``verify_numbers`` grounds against the pooled pages, so nothing in the
-  pipeline can see it. ``attribution``;
-* the Bose's own price paired with the euro sign off another listing, which is
-  the pairing ADR-0022 is about: 349 is printed and EUR is printed, never
-  together. ``figures``, and then ``order`` as well, a price in a currency the
-  set is not counted in scoring ``NEUTRAL`` rather than last (ADR-0043).
-
-Every invariant ``integration/test_live_pipeline.py`` asserts holds on this
-answer, which is the argument for the benchmark in one fixture.
-"""
+"""Two answers written by hand, so the benchmark can run with no model at all."""
 
 from __future__ import annotations
 
@@ -49,12 +12,7 @@ REFINED_QUERY = "noise cancelling headphones under $350 price review comfort"
 
 
 class ScriptedLLM:
-    """Stands in for a chat model, answering from a fixed script.
-
-    ``answer`` is the entire surface both chains use, and the schema it is asked
-    for is what says which of the two is calling -- the same stand-in
-    ``demo/server.py`` uses, without the pauses it adds for the camera.
-    """
+    """Stands in for a chat model, answering from a fixed script."""
 
     def __init__(self, answer: ProductList, query: str = REFINED_QUERY) -> None:
         self.script = answer
@@ -66,16 +24,7 @@ class ScriptedLLM:
         return self.script
 
 
-#: The first five products of the answer key, copied exactly as the pages print
-#: them. Scores 1.000, which is the assertion that the key is *reachable*: a
-#: figure the fetch layer condenses away or grounding refuses would show up here
-#: as a reference run that cannot reach full marks, rather than as a silent
-#: ceiling under every score the nightly ever reports.
-#:
-#: The AirPods Max quote comes off AudioDeal, which lists it beside the Sony it
-#: is mostly about. Deliberate: "a page that mentions the product" is the bar
-#: ``verify_opinions`` sets (ADR-0025), and a benchmark whose perfect answer the
-#: pipeline would reject is measuring a different pipeline.
+#: The first five products of the answer key, copied exactly as the pages print them.
 PERFECT = ProductList(
     products=[
         ExtractedProduct(
@@ -115,11 +64,6 @@ PERFECT = ProductList(
 )
 
 #: The same run, wrong in the eight ways this module's docstring lists.
-#:
-#: The order matters as much as the contents: seven entries against a
-#: ``num_products`` of five means the two slots spent on a shop and on a repeat
-#: cost the run the Sennheiser, which is the shape of what these mistakes do to
-#: a report.
 SLOPPY = ProductList(
     products=[
         ExtractedProduct(
@@ -145,8 +89,7 @@ SLOPPY = ProductList(
             rating=4.4, review_count=31_200, url=BARN,
             opinions=[
                 "The value for money here is very hard to argue with at this price.",
-                # "weeks" on the page. One word, at the end, where the quote
-                # check is deliberately tolerant.
+                # "weeks" on the page.
                 "Owners report battery life of nearly two full working months.",
             ],
         ),

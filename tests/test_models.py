@@ -43,13 +43,7 @@ def test_real_values_survive_conversion() -> None:
 
 
 def test_a_currency_without_a_price_never_becomes_one() -> None:
-    """The other half of ADR-0022's rule, at the stage the review count keeps it.
-
-    A model that reads "EUR" off a page and no price to put beside it has read a
-    fact about nothing: blank, the card says "price unknown" and the currency is
-    never shown, but it went out in the payload -- what ``--json`` writes and
-    what Download results hands over -- as a qualifier describing no figure.
-    """
+    """The other half of ADR-0022's rule, at the stage the review count keeps it."""
     converted = ExtractedProduct(name="Thing", price=-1, currency="EUR").to_product()
 
     assert converted.price is None
@@ -77,14 +71,8 @@ def test_a_currency_without_a_price_never_becomes_one() -> None:
 def test_a_currency_is_read_as_the_code_the_run_compares_by(
     named: str, expected: str
 ) -> None:
-    """The schema asks for an ISO code and a small model hands back what the page
-    printed, so "$129" comes back as "$" while the next listing says "USD".
-
-    Left alone those are two currencies: ``dominant_currency`` counts them apart
-    and ``comparable_price`` refuses to compare across them (ADR-0043), so half a
-    set's prices score ``NEUTRAL``, sink in a price sort and pass ``--max-price``
-    unjudged -- for a difference in spelling and with nothing saying so.
-    """
+    """The schema asks for an ISO code and a small model hands back what the page printed,
+    so "$129" comes back as "$" while the next listing says "USD"."""
     converted = ExtractedProduct(name="Thing", price=129.0, currency=named).to_product()
 
     assert converted.currency == expected
@@ -108,11 +96,7 @@ def test_out_of_range_rating_is_discarded() -> None:
 
 
 def test_a_rating_just_over_the_scale_is_discarded() -> None:
-    """A 5.1 is a score off some other scale, not a product that beat this one.
-
-    The obvious cases -- 9.2, 88 -- are rejected by a bound anywhere above 5, so
-    the value that actually pins the bound is the one a step past it.
-    """
+    """A 5.1 is a score off some other scale, not a product that beat this one."""
     assert ExtractedProduct(name="Thing", rating=5.1).to_product().rating is None
 
 
@@ -124,12 +108,7 @@ def test_a_single_review_is_still_a_review_count() -> None:
 
 
 def test_a_review_count_without_a_rating_is_dropped() -> None:
-    """ADR-0022: a count is what its rating was averaged over, and nothing alone.
-
-    Left standing it reads "unrated" on the card -- ``rating_label`` never prints
-    a count without its rating -- while still feeding the popularity half of the
-    score, which is the pairing the merge and the grounding both refuse.
-    """
+    """ADR-0022: a count is what its rating was averaged over, and nothing alone."""
     converted = ExtractedProduct(name="Thing", rating=-1, review_count=3200).to_product()
 
     assert converted.rating is None
@@ -172,14 +151,7 @@ def test_labels_format_known_data() -> None:
 
 
 def test_a_zero_price_is_unknown_not_free() -> None:
-    """Zero is what a model writes when it has forgotten the -1 sentinel.
-
-    Kept as a figure it is worse than a blank in both directions: grounding only
-    has to find a bare "0" somewhere in ten pages of "$0 shipping" and "0% APR",
-    and ranking then scores it the cheapest in the set and hands it the top spot.
-    Nothing this searches for is free, so it reads as unknown, exactly the way a
-    zero ``review_count`` already does.
-    """
+    """Zero is what a model writes when it has forgotten the -1 sentinel."""
     assert ExtractedProduct(name="Freebie", price=0.0).to_product().price is None
     assert ExtractedProduct(name="Freebie", price=0.0).to_product().price_label() == (
         "price unknown"
@@ -201,12 +173,11 @@ def test_a_negative_review_count_is_treated_as_unknown() -> None:
 
 
 def test_a_price_that_overflowed_a_float_is_not_a_price() -> None:
-    """JSON puts no ceiling on an exponent, so a model that runs away on digits
-    answers ``1e400`` -- which is ``inf`` once it is a float, and ``inf`` is a
-    figure nothing downstream can hold: it grounds on the "inf" in
-    "information", it prints as "inf", and it turns every price share in the set
-    into a NaN, which is not even JSON the browser can parse. Unknown, like every
-    other answer that is not a number."""
+    """JSON puts no ceiling on an exponent, so a model that runs away on digits answers
+    ``1e400`` -- which is ``inf`` once it is a float, and ``inf`` is a figure nothing
+    downstream can hold: it grounds on the "inf" in "information", it prints as "inf",
+    and it turns every price share in the set into a NaN, which is not even JSON the
+    browser can parse."""
     overflowed = ProductList.model_validate_json(
         '{"products": [{"name": "Sony WH-1000XM5", "price": 1e400, "currency": "USD"}]}'
     ).products[0]
@@ -221,24 +192,20 @@ def test_a_price_that_overflowed_a_float_is_not_a_price() -> None:
 @pytest.mark.parametrize("figure", [float("inf"), float("-inf"), float("nan")])
 @pytest.mark.parametrize("field", ["price", "rating"])
 def test_a_product_refuses_a_figure_that_is_not_a_number(field, figure) -> None:
-    """``to_product`` blanks one on the way in from the model, but that is not the
-    only way a ``Product`` is built: ``/api/rank`` and ``/api/pay`` validate one
-    straight out of a request body, and ``json.loads`` reads ``Infinity`` and
-    ``NaN`` as readily as it reads ``1``. So the rule is declared on the field
-    rather than at one of the two doors, where the other would go on taking it."""
+    """``to_product`` blanks one on the way in from the model, but that is not the only
+    way a ``Product`` is built: ``/api/rank`` and ``/api/pay`` validate one straight
+    out of a request body, and ``json.loads`` reads ``Infinity`` and ``NaN`` as readily
+    as it reads ``1``."""
     with pytest.raises(ValidationError):
         Product(name="Sony WH-1000XM5", **{field: figure})
 
 
 @pytest.mark.parametrize("rating", [5.5, 100.0, -1.0])
 def test_a_product_refuses_a_rating_off_the_scale(rating: float) -> None:
-    """The rating is the one figure here that is not simply a quantity:
-    ``score_product`` divides it by 5 to get a share of the blend, so a 100 out of a
-    request body is a share of 20 and a score of 10.2 -- outside the ``[0, 1]``
-    ``ScoreParts`` promises and drawn as a meter ten times its own track. ``-1`` is
-    the *extraction* schema's sentinel and no rating at all by the time a ``Product``
-    is built, which is what ``to_product`` is for. Declared on the field for the
-    reason a non-finite figure is: both doors go through it."""
+    """The rating is the one figure here that is not simply a quantity: ``score_product``
+    divides it by 5 to get a share of the blend, so a 100 out of a request body is a
+    share of 20 and a score of 10.2 -- outside the ``[0, 1]`` ``ScoreParts`` promises
+    and drawn as a meter ten times its own track."""
     with pytest.raises(ValidationError):
         Product(name="Sony WH-1000XM5", rating=rating)
 
@@ -386,9 +353,8 @@ UNPRICED = Product(name="Unpriced", currency="EUR")
     ("products", "expected", "why"),
     [
         pytest.param([DOLLAR, EURO, DOLLAR], "USD", "the commonest one named", id="commonest"),
-        # Ties go to the one seen first, which is the search's own order and the
-        # tie-break every other merge here makes -- so a set is counted in the
-        # same currency twice.
+        # Ties go to the one seen first, which is the search's own order and the tie-break
+        # every other merge here makes -- so a set is counted in the same currency twice.
         pytest.param([EURO, DOLLAR], "EUR", "ties go to the first seen", id="tie, euro first"),
         pytest.param([DOLLAR, EURO], "USD", "ties go to the first seen", id="tie, dollar first"),
         pytest.param(

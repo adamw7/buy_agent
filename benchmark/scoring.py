@@ -1,20 +1,4 @@
-"""Turn one run's products into a scorecard, deterministically.
-
-Nothing here talks to a model, a network or a clock: given the same products and
-the same pages, :func:`score_run` answers the same numbers every time. The model
-is the only part of a benchmark run allowed to vary, so everything downstream of
-it is a pure function or the score means nothing.
-
-Every metric is one share of something -- ``right`` out of ``out of`` -- so
-:data:`METRICS` is the whole design: each row names a promise the pipeline makes,
-what it weighs, and what it scores when there was nothing to be right about.
-Which of the three "did it copy correctly" questions a run fails matters, so each
-is split in two: a completeness half counted over what the run *found*
-(``figures``, ``quotes``) and an error half counted over what it *claimed*
-(``attribution``, ``faithful``). A model that reports nothing and one that
-reports confident nonsense are not equally good, and a single blended number
-calls them so. ADR-0036 has the rest; ``docs/testing.md`` has the table.
-"""
+"""Turn one run's products into a scorecard, deterministically."""
 
 from __future__ import annotations
 
@@ -39,18 +23,12 @@ if TYPE_CHECKING:
     from buy_agent.models import Product
     from buy_agent.search import SearchResult
 
-#: Fraction of a name's distinctive words that has to be found on the other side
-#: for two names to be the same product -- the bar
-#: :func:`buy_agent.verification.mentions_name` sets, applied both ways. Read off
-#: the pipeline rather than written down again: a benchmark scoring names by its
-#: own rule would be scoring an agent that does not exist.
+#: Fraction of a name's distinctive words that has to be found on the other side for two
+#: names to be the same product -- the bar :func:`buy_agent.verification.mentions_name`
+#: sets, applied both ways.
 MATCH_COVERAGE = NAME_COVERAGE
 
 #: Each metric: what it weighs, and what it scores on an empty denominator.
-#: Finding the products carries the most, everything else being measured over
-#: what was found and going vacuous without it. The empty value differs by what
-#: the denominator counts: nothing *found* is nothing to credit (0.0), nothing
-#: *claimed* is nothing to fault (1.0).
 METRICS: dict[str, tuple[float, float]] = {
     "identified": (3.0, 0.0),  # slots filled with a product that is really there
     "genuine": (2.0, 0.0),  # reported entries that are a real product, once each
@@ -63,15 +41,6 @@ METRICS: dict[str, tuple[float, float]] = {
 }
 
 #: What the nightly run refuses to go below (``integration/test_benchmark.py``).
-#:
-#: A **tripwire, not a target**. The model behind them is a 0.6B one chosen for
-#: running on a CI runner's four cores (ADR-0026), and what is worth catching is
-#: that it stopped being able to read these pages at all -- a model update, an
-#: Ollama release that changes ``json_schema`` decoding, a prompt grown past what
-#: it can follow. A floor set where the model happens to sit today fails the job
-#: for a rewording, which is how a scheduled run gets ignored. So: set low, and
-#: raised deliberately, in a commit quoting the runs that justify it. The whole
-#: scorecard is logged pass or fail, which is where those runs come from.
 FLOORS: dict[str, float] = {
     "identified": 0.4,
     "genuine": 0.6,
@@ -88,18 +57,6 @@ FLOORS: dict[str, float] = {
 def identifies(reported: str, expected: Expected) -> float:
     """How well ``reported`` names ``expected``, or 0.0 if it does not.
 
-    Checked **both** ways, which is the whole subtlety. Forwards alone -- every
-    distinctive word of the reported name being in the expected one -- makes
-    "Sony" the Sony, and a model would score full marks for naming brands.
-    Backwards alone rejects "WH-1000XM5", which is the product. Requiring
-    :data:`MATCH_COVERAGE` of each admits a name missing a word and refuses a
-    fragment.
-
-    The splitting and the counting are the pipeline's own
-    (:func:`~buy_agent.verification.distinctive_words`,
-    :func:`~buy_agent.verification.word_coverage`), so the benchmark ignores the
-    same words merging and grounding ignore.
-
     Returns:
         The two coverages added, so an ambiguous name goes to its best match.
     """
@@ -112,11 +69,7 @@ def identifies(reported: str, expected: Expected) -> float:
 
 
 def best_match(name: str, key: Sequence[Expected] = ANSWER_KEY) -> Expected | None:
-    """The answer-key entry ``name`` identifies, or None.
-
-    Ties go to the earlier entry, so this is a function of the key's order: a
-    benchmark scoring the same answer two ways would not be one.
-    """
+    """The answer-key entry ``name`` identifies, or None."""
     strength, _, entry = max(
         (identifies(name, entry), -index, entry) for index, entry in enumerate(key)
     )
@@ -124,13 +77,7 @@ def best_match(name: str, key: Sequence[Expected] = ANSWER_KEY) -> Expected | No
 
 
 def figure_verdicts(product: Product, entry: Expected) -> list[bool | None]:
-    """Each of the three figures: True printed for it, False not, None blank.
-
-    A qualifier is judged *with* the figure it qualifies rather than beside it
-    (ADR-0022): a price is checked as ``(price, currency)`` where a currency was
-    reported, so "329 USD" -- two figures the corpus prints and a pairing it
-    never does -- is one wrong price rather than two right halves.
-    """
+    """Each of the three figures: True printed for it, False not, None blank."""
 
     def judged(value: float | None, qualifier: float | None, printed: frozenset) -> bool | None:
         if value is None:
@@ -149,22 +96,14 @@ def figure_verdicts(product: Product, entry: Expected) -> list[bool | None]:
 
 
 def page_words(results: Sequence[SearchResult]) -> dict[str, str]:
-    """Each searched page as its running words, by URL.
-
-    The text the *model saw*, condensed -- scoring a quote against the raw
-    fixture would credit a sentence the fetch layer threw away.
-    """
+    """Each searched page as its running words, by URL."""
     return {
         result.url: running_words(build_haystack([result])) for result in results if result.url
     }
 
 
 def _quotes_verbatim(quote: str, entry: Expected, pages: Mapping[str, str]) -> bool:
-    """Whether some page about this product printed ``quote`` word for word.
-
-    Stricter than ``verify_opinions``, which tolerates a word of the model's own
-    at either end (ADR-0025): the benchmark asks for the sentence, not most of it.
-    """
+    """Whether some page about this product printed ``quote`` word for word."""
     words = running_words(quote)
     return bool(words) and any(
         f" {words} " in f" {pages[url]} " for url in entry.pages if url in pages
@@ -172,12 +111,7 @@ def _quotes_verbatim(quote: str, entry: Expected, pages: Mapping[str, str]) -> b
 
 
 def _ordering(pairs: Sequence[tuple[Product, Expected]]) -> tuple[int, int]:
-    """Concordant pairs and total pairs, against the ranking the key would give.
-
-    The ideal is built over the *matched* products alone, because
-    ``score_product`` scores price relative to the candidate set: ranking seven
-    and comparing against five would mark a run down for what it never reported.
-    """
+    """Concordant pairs and total pairs, against the ranking the key would give."""
     ideal = rank_products([entry.as_product() for _, entry in pairs])
     place = {ranked.product.name: ranked.rank for ranked in ideal}
     seats = [(index, place[entry.name]) for index, (_, entry) in enumerate(pairs)]
@@ -190,13 +124,7 @@ def _ordering(pairs: Sequence[tuple[Product, Expected]]) -> tuple[int, int]:
 
 @dataclass(frozen=True, slots=True)
 class Scorecard:
-    """What a run got right, as ``right out of`` per metric.
-
-    Counts rather than ratios, so a report can say "3 of 5" and a regression can
-    be read without recomputing anything -- and so :data:`METRICS` stays the one
-    place a metric is declared. ``invented`` and ``repeated`` split the entries
-    ``genuine`` rejects, those being two different mistakes.
-    """
+    """What a run got right, as ``right out of`` per metric."""
 
     counts: dict[str, tuple[int, int]]
     invented: int
@@ -252,12 +180,11 @@ def score_run(
     Args:
         products: What the run reported, **in the order it ranked them**.
         results: The pages it was given, enriched -- the corpus as the model saw
-            it, which is what a quote is checked against.
+        it, which is what a quote is checked against.
         key: The answer key; :data:`~benchmark.answers.ANSWER_KEY` by default.
         slots: How many products the run was allowed to report. Recall is
-            measured against this rather than against the whole key, the cap
-            being part of the run rather than a failure of it.
-
+        measured against this rather than against the whole key, the cap
+        being part of the run rather than a failure of it.
     Returns:
         A :class:`Scorecard`. Every count but ``genuine``'s is over the products
         that matched: a hallucinated product is one mistake, and grading its

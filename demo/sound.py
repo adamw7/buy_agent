@@ -1,19 +1,4 @@
-"""Turn a recording's cues into the WAV track that goes under it.
-
-``demo/record.mjs`` writes down *when* each thing happened -- a key pressed, the
-button clicked, a progress line arriving, the results landing -- and this turns
-that list into a waveform. Nothing is sampled, mixed or licensed from anywhere:
-every sound here is a few sine waves under an envelope, which is why a recording
-can be taken again on any machine and come out the same.
-
-The point of it is not decoration. Six of the log lines in either demo are the
-pipeline catching the fake model out (``demo/README.md`` has the table), and
-they get a note of their own -- so the soundtrack says, without the viewer
-reading the panel, which lines are the agent finding a mistake.
-
-``python -m demo.sound --duration 13.4 --out track.wav`` reads the cues as JSON
-on stdin: ``[{"at": 1.25, "kind": "key"}, ...]``, seconds from the first frame.
-"""
+"""Turn a recording's cues into the WAV track that goes under it."""
 
 from __future__ import annotations
 
@@ -36,9 +21,7 @@ SAMPLE_RATE = 44_100
 #: encoder's own overshoot has somewhere to go.
 PEAK = 0.82
 
-#: What the mix is lifted by before it is limited. The voices below are written
-#: at the level they sound right *against each other*; this is the one number
-#: that says how loud the track is.
+#: What the mix is lifted by before it is limited.
 GAIN = 2.3
 
 #: Equal temperament, for the notes the cues below are written in.
@@ -54,13 +37,7 @@ NOTES = {
 
 
 class Voice:
-    """One sound: partials under a plucked envelope, plus optional noise.
-
-    ``decay`` is the time constant of the exponential tail rather than a length,
-    so a voice is described by how fast it dies away and rendered until it is
-    inaudible. ``attack`` keeps the onset off the sample boundary, without which
-    every one of these would carry a click of its own.
-    """
+    """One sound: partials under a plucked envelope, plus optional noise."""
 
     def __init__(
         self,
@@ -106,12 +83,10 @@ class Voice:
             buffer[position] += self.amplitude * envelope * value
 
 
-#: A key going down: mostly grain, gone in a few hundredths of a second. Quiet,
-#: because there is one of these per character of the request.
+#: A key going down: mostly grain, gone in a few hundredths of a second.
 KEY = Voice([(2100.0, 0.35)], amplitude=0.16, decay=0.011, attack=0.001, noise=0.9)
 
-#: The button. Firmer and lower than a key, so the recording's one deliberate
-#: press does not sound like another letter.
+#: The button.
 CLICK = Voice(
     [(880.0, 0.6), (1320.0, 0.25)], amplitude=0.40, decay=0.045, attack=0.002, noise=0.5
 )
@@ -119,10 +94,8 @@ CLICK = Voice(
 #: A step of the pipeline reporting in: one soft note, well under the others.
 STEP = Voice([(NOTES["G5"], 0.7), (NOTES["G4"], 0.3)], amplitude=0.17, decay=0.10)
 
-#: ...and a step that *took something away* -- a headline discarded, a figure
-#: blanked, a quote dropped, a link refused, a duplicate merged. A fifth lower
-#: and twice as long, which is the one thing in the track a viewer is meant to
-#: learn to recognise.
+#: ...and a step that *took something away* -- a headline discarded, a figure blanked, a
+#: quote dropped, a link refused, a duplicate merged.
 CAUGHT = Voice(
     [(NOTES["C5"], 0.55), (NOTES["G3"], 0.3), (NOTES["E5"], 0.2)],
     amplitude=0.26,
@@ -139,8 +112,7 @@ ARRIVAL = [
 #: The results being read: a page settling, quieter than anything but a key.
 SCROLL = Voice([(NOTES["C4"], 0.5), (NOTES["G4"], 0.2)], amplitude=0.09, decay=0.16)
 
-#: What a cue's ``kind`` plays. ``arrival`` is the one that is three sounds, so
-#: every value here is a list.
+#: What a cue's ``kind`` plays.
 VOICES: dict[str, list[tuple[float, Voice]]] = {
     "key": [(0.0, KEY)],
     "click": [(0.0, CLICK)],
@@ -156,16 +128,9 @@ ROOM_HZ = 58.0
 ROOM_AMPLITUDE = 0.004
 
 #: The least time between two notes for lines of the progress panel.
-#:
-#: Most of a run's log lines arrive in one instant -- the model answers and then
-#: five heuristics report in the same millisecond -- and twenty notes struck
-#: together are one loud chord that says nothing and swamps the rest of the
-#: track. Spread, the same twenty read as the flurry they are, and each line
-#: still sounds in the order it arrived.
 LINE_GAP = 0.055
 
-#: The kinds :data:`LINE_GAP` applies to. Keys are typed at their own pace and
-#: the rest are a person clicking, so neither needs help.
+#: The kinds :data:`LINE_GAP` applies to.
 LINE_KINDS = frozenset({"step", "caught"})
 
 #: Fades at the two ends, so the file neither starts nor stops on a step.
@@ -173,12 +138,7 @@ EDGE_FADE = 0.25
 
 
 def spread(cues: Iterable[dict]) -> list[dict]:
-    """Push apart the line cues that arrived together, keeping their order.
-
-    Only the panel's own lines move, by :data:`LINE_GAP` at a time, and only
-    ever later -- a note is allowed to land after the thing it is about, never
-    before it.
-    """
+    """Push apart the line cues that arrived together, keeping their order."""
     ordered = sorted(cues, key=lambda cue: float(cue["at"]))
     last = -1.0
     spaced = []
@@ -208,14 +168,7 @@ def render(cues: Iterable[dict], duration: float) -> array.array:
 
 
 def finish(buffer: array.array) -> array.array:
-    """Lift the mix, limit it, and fade the two ends.
-
-    Limited rather than normalised: scaling the whole track by its loudest
-    moment would let one pile-up of notes decide how loud everything else is,
-    which is exactly what a run's log lines arriving together produce. ``tanh``
-    leaves anything well under :data:`PEAK` where it was written and bends only
-    what would have clipped.
-    """
+    """Lift the mix, limit it, and fade the two ends."""
     for index, sample in enumerate(buffer):
         buffer[index] = PEAK * math.tanh(GAIN * sample / PEAK)
     edge = int(EDGE_FADE * SAMPLE_RATE)

@@ -1,6 +1,5 @@
 """The sources a shopper trusts, and what "trusted" is allowed to mean (ADR-0027,
-ADR-0021).
-"""
+ADR-0021)."""
 
 from __future__ import annotations
 
@@ -31,17 +30,14 @@ _ROUTING = frozenset({"c", "user", "channel", "r", "u"})
 #: person rather than a site, and there is only one site it could mean.
 _HANDLE_HOST = "youtube.com"
 
-#: What has to follow that ``@``. Checked for the reason a host is: a spec naming its
-#: site without naming anything *on* it searched YouTube for the literal "@" and
-#: reported nothing found (ADR-0027).
+#: What has to follow that ``@``.
 _HANDLE = re.compile(r"@[a-z0-9][a-z0-9._-]*", re.IGNORECASE)
 
 #: Stripped off a host before it is compared: ``www.rtings.com`` and ``rtings.com`` are
 #: the same source, and pages link to both.
 _WWW = "www."
 
-#: The shapes that work, written once. Every refusal in this module ends in them: what
-#: the shopper needs is a spec they can type.
+#: The shapes that work, written once.
 _SHAPES = (
     "Give a site (rtings.com), a section of one (rtings.com/headphones) or a "
     "YouTube handle (@mkbhd)."
@@ -103,14 +99,7 @@ def _not_a_source(spec: str) -> ValueError:
 
 
 def _not_a_source_at_all() -> ValueError:
-    """The refusal for a spec naming nothing at all, which two callers reach.
-
-    :func:`parse_source` meets it as a spec that is blank on its own, and
-    :func:`parse_named_sources` as a ``--source ""`` that would otherwise come
-    back as no sources and widen the search to the whole web (ADR-0027). One
-    sentence, for the reason :func:`_not_a_source` is one: a shopper reading
-    either needs the same shapes back.
-    """
+    """The refusal for a spec naming nothing at all, which two callers reach."""
     return ValueError(f"A source cannot be blank. {_SHAPES}")
 
 
@@ -128,8 +117,7 @@ def parse_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:
 
 def parse_named_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:
     """The sources in ``specs``, where naming none of them is the mistake (ADR-0012,
-    ADR-0027).
-    """
+    ADR-0027)."""
     sources = parse_sources(specs)
     if not sources:
         raise _not_a_source_at_all()

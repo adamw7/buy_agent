@@ -1,24 +1,4 @@
-"""Re-pull the models Ollama has, and say which of them actually moved.
-
-`ollama pull` on a tag that is already installed *is* how a model is updated:
-the tag follows the registry, so a pull replaces the local blobs when the
-publisher has re-cut them and does nothing when they are current. What a pull
-does not do is say which of the two just happened -- it prints `success` either
-way -- so this reads the digests Ollama reports before and after and prints a
-line per model that tells them apart.
-
-Only the models are updated. The Ollama server itself is a platform install
-(winget on Windows, the install script on Linux, the app on macOS) and is left
-to its own updater: pulling models is the part this project has an opinion
-about, and nothing here could restart a server it did not start.
-
-Run it from the repository root, which is what puts `buy_agent` on the path --
-the defaults are the agent's own, `$OLLAMA_HOST` included:
-
-    python -m scripts.update_ollama                     # every installed model
-    python -m scripts.update_ollama llama3.2 qwen2.5:7b
-    python -m scripts.update_ollama --base-url http://10.0.0.5:11434
-"""
+"""Re-pull the models Ollama has, and say which of them actually moved."""
 
 from __future__ import annotations
 
@@ -33,14 +13,9 @@ from ollama import Client, ResponseError
 
 from buy_agent.providers import OLLAMA
 
-#: Transport failures that mean "the server is not there": the tuple
-#: ``BuyAgent._invoke`` catches, read off the provider's own row rather than
-#: written down again -- what a stopped Ollama raises is that row's to say
-#: (ADR-0029), and it is wider than it looks.
-#:
-#: Minus ``ResponseError``, which is the one member that is not about the
-#: transport: a status from the registry is one tag's pull failing, recorded
-#: against that model while the rest still run.
+#: Transport failures that mean "the server is not there": the tuple ``BuyAgent._invoke``
+#: catches, read off the provider's own row rather than written down again -- what a
+#: stopped Ollama raises is that row's to say (ADR-0029), and it is wider than it looks.
 UNREACHABLE = tuple(
     failure for failure in OLLAMA.transport_errors if failure is not ResponseError
 )
@@ -56,12 +31,7 @@ LABELS = {
 
 @dataclass(frozen=True, slots=True)
 class Outcome:
-    """One pull: the digests either side of it, or why there is no second one.
-
-    ``before`` is empty when the tag was not installed, ``after`` when the pull
-    failed -- the two ends of the same comparison, which is what makes an
-    unchanged digest distinguishable from a model that was never there.
-    """
+    """One pull: the digests either side of it, or why there is no second one."""
 
     model: str
     before: str
@@ -84,22 +54,12 @@ def short(digest: str) -> str:
 
 
 def digests(client: Any) -> dict[str, str]:
-    """Every tag Ollama has pulled, and the digest it holds for each.
-
-    Read straight off the client rather than through ``agent.list_models``,
-    which answers with tags alone: the digest is the whole point here.
-    """
+    """Every tag Ollama has pulled, and the digest it holds for each."""
     return {model.model: model.digest or "" for model in client.list().models if model.model}
 
 
 def stream(client: Any, model: str) -> Iterator[str]:
-    """The distinct statuses of a streaming pull, as they arrive.
-
-    A pull of several gigabytes reports progress hundreds of times; the status
-    changes a handful of times ("pulling manifest", "verifying sha256 digest",
-    "success"). Only the changes are worth a line -- a percentage redrawn on a
-    log that does not move the cursor is noise.
-    """
+    """The distinct statuses of a streaming pull, as they arrive."""
     previous = ""
     for progress in client.pull(model, stream=True):
         if progress.status and progress.status != previous:
@@ -112,14 +72,7 @@ def update(
     models: Iterable[str] = (),
     echo: Callable[[str], None] = print,
 ) -> list[Outcome]:
-    """Pull each named model, or every installed one, and report what changed.
-
-    The digests are read once before the pulls and once after, rather than
-    around each one: two listings answer the same question as a listing per
-    model. A pull the registry refuses (an unknown tag, say) is recorded against
-    that model and the rest still run; a transport failure means the server has
-    gone, so it is left to reach the caller.
-    """
+    """Pull each named model, or every installed one, and report what changed."""
     before = digests(client)
     names = sorted(models) or sorted(before)
 
@@ -130,9 +83,8 @@ def update(
             for line in stream(client, name):
                 echo(f"  {line}")
         except ResponseError as exc:
-            # ``str`` on one of these appends the HTTP status, which is noise next
-            # to a message the registry already wrote for a human. An empty one is
-            # the case where the status is all there is to say.
+            # ``str`` on one of these appends the HTTP status, which is noise next to a
+            # message the registry already wrote for a human.
             errors[name] = exc.error.strip() or f"HTTP {exc.status_code}"
 
     after = digests(client) if names else {}
@@ -153,12 +105,7 @@ def describe(outcome: Outcome) -> str:
 
 
 def summary(outcomes: list[Outcome]) -> str:
-    """``3 models: 1 updated, 2 already current.``
-
-    Counted in one pass and read back in :data:`LABELS`' order, which is the order
-    the line lists them in -- a status nothing had is left out rather than printed
-    as a zero.
-    """
+    """``3 models: 1 updated, 2 already current.``"""
     counted = Counter(status(outcome) for outcome in outcomes)
     parts = [f"{counted[kind]} {label}" for kind, label in LABELS.items() if counted[kind]]
     return f"{len(outcomes)} model(s): {', '.join(parts)}."

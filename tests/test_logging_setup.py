@@ -138,10 +138,9 @@ def test_the_format_names_the_logger_and_the_message(basic_config) -> None:
 def test_the_http_clients_are_quietened_so_they_cannot_drown_out_the_report(
     basic_config, library: str
 ) -> None:
-    """httpx logs every single Ollama call at INFO, and the OpenAI client logs a
-    line per retry -- so a stopped vLLM prints its own retries above the one
-    message that says what to do about it. One per model server; parametrized off
-    the list, so a third arrives here with the provider that needs it."""
+    """httpx logs every single Ollama call at INFO, and the OpenAI client logs a line per
+    retry -- so a stopped vLLM prints its own retries above the one message that says
+    what to do about it."""
     logging.getLogger(library).setLevel(logging.NOTSET)
 
     configure_logging()
@@ -164,14 +163,8 @@ def test_verbose_leaves_them_alone(basic_config, library: str) -> None:
 def test_the_transport_trace_is_held_down_at_verbose_too(
     basic_config, library: str, verbose: bool
 ) -> None:
-    """The tier above is quietened only until somebody asks for detail; this one
-    is held either way, because it is what asking for detail would cost.
-
-    httpcore traces every request at DEBUG in a dozen lines, so the twelve HTTP
-    calls of an ordinary run bury the handful of lines the agent writes about its
-    own heuristics -- which are what ``-v`` was asked for. INFO and not WARNING:
-    httpcore says nothing at INFO, so this silences the trace and nothing else.
-    """
+    """The tier above is quietened only until somebody asks for detail; this one is held
+    either way, because it is what asking for detail would cost."""
     logging.getLogger(library).setLevel(logging.NOTSET)
 
     configure_logging(verbose=verbose)
@@ -185,11 +178,9 @@ def test_the_transport_trace_is_held_down_at_verbose_too(
 def test_the_level_is_set_even_where_basicconfig_declines_to(
     monkeypatch, verbose: bool, expected: int
 ) -> None:
-    """``basicConfig`` does nothing at all where the root logger already has a
-    handler -- an embedder's, or the one pytest installs around every test -- and
-    the level is what it silently skips. Left to it, ``--verbose`` asked for DEBUG
-    and got INFO with nothing said about it.
-    """
+    """``basicConfig`` does nothing at all where the root logger already has a handler --
+    an embedder's, or the one pytest installs around every test -- and the level is
+    what it silently skips."""
     monkeypatch.setattr(logging, "basicConfig", lambda **kwargs: None)
     logging.getLogger().setLevel(logging.CRITICAL)
 
@@ -200,15 +191,7 @@ def test_the_level_is_set_even_where_basicconfig_declines_to(
 
 @pytest.fixture
 def split_streams(monkeypatch, capsys):
-    """Set the split up over real streams, and put the loggers back afterwards.
-
-    What it makes is a split between *streams*, so it can only be checked against
-    real ones -- and they have to be taken inside the test rather than here:
-    pytest replaces them once per phase, so a handler built while this fixture was
-    setting up would be writing to a file already closed by the time the test
-    runs. It reaches into the root logger and the package logger to make the
-    split, and neither is this test's to leave changed.
-    """
+    """Set the split up over real streams, and put the loggers back afterwards."""
     package = logging.getLogger("buy_agent")
     root = logging.getLogger()
     kept = (package.handlers[:], root.handlers[:], root.level)
@@ -275,12 +258,7 @@ def test_configuring_twice_does_not_print_the_report_twice(split_streams) -> Non
 
 
 def test_a_handler_that_is_not_the_console_still_sees_the_whole_run(split_streams) -> None:
-    """The relay behind the browser's progress panel is one of these.
-
-    Only the console handler is told to skip the report -- a handler collecting
-    the run, for a transcript or for a test, is nobody's stream to take lines out
-    of, and taking them would hide the report from a caller who asked for all of it.
-    """
+    """The relay behind the browser's progress panel is one of these."""
     collected: list[str] = []
     relay = logging.Handler()
     relay.emit = lambda record: collected.append(record.getMessage())  # type: ignore[method-assign]
@@ -306,13 +284,7 @@ def test_nothing_found_is_not_reported_on_stdout(split_streams) -> None:
 
 
 def test_the_report_on_stdout_carries_no_log_furniture(split_streams) -> None:
-    """``> top.txt`` is asking for the answer, not for a log of it.
-
-    Every line of a report shares one clock, one level and one logger name -- the
-    run ends and then says what it found -- so the prefix distinguishes nothing
-    and takes thirty of an eighty-column terminal's columns off the quotes, which
-    are the longest thing in it.
-    """
+    """``> top.txt`` is asking for the answer, not for a log of it."""
     streams = split_streams()
 
     log_top_products(ranked(Product(name="Sony WH-1000XM5")), 1)
@@ -339,12 +311,7 @@ def test_the_narration_keeps_the_prefix_the_report_drops(basic_config) -> None:
 
 
 def test_a_relay_still_sees_the_report_as_an_ordinary_record(split_streams) -> None:
-    """Stripping the prefix is the console handler's formatting and nothing else's.
-
-    The browser's progress panel builds its own line off ``record.created`` and
-    ``record.name`` (:class:`~buy_agent.server._LogRelay`), so a report record has
-    to reach it with both still on it.
-    """
+    """Stripping the prefix is the console handler's formatting and nothing else's."""
     seen: list[logging.LogRecord] = []
     relay = logging.Handler()
     relay.emit = seen.append  # type: ignore[method-assign]
@@ -358,14 +325,9 @@ def test_a_relay_still_sees_the_report_as_an_ordinary_record(split_streams) -> N
 
 
 def test_the_report_is_a_block_with_a_rule_at_each_end(report) -> None:
-    """The report is what ``> top.txt`` catches and what the browser's panel shows
-    as the run's answer, so it has to read as one block rather than as lines that
-    happen to follow the narration.
-
-    The closing rule is the half nothing else here would notice going missing: a
-    report that opens with one and never closes leaves the last product looking
-    like the first line of whatever comes next.
-    """
+    """The report is what ``> top.txt`` catches and what the browser's panel shows as the
+    run's answer, so it has to read as one block rather than as lines that happen to
+    follow the narration."""
     log_top_products(ranked(Product(name="Alpha"), Product(name="Beta")), 2)
 
     lines = [record.getMessage() for record in report.records]
@@ -477,26 +439,15 @@ def test_the_report_marks_a_share_that_was_assumed_rather_than_read(caplog) -> N
     ],
 )
 def test_the_heading_says_what_the_block_is_ordered_by(report, sort_by, expected) -> None:
-    """Sorted by anything but the score, the report is a list of numbers going the
-    wrong way with nothing to explain it.
-
-    ``--sort-by rating`` reports 0.68, then 0.98, then 0.83, because the ordering is
-    the rating and the score is only printed. The browser says which criterion beside
-    the results; the CLI had nowhere at all, so the heading says it -- for the default
-    too, a report being read by whoever was handed it rather than only by whoever
-    typed the command.
-    """
+    """Sorted by anything but the score, the report is a list of numbers going the wrong
+    way with nothing to explain it."""
     log_top_products(ranked(Product(name="Alpha"), Product(name="Beta")), 2, sort_by=sort_by)
 
     assert f"TOP 2 OF 2 PRODUCTS, {expected}" in report.text
 
 
 def test_the_ordering_named_is_the_one_the_run_sorted_by(report) -> None:
-    """End to end through ``rank_products``, so the heading cannot drift from the sort.
-
-    Beta is dearer and better rated, so the two criteria disagree -- which is what
-    makes the heading worth checking against the order underneath it.
-    """
+    """End to end through ``rank_products``, so the heading cannot drift from the sort."""
     products = [
         Product(name="Alpha", price=10.0, currency="USD", rating=4.0, review_count=100),
         Product(name="Beta", price=90.0, currency="USD", rating=5.0, review_count=100),

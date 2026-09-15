@@ -168,8 +168,7 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
 
 
 def _configured(**settings: Any) -> AgentConfig:
-    """An :class:`AgentConfig`, with its own refusal answered like every other (ADR-0033).
-    """
+    """An :class:`AgentConfig`, with its own refusal answered like every other (ADR-0033)."""
     try:
         return AgentConfig(**settings)
     except ValueError as exc:
@@ -230,9 +229,8 @@ def mandate_support() -> bool:
 
 
 def pay_now(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Buy one product of a finished run, having been shown that it was approved (ADR-0035,
-    ADR-0012, ADR-0046).
-    """
+    """Buy one product of a finished run, having been shown that it was approved
+    (ADR-0035, ADR-0012, ADR-0046)."""
     config, _sort_by = parse_options(data)
     products = _read_products(data)
     if not products:
@@ -362,9 +360,7 @@ def defaults_payload() -> dict[str, Any]:
         # One text field's worth, written the way the form sends it back.
         "sources": format_sources(defaults.sources),
         "fetch": defaults.fetch_pages,
-        # Paying, and who through. ``pay_available`` is whether the optional AP2 SDK is
-        # installed at all, so the page says so rather than offering a button whose only
-        # outcome is a sentence about pip (ADR-0046).
+        # Paying, and who through.
         "pay": defaults.pay,
         "pay_available": mandate_support(),
         "rail": defaults.rail,
@@ -380,8 +376,7 @@ def defaults_payload() -> dict[str, Any]:
 
 
 def limits_payload() -> dict[str, dict[str, int]]:
-    """The range each number a request carries is held to, by the key it uses (ADR-0033).
-    """
+    """The range each number a request carries is held to, by the key it uses (ADR-0033)."""
     return {
         key: dict(zip(("min", "max"), LIMITS[field], strict=True))
         for key, field in _BOUNDED.items()
@@ -389,8 +384,7 @@ def limits_payload() -> dict[str, dict[str, int]]:
 
 
 def sources_payload(spec: str) -> dict[str, Any]:
-    """Whether a Trusted-sources field names sources, and what is wrong if not (ADR-0033).
-    """
+    """Whether a Trusted-sources field names sources, and what is wrong if not (ADR-0033)."""
     error = ""
     try:
         parse_sources(spec)
@@ -401,8 +395,7 @@ def sources_payload(spec: str) -> dict[str, Any]:
 
 def installed_models(provider: str, base_url: str) -> dict[str, Any]:
     """Ask a model server what it is serving, for the UI's model picker (ADR-0032,
-    ADR-0012).
-    """
+    ADR-0012)."""
     label = PROVIDERS[provider].label if provider in PROVIDERS else provider
     status = {"provider": provider, "label": label, "base_url": base_url}
     config: AgentConfig | None = None
@@ -430,8 +423,7 @@ def installed_models(provider: str, base_url: str) -> dict[str, Any]:
 def _read_sources(
     data: Mapping[str, Any], default: tuple[Source, ...]
 ) -> tuple[Source, ...]:
-    """The sources the request named, if any -- the one option that is a list (ADR-0033).
-    """
+    """The sources the request named, if any -- the one option that is a list (ADR-0033)."""
     if not _present(data, "sources"):
         return default
     value = data["sources"]
@@ -509,8 +501,7 @@ def _among(options: tuple[str, ...]) -> Callable[[str, str], str]:
 
 def _as_region(key: str, text: str) -> str:
     """A region code, checked for shape the way a source is checked for a site (ADR-0031,
-    ADR-0033).
-    """
+    ADR-0033)."""
     try:
         return parse_region(text)
     except ValueError as exc:

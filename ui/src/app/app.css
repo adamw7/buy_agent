@@ -43,8 +43,7 @@ h1 {
   color: var(--good);
 }
 
-/* Neither up nor down: nothing has answered yet. A `span` and not a `button`,
-   since the question it would ask is the one already out. */
+/** Neither up nor down: nothing has answered yet. */
 .server.checking {
   color: var(--text-dim);
 }
@@ -66,8 +65,7 @@ h1 {
   }
 }
 
-/* The provider's own remedy, under the pill it belongs to, with the way back
-   beside it. */
+/** The provider's own remedy, under the pill it belongs to, with the way back beside it. */
 .server-reason {
   max-width: 860px;
   margin: 0 auto;

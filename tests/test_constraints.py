@@ -93,13 +93,7 @@ def test_every_bound_set_has_to_be_satisfied_at_once() -> None:
     ],
 )
 def test_a_figure_the_run_never_learned_is_not_a_violation(bounds: Constraints) -> None:
-    """The rule that keeps this from punishing the extractor for its misses.
-
-    ``ground`` blanks every figure the source pages did not back, so a blank here
-    is as often "nothing was read" as "nothing was printed" -- and dropping those
-    would reject real products for a model's bad afternoon. Neutral rather than
-    zero, which is what ADR-0007 already decided for the same reason.
-    """
+    """The rule that keeps this from punishing the extractor for its misses."""
     assert [entry.name for entry in bounds.apply([product("silent")])] == ["silent"]
 
 
@@ -197,9 +191,7 @@ def test_a_config_nobody_narrowed_carries_no_bounds() -> None:
     ],
 )
 def test_a_bound_at_the_bottom_of_its_range_is_still_a_bound(bounds: Constraints) -> None:
-    """``0`` and ``None`` are different answers, and only the second is "unset".
-    Read as falsy, ``min_rating=0`` would stop being applied and stop being
-    reported -- and 0 admits everything, so nothing would ever look wrong."""
+    """``0`` and ``None`` are different answers, and only the second is "unset"."""
     assert bounds.given
 
 
@@ -213,9 +205,8 @@ ELSEWHERE = Product(name="Elsewhere", price=300.0, currency="EUR")
 @pytest.mark.parametrize(
     ("products", "kept"),
     [
-        # Nothing is converted, so a euro price and a dollar budget are not two
-        # comparable numbers -- and an unplaceable figure passes, as an unknown
-        # one does.
+        # Nothing is converted, so a euro price and a dollar budget are not two comparable
+        # numbers -- and an unplaceable figure passes, as an unknown one does.
         pytest.param([OVER, UNDER, ELSEWHERE], ["Under", "Elsewhere"], id="another currency"),
         # A price printed without a currency is the run's own, which is what
         # every price here was before the rule existed.
@@ -233,13 +224,8 @@ def test_what_a_budget_in_one_currency_admits(
 
 
 def test_the_budget_is_read_in_the_currency_the_report_is_counted_in(caplog) -> None:
-    """The bound changes the set, and the set is what says which currency it is
-    counted in (ADR-0043) -- so the two have to be settled together.
-
-    Read once, before the filtering, the budget here would have been applied in
-    dollars, dropped both dollar products, and left a report counted in euros with a
-    250.00 EUR product in it, under a line saying "at most 200.00 USD". Nothing that
-    survived would ever have been held to the bound the run said it applied."""
+    """The bound changes the set, and the set is what says which currency it is counted in
+    (ADR-0043) -- so the two have to be settled together."""
     products = [
         Product(name="Dear", price=300.0, currency="USD"),
         Product(name="Dearer", price=400.0, currency="USD"),

@@ -1,9 +1,4 @@
-"""The report the Saturday mutation run publishes, and the floor it fails under.
-
-`scripts/mutation_report.py` decides whether a mutation run passes, which by the
-rule the rest of this codebase follows -- whatever decides the answer belongs
-where it is testable -- puts it here rather than in the workflow's shell.
-"""
+"""The report the Saturday mutation run publishes, and the floor it fails under."""
 
 from __future__ import annotations
 

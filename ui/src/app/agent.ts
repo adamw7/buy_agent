@@ -33,46 +33,24 @@ export class AgentService {
     return this.http.get<ModelStatus>('/api/models', { params: { ...source } });
   }
 
-  /**
-   * What the server makes of a Trusted sources field, before a run is started.
-   *
-   * The parse is Python's -- a hostname, a handle, the routing segments a channel URL
-   * carries -- so the browser asks rather than re-implementing it (ADR-0033).
-   */
+  /** What the server makes of a Trusted sources field, before a run is started. */
   checkSources(sources: string): Observable<SourcesCheck> {
     return this.http.get<SourcesCheck>('/api/sources', { params: { sources } });
   }
 
-  /**
-   * Put a finished run's products in another order, without running it again.
-   *
-   * A POST rather than a GET because a query string cannot carry a list of products,
-   * and the products are what makes this cost nothing: the browser sends back what it
-   * was sent and Python ranks it with the same function a run ends with, so the
-   * searching is skipped and the judgement is not (ADR-0035).
-   */
+  /** Put a finished run's products in another order, without running it again. */
   rank(options: RankOptions): Observable<SearchResult> {
     return this.http.post<SearchResult>('/api/rank', options);
   }
 
-  /**
-   * Buy one product of a finished run, having been shown that it was approved.
-   *
-   * A POST for the reason a re-sort is one, and then some: it carries the run's
-   * products *and* the approval a person gave for one of them. Neither the cart nor
-   * the price is decided here -- the server builds the cart and refuses unless the
-   * approval echoes what it built (ADR-0012).
-   */
+  /** Buy one product of a finished run, having been shown that it was approved. */
   pay(options: PayOptions): Observable<{ receipt: Receipt }> {
     return this.http.post<{ receipt: Receipt }>('/api/pay', options);
   }
 
   /**
-   * Run a search, emitting the agent's log lines as they happen and finishing on a
-   * `result` or a `failure`.
-   *
-   * A run takes tens of seconds, which is why this streams rather than answering once
-   * at the end. Unsubscribing closes the stream, which is how the Stop button works.
+   * Run a search, emitting the agent's log lines as they happen and finishing on a `result` or a
+   * `failure`.
    */
   search(options: SearchOptions): Observable<SearchEvent> {
     return new Observable<SearchEvent>((subscriber) => {
@@ -126,13 +104,7 @@ export class AgentService {
   }
 }
 
-/**
- * Turn options into a query string, leaving out anything unset.
- *
- * Omitting a blank field matters: the server reads a missing key as "use the
- * default", so sending `num_ctx=` would be the same as sending nothing, while
- * sending `model=` would ask for a model with no name.
- */
+/** Turn options into a query string, leaving out anything unset. */
 export function toQuery(options: SearchOptions): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(options)) {

@@ -1,28 +1,4 @@
-"""``scripts/start.ps1``: that it parses, what it declares, and how its helpers behave.
-
-This is the one file in the project no other test reaches. It is PowerShell, so
-pytest cannot import it; it installs, downloads, starts two servers and opens a
-browser, so pytest cannot run it either. What is left is everything short of
-running it, which is most of what a script gets wrong: a typo that only shows up
-on the machine of whoever ran it next, a step whose failure goes unnoticed
-because nothing checked an exit code, a poll that gives up on the first refusal.
-
-``tests/start_script_probe.ps1`` is the other half. It parses the script into an
-AST, lifts the function definitions out of that AST and dot-sources them on their
-own -- so the body, the part that would install and download, never runs -- and
-writes what it found and what those functions did as one JSON document. One
-PowerShell process for the whole module, because starting one costs about as long
-as the rest of this suite takes.
-
-Everything here is skipped where there is no PowerShell to run. That is every
-Linux machine without ``pwsh`` installed; it is not the Windows this script is
-for, nor the runner CI uses, both of which have one.
-
-The four agreements this script keeps with the rest of the project -- the URL it
-opens, the build it looks for, the toolchain versions it names and the defaults it
-refuses to write down twice -- are in ``test_conventions.py`` with the other
-cross-file rules, not here.
-"""
+"""``scripts/start.ps1``: that it parses, what it declares, and how its helpers behave."""
 
 from __future__ import annotations
 
@@ -41,8 +17,6 @@ _START = _ROOT / "scripts" / "start.ps1"
 _PROBE = Path(__file__).resolve().parent / "start_script_probe.ps1"
 
 #: ``pwsh`` is PowerShell 7 and ``powershell`` is the 5.1 that ships with Windows.
-#: The script asks for 5.1 or newer and the probe uses nothing either one lacks,
-#: so whichever is on PATH answers.
 POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
 
 needs_powershell = pytest.mark.skipif(
@@ -113,19 +87,15 @@ def test_the_startup_script_parses(probed: dict[str, Any]) -> None:
 
 @needs_powershell
 def test_it_declares_the_helpers_the_rest_of_these_tests_exercise(probed: dict[str, Any]) -> None:
-    """The behaviour tests below call these by name. Renamed, they would not fail:
-    the probe would report that the call went wrong and every one of them would
-    have to be read to see that none of them tested anything."""
+    """The behaviour tests below call these by name."""
     assert set(probed["functions"]) == {"Step", "Note", "Have", "Run", "Answers"}
 
 
 @needs_powershell
 def test_every_program_it_runs_goes_through_run(probed: dict[str, Any]) -> None:
     """``Run`` is the only thing here that looks at ``$LASTEXITCODE``, and a native
-    command that fails does not raise on its own however ``$ErrorActionPreference``
-    is set. A program invoked around it fails silently: pip installs nothing and
-    the server starts anyway, ``ng build`` writes no bundle and the page is the
-    503 that says to build it -- each one a script that reported success."""
+    command that fails does not raise on its own however ``$ErrorActionPreference`` is
+    set."""
     invoked = invocations(probed, "Ampersand")
 
     assert invoked, "nothing invokes a program; Run has presumably been rewritten"
@@ -135,10 +105,9 @@ def test_every_program_it_runs_goes_through_run(probed: dict[str, Any]) -> None:
 
 @needs_powershell
 def test_it_looks_for_a_program_before_running_it(probed: dict[str, Any]) -> None:
-    """python, ollama and npm are the three things this script does not install,
-    and each is checked for with ``Have`` first so that a machine missing one is
-    told where to get it. Run without that check, the whole message is PowerShell's
-    "is not recognized" -- which is true, unhelpful, and looks like a bug here."""
+    """python, ollama and npm are the three things this script does not install, and each
+    is checked for with ``Have`` first so that a machine missing one is told where to
+    get it."""
 
     def arguments(function: str) -> set[str]:
         return {
@@ -158,11 +127,8 @@ def test_it_looks_for_a_program_before_running_it(probed: dict[str, Any]) -> Non
 
 @needs_powershell
 def test_it_stops_what_it_started(probed: dict[str, Any]) -> None:
-    """Ctrl+C is how this script is meant to end, and both servers are children of
-    it that outlive it unless something kills them. A leftover ``buy_agent.server``
-    holds port 8000, so the next run of this script starts a server that cannot
-    bind and a browser pointed at the *old* one -- serving the UI built before the
-    change that was being checked."""
+    """Ctrl+C is how this script is meant to end, and both servers are children of it that
+    outlive it unless something kills them."""
     assert probed["cleanups"], "nothing is cleaned up at all"
     outermost = probed["cleanups"][0]
 
@@ -174,10 +140,8 @@ def test_it_stops_what_it_started(probed: dict[str, Any]) -> None:
 
 @needs_powershell
 def test_it_points_the_pull_at_the_ollama_it_probed(probed: dict[str, Any]) -> None:
-    """``ollama pull`` reads $OLLAMA_HOST itself, and the one this script found is
-    the one it waited for and is about to search against. Pulled before that
-    assignment, several gigabytes land on whichever server the environment named --
-    and the run that follows finds the model still missing."""
+    """``ollama pull`` reads $OLLAMA_HOST itself, and the one this script found is the one
+    it waited for and is about to search against."""
     assigned = re.search(r"^\s+\$env:OLLAMA_HOST = \$ollama$", start_script(), re.M)
     assert assigned, "the pull is left to $env:OLLAMA_HOST as the environment had it"
 
@@ -202,9 +166,8 @@ def test_run_hands_back_what_the_command_printed(probed: dict[str, Any]) -> None
 
 @needs_powershell
 def test_run_throws_its_own_message_on_a_non_zero_exit(probed: dict[str, Any]) -> None:
-    """The point of the wrapper: an exit code nobody reads is a step that failed
-    and a script that carried on. The message is the script's rather than the
-    program's, because a pip traceback does not say which step it belonged to."""
+    """The point of the wrapper: an exit code nobody reads is a step that failed and a
+    script that carried on."""
     failed = case(probed, "run_throws_its_own_message_on_a_non_zero_exit")
 
     assert failed["threw"], "a command that exited 3 was taken for a success"
@@ -240,9 +203,8 @@ def test_answers_stops_at_the_first_reply(probed: dict[str, Any]) -> None:
 
 @needs_powershell
 def test_answers_keeps_polling_until_it_gets_one(probed: dict[str, Any]) -> None:
-    """A server that is starting refuses connections until it is listening, which
-    is indistinguishable from one that never will except by waiting. Ollama takes a
-    few seconds; giving up on the first refusal would fail every cold start."""
+    """A server that is starting refuses connections until it is listening, which is
+    indistinguishable from one that never will except by waiting."""
     assert case(probed, "answers_keeps_polling_until_it_gets_one") == {
         "answered": True,
         "attempts": 3,
@@ -266,10 +228,7 @@ def test_answers_gives_up_at_the_deadline(probed: dict[str, Any]) -> None:
 
 
 def test_it_stops_at_the_first_failure() -> None:
-    """Both lines are load-bearing and neither is a default. Without ``Stop``, a
-    failed ``Invoke-RestMethod`` is a red message and a script that keeps going;
-    without strict mode, a variable misspelled in a condition is quietly empty --
-    which reads as "not built yet" or "not pulled yet" and does the work again."""
+    """Both lines are load-bearing and neither is a default."""
     source = start_script()
 
     assert re.search(r"^Set-StrictMode -Version Latest$", source, re.M)
@@ -278,11 +237,8 @@ def test_it_stops_at_the_first_failure() -> None:
 
 
 def test_it_only_starts_the_server_it_can_install() -> None:
-    """Ollama is installed with one command and started with another; a vLLM needs
-    a GPU, a served model and flags this script has no business choosing. So the
-    whole install-and-pull half is behind the provider check, and anything else is
-    waited for and named rather than launched -- a script that tried to
-    ``vllm serve`` on a laptop would fail in a way that read as this script's bug."""
+    """Ollama is installed with one command and started with another; a vLLM needs a GPU,
+    a served model and flags this script has no business choosing."""
     source = start_script()
     guard = re.search(r"^\s+if \(\$provider -eq 'ollama'\) \{$", source, re.M)
     assert guard, "the Ollama steps are not behind a check of which provider is configured"
@@ -293,12 +249,10 @@ def test_it_only_starts_the_server_it_can_install() -> None:
 
 
 def test_it_installs_the_payment_sdk_only_where_paying_is_configured() -> None:
-    """The AP2 SDK is optional, and a git checkout of somebody else's repository:
-    fetched on every run it is a download nobody who is not paying asked for, and
-    fetched on none the form's payment block is permanently absent with nothing on
-    the console to say why. So the two pip commands sit behind the environment
-    naming a rail, a merchant, a key or a mandate -- the settings only a payment
-    reads -- and the branch that skips them says which one to set."""
+    """The AP2 SDK is optional, and a git checkout of somebody else's repository: fetched
+    on every run it is a download nobody who is not paying asked for, and fetched on
+    none the form's payment block is permanently absent with nothing on the console to
+    say why."""
     source = start_script()
     guard = re.search(r"^\s+\} elseif \(\$paying\) \{$", source, re.M)
     assert guard, "the AP2 install is not behind what the environment says about paying"
@@ -314,9 +268,7 @@ def test_it_installs_the_payment_sdk_only_where_paying_is_configured() -> None:
 def test_it_checks_the_payment_sdk_imports_after_installing_it() -> None:
     """pip exits 0 for an install that cannot be imported -- which is the documented
     failure of this particular one, ``--no-deps`` over the wrong file leaving
-    ``cryptography`` without ``cffi``. Asked once, the script would report the SDK
-    installed and the page would still refuse to offer a button, so it is asked
-    again afterwards and the run stops on the answer."""
+    ``cryptography`` without ``cffi``."""
     source = start_script()
     asked = [match.start() for match in re.finditer(r"Run \$python \$asked", source)]
 
@@ -325,9 +277,8 @@ def test_it_checks_the_payment_sdk_imports_after_installing_it() -> None:
 
 
 def test_it_probes_the_endpoint_the_other_provider_actually_answers() -> None:
-    """vLLM's API root is a 404 on a server that is working perfectly; ``/models``
-    is the listing the form's model picker calls anyway. Probing the root would
-    make every run stop on a server that was up the whole time."""
+    """vLLM's API root is a 404 on a server that is working perfectly; ``/models`` is the
+    listing the form's model picker calls anyway."""
     assert '(Answers "$llm/models" 1)' in start_script()
 
 

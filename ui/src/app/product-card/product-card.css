@@ -153,12 +153,7 @@ h3 a:hover {
   background: var(--accent);
 }
 
-/* What the score is made of, under the bar it made. Wrapping rather than
-   scrolling: a criterion that fell off the edge would leave the total
-   unexplained again. A column and not a row, since each entry now carries its
-   weight as well as its share -- three of those side by side wrapped mid-entry
-   on a laptop, which put a weight under the share belonging to the one before
-   it. */
+/** What the score is made of, under the bar it made. */
 .parts {
   display: flex;
   flex-direction: column;
@@ -190,8 +185,7 @@ h3 a:hover {
   text-align: end;
 }
 
-/* How much of the blend this criterion was allowed to decide. Dimmer than the
-   share, which is the measurement; this is the constant beside it. */
+/** How much of the blend this criterion was allowed to decide. */
 .parts .weight {
   opacity: 0.85;
 }
@@ -205,10 +199,7 @@ h3 a:hover {
   font-size: 11px;
 }
 
-/* A share nobody published, which scored the neutral 0.5 and is therefore not a
-   measurement. Dimmed *and* labelled: colour alone would say nothing to a reader
-   who cannot see it, and this is the difference between a rating of 2.5 and no
-   rating at all. */
+/** A share nobody published, which scored the neutral 0.5 and is therefore not a measurement. */
 .parts li.assumed .share {
   color: var(--text-dim);
 }
@@ -233,8 +224,7 @@ h3 a:hover {
   }
 }
 
-/* The payment block. Deliberately not styled as the loudest thing on the card:
-   the button is an action a reader looks for, not one the page pushes at them. */
+/** The payment block. */
 .pay {
   margin-block-start: 0.75rem;
   padding: 0.45rem 0.9rem;
