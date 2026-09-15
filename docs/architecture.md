@@ -121,6 +121,7 @@ graph TB
         constraints["<b>Constraints</b><br/><i>[Component: constraints.py]</i><br/>The shopper's bounds -- max price,<br/>min rating, min reviews -- applied<br/>after merging and before ranking.<br/>An unknown figure is not a violation"]
         ranking["<b>Ranking</b><br/><i>[Component: ranking.py]</i><br/>Weighted score over rating,<br/>popularity and price -- prices<br/>compared inside one currency -- and<br/>the shares it was blended from. No LLM"]
         models["<b>Models</b><br/><i>[Component: models.py]</i><br/>ExtractedProduct (sentinels, for the<br/>LLM's schema) vs Product (None)"]
+        moneyc["<b>Money</b><br/><i>[Component: money.py]</i><br/>Every currency table: which<br/>spellings are one currency, which<br/>ones a page is scanned for, how an<br/>amount is written and how many<br/>minor units it comes to"]
         logsetup["<b>Report and logging</b><br/><i>[Component: logging_setup.py]</i><br/>Log format, and the top-N report<br/>the browser also reads as events"]
     end
 
@@ -175,12 +176,15 @@ graph TB
     verification -.-> models
     constraints -.-> models
     ranking -.-> models
+    models -.->|"places the spelling a<br/>listing named"| moneyc
+    fetch -.->|"scans for the spellings it<br/>can place"| moneyc
+    payment -.->|"counts the cart in<br/>minor units"| moneyc
 
     classDef container fill:#438dd5,stroke:#2e6295,color:#fff
     classDef component fill:#85bbf0,stroke:#5d82a8,color:#000
     classDef external fill:#999,stroke:#6b6b6b,color:#fff
     class cli,server container
-    class agent,config,providers,extraction,search,sources,fetch,cache,verification,constraints,ranking,models,logsetup component
+    class agent,config,providers,extraction,search,sources,fetch,cache,verification,constraints,ranking,models,moneyc,logsetup component
     class payment,mandatesc,railsc component
     class ollama,ddg,shops,counterparty external
 ```

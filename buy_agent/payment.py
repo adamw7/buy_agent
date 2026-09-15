@@ -7,30 +7,19 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel
 
 from buy_agent import mandates
-from buy_agent.models import Product, amount_label, comparable_price, dominant_currency
+from buy_agent.models import Product, comparable_price, dominant_currency
+from buy_agent.money import amount_label, minor_units
 
 if TYPE_CHECKING:
     from buy_agent.config import AgentConfig
 
 logger = logging.getLogger(__name__)
-
-#: Currencies not counted in hundredths. ISO 4217 gives most an exponent of 2, so only
-#: the exceptions are written down: a table of every currency is one to keep current for
-#: no gain, while one of these wrong is a payment a hundredfold.
-_ZERO_DECIMAL = frozenset(
-    {
-        "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW",
-        "PYG", "RWF", "UGX", "UYI", "VND", "VUV", "XAF", "XOF", "XPF",
-    }
-)
-_THREE_DECIMAL = frozenset({"BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"})
 
 #: What a payment instrument is called when the credential provider has not named one.
 DEFAULT_INSTRUMENT = "default"
@@ -96,21 +85,6 @@ class Receipt(BaseModel):
     #: Whether the signature was made with an enrolled key or one this process invented.
     enrolled_key: bool
     detail: str
-
-
-def minor_units(price: float, currency: str) -> int:
-    """``price`` in the currency's smallest unit, rounded half up."""
-    exponent = 0 if currency in _ZERO_DECIMAL else 3 if currency in _THREE_DECIMAL else 2
-    try:
-        scaled = Decimal(str(price)).scaleb(exponent).quantize(Decimal(1), rounding=ROUND_HALF_UP)
-        # Inside the guard because this is where a NaN or an infinity fails:
-        # ``quantize`` answers NaN happily, and only ``int`` refuses it.
-        return int(scaled)
-    # ``decimal.InvalidOperation`` is an ``ArithmeticError`` and so is every other
-    # ``DecimalException`` -- naming it as well would be one class caught twice and the
-    # rest of them, ``Overflow`` included, still caught only by accident.
-    except (ArithmeticError, ValueError) as exc:
-        raise PaymentError(f"{price!r} is not a price this can pay.") from exc
 
 
 def _check(product: Product, currency: str | None) -> tuple[float, str]:
@@ -181,11 +155,18 @@ def cart_for(product: Product, products: Sequence[Product], config: AgentConfig)
             f"{limit:,.2f} {currency} spend limit.",
             field="spend_limit",
         )
+    try:
+        amount = minor_units(price, currency)
+    # ``money`` knows what an amount is and nothing about who is being paid, so the
+    # refusal is translated here rather than raised there -- and it names ``products``
+    # on the way past, which is the box the form marks (ADR-0033).
+    except ValueError as exc:
+        raise PaymentError(str(exc), field="products") from exc
     return Cart(
         title=product.name,
         price=price,
         currency=currency,
-        amount=minor_units(price, currency),
+        amount=amount,
         merchant=merchant_for(product),
         url=product.url or "",
         item_id=product.dedup_key.replace(" ", "-")[:120],

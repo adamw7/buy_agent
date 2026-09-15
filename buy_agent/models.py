@@ -10,6 +10,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
+from buy_agent.money import amount_label, code_for
+
 _UNKNOWN_NUMBER = -1.0
 _WHITESPACE = re.compile(r"\s+")
 _PUNCTUATION = re.compile(r"[^\w\s]")
@@ -19,32 +21,6 @@ MAX_OPINIONS = 3
 
 #: Longer than this is not a quote any more; it is the model retelling the page.
 _MAX_OPINION_LENGTH = 240
-
-#: How a page's way of naming a currency reads as the ISO code the schema asks for
-#: (ADR-0043).
-_CURRENCY_ALIASES = {
-    "$": "USD",
-    "US$": "USD",
-    "DOLLAR": "USD",
-    "DOLLARS": "USD",
-    "€": "EUR",
-    "EURO": "EUR",
-    "EUROS": "EUR",
-    "£": "GBP",
-    "POUND": "GBP",
-    "POUNDS": "GBP",
-    "ZŁ": "PLN",
-    "KČ": "CZK",
-    "₹": "INR",
-    "₩": "KRW",
-    "₪": "ILS",
-    "₺": "TRY",
-    "R$": "BRL",
-    "C$": "CAD",
-    "CA$": "CAD",
-    "A$": "AUD",
-    "AU$": "AUD",
-}
 
 
 class ExtractedProduct(BaseModel):
@@ -96,7 +72,7 @@ class ExtractedProduct(BaseModel):
         return Product(
             name=_clean(self.name),
             price=price,
-            currency=_currency(self.currency) if price is not None else None,
+            currency=code_for(self.currency) if price is not None else None,
             rating=rating,
             review_count=(
                 self.review_count if rating is not None and self.review_count > 0 else None
@@ -106,20 +82,6 @@ class ExtractedProduct(BaseModel):
             notes=_clean(self.notes) or None,
             opinions=_quotes(self.opinions),
         )
-
-
-def amount_label(price: float, currency: str | None = None) -> str:
-    """An amount as a person reads it, which is how every surface must write it.
-
-    One wording for the card, the report and the cart a payment is authorised for:
-    the figure a page printed and the figure a mandate carries are the same money,
-    and a confirmation that spelt it differently from the product beside it would be
-    asking somebody to agree to two amounts. ``None`` is a price no page gave a
-    currency for, which is a number written without a unit rather than one in the
-    run's own (ADR-0043).
-    """
-    unit = f" {currency}" if currency else ""
-    return f"{price:,.2f}{unit}"
 
 
 class Opinion(BaseModel):
@@ -233,14 +195,6 @@ class RankedProduct(BaseModel):
 
 def _clean(value: str) -> str:
     return _WHITESPACE.sub(" ", value).strip()
-
-
-def _currency(value: str) -> str | None:
-    """The currency a listing named, as the code the rest of the run compares by
-    (ADR-0043).
-    """
-    code = _clean(value).upper()
-    return _CURRENCY_ALIASES.get(code, code) or None
 
 
 def distinct_quotes(values: Iterable[Opinion]) -> list[Opinion]:

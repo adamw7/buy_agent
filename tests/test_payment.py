@@ -16,14 +16,13 @@ import pytest
 from buy_agent import mandates, payment
 from buy_agent.config import AgentConfig
 from buy_agent.models import Product
+from buy_agent.money import amount_label
 from buy_agent.payment import (
     Cart,
     PaymentError,
     RailUnreachableError,
-    amount_label,
     cart_for,
     merchant_for,
-    minor_units,
     terms_for,
     pay_for,
     unattended,
@@ -33,39 +32,6 @@ from tests.conftest import enrolled_key, needs_ap2, open_mandate, payable_produc
 SONY = payable_product(rating=4.6, review_count=1200)
 
 BOSE = Product(name="Bose QC Ultra", price=379.0, currency="USD", url="https://x.example/b")
-
-
-# -- minor units ---------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("price", "currency", "expected"),
-    [
-        (329.99, "USD", 32999),
-        # The reason this goes through Decimal: 19.99 * 100 is
-        # 1998.9999999999998, and a payment is not a place to truncate.
-        (19.99, "EUR", 1999),
-        (0.1 + 0.2, "USD", 30),
-        # Half up, which is the rounding a price tag implies.
-        (1.005, "USD", 101),
-        # Currencies that are not counted in hundredths, which is the whole
-        # reason the exponent is looked up rather than assumed.
-        (4980.0, "JPY", 4980),
-        (12.345, "KWD", 12345),
-        # A currency nothing knows falls back to two places, which is what all
-        # but two dozen of them use.
-        (10.5, "XYZ", 1050),
-    ],
-)
-def test_a_price_becomes_the_currencys_smallest_unit(
-    price: float, currency: str, expected: int
-) -> None:
-    assert minor_units(price, currency) == expected
-
-
-def test_a_price_that_is_not_a_number_is_refused_rather_than_sent() -> None:
-    with pytest.raises(PaymentError, match="not a price"):
-        minor_units(float("nan"), "USD")
 
 
 # -- what may be paid for ------------------------------------------------------
@@ -134,6 +100,27 @@ def test_what_a_purchase_would_be_for_is_asked_the_same_way_as_whether() -> None
 
     assert terms_for(bare, "USD") == ((329.99, "USD"), None)
     assert bare.currency is None
+
+
+def test_a_figure_the_cart_cannot_count_is_refused_as_a_payment_would_be() -> None:
+    """``money.minor_units`` raises a ``ValueError``, knowing nothing about who is
+    being paid; the refusal a shopper sees is this module's, and it names the field
+    the form marks (ADR-0033).
+
+    Not a defensive catch: ``Product`` refuses an infinite price at the door, but a
+    *finite* 1e308 is a product pydantic builds and ``_check`` passes, and scaling it
+    into minor units overflows the decimal context. Left untranslated it would reach
+    ``pay_now``, which catches ``PaymentError`` and not ``ValueError``, and the
+    browser would get a 500 for a number.
+    """
+    with pytest.raises(PaymentError, match="not a price") as excinfo:
+        cart_for(
+            Product(name="Odd", price=1e308, currency="USD", url="https://x.example/o"),
+            [SONY],
+            AgentConfig(pay=True),
+        )
+
+    assert excinfo.value.field == "products"
 
 
 def test_every_surface_says_an_amount_the_same_way() -> None:

@@ -62,6 +62,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0051](0051-bound-the-wait-on-a-model-call.md) | Bound the wait on a model call, and ask once | Accepted |
 | [0052](0052-cap-the-cache-by-size-as-well-as-age.md) | Cap the cache by size as well as age | Accepted |
 | [0053](0053-ask-again-when-a-server-says-to-come-back.md) | Ask again when a server says to come back, with a clock that is handed in | Accepted |
+| [0054](0054-hold-the-currency-tables-in-one-module.md) | Hold every currency table in one module | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written
