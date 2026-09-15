@@ -65,6 +65,7 @@ class Provider:
     base_url: str
     api_key: str
     takes_num_ctx: bool
+    takes_cpu_only: bool
     chat_model: Callable[[AgentConfig], ChatModel]
     installed: Callable[[AgentConfig], list[InstalledModel]]
     transport_errors: tuple[type[BaseException], ...]
@@ -80,6 +81,7 @@ class _OllamaChat:
     temperature: float
     num_ctx: int | None
     reasoning: bool | None
+    cpu_only: bool
 
     def answer(self, messages: Sequence[Message], schema: type[SchemaT]) -> SchemaT:
         """One chat call, read back as ``schema``."""
@@ -88,6 +90,11 @@ class _OllamaChat:
         # a null in the options is not that (ADR-0019).
         if self.num_ctx is not None:
             options["num_ctx"] = self.num_ctx
+        # Sent only when it was asked for, for the same reason: no layers on the GPU is
+        # an instruction, and "however many you would have offloaded" is the absence of
+        # one rather than a number to send.
+        if self.cpu_only:
+            options["num_gpu"] = 0
         response = self.client.chat(
             model=self.model,
             messages=list(messages),
@@ -110,6 +117,7 @@ def _ollama_chat_model(config: AgentConfig) -> ChatModel:
         temperature=config.temperature,
         num_ctx=config.num_ctx,
         reasoning=config.reasoning,
+        cpu_only=config.cpu_only,
     )
 
 
@@ -354,6 +362,9 @@ OLLAMA = Provider(
     base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
     api_key="",
     takes_num_ctx=True,
+    # Ollama decides per request how much of the model goes to the GPU, so "none of it"
+    # is a thing one run can ask for.
+    takes_cpu_only=True,
     chat_model=_ollama_chat_model,
     installed=_ollama_installed,
     # Both halves are load-bearing, the ollama client converting exactly one of its
@@ -373,6 +384,9 @@ VLLM = Provider(
     base_url=os.getenv("VLLM_HOST", "http://localhost:8000/v1"),
     api_key=os.getenv("VLLM_API_KEY", ""),
     takes_num_ctx=False,
+    # vLLM picks its device when it starts (``--device``), exactly as it fixes its
+    # window there, so a run has nothing to say about it.
+    takes_cpu_only=False,
     chat_model=_vllm_chat_model,
     installed=_vllm_installed,
     # ``openai.OpenAIError`` is the root of that client's hierarchy.
@@ -404,6 +418,7 @@ def provider_options() -> list[dict[str, object]]:
             "model": server.model,
             "base_url": server.base_url,
             "takes_num_ctx": server.takes_num_ctx,
+            "takes_cpu_only": server.takes_cpu_only,
         }
         for server in PROVIDERS.values()
     ]

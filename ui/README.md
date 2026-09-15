@@ -241,8 +241,9 @@ models. Because the list belongs to one server, editing the address field emits
 `ModelSource`, the provider *and* the address, because a vLLM asked Ollama's
 question answers 404. Changing the provider picker emits the same event after
 filling the model and address fields from that provider's row. `takes_num_ctx`
-on that row is what disables the context field and replaces its note, rather
-than the form testing the provider's name.
+and `takes_cpu_only` on that row are what disable the context field and the
+CPU-only box and replace their notes, rather than the form testing the
+provider's name.
 
 ## Testing it
 

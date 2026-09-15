@@ -187,6 +187,18 @@ def test_context_and_thinking_default_to_the_config(fake_agent) -> None:
     assert config.reasoning is False
 
 
+def test_the_cpu_only_switch_reaches_the_config(fake_agent) -> None:
+    main(["headphones", "--cpu-only"])
+
+    assert fake_agent["config"].cpu_only is True
+
+
+def test_the_cpu_only_switch_defaults_to_the_config_s_own(fake_agent) -> None:
+    main(["headphones"])
+
+    assert fake_agent["config"].cpu_only is AgentConfig().cpu_only
+
+
 def test_a_ctrl_c_exits_with_130(fake_agent) -> None:
     """130 is the shell's convention for "killed by SIGINT"."""
     fake_agent["result"] = KeyboardInterrupt()
@@ -584,6 +596,29 @@ def test_a_context_window_the_provider_takes_is_not_called_out(fake_agent, caplo
     assert "ignored" not in caplog.text
 
 
+def test_a_cpu_only_run_the_provider_ignores_is_called_out(fake_agent, caplog) -> None:
+    """vLLM picks its device with --device when it starts."""
+    with caplog.at_level(logging.WARNING):
+        main(["headphones", "--provider", "vllm", "--cpu-only"])
+
+    assert "--cpu-only is ignored" in caplog.text
+
+
+def test_leaving_the_gpu_alone_is_not_called_out(fake_agent, caplog) -> None:
+    """Only a switch the shopper actually threw is worth a warning."""
+    with caplog.at_level(logging.WARNING):
+        main(["headphones", "--provider", "vllm", "--no-cpu-only"])
+
+    assert "ignored" not in caplog.text
+
+
+def test_a_cpu_only_run_the_provider_takes_is_not_called_out(fake_agent, caplog) -> None:
+    with caplog.at_level(logging.WARNING):
+        main(["headphones", "--cpu-only"])
+
+    assert "ignored" not in caplog.text
+
+
 @pytest.mark.parametrize(
     ("flag", "value"),
     [("--rail", "http"), ("--merchant-url", "https://pay.example"), ("--spend-limit", "250")],
@@ -650,6 +685,8 @@ def test_every_flag_is_documented_in_the_help() -> None:
         "--num-ctx",
         "--think",
         "--no-think",
+        "--cpu-only",
+        "--no-cpu-only",
         "--no-fetch",
         "--json",
         "--verbose",

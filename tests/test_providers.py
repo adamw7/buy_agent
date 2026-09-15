@@ -243,6 +243,7 @@ def test_every_provider_offers_its_defaults_to_the_form() -> None:
         assert options[name]["model"] == server.model
         assert options[name]["base_url"] == server.base_url
         assert options[name]["takes_num_ctx"] == server.takes_num_ctx
+        assert options[name]["takes_cpu_only"] == server.takes_cpu_only
 
 
 def test_the_key_is_the_one_default_the_form_is_never_told() -> None:
@@ -255,6 +256,13 @@ def test_only_one_of_them_takes_the_context_window_per_request() -> None:
     setting for it would be a field that quietly does nothing."""
     assert providers_module.OLLAMA.takes_num_ctx is True
     assert providers_module.VLLM.takes_num_ctx is False
+
+
+def test_only_one_of_them_takes_the_device_per_request() -> None:
+    """vLLM picks its device with --device when it starts, for the reason it fixes
+    its window there: a per-run switch would quietly do nothing."""
+    assert providers_module.OLLAMA.takes_cpu_only is True
+    assert providers_module.VLLM.takes_cpu_only is False
 
 
 # -- building the chat model ---------------------------------------------------
@@ -304,6 +312,21 @@ def test_ollama_is_sent_no_window_when_there_is_none_to_send(chatting) -> None:
     sent = asked(AgentConfig(provider="ollama", num_ctx=None), chatting())
 
     assert "num_ctx" not in sent["options"]
+
+
+def test_ollama_is_told_to_offload_nothing_for_a_cpu_only_run(chatting) -> None:
+    """``num_gpu`` is how many layers go to the card, so none of them is zero."""
+    sent = asked(AgentConfig(provider="ollama", cpu_only=True), chatting())
+
+    assert sent["options"]["num_gpu"] == 0
+
+
+def test_ollama_is_sent_no_device_when_the_card_may_be_used(chatting) -> None:
+    """The absence of the option is "offload whatever you would have", which is not
+    a number this can send -- the same rule the window follows."""
+    sent = asked(AgentConfig(provider="ollama", cpu_only=False), chatting())
+
+    assert "num_gpu" not in sent["options"]
 
 
 def test_ollama_is_asked_to_decode_against_the_schema(chatting) -> None:
@@ -356,6 +379,14 @@ def test_vllm_is_never_sent_the_context_window(completing) -> None:
 
     assert "num_ctx" not in sent["extra_body"]
     assert "num_ctx" not in sent
+
+
+def test_vllm_is_never_told_which_device_to_use(completing) -> None:
+    """Its device is a startup flag, so a per-run switch has nowhere to go."""
+    sent = asked(AgentConfig(provider="vllm", cpu_only=True), completing())
+
+    assert "num_gpu" not in sent["extra_body"]
+    assert "num_gpu" not in sent
 
 
 @pytest.mark.parametrize("reasoning", [True, False])

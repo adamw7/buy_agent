@@ -88,6 +88,9 @@ export interface ProviderOption {
   model: string;
   base_url: string;
   takes_num_ctx: boolean;
+  /** Whether keeping the model off the GPU is something one run can ask for, or a
+   *  choice the server made when it started. */
+  takes_cpu_only: boolean;
 }
 
 /** What one number field may hold, as `config.LIMITS` declares it. */
@@ -133,6 +136,8 @@ export interface AgentDefaults {
   /** The longest one answer may take, in seconds. */
   model_timeout: number;
   think: boolean | null;
+  /** Whether to keep the model off the GPU entirely. */
+  cpu_only: boolean;
   results: number;
   top: number;
   /** The shopper's own bounds, `null` for the bound nobody set -- which is the
@@ -224,6 +229,9 @@ export interface SearchOptions {
   model_timeout?: number | null;
   /** Two-valued: the tri-state's `null` cannot be sent -- see `Thinking`. */
   think?: boolean;
+  /** Left out where the chosen server fixes its own device, the way an off number
+   *  box is: a switch nothing reads is not a setting this run had. */
+  cpu_only?: boolean;
   fetch?: boolean;
 }
 

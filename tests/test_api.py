@@ -97,6 +97,7 @@ def test_options_reach_the_config() -> None:
             "num_ctx": 8192,
             "model_timeout": 45,
             "think": False,
+            "cpu_only": True,
             "fetch": False,
             "sort_by": "price",
         }
@@ -109,6 +110,7 @@ def test_options_reach_the_config() -> None:
     assert config.num_ctx == 8192
     assert config.model_timeout == 45.0
     assert config.reasoning is False
+    assert config.cpu_only is True
     assert config.fetch_pages is False
     assert sort_by == "price"
 
@@ -215,6 +217,13 @@ def test_a_blank_field_means_unset_not_zero(blank: str) -> None:
     assert config.reasoning is defaults.reasoning
 
 
+def test_a_blank_device_switch_leaves_the_run_where_the_server_puts_it() -> None:
+    """An unticked box and an absent key are the same answer: the default (ADR-0012)."""
+    config, _ = parse_options({"cpu_only": ""})
+
+    assert config.cpu_only is AgentConfig().cpu_only
+
+
 def test_a_native_json_boolean_is_taken_as_it_is() -> None:
     """A JSON body carries real booleans; only a query string turns them into text."""
     config, _ = parse_options({"fetch": False, "think": True})
@@ -288,6 +297,7 @@ def test_one_step_outside_a_range_is_rejected(data: dict) -> None:
         ({"temperature": 2.5}, "temperature must be between 0 and 2; got 2.5."),
         ({"temperature": "hot"}, "temperature must be a number; got 'hot'."),
         ({"think": "maybe"}, "think must be true or false; got 'maybe'."),
+        ({"cpu_only": "sometimes"}, "cpu_only must be true or false; got 'sometimes'."),
         ({"sort_by": "cheapness"}, "sort_by must be one of score, price, rating; got 'cheapness'."),
         ({"provider": "llama.cpp"}, "provider must be one of ollama, vllm; got 'llama.cpp'."),
     ],
@@ -336,6 +346,7 @@ def test_the_rejection_names_the_field() -> None:
         ({"temperature": 9}, "temperature"),
         ({"num_ctx": "wide"}, "num_ctx"),
         ({"think": "maybe"}, "think"),
+        ({"cpu_only": "sometimes"}, "cpu_only"),
         ({"fetch": "sometimes"}, "fetch"),
         ({"sort_by": "cheapness"}, "sort_by"),
         ({"provider": "llama.cpp"}, "provider"),
@@ -781,6 +792,7 @@ def test_defaults_payload_matches_the_config() -> None:
     assert payload["model"] == defaults.model
     assert payload["results"] == defaults.num_products
     assert payload["top"] == defaults.top_n
+    assert payload["cpu_only"] == defaults.cpu_only
     assert payload["sort_options"] == ["score", "price", "rating"]
     # One text field holding all of them, which is what the form sends back.
     assert payload["sources"] == ""
@@ -811,6 +823,15 @@ def test_the_defaults_say_which_providers_take_a_context_window() -> None:
 
     assert options["ollama"]["takes_num_ctx"] is True
     assert options["vllm"]["takes_num_ctx"] is False
+
+
+def test_the_defaults_say_which_providers_can_be_kept_off_the_gpu() -> None:
+    """The form disables that box for the one that cannot, rather than offering a
+    switch vLLM settled when it started."""
+    options = {option["name"]: option for option in defaults_payload()["provider_options"]}
+
+    assert options["ollama"]["takes_cpu_only"] is True
+    assert options["vllm"]["takes_cpu_only"] is False
 
 
 def test_installed_models_lists_what_ollama_has(monkeypatch) -> None:

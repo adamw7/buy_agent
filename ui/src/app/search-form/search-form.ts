@@ -120,6 +120,7 @@ export class SearchForm {
   protected readonly numCtx = signal<number | null>(null);
   protected readonly modelTimeout = signal<number | null>(null);
   protected readonly thinking = signal<Thinking>('off');
+  protected readonly cpuOnly = signal(false);
   protected readonly fetchPages = signal(true);
   // Paying, and who through.
   protected readonly pay = signal(false);
@@ -170,6 +171,9 @@ export class SearchForm {
     numCtx: setting(this.numCtx, (d) => d.num_ctx, asNumberOrNull),
     modelTimeout: setting(this.modelTimeout, (d) => d.model_timeout, asNumberOrNull),
     thinking: setting(this.thinking, (d) => toThinking(d.think), asThinking),
+    // A standing answer about this machine -- whether its card is to be left alone --
+    // so it is remembered like the rest.
+    cpuOnly: setting(this.cpuOnly, (d) => d.cpu_only, asBoolean),
     fetchPages: setting(this.fetchPages, (d) => d.fetch, asBoolean),
     // Checked against the rails this server offers, for the reason `provider` is:
     // a name remembered by a browser and since dropped leaves the picker matching
@@ -222,6 +226,16 @@ export class SearchForm {
 
   /** Whether the context window is a per-run setting at all. */
   protected readonly takesNumCtx = computed(() => this.chosenProvider()?.takes_num_ctx ?? true);
+
+  /** Whether keeping the model off the GPU is a per-run setting at all. */
+  protected readonly takesCpuOnly = computed(() => this.chosenProvider()?.takes_cpu_only ?? true);
+
+  /** What the box says under it: the trade, or why this server is not asked. */
+  protected readonly cpuOnlyHint = computed(() =>
+    this.takesCpuOnly()
+      ? 'Slower, but it leaves the card free and runs a model too large to fit on it.'
+      : `${this.providerLabel()} is started on the device it serves from, so this is not a per-run setting there.`,
+  );
 
   /** Cleared, the field means "whatever the server defaults to" -- so name it. */
   protected readonly numCtxHint = computed(() => {
@@ -440,6 +454,9 @@ export class SearchForm {
       sources: this.sources().trim(),
       sort_by: this.sortBy(),
       think: fromThinking(this.thinking()),
+      // Left out where the server chose its own device, the way an off number box is:
+      // a switch that run cannot honour is not a setting it had.
+      cpu_only: this.takesCpuOnly() ? this.cpuOnly() : undefined,
       fetch: this.fetchPages(),
       pay: this.pay(),
       rail: this.rail(),

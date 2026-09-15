@@ -194,10 +194,17 @@ only half of what has to fit, the JSON for ten products the other (ADR-0050). A
 model that cannot think ignores both; one that wants its own behaviour back is
 given `num_ctx=None, reasoning=None`, reachable from neither front end
 (ADR-0019).
-`num_ctx` is the one setting the two providers do not share -- vLLM fixes its
-window with `--max-model-len` at startup, so `Provider.takes_num_ctx` is false
-there, the value is not sent, and both front ends say so rather than accepting a
-number nothing reads. `reasoning` *is* shared: Ollama's `think`, vLLM's
+`num_ctx` and `cpu_only` are the two settings the providers do not share, and
+they are the same shape: vLLM fixes its window with `--max-model-len` at startup
+and picks its device with `--device` there, so `Provider.takes_num_ctx` and
+`Provider.takes_cpu_only` are both false for it, neither value is sent, and both
+front ends say so rather than accepting a setting nothing reads. `cpu_only` is
+Ollama's `num_gpu: 0` -- no layers on the card -- sent only when it was asked
+for, `False` meaning "offload whatever you would have" rather than a number to
+send, exactly as `num_ctx`'s `None` does. It is deliberately not in the
+fingerprint a remembered answer is filed under, for `model_timeout`'s reason:
+*where* a run computed an answer decides nothing about what the model said.
+`reasoning` *is* shared: Ollama's `think`, vLLM's
 `chat_template_kwargs.enable_thinking`. So is `model_timeout`, the longest one
 question may take: both rows set it on the client they build and neither asks
 twice -- the OpenAI client is given `max_retries=0`, a client retrying behind the
@@ -410,7 +417,7 @@ was ever held to.
   `base_url`, `api_key`, from its own environment variables) beside how it is
   talked to (the client, how it declares a schema, the listing, the transport
   errors meaning "not there", the sentence that failure carries) plus
-  `takes_num_ctx` (ADR-0029). The listing answers `InstalledModel`s rather than
+  `takes_num_ctx` and `takes_cpu_only` (ADR-0029). The listing answers `InstalledModel`s rather than
   names, since what a server holds and what a run can use are the same question
   only on vLLM: Ollama's `installed` asks `ollama show` per tag, so an
   embedding-only pull is marked in the picker rather than offered (ADR-0032),
@@ -1024,8 +1031,8 @@ rules a change to them may not break.
   cannot answer a prompt (ADR-0032). `ModelOption.note` is filled from Python's
   `completion`: the browser writes the suffix, not the judgement. `refresh`
   carries a `ModelSource`, provider and address both, a vLLM asked Ollama's
-  question answering 404, and `takes_num_ctx` off the provider's row is what
-  disables the context field.
+  question answering 404, and `takes_num_ctx` and `takes_cpu_only` off the
+  provider's row are what disable the context field and the CPU-only box.
 - **A mark opens the panel it is in.** The form opens Settings itself the first
   time `flagged()` is non-zero, on the marks changing and not on the panel's
   state, so shutting it again stays the reader's to do.

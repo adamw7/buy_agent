@@ -70,6 +70,7 @@ class AgentConfig:
     num_ctx: int | None = 16384
     model_timeout: float = 600.0
     reasoning: bool | None = False
+    cpu_only: bool = False
     search_results: int = 10
     num_products: int = 10
     top_n: int = 3

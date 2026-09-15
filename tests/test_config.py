@@ -147,6 +147,11 @@ def test_context_and_thinking_can_still_be_left_to_the_model() -> None:
     assert config.reasoning is None
 
 
+def test_a_run_uses_whatever_the_model_server_offers_it_unless_told_otherwise() -> None:
+    """Nothing about where the model runs changes without somebody asking."""
+    assert AgentConfig().cpu_only is False
+
+
 def test_one_question_has_a_longest_it_may_take() -> None:
     """Ten minutes, which is what the OpenAI client already gave a vLLM and what
     Ollama gave nobody: its client disables httpx's timeout unless told one, so a

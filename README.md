@@ -111,6 +111,7 @@ python -m buy_agent "headphones" --max-price 200 --min-rating 4.5 --min-reviews 
 | `--num-ctx` | `16384` | Context window in tokens (Ollama only) |
 | `--model-timeout` | `600` | Seconds to wait for one answer; asked once, so this is the whole wait |
 | `--think` / `--no-think` | `--no-think` | Force thinking mode on or off |
+| `--cpu-only` / `--no-cpu-only` | `--no-cpu-only` | Keep the model off the GPU entirely (Ollama only) |
 | `--no-fetch` | off | Use search snippets only, without opening the result pages |
 | `--json` | -- | Also write every result to a JSON file |
 | `-v` | off | Debug logging |
@@ -174,11 +175,12 @@ differences are real, and none is hidden:
 - **A vLLM serves one model, chosen when it started.** The Model dropdown has
   one entry, and asking for a name it does not have is answered with what it
   *is* serving and how to restart it -- there is nothing to pull.
-- **`--num-ctx` is Ollama's.** vLLM fixes its window with `--max-model-len` at
-  startup, so the flag is not sent there and the form disables the field rather
-  than taking a number it would ignore. `--think` / `--no-think` works on both:
-  it becomes `enable_thinking`, which is what the chat templates of the thinking
-  models vLLM serves read.
+- **`--num-ctx` and `--cpu-only` are Ollama's.** vLLM fixes its window with
+  `--max-model-len` at startup and picks its device with `--device` there, so
+  neither is sent to it and the form disables both rather than taking a setting
+  it would ignore. `--think` / `--no-think` works on both: it becomes
+  `enable_thinking`, which is what the chat templates of the thinking models
+  vLLM serves read.
 - **A key, if there is one.** A vLLM started with `--api-key` wants it back;
   `$env:VLLM_API_KEY` is how, and deliberately the only how -- no flag, so it
   stays out of your shell history and out of what the web API hands the browser.
