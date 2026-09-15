@@ -403,7 +403,7 @@ was ever held to.
 | `api.py` | Request options in, ranked products out -- the web-facing half worth testing |
 | `server.py` | A stdlib HTTP server: the JSON API, the event stream, the built UI |
 
-### Fifteen conventions
+### Sixteen conventions
 
 - **A model server is one row in one table, reached one way.**
   `providers.PROVIDERS` holds each server whole -- its defaults (`model`,

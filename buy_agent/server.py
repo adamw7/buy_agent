@@ -46,6 +46,16 @@ logger = logging.getLogger(__name__)
 #: Where ``ng build`` leaves the app, relative to the repository root.
 DEFAULT_UI_DIR = Path(__file__).resolve().parent.parent / "ui" / "dist" / "ui" / "browser"
 
+#: Where the server listens when nothing says otherwise: this machine only, on the port
+#: the ``Dockerfile``'s ``EXPOSE`` and the URL ``scripts/start.ps1`` opens a browser at
+#: are both held to by a convention test. Each was written out three times in here too
+#: -- in ``create_server``'s signature, as the flag's default, and again in the sentence
+#: that flag's help prints -- and that last copy is the one nothing was holding:
+#: ``test_every_flag_that_takes_a_value_names_the_default_it_has`` reads that the help
+#: says "default" and cannot read that it says the right one.
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8000
+
 #: How long the SSE loop waits for a log line before sending a ``ping``, so a quiet
 #: stream is not timed out by a browser or a proxy.
 _KEEPALIVE_SECONDS = 15.0
@@ -147,6 +157,16 @@ def _unexpected(exc: Exception) -> dict[str, Any]:
     things about the same kind of trouble.
     """
     return {"error": f"Unexpected failure: {exc}"}
+
+
+def _no_such_endpoint(path: str) -> dict[str, Any]:
+    """The body a path under ``/api`` that routes nowhere is answered with.
+
+    Written once for the reason above: ``do_GET`` and ``do_POST`` each have a table
+    of endpoints and each falls through it, and a 404 spelt differently either side
+    of the verb reads as two different kinds of missing.
+    """
+    return {"error": f"No such endpoint: {path}"}
 
 
 class _Stopped(Exception):
@@ -320,7 +340,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
                 # question was answered (ADR-0033).
                 self._send_json(200, sources_payload(params.get("sources", "")))
             elif url.path.startswith("/api/"):
-                self._send_json(404, {"error": f"No such endpoint: {url.path}"})
+                self._send_json(404, _no_such_endpoint(url.path))
             else:
                 self._serve_static(url.path)
         # A 500 beats a dropped connection: an exception out of a handler escapes to
@@ -348,7 +368,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         }
         run = endpoints.get(url.path)
         if run is None:
-            self._send_json(404, {"error": f"No such endpoint: {url.path}"})
+            self._send_json(404, _no_such_endpoint(url.path))
             return
         try:
             payload = self._read_json()
@@ -679,8 +699,8 @@ def allowed_hosts_for(host: str, extra: Sequence[str] = ()) -> frozenset[str] | 
 
 
 def create_server(
-    host: str = "127.0.0.1",
-    port: int = 8000,
+    host: str = DEFAULT_HOST,
+    port: int = DEFAULT_PORT,
     *,
     ui_dir: Path | None = None,
     agent_factory: AgentFactory = BuyAgent,
@@ -707,16 +727,16 @@ def build_parser() -> argparse.ArgumentParser:
     # ``Host`` check off (ADR-0018).
     parser.add_argument(
         "--host",
-        default="127.0.0.1",
-        help="Interface to bind (default: 127.0.0.1, this machine only). Binding "
+        default=DEFAULT_HOST,
+        help=f"Interface to bind (default: {DEFAULT_HOST}, this machine only). Binding "
         "anywhere else answers any Host header unless --allowed-host names one.",
     )
     parser.add_argument(
         "--port",
         type=int,
-        default=8000,
-        help="Port to bind (default: 8000; 0 takes whichever one is free and says "
-        "which at startup).",
+        default=DEFAULT_PORT,
+        help=f"Port to bind (default: {DEFAULT_PORT}; 0 takes whichever one is free "
+        "and says which at startup).",
     )
     parser.add_argument(
         "--ui-dir",

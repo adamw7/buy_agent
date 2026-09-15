@@ -2171,6 +2171,41 @@ def test_every_skill_is_one_the_project_documents() -> None:
         assert f"`{path.parent.name}`" in described, f"CLAUDE.md does not name {path.parent.name}"
 
 
+#: How CLAUDE.md counts its own conventions: a number spelt out, in the heading over
+#: them. Only as far as anybody would write in a heading -- a list past this has
+#: stopped being one somebody reads in order, which is the next rule rather than this
+#: one.
+_NUMBER_WORDS = {
+    "Ten": 10, "Eleven": 11, "Twelve": 12, "Thirteen": 13, "Fourteen": 14,
+    "Fifteen": 15, "Sixteen": 16, "Seventeen": 17, "Eighteen": 18, "Nineteen": 19,
+    "Twenty": 20,
+}
+
+
+def test_the_conventions_heading_counts_the_conventions_under_it() -> None:
+    """CLAUDE.md numbers that section in its heading, and the number is the one
+    thing there no reader can check without counting.
+
+    It had already drifted: the report's ordering convention arrived as a
+    sixteenth bullet under a heading that still said fifteen, and stayed wrong
+    through six merges, because nothing anywhere counts them. A heading that
+    miscounts is the mildest possible failure and exactly the one this file exists
+    for -- a list said to be one length and written at another, with no test in
+    either suite able to see it.
+    """
+    written = (_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+
+    heading = re.search(r"^### (\w+) conventions$", written, re.M)
+    assert heading, "CLAUDE.md no longer heads its conventions with a count"
+    claimed = _NUMBER_WORDS.get(heading.group(1))
+    assert claimed, f"{heading.group(1)!r} is not a number this can read; add it above"
+
+    section = written[heading.end() : written.index("### Failures", heading.end())]
+    assert len(re.findall(r"^- \*\*", section, re.M)) == claimed, (
+        f"CLAUDE.md heads that section {heading.group(1)!r} and lists another number"
+    )
+
+
 # -- what the run says, and where it says it -----------------------------------
 
 #: The methods a logger answers to. ``warn`` is the deprecated spelling and is on
