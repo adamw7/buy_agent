@@ -1204,6 +1204,19 @@ def test_a_rail_that_could_not_be_reached_is_a_502(
     assert excinfo.value.status == 502
 
 
+def test_a_paying_rail_with_no_address_is_refused_before_anything_is_asked() -> None:
+    """The one refusal a config makes that neither door has already made, on the one
+    request that actually pays. The page sends no ``pay`` here, so read off the payload
+    that guard stood down and the empty endpoint reached the rail instead -- a 502
+    naming no address, for a mistake the form can make (ADR-0033)."""
+    with pytest.raises(ApiError) as excinfo:
+        pay_now(paying(rail="http", merchant_url=""))
+
+    assert excinfo.value.status == 400
+    assert excinfo.value.field == "merchant_url"
+    assert "needs an address" in str(excinfo.value)
+
+
 def test_the_spend_limit_travels_with_the_payment() -> None:
     with pytest.raises(ApiError) as excinfo:
         pay_now(paying(spend_limit=100))

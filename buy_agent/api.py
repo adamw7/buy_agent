@@ -232,7 +232,13 @@ def mandate_support() -> bool:
 def pay_now(data: Mapping[str, Any]) -> dict[str, Any]:
     """Buy one product of a finished run, having been shown that it was approved
     (ADR-0035, ADR-0012, ADR-0046)."""
-    config, _sort_by = parse_options(data)
+    # A request to this endpoint is a paying run whatever the payload says, and the page
+    # sends no ``pay`` here -- it is asking for a purchase, not describing one. Read off
+    # the payload instead, ``pay`` came back ``False`` and took ``AgentConfig``'s refusal
+    # of a paying rail with no address down with it: the endpoint the rail was about to
+    # be asked for a price at was empty, and the failure arrived as a 502 naming no
+    # address rather than as the 400 marking the box (ADR-0033).
+    config, _sort_by = parse_options({**data, "pay": True})
     products = _read_products(data)
     if not products:
         raise ApiError("There are no products to pay for.", field="products")
