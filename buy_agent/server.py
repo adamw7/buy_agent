@@ -8,6 +8,7 @@ import json
 import logging
 import mimetypes
 import queue
+import socket
 import sys
 import threading
 import time
@@ -656,12 +657,55 @@ def _hostname(netloc: str) -> str:
     return host.partition(":")[0]
 
 
+def _bound_host(address: str) -> str:
+    """The host out of an address somebody typed at the command line, lowercased.
+
+    Not the same reading as :func:`_hostname`, which is handed what a browser wrote: an
+    address bar brackets an IPv6 literal and ``--host`` does not, so the colons in a bare
+    ``::1`` are the address rather than a port separator. Split at the first of them it
+    named nothing at all -- which is what ``_LOOPBACK_HOSTS`` failed to match, so a bind
+    to IPv6 loopback read as a public interface and turned the ``Host`` check off
+    (ADR-0018), and an ``--allowed-host`` naming one allowed ``""``: the very thing a
+    request with no ``Host`` header at all comes to.
+    """
+    host = address.strip().lower()
+    if host.startswith("["):
+        return _hostname(host)
+    # One colon is ``host:port``; more than one is an IPv6 literal written bare, which
+    # carries no port for the same reason it needs the brackets when it does.
+    return host if host.count(":") > 1 else host.partition(":")[0]
+
+
 def allowed_hosts_for(host: str, extra: Sequence[str] = ()) -> frozenset[str] | None:
     """Which ``Host`` headers a server bound to ``host`` should answer."""
-    named = frozenset(_hostname(entry) for entry in extra if entry.strip())
-    if _hostname(host) not in _LOOPBACK_HOSTS:
+    # Whatever names nothing is dropped rather than admitted: a blank is what a request
+    # sending no ``Host`` arrives as, and an entry that cannot be read is not the host
+    # somebody meant to name.
+    named = frozenset(filter(None, map(_bound_host, extra)))
+    if _bound_host(host) not in _LOOPBACK_HOSTS:
         return named or None
     return _LOOPBACK_HOSTS | named
+
+
+def _family_for(host: str) -> int:
+    """Which socket family an address has to be bound on.
+
+    A colon in a bind address is an IPv6 literal -- ``--host`` carries no port, the port
+    being ``--port``. Told apart here rather than left to the base class, which is
+    ``AF_INET`` and nothing else: every IPv6 bind failed outright, ``::1`` included,
+    which is the address :data:`_LOOPBACK_HOSTS` names and :func:`_browsable_url` is
+    written to print.
+    """
+    return socket.AF_INET6 if ":" in host else socket.AF_INET
+
+
+class _HTTPServer(ThreadingHTTPServer):
+    """``ThreadingHTTPServer`` over whichever family the address it is given needs."""
+
+    def __init__(self, server_address: tuple[str, int], handler: Any) -> None:
+        # Set before the base class, which reads it to open the socket.
+        self.address_family = _family_for(server_address[0])
+        super().__init__(server_address, handler)
 
 
 def create_server(
@@ -679,7 +723,7 @@ def create_server(
         agent_factory=agent_factory,
         allowed_hosts=allowed_hosts,
     )
-    return ThreadingHTTPServer((host, port), handler)  # type: ignore[arg-type]
+    return _HTTPServer((host, port), handler)
 
 
 def build_parser() -> argparse.ArgumentParser:
