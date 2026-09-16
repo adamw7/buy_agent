@@ -794,6 +794,39 @@ def test_an_ollama_serving_nothing_that_answers_reports_none(pulled) -> None:
     assert "installed: none" in message
 
 
+def test_a_404_from_something_that_is_not_ollama_is_not_a_missing_tag(pulled) -> None:
+    """The remedy names a *model*, so it needs Ollama's own answer and not a 404 from
+    whatever else is listening there -- a vLLM, this project's own server on :8000. Read
+    off the text alone, "404 Not Found" took the pull branch, and `ollama pull` against
+    the real Ollama succeeds and changes nothing, the address being what is wrong."""
+    pulled(["gemma4:12b"])
+    absent = httpx.HTTPStatusError(
+        "Client error '404 Not Found' for url 'http://localhost:11434/api/tags'",
+        request=httpx.Request("GET", "http://localhost:11434/api/tags"),
+        response=httpx.Response(404),
+    )
+    message = hint(OLLAMA_CONFIG, absent)
+
+    assert "Could not reach Ollama" in message
+    assert "ollama serve" in message
+    assert "ollama pull" not in message
+
+
+def test_a_404_from_something_that_is_not_vllm_is_not_a_model_it_lacks(serving) -> None:
+    """The same rule on the other row: only what the OpenAI client raises for an answer
+    it got says anything about which model is being served."""
+    serving(["Qwen/Qwen3-8B"])
+    absent = httpx.HTTPStatusError(
+        "Client error '404 Not Found' for url 'http://localhost:8000/v1/models'",
+        request=httpx.Request("GET", "http://localhost:8000/v1/models"),
+        response=httpx.Response(404),
+    )
+    message = hint(VLLM_CONFIG, absent)
+
+    assert "Could not reach vLLM" in message
+    assert "is not serving" not in message
+
+
 # -- what counts as "the server is not there" ----------------------------------
 
 

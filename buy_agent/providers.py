@@ -186,7 +186,7 @@ def _ollama_capability(client: Client, name: str) -> InstalledModel:
 
 def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
     """Turn an Ollama failure into something the user can act on (ADR-0032)."""
-    lowered = str(exc).lower()
+    lowered = _answered_by(exc, ResponseError)
     if "not found" in lowered:
         return (
             f"Ollama has no model named {config.model!r}. "
@@ -277,7 +277,7 @@ def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
             "Set $VLLM_API_KEY to the key it was started with:  "
             "vllm serve ... --api-key <key>"
         )
-    lowered = detail.lower()
+    lowered = _answered_by(exc, openai.APIStatusError)
     if "does not exist" in lowered or "not found" in lowered:
         return (
             f"vLLM at {config.base_url} is not serving {config.model!r}. "
@@ -286,6 +286,21 @@ def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
             f"with:  vllm serve {config.model}"
         )
     return _unreachable_hint(config, exc, f"vllm serve {config.model}")
+
+
+def _answered_by(exc: Exception, client_error: type[Exception]) -> str:
+    """What the *model server itself* said, lower-cased -- and nothing at all where the
+    failure is not one of its answers.
+
+    A remedy naming a model ("pull it", "serve it") is only right where the thing at
+    that address is the server this row is about, and the way to know is the class the
+    row's own client raises for an answer it got. Read off the text alone, a bare 404
+    from whatever else is listening there says "not found" too -- so an Ollama address
+    pointed at a vLLM, or at this project's own server, was answered with
+    ``ollama pull``, which succeeds against the real Ollama and changes nothing. The
+    address is what is wrong, and :func:`_unreachable_hint` is the sentence that says so.
+    """
+    return str(exc).lower() if isinstance(exc, client_error) else ""
 
 
 def _hint(specific: Hint) -> Hint:

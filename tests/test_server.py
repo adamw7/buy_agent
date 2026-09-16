@@ -35,6 +35,8 @@ from buy_agent.server import (
     _LOOPBACK_HOSTS,
     _SECURITY_HEADERS,
     BuyAgentHandler,
+    _bound_host,
+    _family_for,
     _hostname,
     _relay,
     _workspace_for,
@@ -780,6 +782,66 @@ def test_a_public_bind_answers_any_host_until_one_is_named() -> None:
     assert allowed_hosts_for("192.168.1.5") is None
     assert allowed_hosts_for("192.168.1.5", ["buy.lan:8000"]) == frozenset({"buy.lan"})
     assert allowed_hosts_for("127.0.0.1", ["  "]) == _LOOPBACK_HOSTS
+
+
+def test_an_address_typed_at_the_command_line_is_read_without_its_brackets() -> None:
+    """``--host`` is not a ``Host`` header: an address bar brackets an IPv6 literal and a
+    command line does not, so the colons in a bare ``::1`` are the address rather than a
+    port separator."""
+    assert _bound_host("127.0.0.1") == "127.0.0.1"
+    assert _bound_host("buy.lan:8000") == "buy.lan"
+    assert _bound_host("::1") == "::1"
+    assert _bound_host("::") == "::"
+    assert _bound_host("[::1]") == "::1"
+    assert _bound_host(" LOCALHOST ") == "localhost"
+    assert _bound_host("") == ""
+
+
+def test_the_ipv6_loopback_is_a_loopback_bind_like_any_other() -> None:
+    """Read as a ``Host`` header it split at the first colon and named nothing, so the
+    one address ``_LOOPBACK_HOSTS`` spells out was the one bind classed as public --
+    which turns the ``Host`` check off and says so at startup (ADR-0018)."""
+    assert allowed_hosts_for("::1") == _LOOPBACK_HOSTS
+    assert allowed_hosts_for("::") is None, "every interface is every interface"
+
+
+def test_a_named_host_that_names_nothing_is_dropped_rather_than_allowed() -> None:
+    """An entry that cannot be read comes to ``""``, which is also what a request sending
+    no ``Host`` at all arrives as -- so allowing it inverted the flag: the host somebody
+    named was refused and the one nobody named was let in."""
+    assert allowed_hosts_for("0.0.0.0", ["::1"]) == frozenset({"::1"})
+    assert allowed_hosts_for("0.0.0.0", [":8000"]) is None
+    assert "" not in (allowed_hosts_for("127.0.0.1", [":8000"]) or frozenset())
+
+
+def test_a_request_sending_no_host_is_refused_by_a_server_that_names_one(
+    tmp_path: Path,
+) -> None:
+    """The other half of that, over the wire: urllib will not build a request without a
+    ``Host``, so this one is spoken by hand."""
+    (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
+
+    with serving(tmp_path, allowed_hosts=allowed_hosts_for("0.0.0.0", ["::1"])) as base:
+        assert "403" in raw(base, b"GET /api/config HTTP/1.0\r\n\r\n").splitlines()[0]
+
+
+def test_an_ipv6_address_is_bound_on_the_family_it_needs() -> None:
+    """``ThreadingHTTPServer`` is ``AF_INET`` and nothing else, so every IPv6 bind failed
+    outright -- including the ``::1`` ``_browsable_url`` is written to print."""
+    assert _family_for("127.0.0.1") is socket.AF_INET
+    assert _family_for("0.0.0.0") is socket.AF_INET
+    assert _family_for("::1") is socket.AF_INET6
+    assert _family_for("::") is socket.AF_INET6
+
+
+def test_the_server_it_builds_is_bound_on_that_family(tmp_path: Path) -> None:
+    """Read off the socket the server opened, not off the class: the family is chosen per
+    instance, where the base class holds one for every server there is."""
+    built = create_server("127.0.0.1", 0, ui_dir=tmp_path)
+    try:
+        assert built.socket.family is socket.AF_INET
+    finally:
+        built.server_close()
 
 
 # -- the event stream ----------------------------------------------------------

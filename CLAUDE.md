@@ -436,7 +436,13 @@ was ever held to.
   form; a hint sentence both servers would write goes in `_too_slow_hint` or
   `_unreachable_hint`, and a *failure* both would answer with one of those -- an
   unreadable answer, a timeout -- is decided once in `_hint`, above the rows,
-  rather than on each of them (ADR-0028, ADR-0029). A row's client holds a connection
+  rather than on each of them (ADR-0028, ADR-0029). A hint that names a *model* --
+  pull it, serve it -- needs the row's own client to have raised it, which is what
+  `_answered_by` asks: read off the message alone, a bare 404 from whatever else is
+  listening at that address says "not found" too, and an Ollama address pointed at a
+  vLLM was answered with `ollama pull`, which succeeds against the real Ollama and
+  changes nothing. The address is what is wrong, and `_unreachable_hint` says so.
+  A row's client holds a connection
   pool, and letting go of it is the row's own too: each chat model has a
   `close`, `chat.release` is who asks for one where there is one to ask, and
   `BuyAgent.close` is when -- so both front doors build one agent per request
@@ -968,6 +974,15 @@ everything else to the built Angular app, unknown paths falling back to
   run whose answer it could never read; the last stops DNS rebinding, which is
   how that page would get to read one. `--allowed-host` names a further host; a
   bind to a public interface turns the `Host` check off and says so at startup.
+  Both of those read an address somebody typed, which is not the spelling a browser
+  writes, so they go through `_bound_host` and not `_hostname`: an address bar
+  brackets an IPv6 literal and a command line does not, and split at the first colon
+  `::1` named nothing -- so the one loopback address `_LOOPBACK_HOSTS` spells out was
+  the one bind classed as public, and an `--allowed-host` naming one allowed `""`,
+  which is what a request sending no `Host` at all arrives as. Whatever names nothing
+  is dropped rather than allowed. The family is that same address read once more:
+  `_family_for` binds an IPv6 one on `AF_INET6`, `ThreadingHTTPServer` being `AF_INET`
+  and nothing else and every IPv6 bind having failed outright.
 - **Every request is answered, including the ones that go wrong.** `do_GET` and
   `do_POST` each end in a catch-all that logs and sends a 500, because an
   exception out of a handler escapes to socketserver, which closes the socket
