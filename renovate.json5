@@ -42,8 +42,12 @@
       // of these files against `ci.yml`, so they are matched by hand rather than
       // left to drift a pull request at a time.
       customType: 'regex',
-      description: 'Node where the testing docs and the start script name it',
-      managerFilePatterns: ['docs/testing.md', 'scripts/start.ps1'],
+      description: 'Node where the docs, the start script and the preflight skill name it',
+      managerFilePatterns: [
+        'docs/testing.md',
+        'scripts/start.ps1',
+        '.claude/skills/preflight/SKILL.md',
+      ],
       matchStrings: ['Node (?<currentValue>\\d+\\.\\d+\\.\\d+)'],
       depNameTemplate: 'node',
       datasourceTemplate: 'node-version',
@@ -51,8 +55,12 @@
     },
     {
       customType: 'regex',
-      description: 'Python where the testing docs and the start script name it',
-      managerFilePatterns: ['docs/testing.md', 'scripts/start.ps1'],
+      description: 'Python where the docs, the start script and the preflight skill name it',
+      managerFilePatterns: [
+        'docs/testing.md',
+        'scripts/start.ps1',
+        '.claude/skills/preflight/SKILL.md',
+      ],
       matchStrings: ['Python (?<currentValue>\\d+\\.\\d+)'],
       depNameTemplate: 'python',
       datasourceTemplate: 'python-version',
@@ -97,16 +105,22 @@
     },
     {
       // Node is pinned in six places: the job in `ci.yml` that builds the UI, the
-      // one in `release.yml`, the build stage of the `Dockerfile`, and the two
-      // files above. `tests/test_conventions.py` asserts all of them agree, so a
-      // pull request moving one is a red run and every occurrence moves together.
+      // one in `release.yml`, the build stage of the `Dockerfile`, and the three
+      // files above -- docs/testing.md, `scripts/start.ps1` and the preflight
+      // skill, which says which toolchain it is the gate for.
+      // `tests/test_conventions.py` asserts all of them agree, so a pull request
+      // moving one is a red run and every occurrence moves together. `CLAUDE.md`
+      // names both pins too and is deliberately not in the list above: the same
+      // pattern would take the `Node 22.22.3+` floor beside them, which is
+      // Angular's minimum and not a version anything here sets up.
       matchDepNames: ['node'],
       groupName: 'Node',
       commitMessageTopic: 'Node',
     },
     {
       // The same, for the Python that `ci.yml`, `integration.yml`,
-      // `mutation.yml`, `release.yml` and the runtime stage of the image set up.
+      // `mutation.yml`, `release.yml` and the runtime stage of the image set up
+      // -- eight places with the three files above.
       matchDepNames: ['python'],
       groupName: 'Python',
       commitMessageTopic: 'Python',
