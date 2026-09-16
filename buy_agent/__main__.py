@@ -314,6 +314,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-fetch",
         dest="fetch",
         action="store_false",
+        # Off the config like every other flag's default, rather than argparse's own
+        # implicit ``True``: the two agree today, and this is what keeps them agreeing.
+        default=_DEFAULTS.fetch_pages,
         help="Extract from search snippets only, without opening the result pages "
         "(much faster, but snippets rarely quote a price).",
     )
