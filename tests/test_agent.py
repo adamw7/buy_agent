@@ -1133,6 +1133,35 @@ def test_a_result_from_outside_a_source_never_reaches_the_model(
     # Sony was on the discarded page, so grounding has nothing to back it.
     assert [entry.product.name for entry in ranked] == ["Anker Q30"]
     assert "Ignored 1 result(s) from outside a.com" in caplog.text
+    # The other half of the pair: how many on an ordinary run, which on ``-v``.
+    assert "https://elsewhere.example/sony" not in caplog.text
+
+
+def test_a_result_ignored_for_its_domain_is_named_at_debug(source_search, caplog) -> None:
+    """"Why is the one I had in mind not in there?" -- which ``covers`` refused is the
+    answer, and with no falling back to the wider web (ADR-0027) the count alone leaves
+    an empty report with nothing to argue with."""
+    agent, _, _reached = source_search(
+        {
+            "headphones site:a.com": [
+                _page("Anker Q30", "https://a.com/anker"),
+                _page("Sony XM5", "https://elsewhere.example/sony"),
+            ]
+        },
+        FakeLLM(query=SearchQuery(query="headphones")),
+        sources=parse_sources("a.com"),
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="buy_agent"):
+        agent.run("headphones")
+
+    named = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.DEBUG
+        and "https://elsewhere.example/sony" in record.getMessage()
+    ]
+    assert named, "nothing names the result that was ignored"
 
 
 def test_one_page_found_under_two_sources_is_read_once(source_search) -> None:
