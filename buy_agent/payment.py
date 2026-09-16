@@ -33,7 +33,13 @@ class PaymentError(Exception):
 
 
 class RailUnreachableError(PaymentError):
-    """The counterparty could not be reached, or refused to answer at all."""
+    """The counterparty could not be reached, or answered with nothing an answer can be
+    read out of -- HTML where JSON was asked for, an array rather than an object, a
+    checkout with no signed token in it. The line is drawn at whose failure it is rather
+    than at the transport: all of those are the far end's, so the API answers 502 and
+    the shopper is not sent off to correct a form with nothing wrong with it. A
+    counterparty that understood the request and declined it is the other thing, and
+    stays a plain :class:`PaymentError`."""
 
 
 @dataclass(frozen=True, slots=True)

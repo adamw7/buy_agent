@@ -22,7 +22,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-2114 Python tests and 202 UI tests. Nothing in either suite touches the network
+2125 Python tests and 202 UI tests. Nothing in either suite touches the network
 or a model server: the model is faked through the `llm=` argument of `BuyAgent`
 -- a class with one `answer` method, which is the whole of `chat.ChatModel`,
 both the search backend and the page fetcher are monkeypatched, the two clients
@@ -52,19 +52,19 @@ network; the HTTP rail's transport is patched where `buy_agent.rails` imported
 it. The 31 tests in `integration/` are the exception that proves it, and they
 live outside `testpaths` so a bare `pytest` cannot reach them.
 
-Without that SDK the 73 tests that need it **skip**, the way
+Without that SDK the 74 tests that need it **skip**, the way
 `tests/test_start_script.py` skips where there is no PowerShell: `needs_ap2` in
 `tests/conftest.py` is the marker, and it asks `mandates.available()` once at
 import. `needs_powershell` is the other, and with neither `pwsh` nor
 `powershell` on PATH 13 of the 19 tests in that file sit out. So a machine with
-the SDK and no PowerShell reads `2101 passed, 13 skipped`, and a checkout set up
-with `requirements-dev.txt` alone reads `2028 passed, 86 skipped` rather than 73
+the SDK and no PowerShell reads `2112 passed, 13 skipped`, and a checkout set up
+with `requirements-dev.txt` alone reads `2038 passed, 87 skipped` rather than 74
 failures claiming the project is broken when one optional feature is simply not
 installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide
 anything nothing here is skipped and the coverage floor still has to be met --
-which it cannot be with 73 tests sitting out. Nor is it a way of skipping more
-than that: every one of the 73 really does fail without the SDK, and the marker
+which it cannot be with 74 tests sitting out. Nor is it a way of skipping more
+than that: every one of the 74 really does fail without the SDK, and the marker
 goes on the parametrised case rather than the function where only one case
 needs it.
 
@@ -150,9 +150,12 @@ both front ends hold a number to, and the form taking those off the server
 rather than out of its own markup while sending every key a refusal can name
 (ADR-0033); the two halves of a provider agreeing about which providers exist;
 the payloads `ui/src/app/agent.types.ts` mirrors; the `Dockerfile` agreeing with
-CI and with the server's own defaults; the four workflows agreeing on the
-version of every action they share and on the Python and Node they run; the
-release archive carrying the UI build where the server looks for it; the nightly
+CI and with the server's own defaults, and nothing at the top of the tree
+reaching the build context without a line either copying it or keeping it out;
+the four workflows agreeing on the version of every action they share, on the
+Python and Node they run and on keying a pip cache to every requirements file
+they hand pip; the release archive carrying the UI build where the server looks
+for it; the nightly
 run pulling the model the live tests ask for and leaving its own cap room to
 fail a stopped model first; the decision log agreeing with its own index; the
 checklists in `.claude/skills/` naming files, tests, names and records that are

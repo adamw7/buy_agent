@@ -15,7 +15,7 @@ import httpx
 from lxml import html as lxml_html
 
 from buy_agent.cache import PAGES, DiskCache, open_cache
-from buy_agent.money import SIGNS, WORDS
+from buy_agent.money import SCANNED_CODES, SIGNS, WORDS
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
@@ -34,13 +34,16 @@ USER_AGENT = (
 #: this module's: a currency it can place and this one cannot see is every price on a
 #: shop dropped before the model ever sees it, which is what ``--region pl-pl`` was
 #: until ``zł`` was added to one table and not the other (ADR-0043, ADR-0054).
-_CURRENCY_WORDS = "|".join(WORDS)
+#: Which case each half is read in is that module's to say too, and the halves differ:
+#: the words are folded, since a page writes "129 dollars" and "129 Dollars" alike, and
+#: the codes are read as written, since it writes "129 TRY" and never "129 try" -- while
+#: "try" is an English word, and folded in it made "Try 3 of these" a price line.
+_CURRENCY = "(?i:" + "|".join(WORDS) + ")|" + "|".join(SCANNED_CODES)
 
 _PRICE = re.compile(
     r"[" + re.escape(SIGNS) + r"]\s?\d"
-    r"|\b(?:" + _CURRENCY_WORDS + r")\b\s*\d"
-    r"|\d\s*(?:" + _CURRENCY_WORDS + r")\b",
-    re.IGNORECASE,
+    r"|\b(?:" + _CURRENCY + r")\b\s*\d"
+    r"|\d\s*(?:" + _CURRENCY + r")\b",
 )
 #: A hyphen counts where a space does: "a 4.5-star average" is how a roundup writes what
 #: a shop writes "4.5 stars", and keeping one form only let a page's punctuation decide

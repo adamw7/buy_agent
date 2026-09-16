@@ -293,10 +293,29 @@ def test_one_unreachable_page_does_not_lose_the_others(monkeypatch) -> None:
         "Sony WH-CH720N sells for 349 dollars",
         "Sony WH-CH720N is yours for 1,299 euros",
         "Sony WH-CH720N kostar 8999 TRY idag",
+        # A word spelling is folded, since a page capitalises one wherever it likes --
+        # in a heading, at the start of a sentence, or not at all.
+        "Sony WH-CH720N sells for 349 Dollars",
+        "Sony WH-CH720N za 599 ZŁ dzisiaj",
     ],
 )
 def test_prices_and_ratings_are_recognised_in_several_shapes(line: str) -> None:
     assert condense(line, max_chars=200) == line
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Try 3 of these before you commit to one pair",
+        "Try 2 sizes up if you have wide feet, reviewers say",
+    ],
+)
+def test_an_english_word_that_is_also_a_code_is_not_a_price(line: str) -> None:
+    """The other half of ``money``'s split, exercised rather than declared: the codes
+    are read in their own case alone, so "TRY" is the Turkish lira and "Try" opens a
+    sentence. Folded together, a roundup's advice crowded real prices out of
+    ``page_chars``."""
+    assert condense(line, max_chars=200) == ""
 
 
 @pytest.mark.parametrize(

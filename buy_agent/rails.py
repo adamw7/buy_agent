@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from buy_agent import mandates
-from buy_agent.payment import Cart, PaymentError, Settlement
+from buy_agent.payment import Cart, PaymentError, RailUnreachableError, Settlement
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -64,15 +64,23 @@ def _dry_run_settle(
 
 
 def _post(url: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """One JSON call to a counterparty, with the answer read as JSON."""
+    """One JSON call to a counterparty, with the answer read as JSON.
+
+    An answer that is not one is the counterparty's failure and not the request's, so it
+    is a :class:`RailUnreachableError` beside the connection that was refused: the far
+    end being up is no answer at all if what it sent back cannot be read, and 400 would
+    send a shopper off to correct a form with nothing wrong with it.
+    """
     response = httpx.post(url, json=payload, timeout=_TIMEOUT)
     response.raise_for_status()
     try:
         answer = response.json()
     except ValueError as exc:
-        raise PaymentError(f"{url} answered with something that is not JSON ({exc}).") from exc
+        raise RailUnreachableError(
+            f"{url} answered with something that is not JSON ({exc})."
+        ) from exc
     if not isinstance(answer, dict):
-        raise PaymentError(f"{url} answered with {type(answer).__name__}, not an object.")
+        raise RailUnreachableError(f"{url} answered with {type(answer).__name__}, not an object.")
     return answer
 
 
@@ -82,7 +90,9 @@ def _http_checkout(cart: Cart, config: AgentConfig) -> tuple[SignedCheckout, str
     answer = _post(f"{config.merchant_url}/checkout", {"checkout": document})
     token = answer.get("checkout_jwt")
     if not isinstance(token, str) or not token:
-        raise PaymentError(
+        # Readable, and still not an answer to what was asked -- so the same failure as
+        # an unreadable one rather than anything the shopper can put right.
+        raise RailUnreachableError(
             f"{config.merchant_url} did not return a signed checkout "
             f"(no 'checkout_jwt' in its answer), so there is no price to authorise."
         )
@@ -106,6 +116,8 @@ def _http_settle(cart: Cart, authorisation: Authorisation, config: AgentConfig) 
         },
     )
     if not answer.get("paid"):
+        # Deliberately the plain failure: a counterparty that understood the request and
+        # declined it is answering about the request, which is what 400 is for.
         raise PaymentError(
             f"{config.merchant_url} did not complete the payment for {cart.label()}"
             f"{_because(answer)}."
