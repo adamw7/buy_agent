@@ -1204,6 +1204,35 @@ def test_a_rail_that_could_not_be_reached_is_a_502(
     assert excinfo.value.status == 502
 
 
+@needs_ap2
+def test_a_merchant_that_answers_with_something_unreadable_is_a_502_as_well(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Answering is not answering the question. A page of HTML where JSON was asked for
+    is the counterparty's failure exactly as a refused connection is, so it lands on the
+    same status rather than marking a form with nothing wrong with it."""
+    from buy_agent import rails
+
+    enrolled_key(tmp_path, monkeypatch)
+
+    class Page:
+        """A merchant answering 200 with a login page, which is how a misconfigured
+        one fails rather than by refusing the connection."""
+
+        def raise_for_status(self) -> None:
+            """It answered, so there is no status to raise."""
+
+        def json(self) -> object:
+            raise ValueError("Expecting value: line 1 column 1 (char 0)")
+
+    monkeypatch.setattr(rails.httpx, "post", lambda *_a, **_k: Page())
+
+    with pytest.raises(ApiError) as excinfo:
+        pay_now(paying(rail="http", merchant_url="https://pay.example"))
+
+    assert excinfo.value.status == 502
+
+
 def test_a_paying_rail_with_no_address_is_refused_before_anything_is_asked() -> None:
     """The one refusal a config makes that neither door has already made, on the one
     request that actually pays. The page sends no ``pay`` here, so read off the payload

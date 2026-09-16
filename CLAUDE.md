@@ -135,11 +135,15 @@ size of the rest put together -- never reaches the daemon.
 `tests/test_conventions.py` reads it from both sides: everything `.gitignore`
 names is named here too, which is the sentence the file opens with, and nothing
 the `Dockerfile` copies is caught by any of it, which is the mistake that stops
-a build rather than quietly fattening one. Neither says anything about a *new*
-top-level directory, so one added without a line here is still uploaded whole.
-Patterns match from the root, so the UI's own leavings are written out
-(`ui/dist/`, `ui/coverage/`): `ui/` is the one directory copied whole, and a
-`coverage/` matched at the root reaches nothing inside it.
+a build rather than quietly fattening one. A third reads the gap between those
+two: every directory at the top of the tree is either named by a `COPY` line or
+matched by a pattern here, so the next `demo/` is a failing test rather than
+somebody's memory. Directories only -- a stray file at the root is a few
+kilobytes and is what the documented commands leave behind (`--json score.json`),
+while a stray directory is the whole of itself. Patterns match from the root, so
+the UI's own leavings are written out (`ui/dist/`, `ui/coverage/`): `ui/` is the
+one directory copied whole, and a `coverage/` matched at the root reaches nothing
+inside it.
 
 ### Settings and their environment
 
@@ -586,10 +590,17 @@ was ever held to.
   spellings are folded and which spellings make `fetch` keep a price *line* are
   one rule -- a currency `fetch` cannot see is every price on that shop dropped
   before the model sees it, which is what `--region pl-pl` was until `zł` was
-  added to one table and not the other -- so `fetch` scans with `money.SIGNS` and
-  `money.WORDS`, both *derived* from the one table rather than written beside it,
-  and a currency is added there and nowhere else. Two exemptions are named, each
-  with its sentence and each held from both sides by
+  added to one table and not the other -- so `fetch` scans with `money.SIGNS`,
+  `money.WORDS` and `money.SCANNED_CODES`, all three *derived* from the one table
+  rather than written beside it, and a currency is added there and nowhere else.
+  The last two are one alternation split at the case it is read in: a word
+  spelling is folded, a page writing "129 Dollars" as readily as "129 dollars",
+  and an ISO code is read as written, a page writing "129 TRY" and never
+  "129 try". Folded in with the words, `TRY` is the Turkish lira and the English
+  verb alike, so "Try 3 of these" was a price line charged against `page_chars`;
+  the collision is a property of the table rather than of that one row, every
+  code being three letters that may spell something. Two exemptions are named,
+  each with its sentence and each held from both sides by
   `tests/test_conventions.py`: `UNPLACEABLE` is read off a page and never placed
   (`¥` is the yen's and the yuan's alike, and an ambiguous one left as written is
   a price the run cannot place, which is what the rule above already has an
@@ -689,11 +700,17 @@ a traceback and the browser as a 500.
 
 A *payment* fails at its own door and is deliberately not a fourth row there
 (ADR-0046). `payment.PaymentError` is the one thing paying raises --
-`RailUnreachableError` subclasses it, so the API can answer 502 for the one
-failure that is nothing to do with the request while the CLI still catches both
-by catching the parent -- and it is mapped by `api.PAY_STATUS` and caught in
-`__main__._bought`, each read by a convention test of its own. Adding it to
-`_STATUS` would make `run` promise something it does not raise.
+`RailUnreachableError` subclasses it, so the API can answer 502 for the failures
+that are nothing to do with the request while the CLI still catches both by
+catching the parent. The line is drawn at whose failure it is and not at the
+transport: a counterparty that could not be reached is one of those, and so is
+one that answered with nothing an answer can be read out of -- HTML where JSON
+was asked for, an array rather than an object, a checkout with no signed token
+in it -- since 400 would mark a form with nothing wrong with it. A counterparty
+that understood the request and declined it is the other thing, and stays the
+plain `PaymentError` that reads as 400. It is mapped by `api.PAY_STATUS` and
+caught in `__main__._bought`, each read by a convention test of its own. Adding
+it to `_STATUS` would make `run` promise something it does not raise.
 
 Within the agent only query refinement is recoverable: it falls back to the raw
 request but lets `ModelUnavailableError` through rather than searching with a
@@ -1191,9 +1208,10 @@ the other is otherwise invisible to both suites. It asserts that
   `SortBy` union offer the same criteria;
 - every currency `fetch` will keep a price line for is one `money.code_for` can
   place, and every currency it can place is one `fetch` keeps a line for -- asked
-  through `quotes_a_figure`, since the `SIGNS`/`WORDS` split is a derivation and
-  `US$` is reached by neither half on its own -- with both exemptions checked from
-  the other side too, so neither can outlive its reason (ADR-0043, ADR-0054);
+  through `quotes_a_figure`, since the split into signs, words and codes is a
+  derivation and `US$` is reached by no one of the three on its own -- with both
+  exemptions checked from the other side too, so neither can outlive its reason
+  (ADR-0043, ADR-0054);
 - every provider in `providers.PROVIDERS` is offered by `--provider`, by
   `api.PROVIDER_OPTIONS` and in the rows the form's picker is built from, and
   `ProviderOption` is mirrored in TypeScript;
@@ -1221,12 +1239,16 @@ the other is otherwise invisible to both suites. It asserts that
 - the `Dockerfile` pins the versions CI tests against, copies the built UI where
   the server looks, exposes the port it binds and installs the runtime
   dependencies only, and `.dockerignore` keeps out everything `.gitignore` does
-  while keeping in everything those `COPY` lines ask for;
+  while keeping in everything those `COPY` lines ask for, and no directory at the
+  top of the tree is left for neither to say anything about;
 - every job in `ci.yml` names both a Windows and a Linux runner between them and
   holds a merge up for neither, over the events the workflow actually runs on
   (ADR-0037), and sets up exactly one Python and one Node for the three files
   that pin themselves to those; every workflow sets up that same Python and
-  builds with that same Node; the workflows pin the same version of every action
+  builds with that same Node, and keys its pip cache on every requirements file
+  it hands pip -- the `-r` lines inside those included, since a key naming fewer
+  files than the job installs is a cache that quietly stops covering a step; the
+  workflows pin the same version of every action
   they share, an update reaching only one leaving every file valid and a
   scheduled run on the older action; and every one of them declares a read-only
   token, the two jobs that publish anything widening that on their own job

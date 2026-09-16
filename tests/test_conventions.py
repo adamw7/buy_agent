@@ -323,8 +323,9 @@ _ISO_CODE = re.compile(r"[A-Z]{3}")
 
 
 def _scanned() -> list[str]:
-    """Every spelling that makes :mod:`buy_agent.fetch` keep a price line."""
-    return [*money.SIGNS, *money.WORDS]
+    """Every spelling that makes :mod:`buy_agent.fetch` keep a price line -- all three
+    halves of the scan, since a half left out here is one nothing holds to the rule."""
+    return [*money.SIGNS, *money.WORDS, *money.SCANNED_CODES]
 
 
 @pytest.mark.parametrize("spelling", _scanned())
@@ -718,6 +719,29 @@ def test_the_build_context_holds_everything_the_image_copies() -> None:
         assert pattern is None, f"the image copies {source}, dropped by {pattern!r}"
 
 
+def test_every_top_level_directory_is_either_copied_or_left_out() -> None:
+    """The hole the two above leave between them. Neither says anything about a
+    directory nobody has written a line about, so `demo/` -- a video the size of the
+    rest of this put together -- stayed out of the context because somebody remembered
+    to name it, and the next directory like it is the same bet. This is the tripwire
+    rather than a fix: everything here is accounted for today.
+
+    Directories only, and the working tree's rather than the tracked set's, since asking
+    git means spawning it from a test that has no business doing so. A stray directory
+    failing here is the right answer -- it really would be uploaded whole -- while a
+    stray file is a few kilobytes and is what the documented commands leave behind
+    (`--json score.json`, `> top.txt`), which is a failure on one machine and nowhere
+    else.
+    """
+    copied = {source.strip("/").split("/")[0] for source in context_copies()}
+
+    for entry in sorted(path.name for path in _ROOT.iterdir() if path.is_dir()):
+        assert entry in copied or excluded_from_the_build_context(f"{entry}/"), (
+            f"{entry}/ is uploaded whole with the build context: copy it in the "
+            f"Dockerfile or name it in .dockerignore"
+        )
+
+
 # -- the two runners -----------------------------------------------------------
 
 #: A runner label names its platform first: ``windows-latest``, ``ubuntu-latest``.
@@ -821,6 +845,72 @@ def test_every_workflow_builds_the_ui_with_the_node_ci_builds_it_with(workflow: 
         r'^\s+node-version: "([^"]+)"', workflow.read_text(encoding="utf-8"), re.M
     ):
         assert version == ci_version("node-version"), workflow.name
+
+
+#: ``pip install [--flag ...] -r <file>``, wherever a workflow runs one.
+_PIP_INSTALL = re.compile(r"pip install (?:-[-\w]+ )*-r (\S+)")
+
+
+def requirements_installed_by(workflow: Path) -> set[str]:
+    """Every requirements file a workflow hands pip, and every file those include: pip
+    reads an ``-r`` line whether or not the workflow wrote that name down."""
+    found: set[str] = set()
+    pending = _PIP_INSTALL.findall(workflow.read_text(encoding="utf-8"))
+    while pending:
+        name = pending.pop()
+        if name in found:
+            continue
+        found.add(name)
+        pending += [
+            line.removeprefix("-r").strip()
+            for line in (_ROOT / name).read_text(encoding="utf-8").splitlines()
+            if line.startswith("-r ")
+        ]
+    return found
+
+
+def cache_key_files(workflow: Path) -> set[str]:
+    """Every path the workflow's ``cache-dependency-path`` settings name, written as one
+    value or as a block of them."""
+    lines = workflow.read_text(encoding="utf-8").splitlines()
+    named: set[str] = set()
+
+    for index, line in enumerate(lines):
+        setting = line.strip()
+        if not setting.startswith("cache-dependency-path:"):
+            continue
+        value = setting.removeprefix("cache-dependency-path:").strip()
+        if value != "|":
+            named.add(value)
+            continue
+        indent = len(line) - len(line.lstrip())
+        for entry in lines[index + 1 :]:
+            if not entry.strip() or len(entry) - len(entry.lstrip()) <= indent:
+                break
+            named.add(entry.strip())
+    return named
+
+
+@pytest.mark.parametrize("workflow", workflows(), ids=lambda path: path.stem)
+def test_every_pip_cache_is_keyed_on_every_file_it_installs_from(workflow: Path) -> None:
+    """A key naming fewer files than the job installs is a cache that goes on being
+    restored after one of the others has moved -- so it silently stops covering that
+    step, which is the case Renovate makes: it bumps one of these files at a time. Not
+    a correctness problem either way, pip resolving against the files themselves.
+
+    Per workflow rather than per job, which is as far as reading this without a YAML
+    parser goes: a key in one job naming another job's file would pass. Both keys are
+    on the same step as the toolchain they cache for, so that is a shape nothing here
+    is close to."""
+    installed = requirements_installed_by(workflow)
+    keyed = cache_key_files(workflow)
+
+    if "cache: pip" in workflow.read_text(encoding="utf-8"):
+        assert installed and keyed, f"{workflow.name} caches pip and neither reads"
+    assert not installed - keyed, (
+        f"{workflow.name} installs {sorted(installed - keyed)} and keys its pip cache "
+        f"on {sorted(keyed)}"
+    )
 
 
 @pytest.mark.parametrize("workflow", workflows(), ids=lambda path: path.stem)

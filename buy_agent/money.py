@@ -54,8 +54,17 @@ _SPELLINGS: frozenset[str] = (ALIASES.keys() | CODES | UNPLACEABLE) - UNSCANNED
 SIGNS = "".join(sorted(s for s in _SPELLINGS if len(s) == 1 and not s.isalpha()))
 
 #: The spellings made of letters, as the alternation it scans with between word
-#: boundaries.
-WORDS: tuple[str, ...] = tuple(sorted(s for s in _SPELLINGS if s.isalpha()))
+#: boundaries -- folded, whatever case a page prints them in: "129 dollars", "129
+#: Dollars" and "129 zł" are one spelling three ways.
+WORDS: tuple[str, ...] = tuple(sorted(s for s in _SPELLINGS if s.isalpha() and s not in CODES))
+
+#: The other half of that alternation, and the half that is scanned in its own case
+#: alone: a page writes "129 TRY" and never "129 try". Folded in with the words, ``TRY``
+#: is the Turkish lira and the English verb alike, so "Try 3 of these before you decide"
+#: read as a price line and was kept by the sweep at the expense of one. The collision
+#: is a property of the table rather than of that one row -- every code is three letters
+#: that may spell something -- so the split is where the codes are, not where ``TRY`` is.
+SCANNED_CODES: tuple[str, ...] = tuple(sorted(s for s in _SPELLINGS if s in CODES))
 
 #: Currencies not counted in hundredths.
 _ZERO_DECIMAL = frozenset(

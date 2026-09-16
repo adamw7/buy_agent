@@ -50,7 +50,10 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
-          cache-dependency-path: requirements-dev.txt
+          # As in ci.yml: the file this job installs, and the one it includes.
+          cache-dependency-path: |
+            requirements-dev.txt
+            requirements.txt
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt

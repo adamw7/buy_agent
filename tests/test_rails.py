@@ -9,7 +9,7 @@ import pytest
 
 from buy_agent import mandates, rails
 from buy_agent.config import AgentConfig
-from buy_agent.payment import Cart, PaymentError
+from buy_agent.payment import Cart, PaymentError, RailUnreachableError
 from tests.conftest import needs_ap2
 from tests.test_mandates import CART, signed_checkout
 
@@ -199,20 +199,24 @@ def test_a_counterparty_that_issues_no_challenge_is_given_one(
 def test_an_answer_with_no_signed_checkout_is_refused(
     posted: Endpoint,
 ) -> None:
+    """Readable and still not an answer to what was asked, which is the far end's
+    failure and so the same one an unreadable answer is."""
     posted.answers.append(FakeResponse({"status": "ok"}))
 
-    with pytest.raises(PaymentError, match="no 'checkout_jwt'"):
+    with pytest.raises(RailUnreachableError, match="no 'checkout_jwt'"):
         rails.HTTP.checkout(CART, http_config())
 
 
-def test_an_answer_that_is_not_json_is_a_payment_failure_and_not_a_transport_one(
+def test_an_answer_that_is_not_json_is_the_counterpartys_failure_and_not_the_shoppers(
     posted: Endpoint,
 ) -> None:
-    """Something answered, so "could not reach it" would send the shopper off to
-    check a connection that is fine."""
+    """Something answered, but not with an answer -- so this is a 502 beside the
+    connection nothing accepted, and not the 400 that would send the shopper off to
+    correct a form with nothing wrong with it. The subclass is what pins that: both
+    are ``PaymentError``s, which is what keeps the CLI catching one name."""
     posted.answers.append(FakeResponse(text="<html>"))
 
-    with pytest.raises(PaymentError, match="not JSON"):
+    with pytest.raises(RailUnreachableError, match="not JSON"):
         rails.HTTP.checkout(CART, http_config())
 
 
@@ -221,7 +225,7 @@ def test_an_answer_that_is_not_an_object_is_refused(
 ) -> None:
     posted.answers.append(FakeResponse([1, 2, 3]))
 
-    with pytest.raises(PaymentError, match="not an object"):
+    with pytest.raises(RailUnreachableError, match="not an object"):
         rails.HTTP.checkout(CART, http_config())
 
 
@@ -269,8 +273,13 @@ def test_a_refusal_with_no_reason_still_says_what_did_not_happen(
     )
     posted.answers.append(FakeResponse({"paid": False}))
 
-    with pytest.raises(PaymentError, match="did not complete the payment"):
+    with pytest.raises(PaymentError, match="did not complete the payment") as excinfo:
         rails.HTTP.settle(CART, authorisation, http_config())
+
+    # The line the three failures above sit on the other side of: a counterparty that
+    # understood the request and declined it is answering about the request, so this
+    # one stays the 400 it reads as.
+    assert not isinstance(excinfo.value, RailUnreachableError)
 
 
 @needs_ap2
@@ -338,14 +347,14 @@ def test_an_empty_signed_checkout_is_refused_like_a_missing_one(posted: Endpoint
     not only the type -- otherwise the mandates bind to a hash of nothing."""
     posted.answers.append(FakeResponse({"checkout_jwt": ""}))
 
-    with pytest.raises(PaymentError, match="no 'checkout_jwt'"):
+    with pytest.raises(RailUnreachableError, match="no 'checkout_jwt'"):
         rails.HTTP.checkout(CART, http_config())
 
 
 def test_a_signed_checkout_that_is_not_text_is_refused(posted: Endpoint) -> None:
     posted.answers.append(FakeResponse({"checkout_jwt": {"jwt": "..."}}))
 
-    with pytest.raises(PaymentError, match="no 'checkout_jwt'"):
+    with pytest.raises(RailUnreachableError, match="no 'checkout_jwt'"):
         rails.HTTP.checkout(CART, http_config())
 
 
@@ -399,7 +408,7 @@ def test_an_answer_of_the_wrong_shape_says_what_shape_it_was(posted: Endpoint) -
     wrong endpoint rather than at a broken one."""
     posted.answers.append(FakeResponse([1, 2, 3]))
 
-    with pytest.raises(PaymentError, match="answered with list"):
+    with pytest.raises(RailUnreachableError, match="answered with list"):
         rails.HTTP.checkout(CART, http_config())
 
 

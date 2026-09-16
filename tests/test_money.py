@@ -7,6 +7,7 @@ import pytest
 from buy_agent.money import (
     ALIASES,
     CODES,
+    SCANNED_CODES,
     SIGNS,
     UNPLACEABLE,
     UNSCANNED,
@@ -58,6 +59,20 @@ def test_the_signs_are_symbols_and_the_words_are_letters() -> None:
     assert len(SIGNS) == len(set(SIGNS)), "a repeated character is a spelling let in whole"
     assert not any(sign.isalpha() for sign in SIGNS), "a sign is a symbol, never a letter"
     assert all(word.isalpha() for word in WORDS), "a word is scanned between boundaries"
+    assert all(code.isalpha() for code in SCANNED_CODES), "a code is scanned the same way"
+
+
+def test_the_letters_are_split_at_the_codes_and_nowhere_else() -> None:
+    """Which half a spelling lands in decides the cases a page may print it in: the
+    words are folded and the codes are read as written. So the line has to be the
+    table's own -- a code is three letters a page prints as three letters, an alias is
+    a word it writes however it likes -- and an alias that drifted into the cased half
+    would be a price missed for a capital letter."""
+    letters = {s for s in (ALIASES.keys() | CODES) - UNSCANNED if s.isalpha()}
+
+    assert set(SCANNED_CODES) == CODES - UNSCANNED, "the codes, and every one of them"
+    assert not set(WORDS) & set(SCANNED_CODES), "a spelling scanned two ways twice over"
+    assert set(WORDS) | set(SCANNED_CODES) == letters, "and between them, all of them"
 
 
 def test_the_derivation_applies_both_exemptions() -> None:
@@ -65,7 +80,7 @@ def test_the_derivation_applies_both_exemptions() -> None:
     with -- so an exemption that failed to reach the derivation would be a sentence in
     this module and no behaviour anywhere."""
     assert UNPLACEABLE <= set(SIGNS), "read off a page, so it stays in the scan"
-    assert not UNSCANNED & set(WORDS), "never read off a page, so it is out of it"
+    assert not UNSCANNED & (set(WORDS) | set(SCANNED_CODES)), "never read off a page"
     assert UNSCANNED <= ALIASES.keys(), "...and still a spelling the table places"
 
 

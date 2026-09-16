@@ -36,7 +36,13 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
-          cache-dependency-path: requirements-mutation.txt
+          # As in ci.yml: every file the steps below hand pip, includes and all.
+          cache-dependency-path: |
+            requirements-mutation.txt
+            requirements-dev.txt
+            requirements.txt
+            requirements-ap2-deps.txt
+            requirements-ap2.txt
 
       - name: Install dependencies
         run: pip install -r requirements-mutation.txt
