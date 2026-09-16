@@ -302,14 +302,30 @@ export class App {
       })
       .subscribe({
         next: ({ receipt }) => {
+          if (!this.stillThisRun(settings)) {
+            return;
+          }
           this.receipts.update((held) => ({ ...held, [name]: receipt }));
           this.paying.set(null);
         },
         error: (failure: unknown) => {
+          if (!this.stillThisRun(settings)) {
+            return;
+          }
           this.payFailed.set(`Nothing was bought. ${refusal(failure)}`);
           this.paying.set(null);
         },
       });
+  }
+
+  /** Whether the run this answer is about is still the one on screen. A payment in
+   *  flight is not cancelled the way a re-sort is -- unsubscribing aborts the request,
+   *  and a request that may have moved money is nobody's to abandon halfway -- so it
+   *  runs to the end and its answer is dropped here instead. Receipts are filed by
+   *  product name (ADR-0035), and a second search for the same thing finds the same
+   *  names, so a late receipt left to land marks a product this run never bought. */
+  private stillThisRun(settings: SearchOptions): boolean {
+    return this.ranWith() === settings;
   }
 
   /** Hand the finished run over as a file. */

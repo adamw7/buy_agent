@@ -964,4 +964,40 @@ describe('App paying', () => {
 
     expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('ref-abc');
   });
+
+  it('drops a receipt that arrives after a new run has replaced the products', async () => {
+    /* The payment is left to finish rather than unsubscribed -- a request that may
+       have moved money is nobody's to abandon halfway -- so its answer has to be
+       dropped when it lands. Receipts are filed by name, and a second search for the
+       same thing finds the same names, so a late one marked a product this run never
+       bought. */
+    const answer = new Subject<{ receipt: Receipt }>();
+    agent.payResponse = () => answer;
+    const fixture = await finished(true);
+    await buyTheTopOne(fixture);
+
+    agent.stream = new Subject<SearchEvent>();
+    await ran(agent, 'kettle again', RESULT, fixture);
+    answer.next({ receipt: RECEIPT });
+    answer.complete();
+    await fixture.whenStable();
+
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('ref-abc');
+  });
+
+  it('drops a failed payment that arrives after a new run has replaced the products', async () => {
+    /* The other half of the same answer: a banner about a purchase the shopper made
+       against products that are no longer on the page. */
+    const answer = new Subject<{ receipt: Receipt }>();
+    agent.payResponse = () => answer;
+    const fixture = await finished(true);
+    await buyTheTopOne(fixture);
+
+    agent.stream = new Subject<SearchEvent>();
+    await ran(agent, 'kettle again', RESULT, fixture);
+    answer.error({ error: { error: 'Card declined' } });
+    await fixture.whenStable();
+
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Nothing was bought');
+  });
 });
