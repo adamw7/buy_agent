@@ -82,6 +82,20 @@
       // override in for the peer range until then is exactly the leftover this
       // rule exists to avoid. `@vitest/coverage-v8` peers vitest exactly, so the
       // two only ever move together and the rule names both.
+      //
+      // A hold is two steps, and #199 is what the second one is for. Renovate
+      // reads `dependencyDashboardApproval` under `!branchExists` and nowhere
+      // else, so it gates a branch being *created* and says nothing about a
+      // branch already standing. This rule landed (#147) with
+      // `renovate/major-vitest-monorepo` still there from #144, which left that
+      // one branch outside the hold for good: vitest 5.0.1 was pushed onto it
+      // and raised as the pull request that failed `npm ci` exactly as its
+      // predecessor had. Nothing prunes it either -- an update Renovate still
+      // has is an update on the branch list, and only a branch off that list is
+      // stale -- so the branch is what keeps the hold off itself. Closing one of
+      // these is therefore closing the pull request *and* deleting its branch,
+      // and only then does the next release arrive on the dashboard rather than
+      // in a red run.
       matchManagers: ['npm'],
       matchPackageNames: ['vitest', '@vitest/**'],
       matchUpdateTypes: ['major'],
@@ -96,8 +110,11 @@
       // branch leaves untouched (#142), and regenerating it only moves the
       // failure to `ng build`, where `@angular/compiler-cli` reads a TypeScript
       // API 7.0 no longer has and the compilation dies before a source file is
-      // read. Held on the dashboard for the same reason as the rule above, and
-      // released the same way: a tick there once Angular's peer range moves.
+      // read. Held on the dashboard for the same reason as the rule above,
+      // released the same way -- a tick there once Angular's peer range moves --
+      // and bypassed the same way in the meantime: `renovate/typescript-7.x`
+      // outlived #142 as the vitest branch outlived #144, which is what raised
+      // #198.
       matchManagers: ['npm'],
       matchPackageNames: ['typescript'],
       matchUpdateTypes: ['major'],
