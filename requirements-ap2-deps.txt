@@ -9,5 +9,5 @@
 # line in it, which left `cryptography` here without the `cffi` it is built on
 # and every payment test failing on `No module named '_cffi_backend'`.
 cryptography==50.0.1
-jwcrypto==1.6.0
+jwcrypto==1.6.1
 sd-jwt==0.10.4
