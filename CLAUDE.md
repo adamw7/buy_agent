@@ -1048,16 +1048,23 @@ rules a change to them may not break.
 - **The form refuses on the server's rules and invents none of its own**
   (ADR-0033). `problems()` gates `canSubmit` off the ranges that came down with
   the defaults and off what `GET /api/sources` last said. A field whose `off()` is
-  true is neither held to a range nor sent, a mark on a disabled box being one
-  nobody can act on. `notes()` adds the server's `rejected` field, which does not
-  gate the button and is shown only while the box still holds what `submitted`
-  recorded. `options()` is the single place that payload is built.
+  true is neither held to a range nor sent, a mark on a box nobody can type into
+  being one nobody can act on. `notes()` adds the server's `rejected` field, which
+  does not gate the button and is shown only while the box still holds what
+  `submitted` recorded -- and `moved` says when it stops, so `App` drops the
+  banner repeating that same sentence rather than leaving the page refusing a
+  value the form has already stopped marking. `options()` is the single place that
+  payload is built.
   `numberTyped` reads `validity.badInput`, without which a box full of text is
   sent as the `null` a cleared box means (ADR-0012).
 - **A number box is declared once, in `numberFields`**, under the key that also
   carries its range and names its refusal; `placeholders()` reads its fallback off
   `defaults_payload` by that key. `tests/test_conventions.py` holds those keys
-  against `limits_payload`.
+  against `limits_payload`. The row also says *where* it is drawn: `payingFields`
+  and `settingFields` partition that one table, so the spend limit sits in the
+  paying block with the rail and its address -- the three settings the form draws
+  none of until the box is ticked -- rather than four rows above the tick under a
+  sentence naming a control off the reader's screen.
 - **The model field marks what it cannot offer and never hides it** -- "not
   served" for a name the server does not have, "embedding only" for a pull that
   cannot answer a prompt (ADR-0032). `ModelOption.note` is filled from Python's

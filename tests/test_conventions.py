@@ -2213,3 +2213,50 @@ def test_every_flag_that_takes_a_value_names_the_default_it_has(
             f"{action.option_strings[0]} takes a value and defaults to "
             f"{action.default!r} without saying so in its help"
         )
+
+
+@pytest.mark.parametrize(
+    "parser",
+    [pytest.param(build_parser(), id="cli"), pytest.param(build_server_parser(), id="server")],
+)
+def test_every_switch_that_is_already_on_names_that_default(
+    parser: argparse.ArgumentParser,
+) -> None:
+    """A switch that is off until it is given needs no default written down -- leaving
+    it off is what turns it off. One that is *on* is the other thing: ``--no-fetch`` is
+    the only spelling of it, and a reader who has never seen the flag has nothing to
+    tell them the pages are read unless they say otherwise."""
+    for action in parser._actions:  # pylint: disable=protected-access
+        if not action.option_strings or isinstance(action, argparse._HelpAction):
+            continue
+        if _takes_a_value(action) or action.default is not True:
+            continue
+        assert "default" in (action.help or ""), (
+            f"{action.option_strings[0]} is on unless it is given and does not say "
+            f"so in its help"
+        )
+
+
+#: How wide argparse wraps its own help to on a terminal that does not say: the
+#: formatter takes ``shutil.get_terminal_size().columns`` and subtracts two, and 80 is
+#: what that falls back to.
+_HELP_WIDTH = 78
+
+
+@pytest.mark.parametrize(
+    "parser",
+    [pytest.param(build_parser(), id="cli"), pytest.param(build_server_parser(), id="server")],
+)
+def test_the_help_text_argparse_prints_raw_is_wrapped_by_hand(
+    parser: argparse.ArgumentParser,
+) -> None:
+    """``RawDescriptionHelpFormatter`` is how the exit codes keep their own layout, and
+    the price of it is that every other line in those two blocks is printed exactly as
+    written. A sentence left as one long line is the one part of ``--help`` a terminal
+    breaks mid-word, which is why this is held here rather than remembered."""
+    for block, text in (("description", parser.description), ("epilog", parser.epilog)):
+        for line in (text or "").splitlines():
+            assert len(line) <= _HELP_WIDTH, (
+                f"{parser.prog}'s {block} has a {len(line)}-character line, which "
+                f"argparse prints as written: wrap it at {_HELP_WIDTH}"
+            )

@@ -121,6 +121,17 @@ describe('ProgressLog', () => {
     }
   });
 
+  it('counts one line in the singular', async () => {
+    /* The reading this pill gets whenever a run is refused before it starts: one
+       line in the panel, and the header beside it already says "4 models" and
+       "1 model" correctly. */
+    expect((await render(LINES.slice(0, 1))).querySelector('.pill')!.textContent).toContain(
+      '1 line',
+    );
+    expect((await render(LINES)).querySelector('.pill')!.textContent).toContain('2 lines');
+    expect((await render([])).querySelector('.pill')!.textContent).toContain('0 lines');
+  });
+
   it('stops its clock when the panel goes away', async () => {
     /* A ticker that outlives the component it was drawing ticks for the life of
        the tab -- and this one is started again by every run. */

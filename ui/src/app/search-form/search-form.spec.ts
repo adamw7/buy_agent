@@ -621,7 +621,9 @@ describe('SearchForm', () => {
 
   it('neither holds nor sends a spend limit while paying is off', async () => {
     /* The same rule on the other field that has one: a limit typed and then
-       switched off is not a setting this run has, so it is not a run to refuse. */
+       switched off is not a setting this run has, so it is not a run to refuse.
+       The box goes with the switch, so what is left to check is that the value it
+       still holds is neither marked nor sent. */
     await type('input[name="request"]', 'kettle');
     const box = element<HTMLInputElement>('input[name="pay"]');
     box.checked = true;
@@ -634,7 +636,7 @@ describe('SearchForm', () => {
     box.dispatchEvent(new Event('change'));
     await fixture.whenStable();
 
-    expect(problem('spend_limit')).toBe('');
+    expect(fixture.nativeElement.querySelector('input[name="spend_limit"]')).toBeNull();
     expect(submit().disabled).toBe(false);
 
     await send();
@@ -1067,6 +1069,22 @@ describe('SearchForm, paying', () => {
     expect(submitted[0].pay).toBe(true);
     expect(submitted[0].rail).toBe('dry-run');
     expect(submitted[0].spend_limit).toBeNull();
+  });
+
+  it('draws the spend limit with the paying settings and not before them', async () => {
+    /* It is one of the three settings that mean nothing without the switch, and it
+       was the one drawn anyway -- disabled, four rows above that switch, under a
+       sentence naming a control the reader could not see. */
+    expect(fixture.nativeElement.querySelector('input[name="spend_limit"]')).toBeNull();
+
+    await tick('pay', true);
+
+    const fields = [...fixture.nativeElement.querySelectorAll('.grid > *')];
+    const at = (selector: string) =>
+      fields.findIndex((field) => (field as HTMLElement).querySelector(selector));
+
+    expect(at('input[name="spend_limit"]')).toBeGreaterThan(at('input[name="pay"]'));
+    expect(at('input[name="spend_limit"]')).toBeGreaterThan(at('input[name="merchantUrl"]'));
   });
 
   it('holds the spend limit to the range the server shipped', async () => {

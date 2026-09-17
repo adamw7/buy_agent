@@ -116,12 +116,15 @@ export class App {
   );
 
   private run: Subscription | null = null;
-  /** The two requests whose answer is about a question the page can have moved on from:
-   *  a re-sort of products the next search is about to replace, and a listing of a
-   *  server the form is no longer pointed at. Held so the newer ask cancels the older,
-   *  an answer that arrives second not being the answer to the second question. */
+  /** The three requests whose answer is about a question the page can have moved on
+   *  from: a re-sort of products the next search is about to replace, a listing of a
+   *  server the form is no longer pointed at, and a reading of a sources field since
+   *  typed over -- that one asked afresh on every blur. Held so the newer ask cancels
+   *  the older, an answer that arrives second not being the answer to the second
+   *  question. */
   private reorder: Subscription | null = null;
   private listing: Subscription | null = null;
+  private sources: Subscription | null = null;
   /** A payment in flight. */
   private pay: Subscription | null = null;
 
@@ -130,6 +133,7 @@ export class App {
       this.run?.unsubscribe();
       this.reorder?.unsubscribe();
       this.listing?.unsubscribe();
+      this.sources?.unsubscribe();
       this.pay?.unsubscribe();
     });
 
@@ -189,14 +193,30 @@ export class App {
 
   /** Ask what the sources field holds, before a run is worth starting. */
   protected checkSources(sources: string): void {
+    this.sources?.unsubscribe();
     if (!sources) {
       this.sourcesCheck.set(null);
       return;
     }
-    this.agent.checkSources(sources).subscribe({
+    this.sources = this.agent.checkSources(sources).subscribe({
       next: (check) => this.sourcesCheck.set(check),
       error: () => this.sourcesCheck.set(null),
     });
+  }
+
+  /** The form has moved past the refusal it was given: the setting it named holds
+   *  something else now, and the form has already dropped the mark under that box. The
+   *  banner saying the same thing is the more prominent of the two and was the one left
+   *  standing, refusing a value nobody could see any more. A refusal names a setting
+   *  only where the options were read before the run opened, so there is nothing in the
+   *  panel to keep either -- the page goes back to what it was before the refused run
+   *  rather than to an empty Progress panel with nothing to explain it. */
+  protected dropRefusal(): void {
+    this.failure.set(null);
+    this.rejected.set(null);
+    if (!this.logs().length && !this.result()) {
+      this.started.set(false);
+    }
   }
 
   protected start(options: SearchOptions): void {

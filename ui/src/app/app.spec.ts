@@ -501,6 +501,53 @@ describe('App', () => {
     expect(page.querySelector('.problem')).toBeNull();
   });
 
+  it('drops the banner too once the refused value has been typed over', async () => {
+    /* The mark under the box goes with the value; the banner repeating the same
+       sentence used to stay until the next run, so the page went on refusing
+       'en-US' over a Region box reading us-en. A refusal names a setting only
+       where the options were read before the run opened, so the empty Progress
+       panel goes with it rather than being left with nothing to explain it. */
+    const fixture = await render();
+    const page = fixture.nativeElement as HTMLElement;
+    await fill(fixture, 'region', 'en-US');
+    await searchFor(fixture, 'kettle');
+    agent.stream.next({
+      kind: 'failure',
+      message: "'en-US' is not a search region.",
+      status: 400,
+      field: 'region',
+    });
+    agent.stream.complete();
+    await fixture.whenStable();
+    expect(page.querySelector('.banner')).not.toBeNull();
+
+    await fill(fixture, 'region', 'us-en');
+
+    expect(page.querySelector('.banner')).toBeNull();
+    expect(page.querySelector('.problem')).toBeNull();
+    expect(page.querySelector('app-progress-log')).toBeNull();
+  });
+
+  it('keeps a banner that is not about a field the form holds', async () => {
+    /* The rule is the mark's rule: a failure naming no box is about the run, and
+       typing somewhere else says nothing about whether it still stands. */
+    const fixture = await render();
+    const page = fixture.nativeElement as HTMLElement;
+    await searchFor(fixture, 'kettle');
+    agent.stream.next({
+      kind: 'failure',
+      message: 'Could not reach Ollama.',
+      status: 503,
+      field: null,
+    });
+    agent.stream.complete();
+    await fixture.whenStable();
+
+    await fill(fixture, 'region', 'pl-pl');
+
+    expect(page.querySelector('.banner')!.textContent).toContain('Could not reach Ollama');
+  });
+
   it('asks the server what a trusted source is, and shows what it said', async () => {
     /* The parse is Python's, so the page asks rather than keeping a copy of it. */
     agent.sourcesResponse = (sources) =>
@@ -513,6 +560,30 @@ describe('App', () => {
     expect(agent.sourcesAsked).toContain('Marques Brownlee');
     expect(page.querySelector('.problem')!.textContent).toContain('does not name a source');
     expect(page.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
+  });
+
+  it('drops an answer about a sources field since typed over', async () => {
+    /* The third ask the page holds, for the reason it holds the other two: the
+       field is asked about on every blur, and an earlier answer landing last
+       would mark -- or clear -- a box against text nobody can see any more. */
+    const pending: Subject<SourcesCheck>[] = [];
+    agent.sourcesResponse = () => {
+      const answer = new Subject<SourcesCheck>();
+      pending.push(answer);
+      return answer;
+    };
+    const fixture = await render();
+    const page = fixture.nativeElement as HTMLElement;
+
+    await fill(fixture, 'sources', 'Marques Brownlee', true);
+    await fill(fixture, 'sources', 'rtings.com', true);
+
+    expect(pending[0].observed).toBe(false);
+
+    pending[1].next({ sources: 'rtings.com', error: '' });
+    await fixture.whenStable();
+
+    expect(page.querySelector('.problem')).toBeNull();
   });
 
   it('leaves the field alone when the agent server is the one that did not answer', async () => {
