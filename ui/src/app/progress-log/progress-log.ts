@@ -46,7 +46,12 @@ export class ProgressLog {
 
   /** What the pill says once the run has stopped: how much it logged and how long that took. */
   protected readonly summary = computed(() => {
-    const lines = `${this.lines().length} lines`;
+    const count = this.lines().length;
+    // Counted in English, like the two other counts on the page -- the header's
+    // "4 models" and the form's "1 setting to look at". A run refused before it
+    // started logs one line, so "1 lines" is the reading this pill gets most often
+    // when something has gone wrong.
+    const lines = `${count} line${count === 1 ? '' : 's'}`;
     const took = this.elapsed();
     return took ? `${lines} · ${took}` : lines;
   });

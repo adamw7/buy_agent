@@ -1,3 +1,40 @@
+<!-- One number box, wherever it is drawn: the settings grid below, or the paying
+     block further down, where the switch that turns it on is. -->
+<ng-template #numberBox let-number>
+  <label class="field">
+    <span>{{ number.label }}</span>
+    <!-- `[name]` and `[attr.name]` are not the same binding: the first is an
+         input on `NgModel`, which swallows it, leaving the element itself
+         without the attribute a label, an autofill or a test selector goes
+         looking for. Both, so both get one.
+
+         `(input)` sits beside `(ngModelChange)` rather than instead of it: a box
+         holding `12abc` reports the empty string, so the model sees the `null` a
+         *cleared* box means, and only the element itself still knows the
+         difference. -->
+    <input
+      type="number"
+      [name]="number.key"
+      [attr.name]="number.key"
+      [min]="limits()[number.key]?.min"
+      [max]="limits()[number.key]?.max"
+      [step]="number.step"
+      [placeholder]="placeholders()[number.key] ?? ''"
+      [ngModel]="number.value()"
+      (ngModelChange)="number.value.set($event)"
+      (input)="numberTyped(number.key, $event)"
+      [disabled]="running() || number.off()"
+      [class.invalid]="notes()[number.key]"
+      [attr.aria-invalid]="notes()[number.key] ? true : null"
+    />
+    @if (notes()[number.key]; as problem) {
+      <small class="problem" role="alert">{{ problem }}</small>
+    } @else if (number.hint(); as hint) {
+      <small>{{ hint }}</small>
+    }
+  </label>
+</ng-template>
+
 <form class="card form" (ngSubmit)="submit()">
   <label class="field request">
     <span>What do you want to buy?</span>
@@ -129,43 +166,17 @@
         }
       </label>
 
-      <!-- Every number box, one row of `numberFields` each: the same markup, the
-           same range off the server, the same mark under the same rules. The two
-           `select`s below are what they are not -- a criterion and a mode are
-           chosen from a list, not held to a range. -->
-      @for (number of numberFields; track number.key) {
-        <label class="field">
-          <span>{{ number.label }}</span>
-          <!-- `[name]` and `[attr.name]` are not the same binding: the first is
-               an input on `NgModel`, which swallows it, leaving the element
-               itself without the attribute a label, an autofill or a test
-               selector goes looking for. Both, so both get one.
-
-               `(input)` sits beside `(ngModelChange)` rather than instead of it:
-               a box holding `12abc` reports the empty string, so the model sees
-               the `null` a *cleared* box means, and only the element itself
-               still knows the difference. -->
-          <input
-            type="number"
-            [name]="number.key"
-            [attr.name]="number.key"
-            [min]="limits()[number.key]?.min"
-            [max]="limits()[number.key]?.max"
-            [step]="number.step"
-            [placeholder]="placeholders()[number.key] ?? ''"
-            [ngModel]="number.value()"
-            (ngModelChange)="number.value.set($event)"
-            (input)="numberTyped(number.key, $event)"
-            [disabled]="running() || number.off()"
-            [class.invalid]="notes()[number.key]"
-            [attr.aria-invalid]="notes()[number.key] ? true : null"
-          />
-          @if (notes()[number.key]; as problem) {
-            <small class="problem" role="alert">{{ problem }}</small>
-          } @else if (number.hint(); as hint) {
-            <small>{{ hint }}</small>
-          }
-        </label>
+      <!-- Every number box this panel draws, one row of `numberFields` each: the
+           same markup, the same range off the server, the same mark under the same
+           rules. The paying one is the same row drawn in the paying block below,
+           beside the switch it depends on. The two `select`s below are what none of
+           them are -- a criterion and a mode are chosen from a list, not held to a
+           range. -->
+      @for (number of settingFields; track number.key) {
+        <ng-container
+          [ngTemplateOutlet]="numberBox"
+          [ngTemplateOutletContext]="{ $implicit: number }"
+        />
       }
 
       <label class="field">
@@ -270,6 +281,13 @@
               <small class="problem" role="alert">{{ note }}</small>
             }
           </label>
+
+          @for (number of payingFields; track number.key) {
+            <ng-container
+              [ngTemplateOutlet]="numberBox"
+              [ngTemplateOutletContext]="{ $implicit: number }"
+            />
+          }
         }
       } @else {
         <p class="hint">

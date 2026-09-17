@@ -63,7 +63,10 @@ Three things are worth knowing before changing it:
   range, so the field asks `/api/sources` when it is left and shows the sentence
   that comes back. Anything the page cannot judge -- a region's shape -- is
   still refused by the server, and the `failure` event names the field so the
-  box gets marked rather than just the banner.
+  box gets marked rather than just the banner. Both marks then go together: the
+  form says when the box it named has been typed over, and the banner repeating
+  the same sentence is dropped with it rather than going on refusing a value
+  nobody can see.
 
 ## The four components, and why they are shaped that way
 
@@ -176,11 +179,11 @@ came down with the defaults, and the sources field against whatever `GET
 /api/sources` last said about the text it holds -- and it gates `canSubmit`,
 none of it costing anything to know. A box the run does not take is outside all
 of that: a field whose `off()` is true is neither held to its range nor sent at
-all (`sent()` reads it as the cleared box it is drawn as), because it is
-disabled, and a mark on a disabled box is one nobody can act on -- a form that
-will not search pointing at a field that cannot be typed into. Switching to a
-vLLM over a context window the form had already refused, or turning paying off
-over a spend limit it had, was exactly that.
+all (`sent()` reads it as the cleared box it is drawn as), because it is either
+disabled or not drawn at all, and a mark on a box nobody can type into is one
+nobody can act on -- a form that will not search pointing at a field that cannot
+be answered. Switching to a vLLM over a context window the form had already
+refused, or turning paying off over a spend limit it had, was exactly that.
 
 `notes()` is what is shown under each field: `problems()`, plus the `rejected`
 input for a field the page has no rule for, which is the `field` a `failure`
@@ -203,8 +206,14 @@ one nobody is about to retype.
 
 The `numberFields` table is the one place a number box is declared -- the key it
 is sent under, which is also the key its range arrives under and its refusal
-names, its label, its step and its hint -- and the template loops over it rather
-than repeating the same twenty lines of markup per setting.
+names, its label, its step, its hint and whether it belongs to the paying block
+-- and the template loops over it rather than repeating the same twenty lines of
+markup per setting, through one `ng-template` both loops draw. That last column
+is a partition and not a second table: the spend limit is the one number a
+shopper sets about *paying*, so it is drawn beside the switch that turns it on
+with the other two, rather than four rows above it under a sentence naming a
+control the reader has to go looking for -- which on a phone is off the screen
+entirely.
 `tests/test_conventions.py` holds its keys against `limits_payload`, so a box
 that is drawn is a box that is held to a range. `placeholders()` is the smaller
 half of the same idea: a cleared number box means "use the default", an answer

@@ -111,7 +111,12 @@ def build_parser() -> argparse.ArgumentParser:
         # --help is the only documentation the CLI has, so the split between the
         # two streams and the codes a script branches on are both worth saying.
         epilog=(
-            "The report is written to stdout and the progress to stderr, so "
+            # Wrapped by hand, and held to it by a convention test: the formatter
+            # below prints this block exactly as written, so a sentence left as one
+            # long line is the only part of --help an 80-column terminal breaks
+            # mid-word -- and the exit codes underneath are what the raw formatter
+            # is here for.
+            "The report is written to stdout and the progress to stderr, so\n"
             "`... > top.txt` keeps the report and leaves the narration on screen.\n"
             "\n"
             "Exit codes:\n"
@@ -318,7 +323,8 @@ def build_parser() -> argparse.ArgumentParser:
         # implicit ``True``: the two agree today, and this is what keeps them agreeing.
         default=_DEFAULTS.fetch_pages,
         help="Extract from search snippets only, without opening the result pages "
-        "(much faster, but snippets rarely quote a price).",
+        "(default: they are read). Much faster without them, but snippets rarely "
+        "quote a price.",
     )
     parser.add_argument(
         "--json",

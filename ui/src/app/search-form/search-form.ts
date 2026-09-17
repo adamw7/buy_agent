@@ -1,5 +1,6 @@
 import { Component, computed, effect, input, output, signal, untracked } from '@angular/core';
 import type { WritableSignal } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
 import type {
@@ -41,6 +42,11 @@ interface NumberField {
   step: number;
   hint: () => string;
   off: () => boolean;
+  /** Whether this box belongs to the paying block rather than the settings grid.
+   *  The three paying settings are drawn only once the box is ticked, and this one
+   *  was the exception: disabled, four rows above that tick, under a hint naming a
+   *  control the reader could not see -- and, on a phone, could not see at once. */
+  paying: boolean;
 }
 
 /** One row of the table above, with the defaults most of them take. */
@@ -48,7 +54,12 @@ function field(
   key: NumberField['key'],
   label: string,
   value: WritableSignal<number | null>,
-  extra: { step?: number; hint?: string | (() => string); off?: () => boolean } = {},
+  extra: {
+    step?: number;
+    hint?: string | (() => string);
+    off?: () => boolean;
+    paying?: boolean;
+  } = {},
 ): NumberField {
   const hint = extra.hint ?? '';
   return {
@@ -58,6 +69,7 @@ function field(
     step: extra.step ?? 1,
     hint: typeof hint === 'string' ? () => hint : hint,
     off: extra.off ?? (() => false),
+    paying: extra.paying ?? false,
   };
 }
 
@@ -76,7 +88,7 @@ const EXAMPLES = [
 /** What to shop for, and the settings the CLI takes as flags. */
 @Component({
   selector: 'app-search-form',
-  imports: [FormsModule],
+  imports: [FormsModule, NgTemplateOutlet],
   templateUrl: './search-form.html',
   styleUrl: './search-form.css',
 })
@@ -97,6 +109,12 @@ export class SearchForm {
   readonly refresh = output<ModelSource>();
   /** Ask whether the sources field names sources. */
   readonly check = output<string>();
+  /** A refusal this form has moved past: the box it named holds something else now.
+   *  The mark under that box goes when the value does (see `notes`), and the banner
+   *  repeating the same sentence has to go with it -- a page showing "'english' is not
+   *  a search region" over a Region box reading `us-en` is refusing something nobody
+   *  can see, and the one place it was pointing has already stopped saying so. */
+  readonly moved = output<void>();
 
   protected readonly examples = EXAMPLES;
 
@@ -297,13 +315,19 @@ export class SearchForm {
     }),
     field('spend_limit', 'Spend limit', this.spendLimit, {
       step: 0.01,
-      hint: () =>
-        this.pay()
-          ? 'The most one payment may be, in the currency most pages quote. A price in another currency is refused, not passed.'
-          : 'Only applies when Pay for the top product is on.',
+      // No second branch for paying being off: the box is not drawn then, and a
+      // sentence explaining that had nowhere to be read from.
+      hint: 'The most one payment may be, in the currency most pages quote. A price in another currency is refused, not passed.',
       off: () => !this.pay(),
+      paying: true,
     }),
   ];
+
+  /** The boxes the settings grid draws, and the ones the paying block does -- one
+   *  partition of the table above, so a box is still declared exactly once and only
+   *  where it is drawn has moved. */
+  protected readonly settingFields = this.numberFields.filter((row) => !row.paying);
+  protected readonly payingFields = this.numberFields.filter((row) => row.paying);
 
   /** The ranges the server declared, by the key each field is sent under. */
   protected readonly limits = computed<Record<string, Limit>>(() => this.defaults()?.limits ?? {});
@@ -413,6 +437,15 @@ export class SearchForm {
     effect(() => {
       if (this.flagged()) {
         this.advanced.set(true);
+      }
+    });
+
+    // `stillSent` reads every field, so this re-runs on any of them changing -- which
+    // is exactly when a refusal stops being about what is on screen.
+    effect(() => {
+      const rejected = this.rejected();
+      if (rejected && !this.stillSent(rejected.field)) {
+        this.moved.emit();
       }
     });
   }

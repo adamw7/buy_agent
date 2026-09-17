@@ -64,6 +64,7 @@
     (stop)="stop()"
     (refresh)="refreshModels($event)"
     (check)="checkSources($event)"
+    (moved)="dropRefusal()"
   />
 
   @if (failure(); as message) {
