@@ -8,13 +8,18 @@ import operator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeAlias
 
-from buy_agent.models import comparable_price, dominant_currency
+from buy_agent.models import (
+    Removal,
+    comparable_price,
+    dominant_currency,
+    nothing_recorded,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
     from buy_agent.config import AgentConfig
-    from buy_agent.models import Product
+    from buy_agent.models import Product, Recorder
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +75,11 @@ class Constraints:
             for read, bound, _, phrase in self._set()
         )
 
-    def apply(self, products: Sequence[Product]) -> list[Product]:
-        """The products inside the bounds, and a line saying how many were not."""
+    def apply(
+        self, products: Sequence[Product], *, record: Recorder = nothing_recorded
+    ) -> list[Product]:
+        """The products inside the bounds, and a line saying how many were not (ADR-0055).
+        """
         if not self.given:
             return list(products)
 
@@ -79,6 +87,18 @@ class Constraints:
         held = frozenset(inside)
         kept = [products[index] for index in inside]
         excluded = [item.name for index, item in enumerate(products) if index not in held]
+
+        for name in excluded:
+            # The bounds as the shopper set them, in the currency they were settled in:
+            # the same phrase the logged line carries, so the panel and the progress
+            # cannot say two different things about one number (ADR-0043).
+            record(
+                Removal(
+                    name=name,
+                    step="limits",
+                    reason=f"Outside the limits you set ({self.describe(currency)}).",
+                )
+            )
 
         if excluded:
             # The names at DEBUG under the count, as everywhere a product is removed:

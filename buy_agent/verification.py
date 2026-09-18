@@ -8,12 +8,12 @@ import re
 from typing import TYPE_CHECKING
 
 from buy_agent.extraction import GENERIC_WORDS, NAME_TOKENS, SUPERLATIVES
-from buy_agent.models import QUALIFIERS
+from buy_agent.models import QUALIFIERS, Removal, nothing_recorded
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from buy_agent.models import Opinion, Product
+    from buy_agent.models import Opinion, Product, Recorder
     from buy_agent.search import SearchResult
 
 logger = logging.getLogger(__name__)
@@ -123,9 +123,11 @@ def mentions_name(haystack: str, name: str) -> bool:
     return word_coverage(distinctive_words(name), haystack) >= NAME_COVERAGE
 
 
-def drop_ungrounded(products: Sequence[Product], haystack: str) -> list[Product]:
+def drop_ungrounded(
+    products: Sequence[Product], haystack: str, *, record: Recorder = nothing_recorded
+) -> list[Product]:
     """Remove products ``haystack`` never mentions: a name absent from every result cannot
-    have been read from one."""
+    have been read from one (ADR-0055)."""
     kept: list[Product] = []
     dropped: list[str] = []
     for product in products:
@@ -133,6 +135,13 @@ def drop_ungrounded(products: Sequence[Product], haystack: str) -> list[Product]
             kept.append(product)
         else:
             dropped.append(product.name)
+            record(
+                Removal(
+                    name=product.name,
+                    step="ground",
+                    reason="No page that was searched mentions it.",
+                )
+            )
 
     if dropped:
         # The count at INFO and the names at DEBUG, as everywhere a product is removed
@@ -146,11 +155,19 @@ def drop_ungrounded(products: Sequence[Product], haystack: str) -> list[Product]
 
 
 def ground(
-    products: Sequence[Product], results: Sequence[SearchResult]
+    products: Sequence[Product],
+    results: Sequence[SearchResult],
+    *,
+    record: Recorder = nothing_recorded,
 ) -> list[Product]:
-    """Keep only what the sources support: real products, figures, quotes and links."""
+    """Keep only what the sources support: real products, figures, quotes and links.
+
+    Only the first of the four removes a whole product, so it is the only one handed the
+    recorder: a blanked figure, quote or link leaves the product in the report, saying so
+    on its own card (ADR-0055).
+    """
     haystack = build_haystack(results)
-    kept = verify_numbers(drop_ungrounded(products, haystack), haystack)
+    kept = verify_numbers(drop_ungrounded(products, haystack, record=record), haystack)
     return attribute_sources(verify_opinions(kept, results), results)
 
 

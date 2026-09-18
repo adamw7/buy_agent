@@ -48,7 +48,7 @@ import buy_agent.providers as providers_module
 from buy_agent.payment import PaymentError
 from buy_agent.providers import PROVIDERS, InstalledModel, provider_options
 from buy_agent.rails import RAILS, rail_options
-from buy_agent.models import Product
+from buy_agent.models import Product, Removal
 from tests.conftest import SOURCE_ROOT, needs_ap2, payable_product, ranked_product, said
 from buy_agent.ranking import ORDERINGS, SortBy
 from buy_agent.server import DEFAULT_UI_DIR
@@ -158,7 +158,7 @@ def test_run_search_gives_each_failure_mode_its_own_status(kind: type) -> None:
 
     def failing_agent(_config):
         class Agent:
-            def run(self, request, *, sort_by="score", checkpoint=None):
+            def run(self, request, *, sort_by="score", checkpoint=None, record=None):
                 raise kind("no")
 
         return Agent()
@@ -437,6 +437,15 @@ def test_a_re_sort_answers_the_shape_a_finished_run_answers_with() -> None:
     assert set(reordered) == set(ran)
 
 
+def test_a_removal_is_mirrored_field_for_field_in_typescript() -> None:
+    """A run says why it is short, and a field the browser cannot read is a reason
+    nobody is given (ADR-0055)."""
+    ran = run_search("headphones", AgentConfig(), agent_factory=lambda _config: _StubAgent())
+
+    assert ran["dropped"], "the stub took something away and the payload lost it"
+    assert set(ts_interface("Removal")) == set(ran["dropped"][0])
+
+
 def test_a_re_sort_request_is_mirrored_field_for_field_in_typescript() -> None:
     """The other direction of the same rule as ``SearchOptions``: a key the
     browser never sends is a default nothing can move, and one it sends that
@@ -460,9 +469,12 @@ def test_a_run_leaves_the_process_in_one_shape_however_it_leaves() -> None:
 
 
 class _StubAgent:
-    """Answers with one ranked product, so run_search's own keys can be read off."""
+    """Answers with one ranked product, so run_search's own keys can be read off --
+    and takes one away, so the keys of a removal can be read off the same payload."""
 
-    def run(self, request, *, sort_by="score", checkpoint=None):
+    def run(self, request, *, sort_by="score", checkpoint=None, record=None):
+        if record is not None:
+            record(Removal(name="A headline", step="clean", reason="Not a product."))
         return [RANKED]
 
 

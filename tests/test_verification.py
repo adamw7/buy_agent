@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from buy_agent.models import Opinion, Product
+from buy_agent.models import Opinion, Product, Removal
 from buy_agent.search import SearchResult
 from buy_agent.verification import (
     attribute_sources,
@@ -945,3 +945,38 @@ def test_an_invented_count_that_collides_with_a_model_number_is_dropped() -> Non
 
     assert grounded[0].rating == 4.3, "the rating the page really printed stays"
     assert grounded[0].review_count is None
+
+
+# -- what grounding says it took out (ADR-0055) --------------------------------
+
+
+def test_a_product_no_page_mentions_is_removed_and_says_so() -> None:
+    """The panel's sentence, pinned beside the step that writes it."""
+    removed: list[Removal] = []
+    drop_ungrounded(
+        [Product(name="Bonavita Gooseneck Kettle")], "", record=removed.append
+    )
+
+    assert [entry.name for entry in removed] == ["Bonavita Gooseneck Kettle"]
+    assert removed[0].step == "ground"
+    assert removed[0].reason == "No page that was searched mentions it."
+
+
+def test_grounding_hands_over_only_the_products_it_removed() -> None:
+    """``ground`` runs four steps and three of them blank a field on a product that
+    stays in the report: a panel listing those would be listing the results
+    (ADR-0055)."""
+    removed: list[Removal] = []
+    kept = ground(
+        [
+            Product(name="Sony WH-CH720N", price=999.0, currency="USD"),
+            Product(name="Bonavita Gooseneck Kettle"),
+        ],
+        SOURCES,
+        record=removed.append,
+    )
+
+    # The price went, the product did not -- and the one absent from every page did.
+    assert [entry.name for entry in kept] == ["Sony WH-CH720N"]
+    assert kept[0].price is None
+    assert [entry.name for entry in removed] == ["Bonavita Gooseneck Kettle"]

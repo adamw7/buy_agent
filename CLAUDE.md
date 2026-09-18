@@ -667,6 +667,21 @@ was ever held to.
   be afforded. The merge is the case to remember, since nothing was dropped at
   all: the folded entry keeps the shorter of the two names and the other is
   simply gone.
+  **The five that drop a whole product also hand it over as data** (ADR-0055):
+  `record`, a keyword defaulting to `models.nothing_recorded` and handed down the
+  way `checkpoint` and `wait` are, called with a `models.Removal` -- the name it
+  went under, the step that took it, and the reason as a finished sentence.
+  `BuyAgent.run` passes it down, `api.run_search` collects, and the run payload
+  carries them as `dropped`, which is what lets the page answer "why is the one I
+  had in mind not in there?" once the progress panel has been replaced by the
+  results. The three that blank a field record nothing: the product is still in
+  the report and its own card says so. The sentence is written beside the log line
+  that already says the same thing -- `Constraints.apply` builds its own off the
+  same `describe`, currency and all -- since two wordings for one judgement is how
+  the panel and the progress come to disagree. The default stays "nobody is
+  recording" and changes nothing: every step is called without one throughout both
+  suites, and `tests/test_logging_contract.py` partitions the eight by which side
+  of this they are on.
 - **The web is asked twice and the model once, and the clock is handed in.** A
   step of the pipeline holds no clock: `fetch.py` and `search.py` take a `wait`
   and `BuyAgent` passes `time.sleep`, the way it passes `checkpoint` down
@@ -946,7 +961,10 @@ everything else to the built Angular app, unknown paths falling back to
   is the one shaping of a run's products -- the API's answer, the file `--json`
   writes, and the file Download results hands over. A re-sort that fails is said
   beside the results it left alone, not in the banner that means the *run*
-  failed.
+  failed. It reports no removals of its own either -- it ran no pipeline, so it
+  took nothing out, and the page carries the run's own `dropped` across rather
+  than taking the empty one (ADR-0055). Answering with the run's list here would
+  be this endpoint speaking for a run it never saw.
 - **A blank value means "use the default".** `api.parse_options` treats a
   missing key and an empty string alike, an empty form field meaning "unset" and
   not "zero" -- and the UI's `toQuery` drops blanks for the same reason. Values
@@ -1031,6 +1049,11 @@ rules a change to them may not break.
 - **`progress-log` is presentation, not judgement.** Download log is offered for a
   failed run and a stopped one only. `transcript()` appends the failure message,
   which never reached the panel as a log line.
+- **What a run took out is listed under what it found, in Python's words**
+  (ADR-0055). The panel groups `dropped` and counts it and composes no sentence of
+  its own, which is ADR-0012 on this payload. It is drawn under the "Nothing came
+  back" banner too, that run being the one the question is loudest on -- and it
+  survives a re-sort, which answers an empty list because it removed nothing.
 - **Buying takes two clicks, and the second restates the cart.** Title, the cart's
   `pay_label`, its `pay_merchant`, rail, and whether anybody is charged -- the cart
   the mandates will carry, never the product's own figures (ADR-0043), which is why
@@ -1251,8 +1274,8 @@ the other is otherwise invisible to both suites. It asserts that
   subclass-first, and deliberately *not* the three in `_STATUS`; and
   `buy_agent.mandates` is the only module in the package that imports `ap2`;
 - `agent.types.ts` mirrors `defaults_payload`, `product_payload`, the
-  `breakdown` a product carries, the `Opinion`s it quotes and `run_search` field
-  for field;
+  `breakdown` a product carries, the `Opinion`s it quotes, the `Removal`s the run
+  reports and `run_search` field for field;
 - the form holds a number to a range for every range `limits_payload` ships and
   writes no `min` or `max` of its own into its template, and every key
   `parse_options` reads is one `SearchOptions` sends -- a key it reads and the

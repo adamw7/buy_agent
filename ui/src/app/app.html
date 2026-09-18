@@ -190,5 +190,27 @@
         above, says which.
       </p>
     }
+
+    <!-- Under both of those: a run that reported three products and a run that
+         reported none are the same question -- "why is the one I had in mind not
+         in there?" -- and until now the only answer was a log line that had
+         scrolled past, or a `-v` nobody had run. Every sentence here is Python's,
+         from the step that did the removing. -->
+    @if (found.dropped.length) {
+      <details class="also dropped">
+        <summary>
+          {{ found.dropped.length }} candidate{{ found.dropped.length === 1 ? '' : 's' }} the agent
+          took out
+        </summary>
+        <ul class="removals">
+          @for (removal of found.dropped; track $index) {
+            <li>
+              <span class="removed-name">{{ removal.name }}</span>
+              <span class="removed-why">{{ removal.reason }}</span>
+            </li>
+          }
+        </ul>
+      </details>
+    }
   }
 </main>
