@@ -1,13 +1,28 @@
-"""The DuckDuckGo wrapper, with the network stubbed out."""
+"""The table a search backend is one row of, with the network stubbed out (ADR-0057)."""
 
 from __future__ import annotations
 
 import logging
 
+import httpx
 import pytest
 from ddgs.exceptions import DDGSException
 
-from buy_agent.search import _NO_RESULTS, _RETRY_WAIT, SearchError, SearchResult, search_web
+from buy_agent.search import (
+    _NO_RESULTS,
+    _RETRY_WAIT,
+    BACKENDS,
+    BRAVE,
+    DDG,
+    SEARXNG,
+    Backend,
+    Query,
+    SearchError,
+    SearchResult,
+    backend_for,
+    backend_options,
+    search_web,
+)
 
 
 def stub_ddgs(monkeypatch, *, results=None, error: Exception | None = None) -> dict:
@@ -214,3 +229,226 @@ def test_the_retry_says_what_it_is_waiting_for(monkeypatch, caplog) -> None:
         search_web("headphones", wait=lambda _: None)
 
     assert "asking again in 2s" in caplog.text
+
+
+# -- the table itself ----------------------------------------------------------
+
+
+def test_the_default_backend_is_the_one_that_needs_nothing() -> None:
+    """ADR-0057: a run that was told nothing searches the way it always did."""
+    assert search_web.__kwdefaults__["backend"] is DDG
+    assert BACKENDS["ddg"] is DDG
+    assert DDG.configured and not DDG.needs_key
+
+
+def test_an_unknown_backend_is_refused_by_name() -> None:
+    with pytest.raises(ValueError, match="Unknown search backend 'bing'"):
+        backend_for("bing")
+
+
+def test_the_picker_is_offered_every_row_and_never_a_key() -> None:
+    """The rows go to a browser, so the one secret on them may not (ADR-0057)."""
+    offered = backend_options()
+
+    assert [row["name"] for row in offered] == list(BACKENDS)
+    assert all("api_key" not in row for row in offered)
+
+
+def test_a_backend_that_needs_a_key_and_has_none_is_not_configured() -> None:
+    """What the picker marks a row with, decided here rather than in TypeScript.
+
+    Built rather than read off the shipped row: its key comes from the environment this
+    process started in, so a developer holding one would be testing the other answer.
+    """
+    assert BRAVE.needs_key
+    assert not _with_key(BRAVE, "").configured
+    assert _with_key(BRAVE, "secret").configured
+
+
+@pytest.mark.parametrize(
+    ("region", "country", "language"),
+    [("us-en", "US", "en"), ("pl-pl", "PL", "pl"), ("hk-tzh", "HK", "tzh")],
+)
+def test_a_region_splits_into_the_halves_each_backend_asks_for(
+    region: str, country: str, language: str
+) -> None:
+    """ADR-0031 spells a region one way and the backends want it in halves, so the
+    splitting is done once above the rows."""
+    asked = Query(text="headphones", max_results=3, region=region)
+
+    assert (asked.country, asked.language) == (country, language)
+
+
+def test_a_region_with_no_language_half_is_used_whole() -> None:
+    """Nothing can reach this through a door -- ``parse_region`` refuses it -- and a
+    row asking for a blank language would search for nothing rather than for less."""
+    assert Query(text="x", max_results=1, region="us").language == "us"
+
+
+# -- the two backends asked over HTTP ------------------------------------------
+
+
+def stub_http(monkeypatch, *, payload=None, text="", error: Exception | None = None) -> dict:
+    """Point the addressed rows at a fake far end and return the request it saw."""
+    seen: dict = {}
+
+    def get(url: str, **kwargs) -> httpx.Response:
+        seen.update({"url": url, **kwargs})
+        if error is not None:
+            raise error
+        request = httpx.Request("GET", url)
+        if payload is None:
+            return httpx.Response(200, text=text, request=request)
+        return httpx.Response(200, json=payload, request=request)
+
+    monkeypatch.setattr("buy_agent.search.httpx.get", get)
+    return seen
+
+
+def test_a_searxng_answer_becomes_search_results(monkeypatch) -> None:
+    seen = stub_http(
+        monkeypatch,
+        payload={
+            "results": [
+                {"title": "Sony XM5", "url": "https://shop/x", "content": "$328"},
+                {"title": "Bose", "url": "https://shop/b", "content": "$279"},
+            ]
+        },
+    )
+
+    results = search_web("headphones", max_results=1, region="pl-pl", backend=SEARXNG)
+
+    assert [(r.title, r.url, r.snippet) for r in results] == [
+        ("Sony XM5", "https://shop/x", "$328")
+    ]
+    assert seen["url"] == "http://localhost:8080/search"
+    assert seen["params"]["q"] == "headphones"
+    assert seen["params"]["format"] == "json"
+    assert seen["params"]["language"] == "pl"
+
+
+def test_a_brave_answer_becomes_search_results(monkeypatch) -> None:
+    seen = stub_http(
+        monkeypatch,
+        payload={
+            "web": {"results": [{"title": "Sony XM5", "url": "https://shop/x", "description": "$328"}]}
+        },
+    )
+    keyed = _with_key(BRAVE, "secret")
+
+    results = search_web("headphones", max_results=4, region="pl-pl", backend=keyed)
+
+    assert [(r.title, r.url, r.snippet) for r in results] == [
+        ("Sony XM5", "https://shop/x", "$328")
+    ]
+    assert seen["headers"]["X-Subscription-Token"] == "secret"
+    assert seen["params"] == {
+        "q": "headphones",
+        "count": 4,
+        "country": "PL",
+        "search_lang": "pl",
+    }
+
+
+def test_brave_without_a_key_says_which_variable_to_set(monkeypatch) -> None:
+    """Not a transport failure, so it is not asked twice: a second keyless request is
+    a second refusal."""
+    asked = stub_http(monkeypatch, payload={"web": {"results": []}})
+
+    with pytest.raises(SearchError, match=r"\$BRAVE_API_KEY"):
+        search_web("headphones", backend=_with_key(BRAVE, ""), wait=lambda _: None)
+
+    assert asked == {}
+
+
+def test_a_brave_answer_with_no_web_block_is_no_results(monkeypatch) -> None:
+    """Readable, and simply holding nothing: an answer, not a failure."""
+    stub_http(monkeypatch, payload={"query": {"original": "headphones"}})
+
+    assert search_web("headphones", backend=_with_key(BRAVE, "k")) == []
+
+
+def test_an_answer_that_is_not_json_is_the_backend_s_own_failure(monkeypatch) -> None:
+    """The rule ``rails._post`` follows: HTML where JSON was asked for is the far end
+    being configured wrongly, and a second identical request gets the same page."""
+    stub_http(monkeypatch, text="<html>search</html>")
+
+    with pytest.raises(SearchError, match="not JSON"):
+        search_web("headphones", backend=SEARXNG, wait=lambda _: None)
+
+
+def test_an_answer_that_is_not_an_object_is_the_same_failure(monkeypatch) -> None:
+    stub_http(monkeypatch, payload=["one", "two"])
+
+    with pytest.raises(SearchError, match="not an object"):
+        search_web("headphones", backend=SEARXNG)
+
+
+def test_entries_that_are_not_objects_are_skipped(monkeypatch) -> None:
+    """One malformed row is not worth losing the nine beside it."""
+    stub_http(monkeypatch, payload={"results": ["nonsense", {"title": "Sony"}]})
+
+    assert [r.title for r in search_web("x", backend=SEARXNG)] == ["Sony"]
+
+
+def test_an_unreachable_instance_names_its_address_and_the_way_back(monkeypatch) -> None:
+    stub_http(monkeypatch, error=httpx.ConnectError("refused"))
+
+    with pytest.raises(SearchError) as failure:
+        search_web("headphones", backend=SEARXNG)
+
+    said = str(failure.value)
+    assert "http://localhost:8080" in said
+    assert "$SEARXNG_HOST" in said
+    assert DDG.label in said
+
+
+def test_a_refused_brave_key_is_said_as_a_refused_key(monkeypatch) -> None:
+    """A 401 is not "the address is wrong", which is what the other sentence says."""
+    request = httpx.Request("GET", BRAVE.endpoint)
+    refused = httpx.HTTPStatusError(
+        "401", request=request, response=httpx.Response(401, request=request)
+    )
+    stub_http(monkeypatch, error=refused)
+
+    with pytest.raises(SearchError, match="refused the key"):
+        search_web("headphones", backend=_with_key(BRAVE, "wrong"))
+
+
+def test_a_brave_outage_falls_back_to_the_address_sentence(monkeypatch) -> None:
+    """Any status that is not a refused key is the far end being missing."""
+    request = httpx.Request("GET", BRAVE.endpoint)
+    down = httpx.HTTPStatusError(
+        "503", request=request, response=httpx.Response(503, request=request)
+    )
+    stub_http(monkeypatch, error=down)
+
+    with pytest.raises(SearchError, match=r"\$BRAVE_HOST"):
+        search_web("headphones", backend=_with_key(BRAVE, "k"))
+
+
+def test_the_backend_being_asked_is_named_in_the_line_that_says_so(
+    monkeypatch, caplog
+) -> None:
+    """Two backends can be configured on one machine, so which one a run asked is the
+    half of that line a reader cannot work out."""
+    stub_http(monkeypatch, payload={"results": []})
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.search"):
+        search_web("headphones", backend=SEARXNG)
+
+    assert SEARXNG.label in caplog.text
+
+
+def _with_key(backend: Backend, key: str) -> Backend:
+    """``backend`` as it would have been built with that key in its environment."""
+    return Backend(
+        name=backend.name,
+        label=backend.label,
+        endpoint=backend.endpoint,
+        api_key=key,
+        needs_key=backend.needs_key,
+        find=backend.find,
+        transport_errors=backend.transport_errors,
+        hint=backend.hint,
+    )

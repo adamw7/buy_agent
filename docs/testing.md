@@ -22,10 +22,13 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-2138 Python tests and 207 UI tests. Nothing in either suite touches the network
+2252 Python tests and 222 UI tests. Nothing in either suite touches the network
 or a model server: the model is faked through the `llm=` argument of `BuyAgent`
 -- a class with one `answer` method, which is the whole of `chat.ChatModel`,
-both the search backend and the page fetcher are monkeypatched, the two clients
+both the search backend and the page fetcher are monkeypatched -- the backends'
+own tests reaching one row further down, to `buy_agent.search.DDGS` and
+`buy_agent.search.httpx.get`, which are the two ways a row reaches out
+(ADR-0057) -- the two clients
 `buy_agent.providers` builds are patched where that module imported them, and
 the server tests inject a stub agent through `create_server(agent_factory=...)`.
 The only real sockets are the loopback ones the HTTP tests need in order to be
@@ -57,8 +60,8 @@ Without that SDK the 74 tests that need it **skip**, the way
 `tests/conftest.py` is the marker, and it asks `mandates.available()` once at
 import. `needs_powershell` is the other, and with neither `pwsh` nor
 `powershell` on PATH 13 of the 19 tests in that file sit out. So a machine with
-the SDK and no PowerShell reads `2161 passed, 13 skipped`, and a checkout set up
-with `requirements-dev.txt` alone reads `2087 passed, 87 skipped` rather than 74
+the SDK and no PowerShell reads `2239 passed, 13 skipped`, and a checkout set up
+with `requirements-dev.txt` alone reads `2165 passed, 87 skipped` rather than 74
 failures claiming the project is broken when one optional feature is simply not
 installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide

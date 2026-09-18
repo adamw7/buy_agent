@@ -21,7 +21,7 @@ graph TB
     system["<b>buy_agent</b><br/><i>[Software System]</i><br/>Turns a plain-language request into<br/>a ranked shortlist of real products,<br/>each figure backed by a source page"]
 
     ollama["<b>Model server</b><br/><i>[External System]</i><br/>A local Ollama, or a vLLM behind its<br/>OpenAI-compatible API. Refines the<br/>query and extracts products, under a<br/>JSON schema that constrains decoding"]
-    ddg["<b>DuckDuckGo</b><br/><i>[External System]</i><br/>Web search, no API key"]
+    ddg["<b>Search backend</b><br/><i>[External System]</i><br/>DuckDuckGo with no key, a SearXNG<br/>the shopper runs, or Brave on a key<br/>they hold -- one row each"]
     shops["<b>Shop and review pages</b><br/><i>[External System]</i><br/>The pages the search returns;<br/>the only source of prices,<br/>ratings and review counts"]
     counterparty["<b>AP2 endpoint</b><br/><i>[External System]</i><br/>Whatever merchant or credential provider<br/>the operator names, reached only by a<br/>run that was asked to buy. None is<br/>named in this project"]
 
@@ -70,7 +70,7 @@ graph TB
     end
 
     ollama["<b>Model server</b><br/><i>[External System]</i><br/>Ollama or vLLM"]
-    ddg["<b>DuckDuckGo</b><br/><i>[External System]</i>"]
+    ddg["<b>Search backend</b><br/><i>[External System]</i><br/>DuckDuckGo, SearXNG or Brave"]
     shops["<b>Shop and review pages</b><br/><i>[External System]</i>"]
     counterparty["<b>AP2 endpoint</b><br/><i>[External System]</i><br/>Whatever merchant or credential<br/>provider the operator names. None<br/>is named in this project"]
 
@@ -133,7 +133,7 @@ graph TB
         providers["<b>Providers</b><br/><i>[Component: providers.py]</i><br/>Everything that differs between<br/>Ollama and vLLM, one row each: the<br/>model, address and key it defaults<br/>to, the client and how it declares a<br/>schema, the listing, which of the two<br/>settings it takes rather than fixing<br/>at startup, the errors that mean<br/>&quot;not there&quot;, and what to say"]
         chat["<b>Chat</b><br/><i>[Component: chat.py]</i><br/>A prompt with the run's values in it,<br/>a chain binding one to a schema, and<br/>the answer read back as that schema<br/>-- or refused"]
         extraction["<b>Extraction</b><br/><i>[Component: extraction.py]</i><br/>Both prompts and both chains,<br/>plus name cleaning and merging<br/>of variant names"]
-        search["<b>Search</b><br/><i>[Component: search.py]</i><br/>DuckDuckGo wrapper; asks once more<br/>where every engine failed, and raises<br/>SearchError when that one does too"]
+        search["<b>Search</b><br/><i>[Component: search.py]</i><br/>Which backend a search is asked<br/>through, one row each: where it<br/>listens, its key, how it is asked and<br/>what it answers. Asks once more where<br/>the backend failed, and raises<br/>SearchError when that one does too"]
         sources["<b>Sources</b><br/><i>[Component: sources.py]</i><br/>Reads a trusted source down to a<br/>domain and a term, narrows the<br/>query to it, and says whether a<br/>result came from it"]
         fetch["<b>Fetch</b><br/><i>[Component: fetch.py]</i><br/>Fetches result pages in parallel and<br/>keeps the lines quoting a figure and<br/>the lines passing judgement, each<br/>on a budget of its own; asks a page<br/>that said to come back once more;<br/>tallies how the rest failed"]
         cache["<b>Cache</b><br/><i>[Component: cache.py]</i><br/>What a run can reuse: the text of a<br/>fetched page, and the answer a model<br/>gave about it. Kept on disk for a<br/>day, and bounded by size as well as<br/>age. Best-effort: every failure is a<br/>miss, never a failed run"]
@@ -152,7 +152,7 @@ graph TB
     end
 
     ollama["<b>Model server</b><br/><i>[External System]</i><br/>Ollama or vLLM"]
-    ddg["<b>DuckDuckGo</b><br/><i>[External System]</i>"]
+    ddg["<b>Search backend</b><br/><i>[External System]</i><br/>DuckDuckGo, SearXNG or Brave"]
     shops["<b>Shop and review pages</b><br/><i>[External System]</i>"]
     counterparty["<b>AP2 endpoint</b><br/><i>[External System]</i><br/>Whatever merchant or credential<br/>provider the operator names. None<br/>is named in this project"]
 
@@ -177,6 +177,7 @@ graph TB
     agent -->|"9. log the top N"| logsetup
     agent -.->|"builds the chat model,<br/>names the failure"| providers
     config -.->|"model_server: the model, the<br/>address and the key per provider"| providers
+    config -.->|"search_backend: which row<br/>a search is asked through"| search
 
     providers -->|"[HTTP]"| ollama
     extraction -->|"invokes the chains<br/>[JSON schema]"| ollama
@@ -245,7 +246,7 @@ Step 2 is one search, unless the shopper named the sources the facts should come
 from -- `site:` takes one domain at a time, so each source is searched separately
 and the results pooled, deduplicated by URL and cut back to the width the run was
 configured for. `sources.py` decides only what a source *is*; the searching stays
-in `agent.py` and the DuckDuckGo call in `search.py` (ADR-0021). Nothing further
+in `agent.py` and the backend call in `search.py` (ADR-0021, ADR-0057). Nothing further
 down knows the feature exists: the pool is what gets fetched, extracted from and
 grounded against either way, which makes "every fact came from a page you named"
 true by construction rather than by promise (ADR-0027).
@@ -288,9 +289,14 @@ limits"). A product whose figure the run never learned is kept: grounding blanks
 what the pages did not back, and dropping blanks would reject products for the
 extractor's misses, which is the reasoning that already scores them neutral
 (ADR-0039). A price the run cannot *place* counts as one of those blanks: prices
-are compared inside a single currency -- the commonest one the pages printed --
+are compared inside a single currency -- the one the shopper named, or the
+commonest one the pages printed --
 and converted never, so a figure outside it passes the budget and scores neutral
-instead of being read as the number it happens to be (ADR-0043).
+instead of being read as the number it happens to be (ADR-0043). Which currency
+that is, the shopper may name: `--currency PLN` and the form's "Count prices in"
+settle the scale outright, and the run warns where nothing found is on it, that
+being the one way to ask for a report whose price criterion is entirely assumed
+(ADR-0056).
 
 Step 8 keeps what it worked out. `rank_products` blends three shares into one
 score, and the shares travel beside it: without them a report says where a product
@@ -413,7 +419,7 @@ sequenceDiagram
     participant W as Worker thread
     participant A as BuyAgent
     participant O as Model server
-    participant D as DuckDuckGo
+    participant D as Search backend
     participant P as Shop pages
 
     S->>UI: "wireless headphones under $200"

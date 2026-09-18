@@ -166,6 +166,25 @@ others are standing answers about this machine, and "you may spend my money" is
 not one of them; a browser that restored it would arm the next visit's run with
 nobody having said so.
 
+Two of its pickers are read out rather than reasoned about. The **Search
+backend** field says where that backend is asked and what it is missing, off the
+`configured` and `endpoint` its row shipped, so a fourth backend added in Python
+says its piece here without a second list of names in TypeScript
+([ADR-0057](../docs/adr/0057-a-search-backend-is-a-row-in-a-table.md)). **Count
+prices in** is the scale the run's prices are compared on, and its blank is a
+value rather than a missing one -- "whatever the pages quote", which is what the
+set voting on its own means and what the field defaults to
+([ADR-0056](../docs/adr/0056-let-the-shopper-name-the-currency.md)). It is also
+what the Max price and Spend limit boxes name themselves in: a budget's number is
+the shopper's and its currency is not, so the hint under each says which one it
+is being read on. The codes are Python's table, sent with the defaults, for the
+reason every other list here is.
+
+That scale then travels with the finished run. `App` sends it back on a re-sort
+and on a payment, out of the settings the run was started with: both are handed
+the products by the browser (ADR-0035), so a set left to vote again could come
+back in a different order, or priced into a different cart, for one run.
+
 Its payment block is drawn only when `pay_available` says the server has the AP2
 SDK at all -- a switch whose only outcome is a message about pip is worse than a
 sentence -- and the rail picker, its address field and the spend limit appear

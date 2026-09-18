@@ -529,3 +529,20 @@ def test_an_unreachable_rail_carries_the_transports_own_words(
 
     with pytest.raises(RailUnreachableError, match="nowhere"):
         pay_for(cart_for(SONY, [SONY], config), config)
+
+
+def test_a_cart_is_priced_on_the_currency_the_run_was_told_to_count_in() -> None:
+    """ADR-0056 meets ADR-0043's "never pay on a number this run cannot place": naming
+    the scale moves which products have an amount to send, not what an amount means."""
+    euros = Product(
+        name="Sony XM5", price=329.0, currency="EUR", url="https://shop.example/x"
+    )
+    dollars = Product(
+        name="Bose QC", price=279.0, currency="USD", url="https://shop.example/b"
+    )
+
+    cart = cart_for(euros, [dollars, euros, dollars], AgentConfig(currency="EUR"))
+
+    assert (cart.price, cart.currency) == (329.0, "EUR")
+    with pytest.raises(PaymentError, match="this run counts in EUR"):
+        cart_for(dollars, [dollars, euros, dollars], AgentConfig(currency="EUR"))

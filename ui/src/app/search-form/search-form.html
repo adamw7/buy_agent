@@ -148,6 +148,39 @@
         }
       </label>
 
+      <label class="field">
+        <span>Search backend</span>
+        <select name="backend" [(ngModel)]="backend" [disabled]="running()">
+          @for (option of backendOptions(); track option.name) {
+            <option [value]="option.name">{{ option.label }}</option>
+          }
+        </select>
+        <!-- Whether this server holds what a backend needs is Python's answer, on
+             the backend's own row: a fourth added there says so here without a
+             second list of names in TypeScript. -->
+        <small>{{ backendHint() }}</small>
+      </label>
+
+      <label class="field">
+        <span>Count prices in</span>
+        <select name="currency" [(ngModel)]="currency" [disabled]="running()">
+          <!-- The blank is a value and not a missing one: it is how a shopper asks
+               for the scale the pages themselves quote, which is the default. -->
+          <option value="">Whatever the pages quote</option>
+          @for (option of currencyOptions(); track option) {
+            <option [value]="option">{{ option }}</option>
+          }
+        </select>
+        <small>
+          @if (currency()) {
+            Nothing is converted, so a price in any other currency scores neutral and sinks in a
+            price sort.
+          } @else {
+            The commonest currency the pages quote decides the scale.
+          }
+        </small>
+      </label>
+
       <label class="field wide">
         <span>Trusted sources</span>
         <input

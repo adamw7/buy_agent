@@ -31,8 +31,8 @@ _OPTIONS = CheckOptions(ignore_type_checking_imports=True)
 #: The module table in ``CLAUDE.md``, read as the stack it implies: the entry points build
 #: a config and call a run, the web tier turns a request into one, the agent orchestrates
 #: the steps, the steps take values and answer values, the seams are where a model server,
-#: a counterparty and the disk are spoken to, the settings are what a run is assembled
-#: from, and the domain types are what everything passes around.
+#: a search backend, a counterparty and the disk are spoken to, the settings are what a
+#: run is assembled from, and the domain types are what everything passes around.
 _LAYERS: dict[str, tuple[str, ...]] = {
     "entry points": ("__main__.py", "server.py"),
     "web": ("api.py",),
@@ -43,10 +43,12 @@ _LAYERS: dict[str, tuple[str, ...]] = {
         "constraints.py",
         "ranking.py",
         "fetch.py",
-        "search.py",
     ),
     "paying": ("payment.py", "rails.py", "mandates.py"),
-    "model access": ("chat.py", "providers.py", "cache.py"),
+    # ``search.py`` is here and not among the steps: it is the table a backend is one
+    # row of (ADR-0057), so it reads its rows' addresses and keys off the environment,
+    # which is the one thing a step may never do.
+    "seams": ("chat.py", "providers.py", "cache.py", "search.py"),
     "settings": ("config.py", "logging_setup.py"),
     "domain": ("models.py", "money.py", "sources.py"),
 }
@@ -58,16 +60,16 @@ _MAY_DEPEND_ON: dict[str, tuple[str, ...]] = {
         "orchestration",
         "pipeline",
         "paying",
-        "model access",
+        "seams",
         "settings",
         "domain",
     ),
-    "web": ("orchestration", "pipeline", "paying", "model access", "settings", "domain"),
-    "orchestration": ("pipeline", "model access", "settings", "domain"),
-    "pipeline": ("pipeline", "model access", "domain"),
+    "web": ("orchestration", "pipeline", "paying", "seams", "settings", "domain"),
+    "orchestration": ("pipeline", "seams", "settings", "domain"),
+    "pipeline": ("pipeline", "seams", "domain"),
     "paying": ("paying", "domain"),
-    "model access": ("model access",),
-    "settings": ("pipeline", "paying", "model access", "domain"),
+    "seams": ("seams",),
+    "settings": ("pipeline", "paying", "seams", "domain"),
     "domain": (),
 }
 
@@ -239,11 +241,12 @@ def test_only_providers_imports_a_model_client() -> None:
 
 
 def test_only_search_imports_the_search_backend() -> None:
-    """ADR-0021: ``search.py`` is a DuckDuckGo wrapper and nothing else."""
+    """ADR-0021 and ADR-0057: ``search.py`` is the table a search backend is one row of,
+    and the one library any of them is reached through is that table's."""
     imports_none_of(
         every_module_but("search.py"),
         "ddgs*",
-        because="one search backend, one wrapper, one thing to patch",
+        because="a search backend is one row in one table, reached one way",
     )
 
 
@@ -257,13 +260,14 @@ def test_only_fetch_imports_the_html_parser() -> None:
     )
 
 
-def test_only_the_three_modules_that_speak_to_somebody_import_httpx() -> None:
+def test_only_the_four_modules_that_speak_to_somebody_import_httpx() -> None:
     """``fetch.py`` reads pages, ``providers.py`` asks a model server what it is serving,
-    ``rails.py`` presents an authorisation to a counterparty."""
+    ``rails.py`` presents an authorisation to a counterparty, and ``search.py`` asks
+    whichever backend is not reached through a library of its own (ADR-0057)."""
     imports_none_of(
-        every_module_but("fetch.py", "providers.py", "rails.py"),
+        every_module_but("fetch.py", "providers.py", "rails.py", "search.py"),
         "httpx*",
-        because="three modules reach the network, and the suite patches all three",
+        because="four modules reach the network, and the suite patches all four",
     )
 
 
@@ -311,20 +315,22 @@ def test_only_the_entry_points_parse_a_command_line() -> None:
 
 def test_the_tables_know_nothing_about_the_config_they_are_read_from() -> None:
     """``providers.py`` "imports nothing from ``config``; the dependency runs the other
-    way" (ADR-0029), and ``rails.py`` is that same table for counterparties (ADR-0046)."""
+    way" (ADR-0029); ``rails.py`` is that same table for counterparties (ADR-0046) and
+    ``search.py`` for search backends (ADR-0057)."""
     knows_nothing_of(
-        only("providers.py", "rails.py"),
+        only("providers.py", "rails.py", "search.py"),
         only("config.py"),
         because="config resolves its defaults off the rows, not the other way about",
     )
 
 
-def test_search_is_a_wrapper_over_one_library_and_nothing_else() -> None:
-    """ADR-0021, from the other side: ``search.py`` carries no export the pipeline does
-    not use, and it knows about no other module of this package."""
+def test_search_knows_nothing_of_the_package_it_is_asked_from() -> None:
+    """ADR-0021 and ADR-0057, from the other side: the table carries no export the
+    pipeline does not use, and it knows about no other module of this package --
+    ``config.py`` reads the rows, exactly as it reads the providers' and the rails'."""
     knows_nothing_of(
         only("search.py"),
-        because="the search backend is replaceable exactly as long as it is alone",
+        because="a backend is replaceable exactly as long as the table is alone",
     )
 
 

@@ -82,6 +82,20 @@ def code_for(value: str) -> str | None:
     return ALIASES.get(code, code) or None
 
 
+def placeable(value: str) -> str | None:
+    """``value`` as a currency a *run* may be counted in, or ``None`` for one it could
+    never place (ADR-0056).
+
+    The narrower question :func:`code_for` answers: that one reads whatever a page --
+    or a small model -- wrote and hands an unknown spelling back as written, which is a
+    price this run cannot place and already has an answer everywhere (ADR-0043). A
+    shopper naming the scale is choosing, not reporting, so the answer is a code out of
+    the table above and nothing else.
+    """
+    code = code_for(value)
+    return code if code in CODES else None
+
+
 def amount_label(price: float, currency: str | None = None) -> str:
     """An amount as a person reads it, which is how every surface must write it."""
     unit = f" {currency}" if currency else ""

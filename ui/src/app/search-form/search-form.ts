@@ -5,6 +5,7 @@ import { FormsModule } from '@angular/forms';
 
 import type {
   AgentDefaults,
+  BackendOption,
   Limit,
   ModelSource,
   ModelStatus,
@@ -138,6 +139,8 @@ export class SearchForm {
   protected readonly model = signal('');
   protected readonly baseUrl = signal('');
   protected readonly region = signal('us-en');
+  protected readonly currency = signal('');
+  protected readonly backend = signal('ddg');
   protected readonly sources = signal('');
   // Every number box is `number | null`, because null is what one holds when it is cleared -- "use
   // the default" for most (ADR-0012) and "no bound at all" for the three the shopper sets
@@ -172,7 +175,9 @@ export class SearchForm {
   protected readonly numberFields: NumberField[] = [
     field('max_price', 'Max price', this.maxPrice, {
       step: 0.01,
-      hint: 'In the currency most of the pages quote; nothing is converted.',
+      // The scale this is read on, named rather than assumed: it is the shopper's
+      // own choice above when they made one, and the vote when they did not.
+      hint: () => `In ${this.scale()}; nothing is converted.`,
     }),
     field('min_rating', 'Min rating', this.minRating, {
       step: 0.1,
@@ -201,7 +206,8 @@ export class SearchForm {
       step: 0.01,
       // No second branch for paying being off: the box is not drawn then, and a
       // sentence explaining that had nowhere to be read from.
-      hint: 'The most one payment may be, in the currency most pages quote. A price in another currency is refused, not passed.',
+      hint: () =>
+        `The most one payment may be, in ${this.scale()}. A price in another currency is refused, not passed.`,
       off: () => !this.pay(),
       paying: true,
     }),
@@ -226,6 +232,21 @@ export class SearchForm {
     model: setting(this.model, (d) => d.model, asText),
     baseUrl: setting(this.baseUrl, (d) => d.base_url, asText),
     region: setting(this.region, (d) => d.region, asText),
+    // Checked against what the server offers, for the reason `provider` and `rail`
+    // are: a code remembered by a browser and since dropped from Python's table
+    // would leave the picker matching nothing and every price off the scale.
+    currency: setting(
+      this.currency,
+      (d) => d.currency,
+      // The blank is a value here and not a missing one -- "whatever the pages
+      // quote" -- so it is offered alongside the codes rather than refused.
+      amongst((d) => ['', ...d.currency_options]),
+    ),
+    backend: setting(
+      this.backend,
+      (d) => d.backend,
+      amongst((d) => d.backend_options.map((option) => option.name)),
+    ),
     // Remembered like the rest: which sites a shopper trusts is a standing
     // answer, not something they retype for every search.
     sources: setting(this.sources, (d) => d.sources, asText),
@@ -268,6 +289,40 @@ export class SearchForm {
   protected readonly railOptions = computed<RailOption[]>(
     () => this.defaults()?.rail_options ?? [],
   );
+
+  /** What the two amounts on this form are read in, as the boxes name it. */
+  protected readonly scale = computed(
+    () => this.currency() || 'the currency most of the pages quote',
+  );
+
+  protected readonly currencyOptions = computed<string[]>(
+    () => this.defaults()?.currency_options ?? [],
+  );
+
+  protected readonly backendOptions = computed<BackendOption[]>(
+    () => this.defaults()?.backend_options ?? [],
+  );
+
+  /** The row for the backend currently chosen, which says whether this server can
+   *  ask it at all. */
+  protected readonly chosenBackend = computed<BackendOption | undefined>(() =>
+    this.backendOptions().find((option) => option.name === this.backend()),
+  );
+
+  /** What the backend field says under it: where it is asked, or what it is missing.
+   *  Python decided `configured`; the browser only reads it out. */
+  protected readonly backendHint = computed(() => {
+    const option = this.chosenBackend();
+    if (!option) {
+      return '';
+    }
+    if (!option.configured) {
+      return `${option.label} needs a key this server does not have, so a run through it will fail.`;
+    }
+    return option.endpoint
+      ? `Asked at ${option.endpoint}.`
+      : `${option.label} needs no server of your own and rate-limits heavy use.`;
+  });
 
   /** The row for the rail currently chosen, which carries its address and whether it needs one. */
   protected readonly chosenRail = computed<RailOption | undefined>(() =>
@@ -491,6 +546,8 @@ export class SearchForm {
       model: this.model().trim(),
       base_url: this.baseUrl().trim(),
       region: this.region().trim(),
+      currency: this.currency(),
+      backend: this.backend(),
       sources: this.sources().trim(),
       sort_by: this.sortBy(),
       think: fromThinking(this.thinking()),

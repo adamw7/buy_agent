@@ -287,3 +287,49 @@ def test_a_trailing_slash_is_dropped_so_a_rail_never_builds_a_double_one() -> No
 
 def test_the_spend_limit_is_bounded_like_every_other_number() -> None:
     assert LIMITS["spend_limit"] == (1, 10_000_000)
+
+
+# -- the currency a run counts itself in (ADR-0056) ----------------------------
+
+
+@pytest.mark.parametrize(
+    ("typed", "code"),
+    [("PLN", "PLN"), ("pln", "PLN"), ("$", "USD"), (" eur ", "EUR"), ("zł", "PLN")],
+)
+def test_a_named_currency_is_folded_the_way_a_page_s_is(typed: str, code: str) -> None:
+    """The one table decides which spellings are one currency (ADR-0054), so a shopper
+    typing what their pages print is understood."""
+    assert AgentConfig(currency=typed).currency == code
+
+
+def test_no_currency_at_all_is_the_default_and_lets_the_set_vote() -> None:
+    """Blank is not a value to place; it is the absence of one (ADR-0012, ADR-0043)."""
+    assert AgentConfig().currency == ""
+    assert AgentConfig(currency="   ").currency == ""
+
+
+@pytest.mark.parametrize("typed", ["XXX", "dollarydoos", "¥"])
+def test_a_currency_this_run_could_never_place_is_refused_by_name(typed: str) -> None:
+    """``¥`` among them: it is read off a page and deliberately never placed, so a run
+    counted in it could place nothing at all (ADR-0054)."""
+    with pytest.raises(ValueError, match="not a currency this run can count in"):
+        AgentConfig(currency=typed)
+
+
+def test_the_refusal_names_the_currencies_that_would_have_worked() -> None:
+    with pytest.raises(ValueError, match="PLN"):
+        AgentConfig(currency="XXX")
+
+
+# -- the search backend a run asks (ADR-0057) ---------------------------------
+
+
+def test_the_default_backend_needs_no_key_and_no_server() -> None:
+    assert AgentConfig().backend == "ddg"
+    assert AgentConfig().search_backend.name == "ddg"
+
+
+def test_a_backend_nothing_can_search_is_refused_where_the_config_is_built() -> None:
+    """A minute into a run is the wrong place to find out (ADR-0057)."""
+    with pytest.raises(ValueError, match="Unknown search backend 'bing'"):
+        AgentConfig(backend="bing")

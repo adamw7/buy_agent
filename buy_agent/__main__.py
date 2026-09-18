@@ -15,10 +15,12 @@ from buy_agent.agent import BuyAgent, ModelUnavailableError
 from buy_agent.api import results_payload
 from buy_agent.chat import release
 from buy_agent.config import (
+    DEFAULT_BACKEND,
     DEFAULT_PROVIDER,
     DEFAULT_RAIL,
     LIMITS,
     AgentConfig,
+    parse_currency,
     parse_region,
 )
 from buy_agent.logging_setup import configure_logging
@@ -27,7 +29,7 @@ from buy_agent.payment import PaymentError
 from buy_agent.providers import PROVIDERS, provider_for
 from buy_agent.rails import RAILS, rail_for
 from buy_agent.ranking import SortBy
-from buy_agent.search import SearchError
+from buy_agent.search import BACKENDS, SearchError, backend_for
 from buy_agent.sources import parse_named_sources, parse_sources
 
 logger = logging.getLogger("buy_agent")
@@ -37,6 +39,7 @@ def _defaults() -> AgentConfig:
     return AgentConfig(
         provider=DEFAULT_PROVIDER if DEFAULT_PROVIDER in PROVIDERS else next(iter(PROVIDERS)),
         rail=DEFAULT_RAIL if DEFAULT_RAIL in RAILS else next(iter(RAILS)),
+        backend=DEFAULT_BACKEND if DEFAULT_BACKEND in BACKENDS else next(iter(BACKENDS)),
     )
 
 
@@ -179,6 +182,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Search region: a country and then a language, hyphenated (default: "
         f"{_DEFAULTS.region}; also uk-en, pl-pl). Anything else is a usage error, "
         "since a region no search engine knows returns nothing at all.",
+    )
+    parser.add_argument(
+        "--backend",
+        type=_checked(backend_for),
+        choices=tuple(BACKENDS),
+        default=DEFAULT_BACKEND,
+        help=f"Which search backend to ask (default: {DEFAULT_BACKEND}, override with "
+        "$BUY_AGENT_BACKEND). The default needs no key and no account and rate-limits "
+        "heavy use; the others are an instance you run ($SEARXNG_HOST) and a key you "
+        "hold ($BRAVE_API_KEY), each read off the environment and neither a flag.",
+    )
+    parser.add_argument(
+        "--currency",
+        type=_checked(parse_currency),
+        default=_DEFAULTS.currency,
+        metavar="CODE",
+        help="Count this run's prices in this currency, empty for whatever the pages "
+        "quote (the default). Nothing is converted, so a price in any other currency "
+        "is one this run cannot place: it scores neutral, sinks in a price sort and "
+        "passes every limit. Naming one your pages never quote is the way to ask for "
+        "a report whose price criterion is entirely assumed, and the run says so.",
     )
     parser.add_argument(
         "--source",
@@ -419,6 +443,8 @@ def main(argv: list[str] | None = None) -> int:
         min_reviews=args.min_reviews,
         cache_ttl=args.cache_ttl,
         region=args.region,
+        currency=args.currency,
+        backend=args.backend,
         # Repeated flags build a list; no flag leaves None, and the fallback is the
         # config's own default rather than an empty one written down again.
         sources=parse_sources(args.source) if args.source else _DEFAULTS.sources,
@@ -476,7 +502,7 @@ def main(argv: list[str] | None = None) -> int:
         # Written even when the run found nothing, and so before the exit code is
         # decided: skipped, a script waiting on this file finds the last run's results
         # looking current.
-        payload = results_payload(ranked)
+        payload = results_payload(ranked, config.currency or None)
         try:
             args.json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         except OSError as exc:

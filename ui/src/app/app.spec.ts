@@ -719,6 +719,24 @@ describe('App results', () => {
     await fixture.whenStable();
   };
 
+  it('re-sorts on the scale the run was counted on', async () => {
+    /* A re-sort runs no pipeline, so the products carry the run with them -- and
+       the scale is part of the run: left out, the set would vote again and one
+       run could come back in two different orders (ADR-0035, ADR-0056). */
+    const page = await render();
+    const currency = (page.nativeElement as HTMLElement).querySelector<HTMLSelectElement>(
+      'select[name="currency"]',
+    )!;
+    currency.value = 'PLN';
+    currency.dispatchEvent(new Event('change'));
+    await page.whenStable();
+    await ran(agent, 'kettle', RESULT, page);
+
+    await rankBy(page, 'price');
+
+    expect(agent.ranked[0].currency).toBe('PLN');
+  });
+
   it('calls the two ordering controls two different things', async () => {
     /* One re-orders products already on the screen and one sets the criterion the
        next run is ranked by. Both said "Rank by", so they read as one setting

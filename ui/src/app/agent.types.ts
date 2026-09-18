@@ -108,6 +108,18 @@ export interface ProviderOption {
   takes_cpu_only: boolean;
 }
 
+/** One search backend the run can be pointed at, and what it needs to be asked. */
+export interface BackendOption {
+  name: string;
+  label: string;
+  /** Where it listens, empty for one reached through a library rather than an address. */
+  endpoint: string;
+  needs_key: boolean;
+  /** Whether this server has the key that backend needs. Python's answer, so the
+   *  picker marks a backend nobody can ask without working the rule out here. */
+  configured: boolean;
+}
+
 /** What one number field may hold, as `config.LIMITS` declares it. */
 export interface Limit {
   min: number;
@@ -163,6 +175,14 @@ export interface AgentDefaults {
   /** How many seconds a fetched page stays usable on disk; 0 fetches every page fresh. */
   cache_ttl: number;
   region: string;
+  /** The currency the run counts its prices in. Empty -- the default -- lets the set
+   *  vote, which is what a mixed-currency search settled the scale by before it could
+   *  be named (ADR-0043, ADR-0056). */
+  currency: string;
+  /** Every currency a run may be told to count in, off Python's own table. */
+  currency_options: string[];
+  backend: string;
+  backend_options: BackendOption[];
   /** Sites to take the facts from, separated by spaces or commas. Empty is the whole web. */
   sources: string;
   fetch: boolean;
@@ -224,6 +244,9 @@ export interface SearchOptions {
   model?: string;
   base_url?: string;
   region?: string;
+  /** Blank lets the set vote on its own scale, which is the default (ADR-0056). */
+  currency?: string;
+  backend?: string;
   sources?: string;
   /** Every number is nullable, because null is what a cleared box holds and
    *  what `toQuery` drops: "use the default" for most of them, and "no bound at
@@ -256,6 +279,9 @@ export interface RankOptions {
   products: RankedProduct[];
   sort_by: SortBy;
   top: number;
+  /** The scale the run was counted on, sent back with its products: a re-sort that
+   *  let the set vote again would answer a different ordering for the same run. */
+  currency?: string;
 }
 
 /**
@@ -269,6 +295,9 @@ export interface PayOptions {
   rail?: string;
   merchant_url?: string;
   spend_limit?: number | null;
+  /** The run's own scale, for the same reason a re-sort sends it: the cart is priced
+   *  on it, and letting the set vote again could price it on another. */
+  currency?: string;
 }
 
 /** What a streamed run emits: progress, then exactly one ending. */

@@ -1366,3 +1366,78 @@ def test_a_run_with_no_bounds_reports_everything_it_found(
 
     assert len(ranked) == 3
     assert "within the limits" not in caplog.text
+
+
+# -- the currency a run counts itself in (ADR-0056) ---------------------------
+
+
+def test_the_named_currency_reaches_the_ranking(
+    agent_factory, search_results, extracted_products
+) -> None:
+    """The scale is the config's, and the pipeline is handed it rather than reading it."""
+    agent, _ = agent_factory(
+        FakeLLM(products=extracted_products), search_results, currency="JPY"
+    )
+
+    ranked = agent.run("headphones")
+
+    assert ranked, "the run still reports what it found"
+    assert all("price" in entry.breakdown.neutral for entry in ranked)
+
+
+def test_a_currency_nothing_is_priced_in_is_said_out_loud(
+    agent_factory, search_results, extracted_products, caplog
+) -> None:
+    """The one way to ask for a report whose price criterion is entirely assumed, so
+    the run says so rather than quietly ranking on two criteria (ADR-0056)."""
+    agent, _ = agent_factory(
+        FakeLLM(products=extracted_products), search_results, currency="JPY"
+    )
+
+    with caplog.at_level(logging.WARNING, logger="buy_agent.agent"):
+        agent.run("headphones")
+
+    assert "Nothing found is priced in JPY" in caplog.text
+
+
+def test_a_currency_something_is_priced_in_says_nothing(
+    agent_factory, search_results, extracted_products, caplog
+) -> None:
+    """The line is about a set the scale cannot place, not about naming a scale."""
+    agent, _ = agent_factory(
+        FakeLLM(products=extracted_products), search_results, currency="USD"
+    )
+
+    with caplog.at_level(logging.WARNING, logger="buy_agent.agent"):
+        agent.run("headphones")
+
+    assert "Nothing found is priced in" not in caplog.text
+
+
+def test_a_run_that_named_no_currency_never_says_that_line(
+    agent_factory, search_results, extracted_products, caplog
+) -> None:
+    """The vote cannot pick a currency the set is not on, so there is nothing to warn."""
+    agent, _ = agent_factory(FakeLLM(products=extracted_products), search_results)
+
+    with caplog.at_level(logging.WARNING, logger="buy_agent.agent"):
+        agent.run("headphones")
+
+    assert "Nothing found is priced in" not in caplog.text
+
+
+# -- the search backend a run asks (ADR-0057) ---------------------------------
+
+
+def test_the_run_s_backend_is_the_one_the_search_is_asked_through(monkeypatch) -> None:
+    """``AgentConfig.search_backend`` is the only place a name becomes behaviour."""
+    asked: list[object] = []
+
+    def fake_search(query: str, **kwargs) -> list:
+        asked.append(kwargs["backend"])
+        return []
+
+    monkeypatch.setattr("buy_agent.agent.search_web", fake_search)
+    BuyAgent(AgentConfig(backend="searxng"), llm=FakeLLM()).run("headphones")
+
+    assert [backend.name for backend in asked] == ["searxng"]

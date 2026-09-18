@@ -15,6 +15,7 @@ from buy_agent.money import (
     amount_label,
     code_for,
     minor_units,
+    placeable,
 )
 
 
@@ -143,3 +144,30 @@ def test_a_figure_that_is_not_a_number_is_refused_rather_than_counted() -> None:
     ``payment.cart_for`` does, and ``tests/test_payment.py`` says so."""
     with pytest.raises(ValueError, match="not a price"):
         minor_units(float("nan"), "USD")
+
+
+# -- the currency a run may be told to count itself in (ADR-0056) -------------
+
+
+@pytest.mark.parametrize("spelling", ["USD", "usd", "$", " eur ", "zł", "PLN"])
+def test_a_spelling_a_page_could_have_printed_is_one_a_shopper_may_name(
+    spelling: str,
+) -> None:
+    """One table decides which spellings are one currency (ADR-0054), so choosing a
+    scale and reporting one are the same question about a spelling."""
+    assert placeable(spelling) == code_for(spelling)
+
+
+@pytest.mark.parametrize("spelling", ["XXX", "dollarydoos", "", "  "])
+def test_a_spelling_this_run_could_never_place_is_no_scale_to_count_on(
+    spelling: str,
+) -> None:
+    """The narrower question ``code_for`` does not answer: that one hands an unknown
+    spelling back as written, which is a price nothing can place -- and a *scale*
+    nothing can place is a report with no price criterion at all."""
+    assert placeable(spelling) is None
+
+
+def test_a_sign_read_off_a_page_and_never_placed_is_never_a_scale_either() -> None:
+    """``UNPLACEABLE``, from this side: the yen's sign and the yuan's alike."""
+    assert all(placeable(sign) is None for sign in UNPLACEABLE)

@@ -278,6 +278,9 @@ export class App {
         products: found.products,
         sort_by: sortBy,
         top: found.top_n,
+        // The scale the run was counted on: left out, the set would vote again and a
+        // re-sort could answer a different order for the same products.
+        currency: this.ranWith()?.currency,
       })
       .subscribe({
         next: (result) => {
@@ -322,6 +325,9 @@ export class App {
         rail: settings.rail,
         merchant_url: settings.merchant_url,
         spend_limit: settings.spend_limit,
+        // As the re-sort sends it, and for the same reason: the cart is priced on
+        // the run's own scale.
+        currency: settings.currency,
       })
       .subscribe({
         next: ({ receipt }) => {

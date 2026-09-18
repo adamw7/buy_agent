@@ -775,9 +775,11 @@ describe('SearchForm', () => {
 
     expect(saved).toEqual(
       [
+        'backend',
         'baseUrl',
         'cacheTtl',
         'cpuOnly',
+        'currency',
         'fetchPages',
         'maxPrice',
         'merchantUrl',
@@ -1011,6 +1013,92 @@ describe('SearchForm', () => {
     const fields = next.nativeElement as HTMLElement;
     expect(fields.querySelector<HTMLInputElement>('input[name="region"]')!.value).toBe('pl-pl');
     expect(fields.querySelector<HTMLInputElement>('input[name="request"]')!.value).toBe('');
+  });
+
+  // -- the currency the run counts in, and the backend it asks ----------------
+
+  it('sends no currency until one is picked, which is the whole web of pages', async () => {
+    await type('input[name="request"]', 'headphones');
+    await send();
+
+    expect(submitted[0].currency).toBe('');
+  });
+
+  it('sends the currency that was picked', async () => {
+    await choose('select[name="currency"]', 'PLN');
+    await type('input[name="request"]', 'headphones');
+    await send();
+
+    expect(submitted[0].currency).toBe('PLN');
+  });
+
+  it('offers every currency the server named, under a blank that means the vote', async () => {
+    const offered = [...fixture.nativeElement.querySelectorAll('select[name="currency"] option')];
+
+    expect(offered.map((option) => (option as HTMLOptionElement).value)).toEqual([
+      '',
+      ...DEFAULTS.currency_options,
+    ]);
+    expect(offered[0].textContent).toContain('Whatever the pages quote');
+  });
+
+  it('names the scale the two amounts on this form are read on', async () => {
+    /* The half of a budget nobody typed (ADR-0043): the number is the shopper's and
+       the currency is whatever decided the scale. */
+    const hint = () =>
+      element('input[name="max_price"]').closest('label')!.querySelector('small')!.textContent;
+
+    expect(hint()).toContain('the currency most of the pages quote');
+
+    await choose('select[name="currency"]', 'PLN');
+
+    expect(hint()).toContain('In PLN');
+  });
+
+  it('says what a named currency costs a price in any other one', async () => {
+    const hint = () =>
+      element('select[name="currency"]').closest('label')!.querySelector('small')!.textContent ??
+      '';
+
+    expect(hint()).toContain('commonest currency');
+
+    await choose('select[name="currency"]', 'PLN');
+
+    expect(hint()).toContain('scores neutral');
+  });
+
+  it('sends the search backend that was picked', async () => {
+    await choose('select[name="backend"]', 'searxng');
+    await type('input[name="request"]', 'headphones');
+    await send();
+
+    expect(submitted[0].backend).toBe('searxng');
+  });
+
+  it('reads out what Python said each backend needs, and never works it out', async () => {
+    const hint = () =>
+      element('select[name="backend"]').closest('label')!.querySelector('small')!.textContent ?? '';
+
+    expect(hint()).toContain('needs no server of your own');
+
+    await choose('select[name="backend"]', 'searxng');
+    expect(hint()).toContain('http://localhost:8080');
+
+    await choose('select[name="backend"]', 'brave');
+    expect(hint()).toContain('needs a key this server does not have');
+  });
+
+  it('says nothing about a backend the server never offered', async () => {
+    /* Before the defaults land there is no row to read, and a sentence composed
+       from the name alone would be the page deciding what Python decides. */
+    const bare = TestBed.createComponent(SearchForm);
+    await bare.whenStable();
+    const label = (bare.nativeElement as HTMLElement)
+      .querySelector('select[name="backend"]')!
+      .closest('label')!;
+
+    expect(label.querySelectorAll('option')).toHaveLength(0);
+    expect(label.querySelector('small')!.textContent!.trim()).toBe('');
   });
 });
 

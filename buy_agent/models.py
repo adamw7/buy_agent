@@ -149,8 +149,17 @@ QUALIFIERS: dict[str, tuple[str, ...]] = {
 }
 
 
-def dominant_currency(products: Iterable[Product]) -> str | None:
-    """The currency this set of products is priced in, where they agree on one (ADR-0043)."""
+def dominant_currency(products: Iterable[Product], named: str | None = None) -> str | None:
+    """The currency this set of products is priced in, where they agree on one (ADR-0043).
+
+    ``named`` is the shopper's own answer to that question, and it wins outright: the
+    vote below is what a run falls back on when nobody said, not evidence to be weighed
+    against a choice (ADR-0056). Nothing else changes -- a price outside the scale is
+    still :func:`comparable_price`'s ``None``, which scores neutral, sinks in a price
+    sort and passes every bound.
+    """
+    if named:
+        return named
     counted = Counter(
         product.currency
         for product in products
