@@ -23,28 +23,35 @@ graph TB
     ollama["<b>Model server</b><br/><i>[External System]</i><br/>A local Ollama, or a vLLM behind its<br/>OpenAI-compatible API. Refines the<br/>query and extracts products, under a<br/>JSON schema that constrains decoding"]
     ddg["<b>DuckDuckGo</b><br/><i>[External System]</i><br/>Web search, no API key"]
     shops["<b>Shop and review pages</b><br/><i>[External System]</i><br/>The pages the search returns;<br/>the only source of prices,<br/>ratings and review counts"]
+    counterparty["<b>AP2 endpoint</b><br/><i>[External System]</i><br/>Whatever merchant or credential provider<br/>the operator names, reached only by a<br/>run that was asked to buy. None is<br/>named in this project"]
 
     shopper -->|"asks for a product, in their own words<br/>[CLI or web browser]"| system
     system -->|"reports the ranked shortlist<br/>and its progress"| shopper
     system -->|"prompts with a JSON schema<br/>[HTTP, :11434 or :8000/v1]"| ollama
     system -->|"searches<br/>[HTTPS]"| ddg
     system -->|"fetches and condenses<br/>[HTTPS]"| shops
+    system -->|"presents a signed mandate,<br/>only when asked to buy<br/>[HTTPS]"| counterparty
 
     classDef person fill:#08427b,stroke:#052e56,color:#fff
     classDef internal fill:#1168bd,stroke:#0b4884,color:#fff
     classDef external fill:#999,stroke:#6b6b6b,color:#fff
     class shopper person
     class system internal
-    class ollama,ddg,shops external
+    class ollama,ddg,shops,counterparty external
 ```
 
 Everything runs on the shopper's own machine, or on one they control: no
 accounts, no hosted models, and nothing about a search leaves except the search
-itself and the page fetches. Which model server that is -- Ollama by default, or a
-vLLM already serving a model on a GPU box -- is `AgentConfig.provider`, and
-nothing downstream of `buy_agent/providers.py` knows the difference: one table row
-holds a server whole, and `AgentConfig.model_server` is the only place a provider
-name becomes behaviour
+itself and the page fetches. Buying is the one thing that reaches anywhere else,
+and it happens only where a run asked for it: `--pay` presents a signed AP2 mandate
+to whatever counterparty the operator named, and the rail it defaults to plays
+every role itself and charges nobody
+([ADR-0046](adr/0046-pay-on-the-shoppers-behalf-with-ap2.md)).
+
+Which model server that is -- Ollama by default, or a vLLM already serving a model
+on a GPU box -- is `AgentConfig.provider`, and nothing downstream of
+`buy_agent/providers.py` knows the difference: one table row holds a server whole,
+and `AgentConfig.model_server` is the only place a provider name becomes behaviour
 ([ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md),
 [ADR-0029](adr/0029-one-table-per-model-server.md)).
 
@@ -59,6 +66,7 @@ graph TB
         spa["<b>Web UI</b><br/><i>[Container: Angular 22, TypeScript]</i><br/>A form, a live progress log and<br/>the ranked cards. Decides nothing:<br/>it renders what the API sends"]
         server["<b>HTTP server</b><br/><i>[Container: Python, stdlib http.server]</i><br/>Serves the built UI and the JSON API,<br/>and relays a run's log lines as<br/>Server-Sent Events"]
         pipeline["<b>Agent pipeline</b><br/><i>[Container: Python library]</i><br/>BuyAgent.run() -- search, extract,<br/>ground, deduplicate, rank.<br/>The one implementation both<br/>front ends drive"]
+        paying["<b>Paying</b><br/><i>[Container: Python library, optional]</i><br/>A cart out of one grounded product,<br/>two signed AP2 mandates, and the rail<br/>they are presented to. Runs after the<br/>pipeline, never inside it"]
     end
 
     ollama["<b>Model server</b><br/><i>[External System]</i><br/>Ollama or vLLM"]
@@ -74,16 +82,20 @@ graph TB
     cli -->|"calls run()"| pipeline
     server -->|"runs a search in a worker thread,<br/>relays its log records"| pipeline
 
+    cli -->|"pays, once a person<br/>approved this cart"| paying
+    server -->|"POST /api/pay, with the<br/>approval the page witnessed"| paying
+
     pipeline -->|"[HTTP]"| ollama
     pipeline -->|"[HTTPS]"| ddg
     pipeline -->|"[HTTPS]"| shops
+    paying -->|"[HTTPS]"| counterparty
 
     classDef person fill:#08427b,stroke:#052e56,color:#fff
     classDef container fill:#438dd5,stroke:#2e6295,color:#fff
     classDef external fill:#999,stroke:#6b6b6b,color:#fff
     class shopper person
-    class cli,spa,server,pipeline container
-    class ollama,ddg,shops external
+    class cli,spa,server,pipeline,paying container
+    class ollama,ddg,shops,counterparty external
 ```
 
 The CLI and the server are two front ends onto the same `BuyAgent.run()`. The
@@ -93,10 +105,18 @@ the network but not out of the browser: every request is admitted before it is
 routed, so the API answers its own page and not the other tabs
 ([ADR-0018](adr/0018-guard-the-loopback-server-against-other-pages.md)).
 
-The three containers inside the box ship as one image when the `Dockerfile` is
-used: the UI is built in a Node stage and copied into the Python one, and the same
-image runs either front end. The model server stays outside it, on the host or on
-another machine, for the reasons in
+Paying is a container of its own rather than a step of the pipeline, and the
+arrows say why: both front ends reach it directly, and it reaches nothing back.
+`BuyAgent.run()` ends at the report, and what may be bought is settled afterwards
+from a product the run already grounded -- so nothing about a search changes when
+`pay` is off, which is its default
+([ADR-0046](adr/0046-pay-on-the-shoppers-behalf-with-ap2.md)).
+
+The containers ship as one image when the `Dockerfile` is used: the UI is built in
+a Node stage and copied into the Python one, and the same image runs either front
+end. Paying ships with it and cannot run there: the image installs
+`requirements.txt` and not the optional AP2 SDK. The model server stays outside it
+too, on the host or on another machine, for the reasons in
 [ADR-0015](adr/0015-package-the-web-tier-as-a-container.md) -- the boundary drawn
 here is the one the image keeps.
 
@@ -108,19 +128,19 @@ graph TB
     server["<b>HTTP server</b><br/><i>[Container]</i>"]
 
     subgraph pipeline["Agent pipeline"]
-        agent["<b>BuyAgent</b><br/><i>[Component: agent.py]</i><br/>Orchestrates the fixed pipeline and<br/>translates transport failures into<br/>an actionable message"]
+        agent["<b>BuyAgent</b><br/><i>[Component: agent.py]</i><br/>Orchestrates the fixed pipeline,<br/>hands each step the checkpoint, the<br/>wait and the recorder, and translates<br/>transport failures into an<br/>actionable message"]
         config["<b>AgentConfig</b><br/><i>[Component: config.py]</i><br/>Provider, model, search, fetch and<br/>ranking settings; the CLI's flag<br/>defaults, and the ranges and the<br/>region shape both front doors<br/>hold a request to"]
-        providers["<b>Providers</b><br/><i>[Component: providers.py]</i><br/>Everything that differs between<br/>Ollama and vLLM, one row each: the<br/>model, address and key it defaults<br/>to, the client and how it declares a<br/>schema, the listing, the errors that<br/>mean &quot;not there&quot;, and what to say"]
+        providers["<b>Providers</b><br/><i>[Component: providers.py]</i><br/>Everything that differs between<br/>Ollama and vLLM, one row each: the<br/>model, address and key it defaults<br/>to, the client and how it declares a<br/>schema, the listing, which of the two<br/>settings it takes rather than fixing<br/>at startup, the errors that mean<br/>&quot;not there&quot;, and what to say"]
         chat["<b>Chat</b><br/><i>[Component: chat.py]</i><br/>A prompt with the run's values in it,<br/>a chain binding one to a schema, and<br/>the answer read back as that schema<br/>-- or refused"]
         extraction["<b>Extraction</b><br/><i>[Component: extraction.py]</i><br/>Both prompts and both chains,<br/>plus name cleaning and merging<br/>of variant names"]
-        search["<b>Search</b><br/><i>[Component: search.py]</i><br/>DuckDuckGo wrapper; raises<br/>SearchError on a rate limit"]
+        search["<b>Search</b><br/><i>[Component: search.py]</i><br/>DuckDuckGo wrapper; asks once more<br/>where every engine failed, and raises<br/>SearchError when that one does too"]
         sources["<b>Sources</b><br/><i>[Component: sources.py]</i><br/>Reads a trusted source down to a<br/>domain and a term, narrows the<br/>query to it, and says whether a<br/>result came from it"]
-        fetch["<b>Fetch</b><br/><i>[Component: fetch.py]</i><br/>Fetches result pages in parallel and<br/>keeps the lines quoting a figure and<br/>the lines passing judgement, each<br/>on a budget of its own; tallies how<br/>the pages that yielded nothing failed"]
+        fetch["<b>Fetch</b><br/><i>[Component: fetch.py]</i><br/>Fetches result pages in parallel and<br/>keeps the lines quoting a figure and<br/>the lines passing judgement, each<br/>on a budget of its own; asks a page<br/>that said to come back once more;<br/>tallies how the rest failed"]
         cache["<b>Cache</b><br/><i>[Component: cache.py]</i><br/>What a run can reuse: the text of a<br/>fetched page, and the answer a model<br/>gave about it. Kept on disk for a<br/>day, and bounded by size as well as<br/>age. Best-effort: every failure is a<br/>miss, never a failed run"]
         verification["<b>Verification</b><br/><i>[Component: verification.py]</i><br/>Drops products the sources never<br/>named, blanks any figure and any<br/>quote the page text does not<br/>contain, and links each product --<br/>and each quote -- to the page it<br/>came off"]
         constraints["<b>Constraints</b><br/><i>[Component: constraints.py]</i><br/>The shopper's bounds -- max price,<br/>min rating, min reviews -- applied<br/>after merging and before ranking.<br/>An unknown figure is not a violation"]
         ranking["<b>Ranking</b><br/><i>[Component: ranking.py]</i><br/>Weighted score over rating,<br/>popularity and price -- prices<br/>compared inside one currency -- and<br/>the shares it was blended from. No LLM"]
-        models["<b>Models</b><br/><i>[Component: models.py]</i><br/>ExtractedProduct (sentinels, for the<br/>LLM's schema) vs Product (None)"]
+        models["<b>Models</b><br/><i>[Component: models.py]</i><br/>ExtractedProduct (sentinels, for the<br/>LLM's schema) vs Product (None), and<br/>the Removal a step hands over when it<br/>takes a candidate out"]
         moneyc["<b>Money</b><br/><i>[Component: money.py]</i><br/>Every currency table: which<br/>spellings are one currency, which<br/>ones a page is scanned for, how an<br/>amount is written and how many<br/>minor units it comes to"]
         logsetup["<b>Report and logging</b><br/><i>[Component: logging_setup.py]</i><br/>Log format, and the top-N report<br/>the browser also reads as events"]
     end
@@ -172,9 +192,9 @@ graph TB
     config -.->|"rail_used: where a payment<br/>goes and what it needs"| railsc
     fetch -.->|"reads what it read<br/>last time"| cache
     agent -.->|"reuses what the model<br/>answered last time"| cache
-    extraction -.->|"ExtractedProduct → Product"| models
-    verification -.-> models
-    constraints -.-> models
+    extraction -.->|"ExtractedProduct → Product;<br/>a Removal per headline,<br/>fold and nameless entry"| models
+    verification -.->|"a Removal per product<br/>no page named"| models
+    constraints -.->|"a Removal per product<br/>the bounds would not have"| models
     ranking -.-> models
     models -.->|"places the spelling a<br/>listing named"| moneyc
     fetch -.->|"scans for the spellings it<br/>can place"| moneyc
@@ -278,6 +298,20 @@ placed and not what it placed on, and -- worse -- cannot distinguish a criterion
 that scored middling from one nothing was published for, both being the same 0.5
 (ADR-0041).
 
+Steps 5 through 7 are also where a run gets *short*, and each of them says what it
+took. Every one of the eight heuristics that thins the results already logs the
+count at INFO and the names at DEBUG; the five that take a whole candidate out --
+`clean_products`, `drop_ungrounded`, `merge_variants`, `deduplicate`'s nameless
+drop and `Constraints.apply` -- hand it over as data too, so the answer itself can
+say why it is short (ADR-0055). The shape is the one `checkpoint` and `wait`
+already have: `record`, a keyword the caller hands in and `BuyAgent.run` passes
+down, called with a `models.Removal` -- the name the candidate went under, the step
+that took it, and the reason as a finished sentence Python writes and nothing
+downstream rewords. It defaults to `models.nothing_recorded`, so a caller that does
+not want them is a run unchanged. The three steps that merely *blank* a figure, a
+quote or a link record nothing: that product is still in the report, and its own
+card says what is missing.
+
 ## Level 3 -- Components of the web tier
 
 ```mermaid
@@ -285,9 +319,9 @@ graph TB
     browserUser["<b>Shopper</b><br/><i>[Person]</i>"]
 
     subgraph spa["Web UI [Angular]"]
-        app["<b>App</b><br/><i>[Component: app.ts]</i><br/>Holds the run's state in signals;<br/>splits the answer into the top N<br/>and the rest"]
+        app["<b>App</b><br/><i>[Component: app.ts]</i><br/>Holds the run's state in signals;<br/>splits the answer into the top N<br/>and the rest, and lists under it<br/>what the run took out"]
         form["<b>SearchForm</b><br/><i>[Component: search-form]</i><br/>The request and every option,<br/>seeded from /api/config,<br/>and refused here first"]
-        log["<b>ProgressLog</b><br/><i>[Component: progress-log]</i><br/>The agent's own log lines,<br/>as they arrive"]
+        log["<b>ProgressLog</b><br/><i>[Component: progress-log]</i><br/>The agent's own log lines, as they<br/>arrive, and a transcript to download<br/>for a run that failed or was stopped"]
         card["<b>ProductCard</b><br/><i>[Component: product-card]</i><br/>One ranked product, rendered<br/>from the labels the API sent,<br/>with the shares its score<br/>was blended from"]
         agentsvc["<b>AgentService</b><br/><i>[Component: agent.ts]</i><br/>HttpClient for the JSON endpoints;<br/>wraps EventSource as an Observable,<br/>so unsubscribing is the Stop button"]
     end
@@ -295,8 +329,8 @@ graph TB
     subgraph srv["HTTP server [Python]"]
         handler["<b>BuyAgentHandler</b><br/><i>[Component: server.py]</i><br/>Admits the request, then routes /api<br/>to the API and everything else to the<br/>built app, falling back to index.html"]
         guard["<b>_admits</b><br/><i>[Component: server.py]</i><br/>Refuses a request another site's page<br/>made, and a Host that merely resolves<br/>here -- loopback is not a boundary<br/>the browser respects"]
-        relay["<b>_LogRelay</b><br/><i>[Component: server.py]</i><br/>A logging handler that fans records<br/>out by thread id, so two concurrent<br/>runs never see each other's progress"]
-        api["<b>API</b><br/><i>[Component: api.py]</i><br/>Coerces options into an AgentConfig,<br/>runs the pipeline, shapes products as<br/>JSON, maps each failure to a status<br/>(400 / 502 / 503); re-ranks a finished<br/>run without running one"]
+        relay["<b>_LogRelay</b><br/><i>[Component: server.py]</i><br/>A logging handler that fans records<br/>out by the context a run is watched<br/>through, so two concurrent runs never<br/>see each other's progress and a step<br/>with threads of its own still reaches<br/>the right stream"]
+        api["<b>API</b><br/><i>[Component: api.py]</i><br/>Coerces options into an AgentConfig,<br/>runs the pipeline, collects what it<br/>took out, shapes products as JSON,<br/>maps each failure to a status<br/>(400 / 502 / 503); re-ranks a finished<br/>run without running one"]
     end
 
     agentpipeline["<b>Agent pipeline</b><br/><i>[Container]</i>"]
@@ -323,7 +357,7 @@ graph TB
     class app,form,log,card,agentsvc,handler,guard,relay,api component
 ```
 
-Seven details there are easy to get wrong and are deliberate:
+Eight details there are easy to get wrong and are deliberate:
 
 - **A run is streamed, not requested.** A search takes tens of seconds, so the UI
   uses `GET /api/search/stream` and watches the same progress the CLI prints.
@@ -349,11 +383,19 @@ Seven details there are easy to get wrong and are deliberate:
   `EventSource` delivers transport errors under `error` and then reconnects; a
   named `error` event would be indistinguishable from a dropped connection, and the
   reconnect would silently start the whole search again.
-- **The browser decides nothing.** Ranking, grounding and even the wording of an
-  unknown price stay in Python: `product_payload` sends `price_label` and
-  `rating_label` next to the raw figures, and `sort_by` is a request parameter
-  rather than a client-side re-sort -- for a finished run too, which posts its
-  products back rather than sorting the array it holds (ADR-0035).
+- **What a run took out travels with what it found.** The `dropped` list the run
+  payload carries is the page's answer to "why is the one I had in mind not in
+  there?", which used to be a progress panel the results had already replaced. It
+  is drawn under the results and under the "Nothing came back" banner alike, and it
+  survives a re-sort -- `POST /api/rank` ran no pipeline, so it removed nothing and
+  reports nothing, and the page carries the run's own list across rather than taking
+  the empty one (ADR-0055).
+- **The browser decides nothing.** Ranking, grounding, the wording of every
+  removal and even the wording of an unknown price stay in Python:
+  `product_payload` sends `price_label` and `rating_label` next to the raw figures,
+  and `sort_by` is a request parameter rather than a client-side re-sort -- for a
+  finished run too, which posts its products back rather than sorting the array it
+  holds (ADR-0035).
 - **Loopback is not a boundary the browser respects.** Any page the shopper has
   open can reach `127.0.0.1`, so `_admits` runs before routing and refuses both a
   request another site's page made -- which would start a run whose answer it could
@@ -389,8 +431,9 @@ sequenceDiagram
     A->>O: extract products (JSON schema)
     O-->>A: candidates
     A->>A: clean → ground → deduplicate → rank
+    A->>W: record each candidate a step took out
     A-->>UI: event: log (top 3 report)
-    W-->>H: ranked products
+    W-->>H: ranked products, and what was taken out
     H-->>UI: event: result
     UI-->>S: the shortlist, best first
     Note over H,UI: A quiet stretch sends a ping event every 15s.<br/>A failed run sends a failure event carrying its HTTP status.<br/>A frame that cannot be written stops the run at its next checkpoint.
