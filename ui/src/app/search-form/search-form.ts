@@ -30,13 +30,21 @@ export interface Rejection {
   message: string;
 }
 
+/** The key a number box is known by everywhere: what it is sent under, what its
+ *  range arrives under, what a refusal names, and -- Python answering a default
+ *  per setting under that same name -- what its placeholder and its seed are read
+ *  off `AgentDefaults` by. Narrowed to the keys whose default really is a number,
+ *  so the seed needs no cast and a box for a setting that is not one does not
+ *  compile. */
+type NumberKey = {
+  [K in keyof AgentDefaults & keyof SearchOptions]: AgentDefaults[K] extends number | null
+    ? K
+    : never;
+}[keyof AgentDefaults & keyof SearchOptions];
+
 /** One number box, as the template draws it and the checks read it. */
 interface NumberField {
-  /** The key the value is sent under, the range arrives under and a refusal names --
-   *  and, Python answering a default per setting under that same name, the key its
-   *  placeholder is read off `AgentDefaults` by. Typed as both, so a box that is drawn
-   *  is one the server has a range and a default for. */
-  key: keyof AgentDefaults & keyof SearchOptions;
+  key: NumberKey;
   label: string;
   value: WritableSignal<number | null>;
   step: number;
@@ -47,6 +55,11 @@ interface NumberField {
    *  was the exception: disabled, four rows above that tick, under a hint naming a
    *  control the reader could not see -- and, on a phone, could not see at once. */
   paying: boolean;
+  /** Whether a *cleared* box is worth remembering -- true for a bound, whose
+   *  blank is the whole answer (ADR-0039). The one thing about a number box its
+   *  key cannot say: `num_ctx` defaults to a number and still has to remember a
+   *  blank, `temperature` defaults to 0 and must not. */
+  remembersBlank: boolean;
 }
 
 /** One row of the table above, with the defaults most of them take. */
@@ -59,6 +72,7 @@ function field(
     hint?: string | (() => string);
     off?: () => boolean;
     paying?: boolean;
+    remembersBlank?: boolean;
   } = {},
 ): NumberField {
   const hint = extra.hint ?? '';
@@ -70,6 +84,7 @@ function field(
     hint: typeof hint === 'string' ? () => hint : hint,
     off: extra.off ?? (() => false),
     paying: extra.paying ?? false,
+    remembersBlank: extra.remembersBlank ?? true,
   };
 }
 
@@ -153,6 +168,51 @@ export class SearchForm {
   /** The settings a run was actually started with, for as long as they stand. */
   private readonly submitted = signal<SearchOptions | null>(null);
 
+  /** Every number field, in the order the form draws them. */
+  protected readonly numberFields: NumberField[] = [
+    field('max_price', 'Max price', this.maxPrice, {
+      step: 0.01,
+      hint: 'In the currency most of the pages quote; nothing is converted.',
+    }),
+    field('min_rating', 'Min rating', this.minRating, {
+      step: 0.1,
+      hint: 'Out of 5. Unrated products are still shown.',
+    }),
+    field('min_reviews', 'Min reviews', this.minReviews, {
+      hint: 'How many reviews a rating has to average.',
+    }),
+    field('results', 'Products to find', this.results, { remembersBlank: false }),
+    field('top', 'Products to highlight', this.top, { remembersBlank: false }),
+    field('temperature', 'Temperature', this.temperature, { step: 0.1, remembersBlank: false }),
+    field('num_ctx', 'Context window', this.numCtx, {
+      hint: () =>
+        this.takesNumCtx()
+          ? 'Thinking models need the room to answer; the default leaves it.'
+          : `${this.providerLabel()} is started with the window it serves, so this is not a per-run setting there.`,
+      off: () => !this.takesNumCtx(),
+    }),
+    field('model_timeout', 'Wait for the model', this.modelTimeout, {
+      hint: 'Seconds to wait for one answer. Asked once, so this is the whole wait.',
+    }),
+    field('cache_ttl', 'Cache pages for', this.cacheTtl, {
+      hint: 'Seconds a page, and the answer about it, stay usable. 0 is off.',
+    }),
+    field('spend_limit', 'Spend limit', this.spendLimit, {
+      step: 0.01,
+      // No second branch for paying being off: the box is not drawn then, and a
+      // sentence explaining that had nowhere to be read from.
+      hint: 'The most one payment may be, in the currency most pages quote. A price in another currency is refused, not passed.',
+      off: () => !this.pay(),
+      paying: true,
+    }),
+  ];
+
+  /** The boxes the settings grid draws, and the ones the paying block does -- one
+   *  partition of the table above, so a box is still declared exactly once and only
+   *  where it is drawn has moved. */
+  protected readonly settingFields = this.numberFields.filter((row) => !row.paying);
+  protected readonly payingFields = this.numberFields.filter((row) => row.paying);
+
   /** The settings that are seeded from the server, remembered, and restored. */
   private readonly settings: Record<string, Setting> = {
     // Remembered like the rest, and remembered *with* the two fields it decides: a browser that
@@ -169,14 +229,11 @@ export class SearchForm {
     // Remembered like the rest: which sites a shopper trusts is a standing
     // answer, not something they retype for every search.
     sources: setting(this.sources, (d) => d.sources, asText),
-    results: setting(this.results, (d) => d.results, asNumber),
-    top: setting(this.top, (d) => d.top, asNumber),
-    // The three the shopper sets once and shops under for weeks, so they are remembered like the
-    // rest.
-    maxPrice: setting(this.maxPrice, (d) => d.max_price, asNumberOrNull),
-    minRating: setting(this.minRating, (d) => d.min_rating, asNumberOrNull),
-    minReviews: setting(this.minReviews, (d) => d.min_reviews, asNumberOrNull),
-    cacheTtl: setting(this.cacheTtl, (d) => d.cache_ttl, asNumberOrNull),
+    // Every number box, off the table above: being in it is what seeds,
+    // remembers and restores one, the way it is already what draws and bounds
+    // one. The three bounds a shopper sets once and shops under for weeks are
+    // in there with the rest.
+    ...numberSettings(this.numberFields),
     // The same check, and the row that most needed it: a cast is not one, and `SortBy` is a union
     // the server is free to add to and drop from.
     sortBy: setting(
@@ -184,10 +241,6 @@ export class SearchForm {
       (d) => d.sort_by,
       amongst<SortBy>((d) => d.sort_options),
     ),
-    temperature: setting(this.temperature, (d) => d.temperature, asNumber),
-    // The one field a remembered `null` has to win on.
-    numCtx: setting(this.numCtx, (d) => d.num_ctx, asNumberOrNull),
-    modelTimeout: setting(this.modelTimeout, (d) => d.model_timeout, asNumberOrNull),
     thinking: setting(this.thinking, (d) => toThinking(d.think), asThinking),
     // A standing answer about this machine -- whether its card is to be left alone --
     // so it is remembered like the rest.
@@ -202,7 +255,6 @@ export class SearchForm {
       amongst((d) => d.rail_options.map((option) => option.name)),
     ),
     merchantUrl: setting(this.merchantUrl, (d) => d.merchant_url, asText),
-    spendLimit: setting(this.spendLimit, (d) => d.spend_limit, asNumberOrNull),
   };
 
   protected readonly sortOptions = computed<SortBy[]>(
@@ -283,51 +335,6 @@ export class SearchForm {
     }
     return options;
   });
-
-  /** Every number field, in the order the form draws them. */
-  protected readonly numberFields: NumberField[] = [
-    field('max_price', 'Max price', this.maxPrice, {
-      step: 0.01,
-      hint: 'In the currency most of the pages quote; nothing is converted.',
-    }),
-    field('min_rating', 'Min rating', this.minRating, {
-      step: 0.1,
-      hint: 'Out of 5. Unrated products are still shown.',
-    }),
-    field('min_reviews', 'Min reviews', this.minReviews, {
-      hint: 'How many reviews a rating has to average.',
-    }),
-    field('results', 'Products to find', this.results),
-    field('top', 'Products to highlight', this.top),
-    field('temperature', 'Temperature', this.temperature, { step: 0.1 }),
-    field('num_ctx', 'Context window', this.numCtx, {
-      hint: () =>
-        this.takesNumCtx()
-          ? 'Thinking models need the room to answer; the default leaves it.'
-          : `${this.providerLabel()} is started with the window it serves, so this is not a per-run setting there.`,
-      off: () => !this.takesNumCtx(),
-    }),
-    field('model_timeout', 'Wait for the model', this.modelTimeout, {
-      hint: 'Seconds to wait for one answer. Asked once, so this is the whole wait.',
-    }),
-    field('cache_ttl', 'Cache pages for', this.cacheTtl, {
-      hint: 'Seconds a page, and the answer about it, stay usable. 0 is off.',
-    }),
-    field('spend_limit', 'Spend limit', this.spendLimit, {
-      step: 0.01,
-      // No second branch for paying being off: the box is not drawn then, and a
-      // sentence explaining that had nowhere to be read from.
-      hint: 'The most one payment may be, in the currency most pages quote. A price in another currency is refused, not passed.',
-      off: () => !this.pay(),
-      paying: true,
-    }),
-  ];
-
-  /** The boxes the settings grid draws, and the ones the paying block does -- one
-   *  partition of the table above, so a box is still declared exactly once and only
-   *  where it is drawn has moved. */
-  protected readonly settingFields = this.numberFields.filter((row) => !row.paying);
-  protected readonly payingFields = this.numberFields.filter((row) => row.paying);
 
   /** The ranges the server declared, by the key each field is sent under. */
   protected readonly limits = computed<Record<string, Limit>>(() => this.defaults()?.limits ?? {});
@@ -603,6 +610,31 @@ function setting<T>(
       }
     },
   };
+}
+
+/**
+ * The number boxes as remembered settings, read off the one table that declares
+ * them: the server answers each default under the very key the box is sent under,
+ * so the seed is that key and not a second thing to write down. Stored under the
+ * camel case of it -- what the signal is called, and what a browser holding a
+ * saved blob already wrote.
+ */
+function numberSettings(fields: readonly NumberField[]): Record<string, Setting> {
+  return Object.fromEntries(
+    fields.map((row) => [
+      camelCase(row.key),
+      setting<number | null>(
+        row.value,
+        (defaults) => defaults[row.key],
+        row.remembersBlank ? asNumberOrNull : asNumber,
+      ),
+    ]),
+  );
+}
+
+/** `max_price` -> `maxPrice`: a request key as this file names the signal for it. */
+function camelCase(key: string): string {
+  return key.replace(/_(\w)/g, (_, letter: string) => letter.toUpperCase());
 }
 
 const asText: Parser<string> = (raw) => (typeof raw === 'string' ? raw : undefined);

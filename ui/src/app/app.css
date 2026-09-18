@@ -50,19 +50,6 @@ h1 {
 
 .server.checking .dot {
   color: var(--text-dim);
-  animation: blink 1.2s ease-in-out infinite;
-}
-
-@keyframes blink {
-  50% {
-    opacity: 0.25;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .server.checking .dot {
-    animation: none;
-  }
 }
 
 /** The provider's own remedy, under the pill it belongs to, with the way back beside it. */
@@ -86,11 +73,6 @@ h1 {
 .server-reason p {
   margin: 0;
   white-space: pre-wrap;
-}
-
-.recheck {
-  padding: 5px 12px;
-  font-size: 12px;
 }
 
 main {
@@ -122,10 +104,7 @@ main {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: var(--text-dim);
   font-size: 14px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .also {
@@ -164,10 +143,7 @@ main {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--text-dim);
   font-size: 12px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   /* Two words, and the row is tight enough that they would otherwise stack and
      make the whole header a line taller than the heading beside them. */
   white-space: nowrap;
@@ -178,14 +154,6 @@ main {
   padding: 5px 8px;
   text-transform: none;
   letter-spacing: normal;
-}
-
-.results-actions .save {
-  padding: 5px 12px;
-  font-size: 12px;
-  /* As in the log's header: the button wraps to its own line rather than
-     breaking its two words across two. */
-  white-space: nowrap;
 }
 
 @media (width < 640px) {

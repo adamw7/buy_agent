@@ -77,22 +77,32 @@ convention test that fails if it is skipped.
 
 ## 5. `ui/src/app/search-form/`
 
-- A signal for the field, a row in the `settings` table -- `setting(signal,
-  (d) => d.<key>, asText|asNumber)`, which is what seeds it from the defaults and
-  remembers and restores it -- and the key in `options()`, the one place the
-  request payload is built. The request itself is deliberately not remembered;
+- A signal for the field, and the key in `options()`, the one place the request
+  payload is built. The request itself is deliberately not remembered;
   `agent.ts`'s `toQuery` drops blanks on the way out.
-- Numeric -> one `field('<request key>', 'Label', signal, {step, hint, off})` row
-  in the `numberFields` table, and **nothing in the template**: it loops over
-  that table, so the row is what draws the box, binds `[min]`/`[max]` from the
-  range the server shipped, takes its placeholder off `defaults_payload` under
-  the same key, and carries the refusal mark. A literal `min="1"` in the markup,
-  or a second block of number-box markup beside the loop, is the mistake this
+- **Numeric** -> one `field('<request key>', 'Label', signal, {step, hint, off,
+  remembersBlank})` row in the `numberFields` table and **nothing else**: not a
+  line in the template, which loops over that table, and not a row in
+  `settings`, which spreads `numberSettings(this.numberFields)`. The row is what
+  draws the box, binds `[min]`/`[max]` from the range the server shipped, takes
+  its placeholder off `defaults_payload` under the same key, carries the refusal
+  mark, and is seeded, remembered and restored under that same key. A literal
+  `min="1"` in the markup, a second block of number-box markup beside the loop,
+  or a `setting(...)` row for a box already in that table, is the mistake this
   table exists to make impossible.
-- That key is typed `keyof AgentDefaults & keyof SearchOptions`, so a box the
-  server has no default and no range for does not compile. `placeholders()`
-  needs nothing: a `null` default reads "No limit" (ADR-0039), a number reads
-  itself.
+- Set `remembersBlank: false` only where a cleared box should come back showing
+  the served default rather than cleared -- it is the one thing about a number
+  box its key cannot say, `num_ctx` defaulting to a number and still having to
+  remember a blank while `temperature` defaults to 0 and must not.
+- **Anything else** -> a row in the `settings` table, `setting(signal,
+  (d) => d.<key>, asText|asBoolean|amongst(...))`, which is what seeds it from
+  the defaults and remembers and restores it. It is remembered under the key you
+  write there; a number box is remembered under the camel case of its request
+  key, so a browser already holding one keeps it.
+- A number box's key is typed `NumberKey` -- the `AgentDefaults` keys whose
+  value really is a number -- so a box the server has no default, no range or no
+  number for does not compile. `placeholders()` needs nothing: a `null` default
+  reads "No limit" (ADR-0039), a number reads itself.
 - The page applies rules; it never invents one. If the page cannot judge the
   value without a model, a network or a minute of waiting, either ship it a rule
   from Python (a range) or ask the server for a verdict (`GET /api/sources`) --

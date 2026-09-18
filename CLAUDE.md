@@ -1060,11 +1060,18 @@ rules a change to them may not break.
 - **A number box is declared once, in `numberFields`**, under the key that also
   carries its range and names its refusal; `placeholders()` reads its fallback off
   `defaults_payload` by that key. `tests/test_conventions.py` holds those keys
-  against `limits_payload`. The row also says *where* it is drawn: `payingFields`
-  and `settingFields` partition that one table, so the spend limit sits in the
-  paying block with the rail and its address -- the three settings the form draws
-  none of until the box is ticked -- rather than four rows above the tick under a
-  sentence naming a control off the reader's screen.
+  against `limits_payload`. That one key is also what the box is *remembered* by:
+  `settings` spreads `numberSettings(this.numberFields)` rather than repeating the
+  ten of them, the seed being the default the server answers under that same key
+  and the storage name its camel case, which is what the signal beside it is
+  called and what a browser holding a saved blob already wrote. So only what the
+  key cannot say is written on the row -- `remembersBlank`, since `num_ctx`
+  defaults to a number and still has to remember a cleared box while
+  `temperature` defaults to 0 and must not. The row also says *where* it is
+  drawn: `payingFields` and `settingFields` partition that one table, so the
+  spend limit sits in the paying block with the rail and its address -- the three
+  settings the form draws none of until the box is ticked -- rather than four
+  rows above the tick under a sentence naming a control off the reader's screen.
 - **The model field marks what it cannot offer and never hides it** -- "not
   served" for a name the server does not have, "embedding only" for a pull that
   cannot answer a prompt (ADR-0032). `ModelOption.note` is filled from Python's

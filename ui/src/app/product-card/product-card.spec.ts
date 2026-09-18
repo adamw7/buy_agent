@@ -1,41 +1,12 @@
 import { TestBed } from '@angular/core/testing';
 
 import { ProductCard } from './product-card';
-import { CHARGES, DRY_RUN, WEIGHTS, receipt } from '../testing';
+import { CHARGES, DRY_RUN, WEIGHTS, product, receipt } from '../testing';
 import type { RailOption, RankedProduct, Receipt, ScoreWeights } from '../agent.types';
 
-const SONY: RankedProduct = {
-  cannot_pay: null,
-  pay_currency: 'USD',
-  pay_label: '328.00 USD',
-  pay_merchant: 'Amazon',
-  rank: 1,
-  score: 0.912,
-  breakdown: {
-    rating: 0.94,
-    popularity: 1,
-    price: 0.32,
-    total: 0.912,
-    neutral: [],
-  },
-  name: 'Sony WH-1000XM5',
-  price: 328,
-  currency: 'USD',
-  rating: 4.7,
-  review_count: 12000,
-  seller: 'Amazon',
-  url: 'https://www.example.com/sony',
-  notes: 'Best noise cancelling.',
-  opinions: [
-    { text: 'the noise cancelling is uncanny', url: 'https://www.example.com/sony' },
-    { text: 'the case is bulky', url: 'https://audiosite.example/xm5' },
-  ],
-  price_label: '328.00 USD',
-  rating_label: '4.7/5 (12,000 reviews)',
-};
+const SONY = product();
 
-const UNKNOWN: RankedProduct = {
-  ...SONY,
+const UNKNOWN = product({
   rank: 4,
   score: 0.5,
   breakdown: {
@@ -58,12 +29,11 @@ const UNKNOWN: RankedProduct = {
   opinions: [],
   price_label: 'price unknown',
   rating_label: 'unrated',
-};
+});
 
 /** A product off a page that printed a bare "179.00": no currency of its own,
  *  and payable all the same, in whatever the run is counted in (ADR-0043). */
-const BARE: RankedProduct = {
-  ...SONY,
+const BARE = product({
   rank: 2,
   name: 'Sennheiser Accentum',
   price: 179,
@@ -71,17 +41,16 @@ const BARE: RankedProduct = {
   price_label: '179.00',
   pay_currency: 'USD',
   pay_label: '179.00 USD',
-};
+});
 
 /** A product off a page that named no seller, which is most of them: the cart
  *  falls back to the site, and so does what the confirmation says. */
-const ANONYMOUS: RankedProduct = {
-  ...SONY,
+const ANONYMOUS = product({
   rank: 3,
   name: 'Soundcore Space Q45',
   seller: null,
   pay_merchant: 'audiosite.example',
-};
+});
 
 const RECEIPT = receipt();
 
@@ -94,13 +63,13 @@ interface Paying {
 }
 
 async function render(
-  product: RankedProduct,
+  shown: RankedProduct,
   highlighted = false,
   weights: ScoreWeights | null = WEIGHTS,
   paying: Paying = {},
 ): Promise<HTMLElement> {
   const fixture = TestBed.createComponent(ProductCard);
-  fixture.componentRef.setInput('product', product);
+  fixture.componentRef.setInput('product', shown);
   fixture.componentRef.setInput('highlighted', highlighted);
   fixture.componentRef.setInput('weights', weights);
   fixture.componentRef.setInput('canPay', paying.canPay ?? false);
@@ -112,9 +81,9 @@ async function render(
 }
 
 /** The card, plus the approvals it emitted -- what `App` would receive. */
-async function payable(product: RankedProduct, paying: Paying = { canPay: true }) {
+async function payable(shown: RankedProduct, paying: Paying = { canPay: true }) {
   const fixture = TestBed.createComponent(ProductCard);
-  fixture.componentRef.setInput('product', product);
+  fixture.componentRef.setInput('product', shown);
   fixture.componentRef.setInput('weights', WEIGHTS);
   fixture.componentRef.setInput('canPay', paying.canPay ?? true);
   fixture.componentRef.setInput('rail', paying.rail ?? DRY_RUN);

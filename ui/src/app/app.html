@@ -12,7 +12,7 @@
          all until it landed. -->
     @if (checking()) {
       <span class="pill server checking" role="status">
-        <span class="dot"></span>
+        <span class="dot blinking"></span>
         Asking {{ serverLabel() }}…
       </span>
     } @else if (status(); as server) {
@@ -47,7 +47,9 @@
       <!-- Clicking the pill re-asks, but nothing about a status pill says so,
            and this is the moment somebody has just run that command and wants to
            say they have. Without it the only way back is reloading the page. -->
-      <button type="button" class="secondary recheck" (click)="refreshModels()">Check again</button>
+      <button type="button" class="secondary small recheck" (click)="refreshModels()">
+        Check again
+      </button>
     </div>
   }
 </header>
@@ -84,14 +86,14 @@
     @if (found.count) {
       <section class="results">
         <header class="results-head">
-          <h2>Top {{ highlighted().length }} of {{ found.count }}</h2>
+          <h2 class="caps">Top {{ highlighted().length }} of {{ found.count }}</h2>
 
           <div class="results-actions">
             <!-- Changing this used to re-run the whole pipeline for products
                  already on the screen. It now posts them back to be ranked, so
                  the ordering is still Python's and only the search is skipped
                  (ADR-0035). -->
-            <label class="resort">
+            <label class="resort caps">
               <!-- "Re-order these" and not "Rank by", which is what the settings
                    call the criterion the *next* run is ranked by. Two controls
                    with one label, one about products already on the screen and
@@ -118,7 +120,7 @@
 
             <button
               type="button"
-              class="secondary save"
+              class="secondary small save"
               [disabled]="reordering()"
               (click)="downloadResults()"
             >

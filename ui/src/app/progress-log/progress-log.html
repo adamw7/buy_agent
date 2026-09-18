@@ -1,15 +1,19 @@
 <section class="card log">
   <header>
-    <h2>Progress</h2>
+    <h2 class="caps">Progress</h2>
     <div class="state">
       @if (running()) {
-        <span class="pill working"><span class="dot"></span>working · {{ elapsed() }}</span>
+        <span class="pill working"
+          ><span class="dot blinking"></span>working · {{ elapsed() }}</span
+        >
       } @else {
         <span class="pill">{{ summary() }}</span>
       }
 
       @if (keepable()) {
-        <button type="button" class="secondary save" (click)="download()">Download log</button>
+        <button type="button" class="secondary small save" (click)="download()">
+          Download log
+        </button>
       }
     </div>
   </header>

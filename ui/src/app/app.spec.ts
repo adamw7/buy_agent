@@ -5,7 +5,7 @@ import { afterEach, vi } from 'vitest';
 
 import { App } from './app';
 import { AgentService } from './agent';
-import { WEIGHTS, defaults, receipt, status } from './testing';
+import { WEIGHTS, defaults, product, receipt, status } from './testing';
 import type {
   ModelSource,
   ModelStatus,
@@ -22,32 +22,33 @@ import type {
 const DEFAULTS = defaults({ top: 2 });
 const STATUS = status();
 
-const product = (rank: number, name: string) => ({
-  rank,
-  score: 1 - rank / 10,
-  breakdown: {
-    rating: 0.9,
-    popularity: 0.5,
-    price: 1 - rank / 10,
-    total: 1 - rank / 10,
-    neutral: ['popularity'],
-  },
-  cannot_pay: null,
-  pay_currency: 'USD',
-  pay_label: `${100 * rank}.00 USD`,
-  pay_merchant: 'shop.example',
-  name,
-  price: 100 * rank,
-  currency: 'USD',
-  rating: 4.5,
-  review_count: 10,
-  seller: null,
-  url: null,
-  notes: null,
-  opinions: [],
-  price_label: `${100 * rank}.00 USD`,
-  rating_label: '4.5/5 (10 reviews)',
-});
+/** One of the run's products: priced and scored off its rank, so a re-sort
+ *  puts them in a different order than the one they arrive in. Off the shared
+ *  fixture, with everything these tests read written out on top of it. */
+const ranked = (rank: number, name: string) =>
+  product({
+    rank,
+    name,
+    score: 1 - rank / 10,
+    breakdown: {
+      rating: 0.9,
+      popularity: 0.5,
+      price: 1 - rank / 10,
+      total: 1 - rank / 10,
+      neutral: ['popularity'],
+    },
+    price: 100 * rank,
+    price_label: `${100 * rank}.00 USD`,
+    pay_label: `${100 * rank}.00 USD`,
+    pay_merchant: 'shop.example',
+    rating: 4.5,
+    review_count: 10,
+    rating_label: '4.5/5 (10 reviews)',
+    seller: null,
+    url: null,
+    notes: null,
+    opinions: [],
+  });
 
 const RESULT: SearchResult = {
   request: 'kettle',
@@ -55,7 +56,7 @@ const RESULT: SearchResult = {
   top_n: 2,
   sort_by: 'score',
   weights: WEIGHTS,
-  products: [product(1, 'Best Kettle'), product(2, 'Good Kettle'), product(3, 'Other Kettle')],
+  products: [ranked(1, 'Best Kettle'), ranked(2, 'Good Kettle'), ranked(3, 'Other Kettle')],
 };
 
 const RECEIPT = receipt({
