@@ -761,6 +761,45 @@ describe('SearchForm', () => {
     expect(element<HTMLInputElement>('input[name="region"]').value).toBe('pl-pl');
   });
 
+  it('writes every setting under the name a browser already holds it by', async () => {
+    /* The saved blob outlives any version of this form, so the names in it are
+       a promise to whoever is holding one: rename a key and that browser's
+       answer is not lost loudly, it is silently the default again. The ten
+       number boxes are the ones at risk, being the only names the form derives
+       rather than writes -- `max_price` is remembered as `maxPrice`, which is
+       what the signal beside it is called and what is already stored. */
+    await type('input[name="request"]', 'headphones');
+    await send();
+
+    const saved = Object.keys(JSON.parse(localStorage.getItem('buy_agent.settings')!)).sort();
+
+    expect(saved).toEqual(
+      [
+        'baseUrl',
+        'cacheTtl',
+        'cpuOnly',
+        'fetchPages',
+        'maxPrice',
+        'merchantUrl',
+        'minRating',
+        'minReviews',
+        'modelTimeout',
+        'model',
+        'numCtx',
+        'provider',
+        'rail',
+        'region',
+        'results',
+        'sortBy',
+        'sources',
+        'spendLimit',
+        'temperature',
+        'thinking',
+        'top',
+      ].sort(),
+    );
+  });
+
   it('falls back to the served defaults when what was remembered is unreadable', async () => {
     /* Storage is shared with whatever else the browser kept; it can be anything. */
     localStorage.setItem('buy_agent.settings', '{ not json at all');
