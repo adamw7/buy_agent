@@ -15,9 +15,6 @@ header {
 
 h2 {
   font-size: 14px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-dim);
 }
 
 .state {
@@ -28,32 +25,10 @@ h2 {
 }
 
 /* Offered beside the line count, not in the error banner: the file is the log,
-   and this is where the log is. */
-.save {
-  padding: 5px 12px;
-  font-size: 12px;
-  /* Two words: it takes a line of its own before it breaks into two. */
-  white-space: nowrap;
-}
+   and this is where the log is -- `.small`, like the two beside other headings. */
 
 .working {
   color: var(--accent);
-}
-
-.working .dot {
-  animation: pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  50% {
-    opacity: 0.25;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .working .dot {
-    animation: none;
-  }
 }
 
 .scroller {

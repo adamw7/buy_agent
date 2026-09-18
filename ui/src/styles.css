@@ -76,12 +76,19 @@ a {
   min-width: 0;
 }
 
+/* Dim, letter-spaced upper case: what names a field, a section or the control
+   beside a heading. The size is each one's own -- a field label is 12px and a
+   section heading 14px -- so only the spelling the three share lives here. */
+.caps,
 .field > span {
   color: var(--text-dim);
-  font-size: 12px;
-  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.field > span {
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .field > small {
@@ -153,6 +160,15 @@ button.secondary {
   color: var(--text);
 }
 
+/* A button that sits in a row of text -- beside a heading, a pill or a
+   sentence -- rather than at the foot of a form. Every one of them is two
+   words, so it takes a line of its own before it breaks across two. */
+button.small {
+  padding: 5px 12px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 /* -- surfaces -------------------------------------------------------------- */
 
 .card {
@@ -180,4 +196,23 @@ button.secondary {
   height: 7px;
   border-radius: 50%;
   background: currentcolor;
+}
+
+/* A dot that says something is still going. The reduced-motion answer is here
+   with it rather than beside each use, which is what a third use would
+   otherwise have to remember. */
+.dot.blinking {
+  animation: blink 1.2s ease-in-out infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot.blinking {
+    animation: none;
+  }
 }
