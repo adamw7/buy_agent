@@ -7,9 +7,11 @@ import re
 from dataclasses import dataclass, field
 
 from buy_agent.cache import DEFAULT_TTL
+from buy_agent.money import CODES, placeable
 from buy_agent.providers import Provider, provider_for
 from buy_agent.rails import Rail, rail_for
 from buy_agent.ranking import RankingWeights
+from buy_agent.search import Backend, backend_for
 from buy_agent.sources import Source
 
 #: Which model server a run talks to when nothing says otherwise: Ollama (ADR-0003),
@@ -18,6 +20,10 @@ DEFAULT_PROVIDER = os.getenv("BUY_AGENT_PROVIDER", "ollama")
 
 #: Which rail a payment goes through when nothing says otherwise.
 DEFAULT_RAIL = os.getenv("BUY_AGENT_RAIL", "dry-run")
+
+#: Which search backend a run asks when nothing says otherwise: DuckDuckGo, which needs
+#: no key and no account (ADR-0057).
+DEFAULT_BACKEND = os.getenv("BUY_AGENT_BACKEND", "ddg")
 
 #: The range each numeric setting is held to, by the field it bounds.
 LIMITS: dict[str, tuple[int, int]] = {
@@ -57,10 +63,32 @@ def parse_region(spec: str) -> str:
     return region
 
 
+def parse_currency(spec: str) -> str:
+    """``spec`` as the currency a run counts itself in, or nothing at all (ADR-0056).
+
+    Blank is the default and means "whatever the pages quote", which is the vote
+    ADR-0043 settled the scale by. A spelling is folded the way a page's is -- ``$``
+    and ``usd`` are both USD -- and anything this run could never place is refused
+    here rather than silently leaving every price off the scale.
+    """
+    named = spec.strip()
+    if not named:
+        return ""
+    code = placeable(named)
+    if code is None:
+        raise ValueError(
+            f"{spec!r} is not a currency this run can count in. Leave it empty to "
+            f"count in whatever the pages quote, or name one of: "
+            f"{', '.join(sorted(CODES))}."
+        )
+    return code
+
+
 @dataclass(slots=True)
 class AgentConfig:
     """Everything the agent needs to know that is not the user's query (ADR-0050,
-    ADR-0051, ADR-0044, ADR-0039, ADR-0043, ADR-0027, ADR-0040, ADR-0046)."""
+    ADR-0051, ADR-0044, ADR-0039, ADR-0043, ADR-0027, ADR-0040, ADR-0046,
+    ADR-0056, ADR-0057)."""
 
     provider: str = DEFAULT_PROVIDER
     model: str = ""
@@ -78,6 +106,8 @@ class AgentConfig:
     min_rating: float | None = None
     min_reviews: int | None = None
     region: str = DEFAULT_REGION
+    currency: str = ""
+    backend: str = DEFAULT_BACKEND
     sources: tuple[Source, ...] = ()
     fetch_pages: bool = True
     page_chars: int = 1200
@@ -89,6 +119,11 @@ class AgentConfig:
     merchant_url: str = ""
     spend_limit: float | None = None
     weights: RankingWeights = field(default_factory=RankingWeights)
+
+    @property
+    def search_backend(self) -> Backend:
+        """The backend this config names, and everything that differs about it (ADR-0057)."""
+        return backend_for(self.backend)
 
     @property
     def rail_used(self) -> Rail:
@@ -107,6 +142,10 @@ class AgentConfig:
         self.base_url = self.base_url or server.base_url
         self.api_key = self.api_key or server.api_key
         self.region = parse_region(self.region)
+        self.currency = parse_currency(self.currency)
+        # Resolved here for the reason the provider is: a name nothing can search is
+        # refused where the config is built rather than a minute into the run.
+        backend_for(self.backend)
 
         rail = self.rail_used  # raises for a name nothing can pay through
         self.merchant_url = (self.merchant_url or rail.endpoint).rstrip("/")

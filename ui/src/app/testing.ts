@@ -1,6 +1,7 @@
 /** The payloads the server sends, as the specs need them to exist. */
 import type {
   AgentDefaults,
+  BackendOption,
   ModelStatus,
   ProviderOption,
   RailOption,
@@ -45,6 +46,32 @@ export const CHARGES: RailOption = {
   moves_money: true,
 };
 
+/** The backend that needs nothing, one that is a server of your own, and one that
+ *  needs a key this server has not got. */
+export const DDG: BackendOption = {
+  name: 'ddg',
+  label: 'DuckDuckGo',
+  endpoint: '',
+  needs_key: false,
+  configured: true,
+};
+
+export const SEARXNG: BackendOption = {
+  name: 'searxng',
+  label: 'SearXNG',
+  endpoint: 'http://localhost:8080',
+  needs_key: false,
+  configured: true,
+};
+
+export const BRAVE: BackendOption = {
+  name: 'brave',
+  label: 'Brave Search',
+  endpoint: 'https://api.search.brave.com/res/v1/web/search',
+  needs_key: true,
+  configured: false,
+};
+
 /** What a run says its scores were blended by: the defaults, normalised. */
 export const WEIGHTS: ScoreWeights = { rating: 0.5, popularity: 0.2, price: 0.3 };
 
@@ -81,6 +108,10 @@ export function defaults(overrides: Partial<AgentDefaults> = {}): AgentDefaults 
     min_reviews: null,
     cache_ttl: 86400,
     region: 'us-en',
+    currency: '',
+    currency_options: ['EUR', 'GBP', 'PLN', 'USD'],
+    backend: DDG.name,
+    backend_options: [DDG, SEARXNG, BRAVE],
     sources: '',
     fetch: true,
     pay: false,

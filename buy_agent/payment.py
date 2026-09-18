@@ -147,7 +147,7 @@ def merchant_for(product: Product) -> str:
 
 def cart_for(product: Product, products: Sequence[Product], config: AgentConfig) -> Cart:
     """The cart for one product of a finished run."""
-    currency = dominant_currency(products)
+    currency = dominant_currency(products, config.currency or None)
     price, currency = _check(product, currency)
 
     limit = config.spend_limit

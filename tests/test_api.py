@@ -26,7 +26,8 @@ from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.models import Product, Removal, nothing_recorded
 from buy_agent.ranking import RankingWeights, rank_products
 from buy_agent.providers import VLLM
-from buy_agent.search import SearchError
+from buy_agent import money
+from buy_agent.search import BACKENDS, SearchError
 from buy_agent.sources import Source
 from tests.conftest import (
     enrolled_key,
@@ -1529,3 +1530,89 @@ def test_a_re_sort_reports_no_removals_of_its_own() -> None:
     )
 
     assert resorted["dropped"] == []
+
+
+# -- the currency a run counts itself in (ADR-0056) ---------------------------
+
+
+def test_a_named_currency_is_read_as_the_code_the_run_compares_by() -> None:
+    assert parse_options({"currency": "zł"})[0].currency == "PLN"
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_currency_field_lets_the_set_vote(blank: str) -> None:
+    """A cleared picker means "whatever the pages quote", which is the default."""
+    assert parse_options({"currency": blank})[0].currency == ""
+
+
+def test_a_currency_this_run_cannot_place_is_a_400_marking_that_box() -> None:
+    with pytest.raises(ApiError) as failure:
+        parse_options({"currency": "XXX"})
+
+    assert (failure.value.status, failure.value.field) == (400, "currency")
+
+
+def test_the_form_is_offered_every_currency_a_run_can_be_counted_in() -> None:
+    """Off ``money``'s own table, so a currency added there is offered the same day."""
+    offered = defaults_payload()["currency_options"]
+
+    assert offered == sorted(money.CODES)
+    assert all(parse_options({"currency": code})[0].currency == code for code in offered)
+
+
+def test_a_run_reports_its_products_on_the_currency_it_was_told_to_count_in() -> None:
+    """``results_payload`` decides what may be bought and for how much, so it is on the
+    same scale the ranking used or the card offers a button the payment would refuse."""
+    euros = Product(name="Sony XM5", price=329.0, currency="EUR", url="https://shop/x")
+    dollars = Product(name="Bose QC", price=279.0, currency="USD", url="https://shop/b")
+    ranked = rank_products([dollars, euros], currency="EUR")
+
+    payload = results_payload(ranked, "EUR")
+    by_name = {entry["name"]: entry for entry in payload}
+
+    assert by_name["Sony XM5"]["pay_currency"] == "EUR"
+    assert by_name["Bose QC"]["cannot_pay"]
+
+
+def test_a_re_sort_is_counted_on_the_scale_the_run_was_counted_on() -> None:
+    """Letting the set vote again would answer a different ordering for one run
+    (ADR-0035, ADR-0056)."""
+    euros = Product(name="Sony XM5", price=329.0, currency="EUR", url="https://shop/x")
+    dollars = Product(name="Bose QC", price=279.0, currency="USD", url="https://shop/b")
+    products = results_payload(rank_products([dollars, euros]))
+
+    reordered = rank_again({"products": products, "sort_by": "price", "currency": "EUR"})
+
+    # The dollar price is not on the scale, so it sinks below the one that is.
+    assert [entry["name"] for entry in reordered["products"]] == ["Sony XM5", "Bose QC"]
+
+
+def test_a_re_sort_told_no_currency_lets_the_products_vote() -> None:
+    euros = Product(name="Sony XM5", price=329.0, currency="EUR", url="https://shop/x")
+    dollars = Product(name="Bose QC", price=279.0, currency="USD", url="https://shop/b")
+    products = results_payload(rank_products([dollars, euros]))
+
+    reordered = rank_again({"products": products, "sort_by": "price"})
+
+    assert [entry["name"] for entry in reordered["products"]] == ["Bose QC", "Sony XM5"]
+
+
+# -- the search backend a run asks (ADR-0057) ---------------------------------
+
+
+def test_a_named_backend_is_read_off_the_table() -> None:
+    assert parse_options({"backend": "searxng"})[0].backend == "searxng"
+
+
+def test_a_backend_nothing_can_search_is_a_400_marking_that_box() -> None:
+    with pytest.raises(ApiError) as failure:
+        parse_options({"backend": "bing"})
+
+    assert (failure.value.status, failure.value.field) == (400, "backend")
+
+
+def test_the_form_is_offered_every_backend_with_what_it_needs() -> None:
+    offered = defaults_payload()["backend_options"]
+
+    assert [row["name"] for row in offered] == list(BACKENDS)
+    assert all("api_key" not in row for row in offered)

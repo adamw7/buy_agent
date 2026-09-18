@@ -23,6 +23,7 @@ from buy_agent.__main__ import build_parser
 from buy_agent.__main__ import main as cli_main
 from buy_agent.agent import BuyAgent
 from buy_agent.api import (
+    BACKEND_OPTIONS,
     PAY_STATUS,
     PROVIDER_OPTIONS,
     RAIL_OPTIONS,
@@ -40,7 +41,7 @@ from buy_agent.api import (
     run_search,
     sources_payload,
 )
-from buy_agent.config import LIMITS, AgentConfig, parse_region
+from buy_agent.config import LIMITS, AgentConfig, parse_currency, parse_region
 import buy_agent.fetch as fetch_module
 import buy_agent.mandates as mandates_module
 import buy_agent.money as money
@@ -48,6 +49,7 @@ import buy_agent.providers as providers_module
 from buy_agent.payment import PaymentError
 from buy_agent.providers import PROVIDERS, InstalledModel, provider_options
 from buy_agent.rails import RAILS, rail_options
+from buy_agent.search import BACKENDS, backend_options
 from buy_agent.models import Product, Removal
 from tests.conftest import SOURCE_ROOT, needs_ap2, payable_product, ranked_product, said
 from buy_agent.ranking import ORDERINGS, SortBy
@@ -187,6 +189,57 @@ def test_a_provider_option_is_mirrored_field_for_field_in_typescript() -> None:
     """The form reads these to fill the model and the server fields in, so a key
     added on the Python side and forgotten here is an undefined in the box."""
     assert set(ts_interface("ProviderOption")) == set(provider_options()[0])
+
+
+# -- the search backends -------------------------------------------------------
+
+
+def test_every_backend_is_offered_everywhere_it_can_be_asked_for() -> None:
+    """The third table onto three doors (ADR-0057), for the reason the other two are:
+    a backend missing from one of them is one the other two will hand to a config
+    that then refuses it."""
+    names = set(BACKENDS)
+    cli = {action.dest: action for action in build_parser()._actions}["backend"]
+
+    assert set(BACKEND_OPTIONS) == names
+    assert set(cli.choices) == names
+    assert {option["name"] for option in defaults_payload()["backend_options"]} == names
+
+
+def test_a_backend_option_is_mirrored_field_for_field_in_typescript() -> None:
+    """The picker reads these to say where a backend is asked and what it is missing,
+    so a key added in Python and forgotten here is an undefined in that sentence."""
+    assert set(ts_interface("BackendOption")) == set(backend_options()[0])
+
+
+def test_no_backend_row_carries_its_key_to_a_browser() -> None:
+    """``backend_options()`` is a payload, and a key is read on the row and nowhere
+    else -- the rule ``$VLLM_API_KEY`` already holds (ADR-0057)."""
+    assert all("api_key" not in row for row in backend_options())
+
+
+def test_every_currency_a_run_may_be_counted_in_is_one_both_doors_take() -> None:
+    """The picker is built off ``money``'s own table, so a code offered there and
+    refused by ``parse_currency`` would be a form that cannot be submitted (ADR-0056).
+    """
+    offered = defaults_payload()["currency_options"]
+    cli = {action.dest: action for action in build_parser()._actions}["currency"]
+
+    assert set(offered) == set(money.CODES)
+    for code in offered:
+        assert parse_currency(code) == code
+        assert parse_options({"currency": code})[0].currency == code
+        assert cli.type(code) == code
+
+
+@pytest.mark.parametrize("typo", ["XXX", "dollarydoos", "¥"])
+def test_both_front_doors_refuse_the_same_currencies(typo: str) -> None:
+    """The rule ``region`` holds for a shape, held here for a code: checked on one
+    door only is a CLI that counts on what the API refuses (ADR-0056)."""
+    with pytest.raises(ApiError):
+        parse_options({"currency": typo})
+    with pytest.raises(SystemExit):
+        cli_main(["headphones", "--currency", typo])
 
 
 # -- the sort criteria ---------------------------------------------------------

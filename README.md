@@ -102,6 +102,8 @@ python -m buy_agent "headphones" --max-price 200 --min-rating 4.5 --min-reviews 
 | `--top` | `3` | How many to log (1-50) |
 | `--sort-by` | `score` | `score`, `price` or `rating`; the report's heading names which |
 | `--region` | `us-en` | Search region: a country, then a language -- `uk-en`, `pl-pl` |
+| `--backend` | `ddg` (or `$BUY_AGENT_BACKEND`) | Which search backend to ask: `ddg`, `searxng` or `brave` |
+| `--currency` | the pages' own | Count this run's prices in this currency; nothing is converted |
 | `--source` | -- | Take the facts from this source only; repeatable |
 | `--max-price` | no limit | Report nothing dearer, in the currency the run's prices are counted in |
 | `--min-rating` | no limit | Report nothing rated below this, out of 5 |
@@ -278,6 +280,23 @@ marks it "assumed". A price a page printed with no currency at all is taken as
 the run's own. A rate table would be the first figure here that no source page
 printed, and a stale rate is a wrong ranking wearing a right one's clothes
 ([ADR-0043](docs/adr/0043-compare-prices-only-within-one-currency.md)).
+
+**`--currency` names that scale instead of leaving it to the vote.** Which
+currency wins is otherwise an accident of what the search returned -- a shopper
+in Poland can get a set counted in USD because three American review sites
+out-numbered the two Polish shops. `--currency PLN` says which one it is; the
+form has the same picker, under "Count prices in", and its blank is the vote.
+Nothing else changes, and nothing is converted still: a price outside the named
+scale is the same blank it was, and the budget is read on the scale too, so
+`--max-price 800 --currency PLN` means 800 złoty. Naming a currency your pages
+never quote is the one way to ask for a report whose price criterion is entirely
+assumed, so the run says so in a warning rather than quietly ordering by rating
+and reviews alone
+([ADR-0056](docs/adr/0056-let-the-shopper-name-the-currency.md)).
+
+```powershell
+python -m buy_agent "sluchawki bezprzewodowe" --region pl-pl --currency PLN --max-price 800
+```
 
 The bounds are not read out of the request by the model, deliberately: a model
 that saw "under $200" in "headphones with 200 hours of battery" would drop every
@@ -563,7 +582,7 @@ the UI itself, run the Angular dev server rather than rebuilding for every
 change -- see [The dev server](#the-dev-server).
 
 The three recordings at the top of this page are of this page. Everything in
-them between the search and the ranking is the real pipeline -- only DuckDuckGo,
+them between the search and the ranking is the real pipeline -- only the search,
 the page fetches and the model are scripted stand-ins -- so the progress panel
 is showing grounding actually throwing figures, quotes and links away. The one
 with sound has none captured either: Chromium records no audio, so the track is
@@ -674,7 +693,7 @@ and [a streamed run end to end](docs/architecture.md#a-streamed-run-end-to-end).
 request ──▶ [LLM] refine into a search query
                       │
                       ▼
-            DuckDuckGo text search (10 results)
+            one text search, through whatever backend was named (10 results)
               -- or one search per trusted source, pooled
                       │
                       ▼
@@ -838,7 +857,7 @@ no model, no network and no run
   others, since importing any submodule runs it first: a `from` line there
   naming `payment` would put the optional AP2 stack behind `import buy_agent`.
 - **Every module sits in a layer that reaches only downward** -- entry points,
-  web, orchestration, pipeline, paying, model access, settings, domain. Four of
+  web, orchestration, pipeline, paying, seams, settings, domain. Four of
   those edges are decisions rather than tiers. The pipeline never reads the
   config, which is what lets `rank_products`, `ground` and `Constraints` be
   tested with three arguments and no environment. The pipeline never pays, so no
@@ -847,11 +866,11 @@ no model, no network and no run
   And the model seam carries a prompt, a schema and an answer without ever
   knowing what an answer means (ADR-0038).
 - **One seam, one module.** `mandates.py` alone imports the AP2 SDK (ADR-0046),
-  `providers.py` alone a model client (ADR-0029), `search.py` alone the search
-  backend (ADR-0021), `fetch.py` alone the HTML parser. The three modules that
-  speak HTTP are exactly the three the suite patches, so a fourth would be a
-  request no fake answers; `argparse` belongs to the two modules handed an
-  `argv`, a parser below them being a third set of defaults.
+  `providers.py` alone a model client (ADR-0029), `search.py` alone a search
+  library (ADR-0021, ADR-0057), `fetch.py` alone the HTML parser. The four
+  modules that speak HTTP are exactly the four the suite patches, so a fifth
+  would be a request no fake answers; `argparse` belongs to the two modules
+  handed an `argv`, a parser below them being a third set of defaults.
 - **The socket is the server's alone.** `server.py` is a standard-library HTTP
   server on purpose and only ever listens on it (ADR-0010), so a `socket`, an
   `ssl` or a `urllib.request` anywhere else is a module reaching out on its own.
@@ -931,7 +950,9 @@ suite every Saturday are in [Tests](docs/testing.md).
   compared inside one currency and converted never (ADR-0043), so a search
   returning five currencies gets a price criterion that is "assumed" for four of
   them. That is the true state of what the run knows, and the cards say so --
-  but the ranking is then carried by rating and popularity alone.
+  but the ranking is then carried by rating and popularity alone. `--currency`
+  chooses *which* of the five is the one scored (ADR-0056); it cannot make the
+  other four comparable, because that would need a rate.
 - **Paying is only as good as the page it read.** The mandates are signed
   correctly and bind to a price a merchant signed, but *which* merchant is the
   site the product page came from, and the product is whatever the extraction
@@ -960,7 +981,13 @@ suite every Saturday are in [Tests](docs/testing.md).
   every figure the pages did not back, so a report of "price unknown" throughout
   is either a bad model or nothing having been read, and that line is which.
 - DuckDuckGo rate-limits heavy use; the agent asks a second time and then reports
-  it as a `SearchError`.
+  it as a `SearchError`. `--backend` is the way out of it: `searxng` is an
+  instance you run (`$SEARXNG_HOST`), `brave` a key you hold (`$BRAVE_API_KEY`),
+  and each is one row in one table
+  ([ADR-0057](docs/adr/0057-a-search-backend-is-a-row-in-a-table.md)). Only the
+  default is exercised against the real thing: the nightly run fakes the web on
+  purpose (ADR-0026), so the other two rows are asserted against a stubbed
+  transport and nothing more.
 - Only `lfm2.5` (1.2B) has been measured end to end for *speed*: it works, takes
   ~75s, and most of that is extraction. The failure modes above are the ones a
   small model shows, so a larger model should improve on them -- `python -m

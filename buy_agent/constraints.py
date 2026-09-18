@@ -45,11 +45,18 @@ class Constraints:
     max_price: float | None = None
     min_rating: float | None = None
     min_reviews: int | None = None
+    #: The scale the budget is read on, where the shopper named one rather than leaving
+    #: the set to vote (ADR-0056). Not a bound: it decides what the one with a unit
+    #: means, which is why ``given`` does not count it.
+    currency: str | None = None
 
     @classmethod
     def from_config(cls, config: AgentConfig) -> Constraints:
         """The three bounds a run was configured with, off the config that holds them."""
-        return cls(**{name: getattr(config, name) for name, *_ in _BOUNDS})
+        return cls(
+            **{name: getattr(config, name) for name, *_ in _BOUNDS},
+            currency=config.currency or None,
+        )
 
     @property
     def given(self) -> bool:
@@ -122,7 +129,9 @@ class Constraints:
         (ADR-0043)."""
         inside = list(range(len(products)))
         while True:
-            currency = dominant_currency(products[index] for index in inside)
+            currency = dominant_currency(
+                (products[index] for index in inside), self.currency
+            )
             kept = [index for index in inside if self.admits(products[index], currency)]
             # Nothing left settles nothing -- an empty set is counted in no currency at
             # all -- so the answer is the currency that emptied it, which is the one the

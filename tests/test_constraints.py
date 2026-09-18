@@ -321,3 +321,34 @@ def test_bounds_nobody_set_remove_nothing_at_all() -> None:
     Constraints().apply([product("anything", price=900.0)], record=removed.append)
 
     assert removed == []
+
+
+def test_the_budget_is_read_on_the_currency_the_shopper_named(caplog) -> None:
+    """ADR-0056: the bound and the scale are two halves of one sentence, and only one
+    of them came off the pages."""
+    products = [
+        Product(name="Cheap dollars", price=50.0, currency="USD"),
+        Product(name="Cheap euros", price=50.0, currency="EUR"),
+        Product(name="Dear euros", price=500.0, currency="EUR"),
+    ]
+
+    with caplog.at_level(logging.INFO):
+        kept = Constraints(max_price=100.0, currency="EUR").apply(products)
+
+    # The dollar price is a figure the bound cannot judge, so it is kept (ADR-0039).
+    assert [product.name for product in kept] == ["Cheap dollars", "Cheap euros"]
+    assert "at most 100.00 EUR" in caplog.text
+
+
+def test_a_run_with_no_named_currency_settles_the_scale_by_voting() -> None:
+    products = [
+        Product(name="A", price=50.0, currency="USD"),
+        Product(name="B", price=500.0, currency="USD"),
+    ]
+
+    assert [p.name for p in Constraints(max_price=100.0).apply(products)] == ["A"]
+
+
+def test_the_named_currency_reaches_the_bounds_off_the_config() -> None:
+    assert Constraints.from_config(AgentConfig(currency="PLN")).currency == "PLN"
+    assert Constraints.from_config(AgentConfig()).currency is None

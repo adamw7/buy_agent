@@ -16,9 +16,9 @@ from buy_agent.agent import (
     every_step_passes,
 )
 from buy_agent.chat import release
-from buy_agent.config import LIMITS, AgentConfig, parse_region
+from buy_agent.config import LIMITS, AgentConfig, parse_currency, parse_region
 from buy_agent.models import Product, Removal, dominant_currency
-from buy_agent.money import amount_label
+from buy_agent.money import CODES, amount_label
 from buy_agent.payment import (
     Cart,
     PaymentError,
@@ -33,7 +33,7 @@ from buy_agent.payment import (
 from buy_agent.providers import PROVIDERS, provider_options
 from buy_agent.rails import RAILS, rail_options
 from buy_agent.ranking import RankingWeights, SortBy, rank_products
-from buy_agent.search import SearchError
+from buy_agent.search import BACKENDS, SearchError, backend_options
 from buy_agent.sources import Source, format_sources, parse_sources
 
 if TYPE_CHECKING:
@@ -62,6 +62,14 @@ PROVIDER_OPTIONS: tuple[str, ...] = tuple(PROVIDERS)
 
 #: The rails a request may name, read off the registry for the reason the providers are.
 RAIL_OPTIONS: tuple[str, ...] = tuple(RAILS)
+
+#: The search backends a request may name, read off that registry for the same reason
+#: (ADR-0057).
+BACKEND_OPTIONS: tuple[str, ...] = tuple(BACKENDS)
+
+#: Every currency a run may be told to count itself in, sorted so the picker is in an
+#: order somebody can scan (ADR-0056). Off ``money``'s own table, never listed again.
+CURRENCY_OPTIONS: tuple[str, ...] = tuple(sorted(CODES))
 
 _TRUE = frozenset({"true", "1", "yes", "on"})
 _FALSE = frozenset({"false", "0", "no", "off"})
@@ -150,6 +158,9 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         num_products=num_products,
         top_n=top_n,
         region=_read(data, "region", defaults.region, _as_region),
+        # Blank is the default and means "whatever the pages quote" (ADR-0056).
+        currency=_read(data, "currency", defaults.currency, _as_currency),
+        backend=_read(data, "backend", defaults.backend, _among(BACKEND_OPTIONS)),
         sources=_read_sources(data, defaults.sources),
         fetch_pages=_read(data, "fetch", defaults.fetch_pages, _as_bool),
         # A blank is "no bound" here and "the default" -- the same thing, these three
@@ -206,7 +217,13 @@ def run_search(
         release(agent)
 
     return _run_payload(
-        request, ranked, config.top_n, sort_by, config.weights, removals=removals
+        request,
+        ranked,
+        config.top_n,
+        sort_by,
+        config.weights,
+        removals=removals,
+        currency=config.currency or None,
     )
 
 
@@ -220,12 +237,18 @@ def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
     # Named rather than left to ``rank_products``'s own fallback, so the weights the
     # answer reports are the ones it ranked by: a re-sort takes no config.
     weights = RankingWeights()
+    # The scale the run was counted on, sent back with its products: a re-sort that let
+    # the set vote again would answer a different ordering for the same run (ADR-0056).
+    currency = _read(data, "currency", "", _as_currency)
     ranked = rank_products(
-        _read_products(data), weights=weights, sort_by=cast(SortBy, sort_by)
+        _read_products(data),
+        weights=weights,
+        sort_by=cast(SortBy, sort_by),
+        currency=currency or None,
     )
     # A re-sort runs no pipeline, so it removed nothing: the page keeps the list the
     # run itself reported rather than being handed an empty one (ADR-0035, ADR-0055).
-    return _run_payload(request, ranked, top_n, sort_by, weights)
+    return _run_payload(request, ranked, top_n, sort_by, weights, currency=currency or None)
 
 
 def mandate_support() -> bool:
@@ -311,6 +334,7 @@ def _run_payload(
     weights: RankingWeights,
     *,
     removals: Sequence[Removal] = (),
+    currency: str | None = None,
 ) -> dict[str, Any]:
     """The shape a finished run answers with, however it was finished (ADR-0055)."""
     return {
@@ -319,7 +343,7 @@ def _run_payload(
         "top_n": top_n,
         "sort_by": sort_by,
         "weights": weights.fractions,
-        "products": results_payload(ranked),
+        "products": results_payload(ranked, currency),
         # Beside the products rather than among them: these are the candidates that are
         # not products of this run any more, each with Python's own sentence saying what
         # took it (ADR-0055).
@@ -327,9 +351,11 @@ def _run_payload(
     }
 
 
-def results_payload(ranked: Sequence[RankedProduct]) -> list[dict[str, Any]]:
-    """A whole run's products as JSON, best first (ADR-0043)."""
-    currency = dominant_currency(entry.product for entry in ranked)
+def results_payload(
+    ranked: Sequence[RankedProduct], named: str | None = None
+) -> list[dict[str, Any]]:
+    """A whole run's products as JSON, best first (ADR-0043, ADR-0056)."""
+    currency = dominant_currency((entry.product for entry in ranked), named)
     return [product_payload(entry, currency) for entry in ranked]
 
 
@@ -380,6 +406,12 @@ def defaults_payload() -> dict[str, Any]:
         "min_reviews": defaults.min_reviews,
         "cache_ttl": defaults.cache_ttl,
         "region": defaults.region,
+        # Blank means "whatever the pages quote", which is the vote ADR-0043 settled
+        # the scale by; the picker offers every code a run could be counted in.
+        "currency": defaults.currency,
+        "currency_options": list(CURRENCY_OPTIONS),
+        "backend": defaults.backend,
+        "backend_options": backend_options(),
         # One text field's worth, written the way the form sends it back.
         "sources": format_sources(defaults.sources),
         "fetch": defaults.fetch_pages,
@@ -520,6 +552,15 @@ def _among(options: tuple[str, ...]) -> Callable[[str, str], str]:
         return text
 
     return parse
+
+
+def _as_currency(key: str, text: str) -> str:
+    """A currency the run can count in, checked the way a region's shape is (ADR-0056,
+    ADR-0033)."""
+    try:
+        return parse_currency(text)
+    except ValueError as exc:
+        raise ApiError(str(exc), field=key) from exc
 
 
 def _as_region(key: str, text: str) -> str:

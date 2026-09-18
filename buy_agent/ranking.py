@@ -118,11 +118,16 @@ def rank_products(
     *,
     weights: RankingWeights | None = None,
     sort_by: SortBy = "score",
+    currency: str | None = None,
 ) -> list[RankedProduct]:
-    """Sort products best-first and attach the score and 1-based rank (ADR-0043)."""
+    """Sort products best-first and attach the score and 1-based rank (ADR-0043).
+
+    ``currency`` is the scale the shopper named, where they named one; left out, the set
+    votes on its own as it always did (ADR-0056).
+    """
     weights = weights or RankingWeights()
     # The scale is the run's own currency and the prices on it (ADR-0043).
-    currency = dominant_currency(products)
+    currency = dominant_currency(products, currency)
     prices = [comparable_price(product, currency) for product in products]
     on_the_scale = [price for price in prices if price is not None]
     # ``default`` rather than a guard apiece: a set with nothing placeable in it has no

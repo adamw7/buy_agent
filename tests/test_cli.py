@@ -1139,3 +1139,44 @@ def test_nothing_is_asked_before_the_product_is_known_to_be_payable(
     main(["headphones", "--pay"])
 
     assert "Type yes to authorise" not in capsys.readouterr().err
+
+
+# -- the currency and the backend (ADR-0056, ADR-0057) -------------------------
+
+
+def test_a_named_currency_reaches_the_config_as_a_code(fake_agent) -> None:
+    """Folded the way a page's spelling is, so what a shopper types is what they read."""
+    main(["headphones", "--currency", "pln"])
+
+    assert fake_agent["config"].currency == "PLN"
+
+
+def test_no_currency_flag_leaves_the_set_to_vote(fake_agent) -> None:
+    main(["headphones"])
+
+    assert fake_agent["config"].currency == ""
+
+
+def test_a_currency_this_run_cannot_place_is_a_usage_error_that_names_some(capsys) -> None:
+    """Refused where a region is, and for the same reason: left to the run it is not a
+    failure at all, only a report scored on nothing (ADR-0056)."""
+    with pytest.raises(SystemExit) as exit_info:
+        main(["headphones", "--currency", "dollarydoos"])
+
+    assert exit_info.value.code == 2
+    assert "USD" in capsys.readouterr().err
+
+
+def test_a_named_backend_reaches_the_config(fake_agent) -> None:
+    main(["headphones", "--backend", "searxng"])
+
+    assert fake_agent["config"].backend == "searxng"
+    assert fake_agent["config"].search_backend.label == "SearXNG"
+
+
+def test_a_backend_nothing_can_search_is_a_usage_error(capsys) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        main(["headphones", "--backend", "bing"])
+
+    assert exit_info.value.code == 2
+    assert "bing" in capsys.readouterr().err

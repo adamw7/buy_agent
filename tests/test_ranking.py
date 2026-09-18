@@ -458,3 +458,47 @@ def test_one_product_on_its_own_is_not_asked_about_a_set() -> None:
 
     assert score.price == pytest.approx(0.5555555555555556)
     assert "price" not in score.neutral
+
+
+# -- the currency the shopper named (ADR-0056) --------------------------------
+
+
+def test_a_named_currency_decides_the_scale_the_vote_would_not_have() -> None:
+    """Three dollar listings out-vote two euro ones; a shopper counting in euros is
+    still counting in euros."""
+    products = [
+        Product(name="A", price=100.0, currency="USD"),
+        Product(name="B", price=200.0, currency="USD"),
+        Product(name="C", price=300.0, currency="USD"),
+        Product(name="D", price=400.0, currency="EUR"),
+        Product(name="E", price=800.0, currency="EUR"),
+    ]
+
+    ranked = rank_products(products, sort_by="price", currency="EUR")
+
+    # The three dollar prices are figures this run cannot place, so they sink.
+    assert [entry.product.name for entry in ranked][:2] == ["D", "E"]
+    assert all("price" in entry.breakdown.neutral for entry in ranked[2:])
+
+
+def test_naming_the_currency_the_set_would_have_voted_for_changes_nothing() -> None:
+    products = [
+        Product(name="A", price=100.0, currency="USD"),
+        Product(name="B", price=200.0, currency="USD"),
+    ]
+
+    assert [entry.breakdown.total for entry in rank_products(products, currency="USD")] == [
+        entry.breakdown.total for entry in rank_products(products)
+    ]
+
+
+def test_a_currency_nothing_is_priced_in_scores_every_price_as_assumed() -> None:
+    """The one way to ask for a report whose price criterion is entirely assumed."""
+    products = [
+        Product(name="A", price=100.0, currency="USD"),
+        Product(name="B", price=200.0, currency="USD"),
+    ]
+
+    ranked = rank_products(products, currency="JPY")
+
+    assert all("price" in entry.breakdown.neutral for entry in ranked)

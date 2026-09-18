@@ -19,9 +19,12 @@ convention test that fails if it is skipped.
 - **Numeric** -> add a row to `LIMITS`, keyed by the *field* name, whole numbers
   even for a decimal field (the refusal quotes them back). Check the default is
   inside its own range.
-- **Shaped, not bounded** (like `region`) -> write a `parse_<field>` function here
-  and call it from `__post_init__`, so a Python caller is refused the same way the
-  doors refuse. Do not put the rule in the CLI or in `api.py`.
+- **Shaped, not bounded** (like `region`, or `currency`, whose rule is a closed
+  set rather than a shape) -> write a `parse_<field>` function here and call it
+  from `__post_init__`, so a Python caller is refused the same way the doors
+  refuse. Do not put the rule in the CLI or in `api.py`. Where the set the rule
+  reads is already a table somewhere (`money.CODES`, `search.BACKENDS`), read it
+  rather than listing it again -- and let the refusal name what would have worked.
 - A sentence `__post_init__` raises is read on a terminal *and* under a labelled
   box in the form, so it names the **setting** and never the flag --
   `test_no_sentence_below_the_two_doors_tells_a_reader_to_type_a_flag` reads every
@@ -38,7 +41,7 @@ convention test that fails if it is skipped.
   literal repeat of the default.
 - Numeric -> `type=_bounded(int, "<field>")`, so an out-of-range value is a usage
   error rather than a minute of waiting. Shaped -> `type=_checked(parse_region)`,
-  the one wrapper all three fixed-set and shaped flags go through: it calls the
+  the one wrapper every fixed-set and shaped flag goes through: it calls the
   rule, catches `ValueError` and re-raises `argparse.ArgumentTypeError` **with the
   original message** (argparse throws a plain `ValueError` away and prints
   "invalid value", losing the whole point). Do not write a second wrapper beside

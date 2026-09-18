@@ -171,6 +171,16 @@ what puts a run into AP2's human-not-present mode, because the open mandate *is*
 the authorisation and a second switch saying "run unattended" would only fail
 without the file anyway (ADR-0046).
 
+`$BUY_AGENT_BACKEND` moves which search backend a run asks, and each backend has
+its own variables behind it -- `$SEARXNG_HOST`, and `$BRAVE_HOST`/`$BRAVE_API_KEY`
+-- read on that backend's own row in `search.BACKENDS` (ADR-0057). Neither the
+address nor the key has a flag or a form field: one is a property of the machine
+the server runs on and the other is a secret, and the browser has no box for
+either. A backend that needs a key and has none fails at its own row with a
+sentence naming the variable, rather than at the config: `AgentConfig` refuses a
+*name* nothing can search, exactly as it refuses a provider, but what is
+configured on the machine is not what the request got wrong.
+
 `$BUY_AGENT_PROVIDER` moves which model server a run talks to, and each provider
 has its own variables behind it -- `$OLLAMA_MODEL`/`$OLLAMA_HOST` and
 `$VLLM_MODEL`/`$VLLM_HOST`/`$VLLM_API_KEY` -- read on that server's own row in
@@ -370,8 +380,8 @@ because these servers are typically run with small models that drive tool loops
 badly.
 
 ```
-request -> refine query (LLM) -> DuckDuckGo (once, or once per named
-source) -> fetch + condense pages
+request -> refine query (LLM) -> one search (once, or once per named
+source), through whatever backend was named -> fetch + condense pages
         -> extract products and their opinions (LLM) -> clean_products
         -> ground -> deduplicate -> the shopper's bounds -> rank -> log top 3
 ```
@@ -404,7 +414,7 @@ was ever held to.
 | `ranking.py` | Scoring and sorting, and what each score is made of; no LLM involved |
 | `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain), and which currency a set is counted in |
 | `money.py` | Every currency table: how a spelling is placed, which ones a page is scanned for, how an amount is written and counted (ADR-0054) |
-| `search.py` | DuckDuckGo wrapper -- and nothing else (ADR-0021) |
+| `search.py` | Which backend a search is asked through, one row each -- and nothing else (ADR-0021, ADR-0057) |
 | `sources.py` | What a trusted source is: domain, term, `site:` query, `covers` |
 | `providers.py` | Everything that differs between Ollama and vLLM, and nothing else |
 | `payment.py` | What may be bought and for how much: a cart out of a grounded product, the spend limit, the receipt -- and one failure |
@@ -414,7 +424,7 @@ was ever held to.
 | `api.py` | Request options in, ranked products out -- the web-facing half worth testing |
 | `server.py` | A stdlib HTTP server: the JSON API, the event stream, the built UI |
 
-### Sixteen conventions
+### Seventeen conventions
 
 - **A model server is one row in one table, reached one way.**
   `providers.PROVIDERS` holds each server whole -- its defaults (`model`,
@@ -462,6 +472,28 @@ was ever held to.
   there and a row nowhere else. The default is `dry-run`, which plays every
   role, signs a chain that really verifies and charges nobody, so `--pay` on its
   own is never a way to spend money.
+- **A search backend is one row in one table, and the default one needs nothing.**
+  `search.BACKENDS` is that same table for the web: each row carries where it
+  listens and its key (each from its own environment variable), whether it needs
+  one, how it is asked, how its answer becomes `SearchResult`s, the transport
+  errors meaning "not there" and the sentence one of those carries (ADR-0057).
+  `AgentConfig.search_backend` is the only place a backend's name becomes
+  behaviour; no `if backend == ...` above that module, and a fourth backend is a
+  row there and a row nowhere else. Unlike the other two, a row is handed *itself*
+  rather than a config -- a search takes a query and answers results, and the
+  address and the key it needs are on the row -- which is what keeps this table
+  the one that imports nothing from `config` in either direction, even deferred.
+  The table lives in `search.py` rather than beside it because `config.py` has to
+  read the rows and `SearchResult` is what they answer with; one module is also
+  what keeps `buy_agent.search.DDGS` the one name the suite patches for a library.
+  What is *shared* stays above the rows: the retry ADR-0053 decided is about a
+  search and not about a backend, while what "nothing matched" looks like is each
+  backend's own -- DuckDuckGo raises where the others answer an empty list. A
+  missing key is the row's failure and not the config's: `AgentConfig` refuses a
+  name nothing can search, exactly as it refuses a provider, but a key is a fact
+  about the machine and not about the request, so the row raises a `SearchError`
+  naming the variable and `Backend.configured` is what the picker marks the row
+  with.
 - **Never pay on an unverified number, and never on one this run cannot place.**
   The ranking rule (ADR-0006) turned around. `payment._check` refuses a product
   whose price grounding blanked, whose currency no page printed, whose price is
@@ -490,7 +522,8 @@ was ever held to.
   explain it. There is no fall back to the wider web when the named sources find
   nothing: that would report facts from pages the shopper refused. `sources.py`
   does no I/O -- it decides what a source *is* and `agent.py` does the
-  searching, which is also what keeps `search.py` a DuckDuckGo wrapper.
+  searching, which is also what keeps `search.py` the backend table and nothing
+  else.
 - **`ExtractedProduct` uses sentinels, `Product` uses `None`.** The LLM-facing
   schema asks for `-1`/`""` rather than nullable fields: Ollama compiles the
   JSON schema into a decoding grammar, and a required `number` makes `"N/A"` --
@@ -584,7 +617,8 @@ was ever held to.
   figure is unknown rather than dropping it (ADR-0039). A price the run cannot
   *place* is one of those blanks: prices are compared inside one currency and
   converted never, so `models.dominant_currency` says which currency a set is
-  counted in and `models.comparable_price` answers `None` for anything outside
+  counted in -- the shopper's `currency` where they named one, and otherwise the
+  vote (ADR-0056) -- and `models.comparable_price` answers `None` for anything outside
   it, which scores neutral, sinks in a price sort and passes every bound
   (ADR-0043). A bare price is taken as the set's own. Both places that hold one
   price against another -- `rank_products` and `Constraints` -- go through that
@@ -592,7 +626,11 @@ was ever held to.
   once, in `money.code_for`: the schema asks for a code and a small model
   hands back the sign the page printed, so `$` and `USD` are folded together
   there rather than counted as two currencies half a set is then unplaceable in.
-  That table is `money.py`'s whole reason for existing (ADR-0054). Which
+  That table is `money.py`'s whole reason for existing (ADR-0054), and
+  `money.placeable` is its second question: `code_for` reads what a page wrote and
+  hands an unknown spelling back as written, while a *scale* nothing can place is
+  a report with no price criterion at all, so what a shopper may name is a code
+  out of the table and nothing else (ADR-0056). Which
   spellings are folded and which spellings make `fetch` keep a price *line* are
   one rule -- a currency `fetch` cannot see is every price on that shop dropped
   before the model sees it, which is what `--region pl-pl` was until `zł` was
@@ -759,7 +797,7 @@ model may have run out of (ADR-0019). Caught there rather than in `_invoke`,
 which the recoverable step goes through too: a fumbled query still falls back to
 the raw request.
 
-### Options, and the seven that are special
+### Options, and the nine that are special
 
 The CLI and the API are two ways of filling in the same `AgentConfig`, and both
 set `search_results = max(results, top)` -- searching for fewer pages than the
@@ -804,6 +842,27 @@ excepted -- there the flag is the right name for the flag.
   and nothing else -- and the "Ignored N result(s) from outside ..." lines that
   say so scroll past a step earlier, at INFO, above a warning that used to name
   the query and the region and never them.
+- **`currency`** is `region`'s rule again, for a code rather than a shape:
+  `config.parse_currency` is the only place it is checked and both doors go
+  through it -- the CLI as a `type` function, the API as `_as_currency` -- with
+  `__post_init__` behind them. What it checks is `money.placeable`, so a spelling
+  is folded the way a page's is (`$`, `usd` and `USD` are one answer) and the
+  refusal names the codes that would have worked. A *closed* set here where the
+  region is a shape, because this one is a choice among the codes `money` already
+  holds rather than a hint passed to somebody else's engine. Blank is the default
+  and means the vote ADR-0043 settled the scale by (ADR-0056), so the form's
+  picker offers the blank as a value rather than leaving the field empty. Four
+  places settle a run's scale and each takes the override -- `rank_products`,
+  `Constraints`, `payment.cart_for` and `api.results_payload` -- and the last two
+  are why a *finished* run carries its currency: a re-sort and a payment are both
+  handed the products by the browser (ADR-0035), so letting the set vote again
+  there would answer a different ordering, and a different cart, for one run.
+- **`backend`** is `provider`'s rule, one table over: checked against
+  `search.BACKENDS` at both doors and offered in *four* places, the fourth being
+  the `backend_options()` rows the form's picker is built from. Unlike
+  `provider` it changes what no other option means -- a backend's address and its
+  key are read on its own row and have no flag and no form field, the way
+  `$VLLM_API_KEY` has neither.
 - **`provider`** is offered in *four* places -- those three plus the
   `ProviderOption` rows `defaults_payload` sends the picker -- each reading
   `providers.PROVIDERS` rather than listing the names again. It also changes
@@ -1008,8 +1067,9 @@ everything else to the built Angular app, unknown paths falling back to
   one thing it did not do. `GET /api/config` is the reminder: it builds an
   `AgentConfig`, so `$BUY_AGENT_PROVIDER=olama` made every page load a dropped
   connection under a banner blaming the agent server. `server.main` refuses that
-  name before it binds a port -- and `$BUY_AGENT_RAIL` beside it, a config
-  resolving both -- for the same reason `__main__` makes either a usage error:
+  name before it binds a port -- and `$BUY_AGENT_RAIL` and `$BUY_AGENT_BACKEND`
+  beside it, a config resolving all three -- for the same reason `__main__` makes
+  any of them a usage error:
   it is not worth a server that starts and then 500s at its own form. The stream
   sits outside the guard and answers its own failures with a `failure` event,
   having spent the status line already.
@@ -1162,9 +1222,10 @@ which is what `integration/conftest.py` wraps the real one in.
 `create_server(agent_factory=...)` is the same seam for the server, and
 `allowed_hosts=` is the second one.
 
-**Where the network is patched.** Three places: `buy_agent.agent.search_web` and
-`buy_agent.agent.enrich` for pipeline tests, `buy_agent.search.DDGS` and
-`buy_agent.fetch.httpx.Client` for the wrappers' own tests. `search_web` is
+**Where the network is patched.** Four places: `buy_agent.agent.search_web` and
+`buy_agent.agent.enrich` for pipeline tests, and -- for the tables' own tests --
+`buy_agent.search.DDGS` beside `buy_agent.search.httpx.get`, which are the two
+ways a backend row reaches out, and `buy_agent.fetch.httpx.Client`. `search_web` is
 patched on `agent` and only there, which is why the fan-out over named sources
 lives in `agent.py` rather than beside the rest of `sources.py`: a second call
 site would be a second thing to patch, and a test that forgot it would reach the
@@ -1387,17 +1448,17 @@ twenty-second test that keeps them honest:
   not see the `FakeLLM`, the faked `search_web` or the scratch cache directory,
   and a server that opened a browser would open it where nobody is sitting;
 - every module sits in a **layer that reaches only downward** -- entry points,
-  web, orchestration, pipeline, paying, model access, settings, domain -- with
+  web, orchestration, pipeline, paying, seams, settings, domain -- with
   the four edges that are decisions named in the test: the pipeline never reads
   the config (which is what lets `rank_products`, `ground` and `Constraints` be
   tested with three arguments and no environment), the pipeline never pays
   (ADR-0046), paying never asks the model, and the model seam knows nothing
   about products (ADR-0038);
 - **one seam, one module**: `mandates.py` alone imports `ap2` (ADR-0046),
-  `providers.py` alone a model client (ADR-0029), `search.py` alone the search
-  backend (ADR-0021), `fetch.py` alone the HTML parser, the three that speak
-  HTTP -- `fetch`, `providers`, `rails` -- are the three the suite patches, so a
-  fourth is a request from a module nobody thought made any, and `argparse`
+  `providers.py` alone a model client (ADR-0029), `search.py` alone a search
+  library (ADR-0021, ADR-0057), `fetch.py` alone the HTML parser, the four that
+  speak HTTP -- `fetch`, `providers`, `rails`, `search` -- are the four the suite
+  patches, so a fifth is a request from a module nobody thought made any, and `argparse`
   belongs to the two modules handed an `argv`: a parser below them is a third
   set of defaults, and one that answers a bad value by exiting the process;
 - **the standard library's network is `server.py`'s alone** -- a socket, an

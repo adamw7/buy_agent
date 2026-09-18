@@ -31,9 +31,10 @@ from buy_agent.api import (
     run_search,
     sources_payload,
 )
-from buy_agent.config import DEFAULT_PROVIDER, DEFAULT_RAIL
+from buy_agent.config import DEFAULT_BACKEND, DEFAULT_PROVIDER, DEFAULT_RAIL
 from buy_agent.logging_setup import configure_logging
 from buy_agent.providers import PROVIDERS, provider_for
+from buy_agent.search import backend_for
 from buy_agent.rails import rail_for
 
 if TYPE_CHECKING:
@@ -780,10 +781,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         provider_for(DEFAULT_PROVIDER)
         rail_for(DEFAULT_RAIL)
+        backend_for(DEFAULT_BACKEND)
     except ValueError as exc:
-        # Every page load resolves both names, the form's defaults being an
-        # ``AgentConfig``, so a misspelt ``$BUY_AGENT_PROVIDER`` or ``$BUY_AGENT_RAIL``
-        # is said here rather than as a 500 per page.
+        # Every page load resolves all three names, the form's defaults being an
+        # ``AgentConfig``, so a misspelt ``$BUY_AGENT_PROVIDER``, ``$BUY_AGENT_RAIL``
+        # or ``$BUY_AGENT_BACKEND`` is said here rather than as a 500 per page.
         logger.error("%s", exc)
         return 1
 

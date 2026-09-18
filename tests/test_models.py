@@ -390,3 +390,20 @@ def test_which_prices_are_on_the_set_s_scale(
     product: Product, currency: str | None, expected: float | None
 ) -> None:
     assert comparable_price(product, currency) == expected
+
+
+def test_a_named_currency_wins_outright_over_the_vote() -> None:
+    """ADR-0056: the vote is what a run falls back on when nobody said, not evidence
+    to be weighed against a choice."""
+    products = [
+        Product(name="A", price=1.0, currency="USD"),
+        Product(name="B", price=2.0, currency="USD"),
+    ]
+
+    assert dominant_currency(products, "PLN") == "PLN"
+    assert dominant_currency(products) == "USD"
+
+
+def test_a_named_currency_stands_even_where_nothing_is_priced_at_all() -> None:
+    """The set has no vote to take, and the shopper's answer is still their answer."""
+    assert dominant_currency([Product(name="A")], "PLN") == "PLN"

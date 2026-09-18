@@ -64,6 +64,8 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0053](0053-ask-again-when-a-server-says-to-come-back.md) | Ask again when a server says to come back, with a clock that is handed in | Accepted |
 | [0054](0054-hold-the-currency-tables-in-one-module.md) | Hold every currency table in one module | Accepted |
 | [0055](0055-report-what-a-run-took-out.md) | Report what a run took out | Accepted |
+| [0056](0056-let-the-shopper-name-the-currency.md) | Let the shopper name the currency a run is counted in | Accepted |
+| [0057](0057-a-search-backend-is-a-row-in-a-table.md) | Make a search backend a row in a table, beside a provider and a rail | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

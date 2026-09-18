@@ -19,7 +19,7 @@ from buy_agent.extraction import (
 )
 from buy_agent.fetch import enrich
 from buy_agent.logging_setup import log_top_products
-from buy_agent.models import nothing_recorded
+from buy_agent.models import comparable_price, nothing_recorded
 from buy_agent.ranking import rank_products
 from buy_agent.search import search_web
 from buy_agent.verification import ground
@@ -157,14 +157,44 @@ class BuyAgent:
         if not products:
             return []
 
+        self._warn_if_nothing_is_on_the_named_scale(products)
+
         # Ranking is cheap, but it ends in ``log_top_products``, and a report is worth
         # not writing for a run nobody is reading any more.
         checkpoint("rank")
-        ranked = rank_products(products, weights=self.config.weights, sort_by=sort_by)
+        ranked = rank_products(
+            products,
+            weights=self.config.weights,
+            sort_by=sort_by,
+            currency=self.config.currency or None,
+        )
         log_top_products(
             ranked, self.config.top_n, weights=self.config.weights, sort_by=sort_by
         )
         return ranked
+
+    def _warn_if_nothing_is_on_the_named_scale(self, products: Sequence[Product]) -> None:
+        """Say so, loudly, where the shopper named a currency nothing is priced in.
+
+        Naming one is the single way to ask for a report whose price criterion is
+        entirely assumed (ADR-0056). Left to the vote, the scale is by construction the
+        one most of the set is on; named, it can be a currency no page printed -- and
+        every price then scores ``NEUTRAL``, which is the true state of what the run
+        knows and is worth reading before the ranking is.
+        """
+        named = self.config.currency
+        if not named or any(
+            comparable_price(product, named) is not None for product in products
+        ):
+            return
+        logger.warning(
+            "Nothing found is priced in %s, so every price is a figure this run cannot "
+            "place: the price criterion is assumed for all %d of them and the order is "
+            "the rating and the reviews alone. Leave the currency unset to count in "
+            "whatever the pages quote.",
+            named,
+            len(products),
+        )
 
     def _search(self, query: str) -> list[SearchResult]:
         """Search the web, or only the sources the shopper named (ADR-0027, ADR-0053)."""
@@ -203,8 +233,15 @@ class BuyAgent:
         return list(pooled.values())[:width]
 
     def _ask_the_web(self, query: str, limit: int) -> list[SearchResult]:
-        """One search, on this run's region and this run's clock (ADR-0053)."""
-        return search_web(query, max_results=limit, region=self.config.region, wait=sleep)
+        """One search, through this run's backend, on its region and its clock (ADR-0053,
+        ADR-0057)."""
+        return search_web(
+            query,
+            max_results=limit,
+            region=self.config.region,
+            wait=sleep,
+            backend=self.config.search_backend,
+        )
 
     def _empty_search_note(self) -> str:
         """What narrowed this search, for the one line that says it found nothing."""
