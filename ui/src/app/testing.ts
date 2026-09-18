@@ -4,6 +4,7 @@ import type {
   ModelStatus,
   ProviderOption,
   RailOption,
+  RankedProduct,
   Receipt,
   ScoreWeights,
 } from './agent.types';
@@ -123,6 +124,42 @@ export function receipt(overrides: Partial<Receipt> = {}): Receipt {
     autonomous: false,
     enrolled_key: false,
     detail: 'Nothing was charged.',
+    ...overrides,
+  };
+}
+
+/** One ranked product, whole, with whatever the spec is about on top. Here
+ *  rather than in either spec that needs one: `RankedProduct` mirrors
+ *  `product_payload` field for field, so a field added there is added once. */
+export function product(overrides: Partial<RankedProduct> = {}): RankedProduct {
+  return {
+    rank: 1,
+    score: 0.912,
+    breakdown: {
+      rating: 0.94,
+      popularity: 1,
+      price: 0.32,
+      total: 0.912,
+      neutral: [],
+    },
+    name: 'Sony WH-1000XM5',
+    price: 328,
+    currency: 'USD',
+    rating: 4.7,
+    review_count: 12000,
+    seller: 'Amazon',
+    url: 'https://www.example.com/sony',
+    notes: 'Best noise cancelling.',
+    opinions: [
+      { text: 'the noise cancelling is uncanny', url: 'https://www.example.com/sony' },
+      { text: 'the case is bulky', url: 'https://audiosite.example/xm5' },
+    ],
+    price_label: '328.00 USD',
+    rating_label: '4.7/5 (12,000 reviews)',
+    cannot_pay: null,
+    pay_currency: 'USD',
+    pay_label: '328.00 USD',
+    pay_merchant: 'Amazon',
     ...overrides,
   };
 }
