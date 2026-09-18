@@ -57,8 +57,8 @@ Without that SDK the 74 tests that need it **skip**, the way
 `tests/conftest.py` is the marker, and it asks `mandates.available()` once at
 import. `needs_powershell` is the other, and with neither `pwsh` nor
 `powershell` on PATH 13 of the 19 tests in that file sit out. So a machine with
-the SDK and no PowerShell reads `2120 passed, 13 skipped`, and a checkout set up
-with `requirements-dev.txt` alone reads `2046 passed, 87 skipped` rather than 74
+the SDK and no PowerShell reads `2161 passed, 13 skipped`, and a checkout set up
+with `requirements-dev.txt` alone reads `2087 passed, 87 skipped` rather than 74
 failures claiming the project is broken when one optional feature is simply not
 installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide
@@ -174,7 +174,12 @@ The rule those last ones are the declared half of is exercised in
 `tests/test_logging_contract.py`: the eight steps that take something away each
 say how many at INFO and which at DEBUG. Each step's own file pins its wording;
 what neither they nor coverage can see is the set, so a step that quietly
-stopped saying anything leaves every other file green.
+stopped saying anything leaves every other file green. The same table
+partitions those eight by what they take: the five that remove a whole product
+hand it to the run's recorder and the three that only blank a figure, a quote or
+a link hand over nothing, since the product they touched is still in the report
+(ADR-0055). A step recording on the wrong side of that line is a panel that
+reads as either a short answer or a wrong one, and nothing else notices.
 
 Those are the rules that span a *declaration*. `tests/test_architecture.py` is
 the other half -- the rules that span an *import* -- and it asserts them against

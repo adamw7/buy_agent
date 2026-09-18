@@ -8,7 +8,7 @@ import pytest
 
 from buy_agent.config import AgentConfig
 from buy_agent.constraints import Constraints
-from buy_agent.models import Product, dominant_currency
+from buy_agent.models import Product, Removal, dominant_currency
 
 
 def product(name: str, **figures) -> Product:
@@ -281,3 +281,43 @@ def test_the_other_two_bounds_are_the_same_in_every_currency(caplog) -> None:
     assert [product.name for product in kept] == ["Good"]
     assert "rated at least 4 EUR" not in caplog.text
     assert "rated at least 4" in caplog.text
+
+
+# -- what the bounds say they took out (ADR-0055) ------------------------------
+
+
+def test_a_product_outside_the_bounds_is_removed_and_says_which_bound() -> None:
+    """The bound is the one thing a reader can act on, so the sentence carries it --
+    the same phrase the logged line does, off one ``describe``."""
+    removed: list[Removal] = []
+    Constraints(max_price=100.0).apply(
+        [
+            product("dear", price=900.0, currency="USD"),
+            product("cheap", price=9.0, currency="USD"),
+        ],
+        record=removed.append,
+    )
+
+    assert [entry.name for entry in removed] == ["dear"]
+    assert removed[0].step == "limits"
+    assert removed[0].reason == "Outside the limits you set (at most 100.00 USD)."
+
+
+def test_the_removal_names_the_currency_the_bound_was_settled_in() -> None:
+    """A budget is read in the currency the surviving set is counted in (ADR-0043),
+    so the sentence names it: "at most 100.00" is half a bound."""
+    removed: list[Removal] = []
+    Constraints(max_price=100.0).apply(
+        [product("dear", price=900.0, currency="EUR"), product("ok", price=9.0, currency="EUR")],
+        record=removed.append,
+    )
+
+    assert "EUR" in removed[0].reason
+
+
+def test_bounds_nobody_set_remove_nothing_at_all() -> None:
+    """The early return is the whole of that: no bound, no removal, no panel."""
+    removed: list[Removal] = []
+    Constraints().apply([product("anything", price=900.0)], record=removed.append)
+
+    assert removed == []

@@ -17,7 +17,7 @@ from buy_agent.agent import (
 )
 from buy_agent.chat import release
 from buy_agent.config import LIMITS, AgentConfig, parse_region
-from buy_agent.models import Product, dominant_currency
+from buy_agent.models import Product, Removal, dominant_currency
 from buy_agent.money import amount_label
 from buy_agent.payment import (
     Cart,
@@ -186,9 +186,14 @@ def run_search(
 ) -> dict[str, Any]:
     """Run the pipeline and shape the answer as JSON-ready data (ADR-0034)."""
     agent = None
+    # What the run took out, in the order it took it: the answer says why a short report
+    # is short, and nothing but this list is keeping it (ADR-0055).
+    removals: list[Removal] = []
     try:
         agent = agent_factory(config)  # type: ignore[arg-type]
-        ranked = agent.run(request, sort_by=sort_by, checkpoint=checkpoint)
+        ranked = agent.run(
+            request, sort_by=sort_by, checkpoint=checkpoint, record=removals.append
+        )
     # The three failures are a table, so the clause catching them is built out of it
     # rather than written down again -- and a tuple assembled at run time is one pylint
     # cannot read exception classes out of, here or on the ``from`` beside it.
@@ -200,7 +205,9 @@ def run_search(
         # last reference falls.
         release(agent)
 
-    return _run_payload(request, ranked, config.top_n, sort_by, config.weights)
+    return _run_payload(
+        request, ranked, config.top_n, sort_by, config.weights, removals=removals
+    )
 
 
 def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
@@ -216,6 +223,8 @@ def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
     ranked = rank_products(
         _read_products(data), weights=weights, sort_by=cast(SortBy, sort_by)
     )
+    # A re-sort runs no pipeline, so it removed nothing: the page keeps the list the
+    # run itself reported rather than being handed an empty one (ADR-0035, ADR-0055).
     return _run_payload(request, ranked, top_n, sort_by, weights)
 
 
@@ -300,8 +309,10 @@ def _run_payload(
     top_n: int,
     sort_by: str,
     weights: RankingWeights,
+    *,
+    removals: Sequence[Removal] = (),
 ) -> dict[str, Any]:
-    """The shape a finished run answers with, however it was finished."""
+    """The shape a finished run answers with, however it was finished (ADR-0055)."""
     return {
         "request": request.strip(),
         "count": len(ranked),
@@ -309,6 +320,10 @@ def _run_payload(
         "sort_by": sort_by,
         "weights": weights.fractions,
         "products": results_payload(ranked),
+        # Beside the products rather than among them: these are the candidates that are
+        # not products of this run any more, each with Python's own sentence saying what
+        # took it (ADR-0055).
+        "dropped": [removal.model_dump() for removal in removals],
     }
 
 

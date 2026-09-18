@@ -24,7 +24,7 @@ import pytest
 
 import buy_agent.server as server_module
 from buy_agent.agent import ModelUnavailableError, every_step_passes
-from buy_agent.models import Product
+from buy_agent.models import Product, nothing_recorded
 from tests.conftest import needs_ap2, ranked_product
 from buy_agent.providers import OLLAMA, VLLM
 from buy_agent.search import SearchError
@@ -63,7 +63,14 @@ class StubAgent:
     def __init__(self, config):
         StubAgent.captured["config"] = config
 
-    def run(self, request, *, sort_by="score", checkpoint=every_step_passes):
+    def run(
+        self,
+        request,
+        *,
+        sort_by="score",
+        checkpoint=every_step_passes,
+        record=nothing_recorded,
+    ):
         StubAgent.captured["request"] = request
         StubAgent.captured["sort_by"] = sort_by
         logging.getLogger("buy_agent.stub").info("Searching for %s", request)

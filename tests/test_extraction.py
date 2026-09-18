@@ -22,7 +22,7 @@ from buy_agent.extraction import (
     looks_like_a_product,
     merge_variants,
 )
-from buy_agent.models import Product, ProductList, SearchQuery
+from buy_agent.models import Product, ProductList, Removal, SearchQuery
 from buy_agent.search import SearchResult
 
 from tests.conftest import FakeLLM, said
@@ -713,3 +713,111 @@ def test_the_loser_s_opinions_are_kept_even_when_it_loses_everything_else() -> N
 
     assert merged[0].opinions == said("the case is bulky")
     assert merged[0].price == 149.0
+
+
+# -- what each step says it took out (ADR-0055) --------------------------------
+
+
+def taken(step) -> list[Removal]:
+    """Drive one step with somebody keeping what it removed."""
+    removed: list[Removal] = []
+    step(removed.append)
+    return removed
+
+
+def test_a_headline_is_removed_as_a_page_and_says_so() -> None:
+    """The panel's sentence, pinned where the step that writes it is tested: the
+    browser shows this and composes nothing of its own."""
+    removed = taken(
+        lambda record: clean_products(
+            [Product(name="The 5 best headphones of 2026")], record=record
+        )
+    )
+
+    assert [entry.step for entry in removed] == ["clean"]
+    assert removed[0].reason == "Reads as an article or a shop, not a product."
+
+
+def test_a_cleaned_name_is_removed_under_the_name_cleaning_gave_it() -> None:
+    """The name the rest of the run would have called it by, not the one the model
+    handed over: a reader matching the panel against the progress log sees one name."""
+    removed = taken(
+        lambda record: clean_products(
+            [Product(name="  Best Headphones 2026 | AudioSite  ")], record=record
+        )
+    )
+
+    assert removed[0].name == "Best Headphones 2026"
+
+
+def test_a_name_identifying_nothing_is_removed_and_says_so() -> None:
+    removed = taken(lambda record: deduplicate([Product(name="   ")], 10, record=record))
+
+    assert [entry.step for entry in removed] == ["deduplicate"]
+    assert removed[0].reason == "The name identifies nothing."
+
+
+def test_a_folded_listing_names_the_one_it_was_folded_into() -> None:
+    """The case a reader could not otherwise reconstruct: nothing was dropped, and
+    the entry that survived is wearing the shorter of the two names."""
+    removed = taken(
+        lambda record: merge_variants(
+            [
+                Product(name="Sony WH-CH720N"),
+                Product(name="Sony WH-CH720N Wireless Headphones"),
+            ],
+            record=record,
+        )
+    )
+
+    assert [entry.name for entry in removed] == ["Sony WH-CH720N Wireless Headphones"]
+    assert removed[0].step == "merge"
+    assert removed[0].reason == "Folded into Sony WH-CH720N, which names the same thing."
+
+
+def test_the_surviving_name_is_the_one_the_merge_kept_not_the_first_seen() -> None:
+    """``_combine`` keeps the shorter name whichever order they arrived in, so the
+    sentence has to be built off the merged entry rather than off the loop."""
+    removed = taken(
+        lambda record: merge_variants(
+            [
+                Product(name="Sony WH-CH720N Wireless Headphones"),
+                Product(name="Sony WH-CH720N"),
+            ],
+            record=record,
+        )
+    )
+
+    assert [entry.name for entry in removed] == ["Sony WH-CH720N Wireless Headphones"]
+    assert "Folded into Sony WH-CH720N," in removed[0].reason
+
+
+def test_a_merge_that_changes_no_name_removes_nothing() -> None:
+    """Two listings under the very same name: the report loses no name at all, so
+    there is nothing for the panel to say went."""
+    removed = taken(
+        lambda record: merge_variants(
+            [Product(name="Sony WH-CH720N"), Product(name="Sony WH-CH720N", price=129.0)],
+            record=record,
+        )
+    )
+
+    assert removed == []
+
+
+def test_deduplicate_records_the_nameless_and_the_folded_apart() -> None:
+    """One call, two different removals: counted apart in the log and named apart
+    here, since "identifies nothing" and "folded into" are different answers."""
+    removed = taken(
+        lambda record: deduplicate(
+            [
+                Product(name="Sony WH-CH720N"),
+                Product(name="Sony WH-CH720N Wireless Headphones"),
+                Product(name="   "),
+            ],
+            10,
+            record=record,
+        )
+    )
+
+    assert {entry.step for entry in removed} == {"deduplicate", "merge"}

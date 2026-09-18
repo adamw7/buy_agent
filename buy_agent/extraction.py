@@ -13,15 +13,17 @@ from buy_agent.models import (
     MAX_OPINIONS,
     QUALIFIERS,
     ProductList,
+    Removal,
     SearchQuery,
     distinct_quotes,
+    nothing_recorded,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from buy_agent.chat import ChatModel
-    from buy_agent.models import Opinion, Product
+    from buy_agent.models import Opinion, Product, Recorder
     from buy_agent.search import SearchResult
 
 logger = logging.getLogger(__name__)
@@ -164,8 +166,11 @@ def looks_like_a_product(name: str) -> bool:
     return len(tail) > 1 and bool(_MODEL_NUMBER.search(tail[1]))
 
 
-def clean_products(products: Sequence[Product]) -> list[Product]:
-    """Tidy up names and drop entries that are articles or shops, not products."""
+def clean_products(
+    products: Sequence[Product], *, record: Recorder = nothing_recorded
+) -> list[Product]:
+    """Tidy up names and drop entries that are articles or shops, not products
+    (ADR-0055)."""
     kept: list[Product] = []
     discarded: list[str] = []
     for product in products:
@@ -174,6 +179,13 @@ def clean_products(products: Sequence[Product]) -> list[Product]:
             kept.append(product.model_copy(update={"name": name}))
         else:
             discarded.append(name or product.name)
+            record(
+                Removal(
+                    name=name or product.name,
+                    step="clean",
+                    reason="Reads as an article or a shop, not a product.",
+                )
+            )
     if discarded:
         # The count at INFO, the names at DEBUG: a heuristic that drops a real product
         # should be diagnosable.
@@ -184,10 +196,20 @@ def clean_products(products: Sequence[Product]) -> list[Product]:
     return kept
 
 
-def deduplicate(products: Sequence[Product], limit: int) -> list[Product]:
-    """Drop repeats of the same product, keeping the most complete entry."""
+def deduplicate(
+    products: Sequence[Product], limit: int, *, record: Recorder = nothing_recorded
+) -> list[Product]:
+    """Drop repeats of the same product, keeping the most complete entry (ADR-0055)."""
     named = [product for product in products if product.dedup_key]
     if len(named) != len(products):
+        for nameless in (item for item in products if not item.dedup_key):
+            record(
+                Removal(
+                    name=nameless.name,
+                    step="deduplicate",
+                    reason="The name identifies nothing.",
+                )
+            )
         # Count then names, as everywhere a product is removed: "identifies nothing" is
         # a verdict on a name.
         logger.info(
@@ -197,15 +219,17 @@ def deduplicate(products: Sequence[Product], limit: int) -> list[Product]:
             "Nothing to identify them by: %s",
             ", ".join(repr(item.name) for item in products if not item.dedup_key),
         )
-    deduped = merge_variants(named)
+    deduped = merge_variants(named, record=record)
     merged = len(named) - len(deduped)
     if merged:
         logger.info("Merged %d duplicate listing(s)", merged)
     return deduped[:limit]
 
 
-def merge_variants(products: Sequence[Product]) -> list[Product]:
-    """Fold together names that identify the same thing."""
+def merge_variants(
+    products: Sequence[Product], *, record: Recorder = nothing_recorded
+) -> list[Product]:
+    """Fold together names that identify the same thing (ADR-0055)."""
     merged: list[Product] = []
     for product in products:
         for index, existing in enumerate(merged):
@@ -215,6 +239,19 @@ def merge_variants(products: Sequence[Product]) -> list[Product]:
                 # simply gone.
                 logger.debug("Folded %r together with %r", existing.name, product.name)
                 merged[index] = _combine(existing, product)
+                # Recorded after the merge and not before it: which of the two names
+                # survives is ``_combine``'s to decide, and the one that went is the
+                # other one.
+                kept = merged[index].name
+                gone = product.name if kept != product.name else existing.name
+                if gone != kept:
+                    record(
+                        Removal(
+                            name=gone,
+                            step="merge",
+                            reason=f"Folded into {kept}, which names the same thing.",
+                        )
+                    )
                 break
         else:
             merged.append(product)

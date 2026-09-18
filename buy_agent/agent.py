@@ -19,6 +19,7 @@ from buy_agent.extraction import (
 )
 from buy_agent.fetch import enrich
 from buy_agent.logging_setup import log_top_products
+from buy_agent.models import nothing_recorded
 from buy_agent.ranking import rank_products
 from buy_agent.search import search_web
 from buy_agent.verification import ground
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from buy_agent.chat import Chain, ChatModel
-    from buy_agent.models import Product, RankedProduct
+    from buy_agent.models import Product, RankedProduct, Recorder
     from buy_agent.ranking import SortBy
     from buy_agent.search import SearchResult
 
@@ -104,9 +105,14 @@ class BuyAgent:
         *,
         sort_by: SortBy = "score",
         checkpoint: Checkpoint = every_step_passes,
+        record: Recorder = nothing_recorded,
     ) -> list[RankedProduct]:
         """Search for what the shopper asked for and log the top products (ADR-0009,
-        ADR-0034).
+        ADR-0034, ADR-0055).
+
+        ``record`` is handed each candidate the run took out, the way ``checkpoint`` is
+        handed each step: the answer is still the ranked products, and a caller that
+        wants to say why the report is short asks for the rest here.
 
         Raises:
             ValueError: if the request is empty.
@@ -139,7 +145,7 @@ class BuyAgent:
             )
 
         checkpoint("extract")
-        products = self._extract_products(request, results)
+        products = self._extract_products(request, results, record)
         if not products:
             logger.warning("No products could be extracted from the search results.")
             return []
@@ -147,7 +153,7 @@ class BuyAgent:
         # After the merging: ``deduplicate`` fills a listing's gaps from another listing
         # of the same product, so a price known only once the two are merged would be
         # judged here on a blank (ADR-0039).
-        products = Constraints.from_config(self.config).apply(products)
+        products = Constraints.from_config(self.config).apply(products, record=record)
         if not products:
             return []
 
@@ -247,7 +253,10 @@ class BuyAgent:
         return query
 
     def _extract_products(
-        self, request: str, results: Sequence[SearchResult]
+        self,
+        request: str,
+        results: Sequence[SearchResult],
+        record: Recorder = nothing_recorded,
     ) -> list[Product]:
         """Read products out of the results, then keep only what the sources back."""
         logger.info("Extracting up to %d products from the results", self.config.num_products)
@@ -268,8 +277,8 @@ class BuyAgent:
 
         products = [item.to_product() for item in extracted.products]
         logger.info("Extracted %d candidate(s)", len(products))
-        grounded = ground(clean_products(products), results)
-        return deduplicate(grounded, self.config.num_products)
+        grounded = ground(clean_products(products, record=record), results, record=record)
+        return deduplicate(grounded, self.config.num_products, record=record)
 
     def _invoke(self, chain: Chain[Any], payload: dict[str, Any]) -> Any:
         """Invoke a chain, turning transport errors into an actionable message (ADR-0009)."""

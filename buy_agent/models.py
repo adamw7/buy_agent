@@ -6,11 +6,14 @@ import re
 from collections import Counter
 from collections.abc import Iterable
 from math import isfinite
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, TypeAlias
 
 from pydantic import BaseModel, Field
 
 from buy_agent.money import amount_label, code_for
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _UNKNOWN_NUMBER = -1.0
 _WHITESPACE = re.compile(r"\s+")
@@ -188,6 +191,28 @@ class RankedProduct(BaseModel):
     def score(self) -> float:
         """The blended score, which is the total of its parts."""
         return self.breakdown.total
+
+
+class Removal(BaseModel):
+    """One candidate that left the report, and what took it out (ADR-0055)."""
+
+    #: The name it was carrying when it went -- the cleaned one where cleaning kept it,
+    #: since that is the name the rest of the run would have called it by.
+    name: str
+    #: Which heuristic removed it, as a word the report can group by.
+    step: str
+    #: Why, written out: the browser shows this sentence and composes none of its own.
+    reason: str
+
+
+#: How a step hands over what it removed. A step answers its survivors as it always did
+#: and says the rest here, which is what keeps the removals out of every signature the
+#: pipeline is tested through (ADR-0055).
+Recorder: TypeAlias = "Callable[[Removal], None]"
+
+
+def nothing_recorded(_removal: Removal) -> None:
+    """The default recorder: nobody is keeping what the steps took out."""
 
 
 def _clean(value: str) -> str:

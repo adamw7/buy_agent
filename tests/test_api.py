@@ -23,7 +23,7 @@ from buy_agent.api import (
     sources_payload,
 )
 from buy_agent.config import LIMITS, AgentConfig
-from buy_agent.models import Product
+from buy_agent.models import Product, Removal, nothing_recorded
 from buy_agent.ranking import RankingWeights, rank_products
 from buy_agent.providers import VLLM
 from buy_agent.search import SearchError
@@ -64,7 +64,14 @@ def agent_returning(result):
         def __init__(self, config):
             captured["config"] = config
 
-        def run(self, request, *, sort_by="score", checkpoint=every_step_passes):
+        def run(
+            self,
+            request,
+            *,
+            sort_by="score",
+            checkpoint=every_step_passes,
+            record=nothing_recorded,
+        ):
             captured["request"] = request
             captured["sort_by"] = sort_by
             captured["checkpoint"] = checkpoint
@@ -1461,3 +1468,64 @@ def test_a_rank_below_one_is_refused() -> None:
         pay_now(paying(rank=0))
 
     assert excinfo.value.field == "rank"
+
+
+# -- what a run says it took out (ADR-0055) ------------------------------------
+
+
+def _agent_that_removes(*removals: Removal):
+    """A stand-in whose run takes those candidates out and reports one product."""
+
+    class Agent:
+        def run(self, request, *, sort_by="score", checkpoint=None, record=nothing_recorded):
+            for removal in removals:
+                record(removal)
+            return rank_products([Product(name="Sony WH-CH720N")])
+
+    return lambda _config: Agent()
+
+
+def test_a_run_reports_what_it_took_out() -> None:
+    """The answer to "why is the one I had in mind not in there?", which used to be a
+    log line that had scrolled past."""
+    taken = Removal(name="A headline", step="clean", reason="Not a product.")
+
+    ran = run_search(
+        "headphones", AgentConfig(), agent_factory=_agent_that_removes(taken)
+    )
+
+    assert ran["dropped"] == [
+        {"name": "A headline", "step": "clean", "reason": "Not a product."}
+    ]
+
+
+def test_the_removals_are_reported_in_the_order_they_happened() -> None:
+    """The pipeline's own order is the story: cleaned, then grounded, then bounded."""
+    ran = run_search(
+        "headphones",
+        AgentConfig(),
+        agent_factory=_agent_that_removes(
+            Removal(name="first", step="clean", reason="Not a product."),
+            Removal(name="second", step="ground", reason="No page mentions it."),
+        ),
+    )
+
+    assert [entry["name"] for entry in ran["dropped"]] == ["first", "second"]
+
+
+def test_a_run_that_took_nothing_out_says_so_with_an_empty_list() -> None:
+    """Never absent: a key the browser has to test for existence of is one it will
+    eventually read off a run that has it and a run that does not."""
+    ran = run_search("headphones", AgentConfig(), agent_factory=_agent_that_removes())
+
+    assert ran["dropped"] == []
+
+
+def test_a_re_sort_reports_no_removals_of_its_own() -> None:
+    """A re-sort runs no pipeline (ADR-0035), so it removed nothing -- and inventing
+    the run's own list here would be this endpoint answering for a run it never saw."""
+    resorted = rank_again(
+        {"request": "headphones", "products": [{"name": "Sony WH-CH720N"}], "sort_by": "price"}
+    )
+
+    assert resorted["dropped"] == []

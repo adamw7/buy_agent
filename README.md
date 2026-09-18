@@ -450,6 +450,38 @@ as rarely as it quotes a price, and `AgentConfig(opinion_chars=0)` reads the
 pages but skips the second sweep, which like the budgets themselves is reachable
 from Python and neither front end.
 
+### Why the report is as short as it is
+
+A run thins its own results, and the report is what survived. Five heuristics
+take a whole candidate out: a headline the model reported as a product, a name no
+page that was searched mentions, a name that identifies nothing, a listing folded
+into another under the same product's name, and anything outside the bounds you
+set. Each of those is a judgement worth arguing with, and a report of two
+products has nothing on it to argue with.
+
+So a run says what it took out as well as what it kept. On the CLI that is the
+line per step you have always had -- the count at INFO, the names under `-v`. In
+the browser it is a panel under the results, **N candidates the agent took out**,
+each with the name it went under and the reason the step gave for taking it:
+
+```
+The 5 best kettles of 2026   Reads as an article or a shop, not a product.
+Bonavita Gooseneck Kettle    No page that was searched mentions it.
+Fellow Stagg EKG Pro         Outside the limits you set (at most 100.00 USD).
+```
+
+It is drawn under an empty report too, which is the run the question is loudest
+on: "nothing came back" and "everything came back and your budget excluded it"
+are different answers, and only one of them means the search went wrong. The
+sentences are Python's own, written beside the step that does the removing
+([ADR-0055](docs/adr/0055-report-what-a-run-took-out.md)) -- the page groups them
+and counts them and writes none of them.
+
+The three steps that *blank* something are deliberately not in there: a price no
+page backs, a quote nobody wrote and a link to a page nobody searched each leave
+the product in the report, which then says "price unknown" or shows no quote, on
+its own card. A panel listing those would be listing the results again.
+
 ## The web UI
 
 The same agent, with a page in front of it. `buy_agent.server` serves a small

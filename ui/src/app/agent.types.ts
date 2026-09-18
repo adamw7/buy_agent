@@ -67,6 +67,17 @@ export interface RankedProduct {
   rating_label: string;
 }
 
+/** One candidate that left the report, and what took it out. */
+export interface Removal {
+  /** The name it was carrying when it went. */
+  name: string;
+  /** Which heuristic removed it -- `clean`, `ground`, `deduplicate`, `merge` or
+   *  `limits`. A word to group by, never one to compose a sentence from. */
+  step: string;
+  /** Why, in Python's own words: the page shows this and writes none of its own. */
+  reason: string;
+}
+
 /** Everything one finished run produced. */
 export interface SearchResult {
   request: string;
@@ -77,6 +88,10 @@ export interface SearchResult {
    *  them, so it is sent once here rather than on each. */
   weights: ScoreWeights;
   products: RankedProduct[];
+  /** The candidates the run took out, so a short report can say why it is short.
+   *  Empty from a re-sort, which runs no pipeline and removes nothing -- the page
+   *  carries the run's own list across instead of taking that empty one. */
+  dropped: Removal[];
 }
 
 export type SortBy = 'score' | 'price' | 'rating';

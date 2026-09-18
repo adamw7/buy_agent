@@ -122,6 +122,34 @@ main {
   width: fit-content;
 }
 
+.removals {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.removals li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  font-size: 13px;
+}
+
+/* The name reads as the product it was, and the reason as the note beside it:
+   the panel is a list of things that are *not* results, so nothing here is
+   styled like a card. */
+.removed-name {
+  font-weight: 600;
+}
+
+.removed-why {
+  color: var(--text-dim);
+}
+
 .results-head {
   display: flex;
   align-items: center;

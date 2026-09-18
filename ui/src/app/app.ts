@@ -281,7 +281,10 @@ export class App {
       })
       .subscribe({
         next: (result) => {
-          this.result.set(result);
+          // A re-sort runs no pipeline, so it took nothing out and answers an empty
+          // `dropped` (ADR-0035). Carried across rather than taken, or re-ordering the
+          // results would quietly empty the panel saying what the *run* left out.
+          this.result.set({ ...result, dropped: found.dropped });
           this.reordering.set(false);
         },
         error: (failure: unknown) => {

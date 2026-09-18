@@ -57,6 +57,7 @@ const RESULT: SearchResult = {
   sort_by: 'score',
   weights: WEIGHTS,
   products: [ranked(1, 'Best Kettle'), ranked(2, 'Good Kettle'), ranked(3, 'Other Kettle')],
+  dropped: [{ name: 'The 5 best kettles of 2026', step: 'clean', reason: 'Reads as an article.' }],
 };
 
 const RECEIPT = receipt({
@@ -92,6 +93,9 @@ class FakeAgent {
         ...entry,
         rank: index + 1,
       })),
+      // What `/api/rank` really answers: a re-sort runs no pipeline, so it
+      // removed nothing (ADR-0035).
+      dropped: [],
     });
 
   defaults() {
@@ -894,6 +898,67 @@ describe('App results', () => {
 
     expect(JSON.parse(await blobs[0].text())).toEqual(RESULT.products);
     expect(links[0].download).toMatch(/^buy-agent-results-\d{8}-\d{6}\.json$/);
+  });
+
+  it("says what the run took out, in Python's words and not its own", async () => {
+    /* "Why is the one I had in mind not in there?" used to be answerable only from a
+       log line that had scrolled past, or from a `-v` nobody had run. The sentence is
+       the step's own -- the page groups and counts, and composes nothing. */
+    const page = (await finished()).nativeElement as HTMLElement;
+    const panel = page.querySelector('.dropped')!;
+
+    expect(panel.querySelector('summary')!.textContent).toContain('1 candidate');
+    expect(panel.textContent).toContain('The 5 best kettles of 2026');
+    expect(panel.textContent).toContain('Reads as an article.');
+  });
+
+  it('counts more than one the way a reader would read it', async () => {
+    const page = (
+      await finished({
+        ...RESULT,
+        dropped: [
+          ...RESULT.dropped,
+          { name: 'Invented Kettle', step: 'ground', reason: 'No page mentions it.' },
+        ],
+      })
+    ).nativeElement as HTMLElement;
+
+    expect(page.querySelector('.dropped summary')!.textContent).toContain('2 candidates');
+  });
+
+  it('shows no panel at all for a run that took nothing out', async () => {
+    const page = (await finished({ ...RESULT, dropped: [] })).nativeElement as HTMLElement;
+
+    expect(page.querySelector('.dropped')).toBeNull();
+  });
+
+  it('keeps what the run took out when the results are re-ordered', async () => {
+    /* A re-sort runs no pipeline and so answers an empty `dropped` (ADR-0035).
+       Taken rather than carried across, re-ordering quietly emptied the panel
+       saying what the run itself had left out. */
+    const fixture = await finished();
+
+    await rankBy(fixture, 'price');
+
+    const page = fixture.nativeElement as HTMLElement;
+    expect(page.querySelector('.dropped')).not.toBeNull();
+    expect(page.querySelector('.dropped')!.textContent).toContain('The 5 best kettles of 2026');
+  });
+
+  it('says what was taken out even when the run reported nothing at all', async () => {
+    /* The case the panel is most for: an empty report and the shopper's own limits
+       are why. The banner above says to read the progress; this says it outright. */
+    const page = (
+      await finished({
+        ...RESULT,
+        count: 0,
+        products: [],
+        dropped: [{ name: 'Best Kettle', step: 'limits', reason: 'Outside the limits you set.' }],
+      })
+    ).nativeElement as HTMLElement;
+
+    expect(page.textContent).toContain('Nothing came back');
+    expect(page.querySelector('.dropped')!.textContent).toContain('Outside the limits you set.');
   });
 });
 
