@@ -22,7 +22,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-2257 Python tests and 224 UI tests. Nothing in either suite touches the network
+2265 Python tests and 224 UI tests. Nothing in either suite touches the network
 or a model server: the model is faked through the `llm=` argument of `BuyAgent`
 -- a class with one `answer` method, which is the whole of `chat.ChatModel`,
 both the search backend and the page fetcher are monkeypatched -- the backends'
@@ -430,3 +430,12 @@ every line at once -- so the two files that read source rather than run it,
 from the tree the copy was made of (`conftest.SOURCE_ROOT`). Everything else
 they open the copy carries unchanged, which is what `also_copy` is for and what
 `test_a_mutation_run_copies_everything_the_tests_reach_for` reads back.
+
+The trampoline is a wrapper, which is the other half of that: the defaults, and
+everything else written under a `def`, are on the function it wraps and not on
+the one the suite imports, so `search_web.__kwdefaults__["backend"]` reads
+`None` there and the run dies at its baseline before a mutant has been tried --
+on a Saturday, days after the pull request the test passed on.
+`test_no_test_reads_a_declaration_off_a_function_object` is that rule for both
+suites: what a function was declared with is asked of a run that was told
+nothing.

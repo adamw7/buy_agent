@@ -234,9 +234,22 @@ def test_the_retry_says_what_it_is_waiting_for(monkeypatch, caplog) -> None:
 # -- the table itself ----------------------------------------------------------
 
 
-def test_the_default_backend_is_the_one_that_needs_nothing() -> None:
-    """ADR-0057: a run that was told nothing searches the way it always did."""
-    assert search_web.__kwdefaults__["backend"] is DDG
+def test_the_default_backend_is_the_one_that_needs_nothing(monkeypatch, caplog) -> None:
+    """ADR-0057: a run that was told nothing searches the way it always did.
+
+    Asked of a run rather than read off ``search_web.__kwdefaults__``: the mutation run
+    tests a copy of the package in which every function sits behind mutmut's trampoline,
+    which carries none of the defaults declared under it, so a rule read off the function
+    object fails on the copy while saying nothing at all about the code.
+    """
+    seen = stub_ddgs(monkeypatch)
+
+    with caplog.at_level(logging.INFO):
+        search_web("headphones")
+
+    # ``ddgs`` is the one row that reaches for it; the others go through ``httpx``.
+    assert seen["query"] == "headphones"
+    assert DDG.label in caplog.text
     assert BACKENDS["ddg"] is DDG
     assert DDG.configured and not DDG.needs_key
 
