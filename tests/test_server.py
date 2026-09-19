@@ -1112,8 +1112,11 @@ def test_the_page_for_a_ui_dir_with_no_workspace_drops_the_command_too(
 
 def test_a_ui_dir_a_reader_names_is_escaped_into_the_page(tmp_path: Path) -> None:
     """The path in that sentence is somebody's argument, and this is HTML."""
+    # Left uncreated on purpose: Windows refuses a filename holding '<' or '>',
+    # and an unbuilt --ui-dir is a path that need not be there anyway -- which is
+    # the whole of what this page is for. The characters have to be these ones,
+    # so the directory is the half that gives.
     awkward = tmp_path / "a<b>&c"
-    awkward.mkdir()
 
     with serving(awkward) as server:
         _, page = _call(urllib.request.Request(f"{server}/", headers={"Accept": "text/html"}))
