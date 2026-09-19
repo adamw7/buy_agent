@@ -181,7 +181,12 @@ count instead -- `MAX_RUNS` runs of one search and `MAX_SEARCHES` searches, the
 least recently *run* one out first, which is ADR-0052 turned around because
 pruning oldest-first deletes exactly the entry a comparison wants. What it holds
 is a name, a price and a currency per product: what a comparison needs and nothing
-else, a shopping history on disk being a different object from a page cache.
+else, a shopping history on disk being a different object from a page cache. What
+the two *do* share is how a file is put there: `cache.write_atomically` and
+`cache.file_for` are one temporary-file dance and one hashed name, and the split
+being argued here is a policy one -- what is kept, and for how long -- not a second
+copy of the code that keeps it, which was the half either module could have got
+subtly wrong on its own.
 `journal` is the ordinary setting that turns it off, `--compare` is the CLI
 reading it, and the run payload carries `changes` and `compared_with` for the
 panel. `agent.journal_for` is the only place a config becomes a key, and that key
@@ -434,7 +439,7 @@ was ever held to.
 | `extraction.py` | Both prompts, both chains, name cleaning, deduplication |
 | `fetch.py` | Streams result pages up to a ceiling, keeps the lines quoting a figure or passing judgement, and tallies how the rest failed |
 | `cache.py` | What a run can reuse from the last one: the page text it read (ADR-0040) and the answers it got (ADR-0044) -- and nothing else |
-| `journal.py` | What past runs of this same search reported, and what moved since (ADR-0060) -- a record read by a person, which is why it is not a third cache kind |
+| `journal.py` | What past runs of this same search reported, and what moved since (ADR-0060) -- a record read by a person, which is why it is not a third cache kind, though it is written to disk by the same two functions |
 | `verification.py` | Drops products, figures and quotes absent from the sources; links what is left |
 | `constraints.py` | The bounds the shopper set, applied to the products before they are ranked |
 | `bounds.py` | What the request itself asks for, read in Python and offered at both doors (ADR-0059) -- never applied |
@@ -903,8 +908,9 @@ excepted -- there the flag is the right name for the flag.
 - **`region`** is the same rule for a shape rather than a range: `config.REGION`
   is a country and then a language (`us-en`, `pl-pl`, three-letter `hk-tzh`),
   `config.parse_region` is the only place it is checked, and both doors go
-  through it -- the CLI as a `type` function, the API as `_as_region` -- with
-  `__post_init__` behind them for a Python caller. A shape and not the list of
+  through it -- each as its own `_checked`, wrapping that one function in the
+  refusal its door answers with -- with `__post_init__` behind them for a Python
+  caller. A shape and not the list of
   codes that exist, because `ddgs` asks several engines that each read the
   halves their own way (ADR-0031). The shape is not the whole story -- `en-us`
   is the right shape the wrong way round -- so `BuyAgent._region_note` names the
@@ -919,8 +925,9 @@ excepted -- there the flag is the right name for the flag.
   the query and the region and never them.
 - **`currency`** is `region`'s rule again, for a code rather than a shape:
   `config.parse_currency` is the only place it is checked and both doors go
-  through it -- the CLI as a `type` function, the API as `_as_currency` -- with
-  `__post_init__` behind them. What it checks is `money.placeable`, so a spelling
+  through it -- each through its own `_checked`, as the region does, so what a door
+  adds to that one function is written once per door rather than once per setting --
+  with `__post_init__` behind them. What it checks is `money.placeable`, so a spelling
   is folded the way a page's is (`$`, `usd` and `USD` are one answer) and the
   refusal names the codes that would have worked -- and so does `--currency`'s own
   help, off the same table. It is the one flag whose value comes from a closed set

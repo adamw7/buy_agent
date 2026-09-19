@@ -50,6 +50,47 @@ def default_dir(kind: str) -> Path:
     return root / _DIRECTORY / kind
 
 
+def file_for(directory: Path, key: str) -> Path:
+    """Which file in ``directory`` holds what was stored under ``key``.
+
+    Hashed rather than spelled out, a key here being a URL or a whole request, and
+    shared with :mod:`buy_agent.journal` for the plainer reason two spellings of one
+    key would be two files.
+    """
+    return directory / f"{hashlib.sha256(key.encode('utf-8')).hexdigest()}.json"
+
+
+def write_atomically(directory: Path, destination: Path, text: str) -> OSError | None:
+    """Put ``text`` at ``destination``, and say what stopped it where something did.
+
+    Written beside the destination and moved onto it, so nothing ever reads half a
+    file, and the half-written one is taken back where the move failed -- left behind
+    it would be read as an entry. Shared with :mod:`buy_agent.journal`, which keeps a
+    different thing under different rules (ADR-0060) and keeps it the same way: what is
+    written down here is worth less than the run it would otherwise interrupt, so
+    neither caller ever raises.
+
+    The failure is answered rather than logged, because what to call it is the caller's:
+    a page not cached and a journal not written are the same ``OSError`` and not the
+    same sentence.
+    """
+    temporary = ""
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        handle, temporary = tempfile.mkstemp(dir=directory, suffix=".tmp")
+        with os.fdopen(handle, "w", encoding="utf-8") as entry:
+            entry.write(text)
+        os.replace(temporary, destination)
+    except OSError as exc:
+        with suppress(OSError):
+            # Empty only where ``mkstemp`` is what failed, and then there is nothing on
+            # disk to take back.
+            if temporary:
+                Path(temporary).unlink(missing_ok=True)
+        return exc
+    return None
+
+
 class DiskCache:
     """Text kept on disk under a key, one JSON file each, expiring by age."""
 
@@ -81,20 +122,13 @@ class DiskCache:
 
     def put(self, key: str, value: str) -> None:
         """Store ``value`` under ``key``, replacing whatever was there."""
-        temporary = ""
-        try:
-            self.directory.mkdir(parents=True, exist_ok=True)
-            handle, temporary = tempfile.mkstemp(dir=self.directory, suffix=".tmp")
-            with os.fdopen(handle, "w", encoding="utf-8") as entry:
-                json.dump({"key": key, "value": value}, entry)
-            os.replace(temporary, self._path(key))
-        except OSError:
-            logger.debug("Could not cache an entry in %s", self.directory, exc_info=True)
-            with suppress(OSError):
-                # Empty only where ``mkstemp`` is what failed, and then there is nothing
-                # on disk to take back.
-                if temporary:
-                    Path(temporary).unlink(missing_ok=True)
+        failed = write_atomically(
+            self.directory, self._path(key), json.dumps({"key": key, "value": value})
+        )
+        if failed is not None:
+            logger.debug(
+                "Could not cache an entry in %s", self.directory, exc_info=failed
+            )
 
     def prune(self) -> int:
         """Delete what has expired and what no longer fits, and say how many went
@@ -154,7 +188,7 @@ class DiskCache:
         return evicted
 
     def _path(self, key: str) -> Path:
-        return self.directory / f"{hashlib.sha256(key.encode('utf-8')).hexdigest()}.json"
+        return file_for(self.directory, key)
 
 
 def open_cache(kind: str, ttl: float) -> DiskCache | None:

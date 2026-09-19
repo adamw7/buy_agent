@@ -122,6 +122,12 @@ _TRANSFER_FAILED = "failed mid-transfer"
 _NOT_HTML = "did not answer with HTML"
 _NOTHING_KEPT = "quoted no prices and no verdicts"
 
+#: What a request for one page can fail with. Named once and caught twice -- the first
+#: attempt and the second -- so a class added here cannot reach only one of them:
+#: ``InvalidURL`` beside httpx's root because a result's address is whatever the search
+#: answered with, and that one is raised before any request is made.
+_CANNOT_FETCH = (httpx.HTTPError, httpx.InvalidURL)
+
 #: Which phrase each kind of transport failure gets, in the order asked -- see
 #: :func:`describe_failure`.
 _FAILURE_PHRASES: tuple[tuple[tuple[type[Exception], ...], str], ...] = (
@@ -261,7 +267,7 @@ def read_page(
     ADR-0009, ADR-0053)."""
     try:
         fetched = _markup(client, url)
-    except (httpx.HTTPError, httpx.InvalidURL) as exc:
+    except _CANNOT_FETCH as exc:
         fetched = _asked_again(client, url, exc, wait)
     if fetched.problem:
         return fetched
@@ -312,7 +318,7 @@ def _asked_again(
     wait(delay)
     try:
         return _markup(client, url)
-    except (httpx.HTTPError, httpx.InvalidURL) as again:
+    except _CANNOT_FETCH as again:
         logger.debug("Could not fetch %s after waiting: %s", url, again)
         return PageText("", describe_failure(again))
 

@@ -44,10 +44,14 @@ _NUMBER = r"\d[\d,]*(?:\.\d+)?(?![\d,.]*\d)"
 #: signs, which are the only spellings that go in front.
 _SIGN = f"[{re.escape(SIGNS)}]" if SIGNS else r"(?!)"
 
-#: A currency written after it -- "200 dollars", "200 USD". The word spellings are
-#: folded whatever case they are typed in; the ISO codes are read in their own, which is
-#: the same split :mod:`buy_agent.fetch` scans a page with (ADR-0054).
-_UNIT = rf"(?:\s*(?:{'|'.join(WORDS)})\b|\s*(?:{'|'.join(SCANNED_CODES)})\b)"
+#: A currency written after it -- "200 dollars", "200 USD". One alternation over both
+#: halves of :mod:`buy_agent.money`'s scan, and not the split :mod:`buy_agent.fetch`
+#: keeps: that one reads a page, where the case tells the Turkish lira from the English
+#: "try", and this one reads a line somebody typed into a box, where every pattern below
+#: is ``IGNORECASE`` anyway. Split here, the two halves would spell one rule twice and
+#: mean the same thing (ADR-0054). Grouped whole, because one use below makes it optional
+#: with a trailing ``?``.
+_UNIT = rf"(?:\s*(?:{'|'.join((*WORDS, *SCANNED_CODES))})\b)"
 
 #: The words a request carries on in after it has named a budget. A sentence does not
 #: end at the figure -- "under 1500 and at least 4 stars" is one request -- so the guard

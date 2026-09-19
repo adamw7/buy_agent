@@ -23,17 +23,14 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import tempfile
 import time
 from datetime import datetime, timezone
-from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
-from buy_agent.cache import default_dir
+from buy_agent.cache import default_dir, file_for, write_atomically
 from buy_agent.models import Product, dedup_key
 from buy_agent.money import amount_label
 
@@ -170,7 +167,7 @@ class Journal:
     def _path(self) -> Path | None:
         if self.directory is None:
             return None
-        return self.directory / f"{sha256(self.key.encode('utf-8')).hexdigest()}.json"
+        return file_for(self.directory, self.key)
 
     def _last(self) -> Entry | None:
         """The most recent run of this search that was written down."""
@@ -205,17 +202,14 @@ class Journal:
             {"key": self.key, "runs": [run.model_dump() for run in runs]},
             separators=(",", ":"),
         )
-        temporary = ""
-        try:
-            self.directory.mkdir(parents=True, exist_ok=True)
-            handle, temporary = tempfile.mkstemp(dir=self.directory, suffix=".tmp")
-            with os.fdopen(handle, "w", encoding="utf-8") as written:
-                written.write(document)
-            os.replace(temporary, path)
-        except OSError:
-            logger.debug("Could not write the journal in %s", self.directory, exc_info=True)
-            if temporary:
-                _unlink(Path(temporary))
+        # Written the way a cache entry is -- beside the file and moved onto it -- and
+        # never a failure, for the reason given there: a shopping history is worth less
+        # than the run it would have interrupted.
+        failed = write_atomically(self.directory, path, document)
+        if failed is not None:
+            logger.debug(
+                "Could not write the journal in %s", self.directory, exc_info=failed
+            )
             return
         _forget_the_least_recent(self.directory, self.searches)
 

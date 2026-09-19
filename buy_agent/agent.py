@@ -247,21 +247,28 @@ class BuyAgent:
         pooled: dict[str, SearchResult] = {}
         for source in sources:
             found = self._ask_the_web(source.site_query(query), share)
-            kept = [result for result in found if source.covers(result.url)]
-            if len(kept) != len(found):
+            # Asked once per result and both answers kept: the count and the names below
+            # are the other side of this same list, and reading ``covers`` again for each
+            # of them is one judgement made three times.
+            kept: list[SearchResult] = []
+            outside: list[SearchResult] = []
+            for result in found:
+                if source.covers(result.url):
+                    kept.append(result)
+                else:
+                    outside.append(result)
+            if outside:
                 # Count then names, as everywhere something is taken away. There is no
                 # falling back to the wider web (ADR-0027), so an over-strict ``covers``
                 # is an empty report, and the count alone cannot say which page would
                 # have answered it.
                 logger.info(
-                    "Ignored %d result(s) from outside %s", len(found) - len(kept), source.domain
+                    "Ignored %d result(s) from outside %s", len(outside), source.domain
                 )
                 logger.debug(
                     "From outside %s: %s",
                     source.domain,
-                    ", ".join(
-                        result.url for result in found if not source.covers(result.url)
-                    ),
+                    ", ".join(result.url for result in outside),
                 )
             for result in kept:
                 pooled.setdefault(result.url, result)

@@ -6,7 +6,7 @@ import argparse
 import json
 import logging
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, get_args
 
@@ -37,12 +37,22 @@ from buy_agent.sources import parse_named_sources, parse_sources
 
 logger = logging.getLogger("buy_agent")
 
+def _a_row_of(table: Mapping[str, Any], named: str) -> str:
+    """``named`` where the table has it, and any row of it where it does not.
+
+    Only so that the defaults below can be built at all: an environment that misspelt one
+    of the three names is a usage error, said by ``_checked`` when the flag is read, and a
+    config that refused to exist here would be a traceback before ``--help`` could print.
+    """
+    return named if named in table else next(iter(table))
+
+
 def _defaults() -> AgentConfig:
     """Every flag's default, off one config so the two cannot drift apart."""
     return AgentConfig(
-        provider=DEFAULT_PROVIDER if DEFAULT_PROVIDER in PROVIDERS else next(iter(PROVIDERS)),
-        rail=DEFAULT_RAIL if DEFAULT_RAIL in RAILS else next(iter(RAILS)),
-        backend=DEFAULT_BACKEND if DEFAULT_BACKEND in BACKENDS else next(iter(BACKENDS)),
+        provider=_a_row_of(PROVIDERS, DEFAULT_PROVIDER),
+        rail=_a_row_of(RAILS, DEFAULT_RAIL),
+        backend=_a_row_of(BACKENDS, DEFAULT_BACKEND),
     )
 
 
