@@ -40,8 +40,10 @@ export class ProductCard {
    *  anybody is about to be charged. Python decides that, on the rail's row. */
   readonly rail = input<RailOption | null>(null);
 
-  /** A payment already in flight, anywhere on the page: one at a time. */
-  readonly paying = input(false);
+  /** The product a payment is in flight for, anywhere on the page, or null for
+   *  none. The name and not a boolean: one at a time is why every card's button
+   *  goes dead, and which one is why exactly one of them has something to say. */
+  readonly paying = input<string | null>(null);
 
   /** What came of paying for *this* product, once something did. */
   readonly receipt = input<Receipt | null>(null);
@@ -51,6 +53,17 @@ export class ProductCard {
 
   /** Whether this card is showing its confirmation. */
   protected readonly confirming = signal(false);
+
+  /** Whether any payment is in flight: one at a time, page-wide, so every button
+   *  on every card stands down until it lands. */
+  protected readonly locked = computed(() => this.paying() !== null);
+
+  /** Whether the payment in flight is *this* card's. Paying is two calls to a
+   *  counterparty on a 30-second budget each, and until now the whole of what the
+   *  page did about that was grey three buttons out: the one action on this page
+   *  that moves money was the only one with nothing saying it was happening, on a
+   *  wait longer than any of the ones that do. */
+  protected readonly authorising = computed(() => this.paying() === this.product().name);
 
   /** Whether to offer the button at all: the run asked, the server can, this
    *  product has a price a source printed, and nothing has been bought yet. */

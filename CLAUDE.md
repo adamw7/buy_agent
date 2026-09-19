@@ -847,7 +847,12 @@ excepted -- there the flag is the right name for the flag.
   through it -- the CLI as a `type` function, the API as `_as_currency` -- with
   `__post_init__` behind them. What it checks is `money.placeable`, so a spelling
   is folded the way a page's is (`$`, `usd` and `USD` are one answer) and the
-  refusal names the codes that would have worked. A *closed* set here where the
+  refusal names the codes that would have worked -- and so does `--currency`'s own
+  help, off the same table. It is the one flag whose value comes from a closed set
+  and cannot carry argparse's `choices`, the folding meaning two spellings in three
+  are not choices; left to the refusal, the only way to read the set was to name a
+  code that does not work and be told, while the form has had a picker over it all
+  along. A *closed* set here where the
   region is a shape, because this one is a choice among the codes `money` already
   holds rather than a hint passed to somebody else's engine. Blank is the default
   and means the vote ADR-0043 settled the scale by (ADR-0056), so the form's
@@ -1072,7 +1077,17 @@ everything else to the built Angular app, unknown paths falling back to
   any of them a usage error:
   it is not worth a server that starts and then 500s at its own form. The stream
   sits outside the guard and answers its own failures with a `failure` event,
-  having spent the status line already.
+  having spent the status line already. `--port` is refused at that same door and
+  for that same reason, by the rule `__main__._bounded` holds for every number the
+  agent takes: out of `_PORTS`, `socket.bind` raises an `OverflowError`, which goes
+  straight past the `OSError` `main` reports a refused bind with -- so a mistyped
+  port was the one thing all of the above exists to prevent, a traceback. And the
+  sentence that refusal carries is a remedy for one failure and is printed for one:
+  `_clashing_provider` answers a port already taken, reading `EADDRINUSE` off the
+  error rather than the port off the command line, since a `--host` that names
+  nothing fails the same bind with the same port in the message and was told to
+  "serve the UI somewhere else" -- the address being what is wrong, which is the
+  reading `providers._answered_by` already makes of a hint naming a model.
 
 ### Two platform traps and one coupling
 

@@ -147,6 +147,17 @@ explanation. Once something is bought the receipt replaces the button: "Paid"
 where money moved and "Authorised" where it did not, which for the dry run is
 the honest word.
 
+Between those two it says it is waiting. `paying` is the *name* of the product
+being bought rather than a flag saying one is: one at a time is why every button
+on every card stands down, and which one is why exactly one of them draws
+"Authorising … with …" where its button was. Paying is two calls to a
+counterparty on a thirty-second budget each, which is the longest wait the page
+has and the only one that moves money -- and the whole of what it used to do
+about that was grey three buttons out, which is indistinguishable from a click
+that never registered and is the moment somebody clicks again. It is said on the
+card, in the block the receipt lands in, for the reason the header pill says
+**Asking &lt;label&gt;…**: a wait with nothing else to report it reports itself.
+
 That receipt belongs to the *product* and not to the rank it was bought at, and
 so does the card drawing it. A re-sort ranks the same products again from 1
 ([ADR-0035](../docs/adr/0035-re-sort-a-finished-run-without-running-it-again.md)),

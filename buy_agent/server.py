@@ -4,6 +4,7 @@ ADR-0035, ADR-0033, ADR-0018)."""
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import logging
 import mimetypes
@@ -61,6 +62,12 @@ _MAX_BODY_BYTES = 64 * 1024
 
 #: How long one blocking read or write on a connection may take (ADR-0034).
 _REQUEST_TIMEOUT = 30.0
+
+#: The ports a socket can actually be bound to. Held at the door for the reason
+#: ``config.LIMITS`` holds the run's numbers there: out of range, ``bind`` raises an
+#: ``OverflowError``, which is not the ``OSError`` ``main`` answers -- so a mistyped
+#: port left the traceback the rest of this file exists to avoid.
+_PORTS = (0, 65535)
 
 #: Host names that mean "this machine".
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -631,8 +638,17 @@ def _browsable_url(host: str, port: int) -> str:
     return f"http://{shown}:{port}"
 
 
-def _clashing_provider(port: int) -> str:
-    """The sentence naming the model server whose own default address is ``port``."""
+def _clashing_provider(port: int, exc: OSError) -> str:
+    """The sentence naming the model server whose own default address is ``port``.
+
+    Only for the failure it is a remedy for. "Serve the UI somewhere else" answers a
+    port already taken and nothing else: a host that does not resolve fails the same
+    bind with the same port in the message, and was answered with a new port that
+    would not have helped -- the address being what is wrong, which is the reading
+    ``providers._answered_by`` already makes about a hint naming a model.
+    """
+    if exc.errno != errno.EADDRINUSE:
+        return ""
     for server in PROVIDERS.values():
         listens = urlparse(server.base_url)
         if listens.port == port and _hostname(listens.netloc) in _LOOPBACK_HOSTS:
@@ -727,6 +743,28 @@ def create_server(
     return _HTTPServer((host, port), handler)
 
 
+def _port(text: str) -> int:
+    """``--port`` as argparse takes it: a number a socket could be bound to.
+
+    The rule ``__main__._bounded`` holds for every number the agent takes -- an
+    out-of-range one is a usage error rather than a failure further in. Here "further
+    in" is ``socket.bind``, whose ``OverflowError`` goes straight past the ``OSError``
+    ``main`` reports a refused bind with.
+    """
+    minimum, maximum = _PORTS
+    try:
+        port = int(text)
+    # Read here rather than left to argparse, which names the *converter* in its own
+    # message -- "invalid _port value", where a reader wants "a whole number".
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"must be a whole number; got {text!r}") from exc
+    if not minimum <= port <= maximum:
+        raise argparse.ArgumentTypeError(
+            f"must be between {minimum} and {maximum}; got {port}"
+        )
+    return port
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="buy_agent.server",
@@ -744,7 +782,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--port",
-        type=int,
+        type=_port,
         default=DEFAULT_PORT,
         help=f"Port to bind (default: {DEFAULT_PORT}; 0 takes whichever one is free "
         "and says which at startup).",
@@ -808,7 +846,7 @@ def main(argv: list[str] | None = None) -> int:
             args.host,
             args.port,
             exc,
-            _clashing_provider(args.port),
+            _clashing_provider(args.port, exc),
         )
         return 1
 

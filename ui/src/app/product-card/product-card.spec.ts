@@ -58,7 +58,8 @@ const RECEIPT = receipt();
 interface Paying {
   canPay?: boolean;
   rail?: RailOption | null;
-  paying?: boolean;
+  /** The product being paid for, page-wide -- null while nothing is. */
+  paying?: string | null;
   receipt?: Receipt | null;
 }
 
@@ -74,7 +75,7 @@ async function render(
   fixture.componentRef.setInput('weights', weights);
   fixture.componentRef.setInput('canPay', paying.canPay ?? false);
   fixture.componentRef.setInput('rail', paying.rail ?? null);
-  fixture.componentRef.setInput('paying', paying.paying ?? false);
+  fixture.componentRef.setInput('paying', paying.paying ?? null);
   fixture.componentRef.setInput('receipt', paying.receipt ?? null);
   await fixture.whenStable();
   return fixture.nativeElement as HTMLElement;
@@ -87,7 +88,7 @@ async function payable(shown: RankedProduct, paying: Paying = { canPay: true }) 
   fixture.componentRef.setInput('weights', WEIGHTS);
   fixture.componentRef.setInput('canPay', paying.canPay ?? true);
   fixture.componentRef.setInput('rail', paying.rail ?? DRY_RUN);
-  fixture.componentRef.setInput('paying', paying.paying ?? false);
+  fixture.componentRef.setInput('paying', paying.paying ?? null);
   fixture.componentRef.setInput('receipt', paying.receipt ?? null);
   const approvals: { title: string; price: number; currency: string }[] = [];
   fixture.componentInstance.pay.subscribe((approval) => approvals.push(approval));
@@ -378,9 +379,27 @@ describe('ProductCard, paying', () => {
     expect(card.querySelector('.cannot-pay')!.textContent).toContain('nothing to authorise');
   });
 
-  it('stands down while another payment is in flight', async () => {
-    const { card } = await payable(SONY, { canPay: true, paying: true });
+  it('stands down while another card is being paid for', async () => {
+    const { card } = await payable(SONY, { canPay: true, paying: 'Something else' });
     expect(card.querySelector<HTMLButtonElement>('.pay')!.disabled).toBe(true);
+    // Somebody else's wait: this card says nothing about it, having nothing to say.
+    expect(card.querySelector('.authorising')).toBeNull();
+  });
+
+  it('says so, in place of its button, while it is the card being paid for', async () => {
+    /* Two calls to a counterparty on a 30-second budget each, and the whole of
+       what the page used to do about the wait was grey the button out: the one
+       action here that moves money was the only one with nothing saying it was
+       under way, which is the moment somebody clicks again. */
+    const { card } = await payable(SONY, { canPay: true, paying: SONY.name });
+
+    const waiting = card.querySelector('.authorising')!;
+    expect(waiting.textContent).toContain('Authorising');
+    // The cart's amount and its merchant, which is what the confirmation showed --
+    // never the product's own figures (ADR-0043).
+    expect(waiting.textContent).toContain(SONY.pay_label!);
+    expect(waiting.textContent).toContain(SONY.pay_merchant!);
+    expect(card.querySelector('button.pay')).toBeNull();
   });
 
   it('shows the receipt in place of the button once something was bought', async () => {
