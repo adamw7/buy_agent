@@ -273,7 +273,12 @@ the matrix is over platforms only, one Python and one Node, since the
   files made of rules read off the source rather than exercised --
   `tests/test_conventions.py` and `tests/test_architecture.py` -- read the
   package from the tree the copy was made of (`conftest.SOURCE_ROOT`), and
-  everything else, which the copy carries unchanged, where it sits.
+  everything else, which the copy carries unchanged, where it sits. That
+  trampoline is a wrapper, so none of the declarations under a `def` are on the
+  object the suite imports there: a default read off `__kwdefaults__` is `None`
+  on the copy and stops the run at its baseline, a week after the pull request
+  that passed. What a function was declared with is asked of a run that was told
+  nothing, which `tests/test_conventions.py` holds every test in both suites to.
 - **`release.yml`** runs when a release is *published* (and on
   `workflow_dispatch` with a tag, so a failed upload can be retried without
   re-cutting the release) and puts two packages on GitHub:
@@ -1433,13 +1438,15 @@ the other is otherwise invisible to both suites. It asserts that
   with no `failure` event to say why. The converse of the naming rule is
   deliberately not asserted: `server._Stopped` is raisable and is not a failure
   (ADR-0034);
-- and the suite keeps its own three: no test is switched off outright -- both
+- and the suite keeps its own four: no test is switched off outright -- both
   markers are `skipif`, which names what is missing rather than saying a test is
   off -- nothing sleeps but `tests/test_server.py`, where a run has to still be
-  going while a second request arrives, and the environment is changed through
+  going while a second request arrives, the environment is changed through
   `monkeypatch` rather than written, `os.environ` being one dictionary for the
   whole process and the leak landing on a later test rather than the one that
-  caused it.
+  caused it, and nothing reads a declaration off a function object, mutmut's
+  trampoline carrying none of them and the Saturday run being where that is
+  found out.
 
 ### The architecture tests
 

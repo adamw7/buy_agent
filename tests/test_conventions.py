@@ -1556,6 +1556,30 @@ def test_a_mutation_run_copies_everything_the_tests_reach_for() -> None:
         assert any(path.is_relative_to(destination) for destination in copied), path
 
 
+#: What mutmut's trampoline does not carry over. A function of the copied package is a
+#: wrapper holding every mutant of itself, so the defaults written under its ``def`` are
+#: nowhere on the object the suite imports.
+_NOT_ON_A_TRAMPOLINE = {"__defaults__", "__kwdefaults__"}
+
+
+def test_no_test_reads_a_declaration_off_a_function_object() -> None:
+    """The suite runs against that copy once a week and against the real package every
+    other day, so a default read off the function object passes every pull request and
+    kills the Saturday run at its baseline, before a single mutant has been tried. What
+    a function was declared with is asked of a run that was told nothing instead."""
+    for module in suite_modules():
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        read = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute) and node.attr in _NOT_ON_A_TRAMPOLINE
+        ]
+        assert not read, (
+            f"{module.relative_to(_ROOT)}:{read[0]} reads a declaration off a function "
+            "object, which mutmut's trampoline does not carry; ask a run instead"
+        )
+
+
 # -- paying --------------------------------------------------------------------
 
 
