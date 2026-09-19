@@ -8,10 +8,12 @@ from pydantic import ValidationError
 from buy_agent.models import (
     _MAX_OPINION_LENGTH,
     ExtractedProduct,
+    Offer,
     Product,
     ProductList,
     SearchQuery,
     comparable_price,
+    dedup_key,
     dominant_currency,
 )
 from tests.conftest import said
@@ -407,3 +409,66 @@ def test_a_named_currency_wins_outright_over_the_vote() -> None:
 def test_a_named_currency_stands_even_where_nothing_is_priced_at_all() -> None:
     """The set has no vote to take, and the shopper's answer is still their answer."""
     assert dominant_currency([Product(name="A")], "PLN") == "PLN"
+
+
+# -- the offers a product was priced at (ADR-0058) -----------------------------
+
+
+def offer(price: float, currency: str | None = "USD", **rest: object) -> Offer:
+    return Offer(price=price, currency=currency, **rest)
+
+
+def test_one_listing_is_no_spread_to_report() -> None:
+    """A single offer is the headline price said twice, so the card is told nothing."""
+    priced = Product(name="Sony WH-1000XM5", price=329.0, currency="USD", offers=[offer(329.0)])
+
+    assert priced.offers_label() is None
+
+
+def test_several_listings_are_reported_as_a_range() -> None:
+    priced = Product(
+        name="Sony WH-1000XM5",
+        price=329.0,
+        currency="USD",
+        offers=[offer(329.0), offer(149.0), offer(349.0)],
+    )
+
+    assert priced.offers_label() == "3 listings, 149.00-349.00 USD"
+
+
+def test_several_listings_at_one_price_report_that_price() -> None:
+    priced = Product(
+        name="Sony WH-1000XM5", price=329.0, currency="USD", offers=[offer(329.0), offer(329.0)]
+    )
+
+    assert priced.offers_label() == "2 listings, 329.00 USD"
+
+
+def test_a_listing_off_the_runs_scale_is_counted_and_not_measured() -> None:
+    """Two prices in two currencies have nothing between them, and nothing is
+    converted (ADR-0043)."""
+    priced = Product(
+        name="Sony WH-1000XM5",
+        price=329.0,
+        currency="USD",
+        offers=[offer(329.0), offer(299.0, "EUR"), offer(349.0)],
+    )
+
+    assert priced.offers_label() == "3 listings, 329.00-349.00 USD"
+
+
+def test_listings_none_of_which_are_on_the_scale_are_only_counted() -> None:
+    priced = Product(
+        name="Sony WH-1000XM5",
+        price=None,
+        currency=None,
+        offers=[offer(329.0), offer(299.0, "EUR")],
+    )
+
+    assert priced.offers_label() == "2 listings"
+
+
+def test_a_name_is_identified_the_same_way_whichever_asks() -> None:
+    """``journal`` matches two runs' products by this, so there must not be two
+    spellings of it (ADR-0060)."""
+    assert dedup_key("Sony  WH-1000XM5!") == Product(name="Sony  WH-1000XM5!").dedup_key

@@ -13,9 +13,11 @@ from buy_agent.logging_setup import (
     _REPORT_FORMAT,
     _TRACE_LIBRARIES,
     configure_logging,
+    log_changes,
     log_top_products,
 )
-from buy_agent.models import Product, RankedProduct
+from buy_agent.journal import Change
+from buy_agent.models import Offer, Product, RankedProduct
 from buy_agent.ranking import RankingWeights, rank_products
 from tests.conftest import ranked_product, said
 
@@ -459,3 +461,93 @@ def test_the_ordering_named_is_the_one_the_run_sorted_by(report) -> None:
     lines = [record.getMessage() for record in report.records]
     assert "TOP 2 OF 2 PRODUCTS, BEST RATED FIRST" in lines
     assert lines.index("#1  Beta") < lines.index("#2  Alpha"), "the block really is by rating"
+
+
+def test_the_listings_a_product_was_priced_at_are_reported_under_the_price(
+    report,
+) -> None:
+    """The half a merge used to throw away, under the one figure it kept (ADR-0058)."""
+    priced = Product(
+        name="Sony WH-1000XM5",
+        price=349.0,
+        currency="USD",
+        offers=[
+            Offer(price=349.0, currency="USD"),
+            Offer(price=329.0, currency="USD"),
+        ],
+    )
+
+    log_top_products(ranked(priced), 1)
+
+    assert "     offers : 2 listings, 329.00-349.00 USD" in report.text
+
+
+def test_one_listing_earns_no_line_of_its_own(report) -> None:
+    """A spread of one is the price said twice."""
+    priced = Product(
+        name="Sony WH-1000XM5",
+        price=349.0,
+        currency="USD",
+        offers=[Offer(price=349.0, currency="USD")],
+    )
+
+    log_top_products(ranked(priced), 1)
+
+    assert "offers" not in report.text
+
+
+# -- what changed since the last run (ADR-0060) --------------------------------
+
+
+def moved(name: str, movement: str, detail: str) -> Change:
+    return Change(name=name, movement=movement, detail=detail)
+
+
+def test_the_comparison_is_part_of_the_report(report) -> None:
+    """It is an answer somebody asked for, so it goes to stdout with the products and
+    a ``> top.txt`` keeps it."""
+    log_changes([moved("Sage Bambino", "cheaper", "329.00 USD, 20.00 USD cheaper.")], "11 Sep")
+
+    assert "WHAT CHANGED SINCE 11 SEP" in report.text
+    assert "Sage Bambino" in report.text
+    assert "329.00 USD, 20.00 USD cheaper." in report.text
+    assert all(
+        getattr(record, "report", False)
+        for record in report.records
+        if record.name == "buy_agent"
+    )
+
+
+def test_a_sentence_in_the_block_is_the_journal_s_own(report) -> None:
+    """Two wordings for one judgement is how the panel and the report come to
+    disagree, so the block prints what it was handed and composes nothing."""
+    log_changes([moved("Gaggia Classic", "gone", "Reported at 449.00 USD on 11 Sep.")], "11 Sep")
+
+    assert "Reported at 449.00 USD on 11 Sep." in report.text
+
+
+def test_a_long_name_does_not_push_the_sentence_off_the_column(report) -> None:
+    log_changes([moved("A" * 60, "steady", "329.00 USD, unchanged since 11 Sep.")], "11 Sep")
+
+    line = next(
+        record.getMessage() for record in report.records if "unchanged" in record.getMessage()
+    )
+    assert line == "  " + "A" * 32 + " 329.00 USD, unchanged since 11 Sep."
+
+
+def test_a_search_with_no_earlier_run_says_so_rather_than_printing_a_block(
+    caplog,
+) -> None:
+    """A first run of a search is the ordinary case, not a failure."""
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        log_changes([], None)
+
+    assert "Nothing to compare" in caplog.text
+    assert "WHAT CHANGED" not in caplog.text
+
+
+def test_a_run_that_moved_nothing_says_the_same(caplog) -> None:
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        log_changes([], "11 Sep")
+
+    assert "Nothing to compare" in caplog.text

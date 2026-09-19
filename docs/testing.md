@@ -22,7 +22,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-2278 Python tests and 224 UI tests. Nothing in either suite touches the network
+2402 Python tests and 244 UI tests. Nothing in either suite touches the network
 or a model server: the model is faked through the `llm=` argument of `BuyAgent`
 -- a class with one `answer` method, which is the whole of `chat.ChatModel`,
 both the search backend and the page fetcher are monkeypatched -- the backends'
@@ -195,8 +195,9 @@ and starts no process of its own -- installing Ollama, pulling a model and
 opening a browser are `scripts/start.ps1`'s (ADR-0023), and a child process is
 the one way out of this one that no fake in the suite could answer; every
 module sits in a layer that reaches only downward, so the pipeline never
-reads the config and never pays, paying never asks the model, and the model seam
-knows nothing about products; `buy_agent/__init__.py` imports the four modules
+reads the config and never pays, paying never asks the model, the model seam
+knows nothing about products, and the seams reach the domain types and nothing
+else above them -- `journal.py` writes products down (ADR-0060); `buy_agent/__init__.py` imports the four modules
 it re-exports from and no others, since importing any submodule runs it first;
 `mandates.py` is the only module that imports the optional AP2 SDK, and knows
 about no module of the package in return; `providers.py` the only one that

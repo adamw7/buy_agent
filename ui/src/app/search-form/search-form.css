@@ -110,3 +110,10 @@ summary .flagged {
     width: 100%;
   }
 }
+
+/* A box holding a number the request asked for in words. Marked apart from an
+   ordinary hint and deliberately not like a problem: nothing here is wrong, and the
+   whole of the offer is that it can be cleared. */
+.field small.noticed {
+  color: var(--accent, #2d6cdf);
+}

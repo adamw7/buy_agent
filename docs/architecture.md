@@ -77,7 +77,7 @@ graph TB
     shopper -->|"types a request<br/>[terminal]"| cli
     shopper -->|"visits localhost:8000<br/>[HTTPS/HTTP]"| spa
 
-    spa -->|"GET /api/config, /api/models, /api/sources<br/>POST /api/search, /api/rank, /api/pay<br/>GET /api/search/stream (SSE)<br/>[JSON over HTTP]"| server
+    spa -->|"GET /api/config, /api/models, /api/sources, /api/bounds<br/>POST /api/search, /api/rank, /api/pay<br/>GET /api/search/stream (SSE)<br/>[JSON over HTTP]"| server
     server -->|"serves index.html and assets<br/>[HTTP]"| spa
     cli -->|"calls run()"| pipeline
     server -->|"runs a search in a worker thread,<br/>relays its log records"| pipeline
@@ -137,10 +137,12 @@ graph TB
         sources["<b>Sources</b><br/><i>[Component: sources.py]</i><br/>Reads a trusted source down to a<br/>domain and a term, narrows the<br/>query to it, and says whether a<br/>result came from it"]
         fetch["<b>Fetch</b><br/><i>[Component: fetch.py]</i><br/>Fetches result pages in parallel and<br/>keeps the lines quoting a figure and<br/>the lines passing judgement, each<br/>on a budget of its own; asks a page<br/>that said to come back once more;<br/>tallies how the rest failed"]
         cache["<b>Cache</b><br/><i>[Component: cache.py]</i><br/>What a run can reuse: the text of a<br/>fetched page, and the answer a model<br/>gave about it. Kept on disk for a<br/>day, and bounded by size as well as<br/>age. Best-effort: every failure is a<br/>miss, never a failed run"]
+        journal["<b>Journal</b><br/><i>[Component: journal.py]</i><br/>What past runs of this same search<br/>reported -- a name, a price and a<br/>currency each -- so this one can say<br/>what is cheaper, dearer, new or<br/>gone. Bounded by a count and never<br/>by an age, and one setting off"]
+        boundsc["<b>Noticed bounds</b><br/><i>[Component: bounds.py]</i><br/>Reads &quot;under $200&quot; out of the<br/>request in ordinary Python, and<br/>answers the figure and the words it<br/>read. Offered at both doors and<br/>applied at neither"]
         verification["<b>Verification</b><br/><i>[Component: verification.py]</i><br/>Drops products the sources never<br/>named, blanks any figure and any<br/>quote the page text does not<br/>contain, and links each product --<br/>and each quote -- to the page it<br/>came off"]
         constraints["<b>Constraints</b><br/><i>[Component: constraints.py]</i><br/>The shopper's bounds -- max price,<br/>min rating, min reviews -- applied<br/>after merging and before ranking.<br/>An unknown figure is not a violation"]
         ranking["<b>Ranking</b><br/><i>[Component: ranking.py]</i><br/>Weighted score over rating,<br/>popularity and price -- prices<br/>compared inside one currency -- and<br/>the shares it was blended from. No LLM"]
-        models["<b>Models</b><br/><i>[Component: models.py]</i><br/>ExtractedProduct (sentinels, for the<br/>LLM's schema) vs Product (None), and<br/>the Removal a step hands over when it<br/>takes a candidate out"]
+        models["<b>Models</b><br/><i>[Component: models.py]</i><br/>ExtractedProduct (sentinels, for the<br/>LLM's schema) vs Product (None), the<br/>Offer each page priced it at, and the<br/>Removal a step hands over when it<br/>takes a candidate out"]
         moneyc["<b>Money</b><br/><i>[Component: money.py]</i><br/>Every currency table: which<br/>spellings are one currency, which<br/>ones a page is scanned for, how an<br/>amount is written and how many<br/>minor units it comes to"]
         logsetup["<b>Report and logging</b><br/><i>[Component: logging_setup.py]</i><br/>Log format, and the top-N report<br/>the browser also reads as events"]
     end
@@ -193,6 +195,11 @@ graph TB
     config -.->|"rail_used: where a payment<br/>goes and what it needs"| railsc
     fetch -.->|"reads what it read<br/>last time"| cache
     agent -.->|"reuses what the model<br/>answered last time"| cache
+    cli -.->|"offers what the request<br/>asked for in words"| boundsc
+    server -.->|"GET /api/bounds, which<br/>runs nothing"| boundsc
+    cli -.->|"writes this run down, then<br/>says what moved"| journal
+    server -.->|"the same, beside the<br/>products it answers with"| journal
+    agent -.->|"keys a journal by what<br/>was asked, not how"| journal
     extraction -.->|"ExtractedProduct → Product;<br/>a Removal per headline,<br/>fold and nameless entry"| models
     verification -.->|"a Removal per product<br/>no page named"| models
     constraints -.->|"a Removal per product<br/>the bounds would not have"| models
@@ -205,7 +212,7 @@ graph TB
     classDef component fill:#85bbf0,stroke:#5d82a8,color:#000
     classDef external fill:#999,stroke:#6b6b6b,color:#fff
     class cli,server container
-    class agent,config,providers,extraction,search,sources,fetch,cache,verification,constraints,ranking,models,moneyc,logsetup component
+    class agent,config,providers,extraction,search,sources,fetch,cache,journal,boundsc,verification,constraints,ranking,models,moneyc,logsetup component
     class payment,mandatesc,railsc component
     class ollama,ddg,shops,counterparty external
 ```
@@ -347,7 +354,7 @@ graph TB
     app --> card
     app -->|"search(options), rank(products)"| agentsvc
     agentsvc -->|"GET /api/search/stream<br/>[SSE: log, result, failure, ping]"| handler
-    agentsvc -->|"GET /api/config, /api/models, /api/sources<br/>POST /api/search, /api/rank, /api/pay<br/>[JSON]"| handler
+    agentsvc -->|"GET /api/config, /api/models, /api/sources, /api/bounds<br/>POST /api/search, /api/rank, /api/pay<br/>[JSON]"| handler
 
     handler -->|"before any routing"| guard
     handler -->|"parse_options, run_search, rank_again"| api

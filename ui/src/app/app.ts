@@ -4,6 +4,7 @@ import type { Subscription } from 'rxjs';
 import { AgentService } from './agent';
 import type {
   AgentDefaults,
+  BoundsCheck,
   LogLine,
   ModelSource,
   ModelStatus,
@@ -40,6 +41,9 @@ export class App {
   protected readonly rejected = signal<Rejection | null>(null);
   /** What the server made of the sources field, for the form to show. */
   protected readonly sourcesCheck = signal<SourcesCheck | null>(null);
+  /** What the server read out of the request: bounds it asks for in words, for the
+   *  form to offer. Nothing here is applied -- the shopper submits it or clears it. */
+  protected readonly boundsCheck = signal<BoundsCheck | null>(null);
   protected readonly running = signal(false);
   protected readonly started = signal(false);
   /** A run the reader ended themselves. */
@@ -125,6 +129,9 @@ export class App {
   private reorder: Subscription | null = null;
   private listing: Subscription | null = null;
   private sources: Subscription | null = null;
+  /** A reading of the request field since typed over, for the reason the sources one
+   *  is held: an answer that arrives second is not the answer to the second question. */
+  private bounds: Subscription | null = null;
   /** A payment in flight. */
   private pay: Subscription | null = null;
 
@@ -134,6 +141,7 @@ export class App {
       this.reorder?.unsubscribe();
       this.listing?.unsubscribe();
       this.sources?.unsubscribe();
+      this.bounds?.unsubscribe();
       this.pay?.unsubscribe();
     });
 
@@ -201,6 +209,19 @@ export class App {
     this.sources = this.agent.checkSources(sources).subscribe({
       next: (check) => this.sourcesCheck.set(check),
       error: () => this.sourcesCheck.set(null),
+    });
+  }
+
+  /** Ask what the request itself says about the bounds, before a run is started. */
+  protected checkBounds(request: string): void {
+    this.bounds?.unsubscribe();
+    if (!request) {
+      this.boundsCheck.set(null);
+      return;
+    }
+    this.bounds = this.agent.checkBounds(request).subscribe({
+      next: (check) => this.boundsCheck.set(check),
+      error: () => this.boundsCheck.set(null),
     });
   }
 
@@ -287,7 +308,15 @@ export class App {
           // A re-sort runs no pipeline, so it took nothing out and answers an empty
           // `dropped` (ADR-0035). Carried across rather than taken, or re-ordering the
           // results would quietly empty the panel saying what the *run* left out.
-          this.result.set({ ...result, dropped: found.dropped });
+          // `changes` and `compared_with` travel with `dropped` and for the same
+          // reason: a re-sort ran no pipeline, so it compared nothing and answers an
+          // empty list rather than speaking for a run it never saw (ADR-0060).
+          this.result.set({
+            ...result,
+            dropped: found.dropped,
+            changes: found.changes,
+            compared_with: found.compared_with,
+          });
           this.reordering.set(false);
         },
         error: (failure: unknown) => {

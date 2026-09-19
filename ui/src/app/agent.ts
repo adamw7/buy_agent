@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 
 import type {
   AgentDefaults,
+  BoundsCheck,
   ModelSource,
   ModelStatus,
   PayOptions,
@@ -36,6 +37,12 @@ export class AgentService {
   /** What the server makes of a Trusted sources field, before a run is started. */
   checkSources(sources: string): Observable<SourcesCheck> {
     return this.http.get<SourcesCheck>('/api/sources', { params: { sources } });
+  }
+
+  /** What the server reads out of a request: the bounds it asks for in words, for
+   *  the form to offer. Nothing is applied -- see `BoundsCheck`. */
+  checkBounds(request: string): Observable<BoundsCheck> {
+    return this.http.get<BoundsCheck>('/api/bounds', { params: { request } });
   }
 
   /** Put a finished run's products in another order, without running it again. */

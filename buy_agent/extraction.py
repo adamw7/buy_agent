@@ -12,6 +12,7 @@ from buy_agent.chat import Chain, Prompt
 from buy_agent.models import (
     MAX_OPINIONS,
     QUALIFIERS,
+    Offer,
     ProductList,
     Removal,
     SearchQuery,
@@ -199,8 +200,9 @@ def clean_products(
 def deduplicate(
     products: Sequence[Product], limit: int, *, record: Recorder = nothing_recorded
 ) -> list[Product]:
-    """Drop repeats of the same product, keeping the most complete entry (ADR-0055)."""
-    named = [product for product in products if product.dedup_key]
+    """Drop repeats of the same product, keeping the most complete entry (ADR-0055,
+    ADR-0058)."""
+    named = [_as_a_listing(product) for product in products if product.dedup_key]
     if len(named) != len(products):
         for nameless in (item for item in products if not item.dedup_key):
             record(
@@ -224,6 +226,30 @@ def deduplicate(
     if merged:
         logger.info("Merged %d duplicate listing(s)", merged)
     return deduped[:limit]
+
+
+def _as_a_listing(product: Product) -> Product:
+    """One grounded listing, carrying its own price as the offer it is (ADR-0058).
+
+    Seeded here rather than at extraction, because this is the last point at which one
+    ``Product`` is still one listing: every figure on it has been through ``ground``, so
+    no offer can carry a price the sources do not back, and the very next step folds
+    several of them into one.
+    """
+    if product.price is None:
+        return product
+    return product.model_copy(
+        update={
+            "offers": [
+                Offer(
+                    price=product.price,
+                    currency=product.currency,
+                    seller=product.seller,
+                    url=product.url,
+                )
+            ]
+        }
+    )
 
 
 def merge_variants(
@@ -270,7 +296,11 @@ def _same_product(left: str, right: str) -> bool:
 
 
 #: Fields worth carrying over from a weaker listing, and the list to edit when one is
-#: added to ``Product`` (ADR-0022).
+#: added to ``Product`` (ADR-0022). Two neighbours are deliberately *not* in it, and for
+#: one reason: ``opinions`` and ``offers`` are the fields where the two listings do not
+#: conflict. Two reviewers are no disagreement and neither are two shops, so both are
+#: kept whole -- which is the opposite of filling a gap, and is why each has a merge of
+#: its own below rather than a row here (ADR-0042, ADR-0058).
 _MERGEABLE_FIELDS = ("price", "rating", "seller", "url", "notes")
 
 
@@ -282,12 +312,25 @@ def _combine(first: Product, second: Product) -> Product:
     updates = _fill_gaps(winner, loser)
     updates["name"] = min(first.name, second.name, key=len)
     updates["opinions"] = _merge_opinions(winner, loser)
+    updates["offers"] = _merge_offers(winner, loser)
     return winner.model_copy(update=updates)
 
 
 def _merge_opinions(winner: Product, loser: Product) -> list[Opinion]:
     """Both listings' opinions, the winner's first, without repeats (ADR-0042)."""
     return distinct_quotes([*winner.opinions, *loser.opinions])
+
+
+def _merge_offers(winner: Product, loser: Product) -> list[Offer]:
+    """Both listings' offers, the winner's first, without repeats (ADR-0058).
+
+    The headline price is still the winner's and nothing here moves it: this is the
+    record of what the pages quoted, which is the half a merge used to throw away.
+    """
+    seen: dict[tuple[float, str | None, str | None, str | None], Offer] = {}
+    for offer in (*winner.offers, *loser.offers):
+        seen.setdefault((offer.price, offer.currency, offer.seller, offer.url), offer)
+    return list(seen.values())
 
 
 def _fill_gaps(winner: Product, loser: Product) -> dict[str, object]:

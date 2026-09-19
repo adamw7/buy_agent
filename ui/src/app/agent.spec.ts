@@ -200,6 +200,26 @@ describe('AgentService', () => {
     http.verify();
   });
 
+  it('asks the server what the request itself asks for', () => {
+    /* Reading "under $200" in TypeScript would be a second answer to what the
+       request says; Python's is the only one (ADR-0059). */
+    let offered: string[] = [];
+    service
+      .checkBounds('headphones under $200')
+      .subscribe((check) => (offered = check.noticed.map((bound) => bound.bound)));
+
+    const http = TestBed.inject(HttpTestingController);
+    const asked = http.expectOne((request) => request.url === '/api/bounds');
+    expect(asked.request.params.get('request')).toBe('headphones under $200');
+
+    asked.flush({
+      request: 'headphones under $200',
+      noticed: [{ bound: 'max_price', value: 200, note: 'From your request: "under $200".' }],
+    });
+    expect(offered).toEqual(['max_price']);
+    http.verify();
+  });
+
   it('turns a dropped connection into an error instead of silently restarting', () => {
     /* EventSource reconnects on its own, which would run the whole search again. */
     let failed: Error | null = null;

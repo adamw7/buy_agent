@@ -36,7 +36,7 @@ npm test                              # vitest, in jsdom -- no browser needed
 | File | Responsibility |
 | --- | --- |
 | `src/app/app.ts` | The page: holds the run's state and stitches the three components together |
-| `src/app/agent.ts` | The API: `/api/config`, `/api/models`, `/api/sources`, and the event stream |
+| `src/app/agent.ts` | The API: `/api/config`, `/api/models`, `/api/sources`, `/api/bounds`, and the event stream |
 | `src/app/agent.types.ts` | The shapes the Python API answers with |
 | `src/app/search-form/` | What to buy, plus the settings the CLI takes as flags |
 | `src/app/progress-log/` | The agent's own log lines, as they arrive |
@@ -140,6 +140,16 @@ asked for a purchase naming nobody at all, which is the field a person most
 needs before agreeing to one. A single button would be a purchase made by a
 misclick on a card in a list.
 
+Under the figures it opens onto **what each page priced the product at**. The
+agent reads several pages a run and used to keep one figure and throw the rest
+away, so a card showing 149.00 USD looked exactly like one where 149.00 was the
+only price anybody quoted
+([ADR-0058](../docs/adr/0058-keep-every-listing-a-product-was-priced-at.md)).
+The summary is Python's sentence and so is every amount inside it -- the card
+formats no money, exactly as it writes no unknown price -- and each listing links
+the page that printed it, which is what makes the spread checkable rather than
+only readable.
+
 What it emits is the three fields a person was shown, which the server holds
 against the cart it builds itself. The card decides nothing else, and a product
 it may not buy shows Python's `cannot_pay` sentence rather than no button and no
@@ -168,6 +178,17 @@ for a second go, and a confirmation opened on one product stays open over
 another.
 
 ### `search-form`
+
+The request box is read by the server as well as searched with. `GET /api/bounds`
+answers what the words themselves ask for -- "under $200", "at least 4 stars" --
+and the box that would enforce it is filled in, once, only while it is empty,
+under Python's own sentence saying where the number came from
+([ADR-0059](../docs/adr/0059-notice-a-bound-in-the-request-and-offer-it.md)). It
+is a hint and never a mark: nothing is wrong, so `canSubmit` is untouched and the
+shopper submits the number or clears it. A cleared box is not filled in again --
+re-offering a figure somebody deleted is enforcing it slowly -- and an answer
+about a request the box no longer holds is dropped, the way the sources check's
+is.
 
 It remembers the advanced settings in `localStorage` and the request
 deliberately not -- what to shop for is a new question every time -- and every

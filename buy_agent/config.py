@@ -88,7 +88,7 @@ def parse_currency(spec: str) -> str:
 class AgentConfig:
     """Everything the agent needs to know that is not the user's query (ADR-0050,
     ADR-0051, ADR-0044, ADR-0039, ADR-0043, ADR-0027, ADR-0040, ADR-0046,
-    ADR-0056, ADR-0057)."""
+    ADR-0056, ADR-0057, ADR-0060)."""
 
     provider: str = DEFAULT_PROVIDER
     model: str = ""
@@ -114,6 +114,7 @@ class AgentConfig:
     opinion_chars: int = 400
     fetch_timeout: float = 8.0
     cache_ttl: float = DEFAULT_TTL
+    journal: bool = True
     pay: bool = False
     rail: str = DEFAULT_RAIL
     merchant_url: str = ""

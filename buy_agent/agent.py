@@ -18,6 +18,7 @@ from buy_agent.extraction import (
     format_results,
 )
 from buy_agent.fetch import enrich
+from buy_agent.journal import Journal, open_journal
 from buy_agent.logging_setup import log_top_products
 from buy_agent.models import comparable_price, nothing_recorded
 from buy_agent.ranking import rank_products
@@ -63,6 +64,40 @@ def _asks_the_same_question(config: AgentConfig) -> dict[str, object]:
     if config.model_server.takes_num_ctx:
         fingerprint["num_ctx"] = config.num_ctx
     return fingerprint
+
+
+def journal_for(request: str, config: AgentConfig) -> Journal:
+    """The journal of this exact search, ready to be asked what moved (ADR-0060).
+
+    Keyed by the request and by the settings that decided *what was asked*: where it
+    searched, on which scale, through which backend, of which sources, under which
+    bounds and how many products deep. A comparison across two different budgets is a
+    comparison of two different questions.
+
+    Not by the model, the provider or the window -- those decide how well the question
+    was answered rather than what it was, and filing an answer under them would leave
+    every change of model a search with no history at all. Which is the opposite reading
+    from the cache's (:func:`_asks_the_same_question`), and deliberately: that one is
+    keyed on the model because it hands an answer *back*, and this one is read by a
+    person.
+
+    Built before the run and asked afterwards, so what it hands over is the last run and
+    not this one.
+    """
+    return open_journal(
+        request,
+        asked={
+            "region": config.region,
+            "currency": config.currency,
+            "backend": config.backend,
+            "sources": [source.spec for source in config.sources],
+            "max_price": config.max_price,
+            "min_rating": config.min_rating,
+            "min_reviews": config.min_reviews,
+            "num_products": config.num_products,
+        },
+        keeping=config.journal,
+    )
 
 
 def _and_list(items: list[str]) -> str:

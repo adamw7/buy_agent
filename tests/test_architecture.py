@@ -48,9 +48,9 @@ _LAYERS: dict[str, tuple[str, ...]] = {
     # ``search.py`` is here and not among the steps: it is the table a backend is one
     # row of (ADR-0057), so it reads its rows' addresses and keys off the environment,
     # which is the one thing a step may never do.
-    "seams": ("chat.py", "providers.py", "cache.py", "search.py"),
+    "seams": ("chat.py", "providers.py", "cache.py", "search.py", "journal.py"),
     "settings": ("config.py", "logging_setup.py"),
-    "domain": ("models.py", "money.py", "sources.py"),
+    "domain": ("models.py", "money.py", "sources.py", "bounds.py"),
 }
 
 #: Which layer may reach which, and nothing else.
@@ -68,7 +68,11 @@ _MAY_DEPEND_ON: dict[str, tuple[str, ...]] = {
     "orchestration": ("pipeline", "seams", "settings", "domain"),
     "pipeline": ("pipeline", "seams", "domain"),
     "paying": ("paying", "domain"),
-    "seams": ("seams",),
+    # The one row that names the domain: ``journal.py`` writes down what a run reported,
+    # which is products, and the domain types are the vocabulary every layer already
+    # passes around (ADR-0060). The seams still reach nothing above them, and the three
+    # tables keep the stricter rule of their own below.
+    "seams": ("seams", "domain"),
     "settings": ("pipeline", "paying", "seams", "domain"),
     "domain": (),
 }

@@ -27,8 +27,14 @@
       [class.invalid]="notes()[number.key]"
       [attr.aria-invalid]="notes()[number.key] ? true : null"
     />
+    <!-- Three things a box can have to say, in order of who is owed an answer: what
+         is wrong with it, why it is holding a number nobody typed, and what it is
+         for. The middle one is a hint and never a mark -- an offer read out of the
+         request is not something to correct (ADR-0059). -->
     @if (notes()[number.key]; as problem) {
       <small class="problem" role="alert">{{ problem }}</small>
+    } @else if (noticedNote(number.key); as noticed) {
+      <small class="noticed">{{ noticed }}</small>
     } @else if (number.hint(); as hint) {
       <small>{{ hint }}</small>
     }
@@ -45,6 +51,7 @@
       placeholder="wireless noise cancelling headphones under $200"
       [(ngModel)]="request"
       [disabled]="running()"
+      (change)="requestChanged()"
     />
   </label>
 
@@ -262,6 +269,20 @@
         <input name="fetch" type="checkbox" [(ngModel)]="fetchPages" [disabled]="running()" />
         <span>Read the result pages</span>
       </label>
+
+      <!-- The `small` sits outside the checkbox label, which is a flex row and would
+           put the sentence beside the box rather than under it -- as the CPU-only one
+           does, and for the same reason. -->
+      <div class="field">
+        <label class="checkbox">
+          <input name="journal" type="checkbox" [(ngModel)]="journal" [disabled]="running()" />
+          <span>Remember this run</span>
+        </label>
+        <small>
+          Keeps a name and a price per product, so running this search again says what moved. Off,
+          nothing about your shopping is written down.
+        </small>
+      </div>
 
       <!-- Paying, and only where the server can. The SDK that signs an AP2
            mandate is an optional install, so a build without it says so once

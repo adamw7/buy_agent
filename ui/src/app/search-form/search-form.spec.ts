@@ -2,7 +2,13 @@ import { TestBed, ComponentFixture } from '@angular/core/testing';
 
 import { SearchForm } from './search-form';
 import { OLLAMA, VLLM, defaults, status } from '../testing';
-import type { AgentDefaults, InstalledModel, ModelSource, SearchOptions } from '../agent.types';
+import type {
+  AgentDefaults,
+  InstalledModel,
+  ModelSource,
+  NoticedBound,
+  SearchOptions,
+} from '../agent.types';
 
 const DEFAULTS = defaults();
 
@@ -97,6 +103,12 @@ describe('SearchForm', () => {
     await fixture.whenStable();
   };
 
+  /** Tell the form what the server read out of the request it was asked about. */
+  const noticed = async (request: string, bounds: NoticedBound[]) => {
+    fixture.componentRef.setInput('noticed', { request, noticed: bounds });
+    await fixture.whenStable();
+  };
+
   beforeEach(async () => {
     localStorage.clear();
     submitted = [];
@@ -104,6 +116,109 @@ describe('SearchForm', () => {
     fixture.componentRef.setInput('defaults', DEFAULTS);
     fixture.componentInstance.search.subscribe((options) => submitted.push(options));
     await fixture.whenStable();
+  });
+
+  it('offers a bound the server read out of the request, in the box that holds it', async () => {
+    /* Offered and never applied: the form fills the box and the shopper submits it
+       or clears it (ADR-0059). */
+    await type('input[name="request"]', 'kettle under $90');
+    await noticed('kettle under $90', [
+      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+    ]);
+
+    expect(element<HTMLInputElement>('input[name="max_price"]').value).toBe('90');
+    await send();
+    expect(submitted[0].max_price).toBe(90);
+  });
+
+  it('says why a box holds a number nobody typed, and does not mark it', async () => {
+    /* Nothing is wrong with it, so a mark would be a refusal nobody can act on. */
+    await type('input[name="request"]', 'kettle under $90');
+    await noticed('kettle under $90', [
+      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+    ]);
+    const box = element<HTMLInputElement>('input[name="max_price"]').closest('label')!;
+
+    expect(box.querySelector('.noticed')!.textContent).toContain('From your request');
+    expect(box.querySelector('.problem')).toBeNull();
+    expect(submit().disabled).toBe(false);
+  });
+
+  it('opens the settings, since an offer nobody can see is not one', async () => {
+    await type('input[name="request"]', 'kettle under $90');
+    await noticed('kettle under $90', [
+      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+    ]);
+
+    expect(element<HTMLDetailsElement>('details.advanced').open).toBe(true);
+  });
+
+  it('leaves a bound the shopper typed alone', async () => {
+    await type('input[name="max_price"]', '50');
+    await type('input[name="request"]', 'kettle under $90');
+    await noticed('kettle under $90', [
+      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+    ]);
+
+    expect(element<HTMLInputElement>('input[name="max_price"]').value).toBe('50');
+  });
+
+  it('does not put back a number the shopper cleared', async () => {
+    /* Re-offering a figure somebody deleted is enforcing it slowly. */
+    await type('input[name="request"]', 'kettle under $90');
+    const offer: NoticedBound[] = [
+      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+    ];
+    await noticed('kettle under $90', offer);
+    await type('input[name="max_price"]', '');
+
+    await noticed('kettle under $90', [...offer]);
+
+    expect(element<HTMLInputElement>('input[name="max_price"]').value).toBe('');
+  });
+
+  it('ignores a reading of a request the box no longer holds', async () => {
+    /* The answer is in flight while the box is typed into, as the sources one is. */
+    await type('input[name="request"]', 'kettle');
+    await noticed('kettle under $90', [
+      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+    ]);
+
+    expect(element<HTMLInputElement>('input[name="max_price"]').value).toBe('');
+  });
+
+  it('ignores a bound it has no box for', async () => {
+    /* A fourth bound named by Python and not yet drawn here is nothing to fill in,
+       and never a crash. */
+    await type('input[name="request"]', 'kettle');
+    await noticed('kettle', [{ bound: 'min_weight', value: 2, note: 'From your request.' }]);
+
+    expect(element<HTMLDetailsElement>('details.advanced').open).toBe(false);
+  });
+
+  it('asks what the request asks for when an example is picked', async () => {
+    /* An example is the request now, and gets the reading a typed one gets. */
+    const asked: string[] = [];
+    fixture.componentInstance.read.subscribe((request) => asked.push(request));
+
+    element<HTMLButtonElement>('.examples button').click();
+    await fixture.whenStable();
+
+    expect(asked).toEqual(['wireless noise cancelling headphones under $200']);
+  });
+
+  it('sends whether this run is to be remembered', async () => {
+    await type('input[name="request"]', 'kettle');
+    await send();
+    expect(submitted[0].journal).toBe(true);
+
+    const box = element<HTMLInputElement>('input[name="journal"]');
+    box.click();
+    box.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    await send();
+
+    expect(submitted[1].journal).toBe(false);
   });
 
   it('starts from the agent config defaults the server served', async () => {
@@ -781,6 +896,7 @@ describe('SearchForm', () => {
         'cpuOnly',
         'currency',
         'fetchPages',
+        'journal',
         'maxPrice',
         'merchantUrl',
         'minRating',

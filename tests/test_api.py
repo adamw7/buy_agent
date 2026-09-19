@@ -11,6 +11,7 @@ import pytest
 from buy_agent.agent import ModelUnavailableError, every_step_passes
 from buy_agent.api import (
     ApiError,
+    bounds_payload,
     defaults_payload,
     installed_models,
     limits_payload,
@@ -23,7 +24,7 @@ from buy_agent.api import (
     sources_payload,
 )
 from buy_agent.config import LIMITS, AgentConfig
-from buy_agent.models import Product, Removal, nothing_recorded
+from buy_agent.models import Offer, Product, Removal, nothing_recorded
 from buy_agent.ranking import RankingWeights, rank_products
 from buy_agent.providers import VLLM
 from buy_agent import money
@@ -438,6 +439,99 @@ def test_the_answer_names_the_spec_it_was_about() -> None:
     """The field is typed into while the answer is in flight, and an answer about
     text since typed over must not be shown against what replaced it."""
     assert sources_payload("  rtings.com  ")["sources"] == "  rtings.com  "
+
+
+# -- the listings a product was priced at (ADR-0058) ---------------------------
+
+
+def test_a_products_offers_carry_the_amount_written_out() -> None:
+    """How money is written is Python's, so the card never has two spellings of one
+    figure (ADR-0012)."""
+    priced = Product(
+        name="Sony WH-1000XM5",
+        price=349.0,
+        currency="USD",
+        offers=[
+            Offer(price=349.0, currency="USD", seller="ShopA", url="https://a.example/p"),
+            Offer(price=329.0, currency="USD"),
+        ],
+    )
+
+    payload = product_payload(ranked_product(priced, score=0.9, rank=1), "USD")
+
+    assert payload["offers"] == [
+        {
+            "price": 349.0,
+            "currency": "USD",
+            "seller": "ShopA",
+            "url": "https://a.example/p",
+            "price_label": "349.00 USD",
+        },
+        {
+            "price": 329.0,
+            "currency": "USD",
+            "seller": None,
+            "url": None,
+            "price_label": "329.00 USD",
+        },
+    ]
+    assert payload["offers_label"] == "2 listings, 329.00-349.00 USD"
+
+
+def test_a_product_one_page_priced_has_no_spread_to_report() -> None:
+    payload = product_payload(
+        ranked_product(Product(name="Sony WH-1000XM5"), score=0.9, rank=1), "USD"
+    )
+
+    assert payload["offers"] == []
+    assert payload["offers_label"] is None
+
+
+# -- what the request itself asks for, which is offered and never applied ------
+
+
+def test_a_bound_written_into_the_request_is_offered_with_pythons_sentence() -> None:
+    """The form puts this in the box that would enforce it; nothing here applies one
+    (ADR-0059)."""
+    answer = bounds_payload("headphones under $200")
+
+    assert answer["request"] == "headphones under $200"
+    assert answer["noticed"] == [
+        {
+            "bound": "max_price",
+            "value": 200.0,
+            "note": 'From your request: "under $200". Nothing is enforced unless you set it.',
+        }
+    ]
+
+
+def test_a_request_asking_for_nothing_is_answered_with_nothing() -> None:
+    assert bounds_payload("wireless headphones")["noticed"] == []
+    assert bounds_payload("")["noticed"] == []
+
+
+def test_a_figure_the_setting_would_refuse_is_not_offered() -> None:
+    """Pre-filling a box the form would then mark is a mark on something nobody
+    typed (ADR-0033)."""
+    over = LIMITS["max_price"][1] + 1
+
+    assert bounds_payload(f"a house under ${over:,}")["noticed"] == []
+
+
+def test_a_figure_at_the_top_of_the_range_still_is() -> None:
+    """The bound is inclusive at both doors, and this is the third."""
+    assert bounds_payload(f"a house under ${LIMITS['max_price'][1]}")["noticed"]
+
+
+def test_the_answer_names_the_request_it_was_about() -> None:
+    """The box is typed into while the answer is in flight, as the sources field is."""
+    assert bounds_payload("  headphones  ")["request"] == "  headphones  "
+
+
+def test_reading_a_request_runs_nothing() -> None:
+    """The second endpoint that opens no run: a config is not even built, so a
+    misconfigured server still answers it."""
+    assert set(bounds_payload("headphones under $200")) == {"request", "noticed"}
 
 
 # -- run_search ----------------------------------------------------------------

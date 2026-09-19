@@ -66,6 +66,9 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0055](0055-report-what-a-run-took-out.md) | Report what a run took out | Accepted |
 | [0056](0056-let-the-shopper-name-the-currency.md) | Let the shopper name the currency a run is counted in | Accepted |
 | [0057](0057-a-search-backend-is-a-row-in-a-table.md) | Make a search backend a row in a table, beside a provider and a rail | Accepted |
+| [0058](0058-keep-every-listing-a-product-was-priced-at.md) | Keep every listing a product was priced at, and pay the one being bought | Accepted |
+| [0059](0059-notice-a-bound-in-the-request-and-offer-it.md) | Notice a bound in the request, and offer it rather than enforcing it | Accepted |
+| [0060](0060-keep-a-run-journal-beside-the-cache-not-in-it.md) | Keep a run journal beside the cache, not in it | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

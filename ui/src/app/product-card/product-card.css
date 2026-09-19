@@ -294,3 +294,39 @@ h3 a:hover {
   color: var(--muted, #666);
   font-size: 0.9em;
 }
+
+/* The other listings a merge would have thrown away, shut by default: the headline
+   price is the answer and these are what it was chosen from. */
+.offers {
+  margin-block-start: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.offers summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.offers ul {
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.offers li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.offer-price {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.offer-seller {
+  color: var(--muted);
+}
