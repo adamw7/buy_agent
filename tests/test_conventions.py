@@ -232,6 +232,25 @@ def test_every_currency_a_run_may_be_counted_in_is_one_both_doors_take() -> None
         assert cli.type(code) == code
 
 
+def test_the_cli_names_every_currency_it_would_take() -> None:
+    """The form has a picker over ``money``'s table and the CLI has ``--help``, which
+    is its only documentation. Every other flag whose value comes from a closed set
+    names that set -- ``--provider``, ``--backend``, ``--rail`` and ``--sort-by``
+    through argparse's own ``choices``. This one cannot carry ``choices``, a spelling
+    being folded on the way in (``$`` and ``usd`` are both USD, and neither is a
+    choice), so the set goes in the help instead. Left out, the only way to read it
+    was to name a code that does not work and be refused with the list (ADR-0056).
+    """
+    cli = {action.dest: action for action in build_parser()._actions}["currency"]
+    named = cli.help or ""
+
+    for code in money.CODES:
+        assert code in named, (
+            f"--currency takes {code!r} and --help does not name it; the form's "
+            f"picker offers every code in money.CODES and the CLI has only this"
+        )
+
+
 @pytest.mark.parametrize("typo", ["XXX", "dollarydoos", "¥"])
 def test_both_front_doors_refuse_the_same_currencies(typo: str) -> None:
     """The rule ``region`` holds for a shape, held here for a code: checked on one

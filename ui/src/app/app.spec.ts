@@ -1063,8 +1063,26 @@ describe('App paying', () => {
     await buyTheTopOne(fixture);
 
     const page = fixture.nativeElement as HTMLElement;
-    const buttons = [...page.querySelectorAll<HTMLButtonElement>('app-product-card .pay')];
+    const buttons = [...page.querySelectorAll<HTMLButtonElement>('app-product-card button.pay')];
     expect(buttons.every((button) => button.disabled)).toBe(true);
+  });
+
+  it('says which product it is paying for while it is paying', async () => {
+    /* `App.paying` has always held the name; the cards were told only that it was
+       not null, so none of them could say it was the one. A payment is two calls
+       to a counterparty on a 30-second budget each, and the whole of what the page
+       did about that wait was grey every button out -- the one action here that
+       moves money being the only one with nothing saying it was under way. */
+    agent.payResponse = () => new Subject<{ receipt: Receipt }>();
+    const fixture = await finished(true);
+    await buyTheTopOne(fixture);
+
+    const cards = [...(fixture.nativeElement as HTMLElement).querySelectorAll('app-product-card')];
+    const waiting = cards.filter((card) => card.querySelector('.authorising'));
+
+    expect(waiting.length, 'exactly the card being paid for says so').toBe(1);
+    expect(waiting[0].textContent).toContain('Authorising');
+    expect(waiting[0].querySelector('h3')!.textContent).toContain('Best Kettle');
   });
 
   /** Ask for the same products in another order, the way the control beside the results does. */

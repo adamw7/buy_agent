@@ -98,6 +98,22 @@
         {{ paid.merchant }}. {{ paid.detail }}
         <span class="reference">Reference {{ paid.reference }}</span>
       </p>
+    } @else if (authorising()) {
+      <!-- The one wait on this page that moves money, and the longest: two calls
+           to a counterparty on a 30-second budget each. Said here, on the card
+           that is paying, the way the header pill says "Asking Ollama…" -- the
+           other wait on this page with nothing else to report it. Without it a
+           reader who clicked had three greyed-out buttons and no way to tell a
+           payment under way from one that had not registered, which is the
+           moment somebody clicks again. -->
+      <p class="authorising" role="status">
+        <span class="dot blinking"></span>
+        Authorising {{ product().pay_label }}
+        @if (product().pay_merchant; as merchant) {
+          with {{ merchant }}
+        }
+        — this can take a moment.
+      </p>
     } @else if (confirming()) {
       <div class="confirm" role="group" aria-label="Confirm this purchase">
         <p>
@@ -120,15 +136,15 @@
             >.
           }
         </p>
-        <button type="button" class="pay" [disabled]="paying()" (click)="confirm()">
+        <button type="button" class="pay" [disabled]="locked()" (click)="confirm()">
           Yes, authorise it
         </button>
-        <button type="button" class="secondary" [disabled]="paying()" (click)="cancel()">
+        <button type="button" class="secondary" [disabled]="locked()" (click)="cancel()">
           Cancel
         </button>
       </div>
     } @else if (offersPayment()) {
-      <button type="button" class="pay" [disabled]="paying()" (click)="startConfirming()">
+      <button type="button" class="pay" [disabled]="locked()" (click)="startConfirming()">
         Pay {{ product().pay_label }}
       </button>
     } @else if (refusal(); as why) {

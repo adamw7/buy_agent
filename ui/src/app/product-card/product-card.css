@@ -275,6 +275,18 @@ h3 a:hover {
   overflow-wrap: anywhere;
 }
 
+/* The payment this card is waiting on, in the place its button was. Laid out like
+   the receipt that replaces it, being the same news one step earlier. */
+.authorising {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-block-start: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-inline-start: 3px solid var(--accent, #2f6f4f);
+  background: var(--raised, #fbfbfa);
+}
+
 /* Why a card has no button where its neighbours do -- Python's sentence, shown
    rather than swallowed. */
 .cannot-pay {

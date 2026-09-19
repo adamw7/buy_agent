@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
+import os
 import re
 import socket
 import threading
@@ -1176,11 +1178,17 @@ def test_the_parser_defaults_to_loopback_port_8000() -> None:
     assert args.ui_dir.name == "browser"
 
 
-def test_a_port_that_cannot_be_bound_is_reported_not_raised(monkeypatch) -> None:
-    def refuse(*args, **kwargs):
-        raise OSError("Address already in use")
+def _refusing(reason: int):
+    """A ``create_server`` that fails the way a real bind fails: with an errno."""
 
-    monkeypatch.setattr("buy_agent.server.create_server", refuse)
+    def refuse(*args, **kwargs):
+        raise OSError(reason, os.strerror(reason))
+
+    return refuse
+
+
+def test_a_port_that_cannot_be_bound_is_reported_not_raised(monkeypatch) -> None:
+    monkeypatch.setattr("buy_agent.server.create_server", _refusing(errno.EADDRINUSE))
     assert main(["--port", "8000"]) == 1
 
 
@@ -1190,11 +1198,7 @@ def test_the_port_a_model_server_also_wants_is_named_in_the_refusal(
     """vLLM's own default is http://localhost:8000/v1 and this server's default
     port is 8000, so the two collide on exactly the machine that runs both --
     and "Address already in use" says nothing about a model server."""
-
-    def refuse(*args, **kwargs):
-        raise OSError("Address already in use")
-
-    monkeypatch.setattr("buy_agent.server.create_server", refuse)
+    monkeypatch.setattr("buy_agent.server.create_server", _refusing(errno.EADDRINUSE))
 
     with caplog.at_level(logging.ERROR, logger="buy_agent.server"):
         main(["--port", "8000"])
@@ -1204,15 +1208,49 @@ def test_the_port_a_model_server_also_wants_is_named_in_the_refusal(
 
 
 def test_a_port_nobody_else_claims_is_refused_without_the_aside(monkeypatch, caplog) -> None:
-    def refuse(*args, **kwargs):
-        raise OSError("Address already in use")
-
-    monkeypatch.setattr("buy_agent.server.create_server", refuse)
+    monkeypatch.setattr("buy_agent.server.create_server", _refusing(errno.EADDRINUSE))
 
     with caplog.at_level(logging.ERROR, logger="buy_agent.server"):
         main(["--port", "8123"])
 
     assert "vLLM" not in caplog.text
+
+
+def test_a_bind_that_failed_for_another_reason_is_not_told_to_change_port(
+    monkeypatch, caplog
+) -> None:
+    """The aside is a remedy for one failure and was printed for every one. A --host
+    that names nothing fails the same bind with the same port in the message, and
+    "serve the UI somewhere else: --port 8001" sent the reader to change the half
+    that was right -- the reading providers._answered_by already makes about a hint
+    naming a model when the address is what is wrong."""
+    monkeypatch.setattr("buy_agent.server.create_server", _refusing(errno.EADDRNOTAVAIL))
+
+    with caplog.at_level(logging.ERROR, logger="buy_agent.server"):
+        assert main(["--port", "8000"]) == 1
+
+    assert "vLLM" not in caplog.text
+    assert "--port 8001" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("given", "says"),
+    [
+        ("99999", "between 0 and 65535"),
+        ("-1", "between 0 and 65535"),
+        ("0.5", "a whole number"),
+    ],
+)
+def test_a_port_no_socket_could_take_is_a_usage_error(given: str, says: str, capsys) -> None:
+    """The rule ``__main__._bounded`` holds for every number the agent takes. Left
+    unbounded, the number went as far as ``socket.bind``, whose ``OverflowError`` is
+    not the ``OSError`` main() reports a refused bind with -- so a mistyped port was
+    the one thing this file's catch-alls exist to prevent: a traceback."""
+    with pytest.raises(SystemExit) as exit_code:
+        main(["--port", given])
+
+    assert exit_code.value.code == 2
+    assert says in capsys.readouterr().err
 
 
 class FakeHttpd:

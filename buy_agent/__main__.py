@@ -25,6 +25,7 @@ from buy_agent.config import (
 )
 from buy_agent.logging_setup import configure_logging
 from buy_agent.models import RankedProduct
+from buy_agent.money import CODES
 from buy_agent.payment import PaymentError
 from buy_agent.providers import PROVIDERS, provider_for
 from buy_agent.rails import RAILS, rail_for
@@ -198,11 +199,19 @@ def build_parser() -> argparse.ArgumentParser:
         type=_checked(parse_currency),
         default=_DEFAULTS.currency,
         metavar="CODE",
+        # The codes spelled out, off ``money``'s own table rather than listed again:
+        # this is the one flag whose value comes from a closed set and cannot carry
+        # ``choices``, since a spelling is folded on the way in ($, usd and USD are one
+        # answer) and argparse would refuse the two that are not the code. Left to the
+        # refusal, the only way to read the set was to get it wrong first -- while the
+        # form has had a picker over the same table all along.
         help="Count this run's prices in this currency, empty for whatever the pages "
-        "quote (the default). Nothing is converted, so a price in any other currency "
-        "is one this run cannot place: it scores neutral, sinks in a price sort and "
-        "passes every limit. Naming one your pages never quote is the way to ask for "
-        "a report whose price criterion is entirely assumed, and the run says so.",
+        f"quote (the default). One of: {', '.join(sorted(CODES))} -- or any spelling "
+        "a page uses for one of them ($, usd, euros). Nothing is converted, so a price "
+        "in any other currency is one this run cannot place: it scores neutral, sinks "
+        "in a price sort and passes every limit. Naming one your pages never quote is "
+        "the way to ask for a report whose price criterion is entirely assumed, and "
+        "the run says so.",
     )
     parser.add_argument(
         "--source",
