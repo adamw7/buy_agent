@@ -25,6 +25,36 @@
       }
     </div>
 
+    <!-- Under the figures, because it is about the one on the left of them: the
+         headline price is one of these, and until now the other listings the run
+         read were merged away with nothing saying they had existed. The summary is
+         Python's sentence and so is every amount inside (ADR-0058). -->
+    @if (product().offers_label; as spread) {
+      <details class="offers">
+        <summary>{{ spread }}</summary>
+        <ul>
+          @for (offer of product().offers; track $index) {
+            <li>
+              <span class="offer-price">{{ offer.price_label }}</span>
+              @if (offer.seller) {
+                <span class="offer-seller">{{ offer.seller }}</span>
+              }
+              @if (offer.url) {
+                <a
+                  class="source"
+                  [href]="offer.url"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  aria-label="The page this price was printed on"
+                  >source</a
+                >
+              }
+            </li>
+          }
+        </ul>
+      </details>
+    }
+
     @if (product().notes) {
       <p class="notes">{{ product().notes }}</p>
     }

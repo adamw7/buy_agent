@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any, TypeVar, cast, get_args
 
@@ -14,10 +15,12 @@ from buy_agent.agent import (
     Checkpoint,
     ModelUnavailableError,
     every_step_passes,
+    journal_for,
 )
+from buy_agent.bounds import Noticed, notice
 from buy_agent.chat import release
 from buy_agent.config import LIMITS, AgentConfig, parse_currency, parse_region
-from buy_agent.models import Product, Removal, dominant_currency
+from buy_agent.models import Offer, Product, Removal, dominant_currency
 from buy_agent.money import CODES, amount_label
 from buy_agent.payment import (
     Cart,
@@ -39,6 +42,7 @@ from buy_agent.sources import Source, format_sources, parse_sources
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from buy_agent.journal import Change
     from buy_agent.models import RankedProduct
     from buy_agent.providers import InstalledModel
 
@@ -111,6 +115,22 @@ PAY_STATUS: dict[type[Exception], int] = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class _Reported:
+    """How a finished run is being reported: what it was ranked by, how much of it is
+    highlighted, and on which scale it is priced.
+
+    One value rather than four arguments because both doors carry all four and neither
+    carries one without the rest -- a run and a re-sort answer the same shape, and that
+    is the shape (ADR-0035).
+    """
+
+    top_n: int
+    sort_by: str
+    weights: RankingWeights
+    currency: str | None = None
+
+
 class ApiError(Exception):
     """A failure with the HTTP status the client should be told about (ADR-0033)."""
 
@@ -169,6 +189,8 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         min_rating=_read(data, "min_rating", defaults.min_rating, _bounded(float)),
         min_reviews=_read(data, "min_reviews", defaults.min_reviews, _bounded(int)),
         cache_ttl=_read(data, "cache_ttl", defaults.cache_ttl, _bounded(float)),
+        # What this run reported, kept so the next one can say what moved (ADR-0060).
+        journal=_read(data, "journal", defaults.journal, _as_bool),
         # Paying is off unless a request asks for it, and the rail decides what asking
         # costs -- the default one charges nobody.
         pay=_read(data, "pay", defaults.pay, _as_bool),
@@ -200,6 +222,9 @@ def run_search(
     # What the run took out, in the order it took it: the answer says why a short report
     # is short, and nothing but this list is keeping it (ADR-0055).
     removals: list[Removal] = []
+    # Opened before the run and asked after it, so what it hands back is the *last* run
+    # of this search rather than this one (ADR-0060).
+    journal = journal_for(request, config)
     try:
         agent = agent_factory(config)  # type: ignore[arg-type]
         ranked = agent.run(
@@ -219,11 +244,10 @@ def run_search(
     return _run_payload(
         request,
         ranked,
-        config.top_n,
-        sort_by,
-        config.weights,
+        _Reported(config.top_n, sort_by, config.weights, config.currency or None),
         removals=removals,
-        currency=config.currency or None,
+        changes=journal.against([entry.product for entry in ranked]),
+        compared_with=journal.compared_with(),
     )
 
 
@@ -246,9 +270,10 @@ def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
         sort_by=cast(SortBy, sort_by),
         currency=currency or None,
     )
-    # A re-sort runs no pipeline, so it removed nothing: the page keeps the list the
-    # run itself reported rather than being handed an empty one (ADR-0035, ADR-0055).
-    return _run_payload(request, ranked, top_n, sort_by, weights, currency=currency or None)
+    # A re-sort runs no pipeline, so it removed nothing and compared nothing: the page
+    # keeps the lists the run itself reported rather than being handed empty ones
+    # (ADR-0035, ADR-0055, ADR-0060).
+    return _run_payload(request, ranked, _Reported(top_n, sort_by, weights, currency or None))
 
 
 def mandate_support() -> bool:
@@ -329,25 +354,32 @@ def _same_price(approved: Mapping[str, Any], price: float) -> bool:
 def _run_payload(
     request: str,
     ranked: Sequence[RankedProduct],
-    top_n: int,
-    sort_by: str,
-    weights: RankingWeights,
+    reported: _Reported,
     *,
     removals: Sequence[Removal] = (),
-    currency: str | None = None,
+    changes: Sequence[Change] = (),
+    compared_with: str | None = None,
 ) -> dict[str, Any]:
-    """The shape a finished run answers with, however it was finished (ADR-0055)."""
+    """The shape a finished run answers with, however it was finished (ADR-0055,
+    ADR-0060)."""
     return {
         "request": request.strip(),
         "count": len(ranked),
-        "top_n": top_n,
-        "sort_by": sort_by,
-        "weights": weights.fractions,
-        "products": results_payload(ranked, currency),
+        "top_n": reported.top_n,
+        "sort_by": reported.sort_by,
+        "weights": reported.weights.fractions,
+        "products": results_payload(ranked, reported.currency),
         # Beside the products rather than among them: these are the candidates that are
         # not products of this run any more, each with Python's own sentence saying what
         # took it (ADR-0055).
         "dropped": [removal.model_dump() for removal in removals],
+        # And what the last run of this same search said, where there was one: the
+        # reason to run a search twice is that a price moved (ADR-0060).
+        "changes": [change.model_dump() for change in changes],
+        # The day being compared against, as the panel's heading names it -- null where
+        # no run of this search was written down, which is a first run and a journal
+        # that is off alike.
+        "compared_with": compared_with,
     }
 
 
@@ -359,8 +391,18 @@ def results_payload(
     return [product_payload(entry, currency) for entry in ranked]
 
 
+def offer_payload(offer: Offer) -> dict[str, Any]:
+    """One listing the sources printed, as JSON (ADR-0058).
+
+    Shaped here rather than dumped, for ``price_label``'s reason: how an amount is
+    written is Python's (ADR-0012), and an offer's figure is written the way the
+    headline's is or the card has two spellings of one thing.
+    """
+    return {**offer.model_dump(), "price_label": amount_label(offer.price, offer.currency)}
+
+
 def product_payload(entry: RankedProduct, currency: str | None = None) -> dict[str, Any]:
-    """One ranked product as JSON (ADR-0012, ADR-0033, ADR-0043)."""
+    """One ranked product as JSON (ADR-0012, ADR-0033, ADR-0043, ADR-0058)."""
     terms, cannot_pay = terms_for(entry.product, currency)
     return {
         "cannot_pay": cannot_pay,
@@ -373,8 +415,14 @@ def product_payload(entry: RankedProduct, currency: str | None = None) -> dict[s
         # (ADR-0041).
         "breakdown": entry.breakdown.model_dump(),
         **entry.product.model_dump(),
+        # After the dump, which carries the offers as they are: what the card needs is
+        # each one's amount written out, which is Python's to write (ADR-0058).
+        "offers": [offer_payload(offer) for offer in entry.product.offers],
         "price_label": entry.product.price_label(),
         "rating_label": entry.product.rating_label(),
+        # "3 listings, 129.00-149.00 USD", or null where one page priced it and a
+        # spread would be the headline price said twice.
+        "offers_label": entry.product.offers_label(),
     }
 
 
@@ -405,6 +453,8 @@ def defaults_payload() -> dict[str, Any]:
         "min_rating": defaults.min_rating,
         "min_reviews": defaults.min_reviews,
         "cache_ttl": defaults.cache_ttl,
+        # Whether this run is written down for the next one to be compared with.
+        "journal": defaults.journal,
         "region": defaults.region,
         # Blank means "whatever the pages quote", which is the vote ADR-0043 settled
         # the scale by; the picker offers every code a run could be counted in.
@@ -436,6 +486,34 @@ def limits_payload() -> dict[str, dict[str, int]]:
         key: dict(zip(("min", "max"), LIMITS[field], strict=True))
         for key, field in _BOUNDED.items()
     }
+
+
+def bounds_payload(request: str) -> dict[str, Any]:
+    """What the request itself asks for, offered for the form to fill in (ADR-0059).
+
+    The one endpoint besides ``/api/sources`` that runs nothing, and the only one that
+    answers with a value rather than a verdict: these numbers are not applied, are not
+    a refusal, and mark no box. The form puts each in the box that would enforce it and
+    the shopper submits it or clears it.
+
+    A figure outside what that setting takes is dropped here rather than offered: the
+    ranges live at the doors (ADR-0033), and pre-filling a box with a number the form
+    would then mark is a mark on something nobody typed.
+    """
+    return {
+        "request": request,
+        "noticed": [
+            {"bound": seen.bound, "value": seen.value, "note": seen.note}
+            for seen in notice(request)
+            if _takeable(seen)
+        ],
+    }
+
+
+def _takeable(seen: Noticed) -> bool:
+    """Whether the setting this was noticed for would accept the figure (ADR-0033)."""
+    minimum, maximum = LIMITS[seen.bound]
+    return minimum <= seen.value <= maximum
 
 
 def sources_payload(spec: str) -> dict[str, Any]:

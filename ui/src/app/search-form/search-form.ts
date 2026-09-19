@@ -6,6 +6,7 @@ import { FormsModule } from '@angular/forms';
 import type {
   AgentDefaults,
   BackendOption,
+  BoundsCheck,
   Limit,
   ModelSource,
   ModelStatus,
@@ -118,6 +119,10 @@ export class SearchForm {
   readonly checked = input<SourcesCheck | null>(null);
   /** A value a run was refused for, to mark beside the field it came from. */
   readonly rejected = input<Rejection | null>(null);
+  /** What the server read out of the request: bounds it asks for in words. Offered
+   *  and never applied -- the box is filled in and the shopper submits it or clears
+   *  it. Not a `Rejection`: nothing here is wrong, so nothing here marks a box. */
+  readonly noticed = input<BoundsCheck | null>(null);
 
   readonly search = output<SearchOptions>();
   readonly stop = output<void>();
@@ -125,6 +130,8 @@ export class SearchForm {
   readonly refresh = output<ModelSource>();
   /** Ask whether the sources field names sources. */
   readonly check = output<string>();
+  /** Ask what the request itself says about the bounds. */
+  readonly read = output<string>();
   /** A refusal this form has moved past: the box it named holds something else now.
    *  The mark under that box goes when the value does (see `notes`), and the banner
    *  repeating the same sentence has to go with it -- a page showing "'english' is not
@@ -158,6 +165,7 @@ export class SearchForm {
   protected readonly thinking = signal<Thinking>('off');
   protected readonly cpuOnly = signal(false);
   protected readonly fetchPages = signal(true);
+  protected readonly journal = signal(true);
   // Paying, and who through.
   protected readonly pay = signal(false);
   protected readonly rail = signal('dry-run');
@@ -267,6 +275,9 @@ export class SearchForm {
     // so it is remembered like the rest.
     cpuOnly: setting(this.cpuOnly, (d) => d.cpu_only, asBoolean),
     fetchPages: setting(this.fetchPages, (d) => d.fetch, asBoolean),
+    // A standing answer about this machine -- whether a shopping history is kept on
+    // it -- so it is remembered like the rest.
+    journal: setting(this.journal, (d) => d.journal, asBoolean),
     // Checked against the rails this server offers, for the reason `provider` is:
     // a name remembered by a browser and since dropped leaves the picker matching
     // nothing and the address field describing a rail nobody chose.
@@ -426,6 +437,24 @@ export class SearchForm {
     return problems;
   });
 
+  /** The bounds the request asks for, while the answer is still about what the request
+   *  box holds: text since typed over is a reading of a different question. */
+  private readonly noticedNow = computed(() => {
+    const check = this.noticed();
+    return check && check.request === this.request().trim() ? check.noticed : [];
+  });
+
+  /** What to say under a box holding a number nobody typed, by the key it is sent
+   *  under. Python's sentence, and a hint rather than a mark: nothing is wrong. */
+  protected noticedNote(key: string): string {
+    return this.noticedNow().find((bound) => bound.bound === key)?.note ?? '';
+  }
+
+  /** Which offers this form has already acted on, so a box the shopper then cleared
+   *  is not filled in again on the next render. Keyed by the setting and the figure,
+   *  so a re-worded request offering a different number is a new offer. */
+  private readonly offered = new Set<string>();
+
   /** What the server said about the sources field, while it is still about what the field holds. */
   private readonly sourcesProblem = computed(() => {
     const checked = this.checked();
@@ -502,6 +531,27 @@ export class SearchForm {
       }
     });
 
+    // Fill in a bound the request asked for in words, once, and only where the box is
+    // empty: offering is the whole of it, so a box the shopper has typed in or cleared
+    // is theirs. The panel opens with it, since an offer nobody can see is not one.
+    effect(() => {
+      const offers = this.noticedNow();
+      untracked(() => {
+        for (const bound of offers) {
+          const row = this.numberFields.find((field) => field.key === bound.bound);
+          const mark = `${bound.bound}=${bound.value}`;
+          if (!row || this.offered.has(mark)) {
+            continue;
+          }
+          this.offered.add(mark);
+          if (row.value() === null) {
+            row.value.set(bound.value);
+            this.advanced.set(true);
+          }
+        }
+      });
+    });
+
     // `stillSent` reads every field, so this re-runs on any of them changing -- which
     // is exactly when a refusal stops being about what is on screen.
     effect(() => {
@@ -555,6 +605,7 @@ export class SearchForm {
       // a switch that run cannot honour is not a setting it had.
       cpu_only: this.takesCpuOnly() ? this.cpuOnly() : undefined,
       fetch: this.fetchPages(),
+      journal: this.journal(),
       pay: this.pay(),
       rail: this.rail(),
       merchant_url: this.merchantUrl().trim(),
@@ -577,6 +628,8 @@ export class SearchForm {
 
   protected useExample(example: string): void {
     this.request.set(example);
+    // The same reading a typed request gets: an example is the request now.
+    this.requestChanged();
   }
 
   /** Another provider was picked: its model and its address come with it. */
@@ -595,6 +648,11 @@ export class SearchForm {
     if (option) {
       this.merchantUrl.set(option.endpoint);
     }
+  }
+
+  /** The request was typed and left: ask the server what it asks for in words. */
+  protected requestChanged(): void {
+    this.read.emit(this.request().trim());
   }
 
   /** The sources field was left: ask the server what it makes of what it holds. */

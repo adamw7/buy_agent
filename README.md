@@ -91,6 +91,7 @@ python -m buy_agent "espresso machine" --model qwen2.5 --results 15 --top 5
 python -m buy_agent "running shoes" --sort-by price --json results.json
 python -m buy_agent "wireless earbuds" --source rtings.com --source @mkbhd
 python -m buy_agent "headphones" --max-price 200 --min-rating 4.5 --min-reviews 500
+python -m buy_agent "espresso machine" --compare          # ...and what moved since last time
 ```
 
 | Flag | Default | Meaning |
@@ -109,6 +110,8 @@ python -m buy_agent "headphones" --max-price 200 --min-rating 4.5 --min-reviews 
 | `--min-rating` | no limit | Report nothing rated below this, out of 5 |
 | `--min-reviews` | no limit | Report nothing whose rating averages fewer reviews |
 | `--cache-ttl` | `86400` | Seconds a page, and the model's answer about it, stay usable on disk; `0` is off |
+| `--journal` / `--no-journal` | `--journal` | Write this run down, so the next run of the same search can say what moved |
+| `--compare` | off | Report what is cheaper, dearer, new or gone since the last run of this search |
 | `--temperature` | `0.0` | Model temperature, 0-2; extraction is a copying task |
 | `--num-ctx` | `16384` | Context window in tokens (Ollama only) |
 | `--model-timeout` | `600` | Seconds to wait for one answer; asked once, so this is the whole wait |
@@ -425,6 +428,75 @@ The cost is honest and worth knowing: a day-old entry is a day-old price,
 reported as current, and a day-old answer is that same figure one step further
 from the source. `--cache-ttl 0` is the answer when the figures have to be live.
 
+### ...and it says what moved
+
+The reason to run the same search twice is that a price may have moved, and both
+of the things above exist to make the *next* run cheaper rather than to remember
+what the last one said. A third directory does that one: `runs/`, beside `pages/`
+and `answers/`, holding a name, a price and a currency per product and nothing
+else.
+
+```powershell
+python -m buy_agent "espresso machine" --compare
+```
+
+```
+==============================================================
+WHAT CHANGED SINCE 11 SEP
+==============================================================
+  Sage Bambino Plus                329.00 USD, 20.00 USD cheaper than on 11 Sep.
+  Gaggia Classic Evo Pro           449.00 USD, unchanged since 11 Sep.
+  Breville Barista Express         699.00 USD, and not in the run of 11 Sep.
+  De'Longhi Dedica                 Reported at 199.00 USD on 11 Sep, and not in
+                                   this run.
+==============================================================
+```
+
+It is not a third kind of cache entry, and the differences are the whole of the
+design ([ADR-0060](docs/adr/0060-keep-a-run-journal-beside-the-cache-not-in-it.md)).
+It **never expires** -- a record that did would be no use for the one question it
+answers -- and is bounded by a *count* instead: ten runs per search, and two
+hundred searches, the least recently run one out first. Pruning oldest-first, the
+way the cache does, would delete exactly the entry a comparison wants.
+
+A search is the request *and* what shaped the question -- the region, the scale,
+the sources, the three bounds -- so `--max-price 200` has a history of its own and
+is never compared against an unbounded run. Deliberately *not* the model or the
+provider: those decide how well the question was answered rather than what was
+asked, and keying on them would make every change of model a search starting over.
+
+`--no-journal` writes nothing down, `$BUY_AGENT_CACHE_DIR`'s `runs/` is where it
+all is, and deleting that directory throws the whole history away. The browser
+shows the same comparison as a panel under the results, in the same sentences.
+
+### What each page priced it at
+
+The agent reads up to ten pages a run and several of them price the same
+product. It used to keep one figure and throw the rest away: two pages quoting
+129 and 149 left one price in the report and nothing anywhere saying the other
+had existed.
+
+Every listing that survived grounding is now kept as an **offer** -- the price,
+the currency it was written in, the shop quoting it and the page it was on -- and
+a merge keeps both listings' offers whole, the way it already keeps both
+listings' quotes. The card says **3 listings, 129.00-149.00 USD** and opens onto
+each one with a `source` link; the CLI report has an `offers` line under the
+price ([ADR-0058](docs/adr/0058-keep-every-listing-a-product-was-priced-at.md)).
+
+The headline price does not move, and neither does anything downstream of it: the
+ranking, the bounds and the currency vote all read one price, or ADR-0043 would
+have two answers to "what is this priced at". What the offers change is *paying*.
+The cart is built from the listing the headline price came off, so it names the
+shop that quoted that figure and links the page that printed it -- where before, a
+winning listing that named no shop would take the name of one selling at
+something else entirely.
+
+That last mistake can still be *displayed*: a merged product's `seller` is still
+whichever listing supplied one, so a card can read "349.00 USD" beside a shop that
+quoted 329.00. What changed is that it is now visible -- the spread is directly
+under the price, and the confirmation, the cart and the receipt all read the
+offer's merchant rather than that field.
+
 ### What the pages say
 
 Every product in the report carries up to three quotes: the `says` lines under
@@ -660,6 +732,7 @@ curl -X POST http://127.0.0.1:8000/api/search `
 | `GET /api/config` | The form's defaults -- the same ones `--help` prints |
 | `GET /api/models` | What a named server is serving, or why it could not be asked |
 | `GET /api/sources` | Whether a Trusted sources field names sites, and what is wrong if not |
+| `GET /api/bounds` | What the request itself asks for -- offered for the form to fill in, never applied |
 | `POST /api/search` | One run, as JSON |
 | `POST /api/rank` | A finished run's products in another order |
 | `POST /api/pay` | One of those products bought, given the approval the page witnessed |
@@ -864,7 +937,9 @@ no model, no network and no run
   step of a run can spend money it was not asked to (ADR-0046). Paying never
   asks the model, which is "never pay on an unverified number" as an import.
   And the model seam carries a prompt, a schema and an answer without ever
-  knowing what an answer means (ADR-0038).
+  knowing what an answer means (ADR-0038). The seams reach the domain types and
+  nothing else above them -- `journal.py` writes products down, so it names the
+  vocabulary every layer already passes around (ADR-0060).
 - **One seam, one module.** `mandates.py` alone imports the AP2 SDK (ADR-0046),
   `providers.py` alone a model client (ADR-0029), `search.py` alone a search
   library (ADR-0021, ADR-0057), `fetch.py` alone the HTML parser. The four
@@ -929,11 +1004,16 @@ suite every Saturday are in [Tests](docs/testing.md).
   headphones names all eight, and nothing stops a verdict moving between them.
   The `source` link beside each quote is that page, which is what makes this one
   checkable by eye rather than only describable (ADR-0042).
-- **A bound has to be typed, not implied.** "under $200" in the request shapes
-  the search query and nothing else; `--max-price 200` is what enforces it. And
-  a product whose price no page printed is inside every budget, deliberately --
-  a blank is the extractor having missed something more often than it is a $900
-  tag.
+- **A bound has to be typed, not implied -- but it is now offered.** "under $200"
+  in the request still shapes the search query and nothing else; `--max-price 200`
+  is what enforces it. What the run does do is *read* the request in ordinary
+  Python and say so: the CLI logs "your request says under $200 -- `--max-price
+  200` is what would enforce it", and the browser pre-fills that box for the
+  shopper to submit or clear (ADR-0059). Nothing is ever applied that was not
+  typed, because a model asked to read "200 hours of battery" as a budget drops
+  every product in the run and reports only that nothing was found. And a product
+  whose price no page printed is inside every budget, deliberately -- a blank is
+  the extractor having missed something more often than it is a $900 tag.
 - **A cached page is as current as its age, and so is a cached answer.** Both
   are kept for a day by default, so a figure can be up to that stale while
   reading as current, and the reading of it is a day old too. The two expire on
@@ -957,8 +1037,10 @@ suite every Saturday are in [Tests](docs/testing.md).
   correctly and bind to a price a merchant signed, but *which* merchant is the
   site the product page came from, and the product is whatever the extraction
   filed under that name -- both of which the limitation at the top of this list
-  applies to. The approval prompt shows all three so the mistake is visible
-  before it is signed; nothing downstream can catch it.
+  applies to. It is at least the *right* page now: the cart is built from the
+  offer the headline price came off (ADR-0058), so a merge can no longer name the
+  shop that quoted a different figure. The approval prompt shows all three so the
+  mistake is visible before it is signed; nothing downstream can catch it.
 - **No real money has moved through the `http` rail.** It has been driven end to
   end against a purpose-built local counterparty -- one that signs the checkout,
   receives both mandates and checks that the Payment Mandate binds to the

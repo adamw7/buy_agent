@@ -112,6 +112,28 @@ describe('ProductCard', () => {
     expect(card.textContent).toContain('unrated');
   });
 
+  it("lists the other listings the run read, in Python's words", async () => {
+    /* The half a merge used to throw away: the headline price is one of these
+       (ADR-0058). Every amount in it is Python's, as the headline is. */
+    const card = await render(SONY);
+    const offers = card.querySelector('.offers')!;
+
+    expect(offers.querySelector('summary')!.textContent).toContain('2 listings, 328.00-349.00 USD');
+    expect([...offers.querySelectorAll('.offer-price')].map((row) => row.textContent)).toEqual([
+      '328.00 USD',
+      '349.00 USD',
+    ]);
+    expect(offers.querySelector('.offer-seller')!.textContent).toContain('Amazon');
+    expect(offers.querySelectorAll('a.source')).toHaveLength(2);
+  });
+
+  it('says nothing about listings where one page priced it', async () => {
+    /* A spread of one is the headline price said twice, so Python sends null. */
+    const card = await render(product({ offers: [], offers_label: null }));
+
+    expect(card.querySelector('.offers')).toBeNull();
+  });
+
   it('links to where the product was found, in a new tab', async () => {
     const link = (await render(SONY)).querySelector<HTMLAnchorElement>('h3 a')!;
     expect(link.href).toBe('https://www.example.com/sony');

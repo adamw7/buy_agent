@@ -58,6 +58,7 @@ python -m buy_agent "gaming laptop" --provider vllm      # the other model serve
 python -m buy_agent "running shoes" --sort-by price --json results.json
 python -m buy_agent "headphones" --max-price 200 --min-rating 4.5   # bounds, enforced
 python -m buy_agent "headphones" --cache-ttl 0                      # every page fresh
+python -m buy_agent "espresso machine" --compare                   # ...and what moved since
 python -m buy_agent "wireless earbuds" --source rtings.com --source @mkbhd
 
 pip install -r requirements-ap2-deps.txt        # what the AP2 SDK imports
@@ -170,6 +171,25 @@ on the server's disk. That second one is not merely a setting: its presence is
 what puts a run into AP2's human-not-present mode, because the open mandate *is*
 the authorisation and a second switch saying "run unattended" would only fail
 without the file anyway (ADR-0046).
+
+`runs/` is the third directory under that same root and is deliberately *not* a
+third kind of cache entry (ADR-0060). `cache.py` holds what a run can *reuse* and
+expires all of it on one clock, because a stale page is not evidence; a journal is
+a record kept for a person to read, and an expiry would take away the one question
+it answers. So `journal.py` owns it, it never expires, and it is bounded by a
+count instead -- `MAX_RUNS` runs of one search and `MAX_SEARCHES` searches, the
+least recently *run* one out first, which is ADR-0052 turned around because
+pruning oldest-first deletes exactly the entry a comparison wants. What it holds
+is a name, a price and a currency per product: what a comparison needs and nothing
+else, a shopping history on disk being a different object from a page cache.
+`journal` is the ordinary setting that turns it off, `--compare` is the CLI
+reading it, and the run payload carries `changes` and `compared_with` for the
+panel. `agent.journal_for` is the only place a config becomes a key, and that key
+is what was *asked* -- the request, the region, the scale, the backend, the
+sources, the three bounds and the count -- and never how it was answered: keying
+on the model would make every change of model a search with no history at all,
+which is the opposite reading from `_asks_the_same_question`'s and deliberately
+so.
 
 `$BUY_AGENT_BACKEND` moves which search backend a run asks, and each backend has
 its own variables behind it -- `$SEARXNG_HOST`, and `$BRAVE_HOST`/`$BRAVE_API_KEY`
@@ -414,8 +434,10 @@ was ever held to.
 | `extraction.py` | Both prompts, both chains, name cleaning, deduplication |
 | `fetch.py` | Streams result pages up to a ceiling, keeps the lines quoting a figure or passing judgement, and tallies how the rest failed |
 | `cache.py` | What a run can reuse from the last one: the page text it read (ADR-0040) and the answers it got (ADR-0044) -- and nothing else |
+| `journal.py` | What past runs of this same search reported, and what moved since (ADR-0060) -- a record read by a person, which is why it is not a third cache kind |
 | `verification.py` | Drops products, figures and quotes absent from the sources; links what is left |
 | `constraints.py` | The bounds the shopper set, applied to the products before they are ranked |
+| `bounds.py` | What the request itself asks for, read in Python and offered at both doors (ADR-0059) -- never applied |
 | `ranking.py` | Scoring and sorting, and what each score is made of; no LLM involved |
 | `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain), and which currency a set is counted in |
 | `money.py` | Every currency table: how a spelling is placed, which ones a page is scanned for, how an amount is written and counted (ADR-0054) |
@@ -429,7 +451,7 @@ was ever held to.
 | `api.py` | Request options in, ranked products out -- the web-facing half worth testing |
 | `server.py` | A stdlib HTTP server: the JSON API, the event stream, the built UI |
 
-### Seventeen conventions
+### Nineteen conventions
 
 - **A model server is one row in one table, reached one way.**
   `providers.PROVIDERS` holds each server whole -- its defaults (`model`,
@@ -605,6 +627,25 @@ was ever held to.
   other's group. `opinions` is deliberately outside the scheme, in
   `_merge_opinions`: two listings' quotes are both kept, two reviewers being no
   conflict, and each was grounded on its own before the merge.
+- **Every listing a product was priced at is kept, and the cart is for one of
+  them** (ADR-0058). `models.Offer` is a price, the currency it was written in,
+  the shop quoting it and the page it was on; `deduplicate` seeds one per listing
+  -- the last point at which one `Product` is still one listing, and after
+  `ground`, so no offer carries a figure the sources do not back -- and `_combine`
+  keeps both listings' offers whole through `_merge_offers`. `offers` is therefore
+  deliberately *not* a row in `_MERGEABLE_FIELDS`, which is the table of fields a
+  *weaker* listing fills a gap with: two shops are no conflict, exactly as two
+  reviewers are not, which is `_merge_opinions`' argument one field over. The
+  headline price does not move and nothing downstream reads the offers --
+  `rank_products`, `Constraints` and `dominant_currency` read `Product.price`, or
+  ADR-0043 would have two answers to "what is this priced at". What they do decide
+  is *who is paid*: `payment.offer_for` matches the headline price and its currency
+  (the pair, ADR-0022) and the cart's merchant and page come off that listing, so a
+  merge that filled a blank seller from another listing can no longer name the shop
+  selling at a different figure. `Product.offers_label` writes the spread -- over
+  the offers on the run's own scale, since two currencies have nothing between them
+  -- and both front ends read that sentence rather than formatting an amount.
+
 - **`GENERIC_WORDS` is shared, and edits to it pull in two directions.**
   `verification.py` imports the set from `extraction.py`, along with
   `NAME_TOKENS`, so merging and grounding agree on what a name's words are.
@@ -676,6 +717,24 @@ was ever held to.
   `ranking.CRITERIA` pairing each with the share it weighs (ADR-0045). Three
   numbers under a total they do not add up to are otherwise unreadable, and a
   product carried by its price looks exactly like one carried by its rating.
+- **A bound written in the request is offered and never applied** (ADR-0059).
+  `bounds.notice` reads "under $200", "at least 4 stars", "over 500 reviews" out of
+  the request in ordinary Python -- the work `clean_products` does, and never the
+  model's, because a model asked to read "200 hours of battery" as a budget drops
+  every product in the run and the report then says only that nothing was found.
+  Each shape is anchored on the unit that makes it a bound: a rating beside its
+  scale and a count beside somebody counted, which is `verification`'s rule for a
+  figure off a page, and a budget beside a currency mark off `money`'s own tables,
+  or beside nothing that starts another word, or beside one of the joins a sentence
+  carries on in. Both doors *offer* it: `__main__` logs one line naming the flag,
+  being one of the two modules allowed to name one, and `api.bounds_payload`
+  answers `GET /api/bounds` for the form to pre-fill the box with -- once, only
+  where the box is empty, under Python's own sentence and as a hint rather than a
+  mark, nothing here being wrong (ADR-0033). `bounds.py` knows nothing of
+  `config.LIMITS`, so a figure the setting would refuse is dropped at the door
+  rather than pre-filled into a box the form would then mark. Nothing may ever
+  apply one: the moment one is applied unseen, the silent empty report is back.
+
 - **The report says what it is ordered by**, in its heading, for every criterion
   and not only the surprising ones. `ranking.ORDERINGS` holds the phrase per
   `SortBy` -- "cheapest first", not "by price", the direction being the half a
@@ -911,6 +970,13 @@ excepted -- there the flag is the right name for the flag.
   is read in the currency the run's own prices are counted in, and a price
   outside it is a figure the bound cannot judge -- so it passes too, and the
   line the run logs names the currency (ADR-0043).
+- **`journal`** is an ordinary boolean with one thing worth saying at both doors:
+  what it writes down is a shopping history, so `--journal`'s help names the
+  directory and says deleting it throws the whole of it away, and the form's box
+  says the same in a sentence. `--compare` beside it is not an `AgentConfig` field
+  at all -- it decides what the *report* prints, the way `--json` does -- so it
+  lives on the CLI alone, while the browser is handed `changes` on every run and
+  draws the panel when there is one (ADR-0060).
 - **The four paying settings.** `pay` is the master switch and defaults to
   `False`, so nothing about a run changes without it. `rail` is checked against
   `rails.RAILS` at both doors, the way `provider` is checked against `PROVIDERS`
@@ -956,7 +1022,8 @@ everything else to the built Angular app, unknown paths falling back to
 | --- | --- |
 | `GET /api/config` | The form's defaults -- the same ones `--help` prints |
 | `GET /api/models` | What a named server is serving, or why it could not be asked and what to do about it |
-| `GET /api/sources` | Whether a Trusted sources field names sites -- the one endpoint that runs nothing |
+| `GET /api/sources` | Whether a Trusted sources field names sites -- one of the two endpoints that run nothing |
+| `GET /api/bounds` | What the request itself asks for, offered for the form to fill in and never applied |
 | `POST /api/search` | One run, as JSON |
 | `POST /api/rank` | A finished run's products in another order -- runs no pipeline |
 | `POST /api/pay` | One of those products bought, given the approval the page witnessed -- runs no pipeline either |
@@ -1145,6 +1212,16 @@ rules a change to them may not break.
   its own, which is ADR-0012 on this payload. It is drawn under the "Nothing came
   back" banner too, that run being the one the question is loudest on -- and it
   survives a re-sort, which answers an empty list because it removed nothing.
+- **What moved since the last run is listed the same way** (ADR-0060). `changes`
+  and `compared_with` travel with `dropped` and are carried across a re-sort for
+  the same reason: a re-sort ran no pipeline, so it compared nothing and answers
+  empty rather than speaking for a run it never saw. The panel counts and groups;
+  every sentence in it is the journal's own, and `movement` is a word to colour by
+  and never one to compose from.
+- **What each page priced a product at is under the price it is a spread of**
+  (ADR-0058). `offers_label` is Python's sentence and so is each listing's
+  `price_label` -- the card formats no amount, exactly as it formats no unknown
+  one.
 - **Buying takes two clicks, and the second restates the cart.** Title, the cart's
   `pay_label`, its `pay_merchant`, rail, and whether anybody is charged -- the cart
   the mandates will carry, never the product's own figures (ADR-0043), which is why
@@ -1159,6 +1236,12 @@ rules a change to them may not break.
 - **`pay` is the one setting `localStorage` does not remember.** The rest are
   standing answers about this machine; that one would arm a run nobody asked for.
   Every storage call is wrapped, so a browser refusing storage still has a form.
+- **A bound the request asked for in words fills its box once, and marks
+  nothing** (ADR-0059). `noticedNow` drops an answer about a request the box no
+  longer holds, the way the sources check does; `offered` is what keeps a box the
+  shopper then cleared from being filled in again, since re-offering a figure
+  somebody deleted is enforcing it slowly. The note under the box is Python's and
+  is a hint rather than a problem: nothing is wrong, so `canSubmit` is untouched.
 - **The form refuses on the server's rules and invents none of its own**
   (ADR-0033). `problems()` gates `canSubmit` off the ranges that came down with
   the defaults and off what `GET /api/sources` last said. A field whose `off()` is
@@ -1367,8 +1450,11 @@ the other is otherwise invisible to both suites. It asserts that
   subclass-first, and deliberately *not* the three in `_STATUS`; and
   `buy_agent.mandates` is the only module in the package that imports `ap2`;
 - `agent.types.ts` mirrors `defaults_payload`, `product_payload`, the
-  `breakdown` a product carries, the `Opinion`s it quotes, the `Removal`s the run
-  reports and `run_search` field for field;
+  `breakdown` a product carries, the `Opinion`s it quotes, the `Offer`s each page
+  priced it at (ADR-0058), the `Removal`s the run reports, the `Change`s it says
+  moved since the last one and what `bounds_payload` read out of the request
+  (ADR-0059, ADR-0060), and `run_search` field for field -- and every bound a
+  request can be read as asking for is one the form draws a box for;
 - the form holds a number to a range for every range `limits_payload` ships and
   writes no `min` or `max` of its own into its template, and every key
   `parse_options` reads is one `SearchOptions` sends -- a key it reads and the
@@ -1487,7 +1573,10 @@ twenty-second test that keeps them honest:
   the config (which is what lets `rank_products`, `ground` and `Constraints` be
   tested with three arguments and no environment), the pipeline never pays
   (ADR-0046), paying never asks the model, and the model seam knows nothing
-  about products (ADR-0038);
+  about products (ADR-0038). The seams reach the domain and nothing else above
+  them, which is `journal.py`'s doing and worth saying: what it writes down is
+  products, so it names the domain types every layer already passes around
+  (ADR-0060) -- the three tables keep the stricter rule of their own below;
 - **one seam, one module**: `mandates.py` alone imports `ap2` (ADR-0046),
   `providers.py` alone a model client (ADR-0029), `search.py` alone a search
   library (ADR-0021, ADR-0057), `fetch.py` alone the HTML parser, the four that

@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel
 
 from buy_agent import mandates
-from buy_agent.models import Product, comparable_price, dominant_currency
+from buy_agent.models import Offer, Product, comparable_price, dominant_currency
 from buy_agent.money import amount_label, minor_units, placeable
 
 if TYPE_CHECKING:
@@ -153,9 +153,42 @@ def terms_for(
         return None, str(exc)
 
 
+def offer_for(product: Product) -> Offer | None:
+    """The listing the headline price came off, where the run kept one (ADR-0058).
+
+    Matched on the price *and* the currency, which is the pair a listing printed
+    (ADR-0022): an offer is the only thing that knows which shop quoted the figure this
+    cart is about, and a merge that filled one listing's blank seller from another's is
+    exactly the case this exists to answer.
+    """
+    return next(
+        (
+            offer
+            for offer in product.offers
+            if offer.price == product.price and offer.currency == product.currency
+        ),
+        None,
+    )
+
+
+def _paid_to(product: Product) -> tuple[str, str]:
+    """Who a payment goes to and the page that quoted the price (ADR-0058).
+
+    Off the offer the headline price came from, falling back to the product itself for
+    anything that reached here without one -- a re-sort's payload, or a run of one
+    listing whose price no page backed.
+    """
+    offer = offer_for(product)
+    if offer is None:
+        return product.seller or _host(product.url), product.url or ""
+    page = offer.url or product.url
+    return offer.seller or _host(page), page or ""
+
+
 def merchant_for(product: Product) -> str:
-    """Who a payment for this product would go to, as the cart will name them (ADR-0046)."""
-    return product.seller or _host(product.url)
+    """Who a payment for this product would go to, as the cart will name them (ADR-0046,
+    ADR-0058)."""
+    return _paid_to(product)[0]
 
 
 def cart_for(product: Product, products: Sequence[Product], config: AgentConfig) -> Cart:
@@ -177,13 +210,16 @@ def cart_for(product: Product, products: Sequence[Product], config: AgentConfig)
     # on the way past, which is the box the form marks (ADR-0033).
     except ValueError as exc:
         raise PaymentError(str(exc), field="products") from exc
+    # The offer being bought names both, rather than the merchant being inferred from
+    # whichever page the product ended up linking to (ADR-0058).
+    merchant, page = _paid_to(product)
     return Cart(
         title=product.name,
         price=price,
         currency=currency,
         amount=amount,
-        merchant=merchant_for(product),
-        url=product.url or "",
+        merchant=merchant,
+        url=page,
         item_id=product.dedup_key.replace(" ", "-")[:120],
     )
 

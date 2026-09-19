@@ -11,6 +11,7 @@ from buy_agent.ranking import CRITERIA, ORDERINGS, RankingWeights
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from buy_agent.journal import Change
     from buy_agent.models import RankedProduct, ScoreParts
     from buy_agent.ranking import SortBy
 
@@ -130,6 +131,10 @@ def log_top_products(
             "     score  : %.3f  (%s)", entry.score, _parts(entry.breakdown, weights)
         )
         _report("     price  : %s", product.price_label())
+        # Under the price it is a spread of, and only where several pages priced it:
+        # what the run read and used to throw all but one of away (ADR-0058).
+        if (offers := product.offers_label()) is not None:
+            _report("     offers : %s", offers)
         _report("     rating : %s", product.rating_label())
         if product.seller:
             _report("     seller : %s", product.seller)
@@ -143,4 +148,27 @@ def log_top_products(
             _report(
                 "     says   : %s%s", opinion.text, f"  -- {opinion.url}" if elsewhere else ""
             )
+    _report(separator)
+
+
+def log_changes(changes: Sequence[Change], since: str | None) -> None:
+    """Log what moved since the last run of this search, one line each (ADR-0060).
+
+    Part of the report and not of the narration: it is an answer somebody asked for, it
+    goes to stdout with the products, and a ``> top.txt`` keeps it. Every sentence in it
+    is the journal's own -- the browser shows the same ones, and two wordings for one
+    judgement is how the two come to disagree.
+    """
+    if not changes or since is None:
+        # Not a warning and not a line: a first run of a search has nothing to compare
+        # against, which is the ordinary case and not a failure.
+        logger.info("Nothing to compare: no earlier run of this search was kept.")
+        return
+
+    separator = "=" * 62
+    _report(separator)
+    _report("WHAT CHANGED SINCE %s", since.upper())
+    _report(separator)
+    for change in changes:
+        _report("  %-32s %s", change.name[:32], change.detail)
     _report(separator)

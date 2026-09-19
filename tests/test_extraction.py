@@ -9,6 +9,7 @@ import pytest
 from buy_agent import verification
 from buy_agent.extraction import (
     _MAX_NAME_LENGTH,
+    _MERGEABLE_FIELDS,
     EXTRACTION_PROMPT,
     GENERIC_WORDS,
     NAME_TOKENS,
@@ -22,7 +23,7 @@ from buy_agent.extraction import (
     looks_like_a_product,
     merge_variants,
 )
-from buy_agent.models import Product, ProductList, Removal, SearchQuery
+from buy_agent.models import Offer, Product, ProductList, Removal, SearchQuery
 from buy_agent.search import SearchResult
 
 from tests.conftest import FakeLLM, said
@@ -821,3 +822,78 @@ def test_deduplicate_records_the_nameless_and_the_folded_apart() -> None:
     )
 
     assert {entry.step for entry in removed} == {"deduplicate", "merge"}
+
+
+# -- the offers a merge keeps (ADR-0058) ---------------------------------------
+
+
+def test_every_listing_that_was_priced_becomes_an_offer() -> None:
+    """One ``Product`` is still one listing at this point, so its own price is the
+    offer it is."""
+    kept = deduplicate(
+        [Product(name="Sony WH-1000XM5", price=329.0, currency="USD", seller="Shop")], 10
+    )
+
+    assert kept[0].offers == [
+        Offer(price=329.0, currency="USD", seller="Shop", url=None)
+    ]
+
+
+def test_a_listing_no_page_priced_is_no_offer() -> None:
+    """Grounding blanks a figure the sources do not back, so there is nothing to
+    record about that listing's price."""
+    assert deduplicate([Product(name="Sony WH-1000XM5")], 10)[0].offers == []
+
+
+def test_a_merge_keeps_both_listings_prices() -> None:
+    """Two shops are no conflict, the way two reviewers are not (ADR-0042): the
+    headline price is still the winner's and the other is no longer thrown away."""
+    merged = deduplicate(
+        [
+            Product(
+                name="Sony WH-1000XM5 Wireless",
+                price=149.0,
+                currency="USD",
+                seller="ShopB",
+                url="https://b.example/p",
+                rating=4.5,
+                review_count=100,
+            ),
+            Product(
+                name="Sony WH-1000XM5",
+                price=129.0,
+                currency="USD",
+                seller="ShopA",
+                url="https://a.example/p",
+            ),
+        ],
+        10,
+    )[0]
+
+    assert merged.price == 149.0
+    assert [(offer.price, offer.seller) for offer in merged.offers] == [
+        (149.0, "ShopB"),
+        (129.0, "ShopA"),
+    ]
+
+
+def test_two_listings_of_one_price_from_one_shop_are_one_offer() -> None:
+    """Two pages quoting the same shop at the same price is one listing seen twice."""
+    merged = deduplicate(
+        [
+            Product(name="Sony WH-1000XM5", price=129.0, currency="USD", seller="ShopA"),
+            Product(
+                name="Sony WH-1000XM5 Wireless", price=129.0, currency="USD", seller="ShopA"
+            ),
+        ],
+        10,
+    )[0]
+
+    assert len(merged.offers) == 1
+
+
+def test_the_offers_are_not_a_field_a_weaker_listing_fills_a_gap_in() -> None:
+    """``_MERGEABLE_FIELDS`` is the table of fields a loser can fill a blank with, and
+    a row there would fill the winner's empty list and lose the winner's own listing."""
+    assert "offers" not in _MERGEABLE_FIELDS
+    assert "opinions" not in _MERGEABLE_FIELDS

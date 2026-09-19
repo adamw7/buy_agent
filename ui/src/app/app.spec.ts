@@ -7,6 +7,7 @@ import { App } from './app';
 import { AgentService } from './agent';
 import { WEIGHTS, defaults, product, receipt, status } from './testing';
 import type {
+  BoundsCheck,
   ModelSource,
   ModelStatus,
   PayOptions,
@@ -58,6 +59,8 @@ const RESULT: SearchResult = {
   weights: WEIGHTS,
   products: [ranked(1, 'Best Kettle'), ranked(2, 'Good Kettle'), ranked(3, 'Other Kettle')],
   dropped: [{ name: 'The 5 best kettles of 2026', step: 'clean', reason: 'Reads as an article.' }],
+  changes: [],
+  compared_with: null,
 };
 
 const RECEIPT = receipt({
@@ -94,8 +97,10 @@ class FakeAgent {
         rank: index + 1,
       })),
       // What `/api/rank` really answers: a re-sort runs no pipeline, so it
-      // removed nothing (ADR-0035).
+      // removed nothing and compared nothing (ADR-0035, ADR-0060).
       dropped: [],
+      changes: [],
+      compared_with: null,
     });
 
   defaults() {
@@ -110,6 +115,15 @@ class FakeAgent {
   checkSources(sources: string) {
     this.sourcesAsked.push(sources);
     return this.sourcesResponse(sources);
+  }
+
+  boundsAsked: string[] = [];
+  boundsResponse: (request: string) => Observable<BoundsCheck> = (request) =>
+    of({ request, noticed: [] });
+
+  checkBounds(request: string) {
+    this.boundsAsked.push(request);
+    return this.boundsResponse(request);
   }
 
   rank(options: RankOptions) {
@@ -977,6 +991,149 @@ describe('App results', () => {
 
     expect(page.textContent).toContain('Nothing came back');
     expect(page.querySelector('.dropped')!.textContent).toContain('Outside the limits you set.');
+  });
+});
+
+describe('App what changed since last time', () => {
+  let agent: FakeAgent;
+
+  beforeEach(() => {
+    localStorage.clear();
+    agent = new FakeAgent();
+    TestBed.configureTestingModule({ providers: [{ provide: AgentService, useValue: agent }] });
+  });
+
+  /** A finished run that has a previous one to be compared with. */
+  const COMPARED: SearchResult = {
+    ...RESULT,
+    compared_with: '11 Sep',
+    changes: [
+      {
+        name: 'Best Kettle',
+        movement: 'cheaper',
+        price_label: '99.00 USD',
+        was_label: '119.00 USD',
+        delta: -20,
+        detail: '99.00 USD, 20.00 USD cheaper than on 11 Sep.',
+      },
+    ],
+  };
+
+  const finished = (result: SearchResult = COMPARED) => ran(agent, 'kettle', result);
+
+  /** Pick a criterion out of the Re-order these control beside the results. */
+  const rankBy = async (fixture: ComponentFixture<App>, criterion: string) => {
+    const select = (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>(
+      'select[name="resort"]',
+    )!;
+    select.value = criterion;
+    select.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+  };
+
+  it("says what moved since the last run, in Python's words", async () => {
+    /* The reason to run the same search twice, and the agent had no memory of
+       having run it at all (ADR-0060). */
+    const page = (await finished()).nativeElement as HTMLElement;
+    const panel = page.querySelector('.changes')!;
+
+    expect(panel.querySelector('summary')!.textContent).toContain('1 change since 11 Sep');
+    expect(panel.textContent).toContain('Best Kettle');
+    expect(panel.textContent).toContain('99.00 USD, 20.00 USD cheaper than on 11 Sep.');
+    expect(panel.querySelector('.moved-cheaper')).not.toBeNull();
+  });
+
+  it('counts more than one the way a reader would read it', async () => {
+    const page = (
+      await finished({
+        ...COMPARED,
+        changes: [
+          ...COMPARED.changes,
+          {
+            name: 'Gone Kettle',
+            movement: 'gone',
+            price_label: null,
+            was_label: '80.00 USD',
+            delta: null,
+            detail: 'Reported at 80.00 USD on 11 Sep, and not in this run.',
+          },
+        ],
+      })
+    ).nativeElement as HTMLElement;
+
+    expect(page.querySelector('.changes summary')!.textContent).toContain('2 changes since');
+  });
+
+  it('shows no panel for a first run of a search', async () => {
+    const page = (await finished(RESULT)).nativeElement as HTMLElement;
+
+    expect(page.querySelector('.changes')).toBeNull();
+  });
+
+  it('keeps what moved when the results are re-ordered', async () => {
+    /* A re-sort ran no pipeline, so it compared nothing and answers empty -- carried
+       across for the reason `dropped` is (ADR-0035, ADR-0060). */
+    const fixture = await finished();
+
+    await rankBy(fixture, 'price');
+
+    const page = fixture.nativeElement as HTMLElement;
+    expect(page.querySelector('.changes')!.textContent).toContain('cheaper than on 11 Sep');
+  });
+});
+
+describe('App reading the request', () => {
+  let agent: FakeAgent;
+
+  beforeEach(() => {
+    localStorage.clear();
+    agent = new FakeAgent();
+    TestBed.configureTestingModule({ providers: [{ provide: AgentService, useValue: agent }] });
+  });
+
+  it('asks the server what the request asks for, when it is left', async () => {
+    const fixture = await render();
+
+    await fill(fixture, 'request', 'kettle under $90', true);
+
+    expect(agent.boundsAsked).toEqual(['kettle under $90']);
+  });
+
+  it('asks nothing about an empty request and drops what it last read', async () => {
+    const fixture = await render();
+    await fill(fixture, 'request', 'kettle under $90', true);
+
+    await fill(fixture, 'request', '', true);
+
+    expect(agent.boundsAsked).toEqual(['kettle under $90']);
+  });
+
+  it('offers what the server read, in the box that would enforce it', async () => {
+    /* Offered and never applied: the form fills the box and the shopper submits it
+       or clears it (ADR-0059). */
+    agent.boundsResponse = (request) =>
+      of({
+        request,
+        noticed: [{ bound: 'max_price', value: 90, note: 'From your request: "under $90".' }],
+      });
+    const fixture = await render();
+
+    await fill(fixture, 'request', 'kettle under $90', true);
+
+    const page = fixture.nativeElement as HTMLElement;
+    const box = page.querySelector<HTMLInputElement>('input[name="max_price"]')!;
+    expect(box.value).toBe('90');
+    expect(page.textContent).toContain('From your request: "under $90".');
+  });
+
+  it('keeps the form working when the server cannot be asked', async () => {
+    agent.boundsResponse = () => throwError(() => new Error('down'));
+    const fixture = await render();
+
+    await fill(fixture, 'request', 'kettle under $90', true);
+
+    const page = fixture.nativeElement as HTMLElement;
+    expect(page.querySelector<HTMLInputElement>('input[name="max_price"]')!.value).toBe('');
   });
 });
 

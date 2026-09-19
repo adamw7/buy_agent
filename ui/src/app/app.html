@@ -61,11 +61,13 @@
     [running]="running()"
     [checking]="checking()"
     [checked]="sourcesCheck()"
+    [noticed]="boundsCheck()"
     [rejected]="rejected()"
     (search)="start($event)"
     (stop)="stop()"
     (refresh)="refreshModels($event)"
     (check)="checkSources($event)"
+    (read)="checkBounds($event)"
     (moved)="dropRefusal()"
   />
 
@@ -189,6 +191,26 @@
         in the sources; or the limits you set may have excluded everything that did. Progress,
         above, says which.
       </p>
+    }
+
+    <!-- Above the removals and below the results: the reason to run the same search
+         twice is that a price moved, and until now the agent had no memory of having
+         run it at all. Every sentence here is Python's, off the journal (ADR-0060). -->
+    @if (found.changes.length && found.compared_with) {
+      <details class="also changes">
+        <summary>
+          {{ found.changes.length }} change{{ found.changes.length === 1 ? '' : 's' }} since
+          {{ found.compared_with }}
+        </summary>
+        <ul class="movements">
+          @for (change of found.changes; track change.name) {
+            <li [class]="'moved-' + change.movement">
+              <span class="moved-name">{{ change.name }}</span>
+              <span class="moved-why">{{ change.detail }}</span>
+            </li>
+          }
+        </ul>
+      </details>
     }
 
     <!-- Under both of those: a run that reported three products and a run that

@@ -274,6 +274,24 @@ def test_sources_with_nothing_to_check_is_the_whole_web(server: str) -> None:
     assert payload == {"sources": "", "error": ""}
 
 
+def test_bounds_answers_what_the_request_asks_for_in_words(server: str) -> None:
+    """The second endpoint that starts nothing, and the only one that answers with a
+    value rather than a verdict (ADR-0059)."""
+    status, payload = get(f"{server}/api/bounds?request=headphones+under+%24200")
+
+    assert status == 200
+    assert payload["request"] == "headphones under $200"
+    assert [bound["bound"] for bound in payload["noticed"]] == ["max_price"]
+    assert "request" not in StubAgent.captured
+
+
+def test_bounds_with_nothing_to_read_answers_nothing(server: str) -> None:
+    status, payload = get(f"{server}/api/bounds")
+
+    assert status == 200
+    assert payload == {"request": "", "noticed": []}
+
+
 def test_a_search_answers_with_ranked_products(server: str) -> None:
     status, payload = post(f"{server}/api/search", {"request": "headphones"})
     assert status == 200

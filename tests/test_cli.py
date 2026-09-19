@@ -1180,3 +1180,90 @@ def test_a_backend_nothing_can_search_is_a_usage_error(capsys) -> None:
 
     assert exit_info.value.code == 2
     assert "bing" in capsys.readouterr().err
+
+
+# -- what the request itself asks for (ADR-0059) -------------------------------
+
+
+def test_a_bound_the_request_asks_for_is_offered_and_not_applied(
+    fake_agent, caplog
+) -> None:
+    """The line names the words it read and the flag that would enforce them; the run
+    is the run somebody asked for."""
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        main(["headphones under $200"])
+
+    assert 'Your request says "under $200"' in caplog.text
+    assert "--max-price 200 is what would enforce it" in caplog.text
+    assert fake_agent["config"].max_price is None
+
+
+def test_a_bound_already_set_is_not_offered_back(fake_agent, caplog) -> None:
+    """Saying it again would read as the run having taken the words for the number."""
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        main(["headphones under $200", "--max-price", "150"])
+
+    assert "--max-price" not in caplog.text
+    assert fake_agent["config"].max_price == 150
+
+
+def test_a_number_about_something_else_is_not_offered_as_a_bound(
+    fake_agent, caplog
+) -> None:
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        main(["headphones with 200 hours of battery"])
+
+    assert "would enforce it" not in caplog.text
+
+
+# -- the run journal (ADR-0060) ------------------------------------------------
+
+
+def test_a_run_is_written_down_and_the_next_one_says_what_moved(
+    fake_agent, capsys
+) -> None:
+    """The reason to run the same search twice."""
+    fake_agent["result"] = [
+        ranked_product(Product(name="Sage", price=349.0, currency="USD"), score=0.9, rank=1)
+    ]
+    main(["espresso machine"])
+
+    fake_agent["result"] = [
+        ranked_product(Product(name="Sage", price=329.0, currency="USD"), score=0.9, rank=1)
+    ]
+    capsys.readouterr()
+    assert main(["espresso machine", "--compare"]) == 0
+
+    report = capsys.readouterr().out
+    assert "WHAT CHANGED SINCE" in report
+    assert "20.00 USD cheaper" in report
+
+
+def test_the_comparison_is_not_printed_unless_it_was_asked_for(
+    fake_agent, capsys
+) -> None:
+    """The report is the products; this is a second block somebody opted into."""
+    main(["espresso machine"])
+    capsys.readouterr()
+
+    main(["espresso machine"])
+
+    assert "WHAT CHANGED" not in capsys.readouterr().out
+
+
+def test_a_run_with_no_journal_writes_nothing_down(fake_agent, capsys, caplog) -> None:
+    main(["espresso machine", "--no-journal"])
+    capsys.readouterr()
+
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        main(["espresso machine", "--compare", "--no-journal"])
+
+    assert "--compare has nothing to read" in caplog.text
+    assert "WHAT CHANGED" not in capsys.readouterr().out
+
+
+def test_comparing_a_search_never_run_before_says_so(fake_agent, caplog) -> None:
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        main(["espresso machine", "--compare"])
+
+    assert "Nothing to compare" in caplog.text

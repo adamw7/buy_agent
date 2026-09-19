@@ -95,6 +95,23 @@ class Opinion(BaseModel):
     url: str | None = None
 
 
+class Offer(BaseModel):
+    """One listing's own price for a product, beside who was quoting it (ADR-0058).
+
+    The four fields travel together for :data:`QUALIFIERS`' reason one step further on:
+    a price, the currency it was written in, the shop quoting it and the page it was
+    printed on are one listing's four facts, and any of them taken on its own describes
+    a listing that does not exist. Which is why a merge keeps both offers whole rather
+    than filling one's gaps from the other -- the rule :func:`_merge_opinions` already
+    holds for two reviewers, applied to two shops.
+    """
+
+    price: float
+    currency: str | None = None
+    seller: str | None = None
+    url: str | None = None
+
+
 class ProductList(BaseModel):
     """Wrapper schema — Ollama's structured output needs a JSON object at the root."""
 
@@ -123,12 +140,16 @@ class Product(BaseModel):
     url: str | None = None
     #: What the sources say about it, in their words, each beside the page that said it.
     opinions: list[Opinion] = []
+    #: Every listing the sources printed for it, the headline price among them
+    #: (ADR-0058). Empty until ``deduplicate`` seeds it, and empty for a product no
+    #: page priced.
+    offers: list[Offer] = []
     notes: str | None = None
 
     @property
     def dedup_key(self) -> str:
         """Loose identity: same name modulo case, punctuation and spacing."""
-        return _WHITESPACE.sub(" ", _PUNCTUATION.sub(" ", self.name.lower())).strip()
+        return dedup_key(self.name)
 
     def price_label(self) -> str:
         if self.price is None:
@@ -140,6 +161,27 @@ class Product(BaseModel):
             return "unrated"
         reviews = f" ({self.review_count:,} reviews)" if self.review_count else ""
         return f"{self.rating:.1f}/5{reviews}"
+
+    def offers_label(self) -> str | None:
+        """What the pages quoted for this, where more than one of them quoted anything
+        (ADR-0058), or ``None`` where a range would be the headline price again.
+
+        The spread is measured over the listings priced the way the headline is, since
+        two prices in two currencies have nothing between them and this run converts
+        nothing (ADR-0043). One outside that scale is counted and not measured, which is
+        the same answer :func:`comparable_price` gives everywhere else.
+        """
+        if len(self.offers) < 2:
+            return None
+        listings = f"{len(self.offers)} listings"
+        placed = sorted(
+            offer.price for offer in self.offers if offer.currency == self.currency
+        )
+        if not placed:
+            return listings
+        if placed[0] == placed[-1]:
+            return f"{listings}, {amount_label(placed[0], self.currency)}"
+        return f"{listings}, {placed[0]:,.2f}-{amount_label(placed[-1], self.currency)}"
 
 
 #: Fields that describe another field rather than the product (ADR-0022).
@@ -222,6 +264,16 @@ Recorder: TypeAlias = "Callable[[Removal], None]"
 
 def nothing_recorded(_removal: Removal) -> None:
     """The default recorder: nobody is keeping what the steps took out."""
+
+
+def dedup_key(name: str) -> str:
+    """Loose identity for a product name: same modulo case, punctuation and spacing.
+
+    A function as well as a property, because :mod:`buy_agent.journal` matches what a
+    past run reported against what this one did and there must not be two spellings of
+    "the same product" (ADR-0060).
+    """
+    return _WHITESPACE.sub(" ", _PUNCTUATION.sub(" ", name.lower())).strip()
 
 
 def _clean(value: str) -> str:

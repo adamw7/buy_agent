@@ -33,6 +33,19 @@ export interface Opinion {
   url: string | null;
 }
 
+/** One listing a source page printed for a product: what it cost, and who was
+ *  quoting it. The four travel together, so a merge that kept the cheapest price
+ *  cannot report it beside another shop's name. */
+export interface Offer {
+  price: number;
+  currency: string | null;
+  seller: string | null;
+  url: string | null;
+  /** The amount as a person reads it, written by Python the way the headline
+   *  price is -- the card never formats money itself. */
+  price_label: string;
+}
+
 /** One ranked product. The `*_label` fields are written by Python's `Product`. */
 export interface RankedProduct {
   /** Why this product cannot be bought, or `null` where it can. */
@@ -62,9 +75,16 @@ export interface RankedProduct {
   /** What the source pages said about it, in their words -- each one grounded,
    *  and each carrying the page it was read off. */
   opinions: Opinion[];
+  /** Every listing the sources priced this at, the headline price among them. The
+   *  ranking still reads one price; these are what the run read and used to throw
+   *  all but one of away. */
+  offers: Offer[];
   notes: string | null;
   price_label: string;
   rating_label: string;
+  /** "3 listings, 129.00-149.00 USD", or `null` where one page priced it and a
+   *  spread would be the headline price said twice. Python's sentence. */
+  offers_label: string | null;
 }
 
 /** One candidate that left the report, and what took it out. */
@@ -76,6 +96,24 @@ export interface Removal {
   step: string;
   /** Why, in Python's own words: the page shows this and writes none of its own. */
   reason: string;
+}
+
+/** What one product did between the last run of a search and this one. */
+export interface Change {
+  name: string;
+  /** `new`, `gone`, `cheaper`, `dearer`, `steady`, or `unplaced` -- the last being
+   *  two prices with nothing between them, since nothing is converted (ADR-0043).
+   *  A word to group and colour by, never one to compose a sentence from. */
+  movement: string;
+  /** What it costs now and what it cost then, written by Python. */
+  price_label: string | null;
+  was_label: string | null;
+  /** How much it moved, negative for cheaper; `null` where the two cannot be
+   *  held against each other. */
+  delta: number | null;
+  /** The whole of it as a sentence, in Python's words: the page shows this and
+   *  writes none of its own. */
+  detail: string;
 }
 
 /** Everything one finished run produced. */
@@ -92,6 +130,13 @@ export interface SearchResult {
    *  Empty from a re-sort, which runs no pipeline and removes nothing -- the page
    *  carries the run's own list across instead of taking that empty one. */
   dropped: Removal[];
+  /** What moved since the last run of this same search. Empty for a first run, for
+   *  a run with the journal off, and from a re-sort -- which compared nothing, so
+   *  the page carries the run's own list across as it does `dropped`. */
+  changes: Change[];
+  /** The day being compared against, as the panel's heading names it, or `null`
+   *  where no earlier run of this search was kept. */
+  compared_with: string | null;
 }
 
 export type SortBy = 'score' | 'price' | 'rating';
@@ -174,6 +219,9 @@ export interface AgentDefaults {
   min_reviews: number | null;
   /** How many seconds a fetched page stays usable on disk; 0 fetches every page fresh. */
   cache_ttl: number;
+  /** Whether a run is written down, so the next run of the same search can say
+   *  what moved. */
+  journal: boolean;
   region: string;
   /** The currency the run counts its prices in. Empty -- the default -- lets the set
    *  vote, which is what a mixed-currency search settled the scale by before it could
@@ -208,6 +256,24 @@ export interface AgentDefaults {
 export interface SourcesCheck {
   sources: string;
   error: string;
+}
+
+/** One bound the request asked for in words and nothing is enforcing. Offered, never
+ *  applied: the form puts the number in the box that would enforce it, and the
+ *  shopper submits it or clears it. */
+export interface NoticedBound {
+  /** The setting that would enforce it: `max_price`, `min_rating`, `min_reviews`. */
+  bound: string;
+  value: number;
+  /** Why the box holds a number nobody typed, in Python's words. */
+  note: string;
+}
+
+/** What the server read out of a request, asked before a run rather than during one.
+ *  Names the request it was about, so an answer for text since typed over is dropped. */
+export interface BoundsCheck {
+  request: string;
+  noticed: NoticedBound[];
 }
 
 /** Which model server to ask about, and how to ask it. */
@@ -258,6 +324,7 @@ export interface SearchOptions {
   min_reviews?: number | null;
   cache_ttl?: number | null;
   spend_limit?: number | null;
+  journal?: boolean;
   pay?: boolean;
   rail?: string;
   merchant_url?: string;

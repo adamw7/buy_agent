@@ -30,6 +30,7 @@ from buy_agent.api import (
     SORT_OPTIONS,
     _STATUS,
     ApiError,
+    bounds_payload,
     defaults_payload,
     limits_payload,
     model_payload,
@@ -41,7 +42,9 @@ from buy_agent.api import (
     run_search,
     sources_payload,
 )
+from buy_agent.bounds import Bound
 from buy_agent.config import LIMITS, AgentConfig, parse_currency, parse_region
+from buy_agent.journal import Change
 import buy_agent.fetch as fetch_module
 import buy_agent.mandates as mandates_module
 import buy_agent.money as money
@@ -50,7 +53,7 @@ from buy_agent.payment import PaymentError
 from buy_agent.providers import PROVIDERS, InstalledModel, provider_options
 from buy_agent.rails import RAILS, rail_options
 from buy_agent.search import BACKENDS, backend_options
-from buy_agent.models import Product, Removal
+from buy_agent.models import Offer, Product, Removal
 from tests.conftest import SOURCE_ROOT, needs_ap2, payable_product, ranked_product, said
 from buy_agent.ranking import ORDERINGS, SortBy
 from buy_agent.server import DEFAULT_UI_DIR
@@ -77,6 +80,11 @@ RANKED = ranked_product(
         rating=4.7,
         # Quoted, so the payload these tests read carries an opinion to mirror.
         opinions=said("the noise cancelling is uncanny", page="https://audio.example/xm5"),
+        # Priced by two pages, for the same reason: an offer to mirror (ADR-0058).
+        offers=[
+            Offer(price=328.0, seller="AudioSite", url="https://audio.example/xm5"),
+            Offer(price=349.0, url="https://shop.example/xm5"),
+        ],
     ),
     score=0.9,
     rank=1,
@@ -479,6 +487,15 @@ def test_a_quoted_opinion_is_mirrored_field_for_field_in_typescript() -> None:
     assert set(ts_interface("Opinion")) == set(quoted[0])
 
 
+def test_an_offer_is_mirrored_field_for_field_in_typescript() -> None:
+    """The card lists what each page priced this at, so a field added in Python and
+    forgotten here is an undefined beside an amount (ADR-0058)."""
+    priced = product_payload(RANKED)["offers"]
+    assert priced, "the fixture has to carry an offer for this to check anything"
+
+    assert set(ts_interface("Offer")) == set(priced[0])
+
+
 def test_a_score_s_parts_are_mirrored_field_for_field_in_typescript() -> None:
     """The card draws one share per criterion and marks the assumed ones, so a part added
     in Python and forgotten here is an undefined in a percentage (ADR-0041)."""
@@ -517,6 +534,30 @@ def test_a_re_sort_answers_the_shape_a_finished_run_answers_with() -> None:
     reordered = rank_again({"request": "headphones", "products": results_payload([RANKED])})
 
     assert set(reordered) == set(ran)
+
+
+def test_a_change_is_mirrored_field_for_field_in_typescript() -> None:
+    """The panel shows what moved since the last run of this search, and a field the
+    browser cannot read is a sentence nobody is given (ADR-0060)."""
+    moved = Change(name="Sage", movement="steady", detail="329.00 USD, unchanged.")
+
+    assert set(ts_interface("Change")) == set(moved.model_dump())
+
+
+def test_what_the_request_asks_for_is_mirrored_field_for_field_in_typescript() -> None:
+    """Offered and never applied, so the form reads both halves: the request it was
+    about, and each bound with Python's own sentence (ADR-0059)."""
+    answer = bounds_payload("headphones under $200")
+    assert answer["noticed"], "the request has to ask for something to check anything"
+
+    assert set(ts_interface("BoundsCheck")) == set(answer)
+    assert set(ts_interface("NoticedBound")) == set(answer["noticed"][0])
+
+
+def test_every_bound_the_request_can_ask_for_is_one_the_form_draws_a_box_for() -> None:
+    """A bound noticed with nowhere to be offered is a reading nobody is shown
+    (ADR-0059), and the box is what the ranges and the placeholders hang off."""
+    assert set(get_args(Bound)) <= set(limits_payload())
 
 
 def test_a_removal_is_mirrored_field_for_field_in_typescript() -> None:
@@ -1689,6 +1730,15 @@ def test_only_the_mandates_module_imports_the_ap2_sdk() -> None:
     }
 
     assert importers == {"mandates.py"}
+
+
+def test_the_journal_setting_is_offered_at_both_doors() -> None:
+    """The rule `.claude/skills/add-option` writes down, checked for the setting the
+    run journal adds: a flag, a request key, and a default the form is seeded from
+    (ADR-0060)."""
+    assert "journal" in {action.dest for action in build_parser()._actions}
+    assert "journal" in defaults_payload()
+    assert "journal" in ts_interface("SearchOptions")
 
 
 def test_the_payment_settings_are_offered_at_both_doors() -> None:

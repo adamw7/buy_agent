@@ -24,6 +24,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from buy_agent.agent import BuyAgent, Checkpoint, every_step_passes
 from buy_agent.api import (
     ApiError,
+    bounds_payload,
     defaults_payload,
     installed_models,
     parse_options,
@@ -316,6 +317,11 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
                 # 200 whatever it holds: what was asked is whether this parses, and that
                 # question was answered (ADR-0033).
                 self._send_json(200, sources_payload(params.get("sources", "")))
+            elif url.path == "/api/bounds":
+                # The second endpoint that runs nothing, and the only one that answers
+                # with a value rather than a verdict: what the request itself asks for,
+                # offered for the form to fill in and never applied (ADR-0059).
+                self._send_json(200, bounds_payload(params.get("request", "")))
             elif url.path.startswith("/api/"):
                 self._send_json(404, _no_such_endpoint(url.path))
             else:

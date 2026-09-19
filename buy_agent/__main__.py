@@ -11,8 +11,9 @@ from pathlib import Path
 from typing import Any, get_args
 
 from buy_agent import mandates, payment
-from buy_agent.agent import BuyAgent, ModelUnavailableError
+from buy_agent.agent import BuyAgent, ModelUnavailableError, journal_for
 from buy_agent.api import results_payload
+from buy_agent.bounds import notice
 from buy_agent.chat import release
 from buy_agent.config import (
     DEFAULT_BACKEND,
@@ -23,7 +24,8 @@ from buy_agent.config import (
     parse_currency,
     parse_region,
 )
-from buy_agent.logging_setup import configure_logging
+from buy_agent.journal import MAX_RUNS, RUNS, Journal
+from buy_agent.logging_setup import configure_logging, log_changes
 from buy_agent.models import RankedProduct
 from buy_agent.money import CODES
 from buy_agent.payment import PaymentError
@@ -62,6 +64,49 @@ _PAYING_FLAGS: tuple[tuple[str, str, Callable[[Any], bool]], ...] = (
     ("--merchant-url", "merchant_url", bool),
     ("--spend-limit", "spend_limit", lambda value: value is not None),
 )
+
+
+#: Which flag enforces each bound the request can ask for in words. Written here and
+#: nowhere below: the same reading is shown in the browser, which has no command line to
+#: type any of these into (ADR-0059).
+_ENFORCED_BY: dict[str, str] = {
+    "max_price": "--max-price",
+    "min_rating": "--min-rating",
+    "min_reviews": "--min-reviews",
+}
+
+
+def _offer_noticed_bounds(request: str, config: AgentConfig) -> None:
+    """Say what the request asked for in words and nothing enforces (ADR-0059).
+
+    Offered and never applied: a request saying "200 hours of battery" would otherwise
+    drop every product in the run and report only that nothing was found. A line of
+    narration is what that mistake costs here, and the shopper still has to type the
+    flag.
+    """
+    for seen in notice(request):
+        if getattr(config, seen.bound) is not None:
+            # Already set, and by the one thing that sets it. Saying it again would read
+            # as the run having taken the words for the number.
+            continue
+        logger.info(
+            'Your request says "%s", which shapes the search and nothing else. '
+            "%s %s is what would enforce it.",
+            seen.phrase,
+            _ENFORCED_BY[seen.bound],
+            seen.figure,
+        )
+
+
+def _compare(journal: Journal, ranked: list[RankedProduct], *, asked: bool) -> None:
+    """Write this run down, and say what moved where that was asked for (ADR-0060).
+
+    Always the first half: a run is written down whether or not anybody asked to be
+    told, or there would never be an earlier one to compare the next with.
+    """
+    changes = journal.against([entry.product for entry in ranked])
+    if asked:
+        log_changes(changes, journal.compared_with())
 
 
 def _idle_paying_flags(args: argparse.Namespace) -> list[str]:
@@ -261,6 +306,26 @@ def build_parser() -> argparse.ArgumentParser:
         "$BUY_AGENT_CACHE_DIR says where it is all kept.",
     )
     parser.add_argument(
+        "--journal",
+        action=argparse.BooleanOptionalAction,
+        default=_DEFAULTS.journal,
+        help="Write down what this run reported, so the next run of the same search "
+        f"can say what moved (default: {'--journal' if _DEFAULTS.journal else '--no-journal'}). "
+        "It keeps a name, a price and a currency per product and nothing else, at "
+        f"most {MAX_RUNS} runs per search, in {RUNS}/ beside the cached pages under "
+        "$BUY_AGENT_CACHE_DIR -- deleting that directory throws the whole history "
+        "away. Unlike the cache it does not expire: a record that did is no use for "
+        "the one question it answers.",
+    )
+    parser.add_argument(
+        "--compare",
+        action="store_true",
+        help="Report what changed since the last run of this same search: what is "
+        "cheaper, what is dearer, what is new and what has gone. Reads what --journal "
+        "wrote, and a search whose settings differ -- another region, another budget "
+        "-- is a different question and has a history of its own.",
+    )
+    parser.add_argument(
         "--pay",
         action=argparse.BooleanOptionalAction,
         default=_DEFAULTS.pay,
@@ -451,6 +516,7 @@ def main(argv: list[str] | None = None) -> int:
         min_rating=args.min_rating,
         min_reviews=args.min_reviews,
         cache_ttl=args.cache_ttl,
+        journal=args.journal,
         region=args.region,
         currency=args.currency,
         backend=args.backend,
@@ -492,6 +558,21 @@ def main(argv: list[str] | None = None) -> int:
             config.model_server.label,
         )
 
+    if args.compare and not config.journal:
+        # Said rather than silently doing nothing, for the reason the idle paying flags
+        # are: a run asked to compare and given nothing to compare against reads as a
+        # search that has not moved.
+        logger.warning(
+            "--compare has nothing to read: --no-journal is what keeps a run from "
+            "being written down."
+        )
+
+    _offer_noticed_bounds(args.request, config)
+
+    # Opened before the run and asked after it, so what it answers with is the last run
+    # of this search and not this one (ADR-0060).
+    journal = journal_for(args.request, config)
+
     agent = None
     try:
         agent = BuyAgent(config)
@@ -506,6 +587,10 @@ def main(argv: list[str] | None = None) -> int:
         # The agent is this run and nothing after it, so its connection is let go of
         # here rather than whenever the process ends.
         release(agent)
+
+    # After the report and under it: this is the second half of the answer, and the
+    # first half is what a run with no history at all still has.
+    _compare(journal, ranked, asked=args.compare)
 
     if args.json:
         # Written even when the run found nothing, and so before the exit code is

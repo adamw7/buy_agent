@@ -9,7 +9,7 @@ import pytest
 
 from buy_agent import mandates, payment
 from buy_agent.config import AgentConfig
-from buy_agent.models import Product
+from buy_agent.models import Offer, Product
 from buy_agent.money import amount_label
 from buy_agent.payment import (
     Cart,
@@ -151,6 +151,57 @@ def test_the_merchant_a_cart_will_name_is_askable_without_a_cart() -> None:
 
     assert merchant_for(SONY) == cart_for(SONY, [SONY], AgentConfig(pay=True)).merchant
     assert merchant_for(anonymous) == "audiosite.example"
+
+
+# -- the offer a cart is actually for (ADR-0058) -------------------------------
+
+
+#: The case the offers exist for: the winning listing printed the price and no shop,
+#: and a merge filled that blank from a listing selling at something else entirely.
+BORROWED = SONY.model_copy(
+    update={
+        "seller": "ShopB",
+        "offers": [
+            Offer(price=SONY.price, currency="USD", seller=None, url="https://a.example/p"),
+            Offer(price=499.0, currency="USD", seller="ShopB", url="https://b.example/p"),
+        ],
+    }
+)
+
+
+def test_the_offer_a_cart_is_for_is_the_one_the_headline_price_came_off() -> None:
+    """The pair, as ADR-0022 has it: a price and the currency it was written in."""
+    found = payment.offer_for(BORROWED)
+
+    assert found is not None
+    assert (found.price, found.url) == (SONY.price, "https://a.example/p")
+
+
+def test_a_merchant_is_never_the_shop_that_quoted_another_price() -> None:
+    """Before the offers, a winner that named no shop took the loser's -- so the cart
+    named the seller of the 499 beside the price of the 329.99."""
+    cart = cart_for(BORROWED, [BORROWED], AgentConfig(pay=True))
+
+    assert (cart.merchant, cart.url) == ("a.example", "https://a.example/p")
+    assert merchant_for(BORROWED) == "a.example"
+
+
+def test_the_offers_name_the_shop_that_quoted_the_price() -> None:
+    named = SONY.model_copy(
+        update={
+            "seller": None,
+            "offers": [Offer(price=SONY.price, currency="USD", seller="ShopA", url=None)],
+        }
+    )
+
+    assert merchant_for(named) == "ShopA"
+
+
+def test_a_product_with_no_offers_is_paid_the_way_it_always_was() -> None:
+    """A re-sort's payload reaches here without them, and the product's own fields
+    are still the answer."""
+    assert payment.offer_for(SONY) is None
+    assert merchant_for(SONY) == SONY.seller
 
 
 def test_the_currency_is_the_runs_and_not_the_products() -> None:
