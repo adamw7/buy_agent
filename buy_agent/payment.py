@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from buy_agent import mandates
 from buy_agent.models import Product, comparable_price, dominant_currency
-from buy_agent.money import amount_label, minor_units
+from buy_agent.money import amount_label, minor_units, placeable
 
 if TYPE_CHECKING:
     from buy_agent.config import AgentConfig
@@ -112,6 +112,19 @@ def _check(product: Product, currency: str | None) -> tuple[float, str]:
         raise PaymentError(
             f"None of the pages named a currency, so {product.price:,.2f} is a number "
             f"and not an amount.",
+            field="products",
+        )
+    if placeable(currency) is None:
+        # The scale the vote landed on is whatever the pages spelled, which is not
+        # always a currency: "¥" is the yen's sign and the yuan's alike (ADR-0054), and
+        # a small model hands back whatever else it read. Ranking has an answer for a
+        # figure it cannot place -- NEUTRAL -- and paying is the opposite rule: an
+        # amount nobody can place is not one to send, and sent anyway it would be
+        # counted in hundredths of a unit nothing says are hundredths.
+        raise PaymentError(
+            f"{product.name} is priced in {currency}, which names no currency this can "
+            f"count in. Nothing is converted and no scale is guessed, so that is a "
+            f"figure and not an amount to send.",
             field="products",
         )
     price = comparable_price(product, currency)

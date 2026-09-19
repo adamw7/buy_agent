@@ -501,10 +501,16 @@ was ever held to.
   with.
 - **Never pay on an unverified number, and never on one this run cannot place.**
   The ranking rule (ADR-0006) turned around. `payment._check` refuses a product
-  whose price grounding blanked, whose currency no page printed, whose price is
-  in a currency outside the run's own (ADR-0043), or which has no source page to
+  whose price grounding blanked, whose currency no page printed, whose run counts
+  in a scale `money.placeable` cannot place, whose price is in a currency outside
+  the run's own (ADR-0043), or which has no source page to
   name a merchant from -- every one of those already being the answer to "did a
-  source say so". It is the deliberate opposite of the shopper's bounds, which
+  source say so". The third is the one a *vote* can reach: what a shopper names
+  is a code out of the table (ADR-0056) and what the set votes for is whatever
+  the pages spelled, so an ambiguous `¥` or a small model's "bucks" becomes the
+  run's scale, scores `NEUTRAL` in the ranking as any unplaceable price does, and
+  is refused here rather than sent as an amount counted in hundredths of a unit
+  nobody has said are hundredths. It is the deliberate opposite of the shopper's bounds, which
   *keep* a product they cannot judge (ADR-0039): a filter that drops a candidate
   over a missing figure punishes the extractor's miss, while an amount nobody
   can place is simply not an amount to send. That one function is asked by the
@@ -642,6 +648,11 @@ was ever held to.
   added to one table and not the other -- so `fetch` scans with `money.SIGNS`,
   `money.WORDS` and `money.SCANNED_CODES`, all three *derived* from the one table
   rather than written beside it, and a currency is added there and nowhere else.
+  Each of the three is read on *either side* of the figure, since "€129" and
+  "129,99 €" are one price written the way English writes it and the way most of
+  the continent does: read one way round only, the sign form kept every English
+  shop's prices and dropped every German, French and Spanish one before the model
+  saw them, which is `zł`'s failure again a sweep further along.
   The last two are one alternation split at the case it is read in: a word
   spelling is folded, a page writing "129 Dollars" as readily as "129 dollars",
   and an ISO code is read as written, a page writing "129 TRY" and never
@@ -1343,8 +1354,9 @@ the other is otherwise invisible to both suites. It asserts that
   place, and every currency it can place is one `fetch` keeps a line for -- asked
   through `quotes_a_figure`, since the split into signs, words and codes is a
   derivation and `US$` is reached by no one of the three on its own -- with both
-  exemptions checked from the other side too, so neither can outlive its reason
-  (ADR-0043, ADR-0054);
+  exemptions checked from the other side too, so neither can outlive its reason,
+  and every sign held to being read on either side of the figure, one order alone
+  passing that rule while dropping half of Europe's prices (ADR-0043, ADR-0054);
 - every provider in `providers.PROVIDERS` is offered by `--provider`, by
   `api.PROVIDER_OPTIONS` and in the rows the form's picker is built from, and
   `ProviderOption` is mirrored in TypeScript;

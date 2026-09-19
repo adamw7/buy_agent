@@ -423,6 +423,16 @@ def test_every_currency_the_run_can_place_is_one_a_price_is_read_in(spelling: st
     ), f"{spelling!r} is a currency this run can place and no price is ever read in"
 
 
+@pytest.mark.parametrize("sign", sorted(money.SIGNS))
+def test_a_sign_is_read_on_either_side_of_the_figure(sign: str) -> None:
+    """The rule above says a currency is read; this says a price is written two ways
+    and both are one. "€129" is English and "129,99 €" is most of the continent, and
+    the second read as prose left every price on such a shop out of the excerpt -- the
+    failure ``zł`` was until ADR-0054 merged the tables, one sweep further along."""
+    for line in (f"it sells for {sign}99", f"it sells for 99 {sign}"):
+        assert fetch_module.quotes_a_figure(line), f"{line!r} does not read as a price"
+
+
 def test_the_unplaceable_signs_are_ones_a_price_is_actually_read_in() -> None:
     """One exemption read the other way, so it cannot outlive its reason: a sign
     dropped from the scan leaves a row excusing nothing."""
