@@ -40,8 +40,14 @@ USER_AGENT = (
 #: "try" is an English word, and folded in it made "Try 3 of these" a price line.
 _CURRENCY = "(?i:" + "|".join(WORDS) + ")|" + "|".join(SCANNED_CODES)
 
+#: A sign sits on either side of the figure, exactly as a word or a code does: "€129" is
+#: how English writes a price and "129,99 €" is how most of the continent writes the same
+#: one -- and "99 $" is French Canada's. Read one way round only, every price on such a
+#: shop was dropped before the model saw it, which is the failure ``zł`` was until the
+#: tables were merged (ADR-0054), reached through the other half of the scan.
 _PRICE = re.compile(
     r"[" + re.escape(SIGNS) + r"]\s?\d"
+    r"|\d\s?[" + re.escape(SIGNS) + r"]"
     r"|\b(?:" + _CURRENCY + r")\b\s*\d"
     r"|\d\s*(?:" + _CURRENCY + r")\b",
 )

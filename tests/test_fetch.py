@@ -297,6 +297,12 @@ def test_one_unreachable_page_does_not_lose_the_others(monkeypatch) -> None:
         # in a heading, at the start of a sentence, or not at all.
         "Sony WH-CH720N sells for 349 Dollars",
         "Sony WH-CH720N za 599 ZŁ dzisiaj",
+        # A sign goes after the figure as readily as before it, which is how most of
+        # the continent writes a price: read one way round only, every price on a
+        # German, French or Spanish shop was dropped before the model saw it.
+        "Sony WH-CH720N kostet 129,99 €",
+        "Sony WH-CH720N coûte 129 €",
+        "Sony WH-CH720N is 99 $ in Montreal",
     ],
 )
 def test_prices_and_ratings_are_recognised_in_several_shapes(line: str) -> None:

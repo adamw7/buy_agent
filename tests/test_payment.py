@@ -71,6 +71,21 @@ def test_a_price_in_a_currency_the_run_cannot_place_may_not_be_paid() -> None:
     assert terms_for(SONY, "EUR")[0] is None
 
 
+@pytest.mark.parametrize("scale", ["¥", "BUCKS"])
+def test_a_scale_that_names_no_currency_is_no_scale_to_send_an_amount_on(scale: str) -> None:
+    """The run's own currency is whatever the pages spelled, which ``money.code_for``
+    hands back as written: "¥" is the yen's sign and the yuan's alike (ADR-0054), and a
+    small model reporting "bucks" names nothing at all. Ranking places neither and scores
+    them ``NEUTRAL``; paying may not send an amount counted in hundredths of a unit
+    nobody has said are hundredths."""
+    priced = SONY.model_copy(update={"currency": scale})
+
+    assert "names no currency" in refused(priced, scale)
+    assert terms_for(priced, scale)[0] is None
+    with pytest.raises(PaymentError, match="names no currency"):
+        cart_for(priced, [priced], AgentConfig(pay=True))
+
+
 def test_a_product_with_no_source_page_has_no_merchant_to_pay() -> None:
     unlinked = SONY.model_copy(update={"url": None})
 
