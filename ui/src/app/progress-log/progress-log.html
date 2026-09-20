@@ -23,6 +23,14 @@
       <p class="line" [class.warn]="line.level === 'WARNING'" [class.bad]="line.level === 'ERROR'">
         <span class="at">{{ line.time }}</span>
         <span class="source">{{ shortName(line.logger) }}</span>
+        <!-- The word, where the line is one of the two the panel colours. A
+             colour is the whole of what said so, which is nothing at all to a
+             reader who cannot see it and nothing to a screenshot in black and
+             white -- and the file this panel hands over has had the level in
+             every line all along. -->
+        @if (marked(line.level); as level) {
+          <span class="level">{{ level }}</span>
+        }
         <span class="message">{{ line.message }}</span>
       </p>
     } @empty {

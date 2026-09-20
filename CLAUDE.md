@@ -1342,6 +1342,25 @@ rules a change to them may not break.
 - **A mark opens the panel it is in.** The form opens Settings itself the first
   time `flagged()` is non-zero, on the marks changing and not on the panel's
   state, so shutting it again stays the reader's to do.
+- **Every one of those rules is a claim about what somebody can perceive, so
+  each component is held to an accessibility check.** A refusal on the box it is
+  about (ADR-0033), a bound offered and never marked (ADR-0059), a `movement`
+  that is a word to colour by and never one to compose from: a spec asserting a
+  CSS class passes all three for a mark rendered as a colour alone, a control
+  with no accessible name and an error that reaches no assistive technology. So
+  `ui/src/app/a11y.ts` runs `axe-core` over each of the four in the jsdom
+  `TestBed`, on rules turned on one at a time -- each carrying the sentence
+  saying which promise it holds, and what is left out carrying its reason beside
+  them, which is `.pylintrc`'s argument (ADR-0049) one language over. A blanket
+  run passes vacuously on what jsdom cannot answer and fails on rules nobody has
+  decided about. A rule that ran and could not decide counts as one that did not
+  pass, which is what caught an `aria-label` on a `<div>`, an element whose role
+  forbids it to carry a name. What the check cannot state here is asserted where
+  it is made: a colour is never the only carrier, so a level the progress panel
+  colours is a level it names, and the panel's lines land in a live region --
+  contrast and target size want pixels and layout, and stay a browser's job the
+  way the CSP and the critical-CSS inliner do. `ui/README.md` argues the whole
+  of it beside the components it is about.
 
 `create_server(agent_factory=...)` is the seam the server tests inject a stub
 agent through, the way `BuyAgent(config, llm=...)` is for the pipeline;

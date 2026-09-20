@@ -22,7 +22,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-2530 Python tests and 244 UI tests. Nothing in either suite touches the network
+2530 Python tests and 255 UI tests. Nothing in either suite touches the network
 or a model server: the model is faked through the `llm=` argument of `BuyAgent`
 -- a class with one `answer` method, which is the whole of `chat.ChatModel`,
 both the search backend and the page fetcher are monkeypatched -- the backends'
@@ -160,6 +160,20 @@ Prettier reading rather than writing, which is the whole of what lints this half
 -- `npm run format` is the same glob with `--write`, and is what to run when the
 step goes red. It runs last in its job for the reason pylint runs last in the
 other.
+
+The four components are also held to an accessibility check, which is the one
+thing above that neither the type check nor the coverage floor can see: every
+rule the form is designed around is a claim about what somebody can perceive and
+reach, and a mark drawn as a colour on a border, a control with no accessible
+name and an error that never reaches an assistive technology are all green under
+a spec asserting a CSS class. `ui/src/app/a11y.ts` runs `axe-core` over each
+component in the jsdom `TestBed`, on rules turned on one at a time -- every one
+of them carrying the sentence saying which promise it holds, and what is left
+out carrying its reason beside them, which is `.pylintrc`'s argument (ADR-0049)
+one language over. A rule that ran and could not decide counts as one that did
+not pass. Contrast and target size stay out: they want pixels and layout, which
+is a browser's job, the way the CSP and the critical-CSS inliner already are.
+`ui/README.md` argues the whole of it beside the components it is about.
 
 Both suites are measured and CI fails on a drop: the Python side covers every
 line and branch (`.coveragerc` sets the floor at 99%), and the UI's statements

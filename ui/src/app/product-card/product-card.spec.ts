@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 
+import { accessibilityProblems } from '../a11y';
 import { ProductCard } from './product-card';
 import { CHARGES, DRY_RUN, WEIGHTS, product, receipt } from '../testing';
 import type { RailOption, RankedProduct, Receipt, ScoreWeights } from '../agent.types';
@@ -103,6 +104,24 @@ describe('ProductCard', () => {
     expect(card.textContent).toContain('4.7/5 (12,000 reviews)');
     expect(card.textContent).toContain('Amazon');
     expect(card.querySelector('.rank')!.textContent).toContain('#1');
+  });
+
+  it('names the rank without an attribute the element may not carry', async () => {
+    /* A `<div>` has the generic role, which is prohibited from taking a name, so
+       the `aria-label` that said "Rank 1" was an announcement no reader owed
+       anybody -- and "#1" on its own is a number with nothing saying what of. */
+    const rank = (await render(SONY)).querySelector('.rank')!;
+    expect(rank.getAttribute('aria-label')).toBeNull();
+    expect(rank.textContent!.replace(/\s+/g, ' ').trim()).toBe('Rank #1');
+  });
+
+  it('is a card an assistive technology can read, paying and all', async () => {
+    const { fixture, card } = await payable(SONY, { canPay: true, rail: CHARGES });
+    expect(await accessibilityProblems(card)).toEqual([]);
+
+    card.querySelector<HTMLButtonElement>('.pay')!.click();
+    await fixture.whenStable();
+    expect(await accessibilityProblems(card)).toEqual([]);
   });
 
   it('says a figure is unknown rather than leaving it out', async () => {

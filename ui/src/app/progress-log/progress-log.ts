@@ -106,6 +106,13 @@ export class ProgressLog {
     }
   }
 
+  /** The level, where it is one this panel colours, and nothing where it is not:
+   *  every line has a level and naming it on all of them is three columns saying
+   *  INFO down the left edge. */
+  protected marked(level: string): string {
+    return COLOURED.includes(level) ? level : '';
+  }
+
   protected shortName(logger: string): string {
     return logger.replace(/^buy_agent\.?/, '') || 'agent';
   }
@@ -121,6 +128,9 @@ export class ProgressLog {
  *  a pixel or two off the end -- which a fractional scroll position leaves it --
  *  is not read as someone having deliberately scrolled away. */
 const STICK_MARGIN = 24;
+
+/** The levels the panel gives a colour to, which are the levels it names. */
+const COLOURED = ['WARNING', 'ERROR'];
 
 /** How often the elapsed time is redrawn. */
 const TICK_MS = 1000;

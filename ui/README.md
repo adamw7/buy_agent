@@ -310,3 +310,39 @@ provider's name.
 Angular components are tested in jsdom with `TestBed`, and `AgentService`
 against a fake `EventSource` rather than a live one. The Python server's own
 tests inject a stub agent through `create_server(agent_factory=...)`.
+
+Each of the four is also held to an accessibility check, because everything
+argued above is a claim about what somebody can perceive and reach: a refusal
+drawn on the box it is about
+([ADR-0033](../docs/adr/0033-let-the-form-refuse-what-the-server-would.md)), a bound
+offered and never marked
+([ADR-0059](../docs/adr/0059-notice-a-bound-in-the-request-and-offer-it.md)),
+a `movement` that is a word to colour by and never one to compose from. Every
+one of those is green under a spec asserting a CSS class, and none of them is a
+promise kept to a reader who cannot see the colour.
+
+`src/app/a11y.ts` is what the four specs call, and the rules it runs are named
+one at a time, each with the sentence saying which promise it holds -- which is
+`.pylintrc`'s argument
+([ADR-0049](../docs/adr/0049-load-the-optional-pylint-checkers.md))
+one language over. A blanket `axe(element)` over all 105 of its rules would fail
+on rules nobody here has decided about and pass on the ones jsdom cannot answer.
+What is left out is written down beside what is in: the rules that want a
+browser, the rules about a whole document where three of the four subjects are
+one component of it, and the rules about markup this app has none of. A rule
+that ran and could not decide counts as a rule that did not pass, which is how
+the check reported the one defect it found on the day it was written -- an
+`aria-label` on a `<div>`, an element whose role forbids it to carry a name, so
+"Rank 1" was an announcement no reader owed anybody.
+
+Two of the promises no rule of axe's states, so they are asserted where they are
+made: that the progress panel's lines land in a live region, and that a level
+the panel gives a colour to is a level it also names. And there is one dev
+dependency for all of it rather than two -- `axe-core` itself, with the
+assertion written here. The vitest matcher for it pins itself to an axe two
+major versions back and brings five packages along to format a message, which
+is a sentence `a11y.ts` writes in three lines.
+
+What the check cannot do here still needs a browser: contrast is pixels and a
+target's size is layout. That gap is the shape of the one the CSP and the
+critical-CSS inliner already have -- neither suite can see those either.

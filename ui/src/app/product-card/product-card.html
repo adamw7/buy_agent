@@ -1,5 +1,12 @@
 <article class="card product">
-  <div class="rank" [attr.aria-label]="'Rank ' + product().rank">#{{ product().rank }}</div>
+  <!-- The word rather than an `aria-label`: a `<div>` has the generic role, which
+       is prohibited from carrying a name, so "Rank 1" was an announcement no
+       reader was obliged to make -- and "#1" without it is a number with nothing
+       saying what of. So the word is in the document and hidden from the page,
+       and the `#` standing in for it visually is hidden from the reading. -->
+  <div class="rank">
+    <span class="only-read">Rank </span><span aria-hidden="true">#</span>{{ product().rank }}
+  </div>
 
   <div class="body">
     <h3>

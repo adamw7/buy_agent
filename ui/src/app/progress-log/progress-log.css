@@ -68,10 +68,20 @@ h2 {
   white-space: nowrap;
 }
 
+/* Beside the message and coloured with it: what the colour was saying on its own
+   until now. Only the two lines that have one carry it, so an ordinary run's left
+   edge is unchanged. */
+.level {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.line.warn .level,
 .line.warn .message {
   color: var(--warn);
 }
 
+.line.bad .level,
 .line.bad .message {
   color: var(--bad);
 }
