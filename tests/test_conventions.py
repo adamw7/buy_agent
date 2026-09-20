@@ -24,6 +24,7 @@ from buy_agent.__main__ import main as cli_main
 from buy_agent.agent import BuyAgent
 from buy_agent.api import (
     BACKEND_OPTIONS,
+    OPTIONS,
     PAY_STATUS,
     PROVIDER_OPTIONS,
     RAIL_OPTIONS,
@@ -348,14 +349,24 @@ def test_the_form_takes_its_bounds_from_the_server_rather_than_the_markup() -> N
     assert written == [], "bind these from the limits the server ships"
 
 
+def test_every_setting_the_table_names_is_a_flag_the_cli_carries() -> None:
+    """``main`` fills in each row's field with the argument parsed under that row's key,
+    so a row with no flag of that name is an ``AttributeError`` one run away -- and a
+    setting the browser has that the terminal does not."""
+    flags = {action.dest for action in build_parser()._actions}
+
+    for option in OPTIONS:
+        assert option.key in flags, f"{option.key} has a request key and no flag"
+
+
 def test_every_key_a_refusal_can_name_is_one_the_form_sends() -> None:
     """A refusal names the request key its value arrived under, and the page marks the box
     that key came from."""
-    keys = _keys_read_by(parse_options)
+    keys = {option.key for option in OPTIONS} | _keys_read_by(parse_options)
 
     # ``request`` is the one thing that is not an option, and ``sources`` is the
-    # one option that does not go through ``_read`` -- it is a list, which that
-    # helper would render as a Python repr.
+    # one option that has no row in that table -- it is a list, which ``_read``
+    # would render as a Python repr.
     assert keys | {"request", "sources"} == set(ts_interface("SearchOptions"))
 
 

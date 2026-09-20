@@ -78,28 +78,6 @@ CURRENCY_OPTIONS: tuple[str, ...] = tuple(sorted(CODES))
 _TRUE = frozenset({"true", "1", "yes", "on"})
 _FALSE = frozenset({"false", "0", "no", "off"})
 
-#: The config field whose range holds each number a request may carry, by the key it
-#: arrives under -- ``results`` is what a request calls ``num_products`` (ADR-0033).
-_BOUNDED: dict[str, str] = {
-    "results": "num_products",
-    "top": "top_n",
-    # The rest are asked for under the name of the field they bound, which is said once
-    # here rather than as a row apiece repeating itself.
-    **{
-        field: field
-        for field in (
-            "temperature",
-            "num_ctx",
-            "model_timeout",
-            "max_price",
-            "min_rating",
-            "min_reviews",
-            "cache_ttl",
-            "spend_limit",
-        )
-    },
-}
-
 #: Which HTTP status each of the agent's three failure modes deserves.
 _STATUS: dict[type[Exception], int] = {
     ValueError: 400,
@@ -151,54 +129,18 @@ def _status_for(exc: Exception, table: Mapping[type[Exception], int]) -> int:
 def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
     """Read an :class:`AgentConfig` and a sort criterion out of request data."""
     defaults = AgentConfig()
-    num_products = _read(data, "results", defaults.num_products, _bounded(int))
-    top_n = _read(data, "top", defaults.top_n, _bounded(int))
-    sort_by = _read(data, "sort_by", "score", _among(SORT_OPTIONS))
-
-    provider = _read(data, "provider", defaults.provider, _among(PROVIDER_OPTIONS))
-
+    settings: dict[str, Any] = {
+        option.field: _read(data, option.key, option.unset(defaults), option.parse)
+        for option in OPTIONS
+    }
+    # The one option that is a list, and so the one that does not go through ``_read``.
+    settings["sources"] = _read_sources(data, defaults.sources)
+    # Searching fewer pages than we report would cap the report -- as in the CLI.
+    settings["search_results"] = max(settings["num_products"], settings["top_n"])
     # Through ``_configured``, so the config's own refusal is answered like every other
     # unusable value rather than escaping as a 500 (ADR-0033).
-    config = _configured(
-        provider=provider,
-        # Blank rather than ``defaults``, which was built for whichever provider the
-        # server starts on: an empty string is what ``AgentConfig`` resolves per
-        # provider, so a form that chose one and left these alone gets its pair.
-        model=_read(data, "model", "", _as_text),
-        base_url=_read(data, "base_url", "", _as_text),
-        temperature=_read(data, "temperature", defaults.temperature, _bounded(float)),
-        num_ctx=_read(data, "num_ctx", defaults.num_ctx, _bounded(int)),
-        model_timeout=_read(
-            data, "model_timeout", defaults.model_timeout, _bounded(float)
-        ),
-        reasoning=_read(data, "think", defaults.reasoning, _as_bool),
-        cpu_only=_read(data, "cpu_only", defaults.cpu_only, _as_bool),
-        # Searching fewer pages than we report would cap the report -- as in the CLI.
-        search_results=max(num_products, top_n),
-        num_products=num_products,
-        top_n=top_n,
-        region=_read(data, "region", defaults.region, _checked(parse_region)),
-        # Blank is the default and means "whatever the pages quote" (ADR-0056).
-        currency=_read(data, "currency", defaults.currency, _checked(parse_currency)),
-        backend=_read(data, "backend", defaults.backend, _among(BACKEND_OPTIONS)),
-        sources=_read_sources(data, defaults.sources),
-        fetch_pages=_read(data, "fetch", defaults.fetch_pages, _as_bool),
-        # A blank is "no bound" here and "the default" -- the same thing, these three
-        # defaulting to None (ADR-0012, ADR-0039).
-        max_price=_read(data, "max_price", defaults.max_price, _bounded(float)),
-        min_rating=_read(data, "min_rating", defaults.min_rating, _bounded(float)),
-        min_reviews=_read(data, "min_reviews", defaults.min_reviews, _bounded(int)),
-        cache_ttl=_read(data, "cache_ttl", defaults.cache_ttl, _bounded(float)),
-        # What this run reported, kept so the next one can say what moved (ADR-0060).
-        journal=_read(data, "journal", defaults.journal, _as_bool),
-        # Paying is off unless a request asks for it, and the rail decides what asking
-        # costs -- the default one charges nobody.
-        pay=_read(data, "pay", defaults.pay, _as_bool),
-        rail=_read(data, "rail", defaults.rail, _among(RAIL_OPTIONS)),
-        merchant_url=_read(data, "merchant_url", "", _as_text),
-        spend_limit=_read(data, "spend_limit", defaults.spend_limit, _bounded(float)),
-    )
-    return config, sort_by
+    sort_by = _read(data, "sort_by", "score", _among(SORT_OPTIONS))
+    return _configured(**settings), sort_by
 
 
 def _configured(**settings: Any) -> AgentConfig:
@@ -432,50 +374,31 @@ def model_payload(model: InstalledModel) -> dict[str, Any]:
 
 
 def defaults_payload() -> dict[str, Any]:
-    """The form's starting values: the same defaults the CLI shows in ``--help``."""
+    """The form's starting values: the same defaults the CLI shows in ``--help``.
+
+    Every setting under the key it is sent back under, read off the one table that says
+    which field carries it -- and then what the form needs besides a value: the rows of
+    each table a setting names one of, every currency a run may be counted in, the
+    criteria it may be sorted by, and the range each number is held to, so the form can
+    refuse 51 products itself (ADR-0033).
+    """
     defaults = AgentConfig()
     return {
-        "provider": defaults.provider,
+        **{option.key: getattr(defaults, option.field) for option in OPTIONS},
+        # One text field's worth, written the way the form sends it back.
+        "sources": format_sources(defaults.sources),
         # Each provider's model and server travel with it, so choosing one in the form
         # fills in its pair rather than leaving an Ollama tag for a vLLM.
         "provider_options": provider_options(),
-        "model": defaults.model,
-        "base_url": defaults.base_url,
-        "temperature": defaults.temperature,
-        "num_ctx": defaults.num_ctx,
-        "model_timeout": defaults.model_timeout,
-        "think": defaults.reasoning,
-        "cpu_only": defaults.cpu_only,
-        "results": defaults.num_products,
-        "top": defaults.top_n,
-        # None, which the form shows as an empty box meaning "no bound" (ADR-0039).
-        "max_price": defaults.max_price,
-        "min_rating": defaults.min_rating,
-        "min_reviews": defaults.min_reviews,
-        "cache_ttl": defaults.cache_ttl,
-        # Whether this run is written down for the next one to be compared with.
-        "journal": defaults.journal,
-        "region": defaults.region,
-        # Blank means "whatever the pages quote", which is the vote ADR-0043 settled
-        # the scale by; the picker offers every code a run could be counted in.
-        "currency": defaults.currency,
-        "currency_options": list(CURRENCY_OPTIONS),
-        "backend": defaults.backend,
         "backend_options": backend_options(),
-        # One text field's worth, written the way the form sends it back.
-        "sources": format_sources(defaults.sources),
-        "fetch": defaults.fetch_pages,
-        # Paying, and who through.
-        "pay": defaults.pay,
-        "pay_available": mandate_support(),
-        "rail": defaults.rail,
         "rail_options": rail_options(),
-        "merchant_url": defaults.merchant_url,
-        "spend_limit": defaults.spend_limit,
+        # Blank is the default and means "whatever the pages quote", which is the vote
+        # ADR-0043 settled the scale by; the picker offers every code a run could be
+        # counted in.
+        "currency_options": list(CURRENCY_OPTIONS),
+        "pay_available": mandate_support(),
         "sort_by": "score",
         "sort_options": list(SORT_OPTIONS),
-        # What each number field may hold, so the form can refuse 51 products itself
-        # (ADR-0033).
         "limits": limits_payload(),
     }
 
@@ -689,3 +612,76 @@ def _as_number(
             f"{key} must be between {minimum} and {maximum}; got {number}.", field=key
         )
     return number
+
+
+# -- the settings a request carries --------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class _Option:
+    """One setting as a request carries it: the key it arrives under, the
+    :class:`AgentConfig` field it fills in, and how its text is read (ADR-0012,
+    ADR-0033).
+
+    Said once, and read by everything that has to agree about it -- what a request may
+    set, what the form is seeded with, which range holds which key, and the CLI, whose
+    flags land under these same names. Written down per reader instead, a setting
+    reaches one door and not the other.
+    """
+
+    key: str
+    field: str
+    parse: Callable[[str, str], Any]
+    #: Read as blank rather than as the config's own default, for the three settings
+    #: resolved per provider or per rail: a default built for whichever server this
+    #: process happens to start on is the wrong one to answer a form that chose the
+    #: other (ADR-0012).
+    blank: bool = False
+
+    def unset(self, defaults: AgentConfig) -> Any:
+        """What this key means when a request does not carry it."""
+        return "" if self.blank else getattr(defaults, self.field)
+
+
+#: Every setting both doors fill in, in the order the form draws them. ``sources`` is
+#: deliberately not here: it is the one option that is a list, which ``_read`` would
+#: render as a Python repr (ADR-0027).
+OPTIONS: tuple[_Option, ...] = (
+    _Option("provider", "provider", _among(PROVIDER_OPTIONS)),
+    _Option("model", "model", _as_text, blank=True),
+    _Option("base_url", "base_url", _as_text, blank=True),
+    _Option("temperature", "temperature", _bounded(float)),
+    _Option("num_ctx", "num_ctx", _bounded(int)),
+    _Option("model_timeout", "model_timeout", _bounded(float)),
+    _Option("think", "reasoning", _as_bool),
+    _Option("cpu_only", "cpu_only", _as_bool),
+    _Option("results", "num_products", _bounded(int)),
+    _Option("top", "top_n", _bounded(int)),
+    # A blank is "no bound" for these three, which is what "the default" means when the
+    # default is None (ADR-0012, ADR-0039).
+    _Option("max_price", "max_price", _bounded(float)),
+    _Option("min_rating", "min_rating", _bounded(float)),
+    _Option("min_reviews", "min_reviews", _bounded(int)),
+    _Option("cache_ttl", "cache_ttl", _bounded(float)),
+    # What this run reported, kept so the next one can say what moved (ADR-0060).
+    _Option("journal", "journal", _as_bool),
+    _Option("region", "region", _checked(parse_region)),
+    # Blank is the default and means "whatever the pages quote" (ADR-0056).
+    _Option("currency", "currency", _checked(parse_currency)),
+    _Option("backend", "backend", _among(BACKEND_OPTIONS)),
+    _Option("fetch", "fetch_pages", _as_bool),
+    # Paying is off unless a request asks for it, and the rail decides what asking
+    # costs -- the default one charges nobody.
+    _Option("pay", "pay", _as_bool),
+    _Option("rail", "rail", _among(RAIL_OPTIONS)),
+    _Option("merchant_url", "merchant_url", _as_text, blank=True),
+    _Option("spend_limit", "spend_limit", _bounded(float)),
+)
+
+#: The config field whose range holds each number a request may carry, by the key it
+#: arrives under -- ``results`` is what a request calls ``num_products``. Read off the
+#: rows rather than listed again: a setting with a row in ``LIMITS`` is one both doors
+#: hold to that range, and there is nothing else to say about which (ADR-0033).
+_BOUNDED: dict[str, str] = {
+    option.key: option.field for option in OPTIONS if option.field in LIMITS
+}

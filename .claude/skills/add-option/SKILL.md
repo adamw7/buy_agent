@@ -52,26 +52,31 @@ convention test that fails if it is skipped.
   parsers to it.
 - Boolean -> `BooleanOptionalAction` if it needs an off switch; a tri-state whose
   `None` means "send nothing" is not reachable from the CLI on purpose.
-- `main`: pass it into the `AgentConfig(...)` call.
+- `main` needs nothing: the config is built off `api.OPTIONS`, so a flag
+  whose `dest` is the request key is passed on by the row that declares it.
 - If the flag's name differs from the field's (`--think` for `reasoning`), that
   is a deliberate exception -- add it to the note in `CLAUDE.md` rather than
   inventing a second one silently.
 
 ## 3. `buy_agent/api.py` -- the JSON door
 
-- `parse_options`: `_read(data, "<key>", defaults.<field>, <coercion>)`. A missing
-  key and an empty string both mean "use the default" -- never "zero".
-- Numeric -> `_bounded(int|float)` **and** a row in `_BOUNDED` mapping the
-  request key to the config field (`results` -> `num_products`). The parser is
-  given the key it arrives under, so the range comes off that row and the key is
-  written once on the line. That one table is read twice: to hold an incoming
-  value, and by `limits_payload` to ship the range to the form.
-- A list-valued option does not go through `_read` (it renders values with `str`,
-  turning a JSON array into a Python repr) -- follow `_read_sources`, which takes
-  an array or a separated string.
+- One row in `OPTIONS`: the request key, the `AgentConfig` field it fills in, and
+  how its text is read. That row is the whole of this door -- it is what
+  `parse_options` reads the value with, what `defaults_payload` seeds the form
+  from, and what `limits_payload` ships the range under. A missing key and an
+  empty string both mean "use the default" -- never "zero".
+- Numeric -> `_bounded(int|float)`, and the row in `LIMITS` from step 1 is what
+  makes it bounded: `_BOUNDED` is read off the rows whose field has one, so
+  there is no second table to add the key to.
+- Provider- or rail-dependent -> `blank=True`, so an unset value is read as `""`
+  and settled in `__post_init__` rather than as a default built for whichever
+  server this process happens to have started on (ADR-0012).
+- A list-valued option has no row: `_read` renders values with `str`, turning a
+  JSON array into a Python repr. Follow `_read_sources`, which takes an array or
+  a separated string, and name it in `parse_options` and `defaults_payload` the
+  way `sources` is.
 - Raise `ApiError(..., field="<key>")` for anything unusable, naming the request
   key: that is what marks the box in the browser.
-- `defaults_payload`: add the key, so the form is seeded with it.
 
 ## 4. `ui/src/app/agent.types.ts`
 
@@ -117,7 +122,7 @@ convention test that fails if it is skipped.
   `test_both_front_doors_hold_a_number_to_the_same_range` for a numeric setting.
 - The rest is automatic and will fail on its own if a step above was skipped:
   the shipped ranges against the form's `numberFields` table, every key
-  `parse_options` reads against `SearchOptions`, `AgentDefaults` against
+  `OPTIONS` names against `SearchOptions`, `AgentDefaults` against
   `defaults_payload` field for field, and this file's own name for both of the
   form's tables against what `search-form.ts` declares.
 
