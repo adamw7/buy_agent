@@ -46,15 +46,21 @@ python -m pylint buy_agent
 cd ui
 npm run test:coverage
 npm run build
+npm run format:check
 ```
 
 - The floor is `coverageThresholds` on the test target in `ui/angular.json`: 98%
   of statements and lines, and deliberately no branch floor. Do not add one.
 - `npm run build` is part of the gate, not an extra: a template error is
-  invisible to the unit tests.
-- Formatting: `npx prettier --write "src/**/*"`. The Python half has a linter and
-  no formatter: pylint above, run from the repository root so it finds
-  `.pylintrc`.
+  invisible to the unit tests -- and it is a *type* check as well as a build:
+  `ui/tsconfig.json` sets `strict` and `ui/tsconfig.app.json` adds
+  `noUncheckedIndexedAccess` for the shipped half, so a payload's nullable half
+  reaching a component that does not handle it stops the build.
+- `npm run format:check` is Prettier reading rather than writing, and it is the
+  whole of the UI's linting: `npm run format` is the same glob with `--write`,
+  which is what to run when this step is what went red. The Python half is the
+  other way about -- a linter and no formatter: pylint above, run from the
+  repository root so it finds `.pylintrc`.
 
 ## What this does *not* cover
 

@@ -84,6 +84,7 @@ npm install
 npm test                                      # vitest in jsdom
 npm run test:coverage                         # the same, then the coverage floor
 npm run build                                 # dist/ui/browser, what the server serves
+npm run format:check                          # Prettier reading; `npm run format` writes
 npm start                                     # dev server on :4200, proxying /api to :8000
 ```
 
@@ -92,8 +93,21 @@ tests: Angular 22 on Node 22.22.3+, 24.15+ or 26+ (older Node is refused by the
 Angular CLI, not by anything here), and nothing on the Python side needs Node.
 The Python half has a linter and no formatter -- pylint, over the package and
 from the repository root, where it finds `.pylintrc` (ADR-0048) -- and the UI
-has it the other way about: Prettier (`npx prettier --write "src/**/*"`) and
-nothing linting it. Without `ui/dist/ui/browser` the API still answers and the
+has it the other way about: Prettier and nothing linting it. Both are gates
+rather than habits, which is what keeps that asymmetry honest: `npm run
+format:check` is the same glob reading rather than writing, it runs in `ci.yml`
+after the tests and the build for the reason pylint runs last in the other job,
+and `npm run format` is what to run when it goes red. `npm run build` is the
+UI's other check and is a type check before it is a build: `ui/tsconfig.json`
+sets `strict` for both halves of the workspace and `ui/tsconfig.app.json` adds
+`noUncheckedIndexedAccess` for the shipped one, that being the member `strict`
+leaves out and the one this app needs, since every lookup a component makes is
+by a key that came off a payload and without it a miss is typed as a hit --
+which is how a `?? null` written for a real `undefined` reads to the compiler as
+one that can be deleted. It stops at the specs on purpose: a test indexing past
+the end of a list it built itself is a failing assertion on the next line, and
+the `!` per subscript it would take there says nothing about the code that
+ships. Without `ui/dist/ui/browser` the API still answers and the
 page is a 503 saying how to build it (`--ui-dir` points at a build elsewhere) --
 as a small HTML page for a client whose `Accept` says it is a browser, which is
 who reads that message, and as the same sentence in JSON for everyone else.
@@ -259,9 +273,11 @@ waiting on it (ADR-0032).
 
 `.github/workflows/ci.yml` runs two jobs for pushes to `main` and every pull
 request: `coverage run -m pytest`, `coverage report` and then `pylint buy_agent`
-on Python 3.14, and `npm run test:coverage && npm run build` in `ui/` on Node
-22.23.2. The lint is last in its job on purpose: a job stops at its first
-failing step, and of the two the tests are what a change is about. Either
+on Python 3.14, and `npm run test:coverage`, `npm run build` and `npm run
+format:check` in `ui/` on Node 22.23.2. The lint is last in its job on purpose:
+a job stops at its first failing step, and of the two the tests are what a
+change is about -- and the formatting check is last in the other for that same
+reason, the tests and the build being what a change is about there. Either
 platform alone leaves half the platform differences unchecked (ADR-0020), so
 both jobs are still matrixed over `ubuntu-latest` and `windows-latest`. Not on
 the same trigger, though (ADR-0037): a push and a pull request are gated on
@@ -316,7 +332,7 @@ the matrix is over platforms only, one Python and one Node, since the
   published unattended: each is installed or run and asked for `/api/config` and
   `/`. Linux only, like the other two schedules.
 
-Four files configure all of that, and `docs/testing.md` says why each is set the
+Five files configure all of that, and `docs/testing.md` says why each is set the
 way it is.
 
 - `pytest.ini` sets `pythonpath = .`, which is why the package imports without
@@ -349,6 +365,21 @@ way it is.
   a branch floor there would measure the instrumentation. Don't add one -- and
   the two it is silent about, `branches` and `functions`, are left out rather
   than set low, an omitted threshold being the only one that cannot drift.
+- `ui/tsconfig.json` says how much `npm run build` checks, which is the one of
+  the five that is not a number: `strict` is the family, shared by the app and
+  the specs, and `noUncheckedIndexedAccess` in `ui/tsconfig.app.json` is the
+  member `strict` leaves out and this app needs -- every lookup a component makes
+  is by a key that came off a payload (`limits()[number.key]`,
+  `receipts()[product.name]`), and typed as a hit a miss makes the `?? null`
+  written for it read as one that can be deleted. It is on the app's own config
+  and not the shared one because a test indexing past the end of a list it just
+  built is a failing assertion on the next line rather than something a shopper
+  is shown. Turned off,
+  the nullable halves of a payload are assignable to everything and
+  `agent.types.ts` stops being a promise the components are held to, while every
+  mirror test above goes on passing. `tests/test_conventions.py` holds both
+  settings on for that reason: nothing else here would notice a build that
+  quietly checks less.
 
 ## Architecture
 
@@ -1534,6 +1565,19 @@ the other is otherwise invisible to both suites. It asserts that
   described where this file introduces them, and names only files, tests and
   tables that exist -- `add-option` the two the form declares, `preflight` the
   checking commands `ci.yml` runs and the toolchains it pins;
+- every link in every Markdown file here points at something that is there,
+  which is the rule the decision log already keeps for the records it cites and
+  the skills for the paths they name, applied to the prose a reader actually
+  starts from: `README.md` hands off to `docs/`, this file to the record behind
+  each rule, `docs/testing.md` to both suites. A renamed file leaves every one of
+  those valid Markdown and every one of them a dead end, and nothing else in
+  either suite opens them -- the link still renders, and only somebody following
+  it finds out. Two placeholders are exempt and are the same ones a skill's paths
+  are: `docs/adr/NNNN-slug.md` is a file the template and `add-adr` are telling
+  the reader to create;
+- `ui/tsconfig.json` keeps `strict` on and `ui/tsconfig.app.json`
+  `noUncheckedIndexedAccess`, since how much `npm run build` checks is a setting
+  rather than a property of the build and a weaker one fails nothing;
 - every module in the package takes its logger off the package's own name,
   leaves its formatting to the logger, marks nothing as the report, configures
   logging nowhere but `logging_setup`, and writes to stdout not at all -- and

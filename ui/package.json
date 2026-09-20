@@ -5,7 +5,9 @@
     "start": "ng serve",
     "build": "ng build",
     "test": "ng test",
-    "test:coverage": "ng test --coverage --coverage-reporters text"
+    "test:coverage": "ng test --coverage --coverage-reporters text",
+    "format": "prettier --write \"src/**/*\"",
+    "format:check": "prettier --check \"src/**/*\""
   },
   "private": true,
   "packageManager": "npm@12.0.2",
