@@ -1,5 +1,6 @@
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 
+import { accessibilityProblems } from '../a11y';
 import { SearchForm } from './search-form';
 import { OLLAMA, VLLM, defaults, status } from '../testing';
 import type {
@@ -116,6 +117,48 @@ describe('SearchForm', () => {
     fixture.componentRef.setInput('defaults', DEFAULTS);
     fixture.componentInstance.search.subscribe((options) => submitted.push(options));
     await fixture.whenStable();
+  });
+
+  it('is a form an assistive technology can fill in and be refused by', async () => {
+    /* ADR-0033 puts every refusal on the box it is about, which is a claim about
+       what somebody can perceive and reach before it is one about a CSS class: a
+       mark drawn as a colour on a border says nothing to a reader who cannot see
+       it. The box carries `aria-invalid`, the sentence under it is a live
+       `role="alert"`, and every control in the panel has a name. */
+    await type('input[name="request"]', 'kettle');
+    const paying = element<HTMLInputElement>('input[name="pay"]');
+    paying.checked = true;
+    paying.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    await type('input[name="results"]', '99');
+    await type('input[name="sources"]', 'rtings');
+    await checked('rtings', 'A source has to name a site or a handle.');
+
+    expect(element<HTMLDetailsElement>('details.advanced').open).toBe(true);
+    expect(element('input[name="results"]').getAttribute('aria-invalid')).toBe('true');
+    expect(element('input[name="sources"]').getAttribute('aria-invalid')).toBe('true');
+    expect(
+      element('input[name="results"]')
+        .closest('label')!
+        .querySelector('.problem')!
+        .getAttribute('role'),
+    ).toBe('alert');
+    expect(await accessibilityProblems(fixture.nativeElement)).toEqual([]);
+  });
+
+  it('leaves no mark on a box this run does not take', async () => {
+    /* A mark on a box nobody can type into is one nobody can act on, and an
+       `aria-invalid` on a disabled box is that mark where it cannot even be
+       seen to be pointless. */
+    await type('input[name="num_ctx"]', '0');
+    expect(element('input[name="num_ctx"]').getAttribute('aria-invalid')).toBe('true');
+
+    await choose('select[name="provider"]', VLLM.name);
+
+    const box = element<HTMLInputElement>('input[name="num_ctx"]');
+    expect(box.disabled).toBe(true);
+    expect(box.getAttribute('aria-invalid')).toBeNull();
+    expect(await accessibilityProblems(fixture.nativeElement)).toEqual([]);
   });
 
   it('offers a bound the server read out of the request, in the box that holds it', async () => {

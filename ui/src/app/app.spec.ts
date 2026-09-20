@@ -3,6 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Observable, Subject, of, throwError } from 'rxjs';
 import { afterEach, vi } from 'vitest';
 
+import { accessibilityProblems } from './a11y';
 import { App } from './app';
 import { AgentService } from './agent';
 import { WEIGHTS, defaults, product, receipt, status } from './testing';
@@ -204,6 +205,33 @@ describe('App', () => {
     localStorage.clear();
     agent = new FakeAgent();
     TestBed.configureTestingModule({ providers: [{ provide: AgentService, useValue: agent }] });
+  });
+
+  it('is a page an assistive technology can read, run and be told about', async () => {
+    /* The whole of it at once, which is the one subject of the four where the
+       headings run h1 to h3 and the panels are drawn under one another: the form,
+       the progress log, the cards, what moved since the last run and what the run
+       took out. */
+    const fixture = await ran(agent, 'kettle', {
+      ...RESULT,
+      compared_with: 'the run on 1 September',
+      changes: [
+        {
+          name: 'Best Kettle',
+          movement: 'cheaper',
+          price_label: '100.00 USD',
+          was_label: '140.00 USD',
+          delta: -40,
+          detail: 'Cheaper: 140.00 USD to 100.00 USD.',
+        },
+      ],
+    });
+    const page = fixture.nativeElement as HTMLElement;
+
+    expect(page.querySelectorAll('app-product-card')).not.toHaveLength(0);
+    expect(page.querySelector('.changes')).not.toBeNull();
+    expect(page.querySelector('.dropped')).not.toBeNull();
+    expect(await accessibilityProblems(page)).toEqual([]);
   });
 
   it('says which server it is waiting on rather than showing the last answer', async () => {

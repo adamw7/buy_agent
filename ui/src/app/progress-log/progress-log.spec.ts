@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, vi } from 'vitest';
 
+import { accessibilityProblems } from '../a11y';
 import { ProgressLog, duration, logFilename, transcript } from './progress-log';
 import type { LogLine } from '../agent.types';
 
@@ -79,6 +80,27 @@ describe('ProgressLog', () => {
     expect(rows[1].classList).toContain('warn');
   });
 
+  it('names those levels as well as colouring them', async () => {
+    /* One of the two promises no rule of axe's states, which is why it is
+       asserted here instead: a colour is nothing at all to a reader who cannot
+       see it, and the level was the whole of what the colour was saying. The
+       file this panel hands over has had the level in every line all along. */
+    const rows = (await render(LINES)).querySelectorAll('.line');
+    expect(rows[0].querySelector('.level')).toBeNull();
+    expect(rows[1].querySelector('.level')!.textContent).toBe('WARNING');
+  });
+
+  it('is a panel an assistive technology can follow and read', async () => {
+    /* A run takes a minute and this panel is the only thing saying it is still
+       going, so the lines land in a live region rather than only on the screen. */
+    const log = await render(LINES, false, 'Could not reach Ollama');
+    const region = log.querySelector('.scroller')!;
+
+    expect(region.getAttribute('role')).toBe('log');
+    expect(region.getAttribute('aria-live')).toBe('polite');
+    expect(await accessibilityProblems(log)).toEqual([]);
+  });
+
   it('says it is working before the first line arrives', async () => {
     const log = await render([], true);
     expect(log.textContent).toContain('working');
@@ -144,6 +166,11 @@ describe('ProgressLog', () => {
       expect(vi.getTimerCount()).toBe(1);
 
       fixture.destroy();
+      // A frame first: jsdom's `requestAnimationFrame` is a `setInterval`, and
+      // Angular queues a frame on its way out of a view, so counting every timer
+      // here counts that one too. Letting it run leaves the ticker as the only
+      // thing that could still be pending -- which is what this is about.
+      await vi.advanceTimersByTimeAsync(1_000);
       expect(vi.getTimerCount()).toBe(0);
     } finally {
       vi.useRealTimers();

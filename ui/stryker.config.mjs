@@ -17,11 +17,13 @@ export default {
   // The four components, the service and the download helper: the code a
   // surviving mutant says something about. `agent.types.ts` is the payloads
   // written down as types, `testing.ts` is the ones the specs are written
-  // against, and `app.config.ts` is what `main.ts` boots the app with rather
-  // than anything a spec judges.
+  // against, `a11y.ts` is the accessibility rules they are held to and the
+  // sentence saying what each one is for, and `app.config.ts` is what `main.ts`
+  // boots the app with rather than anything a spec judges.
   mutate: [
     'src/app/**/*.ts',
     '!src/app/**/*.spec.ts',
+    '!src/app/a11y.ts',
     '!src/app/agent.types.ts',
     '!src/app/app.config.ts',
     '!src/app/testing.ts',

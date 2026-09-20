@@ -25,6 +25,20 @@
   text-align: center;
 }
 
+/* In the document and off the page: the word an assistive technology reads where
+   the page has a `#` instead. Clipped to nothing rather than `display: none`,
+   which takes it out of the reading as well as out of the layout. */
+.only-read {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 :host(.highlighted) .rank {
   background: var(--accent-soft);
   color: var(--accent);
