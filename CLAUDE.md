@@ -1560,9 +1560,9 @@ the other half -- the rules that span an *import* -- asserted against the import
 graph with [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython)
 (ADR-0047). Which module may know about which is what this file says most often,
 and an import in the wrong direction runs perfectly: it passes that module's own
-tests, keeps the coverage floor and survives the mutation run. Twenty-one rules,
+tests, keeps the coverage floor and survives the mutation run. Thirty rules,
 each the executable form of a sentence written down here or in a record, and a
-twenty-second test that keeps them honest:
+thirty-first test that keeps them honest:
 
 - the package has **no import cycles**, and imports **none of the five trees
   that import it** -- `tests/`, `integration/`, `benchmark/`, `demo/`,
@@ -1574,16 +1574,29 @@ twenty-second test that keeps them honest:
   the one way out of this one that no fake in the suite could answer: it would
   not see the `FakeLLM`, the faked `search_web` or the scratch cache directory,
   and a server that opened a browser would open it where nobody is sitting;
+- **nothing here awaits, and the threads are the three that wait**: no
+  `asyncio`, `anyio` or `trio` anywhere. The server ADR-0010 settled is a
+  `ThreadingHTTPServer`, and an `async def` below it would want a loop under
+  everything that imports this package -- the CLI, the suite and the Python
+  caller who imported `BuyAgent` included. So `threading`, `concurrent.futures`,
+  `queue` and `contextvars` belong to the three modules that wait on somebody
+  else: `fetch` reading the result pages in a pool, `providers` asking `ollama
+  show` once per tag, and `server` running a request in a worker thread and
+  routing its log lines by the context that thread began in;
 - every module sits in a **layer that reaches only downward** -- entry points,
-  web, orchestration, pipeline, paying, seams, settings, domain -- with
-  the four edges that are decisions named in the test: the pipeline never reads
+  web, orchestration, pipeline, paying, seams, settings, domain -- with three
+  of the four edges that are decisions named in the test: the pipeline never reads
   the config (which is what lets `rank_products`, `ground` and `Constraints` be
   tested with three arguments and no environment), the pipeline never pays
-  (ADR-0046), paying never asks the model, and the model seam knows nothing
-  about products (ADR-0038). The seams reach the domain and nothing else above
-  them, which is `journal.py`'s doing and worth saying: what it writes down is
-  products, so it names the domain types every layer already passes around
-  (ADR-0060) -- the three tables keep the stricter rule of their own below;
+  (ADR-0046), and paying never asks the model. The fourth is no longer this
+  rule's to state: the seams reach the domain and nothing else above them, which
+  is `journal.py`'s doing and worth saying -- what it writes down is products,
+  so it names the domain types every layer already passes around (ADR-0060) --
+  so the model seam's own edge (ADR-0038) is a rule of its own below. The rule
+  has two blind spots besides, and they are why so many of the rules below name
+  one module: an edge to or from a file in **no** layer is skipped, and so is one
+  *inside* a layer, so the two doors, the three tables and the seams under the
+  journal each keep a stricter rule of their own;
 - **one seam, one module**: `mandates.py` alone imports `ap2` (ADR-0046),
   `providers.py` alone a model client (ADR-0029), `search.py` alone a search
   library (ADR-0021, ADR-0057), `fetch.py` alone the HTML parser, the four that
@@ -1591,6 +1604,17 @@ twenty-second test that keeps them honest:
   patches, so a fifth is a request from a module nobody thought made any, and `argparse`
   belongs to the two modules handed an `argv`: a parser below them is a third
   set of defaults, and one that answers a bad value by exiting the process;
+- **one temporary-file dance and one hashed name**: `tempfile` and `hashlib`
+  are `cache.py`'s, and `journal.py` imports `write_atomically` and `file_for`
+  rather than keeping a second copy of the half either module could have got
+  subtly wrong on its own (ADR-0060);
+- **the environment is read where a setting is declared**: `config.py`, for what
+  a door can fill in too; the three tables, for the address and the key on each
+  row; `cache.py`, for the directory a run may reuse; and `mandates.py`, for the
+  key and the open mandate that authorise a payment. Neither door is on that
+  list, which is the rule -- every flag defaults to the matching `AgentConfig`
+  field, so a second reading of the environment below one door is a setting the
+  other one does not have;
 - **the standard library's network is `server.py`'s alone** -- a socket, an
   `ssl`, an `http.client`, a `urllib.request`. The rule above is about a
   distribution and this one is about the machine underneath it: a module that
@@ -1613,6 +1637,30 @@ twenty-second test that keeps them honest:
 - **the web tier is split at the payload**: `api.py` reaches no socket, no
   thread and no queue, which is what leaves every one of its rules assertable by
   calling a function while the status line and the stream stay in `server.py`;
+- **the two doors do not know about each other**: the CLI and the API are two
+  ways of filling in one `AgentConfig`, and both being entry points is exactly
+  why the layer rule cannot say so. `server.py` imported from `__main__.py` is a
+  socket module behind `python -m buy_agent`, and `__main__.py` imported from
+  the server is an `argv`'s worth of defaults behind a form;
+- **nothing above the orchestrator runs a step of its own**: the two doors, the
+  payload and the settings reach none of `extraction`, `verification`,
+  `constraints` or `fetch`. `ranking` is the exception at all five and the same
+  exception -- a finished run put in another order without being run again
+  (ADR-0035), the criteria `--sort-by` offers, and the `RankingWeights` a config
+  carries;
+- **the model seam knows nothing about products**: `chat.py` is a prompt, a
+  chain and an answer read back as its schema, and the schema is the caller's
+  (ADR-0038) -- which is what lets a stand-in for the model be a class with one
+  `answer` method and nothing about shopping in it;
+- **the currency table is the leaf**: `money.py` knows nothing of this package
+  and imports nothing installed, which is what "a currency is added there and
+  nowhere else" comes to when six modules read a derivation off it (ADR-0054);
+- **a bound read out of the request is applied by nobody**: `bounds.py` reaches
+  `money.py`, for the marks that make a figure a budget, and no other module of
+  the package -- not the constraints that do apply a bound, and not the
+  `config.LIMITS` that would refuse one, a figure the setting refuses being
+  dropped at the door rather than pre-filled into a box the form then marks
+  (ADR-0059);
 - **the steps take values and answer values**: nothing in the pipeline or the
   domain reads an environment variable, a file, a clock or a random number --
   the half of "the pipeline never reads the config" no layer can state, and what
@@ -1620,7 +1668,9 @@ twenty-second test that keeps them honest:
 - **the steps do not chain themselves**: the order of the pipeline is
   `BuyAgent.run`'s to know, since a joint argued in one place is a joint that
   can be moved, and the one edge inside that layer is `verification.py` sharing
-  `extraction.py`'s vocabulary;
+  `extraction.py`'s vocabulary -- *one*, which is a rule of its own beside it,
+  since a module left out of the subject of a rule is left out of it for every
+  other step too;
 - **nothing that decides the answer asks the model**: `ranking`, `constraints`,
   `verification` and `models` may not reach the chat seam, the fetcher or the
   search (ADR-0002).
@@ -1637,7 +1687,9 @@ nothing *passes*, which is the one way this file could be worse than no file:
 is really a module of the package, so a rename fails the rule about that module
 rather than quietly making it a no-op. A module in no layer is exempt in that
 same silent way, and one named in *two* is free to reach whatever either row
-allows, so the twenty-second test collects the placings and counts them. Size is
+allows, so the thirty-first test collects the placings and counts them. An edge
+*inside* a layer is skipped in that same silent way and no table can fix that
+one, which is what the rules naming a single module above are for. Size is
 deliberately not asserted: a ceiling on lines, methods or cohesion would be a
 policy nobody has decided.
 
