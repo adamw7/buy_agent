@@ -1819,10 +1819,14 @@ def paths_a_skill_names(path: Path) -> list[str]:
 
 
 #: Directories a walk of this repository has no business entering: a virtual environment
-#: and an npm tree are somebody else's files, and the other three are this project's own
-#: output.
+#: and an npm tree are somebody else's files, and the rest are this project's own
+#: output -- ``.pytest_cache`` among them, which holds the node ids of the run before
+#: this one and would vouch for a test somebody has since renamed away.
 _NOT_THE_REPOSITORY = frozenset(
-    {".git", ".venv", "node_modules", "mutants", "__pycache__", ".angular", "dist"}
+    {
+        ".git", ".venv", "node_modules", "mutants", "__pycache__", ".angular", "dist",
+        ".pytest_cache",
+    }
 )
 
 
@@ -2438,4 +2442,94 @@ def test_the_help_text_argparse_prints_raw_is_wrapped_by_hand(
             assert len(line) <= _HELP_WIDTH, (
                 f"{parser.prog}'s {block} has a {len(line)}-character line, which "
                 f"argparse prints as written: wrap it at {_HELP_WIDTH}"
+            )
+
+
+# -- the front end's own checks ------------------------------------------------
+
+_UI_TSCONFIG = _ROOT / "ui" / "tsconfig.json"
+_UI_APP_TSCONFIG = _ROOT / "ui" / "tsconfig.app.json"
+
+#: What the UI is compiled under, and which of the two files each is set in.
+#: ``strict`` is the family (``strictNullChecks`` and ``noImplicitAny`` among them) and
+#: is shared, so the specs are held to it too. ``noUncheckedIndexedAccess`` is the
+#: member ``strict`` leaves out and this app needs -- every lookup a component makes is
+#: by a key that came off a payload (``limits()[number.key]``,
+#: ``receipts()[product.name]``), and typed as a hit a miss makes the ``?? null``
+#: written for it read as one that can be deleted. It sits on the *app* alone, since a
+#: test indexing past the end of a list it just built is a failing assertion on the
+#: next line rather than something a user is shown, and the ``!`` per subscript it
+#: would take 66 times over in the specs says nothing about the code that ships.
+_COMPILER_CHECKS = (
+    (_UI_TSCONFIG, "strict"),
+    (_UI_APP_TSCONFIG, "noUncheckedIndexedAccess"),
+)
+
+
+@pytest.mark.parametrize(
+    ("path", "option"), _COMPILER_CHECKS, ids=[option for _, option in _COMPILER_CHECKS]
+)
+def test_the_ui_is_compiled_with_its_checks_on(path: Path, option: str) -> None:
+    """`npm run build` is half the UI's gate -- a template error is invisible to the
+    unit tests -- but *how much* it checks is a setting and not a property of the build.
+    Turned off, `agent.types.ts` stops being a promise the components are held to: the
+    nullable halves of a payload (an `Opinion.url` off a result with no page, a
+    `pay_currency` on a bare price) are assignable to everything, and the mirror the
+    tests above keep between Python and TypeScript goes on passing while the components
+    stop reading it. Read with a regex rather than `json`, these files carrying the
+    comments JSON has no room for."""
+    written = path.read_text(encoding="utf-8")
+
+    assert re.search(rf'"{option}":\s*true', written), (
+        f"{path.name} no longer sets {option}, so the build checks less than the "
+        f"types say"
+    )
+
+
+# -- the prose -----------------------------------------------------------------
+
+#: A Markdown link, as every file here writes one: ``[the tour](README.md#what-this-is)``.
+_MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
+
+#: Link targets that name no file of this repository: somebody else's page and an
+#: address. A placeholder is the third and is ``_PLACEHOLDERS``, shared with the rule
+#: about the paths a skill names -- `docs/adr/NNNN-slug.md` is a file the reader is
+#: being told to create, in the ADR template and in `add-adr` alike.
+_SOMEBODY_ELSES = ("http://", "https://", "mailto:")
+
+
+def markdown_files() -> list[Path]:
+    """Every Markdown file this repository keeps, found rather than listed.
+
+    Off ``SOURCE_ROOT`` and not ``_ROOT``: a mutation run tests a copy of the tree
+    that carries only what `setup.cfg` names, and what is asserted here is the prose
+    as written rather than how much of it a copy was given.
+    """
+    found: list[Path] = []
+    for directory, subdirectories, files in os.walk(SOURCE_ROOT):
+        subdirectories[:] = [name for name in subdirectories if name not in _NOT_THE_REPOSITORY]
+        found += [Path(directory) / name for name in files if name.endswith(".md")]
+    assert found, "no prose found; this section has outlived its rule"
+    return sorted(found)
+
+
+@pytest.mark.parametrize(
+    "path", markdown_files(), ids=lambda path: str(path.relative_to(SOURCE_ROOT))
+)
+def test_every_link_in_the_prose_points_at_something_that_is_there(path: Path) -> None:
+    """The decision log already holds its own cross-references to records that exist,
+    and the skills their paths -- this is that rule for the other half of what is
+    written down here, which is where a reader starts: `README.md` hands off to
+    `docs/`, `CLAUDE.md` to the records behind each rule, `docs/testing.md` to both
+    suites. A renamed file leaves every one of those valid Markdown and every one of
+    them a dead end, and nothing else in either suite would see it: the link still
+    renders, and only somebody following it finds out."""
+    for target in _MARKDOWN_LINK.findall(path.read_text(encoding="utf-8")):
+        if target.startswith(_SOMEBODY_ELSES) or any(mark in target for mark in _PLACEHOLDERS):
+            continue
+        # A link to a heading of this same file names no path at all.
+        named = target.partition("#")[0]
+        if named:
+            assert (path.parent / named).exists(), (
+                f"{path.relative_to(SOURCE_ROOT)} points at {target}, which is not there"
             )

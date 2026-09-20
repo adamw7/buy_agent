@@ -22,7 +22,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-2425 Python tests and 244 UI tests. Nothing in either suite touches the network
+2501 Python tests and 244 UI tests. Nothing in either suite touches the network
 or a model server: the model is faked through the `llm=` argument of `BuyAgent`
 -- a class with one `answer` method, which is the whole of `chat.ChatModel`,
 both the search backend and the page fetcher are monkeypatched -- the backends'
@@ -60,8 +60,8 @@ Without that SDK the 74 tests that need it **skip**, the way
 `tests/conftest.py` is the marker, and it asks `mandates.available()` once at
 import. `needs_powershell` is the other, and with neither `pwsh` nor
 `powershell` on PATH 13 of the 19 tests in that file sit out. So a machine with
-the SDK and no PowerShell reads `2412 passed, 13 skipped`, and a checkout set up
-with `requirements-dev.txt` alone reads `2338 passed, 87 skipped` rather than 74
+the SDK and no PowerShell reads `2488 passed, 13 skipped`, and a checkout set up
+with `requirements-dev.txt` alone reads `2414 passed, 87 skipped` rather than 74
 failures claiming the project is broken when one optional feature is simply not
 installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide
@@ -142,6 +142,25 @@ rebound loop variable and ten `typing.Callable`s, and none of the three was
 visible to the tests, the coverage floor, the mutation run or the import graph,
 because every one of them ran perfectly.
 
+The UI's half of that gate is two checks and no threshold either. `npm run
+build` is a type check before it is a build: `ui/tsconfig.json` sets `strict`
+for the whole workspace and `ui/tsconfig.app.json` adds
+`noUncheckedIndexedAccess` for the shipped half -- the one `strict` leaves out
+and the one this app needs, every lookup a component makes being by a key that
+came off a payload (`limits()[number.key]`, `receipts()[product.name]`). It
+stops at the specs, where indexing past the end of a list the test built itself
+is a failing assertion on the next line and the `!` per subscript would say
+nothing about the code that ships. Without it a
+miss is typed as a hit, which is how a `?? null` written for a real `undefined`
+reads to the compiler as one that can be deleted -- and with it, the nullable
+halves of a payload (an `Opinion.url` off a result with no page, a
+`pay_currency` on a bare price) are a case every component has to handle rather
+than a comment in `agent.types.ts`. `npm run format:check` is the other:
+Prettier reading rather than writing, which is the whole of what lints this half
+-- `npm run format` is the same glob with `--write`, and is what to run when the
+step goes red. It runs last in its job for the reason pylint runs last in the
+other.
+
 Both suites are measured and CI fails on a drop: the Python side covers every
 line and branch (`.coveragerc` sets the floor at 99%), and the UI's statements
 and lines sit just under 100% (`coverageThresholds` in `ui/angular.json`, floor
@@ -162,7 +181,11 @@ for it; the nightly
 run pulling the model the live tests ask for and leaving its own cap room to
 fail a stopped model first; the decision log agreeing with its own index; the
 checklists in `.claude/skills/` naming files, tests, names and records that are
-really there, since nothing else in either suite opens them; the
+really there, since nothing else in either suite opens them; every link in every
+Markdown file here pointing at something that is there, a renamed file otherwise
+leaving valid Markdown that is a dead end and only the reader who follows it
+finding out; the UI being compiled with its checks on, which is a setting and
+not a property of the build; the
 dependency list holding only what the package imports, and holding all of it; the
 linter reading the package the other two tools measure and no line of it taking
 a check away without saying why; every type named for a failure being one, and
@@ -263,8 +286,8 @@ already the file above.
 
 Both suites run on Windows and on Linux, on different triggers.
 `.github/workflows/ci.yml` spreads its two jobs -- `coverage run -m pytest` and
-then `pylint buy_agent` on Python 3.14, `npm run test:coverage && npm run build`
-on Node 22.23.2 -- over `ubuntu-latest` and `windows-latest`, with `fail-fast`
+then `pylint buy_agent` on Python 3.14, `npm run test:coverage`, `npm run build`
+and `npm run format:check` on Node 22.23.2 -- over `ubuntu-latest` and `windows-latest`, with `fail-fast`
 off so a failure on one platform still reports the other. This project is
 written on Windows and its runners were Linux, each checking the half of the
 differences the other hides: a path separator, a default encoding, a socket that
