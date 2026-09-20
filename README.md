@@ -803,12 +803,11 @@ Nine details make it work with a small model:
   result page is fetched and condensed (`buy_agent/fetch.py`), which keeps the
   prompt small and gives the model something real to read. `--no-fetch` reverts
   to snippets only.
-- **Reading the opinions too, not only the figures.** A page is swept twice: for
-  the lines quoting a price or a rating, and for the lines passing judgement --
-  "reviewers found", "the downside is", "disappointing". Each sweep has its own
-  budget, so a shop page listing forty prices still contributes a verdict and a
-  review page of prose still contributes its price. A price says what a thing
-  costs and only these lines say whether to want it (ADR-0024).
+- **Reading the opinions too, not only the figures.** Each page is swept twice on
+  budgets of its own -- for the lines quoting a figure, and for the lines passing
+  judgement -- because a price says what a thing costs and only those say whether
+  to want it. [What the pages say](#what-the-pages-say) is the whole of it
+  (ADR-0024).
 - **Sources you can name.** `--source rtings.com --source @mkbhd` searches those
   instead of the whole web, and since the pages a run reads are the pages every
   fact is checked against, that makes provenance a property of the pipeline
@@ -818,13 +817,10 @@ Nine details make it work with a small model:
   any product whose name is absent from the sources, and blanks any price,
   rating or review count that does not appear in the text the model was shown. A
   blanked figure scores neutral instead of winning.
-- **Quotes, checked as quotes, and cited.** The opinions in the report are the
-  source pages' words, not the model's summary of them, and each is looked for
-  in the sources as running text -- overlapping runs of five consecutive words,
-  most of which have to be found. A paraphrase fails that and is dropped: an
-  invented price is a number nobody wrote, but an invented quote is words in a
-  reviewer's mouth. The page that cleared the check is kept on the quote and
-  shown beside it, so a shopper can go and read the sentence.
+- **Quotes, checked as quotes, and cited.** Each one is the source page's own
+  words, looked for as running text on a page that names the product, dropped
+  where it is not there, and shown beside a link to the page that cleared it
+  (ADR-0025, ADR-0042).
 
 - **Bounds that are enforced, not searched for.** A budget in the request text
   only shapes the query. `--max-price`, `--min-rating` and `--min-reviews` are
@@ -923,90 +919,37 @@ with [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython), costing
 no model, no network and no run
 ([ADR-0047](docs/adr/0047-check-the-import-graph-with-archunit.md)).
 
-- **The package is a line, and the line runs one way.** No import cycles, and
-  none of the five trees that import it -- `tests/`, `integration/`,
-  `benchmark/`, `demo/`, `scripts/` -- is imported back.
-  `buy_agent/__init__.py` imports the four modules it re-exports from and no
-  others, since importing any submodule runs it first: a `from` line there
-  naming `payment` would put the optional AP2 stack behind `import buy_agent`.
-- **Every module sits in a layer that reaches only downward** -- entry points,
-  web, orchestration, pipeline, paying, seams, settings, domain. Four of
-  those edges are decisions rather than tiers. The pipeline never reads the
-  config, which is what lets `rank_products`, `ground` and `Constraints` be
-  tested with three arguments and no environment. The pipeline never pays, so no
-  step of a run can spend money it was not asked to (ADR-0046). Paying never
-  asks the model, which is "never pay on an unverified number" as an import.
-  The seams reach the domain types and nothing else above them -- `journal.py`
-  writes products down, so it names the vocabulary every layer already passes
-  around (ADR-0060) -- which is why the fourth edge is a rule of its own: the
-  model seam carries a prompt, a schema and an answer without ever knowing what
-  an answer means (ADR-0038). Two kinds of edge the layers cannot see have rules
-  of their own for the same reason: one to or from a file in no layer, and one
-  *inside* a layer, which is what says the two doors do not know about each
-  other and `money.py` reaches nothing that reads it.
-- **One seam, one module.** `mandates.py` alone imports the AP2 SDK (ADR-0046),
-  `providers.py` alone a model client (ADR-0029), `search.py` alone a search
-  library (ADR-0021, ADR-0057), `fetch.py` alone the HTML parser. The four
-  modules that speak HTTP are exactly the four the suite patches, so a fifth
-  would be a request no fake answers; `argparse` belongs to the two modules
-  handed an `argv`, a parser below them being a third set of defaults; and
-  `tempfile` and `hashlib` are `cache.py`'s, the journal putting a file on disk
-  by importing that one dance rather than keeping a second copy of it (ADR-0060).
-- **A setting is read where it is declared.** The environment belongs to
-  `config.py`, the three tables, `cache.py` and `mandates.py` -- not to either
-  door, where a flag defaults to the matching `AgentConfig` field, so a second
-  reading of it below one door is a setting the other one does not have. Nothing
-  here awaits either: no `asyncio` anywhere, and `threading`,
-  `concurrent.futures`, `queue` and `contextvars` belong to the three modules
-  that wait on somebody else -- the page pool, the per-tag listing, and the
-  worker thread a request is served by.
-- **The socket is the server's alone.** `server.py` is a standard-library HTTP
-  server on purpose and only ever listens on it (ADR-0010), so a `socket`, an
-  `ssl` or a `urllib.request` anywhere else is a module reaching out on its own.
-  It also imports nothing outside the standard library -- read off the graph
-  rather than off `requirements.txt`, so a dependency added tomorrow is covered
-  without anybody writing the rule down again -- while `api.py` reaches no
-  socket, thread or queue, which is what leaves the payloads testable by calling
-  a function.
-- **The package starts no process.** `subprocess`, `multiprocessing` and
-  `webbrowser` are nobody's here: installing Ollama, pulling a model, building
-  the UI and opening the page are `scripts/start.ps1`'s (ADR-0023), and the
-  container starts neither model server either (ADR-0015). It is the one way out
-  of the package that no fake in the suite could answer -- a child process would
-  see neither the fake model nor the fake search nor the scratch cache
-  directory, and a server that opened a browser would open it where nobody is
-  sitting.
-- **The steps take values and answer values.** Nothing in the pipeline or the
-  domain reads an environment variable, a file, a clock or a random number,
-  which is the half of "the pipeline never reads the config" no layer can state
-  and what says a remembered answer (ADR-0044) is the same answer. It is why a
-  page asked to come back later waits by a clock `BuyAgent` hands down rather than
-  one `fetch` imports (ADR-0053): waiting is not deciding, and the rule is an
-  import away from either. The steps do not chain
-  themselves either: the order of the pipeline is `BuyAgent.run`'s to know, so a
-  joint argued in one place stays a joint that can be moved -- and nothing above
-  the orchestrator calls into the middle of that line, `ranking.py` being the one
-  step the doors, the payload and the settings may name, for the re-sort that
-  runs no pipeline (ADR-0035). A bound read out of the request reaches the money
-  it is written in and nothing that could apply it (ADR-0059). And nothing that
-  decides the answer -- the ranking, the bounds, the grounding, the types --
-  may reach the model, the fetcher or the search (ADR-0002).
+What they say, in a line each: the package is a line and the line runs one way,
+with no cycles and no import of the five trees that import it -- `tests/`,
+`integration/`, `benchmark/`, `demo/`, `scripts/`; every module sits in a layer
+that reaches only downward, so the pipeline never reads the config (which is what
+lets `rank_products`, `ground` and `Constraints` be tested with three arguments
+and no environment) and never pays (ADR-0046), paying never asks the model, and
+the model seam carries a prompt and an answer without knowing what an answer
+means (ADR-0038); one seam, one module, so exactly one file imports the AP2 SDK,
+one a model client, one the search library, one the HTML parser, and the four
+that speak HTTP are the four the suite patches; a setting is read where it is
+declared, and neither door is one of those places; the socket, the standard
+library's own network and every import from outside it are `server.py`'s alone
+(ADR-0010), while `api.py` reaches no socket, thread or queue; the package starts
+no process, installing Ollama and opening a browser being `scripts/start.ps1`'s
+(ADR-0023); and the steps take values and answer values, never reading a clock or
+a file, never chaining themselves -- the order of the pipeline is `BuyAgent.run`'s
+to know -- and never reaching the model, the fetcher or the search to decide an
+answer (ADR-0002).
 
-Two things about how they are written. An import under `if TYPE_CHECKING:` does
-not count, because it never runs: it is how this package already spells "I name
-this type and do not use this module", and it is what lets `providers.py` take
-an `AgentConfig` while importing nothing from `config`. And a negated rule whose
-subject matches nothing *passes*, which is the one way a file like this can be
-worse than no file, so every helper that names modules checks they exist and a
-thirty-first test counts the layer placings -- a module renamed out of a rule,
-left out of the layer table or named in two of its rows fails a test instead of
-quietly becoming an exemption.
+Each of those is written out beside the sentence it came from in
+[Tests](docs/testing.md), with the two things that make such a file worth having:
+an import under `if TYPE_CHECKING:` does not count, since it never runs, and a
+negated rule whose subject matches nothing *passes*, so every helper that names
+modules checks they exist and a thirty-first test counts the layer placings --
+a module renamed out of a rule, left out of the layer table or named in two of
+its rows fails a test instead of quietly becoming an exemption.
 
 What the counts are, what `tests/test_conventions.py` checks that coverage
-cannot, each of those thirty import rules written out beside the sentence it
-came from, what pylint is configured to say and what it is deliberately not
+cannot, what pylint is configured to say and what it is deliberately not
 (ADR-0048), what the benchmark measures, and the mutation run that grades the
-suite every Saturday are in [Tests](docs/testing.md).
+suite every Saturday are there too.
 
 ## Limitations
 

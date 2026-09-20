@@ -12,7 +12,7 @@ from typing import Any, get_args
 
 from buy_agent import mandates, payment
 from buy_agent.agent import BuyAgent, ModelUnavailableError, journal_for
-from buy_agent.api import results_payload
+from buy_agent.api import OPTIONS, results_payload
 from buy_agent.bounds import notice
 from buy_agent.chat import release
 from buy_agent.config import (
@@ -509,36 +509,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     configure_logging(verbose=args.verbose)
 
-    config = _configured(
-        parser,
-        provider=args.provider,
-        model=args.model,
-        base_url=args.base_url,
-        temperature=args.temperature,
-        num_ctx=_DEFAULTS.num_ctx if args.num_ctx is _UNSET else args.num_ctx,
-        model_timeout=args.model_timeout,
-        reasoning=args.think,
-        cpu_only=args.cpu_only,
-        search_results=max(args.results, args.top),
-        num_products=args.results,
-        top_n=args.top,
-        max_price=args.max_price,
-        min_rating=args.min_rating,
-        min_reviews=args.min_reviews,
-        cache_ttl=args.cache_ttl,
-        journal=args.journal,
-        region=args.region,
-        currency=args.currency,
-        backend=args.backend,
-        # Repeated flags build a list; no flag leaves None, and the fallback is the
-        # config's own default rather than an empty one written down again.
-        sources=parse_sources(args.source) if args.source else _DEFAULTS.sources,
-        fetch_pages=args.fetch,
-        pay=args.pay,
-        rail=args.rail,
-        merchant_url=args.merchant_url,
-        spend_limit=args.spend_limit,
-    )
+    # Every flag lands under the request key its setting has, so which field it fills
+    # in is read off ``api.OPTIONS`` rather than written out a second time here: a
+    # setting listed once is one both doors carry or neither does.
+    settings = {option.field: getattr(args, option.key) for option in OPTIONS}
+    # The three the table cannot answer for. The sentinel above is not a value to pass
+    # on; repeated flags build a list, and no flag at all leaves ``None``, where the
+    # fallback is the config's own default rather than an empty one written down again;
+    # and searching for fewer pages than the report intends to show would cap it.
+    settings["num_ctx"] = _DEFAULTS.num_ctx if args.num_ctx is _UNSET else args.num_ctx
+    settings["sources"] = parse_sources(args.source) if args.source else _DEFAULTS.sources
+    settings["search_results"] = max(args.results, args.top)
+
+    config = _configured(parser, **settings)
 
     if not config.pay and (idle := _idle_paying_flags(args)):
         # Said rather than dropped, for the reason the context window below is: a run

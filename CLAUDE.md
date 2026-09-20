@@ -879,11 +879,18 @@ the raw request.
 
 ### Options, and the nine that are special
 
-The CLI and the API are two ways of filling in the same `AgentConfig`, and both
-set `search_results = max(results, top)` -- searching for fewer pages than the
-report intends to show would cap the report. A new option belongs in
-`__main__.build_parser`, `api.parse_options` and `api.defaults_payload`, which
-seeds the web form.
+**A setting is one row in one table too**, and the same table for both doors:
+`api.OPTIONS` says which request key each carries, which `AgentConfig` field it
+fills in and how its text is read, and everything that has to agree about that
+reads it -- `parse_options` for the value, `defaults_payload` for the form's
+seed, `_BOUNDED` and `limits_payload` for the range, and `main`, whose flags land
+under those same keys, for which field to pass each on as. So a new option is a
+row there, a flag with its help in `__main__.build_parser`, and nothing else on
+either door. What is left on both is the one thing no row can say: `sources` is a
+list, which `_read` would render as a Python repr; the CLI's `--num-ctx` sentinel
+is not a value to pass on; and `search_results = max(results, top)` is a setting
+neither door is given, searching for fewer pages than the report intends to show
+being a capped report.
 
 Two of them being two, **a sentence written below either door names the setting
 and never the flag.** `providers.hint`, `rails.hint` and
