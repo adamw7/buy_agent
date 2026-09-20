@@ -69,6 +69,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0058](0058-keep-every-listing-a-product-was-priced-at.md) | Keep every listing a product was priced at, and pay the one being bought | Accepted |
 | [0059](0059-notice-a-bound-in-the-request-and-offer-it.md) | Notice a bound in the request, and offer it rather than enforcing it | Accepted |
 | [0060](0060-keep-a-run-journal-beside-the-cache-not-in-it.md) | Keep a run journal beside the cache, not in it | Accepted |
+| [0061](0061-mutation-test-the-front-end-through-its-own-builder.md) | Mutation-test the front end, through the builder it is already tested with | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

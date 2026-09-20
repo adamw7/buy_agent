@@ -61,6 +61,7 @@ from buy_agent.server import DEFAULT_UI_DIR
 from buy_agent.server import build_parser as build_server_parser
 import integration
 from integration import LIVE_TIMEOUT_SECONDS, REQUIRE_ENV_VAR, TINY_MODEL
+from scripts.mutation_report import MUTMUT, STRYKER, Tool, tool_for
 
 _ROOT = Path(__file__).resolve().parents[1]
 
@@ -737,6 +738,7 @@ _DOCKERIGNORE = _ROOT / ".dockerignore"
 _GITIGNORE = _ROOT / ".gitignore"
 _CI = _ROOT / ".github" / "workflows" / "ci.yml"
 _MUTATION = _ROOT / ".github" / "workflows" / "mutation.yml"
+_MUTATION_UI = _ROOT / ".github" / "workflows" / "mutation-ui.yml"
 _INTEGRATION = _ROOT / ".github" / "workflows" / "integration.yml"
 _MUTMUT = _ROOT / "setup.cfg"
 _COVERAGERC = _ROOT / ".coveragerc"
@@ -838,12 +840,17 @@ def context_copies() -> list[str]:
 
 
 def _matches(pattern: list[str], segments: list[str]) -> bool:
-    """Whether one pattern, split on ``/``, matches a path split the same way."""
-    if pattern and pattern[0] == "**":
+    """Whether one pattern, split on ``/``, matches a path split the same way.
+
+    ``**`` stands for any number of segments and is read wherever it appears, since
+    the ignore files write it at the front (``**/__pycache__/``) and the Stryker
+    config in the middle (``src/app/**/*.ts``)."""
+    if not pattern:
+        return not segments
+    if pattern[0] == "**":
         return any(_matches(pattern[1:], segments[at:]) for at in range(len(segments) + 1))
-    return len(pattern) == len(segments) and all(
-        fnmatch.fnmatchcase(segment, part)
-        for part, segment in zip(pattern, segments, strict=True)
+    return bool(segments) and fnmatch.fnmatchcase(segments[0], pattern[0]) and _matches(
+        pattern[1:], segments[1:]
     )
 
 
@@ -1339,7 +1346,7 @@ def test_the_nightly_run_is_never_a_gate_on_a_pull_request() -> None:
     """Like the mutation run and for the same reason: it takes minutes where the suite
     takes seconds, and it depends on a third party's install script and a model tag
     that can be re-pulled under it."""
-    for workflow in (_INTEGRATION, _MUTATION):
+    for workflow in (_INTEGRATION, _MUTATION, _MUTATION_UI):
         assert "pull_request" not in workflow.read_text(encoding="utf-8"), workflow.name
 
 
@@ -1524,6 +1531,136 @@ def test_the_mutation_run_is_scheduled_for_saturdays() -> None:
 
     assert (day_of_week, day_of_month, month) == ("6", "*", "*")
     assert minute != "0", "the top of the hour is where scheduled runs queue"
+
+
+# -- the Saturday mutation run, the front end's half ---------------------------
+
+#: What Stryker is configured by, and what the instrumented sources compile under.
+_STRYKER = _ROOT / "ui" / "stryker.config.mjs"
+_MUTATION_TSCONFIG = _ROOT / "ui" / "tsconfig.mutation.json"
+
+#: Where the two runs' results are read from, per workflow: `scripts/mutation_report.py
+#: <results>`, wherever a workflow runs one.
+_REPORTED = re.compile(r"scripts/mutation_report\.py (\S+)")
+
+
+def stryker_setting(name: str, opening: str, closing: str) -> str:
+    """One setting out of the Stryker config, which is JavaScript and carries the
+    prose that JSON has no room for -- so it is read the way the ignore files and
+    the workflows are, off the source rather than through a parser."""
+    written = _STRYKER.read_text(encoding="utf-8")
+    match = re.search(rf"^  {name}: \{opening}(.*?)\{closing}", written, re.S | re.M)
+    assert match, f"the Stryker config sets no {name}"
+    return match.group(1)
+
+
+def stryker_globs() -> tuple[list[str], list[str]]:
+    """What a run mutates and what it leaves out, as the two halves of ``mutate``."""
+    globs = re.findall(r"'([^']+)'", stryker_setting("mutate", "[", "]"))
+    assert globs, "the Stryker config mutates nothing"
+    return (
+        [glob for glob in globs if not glob.startswith("!")],
+        [glob.removeprefix("!") for glob in globs if glob.startswith("!")],
+    )
+
+
+def mutated_by_stryker(spelled: str) -> bool:
+    """Whether one path, written as the config writes one, is a file a run mutates."""
+    included, excluded = stryker_globs()
+    segments = spelled.split("/")
+    return any(_matches(glob.split("/"), segments) for glob in included) and not any(
+        _matches(glob.split("/"), segments) for glob in excluded
+    )
+
+
+def test_the_front_end_has_its_own_mutation_run_and_its_own_slot() -> None:
+    """ADR-0016's rule for the other half, on the day CLAUDE.md and docs/testing.md
+    both name: cron counts days from Sunday, so Saturday is 6, and off the hour
+    where runs queued at :00 can start an hour late."""
+    minute, _hour, day_of_month, month, day_of_week = cron(_MUTATION_UI)
+
+    assert (day_of_week, day_of_month, month) == ("6", "*", "*")
+    assert minute != "0", "the top of the hour is where scheduled runs queue"
+
+
+def test_no_two_scheduled_runs_are_waiting_on_the_same_runners() -> None:
+    """Four schedules now, and the reason each is off the hour is the reason no two
+    of them are at the same time: a run of this one is ninety minutes of `ng test`,
+    and a weekly job queueing behind it reports ninety minutes late (ADR-0061)."""
+    scheduled = {
+        workflow.name: cron(workflow)[1::-1]
+        for workflow in workflows()
+        if "- cron:" in workflow.read_text(encoding="utf-8")
+    }
+
+    assert len(set(scheduled.values())) == len(scheduled), scheduled
+
+
+def test_every_source_the_front_end_ships_is_mutated_or_named() -> None:
+    """A run narrowed to the component somebody was working on is a score about that
+    component reported as the front end's, so what is left out is left out by name:
+    the payloads written down as types, the ones the specs are written against, and
+    what `main.ts` boots the app with."""
+    _included, excluded = stryker_globs()
+
+    for path in sorted((_ROOT / "ui" / "src" / "app").rglob("*.ts")):
+        spelled = path.relative_to(_ROOT / "ui").as_posix()
+
+        assert mutated_by_stryker(spelled) or any(
+            _matches(glob.split("/"), spelled.split("/")) for glob in excluded
+        ), f"{spelled} is neither mutated nor named in ui/stryker.config.mjs"
+
+
+def test_every_file_the_mutation_run_leaves_out_is_one_that_is_there() -> None:
+    """The other side of that: an exclusion naming a file since renamed quietly puts
+    that file back into the run, and a weekly job is the worst place to find out."""
+    _included, excluded = stryker_globs()
+    named = [glob for glob in excluded if "*" not in glob]
+
+    assert named, "nothing is left out by name; this rule has outlived itself"
+    for glob in named:
+        assert (_ROOT / "ui" / glob).is_file(), f"{glob} is left out of the run and is not there"
+
+
+def test_the_mutation_run_compiles_the_front_end_with_the_checks_the_build_uses() -> None:
+    """`npm run build` is what holds the shipped code to `strict` and
+    `noUncheckedIndexedAccess`, and the run's own tsconfig relaxes the *templates*
+    alone -- Stryker's instrumentation widens the types a template reads, and the
+    mutated TypeScript is let off by the `@ts-nocheck` it carries. A
+    `compilerOptions` block here would be the one place those two settings could be
+    turned off without the test above noticing, on the half of the project that is
+    mutated once a week and compiled on every push."""
+    written = _MUTATION_TSCONFIG.read_text(encoding="utf-8")
+
+    assert '"extends": "./tsconfig.spec.json"' in written, "the run compiles the specs"
+    assert '"compilerOptions"' not in written, (
+        "ui/tsconfig.mutation.json sets compilerOptions, so a mutation run can check "
+        "less of the front end than the build does"
+    )
+
+
+@pytest.mark.parametrize(
+    ("workflow", "tool"),
+    [(_MUTATION, MUTMUT), (_MUTATION_UI, STRYKER)],
+    ids=lambda value: getattr(value, "name", str(value)),
+)
+def test_each_mutation_run_is_reported_by_the_script_that_reads_it(
+    workflow: Path, tool: Tool
+) -> None:
+    """One report and two readers, which is only one report while each workflow hands
+    the script the file its own tester wrote: the reader, and with it the floor, is
+    picked off what the results file is called."""
+    reported = _REPORTED.findall(workflow.read_text(encoding="utf-8"))
+
+    assert reported, f"{workflow.name} publishes no report"
+    for results in reported:
+        assert tool_for(Path(results)) is tool, f"{workflow.name} hands {results} to {tool.name}"
+
+
+def test_nothing_but_the_report_fails_a_front_end_mutation_run() -> None:
+    """Stryker holds a floor of its own, which would be a second one: a run can then
+    fail with no report published, which is the half ADR-0016 says is the deliverable."""
+    assert "break: null" in stryker_setting("thresholds", "{", "}")
 
 
 #: The one test module that reloads a module of the package under test.
@@ -1825,7 +1962,7 @@ def paths_a_skill_names(path: Path) -> list[str]:
 _NOT_THE_REPOSITORY = frozenset(
     {
         ".git", ".venv", "node_modules", "mutants", "__pycache__", ".angular", "dist",
-        ".pytest_cache",
+        ".pytest_cache", ".stryker-tmp",
     }
 )
 

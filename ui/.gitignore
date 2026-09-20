@@ -37,3 +37,9 @@ __screenshots__/
 # System files
 .DS_Store
 Thumbs.db
+
+# Stryker
+#   A run copies the tree to .stryker-tmp/ and tests the copy; reports/ is what
+#   .github/workflows/mutation-ui.yml publishes and uploads.
+/.stryker-tmp
+/reports

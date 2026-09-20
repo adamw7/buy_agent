@@ -22,7 +22,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-2501 Python tests and 244 UI tests. Nothing in either suite touches the network
+2530 Python tests and 244 UI tests. Nothing in either suite touches the network
 or a model server: the model is faked through the `llm=` argument of `BuyAgent`
 -- a class with one `answer` method, which is the whole of `chat.ChatModel`,
 both the search backend and the page fetcher are monkeypatched -- the backends'
@@ -482,3 +482,52 @@ on a Saturday, days after the pull request the test passed on.
 `test_no_test_reads_a_declaration_off_a_function_object` is that rule for both
 suites: what a function was declared with is asked of a run that was told
 nothing.
+
+### The front end's own run
+
+ADR-0016 left the UI out and said so: it has its own toolchain (ADR-0013) and
+would need its own mutation tester. It has one now.
+[Stryker](https://stryker-mutator.io/) runs over `ui/src/app` at `23 6 * * 6`
+and on demand -- `.github/workflows/mutation-ui.yml`, an hour after the
+package's own run and in a workflow of its own, because ninety minutes of
+`ng test` stacked into a two-minute job would make that report wait on this one
+(ADR-0061). It is the half of the project where coverage says least: the 98%
+floor is on statements and lines only, `ui/angular.json` deliberately setting no
+branch floor because v8 attributes the branches inside a compiled Angular
+template to positions no test can reach.
+
+A run is the project's own test command, once per mutant. Stryker instruments
+the sources with every mutant at once and switches one on through an
+environment variable, so what runs is `ng test` with a variable set -- no second
+Angular compiler beside the one `ci.yml` runs, and a surviving mutant is a
+sentence about the specs as CI runs them. That is also what it costs: 969
+mutants, a whole build and a whole suite each, about ninety minutes on a
+four-core runner with four running at a time.
+
+```powershell
+cd ui
+npx stryker run                     # ~90 minutes; reports/mutation/ is the output
+cd ..
+python scripts/mutation_report.py ui/reports/mutation/mutation.json
+```
+
+`ui/stryker.config.mjs` is the `setup.cfg` of that half: what is mutated, what
+is left out by name (`agent.types.ts` is the payloads written down as types,
+`testing.ts` the ones the specs are written against, `app.config.ts` what
+`main.ts` boots the app with), and the timeout a loaded runner needs so a slow
+run is not reported as a killed mutant. `ui/tsconfig.mutation.json` beside it is
+the one concession: Stryker's instrumentation widens the types a template reads,
+so the templates' own checks are off for the run while `strict` and
+`noUncheckedIndexedAccess` stay exactly where `npm run build` has them -- it
+declares no `compilerOptions` at all, and a convention test reads that back.
+Both the sandbox under `ui/.stryker-tmp/` and the reports under `ui/reports/`
+are ignored by git.
+
+The report is `scripts/mutation_report.py` again. One script holds a `Tool` per
+tester -- what its statuses mean, how a run of it reads, and the floor under it
+-- and the file it is handed says which one wrote it: mutmut a listing, Stryker
+a JSON report. The shape is the same either way, the score and a row per module
+worst first and where the survivors cluster, except that Stryker records a
+position rather than a function, so a cluster is a file and the mutator that
+made it. The run's own HTML report is uploaded as an artifact, which is the
+survivor read beside the line it was made from.

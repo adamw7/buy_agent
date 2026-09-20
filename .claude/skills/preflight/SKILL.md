@@ -67,8 +67,12 @@ npm run format:check
 - `pytest integration` needs a real Ollama and the model pulled
   (`ollama pull qwen3:0.6b`). It runs nightly, never on a pull request. Run it
   by hand only when a change touches the prompts, the schema or the decoding.
-- `python -m mutmut run` is the Saturday job. Only worth running locally when
-  the change is to logic the suite might be exercising without asserting on.
+- `python -m mutmut run` is the Saturday job, and `npx stryker run` -- from the
+  directory `npm test` is run in -- is the front end's own an hour later
+  (ADR-0061). Only worth running locally when
+  the change is to logic the suite might be exercising without asserting on --
+  and the second of them is ninety minutes, so narrow `mutate` to the file in
+  hand rather than waiting on the whole front end.
 - CSP and inline-critical-CSS breakage takes a browser -- neither suite sees it.
   If the change touched `_SECURITY_HEADERS`, `ui/angular.json`, or added an
   inline handler or an off-origin request, load the page.

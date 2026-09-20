@@ -1,0 +1,19 @@
+/* What `npx stryker run` compiles the instrumented sources under, and nothing else
+   does. Stryker puts every mutant of a file into that file at once, switched by a
+   variable at run time -- so a method that answered `boolean` is inferred as
+   `boolean | undefined`, and the templates reading it stop type-checking against
+   the class. The mutated TypeScript carries `@ts-nocheck` and is let off by that;
+   a template is checked from the outside and is not, which is why the two options
+   below are here and why nothing else is.
+
+   Deliberately no `compilerOptions`: `strict` and `noUncheckedIndexedAccess` are
+   what `npm run build` holds the shipped code to (ADR-0013), and a mutation run
+   that quietly checked less than the build would be reporting on a different
+   program. `tests/test_conventions.py` reads this file back for exactly that. */
+{
+  "extends": "./tsconfig.spec.json",
+  "angularCompilerOptions": {
+    "strictTemplates": false,
+    "fullTemplateTypeCheck": false
+  }
+}
