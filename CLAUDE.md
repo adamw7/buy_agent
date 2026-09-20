@@ -86,6 +86,9 @@ npm run test:coverage                         # the same, then the coverage floo
 npm run build                                 # dist/ui/browser, what the server serves
 npm run format:check                          # Prettier reading; `npm run format` writes
 npm start                                     # dev server on :4200, proxying /api to :8000
+
+npx stryker run                               # mutation testing; ~90 min, one `ng test` each
+cd ..; python scripts/mutation_report.py ui/reports/mutation/mutation.json
 ```
 
 `ui/` is a separate, ordinary Angular workspace with its own `package.json` and
@@ -156,8 +159,8 @@ matched by a pattern here, so the next `demo/` is a failing test rather than
 somebody's memory. Directories only -- a stray file at the root is a few
 kilobytes and is what the documented commands leave behind (`--json score.json`),
 while a stray directory is the whole of itself. Patterns match from the root, so
-the UI's own leavings are written out (`ui/dist/`, `ui/coverage/`): `ui/` is the
-one directory copied whole, and a `coverage/` matched at the root reaches nothing
+the UI's own leavings are written out (`ui/dist/`, `ui/coverage/`, the sandbox
+and the report a mutation run leaves): `ui/` is the one directory copied whole, and a `coverage/` matched at the root reaches nothing
 inside it.
 
 ### Settings and their environment
@@ -269,7 +272,7 @@ remembered answer is filed under: how long a run would have waited decides
 nothing about what the model said. The listing keeps its own five seconds, a form
 waiting on it (ADR-0032).
 
-### CI and the three workflows beside it
+### CI and the four workflows beside it
 
 `.github/workflows/ci.yml` runs two jobs for pushes to `main` and every pull
 request: `coverage run -m pytest`, `coverage report` and then `pylint buy_agent`
@@ -320,6 +323,21 @@ the matrix is over platforms only, one Python and one Node, since the
   on the copy and stops the run at its baseline, a week after the pull request
   that passed. What a function was declared with is asked of a run that was told
   nothing, which `tests/test_conventions.py` holds every test in both suites to.
+- **`mutation-ui.yml`** is that same question asked of the front end, an hour
+  later at 06:23 UTC and in a workflow of its own (ADR-0061): a run is 969
+  mutants and a whole `ng test` each, an hour and a half where mutmut's whole
+  run is two minutes, so stacking it into the job above would make the package's
+  report wait on this one. [Stryker](https://stryker-mutator.io/) runs the
+  project's own test command per mutant -- `ui/stryker.config.mjs` is the
+  `setup.cfg` of that half -- because the only faster runner would need a second
+  Angular compiler beside the one `ci.yml` runs, and a score about a program
+  compiled differently from the one that ships is not this project's score.
+  `ui/tsconfig.mutation.json` is the one thing given way on: instrumented code
+  widens the types a template reads, so the run turns the *template* checks off
+  and holds `strict` and `noUncheckedIndexedAccess` exactly where the build has
+  them. The report is `scripts/mutation_report.py` again -- one report, two
+  readers, the file it is handed saying which tester wrote it -- and the floor
+  under the front end is its own number, set where the thing stands.
 - **`release.yml`** runs when a release is *published* (and on
   `workflow_dispatch` with a tag, so a failed upload can be retried without
   re-cutting the release) and puts two packages on GitHub:
@@ -1543,6 +1561,15 @@ the other is otherwise invisible to both suites. It asserts that
   outside `buy_agent`, `benchmark/` and `integration/` included, plus the files
   at the top of the tree they name and the paths the skills point at, neither of
   which any constant carries -- named in mutmut's `also_copy`;
+- the Saturday run over the front end mutates every source `ui/src/app` holds
+  unless the config leaves it out by name, and every name it leaves out is a
+  file that is there; its tsconfig relaxes the templates and declares no
+  `compilerOptions`, that being the one place the checks `npm run build` makes
+  could be turned down where nothing else would notice; each of the two runs
+  hands the report the file its own tester wrote, which is what picks the reader
+  and the floor; Stryker's own `thresholds.break` stays off, a second floor
+  being a run that fails with no report published; and no two of the four
+  schedules are waiting on the same runners (ADR-0061);
 - every dependency `requirements.txt` pins is one the package imports, and every
   third-party module the package imports is pinned in some requirements file --
   read off the source with `ast` and mapped to a distribution by
@@ -1815,7 +1842,8 @@ corpus and one model call answer both questions. ADR-0036 has the reasoning and
 Both Python scripts in `scripts/` are tested like the rest, by the same rule as
 `clean_products`: whatever decides an answer belongs where it is testable rather
 than in a workflow's shell. `mutation_report.py` decides whether a mutation run
-passes; `update_ollama.py` decides what "updated" means -- a digest that moved
+passes -- either of the two, one `Tool` row each saying what that tester calls a
+mutant nothing noticed and which floor is under it (ADR-0061); `update_ollama.py` decides what "updated" means -- a digest that moved
 between the listing before the pulls and the one after, since `ollama pull`
 reports `success` whether it replaced anything or not. It is the one thing in
 `scripts/` that imports from `buy_agent` (`providers.OLLAMA` for the
