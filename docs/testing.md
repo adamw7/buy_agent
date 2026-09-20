@@ -22,7 +22,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-2402 Python tests and 244 UI tests. Nothing in either suite touches the network
+2424 Python tests and 244 UI tests. Nothing in either suite touches the network
 or a model server: the model is faked through the `llm=` argument of `BuyAgent`
 -- a class with one `answer` method, which is the whole of `chat.ChatModel`,
 both the search backend and the page fetcher are monkeypatched -- the backends'
@@ -188,32 +188,48 @@ Those are the rules that span a *declaration*. `tests/test_architecture.py` is
 the other half -- the rules that span an *import* -- and it asserts them against
 the import graph with
 [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython), which parses
-the package with `ast` and answers rules about the result (ADR-0047). Twenty-one
+the package with `ast` and answers rules about the result (ADR-0047). Thirty
 rules, every one the executable form of a sentence already written down: the
 package has no import cycles and imports none of the five trees that import it,
-and starts no process of its own -- installing Ollama, pulling a model and
-opening a browser are `scripts/start.ps1`'s (ADR-0023), and a child process is
-the one way out of this one that no fake in the suite could answer; every
-module sits in a layer that reaches only downward, so the pipeline never
-reads the config and never pays, paying never asks the model, the model seam
-knows nothing about products, and the seams reach the domain types and nothing
-else above them -- `journal.py` writes products down (ADR-0060); `buy_agent/__init__.py` imports the four modules
-it re-exports from and no others, since importing any submodule runs it first;
-`mandates.py` is the only module that imports the optional AP2 SDK, and knows
-about no module of the package in return; `providers.py` the only one that
-imports a model client and `search.py` the only one that imports the search
-backend, which is what the suite's fakes rest on; `fetch.py` the only one that
-parses HTML; the three that speak HTTP are the three that are patched, and the
-standard library's own network -- a socket, a `urllib.request` -- belongs to
-`server.py`, which is one on purpose and listens rather than calls out;
-`argparse` belongs to the two modules handed an `argv`; the server imports
-nothing outside the standard library, read off the graph rather than off
-`requirements.txt`, while `api.py` reaches no socket, thread or queue; the two
-tables know nothing about the config resolved from them; the steps read no
-environment, file, clock or random number and never call each other, the order
-of the pipeline being `BuyAgent.run`'s to know; and nothing that decides the
-answer -- ranking, the bounds, grounding, the types -- may reach the model, the
-fetcher or the search.
+starts no process of its own -- installing Ollama, pulling a model and opening
+a browser are `scripts/start.ps1`'s (ADR-0023), and a child process is the one
+way out of this one that no fake in the suite could answer -- and awaits
+nothing, there being no event loop under a `ThreadingHTTPServer`, so
+`threading`, `concurrent.futures`, `queue` and `contextvars` belong to the
+three modules that wait on somebody else: the page pool, the per-tag listing
+and the run a request is served by; every module sits in a layer that reaches
+only downward, so the pipeline never reads the config and never pays, paying
+never asks the model, and the seams reach the domain types and nothing else
+above them -- `journal.py` writes products down (ADR-0060), which is why the
+fourth of those edges, the model seam knowing nothing about products
+(ADR-0038), is a rule of its own, as are the edges the layers are blind to
+*inside* a layer: the two doors do not know about each other, and `money.py`
+sits under a domain that reads it while reaching nothing itself;
+`buy_agent/__init__.py` imports the four modules it re-exports from and no
+others, since importing any submodule runs it first; `mandates.py` is the only
+module that imports the optional AP2 SDK, and knows about no module of the
+package in return; `providers.py` the only one that imports a model client and
+`search.py` the only one that imports the search backend, which is what the
+suite's fakes rest on; `fetch.py` the only one that parses HTML; `cache.py` the
+only one with a `tempfile` and a `hashlib`, since the journal puts a file on
+disk by importing that one dance rather than repeating it (ADR-0060); the three
+that speak HTTP are the three that are patched, and the standard library's own
+network -- a socket, a `urllib.request` -- belongs to `server.py`, which is one
+on purpose and listens rather than calls out; `argparse` belongs to the two
+modules handed an `argv` and the environment to the six modules a setting is
+declared in, neither door among them; the server imports nothing outside the
+standard library, read off the graph rather than off `requirements.txt`, while
+`api.py` reaches no socket, thread or queue; the three tables know nothing about
+the config resolved from them; the steps read no environment, file, clock or
+random number and never call each other, the order of the pipeline being
+`BuyAgent.run`'s to know, which is also why nothing above the orchestrator
+reaches into the middle of the line -- `ranking.py` is the one step the doors,
+the payload and the settings may name, for the re-sort that runs no pipeline
+(ADR-0035) -- and why `verification.py`, the one exemption from the chaining
+rule, may share the extractor's vocabulary and nothing else; a bound read out
+of the request reaches the money it is written in and no module that could
+apply it (ADR-0059); and nothing that decides the answer -- ranking, the
+bounds, grounding, the types -- may reach the model, the fetcher or the search.
 
 Every rule is checked with `ignore_type_checking_imports=True`. An import under
 that guard never runs, so it is a name and not a dependency -- and it is how
@@ -224,9 +240,12 @@ modules check first that each one exists: a renamed module fails the rule about
 it instead of quietly turning it into a no-op. The layers are guarded the same
 way and for the same reason -- an edge to or from a file in no layer is skipped,
 and a module named in two layers may reach whatever either row allows -- so a
-twenty-second test holds the layer table against the directory and counts the
+thirty-first test holds the layer table against the directory and counts the
 placings, and a module added to neither layer or to both is a test failure
-rather than an exemption.
+rather than an exemption. An edge *inside* a layer is skipped too, which no
+table can fix: that one is why the modules sharing a layer -- the two doors, the
+seams under the journal, the domain under `money.py` -- are named in rules of
+their own.
 
 Two of those rules, and five in `tests/test_conventions.py` beside them, are
 [ArchUnit](https://www.archunit.org) rules from

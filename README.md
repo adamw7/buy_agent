@@ -918,7 +918,7 @@ the thing least able to break loudly: an import in the wrong direction runs
 perfectly. It passes that module's own tests, keeps the coverage floor, survives
 the mutation run, and shows up years later as the reason two things cannot be
 moved apart. `tests/test_architecture.py` is where those sentences are
-executable -- twenty-one rules over the import graph, parsed out of the package
+executable -- thirty rules over the import graph, parsed out of the package
 with [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython), costing
 no model, no network and no run
 ([ADR-0047](docs/adr/0047-check-the-import-graph-with-archunit.md)).
@@ -936,16 +936,30 @@ no model, no network and no run
   tested with three arguments and no environment. The pipeline never pays, so no
   step of a run can spend money it was not asked to (ADR-0046). Paying never
   asks the model, which is "never pay on an unverified number" as an import.
-  And the model seam carries a prompt, a schema and an answer without ever
-  knowing what an answer means (ADR-0038). The seams reach the domain types and
-  nothing else above them -- `journal.py` writes products down, so it names the
-  vocabulary every layer already passes around (ADR-0060).
+  The seams reach the domain types and nothing else above them -- `journal.py`
+  writes products down, so it names the vocabulary every layer already passes
+  around (ADR-0060) -- which is why the fourth edge is a rule of its own: the
+  model seam carries a prompt, a schema and an answer without ever knowing what
+  an answer means (ADR-0038). Two kinds of edge the layers cannot see have rules
+  of their own for the same reason: one to or from a file in no layer, and one
+  *inside* a layer, which is what says the two doors do not know about each
+  other and `money.py` reaches nothing that reads it.
 - **One seam, one module.** `mandates.py` alone imports the AP2 SDK (ADR-0046),
   `providers.py` alone a model client (ADR-0029), `search.py` alone a search
   library (ADR-0021, ADR-0057), `fetch.py` alone the HTML parser. The four
   modules that speak HTTP are exactly the four the suite patches, so a fifth
   would be a request no fake answers; `argparse` belongs to the two modules
-  handed an `argv`, a parser below them being a third set of defaults.
+  handed an `argv`, a parser below them being a third set of defaults; and
+  `tempfile` and `hashlib` are `cache.py`'s, the journal putting a file on disk
+  by importing that one dance rather than keeping a second copy of it (ADR-0060).
+- **A setting is read where it is declared.** The environment belongs to
+  `config.py`, the three tables, `cache.py` and `mandates.py` -- not to either
+  door, where a flag defaults to the matching `AgentConfig` field, so a second
+  reading of it below one door is a setting the other one does not have. Nothing
+  here awaits either: no `asyncio` anywhere, and `threading`,
+  `concurrent.futures`, `queue` and `contextvars` belong to the three modules
+  that wait on somebody else -- the page pool, the per-tag listing, and the
+  worker thread a request is served by.
 - **The socket is the server's alone.** `server.py` is a standard-library HTTP
   server on purpose and only ever listens on it (ADR-0010), so a `socket`, an
   `ssl` or a `urllib.request` anywhere else is a module reaching out on its own.
@@ -970,7 +984,11 @@ no model, no network and no run
   one `fetch` imports (ADR-0053): waiting is not deciding, and the rule is an
   import away from either. The steps do not chain
   themselves either: the order of the pipeline is `BuyAgent.run`'s to know, so a
-  joint argued in one place stays a joint that can be moved. And nothing that
+  joint argued in one place stays a joint that can be moved -- and nothing above
+  the orchestrator calls into the middle of that line, `ranking.py` being the one
+  step the doors, the payload and the settings may name, for the re-sort that
+  runs no pipeline (ADR-0035). A bound read out of the request reaches the money
+  it is written in and nothing that could apply it (ADR-0059). And nothing that
   decides the answer -- the ranking, the bounds, the grounding, the types --
   may reach the model, the fetcher or the search (ADR-0002).
 
@@ -980,12 +998,12 @@ this type and do not use this module", and it is what lets `providers.py` take
 an `AgentConfig` while importing nothing from `config`. And a negated rule whose
 subject matches nothing *passes*, which is the one way a file like this can be
 worse than no file, so every helper that names modules checks they exist and a
-twenty-second test counts the layer placings -- a module renamed out of a rule,
+thirty-first test counts the layer placings -- a module renamed out of a rule,
 left out of the layer table or named in two of its rows fails a test instead of
 quietly becoming an exemption.
 
 What the counts are, what `tests/test_conventions.py` checks that coverage
-cannot, each of those twenty-one import rules written out beside the sentence it
+cannot, each of those thirty import rules written out beside the sentence it
 came from, what pylint is configured to say and what it is deliberately not
 (ADR-0048), what the benchmark measures, and the mutation run that grades the
 suite every Saturday are in [Tests](docs/testing.md).

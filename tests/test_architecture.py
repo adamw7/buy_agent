@@ -217,6 +217,33 @@ def test_the_package_starts_no_process() -> None:
         because="the package is a guest in whatever process runs it",
     )
 
+
+def test_nothing_here_awaits_and_the_threads_are_the_three_that_wait() -> None:
+    """A run is a minute of waiting on somebody else, and every one of those waits is a
+    thread: the server ADR-0010 settled is a ``ThreadingHTTPServer``, and an ``async def``
+    anywhere below it would want an event loop under the whole package before anybody
+    could await it -- including the CLI, the tests and the Python caller who imported
+    ``BuyAgent`` for the six names ``__init__`` re-exports. The three that wait are
+    ``fetch.py``, which reads the result pages in a pool, ``providers.py``, whose listing
+    asks ``ollama show`` once per tag, and ``server.py``, which runs a request in a worker
+    thread and routes its log lines by the context that thread began in."""
+    imports_none_of(
+        EVERY_MODULE,
+        "asyncio*",
+        "anyio*",
+        "trio*",
+        because="nothing here awaits, so nothing here needs a loop underneath it",
+    )
+    imports_none_of(
+        every_module_but("fetch.py", "providers.py", "server.py"),
+        "threading*",
+        "concurrent*",
+        "queue*",
+        "contextvars*",
+        because="three modules wait on somebody else; the rest are handed the answer",
+    )
+
+
 # -- one seam, one module ------------------------------------------------------
 
 
@@ -311,6 +338,45 @@ def test_only_the_entry_points_parse_a_command_line() -> None:
         every_module_but("__main__.py", "server.py"),
         "argparse*",
         because="an argv is the entry points' to read; everything else is given values",
+    )
+
+
+def test_only_the_cache_puts_a_file_on_disk_the_one_way() -> None:
+    """ADR-0060: what the cache and the journal share "is how a file is put there:
+    ``cache.write_atomically`` and ``cache.file_for`` are one temporary-file dance and
+    one hashed name", which ``journal.py`` imports rather than repeats -- "not a second
+    copy of the code that keeps it, which was the half either module could have got
+    subtly wrong on its own". A ``tempfile`` or a ``hashlib`` anywhere else is that
+    second copy, and the half it would get wrong is the half nothing reads back."""
+    imports_none_of(
+        every_module_but("cache.py"),
+        "tempfile*",
+        "hashlib*",
+        because="one temporary-file dance and one hashed name, imported rather than repeated",
+    )
+
+
+def test_the_environment_is_read_where_a_setting_is_declared() -> None:
+    """Every ``$BUY_AGENT_*`` in ``CLAUDE.md`` is read in one of six places: ``config.py``,
+    for the settings a door can fill in too; the three tables, for the address and the key
+    each row needs (ADR-0029, ADR-0046, ADR-0057); ``cache.py``, for the directory a run
+    may reuse (ADR-0040); and ``mandates.py``, for the key and the open mandate that
+    authorise a payment (ADR-0046). Neither door is on that list, and that is the rule:
+    "every other CLI flag defaults to the matching ``AgentConfig`` field, so a new setting
+    is added in ``config.py`` and picked up rather than repeated" -- a second reading of
+    the environment below either door is a setting the other one does not have."""
+    imports_none_of(
+        every_module_but(
+            "cache.py",
+            "config.py",
+            "mandates.py",
+            "providers.py",
+            "rails.py",
+            "search.py",
+        ),
+        "os*",
+        "dotenv*",
+        because="a setting reaches a run as a field, not as a second reading of the machine",
     )
 
 
@@ -423,4 +489,89 @@ def test_nothing_that_decides_the_answer_asks_the_model() -> None:
         only("ranking.py", "constraints.py", "verification.py", "models.py"),
         only("chat.py", "providers.py", "cache.py", "fetch.py", "search.py"),
         because="what decides the answer is ordinary Python, and stays testable",
+    )
+
+
+def test_the_model_seam_knows_nothing_about_products() -> None:
+    """ADR-0038, which the layer table can no longer state on its own: the seams may name
+    the domain types, ``journal.py`` writing products down (ADR-0060), so the edge the
+    model seam is held to is this one. ``chat.py`` is "a prompt, a chain, an answer read
+    back as its schema" -- the schema is the caller's, which is what lets a stand-in for
+    the model be a class with one ``answer`` method and nothing about shopping in it."""
+    knows_nothing_of(
+        only("chat.py"),
+        because="a prompt and a schema it was handed, and no idea what either is about",
+    )
+
+
+def test_the_two_doors_do_not_know_about_each_other() -> None:
+    """``CLAUDE.md``, on the two front doors: they are "two ways of filling in the same
+    ``AgentConfig``" -- two, and what they share is the config and the payload below them.
+    The layer rule cannot say this: both are entry points, and an edge inside a layer is
+    not a cross-layer edge. What it costs is what ``__init__.py``'s rule costs -- the
+    server imported from ``__main__.py`` puts a socket module behind ``python -m
+    buy_agent``, and ``__main__.py`` imported from the server puts an ``argv``'s worth of
+    defaults behind a form."""
+    knows_nothing_of(
+        only("__main__.py", "server.py"),
+        only("__main__.py", "server.py"),
+        because="two doors onto one config, and neither is reached through the other",
+    )
+
+
+def test_nothing_above_the_orchestrator_runs_a_step_of_its_own() -> None:
+    """The order of the pipeline is ``BuyAgent.run``'s to know, which the rule above says
+    from inside the line: the steps do not chain themselves. This is the other side of it
+    -- the doors, the payload and the settings do not call into the middle of it either.
+    ``ranking.py`` is the exception at every one of them, and the same exception: a
+    finished run put in another order without being run again (ADR-0035), the criteria
+    ``--sort-by`` offers, and the ``RankingWeights`` an ``AgentConfig`` carries."""
+    knows_nothing_of(
+        only("__main__.py", "server.py", "api.py", "config.py", "logging_setup.py"),
+        only("extraction.py", "verification.py", "constraints.py", "fetch.py"),
+        because="a step is reached by running the pipeline, not by calling into it",
+    )
+
+
+def test_verification_shares_only_the_extractors_vocabulary() -> None:
+    """The exemption in the rule above, stated rather than assumed: "the one edge inside
+    that layer is ``verification.py`` sharing ``extraction.py``'s vocabulary" --
+    ``GENERIC_WORDS``, ``NAME_TOKENS`` and ``SUPERLATIVES``, so merging and grounding agree
+    on what a name's words are (ADR-0008). One edge: left out of the subject of the
+    chaining rule, ``verification.py`` is out of it for every other step too."""
+    knows_nothing_of(
+        only("verification.py"),
+        only("constraints.py", "fetch.py", "ranking.py"),
+        because="one shared vocabulary is an edge; a second is the line chaining itself",
+    )
+
+
+def test_the_currency_table_is_the_leaf_of_the_package() -> None:
+    """ADR-0054: every currency table is ``money.py``'s, and "a currency is added there and
+    nowhere else" -- which holds only while the six modules that read a derivation off it
+    are six modules it has never heard of. It is the bottom of the domain, so it is the one
+    module whose rule is that it reaches nothing at all, installed or not."""
+    knows_nothing_of(
+        only("money.py"),
+        because="the table everything reads is the one thing that reads nothing",
+    )
+    imports_none_of(
+        only("money.py"),
+        re.compile(rf"^(?:{'|'.join(third_party_imports())})\b"),
+        because="a currency is a table and a rounding rule, and needs nothing installed",
+    )
+
+
+def test_a_bound_in_the_request_is_read_beside_the_money_and_applied_by_nobody() -> None:
+    """ADR-0059: ``bounds.notice`` reads "under $200" out of the request in ordinary Python
+    and both doors *offer* what it found. "Nothing may ever apply one: the moment one is
+    applied unseen, the silent empty report is back" -- and "``bounds.py`` knows nothing of
+    ``config.LIMITS``, so a figure the setting would refuse is dropped at the door rather
+    than pre-filled into a box the form would then mark". So it reaches ``money.py``, for
+    the marks that make a figure a budget, and nothing else of this package: not the
+    constraints that do apply a bound, and not the settings that bound the setting."""
+    knows_nothing_of(
+        only("bounds.py"),
+        every_module_but("bounds.py", "money.py"),
+        because="what the request asks for is read beside the money and applied by nobody",
     )
