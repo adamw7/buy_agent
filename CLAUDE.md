@@ -102,22 +102,33 @@ format:check` is the same glob reading rather than writing, it runs in `ci.yml`
 after the tests and the build for the reason pylint runs last in the other job,
 and `npm run format` is what to run when it goes red. `npm run build` is the
 UI's other check and is a type check before it is a build: `ui/tsconfig.json`
-sets `strict` for both halves of the workspace and `ui/tsconfig.app.json` adds
-`noUncheckedIndexedAccess` for the shipped one, that being the member `strict`
-leaves out and the one this app needs, since every lookup a component makes is
-by a key that came off a payload and without it a miss is typed as a hit --
-which is how a `?? null` written for a real `undefined` reads to the compiler as
-one that can be deleted. It stops at the specs on purpose: a test indexing past
-the end of a list it built itself is a failing assertion on the next line, and
-the `!` per subscript it would take there says nothing about the code that
-ships. Without `ui/dist/ui/browser` the API still answers and the
-page is a 503 saying how to build it (`--ui-dir` points at a build elsewhere) --
-as a small HTML page for a client whose `Accept` says it is a browser, which is
-who reads that message, and as the same sentence in JSON for everyone else.
-`_unbuilt_remedy` writes that sentence and there are two of it, because a
-`--ui-dir` with no Angular workspace three levels above it -- a release archive,
-a copy, a typo -- has nowhere to run `npm install` and was told to run it in the
-build's own directory anyway. A remedy nobody can follow is worse than none, so
+sets `strict` and `strictTemplates` for both halves of the workspace and
+`ui/tsconfig.app.json` adds `noUncheckedIndexedAccess` for the shipped one,
+that being the member `strict` leaves out and the one this app needs, since
+every lookup a component makes is by a key that came off a payload and without
+it a miss is typed as a hit -- which is how a `?? null` written for a real
+`undefined` reads to the compiler as one that can be deleted. It stops at the
+specs on purpose: a test indexing past the end of a list it built itself is a
+failing assertion on the next line, and the `!` per subscript it would take
+there says nothing about the code that
+ships. `strictTemplates` is the same promise over the *bindings*, which is where
+a payload actually lands and the one place a label Python wrote can be misused
+with no `.ts` file saying so -- and being shared, it is what decides how the
+three maps a template looks up by a payload key are typed: `App.receipts`, the
+form's `limits` and its `placeholders` each say `| undefined` themselves rather
+than leaning on the setting above, which the specs are compiled without and
+which would have the `?? null` each is read through reported *there* as a `??`
+to delete. That report is a warning and nothing fails on a warning, so a lookup
+left typed as a hit is this check saying something and stopping nothing.
+
+Without `ui/dist/ui/browser` the API still answers and the page is a 503 saying
+how to build it (`--ui-dir` points at a build elsewhere) -- as a small HTML
+page for a client whose `Accept` says it is a browser, which is who reads that
+message, and as the same sentence in JSON for everyone else. `_unbuilt_remedy`
+writes that sentence and there are two of it, because a `--ui-dir` with no
+Angular workspace three levels above it -- a release archive, a copy, a typo --
+has nowhere to run `npm install` and was told to run it in the build's own
+directory anyway. A remedy nobody can follow is worse than none, so
 where `_workspace_for` answers `None` the message says there is nothing there to
 build and names `--ui-dir` instead. One remedy, three places: the page, the JSON
 and the warning `main` logs at startup.
@@ -385,7 +396,10 @@ way it is.
   than set low, an omitted threshold being the only one that cannot drift.
 - `ui/tsconfig.json` says how much `npm run build` checks, which is the one of
   the five that is not a number: `strict` is the family, shared by the app and
-  the specs, and `noUncheckedIndexedAccess` in `ui/tsconfig.app.json` is the
+  the specs, `strictTemplates` beside it is that family over the bindings and is
+  shared for the same reason -- a component's template is checked from the
+  outside, so a spec rendering it is compiled against the same class -- and
+  `noUncheckedIndexedAccess` in `ui/tsconfig.app.json` is the
   member `strict` leaves out and this app needs -- every lookup a component makes
   is by a key that came off a payload (`limits()[number.key]`,
   `receipts()[product.name]`), and typed as a hit a miss makes the `?? null`
@@ -395,7 +409,7 @@ way it is.
   is shown. Turned off,
   the nullable halves of a payload are assignable to everything and
   `agent.types.ts` stops being a promise the components are held to, while every
-  mirror test above goes on passing. `tests/test_conventions.py` holds both
+  mirror test above goes on passing. `tests/test_conventions.py` holds all three
   settings on for that reason: nothing else here would notice a build that
   quietly checks less.
 
@@ -1621,9 +1635,10 @@ the other is otherwise invisible to both suites. It asserts that
   it finds out. Two placeholders are exempt and are the same ones a skill's paths
   are: `docs/adr/NNNN-slug.md` is a file the template and `add-adr` are telling
   the reader to create;
-- `ui/tsconfig.json` keeps `strict` on and `ui/tsconfig.app.json`
-  `noUncheckedIndexedAccess`, since how much `npm run build` checks is a setting
-  rather than a property of the build and a weaker one fails nothing;
+- `ui/tsconfig.json` keeps `strict` and `strictTemplates` on and
+  `ui/tsconfig.app.json` `noUncheckedIndexedAccess`, since how much `npm run
+  build` checks is a setting rather than a property of the build and a weaker one
+  fails nothing;
 - every module in the package takes its logger off the package's own name,
   leaves its formatting to the logger, marks nothing as the report, configures
   logging nowhere but `logging_setup`, and writes to stdout not at all -- and

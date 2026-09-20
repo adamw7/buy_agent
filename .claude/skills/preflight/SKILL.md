@@ -53,9 +53,11 @@ npm run format:check
   of statements and lines, and deliberately no branch floor. Do not add one.
 - `npm run build` is part of the gate, not an extra: a template error is
   invisible to the unit tests -- and it is a *type* check as well as a build:
-  `ui/tsconfig.json` sets `strict` and `ui/tsconfig.app.json` adds
+  `ui/tsconfig.json` sets `strict` and `strictTemplates` and
+  `ui/tsconfig.app.json` adds
   `noUncheckedIndexedAccess` for the shipped half, so a payload's nullable half
-  reaching a component that does not handle it stops the build.
+  reaching a component that does not handle it stops the build, and so does a
+  binding handing an input a type it cannot hold.
 - `npm run format:check` is Prettier reading rather than writing, and it is the
   whole of the UI's linting: `npm run format` is the same glob with `--write`,
   which is what to run when this step is what went red. The Python half is the
