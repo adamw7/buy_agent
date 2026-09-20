@@ -177,9 +177,9 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
         search_results=max(num_products, top_n),
         num_products=num_products,
         top_n=top_n,
-        region=_read(data, "region", defaults.region, _as_region),
+        region=_read(data, "region", defaults.region, _checked(parse_region)),
         # Blank is the default and means "whatever the pages quote" (ADR-0056).
-        currency=_read(data, "currency", defaults.currency, _as_currency),
+        currency=_read(data, "currency", defaults.currency, _checked(parse_currency)),
         backend=_read(data, "backend", defaults.backend, _among(BACKEND_OPTIONS)),
         sources=_read_sources(data, defaults.sources),
         fetch_pages=_read(data, "fetch", defaults.fetch_pages, _as_bool),
@@ -263,7 +263,7 @@ def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
     weights = RankingWeights()
     # The scale the run was counted on, sent back with its products: a re-sort that let
     # the set vote again would answer a different ordering for the same run (ADR-0056).
-    currency = _read(data, "currency", "", _as_currency)
+    currency = _read(data, "currency", "", _checked(parse_currency))
     ranked = rank_products(
         _read_products(data),
         weights=weights,
@@ -632,22 +632,22 @@ def _among(options: tuple[str, ...]) -> Callable[[str, str], str]:
     return parse
 
 
-def _as_currency(key: str, text: str) -> str:
-    """A currency the run can count in, checked the way a region's shape is (ADR-0056,
-    ADR-0033)."""
-    try:
-        return parse_currency(text)
-    except ValueError as exc:
-        raise ApiError(str(exc), field=key) from exc
+def _checked(check: Callable[[str], str]) -> Callable[[str, str], str]:
+    """A parser for the two settings whose value is judged in :mod:`buy_agent.config`.
 
+    A region's shape (ADR-0031) and a currency the run can count in (ADR-0056) are each
+    checked in exactly one place and reached through it by both doors. All this door adds
+    is the box to mark, which is the same addition twice -- so it is written once, and
+    spelled the way ``__main__._checked`` spells the other half of it (ADR-0033).
+    """
 
-def _as_region(key: str, text: str) -> str:
-    """A region code, checked for shape the way a source is checked for a site (ADR-0031,
-    ADR-0033)."""
-    try:
-        return parse_region(text)
-    except ValueError as exc:
-        raise ApiError(str(exc), field=key) from exc
+    def parse(key: str, text: str) -> str:
+        try:
+            return check(text)
+        except ValueError as exc:
+            raise ApiError(str(exc), field=key) from exc
+
+    return parse
 
 
 def _as_bool(key: str, text: str) -> bool:

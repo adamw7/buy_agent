@@ -40,6 +40,10 @@ _REPORT = "report"
 #: printing every line of the report twice.
 _REPORT_HANDLER = "buy_agent-report"
 
+#: The rule above and below each block of the report. Both blocks are one report, so
+#: they are ruled off to one width rather than to two numbers that can drift.
+_RULE = "=" * 62
+
 
 def configure_logging(*, verbose: bool = False) -> None:
     """Send agent logs to stderr and the report to stdout."""
@@ -120,10 +124,9 @@ def log_top_products(
         return
 
     top = ranked[:top_n]
-    separator = "=" * 62
-    _report(separator)
+    _report(_RULE)
     _report("TOP %d OF %d PRODUCTS, %s", len(top), len(ranked), ORDERINGS[sort_by].upper())
-    _report(separator)
+    _report(_RULE)
     for entry in top:
         product = entry.product
         _report("#%d  %s", entry.rank, product.name)
@@ -148,7 +151,7 @@ def log_top_products(
             _report(
                 "     says   : %s%s", opinion.text, f"  -- {opinion.url}" if elsewhere else ""
             )
-    _report(separator)
+    _report(_RULE)
 
 
 def log_changes(changes: Sequence[Change], since: str | None) -> None:
@@ -165,10 +168,9 @@ def log_changes(changes: Sequence[Change], since: str | None) -> None:
         logger.info("Nothing to compare: no earlier run of this search was kept.")
         return
 
-    separator = "=" * 62
-    _report(separator)
+    _report(_RULE)
     _report("WHAT CHANGED SINCE %s", since.upper())
-    _report(separator)
+    _report(_RULE)
     for change in changes:
         _report("  %-32s %s", change.name[:32], change.detail)
-    _report(separator)
+    _report(_RULE)

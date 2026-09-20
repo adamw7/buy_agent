@@ -318,8 +318,11 @@ def test_an_entry_that_is_not_a_run_is_read_as_no_history(tmp_path: Path) -> Non
 def test_a_half_written_journal_is_not_left_to_be_read_as_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Patched where the move happens, which is ``cache.write_atomically``: a journal is
+    # written the way a cache entry is, and what this asserts is that it is *this*
+    # module that never fails a run over one.
     monkeypatch.setattr(
-        "buy_agent.journal.os.replace", _raising(OSError("no space left on device"))
+        "buy_agent.cache.os.replace", _raising(OSError("no space left on device"))
     )
 
     journal(tmp_path).against([priced("Sage Bambino", 349.0)])  # no raise
@@ -331,7 +334,7 @@ def test_a_temporary_file_that_cannot_be_removed_is_not_an_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Both halves of the failure path fail, and the run still has its answer."""
-    monkeypatch.setattr("buy_agent.journal.os.replace", _raising(OSError("nope")))
+    monkeypatch.setattr("buy_agent.cache.os.replace", _raising(OSError("nope")))
     monkeypatch.setattr(Path, "unlink", _raising(OSError("nor that")))
 
     journal(tmp_path).against([priced("Sage Bambino", 349.0)])  # no raise

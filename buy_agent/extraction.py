@@ -202,24 +202,32 @@ def deduplicate(
 ) -> list[Product]:
     """Drop repeats of the same product, keeping the most complete entry (ADR-0055,
     ADR-0058)."""
-    named = [_as_a_listing(product) for product in products if product.dedup_key]
-    if len(named) != len(products):
-        for nameless in (item for item in products if not item.dedup_key):
+    # One pass and both answers kept, the way ``clean_products`` and ``drop_ungrounded``
+    # keep theirs: ``dedup_key`` is a verdict on a name, and the ones it turns down are
+    # recorded, counted and then named -- three more readings of it, for a property that
+    # rewrites the name twice to reach an answer.
+    named: list[Product] = []
+    nameless: list[Product] = []
+    for product in products:
+        if product.dedup_key:
+            named.append(_as_a_listing(product))
+        else:
+            nameless.append(product)
+    if nameless:
+        for product in nameless:
             record(
                 Removal(
-                    name=nameless.name,
+                    name=product.name,
                     step="deduplicate",
                     reason="The name identifies nothing.",
                 )
             )
         # Count then names, as everywhere a product is removed: "identifies nothing" is
         # a verdict on a name.
-        logger.info(
-            "Dropped %d result(s) whose name identifies nothing", len(products) - len(named)
-        )
+        logger.info("Dropped %d result(s) whose name identifies nothing", len(nameless))
         logger.debug(
             "Nothing to identify them by: %s",
-            ", ".join(repr(item.name) for item in products if not item.dedup_key),
+            ", ".join(repr(product.name) for product in nameless),
         )
     deduped = merge_variants(named, record=record)
     merged = len(named) - len(deduped)
