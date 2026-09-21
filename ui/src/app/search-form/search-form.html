@@ -26,13 +26,14 @@
       [disabled]="running() || number.off()"
       [class.invalid]="notes()[number.key]"
       [attr.aria-invalid]="notes()[number.key] ? true : null"
+      [attr.aria-describedby]="problemId(number.key)"
     />
     <!-- Three things a box can have to say, in order of who is owed an answer: what
          is wrong with it, why it is holding a number nobody typed, and what it is
          for. The middle one is a hint and never a mark -- an offer read out of the
          request is not something to correct (ADR-0059). -->
     @if (notes()[number.key]; as problem) {
-      <small class="problem" role="alert">{{ problem }}</small>
+      <small class="problem" role="alert" [attr.id]="problemId(number.key)">{{ problem }}</small>
     } @else if (noticedNote(number.key); as noticed) {
       <small class="noticed">{{ noticed }}</small>
     } @else if (number.hint(); as hint) {
@@ -147,9 +148,10 @@
           [disabled]="running()"
           [class.invalid]="notes()['region']"
           [attr.aria-invalid]="notes()['region'] ? true : null"
+          [attr.aria-describedby]="problemId('region')"
         />
         @if (notes()['region']; as problem) {
-          <small class="problem" role="alert">{{ problem }}</small>
+          <small class="problem" role="alert" [attr.id]="problemId('region')">{{ problem }}</small>
         } @else {
           <small>A country, then a language: us-en, uk-en, pl-pl.</small>
         }
@@ -197,10 +199,11 @@
           [disabled]="running()"
           [class.invalid]="notes()['sources']"
           [attr.aria-invalid]="notes()['sources'] ? true : null"
+          [attr.aria-describedby]="problemId('sources')"
           (change)="sourcesChanged()"
         />
         @if (notes()['sources']; as problem) {
-          <small class="problem" role="alert">{{ problem }}</small>
+          <small class="problem" role="alert" [attr.id]="problemId('sources')">{{ problem }}</small>
         } @else {
           <small>Leave empty to search the whole web.</small>
         }
@@ -323,6 +326,7 @@
               [disabled]="running() || !railNeedsEndpoint()"
               [class.invalid]="notes()['merchant_url']"
               [attr.aria-invalid]="notes()['merchant_url'] ? true : null"
+              [attr.aria-describedby]="problemId('merchant_url')"
             />
             <small>
               @if (railNeedsEndpoint()) {
@@ -332,7 +336,9 @@
               }
             </small>
             @if (notes()['merchant_url']; as note) {
-              <small class="problem" role="alert">{{ note }}</small>
+              <small class="problem" role="alert" [attr.id]="problemId('merchant_url')">{{
+                note
+              }}</small>
             }
           </label>
 
