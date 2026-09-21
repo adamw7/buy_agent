@@ -740,6 +740,7 @@ _CI = _ROOT / ".github" / "workflows" / "ci.yml"
 _MUTATION = _ROOT / ".github" / "workflows" / "mutation.yml"
 _MUTATION_UI = _ROOT / ".github" / "workflows" / "mutation-ui.yml"
 _INTEGRATION = _ROOT / ".github" / "workflows" / "integration.yml"
+_AUDIT = _ROOT / ".github" / "workflows" / "audit.yml"
 _MUTMUT = _ROOT / "setup.cfg"
 _COVERAGERC = _ROOT / ".coveragerc"
 _PYTEST_INI = _ROOT / "pytest.ini"
@@ -1004,11 +1005,13 @@ def test_every_workflow_builds_the_ui_with_the_node_ci_builds_it_with(workflow: 
 _PIP_INSTALL = re.compile(r"pip install (?:-[-\w]+ )*-r (\S+)")
 
 
-def requirements_installed_by(workflow: Path) -> set[str]:
-    """Every requirements file a workflow hands pip, and every file those include: pip
-    reads an ``-r`` line whether or not the workflow wrote that name down."""
+def requirements_including(named: list[str]) -> set[str]:
+    """Those requirements files and every file they include: an ``-r`` line is read by
+    whatever is handed the file, whether or not whoever named it wrote that one down
+    too. Both readers here are that: pip installing a list, and pip-audit resolving
+    one (ADR-0062)."""
     found: set[str] = set()
-    pending = _PIP_INSTALL.findall(workflow.read_text(encoding="utf-8"))
+    pending = list(named)
     while pending:
         name = pending.pop()
         if name in found:
@@ -1020,6 +1023,11 @@ def requirements_installed_by(workflow: Path) -> set[str]:
             if line.startswith("-r ")
         ]
     return found
+
+
+def requirements_installed_by(workflow: Path) -> set[str]:
+    """Every requirements file a workflow hands pip, and every file those include."""
+    return requirements_including(_PIP_INSTALL.findall(workflow.read_text(encoding="utf-8")))
 
 
 def cache_key_files(workflow: Path) -> set[str]:
@@ -1103,6 +1111,115 @@ def test_every_workflow_pins_the_same_version_of_a_shared_action() -> None:
     assert shared, "no action is used twice; this test has outlived its rule"
     for action, refs in shared.items():
         assert len(set(refs.values())) == 1, (action, refs)
+
+
+# -- the nightly audit ---------------------------------------------------------
+
+#: The one dependency list the nightly audit does not read, left out for the reason
+#: it is installed `--no-deps`: resolved, it answers for the SDK's own metadata pins
+#: -- a `cryptography`, a `jwcrypto` and a `pytest` nothing here installs -- rather
+#: than for anything this project has, and the SDK itself is a git commit no advisory
+#: database has a row for. What paying signs with is the file beside it, and that one
+#: is audited (ADR-0046, ADR-0062).
+_UNAUDITED = ("requirements-ap2.txt",)
+
+#: ``-r <file>``, wherever the audit names one: the lists it reads, and the one it
+#: installs the auditor from, which is audited like everything else.
+_AUDITED = re.compile(r"-r (\S+)")
+
+
+def dependency_lists() -> list[str]:
+    """Every requirements file at the top of the tree, found rather than listed."""
+    found = sorted(path.name for path in _ROOT.glob("requirements*.txt"))
+    assert found, "no requirements files; this section has outlived its rule"
+    return found
+
+
+def audited_lists() -> set[str]:
+    """Every list the audit resolves, includes and all."""
+    named = _AUDITED.findall(_AUDIT.read_text(encoding="utf-8"))
+    assert named, f"{_AUDIT.name} reads no requirements file"
+
+    for name in named:
+        assert (_ROOT / name).exists(), f"{_AUDIT.name} names {name}, which is not there"
+    return requirements_including(named)
+
+
+def audit_job(name: str) -> str:
+    """One job of the audit workflow, from its name to the next job's."""
+    match = re.search(
+        rf"^  {name}:$(.*?)(?=^  \w+:$|\Z)", _AUDIT.read_text(encoding="utf-8"), re.M | re.S
+    )
+    assert match, f"{_AUDIT.name} has no {name} job"
+    return match.group(1)
+
+
+def test_every_dependency_list_is_audited_or_named() -> None:
+    """A pin is held against the advisories only if something reads the file it is in,
+    and a list nothing reads is exactly what `requirements-ap2-deps.txt` was to
+    Renovate until its pattern was widened -- four majors of the library that signs
+    mandates, gone by unseen (ADR-0062)."""
+    audited = audited_lists()
+
+    for name in dependency_lists():
+        assert name in audited or name in _UNAUDITED, (
+            f"{name} is neither audited by {_AUDIT.name} nor named here with its reason"
+        )
+
+
+def test_the_list_the_audit_leaves_out_is_one_that_is_there() -> None:
+    """The other side of that, and the rule `.dockerignore` and `money.UNPLACEABLE`
+    already keep: an exemption naming a file since renamed is a list nobody reads and
+    a reason nobody can date, and an exemption for a file now audited anyway is a
+    paragraph arguing against what the workflow does."""
+    audited = audited_lists()
+
+    for name in _UNAUDITED:
+        assert (_ROOT / name).exists(), f"{name} is exempt from the audit and is not there"
+        assert name not in audited, f"{name} is exempt from the audit and audited"
+
+
+def test_the_two_audits_agree_on_what_is_bad_enough_to_fail() -> None:
+    """One decision written twice, in two tools that read none of each other's
+    configuration: the tree a pull request adds to and the tree standing there tonight
+    are judged by the same line. `high` is where it sits and why is ADR-0062's --
+    moving it is a commit of its own, the way moving a floor is."""
+    source = _AUDIT.read_text(encoding="utf-8")
+    nightly = re.search(r"npm audit --audit-level=(\w+)$", source, re.M)
+    per_pull_request = re.search(r"^\s+fail-on-severity: (\w+)$", source, re.M)
+
+    assert nightly and per_pull_request, f"{_AUDIT.name} no longer runs both halves"
+    assert nightly.group(1) == per_pull_request.group(1), (
+        f"{_AUDIT.name} fails a nightly run at {nightly.group(1)} and a pull request "
+        f"at {per_pull_request.group(1)}"
+    )
+
+
+def test_the_whole_tree_audit_is_never_a_gate_on_a_pull_request() -> None:
+    """Like the nightly run and the two mutation runs, and for a reason of its own: an
+    advisory published since the branch was cut is not that branch's to answer for, and
+    a merge failed over one is how the `|| true` ADR-0016 names gets written."""
+    assert "if: github.event_name != 'pull_request'" in audit_job("audit")
+
+
+def test_what_a_pull_request_adds_is_the_half_that_gates_it() -> None:
+    """And the converse: the review reads what the branch *adds* to either list, which
+    is this repository's own change and so the one thing here worth stopping a merge
+    over (ADR-0062)."""
+    review = audit_job("review")
+
+    assert "if: github.event_name == 'pull_request'" in review
+    assert "actions/dependency-review-action@" in review, "the per-PR half reviews nothing"
+
+
+def test_the_audit_runs_nightly_and_off_the_hour() -> None:
+    """Nightly rather than weekly, unlike the two mutation runs: those ask about code,
+    which changes when somebody here pushes, and this asks about a database, which
+    changes when somebody else publishes."""
+    minute, _hour, day_of_month, month, day_of_week = cron(_AUDIT)
+
+    assert (day_of_week, day_of_month, month) == ("*", "*", "*")
+    assert minute != "0", "the top of the hour is where scheduled runs queue"
 
 
 # -- the startup script --------------------------------------------------------
@@ -1584,9 +1701,9 @@ def test_the_front_end_has_its_own_mutation_run_and_its_own_slot() -> None:
 
 
 def test_no_two_scheduled_runs_are_waiting_on_the_same_runners() -> None:
-    """Four schedules now, and the reason each is off the hour is the reason no two
-    of them are at the same time: a run of this one is ninety minutes of `ng test`,
-    and a weekly job queueing behind it reports ninety minutes late (ADR-0061)."""
+    """Five schedules now, and the reason each is off the hour is the reason no two
+    of them are at the same time: a run of the front end's is ninety minutes of `ng
+    test`, and a job queueing behind it reports ninety minutes late (ADR-0061)."""
     scheduled = {
         workflow.name: cron(workflow)[1::-1]
         for workflow in workflows()

@@ -3,8 +3,8 @@
 Two suites, one per language, and the checks that watch them: coverage floors on
 both, a linter over the package, cross-module conventions, a PowerShell script
 neither suite can run, a nightly run against a real model, a benchmark scored
-against a fixed answer key, and a weekly mutation run. Everything the
-[README](../README.md) leaves out.
+against a fixed answer key, a weekly mutation run and a nightly audit of both
+dependency lists. Everything the [README](../README.md) leaves out.
 
 ```powershell
 python -m pytest              # whole suite
@@ -22,7 +22,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-2530 Python tests and 255 UI tests. Nothing in either suite touches the network
+2545 Python tests and 255 UI tests. Nothing in either suite touches the network
 or a model server: the model is faked through the `llm=` argument of `BuyAgent`
 -- a class with one `answer` method, which is the whole of `chat.ChatModel`,
 both the search backend and the page fetcher are monkeypatched -- the backends'
@@ -60,8 +60,8 @@ Without that SDK the 74 tests that need it **skip**, the way
 `tests/conftest.py` is the marker, and it asks `mandates.available()` once at
 import. `needs_powershell` is the other, and with neither `pwsh` nor
 `powershell` on PATH 13 of the 19 tests in that file sit out. So a machine with
-the SDK and no PowerShell reads `2488 passed, 13 skipped`, and a checkout set up
-with `requirements-dev.txt` alone reads `2414 passed, 87 skipped` rather than 74
+the SDK and no PowerShell reads `2532 passed, 13 skipped`, and a checkout set up
+with `requirements-dev.txt` alone reads `2458 passed, 87 skipped` rather than 74
 failures claiming the project is broken when one optional feature is simply not
 installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide
@@ -204,10 +204,12 @@ rather than out of its own markup while sending every key a refusal can name
 the payloads `ui/src/app/agent.types.ts` mirrors; the `Dockerfile` agreeing with
 CI and with the server's own defaults, and nothing at the top of the tree
 reaching the build context without a line either copying it or keeping it out;
-the four workflows agreeing on the version of every action they share, on the
+the five workflows agreeing on the version of every action they share, on the
 Python and Node they run and on keying a pip cache to every requirements file
-they hand pip; the release archive carrying the UI build where the server looks
-for it; the nightly
+they hand pip; every dependency list being one the nightly audit reads or the
+one named with its reason, and the two halves of that audit that can fail over a
+severity agreeing on which one; the release archive carrying the UI build where
+the server looks for it; the nightly
 run pulling the model the live tests ask for and leaving its own cap room to
 fail a stopped model first; the decision log agreeing with its own index; the
 checklists in `.claude/skills/` naming files, tests, names and records that are
@@ -561,3 +563,56 @@ worst first and where the survivors cluster, except that Stryker records a
 position rather than a function, so a cluster is a file and the mutator that
 made it. The run's own HTML report is uploaded as an artifact, which is the
 survivor read beside the line it was made from.
+
+## The dependency audit
+
+Renovate keeps the pins fresh; `.github/workflows/audit.yml` asks the other
+question, which is whether what is pinned is known to be broken today
+(ADR-0062). The two run on different clocks -- one starts when a maintainer
+publishes a release, the other when somebody publishes an advisory -- and the
+second can go off about a line that has not moved in a year.
+
+```powershell
+pip install -r requirements-audit.txt
+python -m pip_audit -r requirements.txt -r requirements-dev.txt `
+  -r requirements-mutation.txt -r requirements-ap2-deps.txt `
+  -r requirements-audit.txt
+cd ui; npm audit --audit-level=high
+```
+
+That is the whole of the nightly job, at `47 2 * * *` and on demand: about ten
+seconds of resolving and half a second of reading a lockfile. Neither half
+installs anything -- `pip-audit` resolves each file with its transitives in an
+environment of its own, twenty-two packages behind the six runtime pins, and
+`npm audit` reads `ui/package-lock.json` rather than a `node_modules`.
+
+`requirements-ap2.txt` is the one list it does not read, and the reason is the
+reason that file is installed `--no-deps`: its metadata pins `cryptography`,
+`jwcrypto` and `pytest` to versions this project deliberately does not install,
+so resolving it reports advisories against a tree nothing here has -- fifteen of
+them the day this was written, none against anything installed. What paying
+really signs with is `requirements-ap2-deps.txt`, and that one is audited.
+`tests/test_conventions.py` holds both sides of that: a list nothing reads fails,
+and so does an exemption naming a file that has been renamed.
+
+What fails a run was decided before the first one ran, because a gate that cries
+wolf gets an `|| true` within a month -- ADR-0016's failure mode one step
+further along. The Python side has no severity threshold: those lists are short,
+every line is a direct pin, and all of it is installed on a machine that runs the
+agent or its suite. The npm side has one, `high`, because the lockfile is two
+megabytes of transitive build-time packages and the advisories standing today are
+two moderate ones in the HTTP client `@stryker-mutator/core` reports with, which
+runs on a runner one morning a week and never reaches a browser.
+
+None of that gates a merge. An advisory published on a Tuesday is not news that
+a Tuesday push made true, so the audit is scheduled and a red run is a morning's
+work. What a pull request *adds* to either list is this repository's own change,
+so that half is `actions/dependency-review-action` on `pull_request`, at the same
+`high` -- it reads the difference rather than the whole of what is pinned, so it
+cannot go red for something published since the branch was cut. A convention test
+holds the two thresholds together, neither tool reading the other's
+configuration.
+
+An advisory with no fix available is suppressed with `--ignore-vuln` and the
+sentence saying why and what releases it, the way a `# pylint: disable` in the
+package carries its reason. An `|| true` is not one of the options.

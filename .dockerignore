@@ -52,6 +52,8 @@ scripts/
 mutants/
 setup.cfg
 requirements-mutation.txt
+# The auditor is a workflow's, read on a runner and nowhere near a container.
+requirements-audit.txt
 # The AP2 SDK is an optional install and the image does not make it: a container
 # that is asked to pay says which one command adds it (`buy_agent.mandates`).
 requirements-ap2.txt
