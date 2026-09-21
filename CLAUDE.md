@@ -46,6 +46,7 @@ python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
 python -m pytest -k verification              # by name
 python -m coverage run -m pytest ; python -m coverage report   # with coverage
 python -m pylint buy_agent                    # the linter, from the root (ADR-0048)
+python -m mypy buy_agent                      # the type checker, from there too (ADR-0063)
 
 ollama pull qwen3:0.6b ; python -m pytest integration   # against a real model
 
@@ -98,9 +99,11 @@ cd ..; python scripts/mutation_report.py ui/reports/mutation/mutation.json
 `ui/` is a separate, ordinary Angular workspace with its own `package.json` and
 tests: Angular 22 on Node 22.22.3+, 24.15+ or 26+ (older Node is refused by the
 Angular CLI, not by anything here), and nothing on the Python side needs Node.
-The Python half has a linter and no formatter -- pylint, over the package and
-from the repository root, where it finds `.pylintrc` (ADR-0048) -- and the UI
-has it the other way about: Prettier and nothing linting it. Both are gates
+The Python half has a linter and a type checker and no formatter -- pylint and
+mypy, both over the package and both from the repository root, where one finds
+`.pylintrc` and the other the `[mypy]` section of `setup.cfg` (ADR-0048,
+ADR-0063) -- and the UI has it the other way about: Prettier and nothing linting
+it, its own type check being half of `npm run build`. Both are gates
 rather than habits, which is what keeps that asymmetry honest: `npm run
 format:check` is the same glob reading rather than writing, it runs in `ci.yml`
 after the tests and the build for the reason pylint runs last in the other job,
@@ -291,10 +294,10 @@ waiting on it (ADR-0032).
 
 `.github/workflows/ci.yml` runs two jobs for pushes to `main` and every pull
 request: `coverage run -m pytest`, `coverage report` and then `pylint buy_agent`
-on Python 3.14, and `npm run test:coverage`, `npm run build` and `npm run
-format:check` in `ui/` on Node 22.23.2. The lint is last in its job on purpose:
-a job stops at its first failing step, and of the two the tests are what a
-change is about -- and the formatting check is last in the other for that same
+and `mypy buy_agent` on Python 3.14, and `npm run test:coverage`, `npm run build`
+and `npm run format:check` in `ui/` on Node 22.23.2. The lint and the type check
+are last in that job on purpose: a job stops at its first failing step, and of
+the three the tests are what a change is about -- and the formatting check is last in the other for that same
 reason, the tests and the build being what a change is about there. Either
 platform alone leaves half the platform differences unchecked (ADR-0020), so
 both jobs are still matrixed over `ubuntu-latest` and `windows-latest`. Not on
@@ -410,7 +413,15 @@ way it is.
   already holds in every module, and the ten left out carry their reason beside
   the ones that are in (ADR-0049). A checker is run over the package
   before it is added and what it finds is fixed rather than configured around,
-  which is the difference between a check and a preference.
+  which is the difference between a check and a preference. The type checker
+  beside it holds no number either and is configured in `setup.cfg` rather than a
+  file of its own, beside mutmut's settings and for the same reason there is no
+  `pyproject.toml` for either: the default checks rather than `strict`,
+  `warn_unused_ignores` beside them -- `useless-suppression` one tool over, and
+  what makes a `# type: ignore` written for a checker nothing ran fail rather than
+  sit there -- and `ignore_missing_imports` for the four libraries neither tool can
+  read, which is `.pylintrc`'s own `ignored-modules` and `extension-pkg-allow-list`
+  said in mypy's vocabulary and held against it from both sides (ADR-0063).
 - `ui/angular.json` holds the UI's floor on the test target, 98% of statements
   and lines: `coverageThresholds` is the builder's own, and a run under it exits
   with an error. Statements and lines only, on purpose: v8 attributes the
@@ -1645,9 +1656,12 @@ the other is otherwise invisible to both suites. It asserts that
   nobody else's machine. The dev and mutation files are outside it, being run
   over the package rather than imported by it; the two paying files are outside
   the first half only, an optional SDK being absent on a checkout that pins it;
-- the linter reads that same package, `.pylintrc` sits where every command that
-  runs pylint is run from, and no line of the package takes a check away without
-  saying why: a `# pylint: disable` with no prose above it is a suppression
+- the linter and the type checker read that same package, `.pylintrc` sits where
+  every command that runs pylint is run from, the `[mypy]` section of `setup.cfg`
+  keeps the one check it was added for, the two files name the same four libraries
+  as ones neither tool can read -- read from both sides, so neither list can
+  outlive the other (ADR-0063) -- and no line of the package takes a check away
+  without saying why: a `# pylint: disable` with no prose above it is a suppression
   nobody can date, which is what the `# noqa` codes it replaced had become
   (ADR-0048) -- nor does that file name a check by its code, `W0718` in its own
   `enable` or `disable` being the thing `use-symbolic-message-instead` is

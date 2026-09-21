@@ -306,9 +306,9 @@ def test_the_hint_names_the_address_and_the_way_to_sign_without_paying() -> None
     assert "Dry run" in hint
 
 
-def _classes(errors: tuple[type[BaseException], ...]) -> set[type[BaseException]]:
+def _classes(errors: tuple[type[Exception], ...]) -> set[type[Exception]]:
     """Every exception class those tuples cover, subclasses included."""
-    covered: set[type[BaseException]] = set()
+    covered: set[type[Exception]] = set()
     for error in errors:
         covered.add(error)
         covered.update(error.__subclasses__())

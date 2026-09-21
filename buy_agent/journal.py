@@ -174,7 +174,8 @@ class Journal:
         path = self._path()
         if path is None:
             return None
-        return (self._read(path) or [None])[-1]
+        runs = self._read(path)
+        return runs[-1] if runs else None
 
     def _read(self, path: Path) -> list[Entry]:
         """Every run of this search on disk, oldest first, or nothing at all."""
@@ -295,7 +296,7 @@ def _moved(now: Recorded, before: Recorded | None, when: str) -> Change:
             delta=0.0,
             detail=f"{label}, unchanged since {when}.",
         )
-    direction = "cheaper" if delta < 0 else "dearer"
+    direction: Literal["cheaper", "dearer"] = "cheaper" if delta < 0 else "dearer"
     return Change(
         name=now.name,
         movement=direction,

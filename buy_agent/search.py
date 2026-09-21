@@ -99,7 +99,11 @@ class Backend:
     api_key: str
     needs_key: bool
     find: Callable[[Backend, Query], list[SearchResult]]
-    transport_errors: tuple[type[BaseException], ...]
+    #: What "the backend is not there" looks like from this row's own client, as the
+    #: ``except`` clause that catches it binds it. ``Exception`` and not ``BaseException``: every
+    #: class any row names is one, and a wider declaration is what left the ``hint``
+    #: beside it handed a value its own signature refuses.
+    transport_errors: tuple[type[Exception], ...]
     hint: Callable[[Backend, Exception], str]
 
     @property
@@ -350,11 +354,11 @@ def search_web(
     while True:
         try:
             results = backend.find(backend, asked)
-        # The row declares its failures as ``type[BaseException]``, which is what the
-        # other two tables declare theirs as and what an ``except`` clause takes; read
-        # off that annotation alone, pylint sees a class that need not be an
-        # ``Exception``. Those two are reached through a property it cannot infer and
-        # this one through a default it can, which is the whole of the difference.
+        # The row declares its failures as ``type[Exception]``, which is what the other
+        # two tables declare theirs as; read off a tuple of them alone, pylint sees a
+        # class it cannot confirm is one. Those two are reached through a property it
+        # cannot infer and this one through a default it can, which is the whole of the
+        # difference.
         # pylint: disable-next=catching-non-exception
         except backend.transport_errors as exc:  # rate limits and outages both land here
             attempts_left -= 1

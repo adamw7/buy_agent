@@ -21,3 +21,10 @@ pytest-timeout==2.4.0
 # it reads the package rather than running it, so a lint costs no model, no
 # network and no run.
 pylint==4.0.8
+
+# The type checker `.github/workflows/ci.yml` runs over `buy_agent/` beside pylint,
+# configured in `setup.cfg` and recorded in ADR-0063. The package was annotated
+# throughout and nothing read the annotations, which left them prose that happens to
+# parse. Test-only like the four above -- nothing in `buy_agent/` imports it, so it stays
+# out of the image -- and, like the linter, it reads the package rather than running it.
+mypy==2.3.1

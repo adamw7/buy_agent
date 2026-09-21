@@ -1,6 +1,6 @@
 ---
 name: preflight
-description: Run the full gate CI applies -- both test suites, both coverage floors and the linter -- before committing or pushing. Use when asked to check, verify, or validate a change, when finishing work on a branch, or before opening a pull request. Not for a single failing test, which is faster run directly.
+description: Run the full gate CI applies -- both test suites, both coverage floors, the linter and the type checker -- before committing or pushing. Use when asked to check, verify, or validate a change, when finishing work on a branch, or before opening a pull request. Not for a single failing test, which is faster run directly.
 ---
 
 # Preflight
@@ -16,6 +16,7 @@ request, on Linux; Windows runs the same two on Saturdays and on a manual run
 python -m coverage run -m pytest
 python -m coverage report
 python -m pylint buy_agent
+python -m mypy buy_agent
 ```
 
 - The floor is `fail_under = 99` over branches as well as lines. The suite covers
@@ -39,6 +40,13 @@ python -m pylint buy_agent
   by itself, and every remaining message is suppressed on its own line with its
   reason (ADR-0048, ADR-0049). A new message is a line to fix or a pragma to
   write, not a number to let slip.
+- mypy runs over that same package, from the same directory, and has to come out
+  with no error at all. `setup.cfg` holds the settings: the default checks rather
+  than `strict`, `warn_unused_ignores` beside them, and `ignore_missing_imports`
+  for the four libraries neither tool here can read (ADR-0063). An error is an
+  annotation that is not true or a `# type: ignore` that has stopped being one --
+  fix the declaration rather than widening it, which is what the pragmas above
+  are for.
 
 ## UI (Node 22.23.2)
 
