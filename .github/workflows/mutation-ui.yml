@@ -24,7 +24,7 @@ jobs:
   stryker:
     name: Stryker (Node 22)
     runs-on: ubuntu-latest
-    # A run is 969 mutants and a whole `ng test` each -- about 90 minutes on a
+    # A run is 1031 mutants and a whole `ng test` each -- about 100 minutes on a
     # four-core runner, four of them at a time. Three hours is the guard against a
     # mutant that hangs a run past Stryker's own timeout, not an expectation.
     timeout-minutes: 180

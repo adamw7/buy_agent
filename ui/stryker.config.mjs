@@ -7,7 +7,7 @@
 export default {
   // What the specs are run with, one mutant at a time. Stryker instruments the
   // sources with every mutant at once and switches one on per run, so a run is
-  // the ordinary `ng test` with an environment variable set -- and 969 of them,
+  // the ordinary `ng test` with an environment variable set -- and 1031 of them,
   // which is what makes this a job of its own. There is no cheaper runner here:
   // Stryker's vitest runner drives vitest itself, and what compiles an Angular
   // component is the builder rather than vitest.

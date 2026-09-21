@@ -530,13 +530,13 @@ A run is the project's own test command, once per mutant. Stryker instruments
 the sources with every mutant at once and switches one on through an
 environment variable, so what runs is `ng test` with a variable set -- no second
 Angular compiler beside the one `ci.yml` runs, and a surviving mutant is a
-sentence about the specs as CI runs them. That is also what it costs: 969
-mutants, a whole build and a whole suite each, about ninety minutes on a
+sentence about the specs as CI runs them. That is also what it costs: 1031
+mutants, a whole build and a whole suite each, about a hundred minutes on a
 four-core runner with four running at a time.
 
 ```powershell
 cd ui
-npx stryker run                     # ~90 minutes; reports/mutation/ is the output
+npx stryker run                     # ~100 minutes; reports/mutation/ is the output
 cd ..
 python scripts/mutation_report.py ui/reports/mutation/mutation.json
 ```
