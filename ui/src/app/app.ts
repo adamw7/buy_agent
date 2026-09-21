@@ -63,8 +63,12 @@ export class App {
   /** The product being paid for, by name -- one payment at a time, page-wide. */
   protected readonly paying = signal<string | null>(null);
 
-  /** What came of each payment, by the name of the product it bought. */
-  protected readonly receipts = signal<Record<string, Receipt>>({});
+  /** What came of each payment, by the name of the product it bought. Most names
+   *  bought nothing, so the map says a miss is a miss rather than leaving that to
+   *  `noUncheckedIndexedAccess`, which is the app's own setting and not the specs':
+   *  the card is handed `?? null` for a miss, and typed as a hit that is a `??`
+   *  `strictTemplates` reports as one to delete. */
+  protected readonly receipts = signal<Record<string, Receipt | undefined>>({});
 
   /** A payment that did not happen. */
   protected readonly payFailed = signal<string | null>(null);

@@ -2597,8 +2597,16 @@ _UI_APP_TSCONFIG = _ROOT / "ui" / "tsconfig.app.json"
 #: test indexing past the end of a list it just built is a failing assertion on the
 #: next line rather than something a user is shown, and the ``!`` per subscript it
 #: would take 66 times over in the specs says nothing about the code that ships.
+#: ``strictTemplates`` is the other half of that same promise and is shared: ``strict``
+#: checks the TypeScript a component is written in and this checks the *bindings*, which
+#: is where the payload actually lands -- an input handed a type it cannot hold, a
+#: ``$event`` typed as ``any``, a signal read with the wrong arity. Every label the
+#: browser shows comes down from Python (``price_label``, ``cannot_pay``,
+#: ``offers_label``), so a binding is the one place one of those can be misused with no
+#: ``.ts`` file saying so.
 _COMPILER_CHECKS = (
     (_UI_TSCONFIG, "strict"),
+    (_UI_TSCONFIG, "strictTemplates"),
     (_UI_APP_TSCONFIG, "noUncheckedIndexedAccess"),
 )
 

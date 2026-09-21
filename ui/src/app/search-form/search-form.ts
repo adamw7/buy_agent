@@ -402,8 +402,12 @@ export class SearchForm {
     return options;
   });
 
-  /** The ranges the server declared, by the key each field is sent under. */
-  protected readonly limits = computed<Record<string, Limit>>(() => this.defaults()?.limits ?? {});
+  /** The ranges the server declared, by the key each field is sent under -- and
+   *  `undefined` for a field nothing bounds, which `Defaults.limits` documents and
+   *  a `Record<string, Limit>` then denies to every template reading it. */
+  protected readonly limits = computed<Record<string, Limit | undefined>>(
+    () => this.defaults()?.limits ?? {},
+  );
 
   /** What the page itself can say is wrong with a field, by the key it is sent under. */
   protected readonly problems = computed<Record<string, string>>(() => {
@@ -486,8 +490,10 @@ export class SearchForm {
   /** How many settings have something to say about them, for the summary to carry. */
   protected readonly flagged = computed(() => Object.keys(this.notes()).length);
 
-  /** What a cleared number box falls back to, named in the box itself. */
-  protected readonly placeholders = computed<Record<string, string>>(() => {
+  /** What a cleared number box falls back to, named in the box itself -- and nothing
+   *  at all under a key the defaults answer with neither a number nor the blank the
+   *  three bounds have, which is the miss the template's `?? ''` is for. */
+  protected readonly placeholders = computed<Record<string, string | undefined>>(() => {
     const named: Record<string, string> = {};
     const defaults = this.defaults();
     for (const { key } of this.numberFields) {

@@ -144,7 +144,7 @@ because every one of them ran perfectly.
 
 The UI's half of that gate is two checks and no threshold either. `npm run
 build` is a type check before it is a build: `ui/tsconfig.json` sets `strict`
-for the whole workspace and `ui/tsconfig.app.json` adds
+and `strictTemplates` for the whole workspace and `ui/tsconfig.app.json` adds
 `noUncheckedIndexedAccess` for the shipped half -- the one `strict` leaves out
 and the one this app needs, every lookup a component makes being by a key that
 came off a payload (`limits()[number.key]`, `receipts()[product.name]`). It
@@ -155,7 +155,23 @@ miss is typed as a hit, which is how a `?? null` written for a real `undefined`
 reads to the compiler as one that can be deleted -- and with it, the nullable
 halves of a payload (an `Opinion.url` off a result with no page, a
 `pay_currency` on a bare price) are a case every component has to handle rather
-than a comment in `agent.types.ts`. `npm run format:check` is the other:
+than a comment in `agent.types.ts`.
+
+`strictTemplates` is that same promise one file over: `strict` checks the
+TypeScript a component is written in, and this checks its *bindings*, which is
+where the payload actually lands -- an input handed a type it cannot hold, a
+`$event` typed as `any`, a signal read with the wrong arity. Every label the
+page shows is Python's (`price_label`, `cannot_pay`, `offers_label`), so a
+binding is the one place one of them can be misused with no `.ts` file saying
+so. It is shared rather than the app's alone, and that is what decides how the
+three maps a template looks up by a payload key are written: `App.receipts`,
+the form's `limits` and its `placeholders` each say `| undefined` in their own
+type rather than leaning on `noUncheckedIndexedAccess`, since the specs are
+compiled without that one and the `?? null` each is read through would be
+reported *there* as a `??` to delete. That report is a warning, which neither
+`ng build` nor `ng test` fails on -- so a lookup left typed as a hit is a check
+that says something and stops nothing, which is the one way this setting could
+be worse off on than off. `npm run format:check` is the other:
 Prettier reading rather than writing, which is the whole of what lints this half
 -- `npm run format` is the same glob with `--write`, and is what to run when the
 step goes red. It runs last in its job for the reason pylint runs last in the
