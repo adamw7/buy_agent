@@ -878,6 +878,7 @@ than working them out
 ```powershell
 python -m pytest              # the Python suite
 python -m pylint buy_agent    # ...and the linter over the package it covers
+python -m mypy buy_agent      # ...and the type checker, over that same package
 cd ui; npm test               # the UI's own tests, in jsdom
 python -m pytest integration  # ...and against a real model, if one is pulled
 
@@ -948,7 +949,8 @@ its rows fails a test instead of quietly becoming an exemption.
 
 What the counts are, what `tests/test_conventions.py` checks that coverage
 cannot, what pylint is configured to say and what it is deliberately not
-(ADR-0048), what the benchmark measures, the two mutation runs that grade the
+(ADR-0048), what mypy makes of annotations nothing used to read (ADR-0063),
+what the benchmark measures, the two mutation runs that grade the
 suites every Saturday, and the nightly audit that asks of both dependency lists
 the question Renovate does not -- not whether a pin has moved but whether what is
 pinned is known to be broken today (ADR-0062) -- are there too.

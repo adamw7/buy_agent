@@ -24,6 +24,11 @@ ENV/
 coverage.xml
 htmlcov/
 
+# mypy
+#   Where the type checker keeps what it worked out last time, so a second run over an
+#   unchanged package is most of a second rather than most of a minute.
+.mypy_cache/
+
 # mutmut
 #   A run copies the tree to mutants/ and tests the copy; the results file is
 #   what .github/workflows/mutation.yml reports from and uploads.

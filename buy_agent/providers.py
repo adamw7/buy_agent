@@ -7,7 +7,7 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 import httpx
 import openai
@@ -17,6 +17,8 @@ from buy_agent.chat import ChatModel, SchemaT, UnreadableAnswerError, read_answe
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+
+    from openai.types.chat import ChatCompletionMessageParam
 
     from buy_agent.chat import Message
     from buy_agent.config import AgentConfig
@@ -68,7 +70,11 @@ class Provider:
     takes_cpu_only: bool
     chat_model: Callable[[AgentConfig], ChatModel]
     installed: Callable[[AgentConfig], list[InstalledModel]]
-    transport_errors: tuple[type[BaseException], ...]
+    #: What "the server is not there" looks like from this row's own client, as the
+    #: ``except`` clause that catches it binds it. ``Exception`` and not ``BaseException``: every
+    #: class any row names is one, and a wider declaration is what left the ``hint``
+    #: beside it handed a value its own signature refuses.
+    transport_errors: tuple[type[Exception], ...]
     hint: Hint
 
 
@@ -217,7 +223,13 @@ class _VLLMChat:
         """One chat completion, read back as ``schema``."""
         response = self.client.chat.completions.create(
             model=self.model,
-            messages=list(messages),
+            # A :data:`~buy_agent.chat.Message` is a plain ``{"role", "content"}`` dict,
+            # which is what that client's own parameter type is at run time and not what
+            # it is declared as. Translating between the two vocabularies is this row's
+            # job and nobody else's, exactly as the schema below is -- the seam knows
+            # nothing about either server (ADR-0038), so the ``TypedDict`` stays on this
+            # side of it.
+            messages=cast("list[ChatCompletionMessageParam]", list(messages)),
             temperature=self.temperature,
             response_format={
                 "type": "json_schema",

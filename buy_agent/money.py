@@ -48,7 +48,7 @@ CODES: frozenset[str] = frozenset(ALIASES.values()) | {
 }
 
 #: Every way a currency may be written beside a figure, the two exemptions applied.
-_SPELLINGS: frozenset[str] = (ALIASES.keys() | CODES | UNPLACEABLE) - UNSCANNED
+_SPELLINGS: frozenset[str] = frozenset(ALIASES.keys() | CODES | UNPLACEABLE) - UNSCANNED
 
 #: The one-character signs, as the character class :mod:`buy_agent.fetch` scans with.
 SIGNS = "".join(sorted(s for s in _SPELLINGS if len(s) == 1 and not s.isalpha()))

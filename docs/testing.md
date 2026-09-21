@@ -1,7 +1,7 @@
 # Tests
 
 Two suites, one per language, and the checks that watch them: coverage floors on
-both, a linter over the package, cross-module conventions, a PowerShell script
+both, a linter and a type checker over the package, cross-module conventions, a PowerShell script
 neither suite can run, a nightly run against a real model, a benchmark scored
 against a fixed answer key, a weekly mutation run and a nightly audit of both
 dependency lists. Everything the [README](../README.md) leaves out.
@@ -12,6 +12,7 @@ python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
 
 python -m coverage run -m pytest ; python -m coverage report   # with coverage
 python -m pylint buy_agent    # the linter, from the repository root
+python -m mypy buy_agent      # the type checker, from the same place
 
 cd ui; npm test               # the UI's own tests, in jsdom
 cd ui; npm run test:coverage  # the same, with a coverage floor
@@ -22,7 +23,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-2545 Python tests and 256 UI tests. Nothing in either suite touches the network
+2552 Python tests and 256 UI tests. Nothing in either suite touches the network
 or a model server: the model is faked through the `llm=` argument of `BuyAgent`
 -- a class with one `answer` method, which is the whole of `chat.ChatModel`,
 both the search backend and the page fetcher are monkeypatched -- the backends'
@@ -142,6 +143,34 @@ rebound loop variable and ten `typing.Callable`s, and none of the three was
 visible to the tests, the coverage floor, the mutation run or the import graph,
 because every one of them ran perfectly.
 
+`python -m mypy buy_agent` is the same shape one step further along the job, and
+it is there for the same reason (ADR-0063). The package is annotated throughout
+-- 298 of its 337 `def`s carry a return type, every dataclass field is declared,
+and a dozen of the convention tests below hold those declarations against
+`agent.types.ts` -- and until this step nothing read them, which made them prose
+that happens to parse. The tell was a `# type: ignore[arg-type]` in `api.py`
+addressed to a checker no command here ran, which is what the paragraph above
+says the `# noqa` codes had become; put a checker behind it and the suppression
+turned out to be unnecessary. The other ten findings were declarations that were
+not true -- three tables declaring a failure class wider than any row names, a
+six-way `Literal` handed a bare `str`, a bound tied to the kind of the value it
+bounds -- none a bug, every one a claim a later edit can rely on and be wrong
+about, and not one of them visible to the tests, either floor, the mutation run
+or the import graph.
+
+Its settings are a `[mypy]` section in `setup.cfg`, beside mutmut's, and there
+are three of them. The target is the package the other three tools read, held by
+the same convention test. The floor is the default checks and not `strict`,
+which would pull in `disallow_untyped_defs` and thirty-nine annotations nobody
+asked for; what is added to the default is `warn_unused_ignores`, which is
+`useless-suppression` one tool over and is the check this was noticed through.
+And the four libraries neither tool here can read -- the AP2 SDK, the two it
+signs with, and the `lxml` `fetch.py` parses pages with -- are named once per
+tool, as `ignore_missing_imports` here and as `ignored-modules` and
+`extension-pkg-allow-list` in `.pylintrc`, with a convention test holding the
+two lists together from both sides. Left to fail instead it would be the one
+check here that is red on a checkout the tests call fine.
+
 The UI's half of that gate is two checks and no threshold either. `npm run
 build` is a type check before it is a build: `ui/tsconfig.json` sets `strict`
 and `strictTemplates` for the whole workspace and `ui/tsconfig.app.json` adds
@@ -219,8 +248,9 @@ leaving valid Markdown that is a dead end and only the reader who follows it
 finding out; the UI being compiled with its checks on, which is a setting and
 not a property of the build; the
 dependency list holding only what the package imports, and holding all of it; the
-linter reading the package the other two tools measure and no line of it taking
-a check away without saying why; every type named for a failure being one, and
+linter and the type checker reading the package the other two tools measure, no
+line of it taking a check away without saying why, and the two of them naming
+the same libraries as ones neither can read; every type named for a failure being one, and
 nothing but the `__main__` guard ending the process; the suite's own
 hygiene -- no test switched off outright, nothing sleeping but the server tests
 that need a run to still be going, and the environment changed through
@@ -318,7 +348,8 @@ already the file above.
 
 Both suites run on Windows and on Linux, on different triggers.
 `.github/workflows/ci.yml` spreads its two jobs -- `coverage run -m pytest` and
-then `pylint buy_agent` on Python 3.14, `npm run test:coverage`, `npm run build`
+then `pylint buy_agent` and `mypy buy_agent` on Python 3.14, `npm run
+test:coverage`, `npm run build`
 and `npm run format:check` on Node 22.23.2 -- over `ubuntu-latest` and `windows-latest`, with `fail-fast`
 off so a failure on one platform still reports the other. This project is
 written on Windows and its runners were Linux, each checking the half of the

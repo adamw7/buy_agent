@@ -63,7 +63,7 @@ def hint(config: AgentConfig, exc: Exception) -> str:
     return config.model_server.hint(config, exc)
 
 
-def errors(config: AgentConfig) -> tuple[type[BaseException], ...]:
+def errors(config: AgentConfig) -> tuple[type[Exception], ...]:
     return config.model_server.transport_errors
 
 

@@ -2561,6 +2561,78 @@ def test_every_suppression_says_why(path: Path) -> None:
         )
 
 
+# -- the type checker ----------------------------------------------------------
+
+#: ``python -m mypy <target>``, wherever a workflow or a skill runs it.
+_MYPY_RUN = re.compile(r"python -m mypy ([\w/ .-]+)")
+
+#: One ``[mypy-<package>.*]`` section of ``setup.cfg``, as the only spelling mypy has for
+#: "this library ships no stubs".
+_MYPY_MODULE = re.compile(r"^mypy-([\w.]+?)(?:\.\*)?$")
+
+
+def setup_cfg() -> ConfigParser:
+    """``setup.cfg`` read whole, which is not what ``ini_values`` reads: mypy's keys
+    differ per section and a missing one is the question rather than an error."""
+    parser = ConfigParser()
+    parser.read(_MUTMUT, encoding="utf-8")
+    return parser
+
+
+def unreadable_to_mypy() -> set[str]:
+    """The libraries ``setup.cfg`` tells mypy it cannot read, by their top-level name."""
+    parser = setup_cfg()
+    named = ((name, _MYPY_MODULE.match(name)) for name in parser.sections())
+    return {
+        match.group(1).split(".")[0]
+        for name, match in named
+        if match and parser.getboolean(name, "ignore_missing_imports", fallback=False)
+    }
+
+
+def unreadable_to_pylint() -> set[str]:
+    """The same libraries as `.pylintrc` names them: the ones it is told to ignore, and
+    the C extension it is told to import instead of reading. Two settings because the
+    tool can import one of them and not the others, which is a difference about pylint
+    and not about the libraries."""
+    ignored = ini_values(_PYLINTRC, "MAIN", "ignored-modules")
+    extensions = ini_values(_PYLINTRC, "MAIN", "extension-pkg-allow-list")
+    return {name.rstrip(",").split(".")[0] for name in ignored + extensions}
+
+
+def test_the_type_checker_checks_what_the_linter_lints() -> None:
+    """A fourth tool reads the same package, and says so in its own file: `.coveragerc`
+    measures it, `setup.cfg` mutates it, and `ci.yml` lints *and* checks it."""
+    checked = _MYPY_RUN.findall(_CI.read_text(encoding="utf-8"))
+
+    assert checked, "ci.yml no longer runs mypy; this rule has outlived it (ADR-0063)"
+    for target in checked:
+        assert target.split() == ini_values(_COVERAGERC, "run", "source")
+
+
+def test_the_type_checker_keeps_the_check_it_was_added_for() -> None:
+    """`warn_unused_ignores` is `useless-suppression` one tool over, and it is what makes
+    a `# type: ignore` written for a checker nothing ran fail rather than sit there --
+    which is the line ADR-0063 was noticed through."""
+    settings = setup_cfg()
+
+    assert settings.has_section("mypy"), (
+        "setup.cfg no longer configures mypy; ci.yml still runs it"
+    )
+    assert settings.getboolean("mypy", "warn_unused_ignores", fallback=False), (
+        "warn_unused_ignores is off, so a stale ignore is invisible again (ADR-0063)"
+    )
+
+
+def test_mypy_and_pylint_name_the_same_unreadable_libraries() -> None:
+    """One decision written in two vocabularies (ADR-0063): the AP2 SDK, the two
+    libraries it signs with and the C extension `fetch.py` parses pages with ship
+    nothing either tool can read. Held from both sides, so neither list can outlive the
+    other -- a library added to one file only is a check that is red on the machines
+    that have the library and a check that is silent on the ones that do not."""
+    assert unreadable_to_mypy() == unreadable_to_pylint()
+
+
 #: Flags this project's own messages may name whatever door they arrive at, because they
 #: are not this CLI's: ``--max-model-len`` and ``--api-key`` are typed at ``vllm serve``,
 #: ``--no-deps`` at ``pip``.

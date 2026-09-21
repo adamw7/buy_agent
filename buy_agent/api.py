@@ -51,13 +51,18 @@ logger = logging.getLogger(__name__)
 _T = TypeVar("_T")
 
 #: Constrained, so ``minimum <= number <= maximum`` in :func:`_as_number` is a
-#: comparison the type checker can see is valid for whichever kind it was given.
+#: comparison the type checker can see is valid for whichever kind it was given -- and so
+#: that a parser reading a number answers that number's own kind rather than "a number".
 _Number = TypeVar("_Number", int, float)
 
 #: Builds the agent :func:`run_search` uses -- ``BuyAgent`` itself, unless a test hands
 #: it a stub instead.
 AgentFactory = Callable[[AgentConfig], BuyAgent]
 
+#: The criteria a request may ask for: :data:`~buy_agent.ranking.SortBy` read back rather
+#: than the same three names written down a second time. That is also why each door casts
+#: what ``_among`` hands back -- a value checked against these is one of the three, which
+#: is a fact the ``str`` a request arrives as cannot state and the cast can.
 SORT_OPTIONS: tuple[str, ...] = get_args(SortBy)
 
 #: The model servers a request may name, read off the registry rather than written down
@@ -126,7 +131,7 @@ def _status_for(exc: Exception, table: Mapping[type[Exception], int]) -> int:
     return next(status for kind, status in table.items() if isinstance(exc, kind))
 
 
-def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
+def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, SortBy]:
     """Read an :class:`AgentConfig` and a sort criterion out of request data."""
     defaults = AgentConfig()
     settings: dict[str, Any] = {
@@ -140,7 +145,7 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, str]:
     # Through ``_configured``, so the config's own refusal is answered like every other
     # unusable value rather than escaping as a 500 (ADR-0033).
     sort_by = _read(data, "sort_by", "score", _among(SORT_OPTIONS))
-    return _configured(**settings), sort_by
+    return _configured(**settings), cast(SortBy, sort_by)
 
 
 def _configured(**settings: Any) -> AgentConfig:
@@ -155,7 +160,7 @@ def run_search(
     request: str,
     config: AgentConfig,
     *,
-    sort_by: str = "score",
+    sort_by: SortBy = "score",
     agent_factory: AgentFactory = BuyAgent,
     checkpoint: Checkpoint = every_step_passes,
 ) -> dict[str, Any]:
@@ -168,7 +173,7 @@ def run_search(
     # of this search rather than this one (ADR-0060).
     journal = journal_for(request, config)
     try:
-        agent = agent_factory(config)  # type: ignore[arg-type]
+        agent = agent_factory(config)
         ranked = agent.run(
             request, sort_by=sort_by, checkpoint=checkpoint, record=removals.append
         )
@@ -595,8 +600,12 @@ def _bounded(kind: Callable[[str], _Number]) -> Callable[[str, str], _Number]:
 
 def _as_number(
     kind: Callable[[str], _Number],
-    minimum: _Number,
-    maximum: _Number,
+    # The bound is a number and the value is whichever kind ``kind`` reads, which are two
+    # things and not one: ``config.LIMITS`` holds every range as a pair of ints, so tying
+    # them together said that ``temperature`` -- read with ``float`` against ``(0, 2)`` --
+    # could only ever be a whole number.
+    minimum: float,
+    maximum: float,
     key: str,
     text: str,
 ) -> _Number:

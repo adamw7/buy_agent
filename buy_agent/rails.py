@@ -36,7 +36,11 @@ class Rail:
     moves_money: bool
     checkout: Callable[[Cart, AgentConfig], tuple[SignedCheckout, str]]
     settle: Callable[[Cart, Authorisation, AgentConfig], Settlement]
-    transport_errors: tuple[type[BaseException], ...]
+    #: What "the counterparty is not there" looks like from this row's own client, as the
+    #: ``except`` clause that catches it binds it. ``Exception`` and not ``BaseException``: every
+    #: class any row names is one, and a wider declaration is what left the ``hint``
+    #: beside it handed a value its own signature refuses.
+    transport_errors: tuple[type[Exception], ...]
     hint: Callable[[AgentConfig, Exception], str]
 
 
