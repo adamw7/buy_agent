@@ -324,8 +324,8 @@ the matrix is over platforms only, one Python and one Node, since the
   that passed. What a function was declared with is asked of a run that was told
   nothing, which `tests/test_conventions.py` holds every test in both suites to.
 - **`mutation-ui.yml`** is that same question asked of the front end, an hour
-  later at 06:23 UTC and in a workflow of its own (ADR-0061): a run is 969
-  mutants and a whole `ng test` each, an hour and a half where mutmut's whole
+  later at 06:23 UTC and in a workflow of its own (ADR-0061): a run is 1031
+  mutants and a whole `ng test` each, over an hour and a half where mutmut's whole
   run is two minutes, so stacking it into the job above would make the package's
   report wait on this one. [Stryker](https://stryker-mutator.io/) runs the
   project's own test command per mutant -- `ui/stryker.config.mjs` is the
