@@ -1,0 +1,128 @@
+name: Dependency audit
+
+on:
+  # Two halves on two events, which is the whole of ADR-0062. What a pull
+  # request *adds* to either list is this repository's own change, so the review
+  # below runs per pull request and is the one half that gates a merge. Whether
+  # something already pinned is known broken today is a clock somebody else
+  # started -- an advisory published on a Tuesday is not news that a Tuesday
+  # push made true -- so the audit runs on a schedule, where a red run is a
+  # morning's work rather than a merge somebody is waiting on.
+  pull_request:
+  schedule:
+    # 02:47 UTC, nightly. Off the hour for the reason every schedule here is --
+    # runs queued at :00 can start an hour late -- and on a minute of its own,
+    # four other scheduled runs now waiting on the same pool of runners
+    # (ADR-0061). Nightly rather than weekly, unlike the two mutation runs: they
+    # ask about code that changes when somebody pushes, and this asks about a
+    # database that changes when somebody else publishes. GitHub only schedules
+    # workflows that are on the default branch, so this fires once it is on main.
+    - cron: "47 2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  # The event is in the group as it is in ci.yml: the schedule and a manual run
+  # both fire on main, and cancel-in-progress would otherwise let one of them
+  # drop the other.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    # Linux only, like the nightly run and for its reason: what is asked here is
+    # whether a version has an advisory against it, which is the same question
+    # on either platform and twice the runner minutes to ask twice.
+    name: pip-audit and npm audit
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # Nothing here should take a minute: `pip-audit` resolves the five files in
+    # about a dozen seconds and `npm audit` reads a lockfile. The cap is the
+    # guard against a resolver waiting on a registry that has stopped answering,
+    # which otherwise sits there until GitHub's six-hour default.
+    timeout-minutes: 10
+    defaults:
+      run:
+        # As in the other four workflows: `shell: bash` is `bash -eo pipefail`.
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          # The one file this job hands pip. The files it *audits* are read by
+          # pip-audit rather than installed, and what they resolve to is the
+          # answer this job is for -- caching that is caching the question.
+          cache-dependency-path: requirements-audit.txt
+
+      - name: Install the auditor
+        run: pip install -r requirements-audit.txt
+
+      # Every requirements file in the tree but one, and `requirements-ap2.txt`
+      # is left out for the same reason it is installed `--no-deps`: its
+      # metadata pins `cryptography`, `jwcrypto` and `pytest` to versions this
+      # project deliberately does not install, so resolving it audits a tree
+      # nothing here has -- fifteen advisories the day this was written, none of
+      # them against anything that is installed. What paying actually signs with
+      # is `requirements-ap2-deps.txt`, which is audited, and the SDK itself is a
+      # git commit no advisory database has a row for (ADR-0046, ADR-0062).
+      #
+      # No severity threshold on this side: these lists are short, every line is
+      # a direct pin, and all of it is installed on a machine that runs the
+      # agent or its suite.
+      - name: Audit the Python dependencies
+        run: |
+          python -m pip_audit --progress-spinner off \
+            -r requirements.txt \
+            -r requirements-dev.txt \
+            -r requirements-mutation.txt \
+            -r requirements-ap2-deps.txt \
+            -r requirements-audit.txt
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22.23.2"
+
+      # `npm audit` reads `ui/package-lock.json` and installs nothing, so this
+      # needs no `npm ci` and no npm cache -- half a second against the forty
+      # seconds a tree of that size takes to install.
+      #
+      # `high` and above is the threshold here and nowhere else in this project,
+      # and it is the difference between a gate and a habit (ADR-0016's failure
+      # mode): the lockfile is two megabytes of transitive build-time packages,
+      # and the advisories standing the day this was written are two moderate
+      # ones in the HTTP client `@stryker-mutator/core` reports with -- a
+      # package that runs on a runner one morning a week and never reaches a
+      # browser. A run that goes red for that every night is a run somebody
+      # turns off.
+      #
+      # It runs even where the step above failed: a nightly report that stops at
+      # the first advisory hides the other half's answer for a day.
+      - name: Audit the UI dependencies
+        if: ${{ !cancelled() }}
+        working-directory: ui
+        run: npm audit --audit-level=high
+
+  review:
+    # The per-pull-request half, and the only one of the two that gates a merge.
+    # It reads what the branch *adds* to either list rather than the whole of
+    # what is pinned, so it cannot go red for an advisory published since the
+    # branch was cut -- which is what makes it safe to stand in front of a
+    # merge. The threshold is the one the UI's audit uses above: written twice
+    # because neither tool reads the other's, and held together by
+    # `tests/test_conventions.py`.
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: high

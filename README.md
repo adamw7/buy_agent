@@ -948,8 +948,10 @@ its rows fails a test instead of quietly becoming an exemption.
 
 What the counts are, what `tests/test_conventions.py` checks that coverage
 cannot, what pylint is configured to say and what it is deliberately not
-(ADR-0048), what the benchmark measures, and the two mutation runs that grade
-the suites every Saturday are there too.
+(ADR-0048), what the benchmark measures, the two mutation runs that grade the
+suites every Saturday, and the nightly audit that asks of both dependency lists
+the question Renovate does not -- not whether a pin has moved but whether what is
+pinned is known to be broken today (ADR-0062) -- are there too.
 
 ## Limitations
 

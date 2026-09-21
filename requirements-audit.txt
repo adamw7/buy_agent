@@ -1,0 +1,11 @@
+# What the nightly audit installs: the auditor, and nothing else (ADR-0062).
+# `pip-audit` resolves each requirements file it is handed itself -- transitives
+# included, in an environment of its own -- so this job needs neither the
+# project's dependencies nor the optional SDK, and what it reports is what those
+# files resolve to rather than what happens to be installed beside them.
+#
+# Kept out of `requirements-dev.txt` for the reason `requirements-mutation.txt`
+# is: it pulls a CycloneDX writer, `requests` and a cache of the advisory
+# databases behind it, and the two jobs that run on every push have no use for
+# any of them.
+pip-audit==2.10.1

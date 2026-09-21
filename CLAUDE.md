@@ -21,8 +21,8 @@ mandates rather than a stored card (ADR-0046).
 `README.md` keeps the tour and links out to the longer sections beside it:
 `docs/models.md` (keeping Ollama's models current), `docs/docker.md` (the web
 tier as a container, and what a release publishes), `docs/testing.md` (both
-suites, the coverage floors, the nightly run, the benchmark and the mutation
-run) and `demo/README.md` (three recorded runs of the UI, one of them with a
+suites, the coverage floors, the nightly run, the benchmark, the mutation run
+and the nightly audit of both dependency lists) and `demo/README.md` (three recorded runs of the UI, one of them with a
 synthesised soundtrack, the still the README shows, and the harness that took
 all four).
 
@@ -71,6 +71,10 @@ python -m buy_agent.server                    # the UI and its API on :8000
 .\scripts\start.ps1                           # ...or all of it from cold, no arguments
 
 python -m scripts.update_ollama               # re-pull Ollama's models, report what moved
+
+pip install -r requirements-audit.txt         # pip-audit, and nothing else
+python -m pip_audit -r requirements.txt -r requirements-dev.txt   # what the nightly audit asks
+cd ui; npm audit --audit-level=high           # ...and the other half of it
 
 pip install -r requirements-mutation.txt      # mutmut, on top of the dev deps
 python -m mutmut run                          # mutation testing; ~2 min, cached
@@ -283,7 +287,7 @@ remembered answer is filed under: how long a run would have waited decides
 nothing about what the model said. The listing keeps its own five seconds, a form
 waiting on it (ADR-0032).
 
-### CI and the four workflows beside it
+### CI and the five workflows beside it
 
 `.github/workflows/ci.yml` runs two jobs for pushes to `main` and every pull
 request: `coverage run -m pytest`, `coverage report` and then `pylint buy_agent`
@@ -309,6 +313,26 @@ the matrix is over platforms only, one Python and one Node, since the
 `Dockerfile`, `scripts/start.ps1` and `docs/testing.md` each pin themselves to
 *the* version `ci.yml` names.
 
+- **`audit.yml`** asks the question Renovate does not: not whether a pin has
+  moved but whether what is pinned is known to be broken today (ADR-0062). Two
+  halves on two events. `pip-audit` over every requirements file but
+  `requirements-ap2.txt` -- resolved with their transitives and none of them
+  installed -- and `npm audit --audit-level=high` off `ui/package-lock.json`,
+  both at 02:47 UTC nightly and on `workflow_dispatch`, never on a pull request:
+  an advisory published on a Tuesday is not news that a Tuesday push made true.
+  The file left out is left out for the reason it is installed `--no-deps` --
+  resolving it audits the SDK's own metadata pins rather than anything this
+  project has -- and `requirements-ap2-deps.txt`, which is what paying really
+  signs with, is audited. The thresholds are the other half of the decision:
+  none on the Python side, where every line is a direct pin of something that is
+  installed, and `high` on the npm side, where the lockfile is two megabytes of
+  transitive build-time packages and a run that goes red nightly for a moderate
+  advisory in a mutation tester's HTTP client is a run somebody turns off
+  (ADR-0016's failure mode, one step further along). The other half runs on a
+  pull request and is the only thing here that gates a merge:
+  `actions/dependency-review-action` at that same `high`, reading what the branch
+  *adds* to either list rather than the whole of what is pinned -- so it cannot go
+  red for something published since the branch was cut.
 - **`integration.yml`** runs `pytest integration` against a real Ollama at 03:41
   UTC nightly (and on `workflow_dispatch`), never on a pull request, capped at
   `timeout-minutes: 5` -- which covers installing Ollama, pulling the model and
@@ -359,7 +383,7 @@ the matrix is over platforms only, one Python and one Node, since the
   sdist, the project still being run from a directory. Both jobs check out
   `$TAG` rather than the branch the workflow sits on, and neither package is
   published unattended: each is installed or run and asked for `/api/config` and
-  `/`. Linux only, like the other two schedules.
+  `/`. Linux only, like every schedule beside it.
 
 Five files configure all of that, and `docs/testing.md` says why each is set the
 way it is.
@@ -1587,6 +1611,14 @@ the other is otherwise invisible to both suites. It asserts that
   absent Ollama fails instead of skipping, caps itself at the five minutes the
   docs quote, and leaves `integration.LIVE_TIMEOUT_SECONDS` room inside that cap
   to fail a stopped model first;
+- every requirements file at the top of the tree is one the nightly audit
+  resolves -- the `-r` lines inside those included, as with the pip cache -- or is
+  the one named in the test with its reason, which is read from the other side
+  too so neither the exemption nor the file it names can outlive the other; the
+  two halves that can fail over a severity agree on which one, a threshold
+  written in two tools that read none of each other's configuration; the audit
+  itself never gates a pull request and the review of what one *adds* only ever
+  does (ADR-0062);
 - every ADR is indexed, numbered to match its heading, carries the status, date
   and sections ADR-0001 asks for, and cites only records that exist;
 - the Saturday mutation run mutates the package `.coveragerc` measures, on the
