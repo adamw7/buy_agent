@@ -478,6 +478,24 @@ export class SearchForm {
     return { ...problems, [rejected.field]: rejected.message };
   });
 
+  /**
+   * The id of the sentence marking this box, or null where nothing marks it.
+   *
+   * `aria-invalid` is the box saying something is wrong and never what, and the
+   * sentence beside it is announced once as it appears and is a paragraph next
+   * to a box from then on -- so a reader arriving at a box already marked, by a
+   * remembered value or by tabbing back to it, is told there is a problem and
+   * not which. ADR-0033 puts the refusal on the box it is about, and this is
+   * the box pointing at it. One answer for both ends of that pointer: the
+   * sentence is given this id and the box is described by it, an
+   * `aria-describedby` naming an element that is not there being a mark that
+   * reaches nobody -- which is the rule `a11y.ts` runs as
+   * `aria-valid-attr-value`.
+   */
+  protected problemId(key: string): string | null {
+    return this.notes()[key] ? `problem-${key}` : null;
+  }
+
   /** Whether the field named still holds the value the run was refused for. */
   private stillSent(field: string): boolean {
     const sent = this.submitted();

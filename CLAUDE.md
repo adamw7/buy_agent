@@ -1352,7 +1352,13 @@ rules a change to them may not break.
   `submitted` recorded -- and `moved` says when it stops, so `App` drops the
   banner repeating that same sentence rather than leaving the page refusing a
   value the form has already stopped marking. `options()` is the single place that
-  payload is built.
+  payload is built. A mark is two things and one answer: `aria-invalid` on the
+  box and the sentence it points at with `aria-describedby`, both read off
+  `problemId`, since `aria-invalid` alone says something is wrong and never what
+  and a live `role="alert"` says it once and is then a paragraph beside a box.
+  One answer for both ends, so a box this run does not take loses the pointer
+  with the mark rather than naming a sentence nothing is drawing -- which is the
+  rule `duplicate-id-aria` and `aria-valid-attr-value` hold from the other side.
   `numberTyped` reads `validity.badInput`, without which a box full of text is
   sent as the `null` a cleared box means (ADR-0012).
 - **A number box is declared once, in `numberFields`**, under the key that also

@@ -245,6 +245,27 @@ was a red field, an `aria-invalid` and a "1 setting to look at" over a form with
 nothing wrong with it. `options()` is the one place that payload is built, since
 the comparison and the run have to agree on what a box holds.
 
+A marked box also *points* at its sentence. `aria-invalid` alone is the box
+saying something is wrong and never what, and a live `role="alert"` is announced
+once as it appears and is a paragraph beside a box from then on -- so a reader
+arriving at a box already marked, by a remembered value or by tabbing back to
+it, was told there was a problem and not which. `problemId` answers the id of
+that sentence, or nothing where nothing marks the box, and it is read at both
+ends of the pointer: the sentence is given that id and the box is described by
+it, so the two cannot drift into an `aria-describedby` naming an element that is
+not there. That is what puts `duplicate-id-aria` among the rules the
+accessibility check runs -- two boxes sharing one id is a mark read at random --
+and it is why a box this run does not take loses its `aria-describedby` with its
+`aria-invalid` rather than keeping a pointer to a sentence no longer drawn.
+
+The mark is the only one of the three sentences a box can carry that needs the
+pointer, and that is the reason rather than a preference. Each box is inside its
+own label, so a `<small>` under it is part of what the box is *called*: the hint
+and the bound read out of the request (ADR-0059) are read out with the name,
+which is where a hint belongs. A live `role="alert"` is the one that is not --
+it is excluded from that name, announced as it appears and unreachable
+afterwards -- so it is the one the box has to point at.
+
 One check is the page's own rather than a range. A number box holding text that
 is not a number reports the empty string, which reaches `ngModel` as the `null`
 a *cleared* box means

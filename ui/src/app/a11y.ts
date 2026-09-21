@@ -45,6 +45,8 @@ export const CHECKED: Record<string, string> = {
   'aria-required-attr': 'The score meter carries its minimum, its maximum and where it stands.',
   'aria-allowed-role': 'A role an element may not take is a role an assistive technology drops.',
   'aria-deprecated-role': 'A role that has been withdrawn is one only some readers still answer.',
+  'duplicate-id-aria':
+    'A marked box points at one sentence: two of an id is a mark read at random.',
 
   // What the panels are made of. The opinions, the offers, the removals and the
   // changes are lists, and a list read as four paragraphs loses the count.
@@ -70,8 +72,6 @@ export const CHECKED: Record<string, string> = {
  * - Anything about markup this app has none of. Tables, frames, images, media,
  *   definition lists, `<marquee>`: a rule matching nothing passes, and a rule
  *   that has never once been applicable says nothing about the next change.
- *   `duplicate-id-aria` is in this group for now -- nothing here points an ARIA
- *   attribute at an id -- and moves up the moment something does.
  *
  * Two of the promises above have no rule at all, here or in a browser: that a
  * colour never carries something on its own, and that a panel a run takes a

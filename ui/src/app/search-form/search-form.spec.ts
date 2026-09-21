@@ -124,7 +124,8 @@ describe('SearchForm', () => {
        what somebody can perceive and reach before it is one about a CSS class: a
        mark drawn as a colour on a border says nothing to a reader who cannot see
        it. The box carries `aria-invalid`, the sentence under it is a live
-       `role="alert"`, and every control in the panel has a name. */
+       `role="alert"` the box itself points at, and every control in the panel
+       has a name. */
     await type('input[name="request"]', 'kettle');
     const paying = element<HTMLInputElement>('input[name="pay"]');
     paying.checked = true;
@@ -143,6 +144,19 @@ describe('SearchForm', () => {
         .querySelector('.problem')!
         .getAttribute('role'),
     ).toBe('alert');
+
+    /* And the box points at that sentence rather than only announcing it once as
+       it appears: a reader arriving at a box already marked is otherwise told
+       there is a problem and never which. */
+    for (const name of ['results', 'sources']) {
+      const box = element(`input[name="${name}"]`);
+      const described = box.getAttribute('aria-describedby');
+      const sentence = box.closest('label')!.querySelector('.problem')!;
+      expect(described, name).not.toBeNull();
+      expect(sentence.id, name).toBe(described);
+      expect(sentence.textContent?.trim(), name).not.toBe('');
+    }
+
     expect(await accessibilityProblems(fixture.nativeElement)).toEqual([]);
   });
 
@@ -158,6 +172,9 @@ describe('SearchForm', () => {
     const box = element<HTMLInputElement>('input[name="num_ctx"]');
     expect(box.disabled).toBe(true);
     expect(box.getAttribute('aria-invalid')).toBeNull();
+    /* And it points at nothing: an `aria-describedby` naming an element that is
+       no longer rendered is a mark that reaches nobody. */
+    expect(box.getAttribute('aria-describedby')).toBeNull();
     expect(await accessibilityProblems(fixture.nativeElement)).toEqual([]);
   });
 
@@ -1343,6 +1360,30 @@ describe('SearchForm, paying', () => {
 
     expect(element<HTMLInputElement>('input[name="merchantUrl"]').disabled).toBe(true);
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('nowhere to be pointed');
+  });
+
+  it('marks the payment endpoint a refused run named, and points the box at it', async () => {
+    /* The one `ValueError` an `AgentConfig` raises that neither door has already
+       refused -- a paying rail with nowhere to be pointed -- translated into an
+       `ApiError` naming `merchant_url`, so the mark lands on that box rather
+       than in a banner about the run (ADR-0033). And the box points at the
+       sentence: `aria-invalid` on its own says something is wrong and never
+       what. */
+    await tick('pay', true);
+    await choose('select[name="rail"]', 'http');
+    fixture.componentRef.setInput('rejected', {
+      field: 'merchant_url',
+      message: 'merchant_url is needed to pay over http.',
+    });
+    await fixture.whenStable();
+
+    const box = element<HTMLInputElement>('input[name="merchantUrl"]');
+    const sentence = box.closest('label')!.querySelector('.problem')!;
+    expect(sentence.textContent).toContain('needed to pay');
+    expect(box.getAttribute('aria-invalid')).toBe('true');
+    expect(sentence.id).not.toBe('');
+    expect(box.getAttribute('aria-describedby')).toBe(sentence.id);
+    expect(await accessibilityProblems(fixture.nativeElement)).toEqual([]);
   });
 
   it('sends the payment settings with the run', async () => {
