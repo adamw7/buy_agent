@@ -591,8 +591,10 @@ build, and the server that serves that build alongside the API.
 ```
 
 It creates `.venv`, installs `requirements.txt`, starts Ollama, pulls the
-default model and builds `ui/` where each is not already done, then runs the
-server in the foreground and opens the page -- so a second run is a few seconds.
+default model and builds `ui/` where each is not already done -- the build and
+`npm install` counting as not done once a pull has changed what they are made
+from -- then runs the server in the foreground and opens the page, so a second
+run is a few seconds.
 Ctrl+C stops the server, and the Ollama too if the script started it. It has no
 options on purpose: the provider, model and address are
 `$env:BUY_AGENT_PROVIDER`, `$env:OLLAMA_MODEL`/`$env:OLLAMA_HOST` (or

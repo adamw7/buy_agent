@@ -7,7 +7,7 @@
 .DESCRIPTION
     start.ps1 is the one file here no pytest can run: it is PowerShell, it starts
     two servers and it opens a browser. What it *can* be asked is whether it
-    parses, what it declares, and how the four helpers at the top of it behave --
+    parses, what it declares, and how the helpers at the top of it behave --
     which is most of what goes wrong in a script, and all of it out of reach from
     Python.
 
@@ -122,7 +122,46 @@ function Poll([int]$seconds, [int]$failures) {
     }
 }
 
+function Aged([string]$dir, [hashtable]$files) {
+    <#
+        `Stale` against real files, each written and then dated: the filesystem's
+        timestamps are the only clock that helper reads, so the files are the stub.
+        Answers the file items by name.
+    #>
+    $made = @{}
+    foreach ($name in $files.Keys) {
+        $path = Join-Path $dir $name
+        Set-Content -Path $path -Value $name
+        (Get-Item $path).LastWriteTime = [datetime]$files[$name]
+        $made[$name] = Get-Item $path
+    }
+    $made
+}
+
 if ($facts.parseErrors.Count -eq 0) {
+    $scratch = Join-Path ([System.IO.Path]::GetTempPath()) "start-script-$([guid]::NewGuid())"
+    New-Item -ItemType Directory -Path $scratch | Out-Null
+    try {
+        $dated = Aged $scratch @{
+            'index.html' = '2026-02-01'
+            'older.ts'   = '2026-01-01'
+            'newer.ts'   = '2026-03-01'
+        }
+        $built = $dated['index.html'].FullName
+
+        Case 'stale_is_true_for_something_never_made' {
+            [ordered]@{ stale = (Stale (Join-Path $scratch 'missing.html') @($dated['older.ts'])) }
+        }
+        Case 'stale_is_false_for_something_newer_than_its_sources' {
+            [ordered]@{ stale = (Stale $built @($dated['older.ts'])) }
+        }
+        Case 'stale_is_true_once_one_source_is_newer' {
+            [ordered]@{ stale = (Stale $built @($dated['older.ts'], $dated['newer.ts'])) }
+        }
+    } finally {
+        Remove-Item -LiteralPath $scratch -Recurse -Force
+    }
+
     Case 'run_hands_back_what_the_command_printed' {
         # Quoted with '' and not "", the way start.ps1 quotes its own `python -c`.
         # Windows PowerShell 5.1 strips a double quote out of a native command's

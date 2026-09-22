@@ -193,6 +193,13 @@ def _ollama_capability(client: Client, name: str) -> InstalledModel:
 def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
     """Turn an Ollama failure into something the user can act on (ADR-0032)."""
     lowered = _answered_by(exc, ResponseError)
+    # Refused as a *name* before any tag is looked up -- a space, a bracket, a URL -- so
+    # pulling it is no remedy either: `ollama pull` refuses the same string.
+    if "invalid model name" in lowered:
+        return (
+            f"Ollama cannot read {config.model!r} as a model name ({exc}). "
+            f"Ask for one it has (installed: {_listed(config)})"
+        )
     if "not found" in lowered:
         return (
             f"Ollama has no model named {config.model!r}. "

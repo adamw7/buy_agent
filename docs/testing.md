@@ -60,9 +60,9 @@ Without that SDK the 74 tests that need it **skip**, the way
 `tests/test_start_script.py` skips where there is no PowerShell: `needs_ap2` in
 `tests/conftest.py` is the marker, and it asks `mandates.available()` once at
 import. `needs_powershell` is the other, and with neither `pwsh` nor
-`powershell` on PATH 13 of the 19 tests in that file sit out. So a machine with
-the SDK and no PowerShell reads `2532 passed, 13 skipped`, and a checkout set up
-with `requirements-dev.txt` alone reads `2458 passed, 87 skipped` rather than 74
+`powershell` on PATH 16 of the 22 tests in that file sit out. So a machine with
+the SDK and no PowerShell reads `2540 passed, 16 skipped`, and a checkout set up
+with `requirements-dev.txt` alone reads `2466 passed, 90 skipped` rather than 74
 failures claiming the project is broken when one optional feature is simply not
 installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide
@@ -364,7 +364,8 @@ that touched one of the things above asks for all four runs before it is merged
 `scripts/start.ps1` is the one file neither suite can import or run, so
 `tests/test_start_script.py` does everything short of running it: a PowerShell
 helper parses the script, lifts out the functions it declares, exercises them on
-a stubbed clock and a stubbed web request, and reports what it found as JSON.
+a stubbed clock, a stubbed web request and a few files it dates itself, and
+reports what it found as JSON.
 Those tests skip where there is no `pwsh` or `powershell` on PATH -- neither
 Windows nor either runner CI uses -- and the Windows job runs them on the
 platform the script is actually for.
