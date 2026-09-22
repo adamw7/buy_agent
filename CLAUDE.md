@@ -403,7 +403,15 @@ way it is.
 - `.coveragerc` holds the Python floor -- 99% against 100% actual, with
   `branch = true`, so it is over branches as well as lines. The one exclusion is
   the `if __name__ == "__main__"` guard, covered instead by spawning a real
-  interpreter.
+  interpreter. What it measures is three trees and not one: `source` is the
+  package, and `source_dirs` adds `benchmark/` and `scripts/`, which the suite
+  tests and no number here was about -- the answer key the nightly is scored
+  against and the two scripts that decide whether the Saturday run passes and
+  what "updated" means (ADR-0064). They are in the second setting and not the
+  first because `source` is what three other tools read to mean the package:
+  mutating the answer key is a different question from mutating the code it
+  scores, and `scripts/start.ps1` is not Python at all -- its gate is
+  `tests/test_start_script.py`.
 - `.pylintrc` is the one of the four that holds no number: the linter has to come
   out with no message at all. Every check this project has answered differently
   is turned off there with the answer, and every line the tool misreads carries a
@@ -1638,7 +1646,11 @@ the other is otherwise invisible to both suites. It asserts that
   does (ADR-0062);
 - every ADR is indexed, numbered to match its heading, carries the status, date
   and sections ADR-0001 asks for, and cites only records that exist;
-- the Saturday mutation run mutates the package `.coveragerc` measures, on the
+- the floor measures every tree the suite tests -- the two beside the package
+  through `source_dirs`, so a test deleted from either is a red run, and the
+  package alone through the `source` that three other tools read (ADR-0064);
+- the Saturday mutation run mutates the package `.coveragerc` names in `source`
+  and none of the trees measured beside it, on the
   Python `ci.yml` pins, with every file these tests open -- or import from
   outside `buy_agent`, `benchmark/` and `integration/` included, plus the files
   at the top of the tree they name and the paths the skills point at, neither of

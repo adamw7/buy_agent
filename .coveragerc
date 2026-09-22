@@ -2,6 +2,14 @@
 [run]
 branch = true
 source = buy_agent
+# The two trees beside the package that the suite also tests, measured by the same
+# floor rather than by none (ADR-0064). They are deliberately not in `source`:
+# `setup.cfg` and `ci.yml` read that one to say what mutmut mutates and what pylint
+# and mypy read, and neither answer changes here -- mutating the answer key is a
+# different question from mutating the code it scores.
+source_dirs =
+    benchmark
+    scripts
 
 [report]
 show_missing = true
