@@ -6,8 +6,8 @@
     The three things README's "Starting it on localhost" walks through by hand:
     a model server serving the default model, the Angular build, and the server
     that serves that build alongside the API -- each one skipped if it is already
-    there, so a second run costs the seconds pip needs to say it has nothing to
-    do. Ends by opening the page and staying in the foreground with the server's
+    there, and the build only while it is newer than what it is built from, so a
+    second run costs the seconds pip needs to say it has nothing to do. Ends by opening the page and staying in the foreground with the server's
     log lines; Ctrl+C stops the server, and the Ollama too if this script was
     what started it.
 
@@ -60,6 +60,19 @@ function Have([string]$command) {
 function Run([string]$exe, [string[]]$arguments, [string]$failure) {
     & $exe @arguments
     if ($LASTEXITCODE -ne 0) { throw $failure }
+}
+
+function Stale([string]$made, [System.IO.FileInfo[]]$from) {
+    # Whether $made is missing, or older than any of the files it is made from.
+    # A checkout stamps every file it writes with the moment it wrote it, so a
+    # pull that changed a source leaves it newer than anything made before the
+    # pull. Asking whether $made merely exists is what kept serving a build from
+    # a month earlier against an API that had since changed shape under it: the
+    # page put a whole model object where a name belonged, the browser remembered
+    # "[object Object]", and every run after that asked Ollama for it.
+    if (-not (Test-Path -LiteralPath $made)) { return $true }
+    $since = (Get-Item -LiteralPath $made -Force).LastWriteTime
+    [bool]($from | Where-Object { $_.LastWriteTime -gt $since } | Select-Object -First 1)
 }
 
 function Answers([string]$probe, [int]$seconds) {
@@ -199,15 +212,30 @@ try {
     }
 
     Step 'Angular build'
-    if (Test-Path $built) {
-        Note 'ui\dist\ui\browser is already built -- rebuild with `npm run build` in ui\ after changing it'
+    $ui = Join-Path $root 'ui'
+    # What the build is made from: the app, and the workspace files at the top of
+    # ui\ that say how -- listed there rather than recursed into, node_modules
+    # being beside them.
+    $sources = @(Get-ChildItem (Join-Path $ui 'src') -File -Recurse) +
+        @(Get-ChildItem $ui -File -Filter '*.json')
+    if (-not (Stale $built $sources)) {
+        Note 'ui\dist\ui\browser is newer than everything it is built from'
     } elseif (-not (Have 'npm')) {
-        Note 'npm is not on PATH, so the page will be a 503 -- the API still answers'
+        if (Test-Path $built) {
+            Note 'ui\ has changed since ui\dist\ui\browser was built, and npm is not on PATH to'
+            Note 'build it again -- serving the old build, which may not match this API'
+        } else {
+            Note 'npm is not on PATH, so the page will be a 503 -- the API still answers'
+        }
         Note 'install Node 22.23.2+ from https://nodejs.org and run this again for the page'
     } else {
-        Push-Location (Join-Path $root 'ui')
+        Push-Location $ui
         try {
-            if (-not (Test-Path 'node_modules')) { Run 'npm' @('install') 'npm install failed' }
+            # npm writes its own record of an install after the lockfile, so a
+            # lockfile newer than that record is one a pull changed since.
+            if (Stale 'node_modules\.package-lock.json' @(Get-Item 'package-lock.json')) {
+                Run 'npm' @('install') 'npm install failed'
+            }
             Run 'npm' @('run', 'build') 'npm run build failed'
         } finally {
             Pop-Location

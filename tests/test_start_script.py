@@ -88,7 +88,7 @@ def test_the_startup_script_parses(probed: dict[str, Any]) -> None:
 @needs_powershell
 def test_it_declares_the_helpers_the_rest_of_these_tests_exercise(probed: dict[str, Any]) -> None:
     """The behaviour tests below call these by name."""
-    assert set(probed["functions"]) == {"Step", "Note", "Have", "Run", "Answers"}
+    assert set(probed["functions"]) == {"Step", "Note", "Have", "Run", "Stale", "Answers"}
 
 
 @needs_powershell
@@ -187,6 +187,27 @@ def test_have_is_false_for_a_command_that_is_not(probed: dict[str, Any]) -> None
     error, so the ``-ErrorAction SilentlyContinue`` inside ``Have`` is what makes it
     a question rather than the failure it is asked in order to avoid."""
     assert case(probed, "have_is_false_for_one_that_is_not")["found"] is False
+
+
+@needs_powershell
+def test_stale_is_true_for_something_never_made(probed: dict[str, Any]) -> None:
+    """No build and no ``node_modules`` is the first run, which has to make both."""
+    assert case(probed, "stale_is_true_for_something_never_made")["stale"] is True
+
+
+@needs_powershell
+def test_stale_is_false_for_something_newer_than_its_sources(probed: dict[str, Any]) -> None:
+    """The second run, whose point is that it costs seconds: a build nothing has changed
+    under is not built again."""
+    assert case(probed, "stale_is_false_for_something_newer_than_its_sources")["stale"] is False
+
+
+@needs_powershell
+def test_stale_is_true_once_one_source_is_newer(probed: dict[str, Any]) -> None:
+    """The run after a pull. Asking only whether the build existed served one from a month
+    earlier against an API that had changed shape: the page stored a model object as
+    ``[object Object]`` and every run after that asked Ollama for a model by that name."""
+    assert case(probed, "stale_is_true_once_one_source_is_newer")["stale"] is True
 
 
 @needs_powershell

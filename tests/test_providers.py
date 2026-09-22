@@ -749,6 +749,21 @@ def test_a_missing_ollama_tag_is_told_to_pull_it(pulled) -> None:
     assert "installed: qwen3:8b" in message
 
 
+def test_a_name_ollama_cannot_parse_is_not_a_server_to_start(pulled) -> None:
+    """Ollama answered, refusing the string before looking for any tag -- a browser that
+    remembered ``[object Object]`` from a build older than the listing it was reading.
+    "Start it with: ollama serve" sent that shopper to restart a server that was running,
+    and a pull is no better, since ``ollama pull`` refuses the same string."""
+    pulled(["gemma4:12b"])
+    config = AgentConfig(provider="ollama", model="[object Object]")
+    message = hint(config, ResponseError("invalid model name", 400))
+
+    assert "cannot read '[object Object]' as a model name" in message
+    assert "installed: gemma4:12b" in message
+    assert "ollama serve" not in message, "the server answered; starting one is no help"
+    assert "ollama pull" not in message, "a name Ollama cannot read cannot be pulled either"
+
+
 def test_a_model_that_cannot_answer_a_prompt_is_named_as_one(pulled) -> None:
     """Ollama answered, and the run still failed: the tag is there and has no completion
     to give."""
