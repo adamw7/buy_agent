@@ -82,6 +82,17 @@ async function render(
   return fixture.nativeElement as HTMLElement;
 }
 
+/** The card on a server that takes pictures of pages, and the fixture to change it
+ *  through (ADR-0065). */
+async function pictured(shown: RankedProduct) {
+  const fixture = TestBed.createComponent(ProductCard);
+  fixture.componentRef.setInput('product', shown);
+  fixture.componentRef.setInput('weights', WEIGHTS);
+  fixture.componentRef.setInput('screenshots', true);
+  await fixture.whenStable();
+  return { fixture, card: fixture.nativeElement as HTMLElement };
+}
+
 /** The card, plus the approvals it emitted -- what `App` would receive. */
 async function payable(shown: RankedProduct, paying: Paying = { canPay: true }) {
   const fixture = TestBed.createComponent(ProductCard);
@@ -459,5 +470,99 @@ describe('ProductCard, paying', () => {
     });
 
     expect(card.querySelector('.receipt')!.textContent).toContain('Paid');
+  });
+
+  describe('the picture of its page', () => {
+    it('is drawn on the right, linking where the title does', async () => {
+      /* The one thing about a result the run could not tell a shopper: what the
+         page looks like. A link like the title's, so either one opens it. */
+      const { card } = await pictured(SONY);
+      const shot = card.querySelector<HTMLAnchorElement>('a.shot')!;
+
+      expect(shot.getAttribute('href')).toBe(SONY.url);
+      expect(shot.target).toBe('_blank');
+      expect(shot.rel).toBe('noreferrer noopener');
+      expect(card.querySelector('h3 a')!.getAttribute('href')).toBe(shot.getAttribute('href'));
+    });
+
+    it("is the server's picture of the product's own page", async () => {
+      const img = (await pictured(SONY)).card.querySelector<HTMLImageElement>('a.shot img')!;
+
+      expect(img.getAttribute('src')).toBe(
+        '/api/screenshot?url=https%3A%2F%2Fwww.example.com%2Fsony',
+      );
+    });
+
+    it('is asked for only once it is about to be seen', async () => {
+      /* Ten cards are ten pages for one browser to load, and the seven in "more
+         the agent found" are shut until somebody opens them. */
+      const img = (await pictured(SONY)).card.querySelector<HTMLImageElement>('a.shot img')!;
+
+      expect(img.getAttribute('loading')).toBe('lazy');
+    });
+
+    it('keeps the room it will take before it lands', async () => {
+      /* The shape of the window it was taken in, so a card does not jump as its
+         picture arrives under a reader's cursor. */
+      const img = (await pictured(SONY)).card.querySelector<HTMLImageElement>('a.shot img')!;
+
+      expect([img.getAttribute('width'), img.getAttribute('height')]).toEqual(['640', '400']);
+    });
+
+    it('says what it is a picture of, which is also what its link is called', async () => {
+      const img = (await pictured(SONY)).card.querySelector<HTMLImageElement>('a.shot img')!;
+
+      expect(img.alt).toBe('Screenshot of the page at example.com');
+    });
+
+    it('is not asked for where the server takes none', async () => {
+      /* A server with no camera would answer every one of them 404, and a column of
+         broken images is worse than none. */
+      expect((await render(SONY)).querySelector('.shot')).toBeNull();
+    });
+
+    it('is not asked for where no page was linked', async () => {
+      const { card } = await pictured(UNKNOWN);
+
+      expect(card.querySelector('.shot')).toBeNull();
+    });
+
+    it('goes, rather than staying broken, when the page would not be photographed', async () => {
+      /* A page that timed out or turned the browser away: the frame is dropped,
+         and the title still links to the page. */
+      const { fixture, card } = await pictured(SONY);
+
+      card.querySelector('a.shot img')!.dispatchEvent(new Event('error'));
+      await fixture.whenStable();
+
+      expect(card.querySelector('.shot')).toBeNull();
+      expect(card.querySelector('h3 a')).not.toBeNull();
+    });
+
+    it('is asked for again when the card is handed a product on another page', async () => {
+      /* What failed was one address, not the card. */
+      const { fixture, card } = await pictured(SONY);
+      card.querySelector('a.shot img')!.dispatchEvent(new Event('error'));
+      await fixture.whenStable();
+
+      fixture.componentRef.setInput('product', { ...SONY, url: 'https://audiosite.example/xm5' });
+      await fixture.whenStable();
+
+      expect(card.querySelector('a.shot')!.getAttribute('href')).toBe(
+        'https://audiosite.example/xm5',
+      );
+    });
+
+    it('names a page it cannot find the host of by its address', async () => {
+      const odd = product({ url: 'not a url at all' });
+
+      const img = (await pictured(odd)).card.querySelector<HTMLImageElement>('a.shot img')!;
+
+      expect(img.alt).toBe('Screenshot of the page at not a url at all');
+    });
+
+    it('is a picture an assistive technology can read', async () => {
+      expect(await accessibilityProblems((await pictured(SONY)).card)).toEqual([]);
+    });
   });
 });

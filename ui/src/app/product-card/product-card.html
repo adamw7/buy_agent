@@ -188,4 +188,24 @@
       <p class="cannot-pay">{{ why }}</p>
     }
   </div>
+
+  <!-- On the right, beside what the run read off the page: what the page looks like,
+       which is the first thing a shopper checks and the one thing the run could not
+       tell them. It links where the title does. Asked for only where the server has a
+       camera, lazily so the cards nobody has scrolled to ask for nothing yet, and
+       dropped rather than drawn broken when the page would not be photographed
+       (ADR-0065). -->
+  @if (shot(); as src) {
+    <a class="shot" [href]="product().url" target="_blank" rel="noreferrer noopener">
+      <img
+        [src]="src"
+        [alt]="shotLabel()"
+        width="640"
+        height="400"
+        loading="lazy"
+        decoding="async"
+        (error)="lost()"
+      />
+    </a>
+  }
 </article>

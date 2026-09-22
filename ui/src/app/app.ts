@@ -78,6 +78,9 @@ export class App {
     () => (this.defaults()?.pay_available ?? false) && (this.ranWith()?.pay ?? false),
   );
 
+  /** Whether a card may ask for a picture of its page, which is the server's to know. */
+  protected readonly screenshots = computed(() => this.defaults()?.screenshots ?? false);
+
   /** The rail the run was started with, as the row Python sent for it -- so the
    *  confirmation says whether anybody is about to be charged without the page
    *  deciding that from a name. */

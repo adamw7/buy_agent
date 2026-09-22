@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any, TypeVar, cast, get_args
+from urllib.parse import urlparse
 
 from pydantic import ValidationError
 
@@ -36,6 +37,7 @@ from buy_agent.payment import (
 from buy_agent.providers import PROVIDERS, provider_options
 from buy_agent.rails import RAILS, rail_options
 from buy_agent.ranking import RankingWeights, SortBy, rank_products
+from buy_agent.screenshots import ScreenshotError
 from buy_agent.search import BACKENDS, SearchError, backend_options
 from buy_agent.sources import Source, format_sources, parse_sources
 
@@ -45,6 +47,7 @@ if TYPE_CHECKING:
     from buy_agent.journal import Change
     from buy_agent.models import RankedProduct
     from buy_agent.providers import InstalledModel
+    from buy_agent.screenshots import Camera
 
 logger = logging.getLogger(__name__)
 
@@ -378,14 +381,15 @@ def model_payload(model: InstalledModel) -> dict[str, Any]:
     return {"name": model.name, "completion": model.completion}
 
 
-def defaults_payload() -> dict[str, Any]:
+def defaults_payload(*, screenshots: bool = False) -> dict[str, Any]:
     """The form's starting values: the same defaults the CLI shows in ``--help``.
 
     Every setting under the key it is sent back under, read off the one table that says
     which field carries it -- and then what the form needs besides a value: the rows of
     each table a setting names one of, every currency a run may be counted in, the
     criteria it may be sorted by, and the range each number is held to, so the form can
-    refuse 51 products itself (ADR-0033).
+    refuse 51 products itself (ADR-0033). ``screenshots`` is whether the server answering
+    has a camera, which is the server's to know and not a setting (ADR-0065).
     """
     defaults = AgentConfig()
     return {
@@ -402,6 +406,9 @@ def defaults_payload() -> dict[str, Any]:
         # counted in.
         "currency_options": list(CURRENCY_OPTIONS),
         "pay_available": mandate_support(),
+        # Whether a card may ask for a picture of its page. Not a setting: a server
+        # either has a camera or it has not, and the page asks only one that has.
+        "screenshots": screenshots,
         "sort_by": "score",
         "sort_options": list(SORT_OPTIONS),
         "limits": limits_payload(),
@@ -452,6 +459,27 @@ def sources_payload(spec: str) -> dict[str, Any]:
     except ValueError as exc:
         error = str(exc)
     return {"sources": spec, "error": error}
+
+
+def screenshot(url: str, camera: Camera | None) -> bytes:
+    """A picture of the page at ``url``, for the card that links to it (ADR-0065).
+
+    Runs no pipeline, like a re-sort: the card already holds the address, and what it
+    wants is a look at it. A page that will not be photographed is 502, the server that
+    was asked having done nothing wrong -- and the card, which asked only because the
+    defaults said it could, drops the frame rather than showing a broken one.
+    """
+    if camera is None:
+        raise ApiError("This server takes no screenshots.", 404)
+    parsed = urlparse(url)
+    # A web page and nothing else: a ``file:`` address is this machine's own disk, which
+    # a browser that will draw anything would draw too.
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ApiError(f"Not a web page to photograph: {url!r}")
+    try:
+        return camera.shoot(url)
+    except ScreenshotError as exc:
+        raise ApiError(str(exc), 502) from exc
 
 
 def installed_models(provider: str, base_url: str) -> dict[str, Any]:

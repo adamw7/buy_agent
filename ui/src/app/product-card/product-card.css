@@ -2,8 +2,14 @@
   display: block;
 }
 
+/* The rank, then what the run read. A picture of the page, where there is one, takes a
+   third column of its own -- one that only exists when something is placed in it, so a
+   card with no picture keeps the whole width and no gap waiting on the right. The text's
+   column may shrink to nothing, which is what lets a long name wrap rather than push
+   the card wider than the page. */
 .product {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 16px;
   padding: 16px 18px;
 }
@@ -13,7 +19,6 @@
 }
 
 .rank {
-  flex: 0 0 auto;
   align-self: start;
   min-width: 40px;
   padding: 5px 9px;
@@ -44,9 +49,36 @@
   color: var(--accent);
 }
 
-.body {
-  flex: 1;
-  min-width: 0;
+/* The shape of the window it was taken in, reserved before the picture lands, so the
+   card does not jump when it does -- and the frame a picture that is still coming
+   shows in the meantime. Its row is the first one free in its column, which is the
+   rank's and the text's beside a column of its own and the one under the text below. */
+.shot {
+  grid-column: 3;
+  align-self: start;
+  width: 200px;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+
+/* The picture is the frame's own shape -- a 1280 x 800 window at half scale -- so it
+   fills the frame by being as wide as it. */
+.shot img {
+  width: 100%;
+  height: auto;
+}
+
+/* No room on the right of a phone's card: under the text instead, in the column the
+   text is in, and no wider than it would be worth. */
+@media (width < 640px) {
+  .shot {
+    grid-column: 2;
+    width: 100%;
+    max-width: 320px;
+  }
 }
 
 h3 {

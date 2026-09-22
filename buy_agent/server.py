@@ -1,5 +1,5 @@
 """A local HTTP server for the Angular UI in ``ui/`` (ADR-0010, ADR-0011, ADR-0034,
-ADR-0035, ADR-0033, ADR-0018)."""
+ADR-0035, ADR-0033, ADR-0018, ADR-0065)."""
 
 from __future__ import annotations
 
@@ -31,11 +31,13 @@ from buy_agent.api import (
     pay_now,
     rank_again,
     run_search,
+    screenshot,
     sources_payload,
 )
 from buy_agent.config import DEFAULT_BACKEND, DEFAULT_PROVIDER, DEFAULT_RAIL
 from buy_agent.logging_setup import configure_logging
 from buy_agent.providers import PROVIDERS, provider_for
+from buy_agent.screenshots import INSTALL, Camera, available
 from buy_agent.search import backend_for
 from buy_agent.rails import rail_for
 
@@ -60,6 +62,11 @@ DEFAULT_PORT = 8000
 _KEEPALIVE_SECONDS = 15.0
 
 _MAX_BODY_BYTES = 64 * 1024
+
+#: How long a browser may keep a picture of a page before asking for it again. An hour:
+#: long enough that a second run of the same search draws its cards at once, and short
+#: enough that nobody is shown a price banner a day old.
+_SCREENSHOT_CACHE = "private, max-age=3600"
 
 #: How long one blocking read or write on a connection may take (ADR-0034).
 _REQUEST_TIMEOUT = 30.0
@@ -237,6 +244,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         ui_dir: Path,
         agent_factory: AgentFactory,
         allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS,
+        camera: Camera | None = None,
         **kwargs: Any,
     ) -> None:
         self.ui_dir = ui_dir
@@ -244,6 +252,9 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         #: None accepts every ``Host`` -- what an operator binding a public interface
         #: has already chosen.
         self.allowed_hosts = allowed_hosts
+        #: None takes no pictures, which is every server but one bound to this machine
+        #: with Playwright installed (ADR-0065).
+        self.camera = camera
         super().__init__(*args, **kwargs)
 
     # -- who is allowed to ask --------------------------------------------------
@@ -310,7 +321,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             return
         try:
             if url.path == "/api/config":
-                self._send_json(200, defaults_payload())
+                self._send_json(200, defaults_payload(screenshots=self.camera is not None))
             elif url.path == "/api/models":
                 self._send_json(200, self._models(params))
             elif url.path == "/api/sources":
@@ -322,6 +333,10 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
                 # with a value rather than a verdict: what the request itself asks for,
                 # offered for the form to fill in and never applied (ADR-0059).
                 self._send_json(200, bounds_payload(params.get("request", "")))
+            elif url.path == "/api/screenshot":
+                # The one endpoint that answers with something other than JSON, because
+                # an ``<img>`` is what asks for it (ADR-0065).
+                self._send_screenshot(params.get("url", ""))
             elif url.path.startswith("/api/"):
                 self._send_json(404, _no_such_endpoint(url.path))
             else:
@@ -470,6 +485,17 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             status, payload = outcome.get("error", (500, {"error": "The search ended."}))
             yield "failure", {**payload, "status": status}
 
+    def _send_screenshot(self, address: str) -> None:
+        """A JPEG of the page a card links to, or the JSON saying why there is none."""
+        try:
+            picture = screenshot(address, self.camera)
+        except ApiError as exc:
+            self._send_json(exc.status, exc.payload())
+            return
+        self._send_bytes(
+            200, picture, "image/jpeg", headers=(("Cache-Control", _SCREENSHOT_CACHE),)
+        )
+
     # -- static files ----------------------------------------------------------
 
     def _serve_static(self, path: str) -> None:
@@ -562,11 +588,20 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         for name, value in _SECURITY_HEADERS:
             self.send_header(name, value)
 
-    def _send_bytes(self, status: int, body: bytes, content_type: str) -> None:
+    def _send_bytes(
+        self,
+        status: int,
+        body: bytes,
+        content_type: str,
+        *,
+        headers: Sequence[tuple[str, str]] = (),
+    ) -> None:
         try:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
+            for name, value in headers:
+                self.send_header(name, value)
             self._send_security_headers()
             if self.close_connection:
                 # Say so, rather than letting the client discover it when its next
@@ -738,6 +773,7 @@ def create_server(
     ui_dir: Path | None = None,
     agent_factory: AgentFactory = BuyAgent,
     allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS,
+    camera: Camera | None = None,
 ) -> ThreadingHTTPServer:
     """Build the HTTP server without starting it."""
     handler = partial(
@@ -745,8 +781,34 @@ def create_server(
         ui_dir=ui_dir or DEFAULT_UI_DIR,
         agent_factory=agent_factory,
         allowed_hosts=allowed_hosts,
+        camera=camera,
     )
     return _HTTPServer((host, port), handler)
+
+
+def camera_for(host: str) -> Camera | None:
+    """The camera a server bound to ``host`` takes its screenshots with, if it may take
+    any (ADR-0065).
+
+    Only on this machine's own addresses. The admission checks keep a page on another
+    site out, and nothing keeps out a program on the network asking for itself: bound
+    anywhere else, this would photograph any address -- the router's page, a service
+    behind the firewall -- for whoever can reach the port, and hand the picture back.
+    """
+    if not available():
+        logger.info(
+            "Cards will have no screenshot of their page: that needs Playwright. %s",
+            INSTALL,
+        )
+        return None
+    if _bound_host(host) not in _LOOPBACK_HOSTS:
+        logger.warning(
+            "Screenshots are off: bound to %s, this server would photograph any address "
+            "for whoever can reach it.",
+            host,
+        )
+        return None
+    return Camera()
 
 
 def _port(text: str) -> int:
@@ -842,9 +904,10 @@ def main(argv: list[str] | None = None) -> int:
             args.host,
         )
 
+    camera = camera_for(args.host)
     try:
         httpd = create_server(
-            args.host, args.port, ui_dir=args.ui_dir, allowed_hosts=allowed
+            args.host, args.port, ui_dir=args.ui_dir, allowed_hosts=allowed, camera=camera
         )
     except OSError as exc:
         logger.error(
@@ -873,6 +936,8 @@ def main(argv: list[str] | None = None) -> int:
         return 130
     finally:
         httpd.server_close()
+        if camera is not None:
+            camera.close()
         logging.getLogger("buy_agent").removeHandler(_relay)
     return 0
 

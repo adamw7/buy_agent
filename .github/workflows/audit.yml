@@ -38,7 +38,7 @@ jobs:
     name: pip-audit and npm audit
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    # Nothing here should take a minute: `pip-audit` resolves the five files in
+    # Nothing here should take a minute: `pip-audit` resolves the six files in
     # about a dozen seconds and `npm audit` reads a lockfile. The cap is the
     # guard against a resolver waiting on a registry that has stopped answering,
     # which otherwise sits there until GitHub's six-hour default.
@@ -82,6 +82,7 @@ jobs:
             -r requirements-dev.txt \
             -r requirements-mutation.txt \
             -r requirements-ap2-deps.txt \
+            -r requirements-screenshots.txt \
             -r requirements-audit.txt
 
       - uses: actions/setup-node@v7

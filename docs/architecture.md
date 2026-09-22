@@ -30,6 +30,7 @@ graph TB
     system -->|"prompts with a JSON schema<br/>[HTTP, :11434 or :8000/v1]"| ollama
     system -->|"searches<br/>[HTTPS]"| ddg
     system -->|"fetches and condenses<br/>[HTTPS]"| shops
+    system -.->|"photographs, for the card<br/>that links to it -- optional<br/>[headless Chromium]"| shops
     system -->|"presents a signed mandate,<br/>only when asked to buy<br/>[HTTPS]"| counterparty
 
     classDef person fill:#08427b,stroke:#052e56,color:#fff
@@ -42,7 +43,10 @@ graph TB
 
 Everything runs on the shopper's own machine, or on one they control: no
 accounts, no hosted models, and nothing about a search leaves except the search
-itself and the page fetches. Buying is the one thing that reaches anywhere else,
+itself and the page fetches -- and, on a server that takes pictures of the pages it
+links to, a second visit to those same pages by a browser of its own
+([ADR-0065](adr/0065-photograph-each-products-page-from-a-server-bound-to-this-machine.md)).
+Buying is the one thing that reaches anywhere else,
 and it happens only where a run asked for it: `--pay` presents a signed AP2 mandate
 to whatever counterparty the operator named, and the rail it defaults to plays
 every role itself and charges nobody
@@ -67,6 +71,7 @@ graph TB
         server["<b>HTTP server</b><br/><i>[Container: Python, stdlib http.server]</i><br/>Serves the built UI and the JSON API,<br/>and relays a run's log lines as<br/>Server-Sent Events"]
         pipeline["<b>Agent pipeline</b><br/><i>[Container: Python library]</i><br/>BuyAgent.run() -- search, extract,<br/>ground, deduplicate, rank.<br/>The one implementation both<br/>front ends drive"]
         paying["<b>Paying</b><br/><i>[Container: Python library, optional]</i><br/>A cart out of one grounded product,<br/>two signed AP2 mandates, and the rail<br/>they are presented to. Runs after the<br/>pipeline, never inside it"]
+        camera["<b>Camera</b><br/><i>[Container: Playwright + headless Chromium, optional]</i><br/>One browser on one thread, taking a<br/>picture of the page a card links to.<br/>Only on a server bound to this machine"]
     end
 
     ollama["<b>Model server</b><br/><i>[External System]</i><br/>Ollama or vLLM"]
@@ -78,23 +83,26 @@ graph TB
     shopper -->|"visits localhost:8000<br/>[HTTPS/HTTP]"| spa
 
     spa -->|"GET /api/config, /api/models, /api/sources, /api/bounds<br/>POST /api/search, /api/rank, /api/pay<br/>GET /api/search/stream (SSE)<br/>[JSON over HTTP]"| server
+    spa -->|"GET /api/screenshot, from an img<br/>[JPEG over HTTP]"| server
     server -->|"serves index.html and assets<br/>[HTTP]"| spa
     cli -->|"calls run()"| pipeline
     server -->|"runs a search in a worker thread,<br/>relays its log records"| pipeline
 
     cli -->|"pays, once a person<br/>approved this cart"| paying
     server -->|"POST /api/pay, with the<br/>approval the page witnessed"| paying
+    server -->|"asks for a picture,<br/>waits for it"| camera
 
     pipeline -->|"[HTTP]"| ollama
     pipeline -->|"[HTTPS]"| ddg
     pipeline -->|"[HTTPS]"| shops
     paying -->|"[HTTPS]"| counterparty
+    camera -->|"[HTTPS]"| shops
 
     classDef person fill:#08427b,stroke:#052e56,color:#fff
     classDef container fill:#438dd5,stroke:#2e6295,color:#fff
     classDef external fill:#999,stroke:#6b6b6b,color:#fff
     class shopper person
-    class cli,spa,server,pipeline,paying container
+    class cli,spa,server,pipeline,paying,camera container
     class ollama,ddg,shops,counterparty external
 ```
 
@@ -112,10 +120,20 @@ from a product the run already grounded -- so nothing about a search changes whe
 `pay` is off, which is its default
 ([ADR-0046](adr/0046-pay-on-the-shoppers-behalf-with-ap2.md)).
 
+The camera is a container for the same reason, and one step further out: the
+pipeline never knows it exists. A card's `<img>` asks the server for a picture of
+the page it already links to, the server hands the address to the one thread the
+browser belongs to, and nothing in a run, its payload or `--json` changes. It is
+also the only part that starts a process of its own, which is why it exists only
+on a server bound to this machine, where the one asking for a picture of an
+address is the one sitting at it
+([ADR-0065](adr/0065-photograph-each-products-page-from-a-server-bound-to-this-machine.md)).
+
 The containers ship as one image when the `Dockerfile` is used: the UI is built in
 a Node stage and copied into the Python one, and the same image runs either front
 end. Paying ships with it and cannot run there: the image installs
-`requirements.txt` and not the optional AP2 SDK. The model server stays outside it
+`requirements.txt` and not the optional AP2 SDK. Nor does it carry the camera,
+which a container binding every interface would never be given. The model server stays outside it
 too, on the host or on another machine, for the reasons in
 [ADR-0015](adr/0015-package-the-web-tier-as-a-container.md) -- the boundary drawn
 here is the one the image keeps.

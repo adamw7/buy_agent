@@ -31,7 +31,7 @@ _OPTIONS = CheckOptions(ignore_type_checking_imports=True)
 #: The module table in ``CLAUDE.md``, read as the stack it implies: the entry points build
 #: a config and call a run, the web tier turns a request into one, the agent orchestrates
 #: the steps, the steps take values and answer values, the seams are where a model server,
-#: a search backend, a counterparty and the disk are spoken to, the settings are what a
+#: a search backend, a browser and the disk are spoken to, the settings are what a
 #: run is assembled from, and the domain types are what everything passes around.
 _LAYERS: dict[str, tuple[str, ...]] = {
     "entry points": ("__main__.py", "server.py"),
@@ -48,7 +48,14 @@ _LAYERS: dict[str, tuple[str, ...]] = {
     # ``search.py`` is here and not among the steps: it is the table a backend is one
     # row of (ADR-0057), so it reads its rows' addresses and keys off the environment,
     # which is the one thing a step may never do.
-    "seams": ("chat.py", "providers.py", "cache.py", "search.py", "journal.py"),
+    "seams": (
+        "chat.py",
+        "providers.py",
+        "cache.py",
+        "search.py",
+        "journal.py",
+        "screenshots.py",
+    ),
     "settings": ("config.py", "logging_setup.py"),
     "domain": ("models.py", "money.py", "sources.py", "bounds.py"),
 }
@@ -208,7 +215,10 @@ def test_the_package_starts_no_process() -> None:
     """Every way this project runs puts the package inside somebody else's process:
     ``python -m buy_agent``, a ``ThreadingHTTPServer`` serving one person, a container
     whose ``ENTRYPOINT`` is the interpreter, and a caller who imported ``BuyAgent`` for
-    the six names ``__init__`` re-exports."""
+    the six names ``__init__`` re-exports. The one exception is a browser, and it is not
+    started through any of these: Playwright launches it for ``screenshots.py``, which
+    only the server asks, and which the rule below keeps the only module that can
+    (ADR-0065)."""
     imports_none_of(
         EVERY_MODULE,
         "subprocess*",
@@ -218,15 +228,18 @@ def test_the_package_starts_no_process() -> None:
     )
 
 
-def test_nothing_here_awaits_and_the_threads_are_the_three_that_wait() -> None:
+def test_nothing_here_awaits_and_the_threads_are_the_four_that_wait() -> None:
     """A run is a minute of waiting on somebody else, and every one of those waits is a
     thread: the server ADR-0010 settled is a ``ThreadingHTTPServer``, and an ``async def``
     anywhere below it would want an event loop under the whole package before anybody
     could await it -- including the CLI, the tests and the Python caller who imported
-    ``BuyAgent`` for the six names ``__init__`` re-exports. The three that wait are
+    ``BuyAgent`` for the six names ``__init__`` re-exports. The four that wait are
     ``fetch.py``, which reads the result pages in a pool, ``providers.py``, whose listing
-    asks ``ollama show`` once per tag, and ``server.py``, which runs a request in a worker
-    thread and routes its log lines by the context that thread began in."""
+    asks ``ollama show`` once per tag, ``server.py``, which runs a request in a worker
+    thread and routes its log lines by the context that thread began in, and
+    ``screenshots.py``, whose browser belongs to the one thread that launched it and is
+    handed every picture to take (ADR-0065). Playwright runs a loop of its own under its
+    synchronous API, inside that thread, and nothing here awaits it."""
     imports_none_of(
         EVERY_MODULE,
         "asyncio*",
@@ -235,12 +248,12 @@ def test_nothing_here_awaits_and_the_threads_are_the_three_that_wait() -> None:
         because="nothing here awaits, so nothing here needs a loop underneath it",
     )
     imports_none_of(
-        every_module_but("fetch.py", "providers.py", "server.py"),
+        every_module_but("fetch.py", "providers.py", "server.py", "screenshots.py"),
         "threading*",
         "concurrent*",
         "queue*",
         "contextvars*",
-        because="three modules wait on somebody else; the rest are handed the answer",
+        because="four modules wait on somebody else; the rest are handed the answer",
     )
 
 
@@ -256,6 +269,18 @@ def test_only_mandates_imports_the_ap2_sdk() -> None:
         "ap2*",
         "jwcrypto*",
         "cryptography*",
+        because="an optional dependency imported anywhere else is not optional",
+    )
+
+
+def test_only_screenshots_imports_playwright() -> None:
+    """ADR-0065: ``buy_agent.screenshots`` is the browser seam and the only module that
+    imports Playwright -- deferred, so a checkout without the optional install still
+    imports every module -- and so the only one that can start the browser the rule
+    about processes above makes its one exception for."""
+    imports_none_of(
+        every_module_but("screenshots.py"),
+        "playwright*",
         because="an optional dependency imported anywhere else is not optional",
     )
 
@@ -427,6 +452,16 @@ def test_the_ap2_seam_knows_nothing_about_this_package() -> None:
     knows_nothing_of(
         only("mandates.py"),
         because="the seam translates between two vocabularies and speaks neither back",
+    )
+
+
+def test_the_browser_seam_knows_nothing_about_this_package() -> None:
+    """The other half of ADR-0065's: an address in and a JPEG out. What a product is, and
+    which page it links to, are decided long before anybody asks for a picture of it --
+    which is also why the camera can be handed a stand-in with one method."""
+    knows_nothing_of(
+        only("screenshots.py"),
+        because="a picture of a page, and no idea what the page was found for",
     )
 
 

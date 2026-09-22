@@ -16,7 +16,9 @@ directly: there is no framework between the prompt and the answer,
 front end onto the same pipeline, served by `buy_agent.server`. Optionally --
 off by default, and off unless an extra dependency is installed -- it can also
 *buy* what it found, authorised by signed [AP2](https://ap2-protocol.org)
-mandates rather than a stored card (ADR-0046).
+mandates rather than a stored card (ADR-0046). And optionally again, the same
+way: a server bound to this machine, with Playwright installed, draws each card
+beside a picture of the page it links to (ADR-0065).
 
 `README.md` keeps the tour and links out to the longer sections beside it:
 `docs/models.md` (keeping Ollama's models current), `docs/docker.md` (the web
@@ -67,6 +69,9 @@ pip install --no-deps -r requirements-ap2.txt   # ...and the SDK, for paying onl
 python -m buy_agent "headphones" --pay                       # asks, then signs; charges nobody
 python -m buy_agent "headphones" --pay --spend-limit 250      # ...and not a penny more
 python -m buy_agent "headphones" --pay --rail http --merchant-url https://pay.example
+
+pip install -r requirements-screenshots.txt   # Playwright, for a picture of each page
+python -m playwright install --only-shell chromium   # ...and the browser it drives
 
 python -m buy_agent.server                    # the UI and its API on :8000
 .\scripts\start.ps1                           # ...or all of it from cold, no arguments
@@ -427,7 +432,7 @@ way it is.
   `pyproject.toml` for either: the default checks rather than `strict`,
   `warn_unused_ignores` beside them -- `useless-suppression` one tool over, and
   what makes a `# type: ignore` written for a checker nothing ran fail rather than
-  sit there -- and `ignore_missing_imports` for the four libraries neither tool can
+  sit there -- and `ignore_missing_imports` for the five libraries neither tool can
   read, which is `.pylintrc`'s own `ignored-modules` and `extension-pkg-allow-list`
   said in mypy's vocabulary and held against it from both sides (ADR-0063).
 - `ui/angular.json` holds the UI's floor on the test target, 98% of statements
@@ -555,6 +560,7 @@ was ever held to.
 | `search.py` | Which backend a search is asked through, one row each -- and nothing else (ADR-0021, ADR-0057) |
 | `sources.py` | What a trusted source is: domain, term, `site:` query, `covers` |
 | `providers.py` | Everything that differs between Ollama and vLLM, and nothing else |
+| `screenshots.py` | The browser seam: a picture of a page, in a headless Chromium one thread owns -- and the only module that imports `playwright` (ADR-0065) |
 | `payment.py` | What may be bought and for how much: a cart out of a grounded product, the spend limit, the receipt -- and one failure |
 | `mandates.py` | The AP2 seam, and the only module that imports `ap2` (ADR-0046) |
 | `rails.py` | Everything that differs between one counterparty and another, one row each |
@@ -1144,6 +1150,7 @@ everything else to the built Angular app, unknown paths falling back to
 | `GET /api/models` | What a named server is serving, or why it could not be asked and what to do about it |
 | `GET /api/sources` | Whether a Trusted sources field names sites -- one of the two endpoints that run nothing |
 | `GET /api/bounds` | What the request itself asks for, offered for the form to fill in and never applied |
+| `GET /api/screenshot` | A JPEG of the page a card links to, from a server with a camera -- the one answer that is not JSON |
 | `POST /api/search` | One run, as JSON |
 | `POST /api/rank` | A finished run's products in another order -- runs no pipeline |
 | `POST /api/pay` | One of those products bought, given the approval the page witnessed -- runs no pipeline either |
@@ -1268,6 +1275,20 @@ everything else to the built Angular app, unknown paths falling back to
   is dropped rather than allowed. The family is that same address read once more:
   `_family_for` binds an IPv6 one on `AF_INET6`, `ThreadingHTTPServer` being `AF_INET`
   and nothing else and every IPv6 bind having failed outright.
+- **Only a server bound to this machine takes pictures of pages** (ADR-0065). A
+  browser that draws anything will draw the router's page as readily as a shop's,
+  and the picture is that page handed back -- so `server.camera_for` gives a camera
+  to a loopback bind with Playwright installed and to nothing else, saying at
+  startup which of the two it was missing. `defaults_payload` carries whether it
+  has one as `screenshots`, which is not a setting: no door can ask for a camera.
+  `GET /api/screenshot` is asked by an `<img>`, never by the run, so nothing in
+  the pipeline, the payload, `--json` or the journal knows a picture exists, and
+  a re-sort's body -- the products, under 64 KB -- carries none. Only `http` and
+  `https` are photographed; a page that will not be is a 502, the request having
+  been fine. `screenshots.Camera` is one browser on one thread, because
+  Playwright's synchronous objects are the thread's that made them: every request
+  queues and waits, the browser launches on the first picture and closes once
+  nobody has asked for a minute.
 - **Every request is answered, including the ones that go wrong.** `do_GET` and
   `do_POST` each end in a catch-all that logs and sends a 500, because an
   exception out of a handler escapes to socketserver, which closes the socket
@@ -1342,6 +1363,14 @@ rules a change to them may not break.
   (ADR-0058). `offers_label` is Python's sentence and so is each listing's
   `price_label` -- the card formats no amount, exactly as it formats no unknown
   one.
+- **A card's picture of its page is asked for and never decided on** (ADR-0065).
+  The card draws a frame where the server said `screenshots` and the product links
+  somewhere, and `agent.screenshotUrl` is the address the `<img>` asks; the
+  picture links where the title does, is `loading="lazy"` so the cards under
+  "more the agent found" ask for nothing until they are opened, and reserves its
+  640 x 400 before it lands. A picture that does not come drops the frame -- by
+  address, so a card handed a product on another page asks again -- rather than
+  drawing a broken image beside a title that still works.
 - **Buying takes two clicks, and the second restates the cart.** Title, the cart's
   `pay_label`, its `pay_merchant`, rail, and whether anybody is charged -- the cart
   the mandates will carry, never the product's own figures (ADR-0043), which is why
@@ -1428,7 +1457,8 @@ rules a change to them may not break.
 `create_server(agent_factory=...)` is the seam the server tests inject a stub
 agent through, the way `BuyAgent(config, llm=...)` is for the pipeline;
 `allowed_hosts=` is the second, `None` meaning "answer any `Host`", which is what
-a public bind gets. Angular components are tested in jsdom with `TestBed`,
+a public bind gets, and `camera=` the third, `None` -- the default -- being a server
+that takes no pictures. Angular components are tested in jsdom with `TestBed`,
 `AgentService` against a fake `EventSource`.
 
 ### demo/
@@ -1478,8 +1508,12 @@ here is what a change has to obey.
 `tests/conftest.py` provides a `FakeLLM` with the one `answer` method
 `chat.ChatModel` asks for. A stand-in for a *chain* is a class with `invoke`,
 which is what `integration/conftest.py` wraps the real one in.
-`create_server(agent_factory=...)` is the same seam for the server, and
-`allowed_hosts=` is the second one.
+`create_server(agent_factory=...)` is the same seam for the server,
+`allowed_hosts=` is the second one, and `camera=` the third, where
+`tests/conftest.py`'s `Photographer` stands in for the browser the way `FakeLLM`
+stands in for the model. No test starts a browser, whether or not Playwright is
+installed: `screenshots.Camera` takes `launch=`, and the tests of `Chromium`
+install a `playwright` of their own in `sys.modules` (ADR-0065).
 
 **Where the network is patched.** Four places: `buy_agent.agent.search_web` and
 `buy_agent.agent.enrich` for pipeline tests, and -- for the tables' own tests --
@@ -1672,11 +1706,12 @@ the other is otherwise invisible to both suites. It asserts that
   nothing imports still passes every module's tests, keeps the coverage floor and
   survives the mutation run, while an import pinned nowhere installs here and on
   nobody else's machine. The dev and mutation files are outside it, being run
-  over the package rather than imported by it; the two paying files are outside
-  the first half only, an optional SDK being absent on a checkout that pins it;
+  over the package rather than imported by it; the two paying files and the
+  screenshot one are outside the first half only, an optional install being
+  absent on a checkout that pins it;
 - the linter and the type checker read that same package, `.pylintrc` sits where
   every command that runs pylint is run from, the `[mypy]` section of `setup.cfg`
-  keeps the one check it was added for, the two files name the same four libraries
+  keeps the one check it was added for, the two files name the same five libraries
   as ones neither tool can read -- read from both sides, so neither list can
   outlive the other (ADR-0063) -- and no line of the package takes a check away
   without saying why: a `# pylint: disable` with no prose above it is a suppression
@@ -1736,9 +1771,9 @@ the other half -- the rules that span an *import* -- asserted against the import
 graph with [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython)
 (ADR-0047). Which module may know about which is what this file says most often,
 and an import in the wrong direction runs perfectly: it passes that module's own
-tests, keeps the coverage floor and survives the mutation run. Thirty rules,
+tests, keeps the coverage floor and survives the mutation run. Thirty-two rules,
 each the executable form of a sentence written down here or in a record, and a
-thirty-first test that keeps them honest:
+thirty-third test that keeps them honest:
 
 - the package has **no import cycles**, and imports **none of the five trees
   that import it** -- `tests/`, `integration/`, `benchmark/`, `demo/`,
@@ -1749,16 +1784,22 @@ thirty-first test that keeps them honest:
   container starts neither model server either (ADR-0015). A child process is
   the one way out of this one that no fake in the suite could answer: it would
   not see the `FakeLLM`, the faked `search_web` or the scratch cache directory,
-  and a server that opened a browser would open it where nobody is sitting;
-- **nothing here awaits, and the threads are the three that wait**: no
+  and a server that opened a browser would open it where nobody is sitting. The
+  one exception is named rather than hidden: the headless Chromium Playwright
+  launches for `screenshots.py`, asked for by the server alone and faked at the
+  camera's `launch` in the suite (ADR-0065);
+- **nothing here awaits, and the threads are the four that wait**: no
   `asyncio`, `anyio` or `trio` anywhere. The server ADR-0010 settled is a
   `ThreadingHTTPServer`, and an `async def` below it would want a loop under
   everything that imports this package -- the CLI, the suite and the Python
   caller who imported `BuyAgent` included. So `threading`, `concurrent.futures`,
-  `queue` and `contextvars` belong to the three modules that wait on somebody
+  `queue` and `contextvars` belong to the four modules that wait on somebody
   else: `fetch` reading the result pages in a pool, `providers` asking `ollama
-  show` once per tag, and `server` running a request in a worker thread and
-  routing its log lines by the context that thread began in;
+  show` once per tag, `server` running a request in a worker thread and
+  routing its log lines by the context that thread began in, and `screenshots`
+  handing every picture to the one thread its browser belongs to. Playwright
+  runs a loop of its own under its synchronous API, inside that thread, and
+  nothing here awaits it (ADR-0065);
 - every module sits in a **layer that reaches only downward** -- entry points,
   web, orchestration, pipeline, paying, seams, settings, domain -- with three
   of the four edges that are decisions named in the test: the pipeline never reads
@@ -1775,9 +1816,12 @@ thirty-first test that keeps them honest:
   journal each keep a stricter rule of their own;
 - **one seam, one module**: `mandates.py` alone imports `ap2` (ADR-0046),
   `providers.py` alone a model client (ADR-0029), `search.py` alone a search
-  library (ADR-0021, ADR-0057), `fetch.py` alone the HTML parser, the four that
+  library (ADR-0021, ADR-0057), `fetch.py` alone the HTML parser,
+  `screenshots.py` alone Playwright (ADR-0065), the four that
   speak HTTP -- `fetch`, `providers`, `rails`, `search` -- are the four the suite
-  patches, so a fifth is a request from a module nobody thought made any, and `argparse`
+  patches, so a fifth is a request from a module nobody thought made any --
+  the browser's requests are Chromium's, and its seam is the camera's `launch`
+  rather than a patched transport -- and `argparse`
   belongs to the two modules handed an `argv`: a parser below them is a third
   set of defaults, and one that answers a bad value by exiting the process;
 - **one temporary-file dance and one hashed name**: `tempfile` and `hashlib`
@@ -1807,9 +1851,10 @@ thirty-first test that keeps them honest:
   off the graph rather than off `requirements.txt`, so a dependency added
   tomorrow is covered without anybody writing it down again;
 - the **tables know nothing about the config** resolved from them (ADR-0029),
-  and `search.py`, `sources.py` and `mandates.py` know nothing about any other
-  module -- deciding is not fetching, and the AP2 seam translates between two
-  vocabularies without speaking either back (ADR-0046);
+  and `search.py`, `sources.py`, `mandates.py` and `screenshots.py` know nothing
+  about any other module -- deciding is not fetching, the AP2 seam translates
+  between two vocabularies without speaking either back (ADR-0046), and the
+  browser seam is an address in and a JPEG out (ADR-0065);
 - **the web tier is split at the payload**: `api.py` reaches no socket, no
   thread and no queue, which is what leaves every one of its rules assertable by
   calling a function while the status line and the stream stay in `server.py`;
@@ -1863,7 +1908,7 @@ nothing *passes*, which is the one way this file could be worse than no file:
 is really a module of the package, so a rename fails the rule about that module
 rather than quietly making it a no-op. A module in no layer is exempt in that
 same silent way, and one named in *two* is free to reach whatever either row
-allows, so the thirty-first test collects the placings and counts them. An edge
+allows, so the thirty-third test collects the placings and counts them. An edge
 *inside* a layer is skipped in that same silent way and no table can fix that
 one, which is what the rules naming a single module above are for. Size is
 deliberately not asserted: a ceiling on lines, methods or cohesion would be a

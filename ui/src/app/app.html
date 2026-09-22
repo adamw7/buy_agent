@@ -152,6 +152,7 @@
             [product]="product"
             [highlighted]="true"
             [weights]="found.weights"
+            [screenshots]="screenshots()"
             [canPay]="canPay()"
             [rail]="payRail()"
             [paying]="paying()"
@@ -167,6 +168,7 @@
               <app-product-card
                 [product]="product"
                 [weights]="found.weights"
+                [screenshots]="screenshots()"
                 [canPay]="canPay()"
                 [rail]="payRail()"
                 [paying]="paying()"

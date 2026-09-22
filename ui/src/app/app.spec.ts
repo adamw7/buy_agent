@@ -1020,6 +1020,36 @@ describe('App results', () => {
     expect(page.textContent).toContain('Nothing came back');
     expect(page.querySelector('.dropped')!.textContent).toContain('Outside the limits you set.');
   });
+
+  /** The same run, each product linked to a page of its own. */
+  const LINKED: SearchResult = {
+    ...RESULT,
+    products: RESULT.products.map((entry) => ({
+      ...entry,
+      url: `https://shop.example/${entry.rank}`,
+    })),
+  };
+
+  it('puts a picture of its page beside every product, where the server takes them', async () => {
+    /* Whether it takes them is the server's to say (ADR-0065); the highlighted
+       cards and the ones under "more the agent found" are told alike. */
+    agent.defaultsResponse = of(defaults({ top: 2, screenshots: true }));
+    const page = (await finished(LINKED)).nativeElement as HTMLElement;
+
+    const shots = [...page.querySelectorAll<HTMLAnchorElement>('app-product-card a.shot')];
+    expect(shots.map((shot) => shot.getAttribute('href'))).toEqual([
+      'https://shop.example/1',
+      'https://shop.example/2',
+      'https://shop.example/3',
+    ]);
+  });
+
+  it('draws no pictures where the server takes none', async () => {
+    const page = (await finished(LINKED)).nativeElement as HTMLElement;
+
+    expect(page.querySelectorAll('app-product-card')).toHaveLength(3);
+    expect(page.querySelector('app-product-card .shot')).toBeNull();
+  });
 });
 
 describe('App what changed since last time', () => {

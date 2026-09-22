@@ -111,6 +111,13 @@ export class AgentService {
   }
 }
 
+/** Where a picture of the page at `url` is asked for (ADR-0065). A path and not a
+ *  request: an `<img>` asks for it, which is what lets the browser wait for it,
+ *  lazily, and keep it for as long as the server says it may. */
+export function screenshotUrl(url: string): string {
+  return `/api/screenshot?${new URLSearchParams({ url })}`;
+}
+
 /** Turn options into a query string, leaving out anything unset. */
 export function toQuery(options: SearchOptions): string {
   const params = new URLSearchParams();

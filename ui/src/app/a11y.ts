@@ -26,6 +26,8 @@ export const CHECKED: Record<string, string> = {
   'select-name': 'The pickers -- provider, model, rail, backend, currency, criterion -- are named.',
   'button-name': 'Find products, Stop, the examples, Download, and both paying buttons are named.',
   'link-name': 'A product, an offer and a quote each link out; "source" twice over is not a name.',
+  'image-alt':
+    "A card's picture of its page says what it is of, and is the whole of the link around it.",
   'summary-name': 'Settings, the offers, the changes and the removals are all panels to open.',
   'aria-meter-name': 'The score bar is a meter, and a meter with no name is a number of nothing.',
   'empty-heading': 'The masthead, the results head and every card title say something.',
@@ -69,9 +71,10 @@ export const CHECKED: Record<string, string> = {
  *   page `index.html` serves, and three of the four subjects here are one
  *   component of it rendered on its own, where every one of those is wrong
  *   either way.
- * - Anything about markup this app has none of. Tables, frames, images, media,
- *   definition lists, `<marquee>`: a rule matching nothing passes, and a rule
- *   that has never once been applicable says nothing about the next change.
+ * - Anything about markup this app has none of. Tables, frames, media, definition
+ *   lists, `<marquee>`: a rule matching nothing passes, and a rule that has never
+ *   once been applicable says nothing about the next change. The one image is a
+ *   card's picture of its page (ADR-0065), and `image-alt` is on for it above.
  *
  * Two of the promises above have no rule at all, here or in a browser: that a
  * colour never carries something on its own, and that a panel a run takes a

@@ -23,7 +23,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-2561 Python tests and 256 UI tests. Nothing in either suite touches the network
+2625 Python tests and 269 UI tests. Nothing in either suite touches the network
 or a model server: the model is faked through the `llm=` argument of `BuyAgent`
 -- a class with one `answer` method, which is the whole of `chat.ChatModel`,
 both the search backend and the page fetcher are monkeypatched -- the backends'
@@ -32,6 +32,10 @@ own tests reaching one row further down, to `buy_agent.search.DDGS` and
 (ADR-0057) -- the two clients
 `buy_agent.providers` builds are patched where that module imported them, and
 the server tests inject a stub agent through `create_server(agent_factory=...)`.
+Nor does either start a browser, Playwright installed or not: the server tests
+hand `create_server(camera=...)` a stand-in, `screenshots.Camera` is handed one
+through `launch=`, and the tests of the Chromium it would launch install a
+`playwright` module of their own in `sys.modules` (ADR-0065).
 The only real sockets are the loopback ones the HTTP tests need in order to be
 about HTTP at all. Nor does either suite touch the machine's own cache:
 `conftest.py` points `$BUY_AGENT_CACHE_DIR` at a scratch directory per test,
@@ -61,8 +65,8 @@ Without that SDK the 74 tests that need it **skip**, the way
 `tests/conftest.py` is the marker, and it asks `mandates.available()` once at
 import. `needs_powershell` is the other, and with neither `pwsh` nor
 `powershell` on PATH 16 of the 22 tests in that file sit out. So a machine with
-the SDK and no PowerShell reads `2540 passed, 16 skipped`, and a checkout set up
-with `requirements-dev.txt` alone reads `2466 passed, 90 skipped` rather than 74
+the SDK and no PowerShell reads `2609 passed, 16 skipped`, and a checkout set up
+with `requirements-dev.txt` alone reads `2535 passed, 90 skipped` rather than 74
 failures claiming the project is broken when one optional feature is simply not
 installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide
@@ -165,8 +169,9 @@ the same convention test. The floor is the default checks and not `strict`,
 which would pull in `disallow_untyped_defs` and thirty-nine annotations nobody
 asked for; what is added to the default is `warn_unused_ignores`, which is
 `useless-suppression` one tool over and is the check this was noticed through.
-And the four libraries neither tool here can read -- the AP2 SDK, the two it
-signs with, and the `lxml` `fetch.py` parses pages with -- are named once per
+And the five libraries neither tool here can read -- the AP2 SDK, the two it
+signs with, the Playwright `screenshots.py` takes pictures with where it is
+installed (ADR-0065), and the `lxml` `fetch.py` parses pages with -- are named once per
 tool, as `ignore_missing_imports` here and as `ignored-modules` and
 `extension-pkg-allow-list` in `.pylintrc`, with a convention test holding the
 two lists together from both sides. Left to fail instead it would be the one
@@ -281,16 +286,18 @@ Those are the rules that span a *declaration*. `tests/test_architecture.py` is
 the other half -- the rules that span an *import* -- and it asserts them against
 the import graph with
 [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython), which parses
-the package with `ast` and answers rules about the result (ADR-0047). Thirty
+the package with `ast` and answers rules about the result (ADR-0047). Thirty-two
 rules, every one the executable form of a sentence already written down: the
 package has no import cycles and imports none of the five trees that import it,
 starts no process of its own -- installing Ollama, pulling a model and opening
 a browser are `scripts/start.ps1`'s (ADR-0023), and a child process is the one
-way out of this one that no fake in the suite could answer -- and awaits
+way out of this one that no fake in the suite could answer, the headless
+Chromium `screenshots.py` launches being the one named exception (ADR-0065) -- and awaits
 nothing, there being no event loop under a `ThreadingHTTPServer`, so
 `threading`, `concurrent.futures`, `queue` and `contextvars` belong to the
-three modules that wait on somebody else: the page pool, the per-tag listing
-and the run a request is served by; every module sits in a layer that reaches
+four modules that wait on somebody else: the page pool, the per-tag listing,
+the run a request is served by and the one thread a screenshot browser belongs
+to; every module sits in a layer that reaches
 only downward, so the pipeline never reads the config and never pays, paying
 never asks the model, and the seams reach the domain types and nothing else
 above them -- `journal.py` writes products down (ADR-0060), which is why the
@@ -301,7 +308,9 @@ sits under a domain that reads it while reaching nothing itself;
 `buy_agent/__init__.py` imports the four modules it re-exports from and no
 others, since importing any submodule runs it first; `mandates.py` is the only
 module that imports the optional AP2 SDK, and knows about no module of the
-package in return; `providers.py` the only one that imports a model client and
+package in return, as `screenshots.py` is the only one that imports Playwright
+and knows no module of the package either (ADR-0065); `providers.py` the only
+one that imports a model client and
 `search.py` the only one that imports the search backend, which is what the
 suite's fakes rest on; `fetch.py` the only one that parses HTML; `cache.py` the
 only one with a `tempfile` and a `hashlib`, since the journal puts a file on
@@ -333,7 +342,7 @@ modules check first that each one exists: a renamed module fails the rule about
 it instead of quietly turning it into a no-op. The layers are guarded the same
 way and for the same reason -- an edge to or from a file in no layer is skipped,
 and a module named in two layers may reach whatever either row allows -- so a
-thirty-first test holds the layer table against the directory and counts the
+thirty-third test holds the layer table against the directory and counts the
 placings, and a module added to neither layer or to both is a test failure
 rather than an exemption. An edge *inside* a layer is skipped too, which no
 table can fix: that one is why the modules sharing a layer -- the two doors, the
