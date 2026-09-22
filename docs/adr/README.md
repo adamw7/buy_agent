@@ -72,6 +72,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0061](0061-mutation-test-the-front-end-through-its-own-builder.md) | Mutation-test the front end, through the builder it is already tested with | Accepted |
 | [0062](0062-audit-both-dependency-lists-on-a-schedule.md) | Audit both dependency lists on a schedule, and review what a pull request adds | Accepted |
 | [0063](0063-type-check-the-package-with-mypy.md) | Type-check the package, which was annotated and read by nothing | Accepted |
+| [0064](0064-measure-the-two-trees-beside-the-package.md) | Measure the two trees beside the package, without widening what three tools read | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

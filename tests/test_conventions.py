@@ -1626,6 +1626,62 @@ def test_a_test_changes_the_environment_through_the_fixture_that_undoes_it() -> 
             "monkeypatch is what puts it back"
         )
 
+
+#: The two trees the suite imports from that no floor measures, each with the reason,
+#: and read from both sides below so neither the exemption nor the tree it names can
+#: outlive the other.
+_UNMEASURED = {
+    "tests": "is the suite doing the measuring",
+    "integration": "is the other suite: outside `testpaths`, so a bare `pytest` never "
+                   "reaches it, and run nightly against a real model",
+}
+
+
+def trees_the_suite_imports() -> set[str]:
+    """Every directory at the top of the tree that a file in `tests/` imports from.
+
+    Read off the source rather than off ``sys.modules``, so the answer is the same
+    whether the whole suite ran or this one test did.
+    """
+    names: set[str] = set()
+    for path in sorted((_ROOT / "tests").glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                names |= {alias.name.split(".")[0] for alias in node.names}
+            elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+                names.add(node.module.split(".")[0])
+    return {name for name in names if (_ROOT / name).is_dir()}
+
+
+def test_the_floor_measures_every_tree_the_suite_tests() -> None:
+    """`benchmark/` is the answer key the live suite is scored against (ADR-0036) and
+    `scripts/mutation_report.py` decides whether the Saturday run passes: both are
+    tested for the reason anything that decides an answer is tested here, and a floor
+    over the package alone left a test deleted from either of them a green run
+    (ADR-0064). So the rule is every tree and not those two: a third one imported
+    tomorrow is a failing test rather than somebody's memory."""
+    measured = ini_values(_COVERAGERC, "run", "source") + ini_values(
+        _COVERAGERC, "run", "source_dirs"
+    )
+    trees = trees_the_suite_imports()
+
+    assert trees, "the suite imports from no tree at all; this rule has outlived it"
+    for tree in sorted(trees - set(_UNMEASURED)):
+        assert tree in measured, f"the suite tests {tree}/ and no floor measures it"
+    for tree, reason in _UNMEASURED.items():
+        assert tree in trees, f"nothing imports {tree}/, which {reason}"
+        assert tree not in measured, f"{tree}/ is measured now; the reason it is not has gone stale"
+
+
+def test_the_floor_measures_the_package_through_the_setting_three_tools_read() -> None:
+    """The two trees above are measured through `source_dirs` and not `source`, which is
+    what keeps the three rules below able to read one setting and mean the package:
+    a tree added to `source` is a tree pylint, mypy and mutmut are then held to as
+    well, and mutating the answer key is a different question from mutating the code
+    it scores (ADR-0064)."""
+    assert ini_values(_COVERAGERC, "run", "source") == ["buy_agent"]
+
+
 # -- the Saturday mutation run -------------------------------------------------
 
 # mutmut copies these two into the tree it tests without being asked, as it does
@@ -1634,10 +1690,15 @@ def test_a_test_changes_the_environment_through_the_fixture_that_undoes_it() -> 
 _COPIED_ANYWAY = ("tests", "setup.cfg")
 
 
-def test_the_mutation_run_mutates_what_coverage_measures() -> None:
+def test_the_mutation_run_mutates_the_package_coverage_names() -> None:
     """Coverage says which lines ran; mutation testing says whether anything would have
-    noticed had they run differently."""
-    assert ini_values(_MUTMUT, "mutmut", "source_paths") == ini_values(_COVERAGERC, "run", "source")
+    noticed had they run differently. It follows `source` and deliberately not the
+    trees measured beside it: mutating `benchmark/` would mutate the answer key rather
+    than the code being scored, which is the other question entirely (ADR-0064)."""
+    mutated = ini_values(_MUTMUT, "mutmut", "source_paths")
+
+    assert mutated == ini_values(_COVERAGERC, "run", "source")
+    assert not set(mutated) & set(ini_values(_COVERAGERC, "run", "source_dirs"))
 
 
 def test_the_mutation_run_is_scheduled_for_saturdays() -> None:
@@ -2518,7 +2579,9 @@ _MESSAGE_CODE = re.compile(r"^[CEFIRW]\d{4},?$")
 
 def test_the_linter_checks_what_coverage_measures() -> None:
     """Three tools now read the same package, and each says so in its own file:
-    `.coveragerc` measures it, `setup.cfg` mutates it, and `ci.yml` lints it."""
+    `.coveragerc` names it in `source`, `setup.cfg` mutates it, and `ci.yml` lints it.
+    `source` and not what `.coveragerc` measures, which is wider by the two trees
+    beside the package (ADR-0064)."""
     linted = _PYLINT_RUN.findall(_CI.read_text(encoding="utf-8"))
 
     assert linted, "ci.yml no longer runs pylint; this rule has outlived it"
@@ -2602,7 +2665,7 @@ def unreadable_to_pylint() -> set[str]:
 
 def test_the_type_checker_checks_what_the_linter_lints() -> None:
     """A fourth tool reads the same package, and says so in its own file: `.coveragerc`
-    measures it, `setup.cfg` mutates it, and `ci.yml` lints *and* checks it."""
+    names it in `source`, `setup.cfg` mutates it, and `ci.yml` lints *and* checks it."""
     checked = _MYPY_RUN.findall(_CI.read_text(encoding="utf-8"))
 
     assert checked, "ci.yml no longer runs mypy; this rule has outlived it (ADR-0063)"

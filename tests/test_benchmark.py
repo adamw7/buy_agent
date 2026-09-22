@@ -8,6 +8,7 @@ import logging
 import pytest
 
 from buy_agent import agent as agent_module
+from buy_agent.agent import ModelUnavailableError
 from buy_agent.models import Product
 from buy_agent.search import SearchResult
 from buy_agent.verification import (
@@ -346,3 +347,38 @@ def test_the_command_line_offers_every_script(capsys: pytest.CaptureFixture) -> 
 
     assert set(action.choices) == set(SCRIPTS)
     capsys.readouterr()
+
+
+def test_the_command_line_puts_the_runs_own_report_back_when_asked(
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """``-v`` is the other half of the quietening above: the agent's narration and its
+    top-3 report are its output rather than the benchmark's, so they are held back
+    unless somebody asks for them and the scorecard is what a shell redirect catches."""
+    code = benchmark_main.main(["--scripted", "perfect", "-v"])
+    printed = capsys.readouterr().out
+
+    assert code == 0
+    assert "score         1.000" in printed
+    assert "TOP 3 OF" in printed
+    assert logging.getLogger("buy_agent").level != logging.WARNING
+
+
+def test_the_command_line_reports_a_model_it_could_not_use(
+    capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one of ``BuyAgent.run``'s three failures this door can see: the corpus is
+    served rather than searched and the request is a constant, so a stopped model
+    server is the only way in. It is a sentence on stderr and exit 1, not a
+    traceback over the scorecard that was never computed."""
+
+    def unavailable(**_kwargs: object) -> None:
+        raise ModelUnavailableError("Ollama is not answering on http://localhost:11434")
+
+    monkeypatch.setattr(benchmark_main, "run_benchmark", unavailable)
+    code = benchmark_main.main([])
+    captured = capsys.readouterr()
+
+    assert code == 1
+    assert "Ollama is not answering" in captured.err
+    assert captured.out == ""

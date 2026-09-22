@@ -91,6 +91,10 @@ def test_a_mutant_belongs_to_the_module_its_name_starts_with() -> None:
         ("buy_agent.agent.xǁBuyAgentǁrun", "buy_agent.agent.BuyAgent.run"),
         ("buy_agent.server.xǁHandlerǁ_send_bytes", "buy_agent.server.Handler._send_bytes"),
         ("buy_agent.api.x__int", "buy_agent.api._int"),
+        # A name carrying none of that mangling is left alone rather than having a
+        # character cut off it: the prefix is what marks a mutant, so a listing that
+        # stops writing one is read as the names it actually holds.
+        ("buy_agent.ranking.rank_products", "buy_agent.ranking.rank_products"),
     ],
 )
 def test_mutmut_name_mangling_is_undone_for_the_reader(mutant: str, expected: str) -> None:

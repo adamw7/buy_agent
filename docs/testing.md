@@ -23,7 +23,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-2552 Python tests and 256 UI tests. Nothing in either suite touches the network
+2561 Python tests and 256 UI tests. Nothing in either suite touches the network
 or a model server: the model is faked through the `llm=` argument of `BuyAgent`
 -- a class with one `answer` method, which is the whole of `chat.ChatModel`,
 both the search backend and the page fetcher are monkeypatched -- the backends'
@@ -106,8 +106,9 @@ never answered would be a cancelled job naming no test at all.
 A lint failure fails the Python job too, after the tests rather than before
 them: `python -m pylint buy_agent` runs last in the job, since a job stops at
 its first failing step and of the two the tests are what a change is about. The
-target is the package `.coveragerc` measures and `setup.cfg` mutates, and a
-convention test holds the three together. The test trees are deliberately
+target is the package `.coveragerc` names in `source` and `setup.cfg` mutates,
+and a convention test holds the three together -- `source` rather than what
+coverage measures, which is wider by the two trees below (ADR-0064). The test trees are deliberately
 outside it: pytest's fixtures shadow their own names by design and its tests say
 what they assert in the name rather than in a docstring, so linting them would
 mean turning off the checks that give the package's own gate most of its value
@@ -221,7 +222,14 @@ is a browser's job, the way the CSP and the critical-CSS inliner already are.
 `ui/README.md` argues the whole of it beside the components it is about.
 
 Both suites are measured and CI fails on a drop: the Python side covers every
-line and branch (`.coveragerc` sets the floor at 99%), and the UI's statements
+line and branch (`.coveragerc` sets the floor at 99%) over three trees rather
+than one -- `buy_agent/` in `source`, and `benchmark/` and `scripts/` in
+`source_dirs` beside it. Those two are tested and were under no floor at all,
+which made a test deleted from either a green run: `benchmark/` is the answer
+key the nightly is scored against (ADR-0036), and `scripts/mutation_report.py`
+decides whether the Saturday mutation run passes. They are measured and
+deliberately not mutated, linted or type-checked, since those three read
+`source` and mutating an answer key asks nothing (ADR-0064). The UI's statements
 and lines sit just under 100% (`coverageThresholds` in `ui/angular.json`, floor
 98%). Coverage that high stops being a useful signal on its own, so
 `tests/test_conventions.py` asserts the rules that hold *between* modules, which
