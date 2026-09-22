@@ -22,6 +22,7 @@ from buy_agent.models import (
     ScoreParts,
     SearchQuery,
 )
+from buy_agent.screenshots import ScreenshotError
 from buy_agent.search import SearchResult
 
 if TYPE_CHECKING:
@@ -171,6 +172,26 @@ class FakeLLM:
         if self.raises is not None:
             raise self.raises
         return self.query if schema is SearchQuery else self.products
+
+
+class Photographer:
+    """Stands in for the server's camera, the way ``FakeLLM`` stands in for the model: a
+    picture naming the address it was asked for, or the failure it was handed (ADR-0065).
+    """
+
+    def __init__(self, failure: ScreenshotError | None = None) -> None:
+        self.failure = failure
+        self.asked: list[str] = []
+        self.closed = False
+
+    def shoot(self, url: str) -> bytes:
+        self.asked.append(url)
+        if self.failure is not None:
+            raise self.failure
+        return f"jpeg of {url}".encode()
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def said(*quotes: str, page: str | None = None) -> list[Opinion]:

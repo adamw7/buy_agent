@@ -21,18 +21,21 @@ from buy_agent.api import (
     rank_again,
     results_payload,
     run_search,
+    screenshot,
     sources_payload,
 )
 from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.models import Offer, Product, Removal, nothing_recorded
 from buy_agent.ranking import RankingWeights, rank_products
 from buy_agent.providers import VLLM
+from buy_agent.screenshots import ScreenshotError
 from buy_agent import money
 from buy_agent.search import BACKENDS, SearchError
 from buy_agent.sources import Source
 from tests.conftest import (
     enrolled_key,
     needs_ap2,
+    Photographer,
     open_mandate,
     payable_product,
     ranked_product,
@@ -1710,3 +1713,60 @@ def test_the_form_is_offered_every_backend_with_what_it_needs() -> None:
 
     assert [row["name"] for row in offered] == list(BACKENDS)
     assert all("api_key" not in row for row in offered)
+
+
+# -- a picture of the page a card links to (ADR-0065) ---------------------------
+
+
+def test_the_form_is_told_whether_this_server_takes_screenshots() -> None:
+    """Not a setting: the server either has a camera or it has not, and says which."""
+    assert defaults_payload()["screenshots"] is False
+    assert defaults_payload(screenshots=True)["screenshots"] is True
+
+
+def test_a_page_is_photographed_by_the_server_s_camera() -> None:
+    camera = Photographer()
+
+    picture = screenshot("https://audiosite.example/xm5", camera)
+
+    assert picture == b"jpeg of https://audiosite.example/xm5"
+
+
+def test_a_server_with_no_camera_says_so() -> None:
+    with pytest.raises(ApiError) as refused:
+        screenshot("https://audiosite.example/xm5", None)
+
+    assert refused.value.status == 404
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        # This machine's own disk, which a browser that will draw anything draws too.
+        "file:///C:/Users/me/.ssh/id_rsa",
+        "javascript:alert(1)",
+        "data:text/html,<h1>hi</h1>",
+        "https://",
+        "",
+    ],
+)
+def test_only_a_web_page_is_photographed(address: str) -> None:
+    camera = Photographer()
+
+    with pytest.raises(ApiError) as refused:
+        screenshot(address, camera)
+
+    assert refused.value.status == 400
+    assert camera.asked == [], "the browser was pointed at it anyway"
+
+
+def test_a_page_that_would_not_be_photographed_is_the_page_s_failure() -> None:
+    """502 and not 400: nothing about the request was wrong, and a card asked only because
+    the server said it could."""
+    camera = Photographer(ScreenshotError("https://audiosite.example/xm5 answered 403"))
+
+    with pytest.raises(ApiError) as refused:
+        screenshot("https://audiosite.example/xm5", camera)
+
+    assert refused.value.status == 502
+    assert "answered 403" in str(refused.value)

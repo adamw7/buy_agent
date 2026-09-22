@@ -1,5 +1,6 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 
+import { screenshotUrl } from '../agent';
 import type { RailOption, RankedProduct, Receipt, ScoreWeights } from '../agent.types';
 
 /** The criteria a score is blended from, in the order they are weighted. */
@@ -32,6 +33,10 @@ export class ProductCard {
 
   /** How much each criterion counted, as the run that produced this reported it. */
   readonly weights = input<ScoreWeights | null>(null);
+
+  /** Whether the server takes pictures of pages, so this card may ask for one of its
+   *  own (ADR-0065). The server's to say: the page asks only one that has a camera. */
+  readonly screenshots = input(false);
 
   /** Whether this run may pay at all: the shopper asked for it and the server can. */
   readonly canPay = input(false);
@@ -113,6 +118,34 @@ export class ProductCard {
       assumed: assumed.has(name),
     }));
   });
+
+  /** The page whose picture did not come, by its address: a card handed a product
+   *  that links somewhere else asks again rather than staying blank. */
+  private readonly unphotographed = signal<string | null>(null);
+
+  /** Where the picture of this product's page is asked for, or null where there is
+   *  nothing to ask: a server with no camera, a product no page was linked for, or a
+   *  page that already would not be photographed. */
+  protected readonly shot = computed(() => {
+    const url = this.product().url;
+    if (!this.screenshots() || !url || url === this.unphotographed()) {
+      return null;
+    }
+    return screenshotUrl(url);
+  });
+
+  /** What the picture is of, for whoever cannot see it -- and, being the only thing in
+   *  its link, what that link is called. */
+  protected readonly shotLabel = computed(
+    () => `Screenshot of the page at ${this.host() ?? this.product().url}`,
+  );
+
+  /** The picture did not come -- the page would not load, or the browser would not
+   *  start. The frame goes rather than staying as a broken image; the title still
+   *  links to the page. */
+  protected lost(): void {
+    this.unphotographed.set(this.product().url);
+  }
 
   protected readonly host = computed(() => {
     const url = this.product().url;

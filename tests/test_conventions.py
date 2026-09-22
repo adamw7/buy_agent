@@ -686,6 +686,13 @@ _REQUIREMENTS = _ROOT / "requirements.txt"
 #: The two files paying is installed from.
 _AP2_REQUIREMENTS = (_ROOT / "requirements-ap2.txt", _ROOT / "requirements-ap2-deps.txt")
 
+#: The file screenshots are installed from (ADR-0065).
+_SCREENSHOT_REQUIREMENTS = _ROOT / "requirements-screenshots.txt"
+
+#: Every file an optional install is made from: pinned somewhere, imported by the package,
+#: and absent from a checkout that never asked for it.
+_OPTIONAL_REQUIREMENTS = (*_AP2_REQUIREMENTS, _SCREENSHOT_REQUIREMENTS)
+
 
 def distribution(name: str) -> str:
     """A package name as pip and ``importlib.metadata`` spell it between them."""
@@ -724,7 +731,7 @@ def distributions_the_package_imports() -> set[str]:
 def test_every_runtime_dependency_is_one_the_package_imports() -> None:
     """A pin nothing imports is weight in the image and a surface to patch."""
     pinned = pinned_in(_REQUIREMENTS)
-    optional = set().union(*(pinned_in(path) for path in _AP2_REQUIREMENTS))
+    optional = set().union(*(pinned_in(path) for path in _OPTIONAL_REQUIREMENTS))
     imported = distributions_the_package_imports()
 
     assert not pinned - imported, "pinned in requirements.txt and imported by nothing"

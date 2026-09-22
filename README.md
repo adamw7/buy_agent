@@ -62,6 +62,10 @@ pip install -r requirements-dev.txt
 # 3. Optional: only if you want it to pay for things (see "Letting it buy")
 pip install -r requirements-ap2-deps.txt
 pip install --no-deps -r requirements-ap2.txt
+
+# 4. Optional: a picture of each result's page in the web UI (see "A picture of each page")
+pip install -r requirements-screenshots.txt
+python -m playwright install --only-shell chromium
 ```
 
 `--no-deps` there is deliberate: the AP2 SDK's published metadata pins versions
@@ -718,6 +722,27 @@ criterion the **next** run is ranked by: the two are different questions, and
 one label over both read as a single setting perpetually out of step with
 itself.
 
+### A picture of each page
+
+With [Playwright](https://playwright.dev/python/) installed -- step 4 of
+[Setup](#setup), the library and then the headless Chromium it drives, about a
+hundred megabytes -- every card in the results carries a picture of the page it
+links to, on its right, and clicking it opens that page the way the title does.
+The server takes them itself, in one headless browser it launches on the first
+picture and closes once nobody has asked for a minute, and nobody else sees what
+you looked at. A card asks only once it is on screen, so the ones under "more the
+agent found" cost nothing until they are opened, and a page that will not be
+photographed -- it timed out, or turned a headless browser away -- simply has no
+picture. What is photographed is what a browser is shown on first arrival, cookie
+banner and all.
+
+Only a server bound to this machine takes pictures. A browser that draws any
+address draws the router's page as readily as a shop's, and hands the picture
+back; bound to the network, the server would do that for anybody who can reach
+it, so it says so at startup and takes none -- which is also why the container
+does not carry the browser
+([ADR-0065](docs/adr/0065-photograph-each-products-page-from-a-server-bound-to-this-machine.md)).
+
 A search takes tens of seconds, so the browser does not wait on one response.
 `GET /api/search/stream` runs the search and relays the agent's own log lines as
 Server-Sent Events, finishing on a `result` or a `failure`. `POST /api/search`
@@ -735,6 +760,7 @@ curl -X POST http://127.0.0.1:8000/api/search `
 | `GET /api/models` | What a named server is serving, or why it could not be asked |
 | `GET /api/sources` | Whether a Trusted sources field names sites, and what is wrong if not |
 | `GET /api/bounds` | What the request itself asks for -- offered for the form to fill in, never applied |
+| `GET /api/screenshot` | A JPEG of the page at `url`, for the card that links to it -- where the server takes pictures |
 | `POST /api/search` | One run, as JSON |
 | `POST /api/rank` | A finished run's products in another order |
 | `POST /api/pay` | One of those products bought, given the approval the page witnessed |
@@ -917,7 +943,7 @@ the thing least able to break loudly: an import in the wrong direction runs
 perfectly. It passes that module's own tests, keeps the coverage floor, survives
 the mutation run, and shows up years later as the reason two things cannot be
 moved apart. `tests/test_architecture.py` is where those sentences are
-executable -- thirty rules over the import graph, parsed out of the package
+executable -- thirty-two rules over the import graph, parsed out of the package
 with [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython), costing
 no model, no network and no run
 ([ADR-0047](docs/adr/0047-check-the-import-graph-with-archunit.md)).
@@ -930,13 +956,14 @@ lets `rank_products`, `ground` and `Constraints` be tested with three arguments
 and no environment) and never pays (ADR-0046), paying never asks the model, and
 the model seam carries a prompt and an answer without knowing what an answer
 means (ADR-0038); one seam, one module, so exactly one file imports the AP2 SDK,
-one a model client, one the search library, one the HTML parser, and the four
+one a model client, one the search library, one the HTML parser, one the
+browser the pictures are taken with (ADR-0065), and the four
 that speak HTTP are the four the suite patches; a setting is read where it is
 declared, and neither door is one of those places; the socket, the standard
 library's own network and every import from outside it are `server.py`'s alone
 (ADR-0010), while `api.py` reaches no socket, thread or queue; the package starts
 no process, installing Ollama and opening a browser being `scripts/start.ps1`'s
-(ADR-0023); and the steps take values and answer values, never reading a clock or
+(ADR-0023), but for the headless one that takes the pictures; and the steps take values and answer values, never reading a clock or
 a file, never chaining themselves -- the order of the pipeline is `BuyAgent.run`'s
 to know -- and never reaching the model, the fetcher or the search to decide an
 answer (ADR-0002).
@@ -945,7 +972,7 @@ Each of those is written out beside the sentence it came from in
 [Tests](docs/testing.md), with the two things that make such a file worth having:
 an import under `if TYPE_CHECKING:` does not count, since it never runs, and a
 negated rule whose subject matches nothing *passes*, so every helper that names
-modules checks they exist and a thirty-first test counts the layer placings --
+modules checks they exist and a thirty-third test counts the layer placings --
 a module renamed out of a rule, left out of the layer table or named in two of
 its rows fails a test instead of quietly becoming an exemption.
 

@@ -20,15 +20,16 @@ from contextvars import copy_context
 from html import escape
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 import pytest
 
 import buy_agent.server as server_module
 from buy_agent.agent import ModelUnavailableError, every_step_passes
 from buy_agent.models import Product, nothing_recorded
-from tests.conftest import needs_ap2, ranked_product
+from tests.conftest import Photographer, needs_ap2, ranked_product
 from buy_agent.providers import OLLAMA, VLLM
+from buy_agent.screenshots import INSTALL, Camera, ScreenshotError
 from buy_agent.search import SearchError
 from buy_agent.server import (
     _CROSS_SITE,
@@ -44,6 +45,7 @@ from buy_agent.server import (
     _workspace_for,
     allowed_hosts_for,
     build_parser,
+    camera_for,
     create_server,
     main,
 )
@@ -109,10 +111,19 @@ def unbuilt_workspace(tmp_path: Path) -> Path:
 
 
 @contextmanager
-def serving(ui_dir: Path, allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS) -> Iterator[str]:
+def serving(
+    ui_dir: Path,
+    allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS,
+    camera: Any = None,
+) -> Iterator[str]:
     """Run a server on a loopback port for the duration of the block."""
     httpd = create_server(
-        "127.0.0.1", 0, ui_dir=ui_dir, agent_factory=StubAgent, allowed_hosts=allowed_hosts
+        "127.0.0.1",
+        0,
+        ui_dir=ui_dir,
+        agent_factory=StubAgent,
+        allowed_hosts=allowed_hosts,
+        camera=camera,
     )
     # 0.01 rather than the default 0.5s poll: otherwise shutdown costs half a
     # second per test.
@@ -383,7 +394,7 @@ def test_a_reorder_of_something_that_is_not_a_run_is_refused(server: str) -> Non
 def test_a_get_that_raises_is_answered_rather_than_dropped(server: str, monkeypatch) -> None:
     """The reason ``do_POST`` has a catch-all, on the half that had none."""
 
-    def explode() -> dict:
+    def explode(**_whatever_the_server_has) -> dict:
         raise ValueError("Unknown provider 'olama'; expected one of ollama, vllm.")
 
     monkeypatch.setattr(server_module, "defaults_payload", explode)
@@ -1628,3 +1639,137 @@ def test_the_form_is_told_what_this_server_can_pay_through(server: str) -> None:
 
     assert body["pay"] is False
     assert [row["name"] for row in body["rail_options"]] == ["dry-run", "http"]
+
+
+# -- a picture of the page a card links to (ADR-0065) ---------------------------
+
+SHOP = "https://audiosite.example/xm5"
+
+
+def picture(url: str, **headers: str) -> tuple[int, dict[str, str], bytes]:
+    """A GET read as bytes: a JPEG decoded as text is not the JPEG that was sent."""
+    request = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status, dict(response.headers), response.read()
+    except urllib.error.HTTPError as error:
+        return error.code, dict(error.headers), error.read()
+
+
+def screenshot_of(base: str, address: str) -> str:
+    return f"{base}/api/screenshot?{urlencode({'url': address})}"
+
+
+def test_a_card_is_sent_a_picture_of_its_page(tmp_path: Path) -> None:
+    """An ``<img>`` asks for it, so what comes back is the JPEG itself -- with every
+    header the rest of this server's answers carry, and a lifetime a browser keeps it for
+    so the next run of the same search draws its cards at once."""
+    camera = Photographer()
+    with serving(tmp_path, camera=camera) as base:
+        status, headers, body = picture(screenshot_of(base, SHOP))
+
+    assert status == 200
+    assert headers["Content-Type"] == "image/jpeg"
+    assert headers["Cache-Control"] == "private, max-age=3600"
+    assert body == f"jpeg of {SHOP}".encode()
+    assert camera.asked == [SHOP]
+    for name, value in _SECURITY_HEADERS:
+        assert headers[name] == value
+
+
+def test_the_form_is_told_this_server_takes_screenshots(tmp_path: Path) -> None:
+    with serving(tmp_path, camera=Photographer()) as base:
+        _status, with_camera = get(f"{base}/api/config")
+    with serving(tmp_path) as base:
+        _status, without = get(f"{base}/api/config")
+
+    assert with_camera["screenshots"] is True
+    assert without["screenshots"] is False
+
+
+def test_a_server_with_no_camera_answers_in_json(server: str) -> None:
+    status, answer = get(screenshot_of(server, SHOP))
+
+    assert status == 404
+    assert "no screenshots" in answer["error"]
+
+
+def test_a_picture_of_something_that_is_not_a_web_page_is_refused(tmp_path: Path) -> None:
+    camera = Photographer()
+    with serving(tmp_path, camera=camera) as base:
+        status, answer = get(screenshot_of(base, "file:///etc/passwd"))
+
+    assert status == 400
+    assert "Not a web page" in answer["error"]
+    assert camera.asked == []
+
+
+def test_a_page_that_would_not_be_photographed_is_a_502(tmp_path: Path) -> None:
+    camera = Photographer(ScreenshotError(f"Could not photograph {SHOP}: Timeout 15000ms"))
+    with serving(tmp_path, camera=camera) as base:
+        status, answer = get(screenshot_of(base, SHOP))
+
+    assert status == 502
+    assert "Timeout" in answer["error"]
+
+
+def test_a_picture_is_guarded_like_every_other_request(tmp_path: Path) -> None:
+    """``_admits`` runs at the top of ``do_GET``: a page on another site cannot point
+    this server's browser anywhere, which is the rule that makes a camera safe to have."""
+    camera = Photographer()
+    with serving(tmp_path, camera=camera) as base:
+        status, _headers, _body = picture(screenshot_of(base, SHOP), **{"Sec-Fetch-Site": "cross-site"})
+
+    assert status == 403
+    assert camera.asked == []
+
+
+def test_a_server_without_playwright_has_no_camera_and_says_how_to_get_one(
+    monkeypatch, caplog
+) -> None:
+    monkeypatch.setattr(server_module, "available", lambda: False)
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.server"):
+        assert camera_for("127.0.0.1") is None
+
+    assert INSTALL in caplog.text
+
+
+@pytest.mark.parametrize("bind", ["0.0.0.0", "192.168.1.20", "::"])
+def test_a_server_the_network_can_reach_takes_no_pictures(monkeypatch, caplog, bind: str) -> None:
+    """Bound anywhere but here, anybody who can reach the port could have the browser
+    photograph the router's page and hand the picture back."""
+    monkeypatch.setattr(server_module, "available", lambda: True)
+
+    with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
+        assert camera_for(bind) is None
+
+    assert "Screenshots are off" in caplog.text
+
+
+@pytest.mark.parametrize("bind", ["127.0.0.1", "localhost", "::1"])
+def test_a_server_bound_to_this_machine_has_a_camera(monkeypatch, bind: str) -> None:
+    monkeypatch.setattr(server_module, "available", lambda: True)
+
+    camera = camera_for(bind)
+
+    assert isinstance(camera, Camera)
+
+
+def test_the_camera_is_handed_to_the_server_and_let_go_on_the_way_out(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Closed with the socket, rather than left to the process exiting under a browser."""
+    camera = Photographer()
+    captured: dict[str, Any] = {}
+
+    def remember(*args: Any, **kwargs: Any) -> FakeHttpd:
+        captured.update(kwargs)
+        return FakeHttpd()
+
+    monkeypatch.setattr(server_module, "camera_for", lambda host: camera)
+    monkeypatch.setattr(server_module, "create_server", remember)
+
+    assert main(["--ui-dir", str(tmp_path)]) == 0
+    assert captured["camera"] is camera
+    assert camera.closed

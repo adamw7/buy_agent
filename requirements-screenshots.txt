@@ -1,0 +1,15 @@
+# What `buy_agent.screenshots` takes a picture of each product's page with, for the
+# card that links to it (ADR-0065). Optional: everything else works without it, and
+# `screenshots.available()` is what the server asks before offering a single picture.
+#
+#     pip install -r requirements-screenshots.txt
+#     python -m playwright install --only-shell chromium
+#
+# Two commands, because the library drives a browser it downloads rather than one it
+# finds on the machine: the second fetches Chromium's headless shell (about 100 MB)
+# into Playwright's own cache, outside this tree and outside any requirements file.
+# Without it the server starts, the first picture fails, and the log says to run it.
+#
+# Not in `requirements.txt` and so not in the image: a container binds every
+# interface, and a server reachable from the network takes no pictures (ADR-0065).
+playwright==1.63.0

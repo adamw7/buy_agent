@@ -117,6 +117,7 @@ export function defaults(overrides: Partial<AgentDefaults> = {}): AgentDefaults 
     fetch: true,
     pay: false,
     pay_available: true,
+    screenshots: false,
     rail: DRY_RUN.name,
     rail_options: [DRY_RUN, CHARGES],
     merchant_url: '',

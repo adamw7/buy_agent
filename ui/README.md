@@ -150,6 +150,25 @@ formats no money, exactly as it writes no unknown price -- and each listing link
 the page that printed it, which is what makes the spread checkable rather than
 only readable.
 
+On its right is **a picture of the page it links to**, where the server takes
+them -- which is the server's to say, as `screenshots` in the defaults, and is
+only ever a server bound to this machine with Playwright installed
+([ADR-0065](../docs/adr/0065-photograph-each-products-page-from-a-server-bound-to-this-machine.md)).
+The card decides nothing about it but whether to ask: a frame where the server
+takes pictures and the product links somewhere, the `<img>` pointed at
+`agent.screenshotUrl` and the link around it pointed where the title's is. It
+asks `loading="lazy"`, so a card under "more the agent found" asks for nothing
+until that panel is opened, and a browser serving one person is never handed ten
+pages at once. It reserves the picture's own 640 x 400 before it lands, in a
+column of the card's grid that exists only when there is a picture to put in it,
+so a card does not jump under a reader's cursor and a card with none keeps the
+width. A picture that does not come -- the page timed out, or turned a headless
+browser away -- drops the frame rather than drawing a broken image: the title
+still links there, and a broken image says the page is broken when it opens fine.
+The failure is remembered by address, so a card handed a product on another page
+asks again. On a phone there is no room on the right, and the picture goes under
+the text in the column the text is in.
+
 What it emits is the three fields a person was shown, which the server holds
 against the cart it builds itself. The card decides nothing else, and a product
 it may not buy shows Python's `cannot_pay` sentence rather than no button and no

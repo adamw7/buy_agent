@@ -59,6 +59,9 @@ requirements-audit.txt
 # that is asked to pay says which one command adds it (`buy_agent.mandates`).
 requirements-ap2.txt
 requirements-ap2-deps.txt
+# Screenshots are taken only by a server bound to this machine, and a container binds
+# every interface -- so the image would carry a browser it is never allowed to use.
+requirements-screenshots.txt
 .coverage
 .coverage.*
 coverage.xml

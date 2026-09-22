@@ -43,7 +43,7 @@ python -m mypy buy_agent
 - mypy runs over that same package, from the same directory, and has to come out
   with no error at all. `setup.cfg` holds the settings: the default checks rather
   than `strict`, `warn_unused_ignores` beside them, and `ignore_missing_imports`
-  for the four libraries neither tool here can read (ADR-0063). An error is an
+  for the five libraries neither tool here can read (ADR-0063). An error is an
   annotation that is not true or a `# type: ignore` that has stopped being one --
   fix the declaration rather than widening it, which is what the pragmas above
   are for.

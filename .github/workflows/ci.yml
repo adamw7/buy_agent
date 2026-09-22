@@ -95,7 +95,7 @@ jobs:
 
       # Beside pylint and after it, for that same reason one step further along:
       # the two read the package rather than running it, and neither is what a
-      # change is about. `setup.cfg` says what it checks and which four libraries
+      # change is about. `setup.cfg` says what it checks and which five libraries
       # it cannot read, which is `.pylintrc`'s own list said in the other tool's
       # vocabulary (ADR-0063); the AP2 step above is what makes that list the
       # answer to a missing stub rather than to a missing install.

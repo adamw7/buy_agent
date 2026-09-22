@@ -238,6 +238,10 @@ export interface AgentDefaults {
   pay: boolean;
   /** Whether the optional AP2 SDK is installed at all. */
   pay_available: boolean;
+  /** Whether this server takes a picture of each product's page: Playwright is
+   *  installed and it is bound to this machine. Not a setting -- the server has a
+   *  camera or it has not (ADR-0065). */
+  screenshots: boolean;
   rail: string;
   rail_options: RailOption[];
   /** The AP2-speaking endpoint a paying rail talks to. */
