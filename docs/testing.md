@@ -1,7 +1,7 @@
 # Tests
 
 Two suites, one per language, and the checks that watch them: coverage floors on
-both, a linter and a type checker over the package, cross-module conventions, a PowerShell script
+both, a linter and a type checker over the package, a linter over the UI, cross-module conventions, a PowerShell script
 neither suite can run, a nightly run against a real model, a benchmark scored
 against a fixed answer key, a weekly mutation run and a nightly audit of both
 dependency lists. Everything the [README](../README.md) leaves out.
@@ -16,6 +16,7 @@ python -m mypy buy_agent      # the type checker, from the same place
 
 cd ui; npm test               # the UI's own tests, in jsdom
 cd ui; npm run test:coverage  # the same, with a coverage floor
+cd ui; npm run lint           # ESLint and angular-eslint, templates included
 
 python -m pytest integration  # against a real Ollama; see below
 
@@ -206,11 +207,22 @@ compiled without that one and the `?? null` each is read through would be
 reported *there* as a `??` to delete. That report is a warning, which neither
 `ng build` nor `ng test` fails on -- so a lookup left typed as a hit is a check
 that says something and stops nothing, which is the one way this setting could
-be worse off on than off. `npm run format:check` is the other:
-Prettier reading rather than writing, which is the whole of what lints this half
--- `npm run format` is the same glob with `--write`, and is what to run when the
-step goes red. It runs last in its job for the reason pylint runs last in the
-other.
+be worse off on than off. `npm run lint` is the second: ESLint over `src/`,
+templates and specs included, with `typescript-eslint` and `angular-eslint`,
+configured in `ui/eslint.config.mjs` by `.pylintrc`'s rule (ADR-0066). A rule
+turned on beyond the presets states something every component already does --
+`OnPush`, signals, `inject()`, no `$any` switching `strictTemplates` off for one
+expression -- and was run over `ui/src` first, what it found fixed rather than
+configured around; a rule that was run and left off carries its answer beside
+it; and the two lines it misreads are suppressed in a comment above them with
+the reason, `reportUnusedDisableDirectives` failing one that stops being needed.
+One of its rules is the CSP: an `on*` attribute or a `javascript:` URL in a
+template is refused by `script-src 'self'` in the browser and by nothing else,
+jsdom enforcing no policy, so `no-restricted-syntax` refuses it here. `npm run
+format:check` is the third: Prettier reading rather than writing -- `npm run
+format` is the same glob with `--write`, and is what to run when the step goes
+red. The linter and then the formatter run last in their job for the reason
+pylint runs after the tests in the other.
 
 The four components are also held to an accessibility check, which is the one
 thing above that neither the type check nor the coverage floor can see: every
@@ -366,7 +378,7 @@ already the file above.
 Both suites run on Windows and on Linux, on different triggers.
 `.github/workflows/ci.yml` spreads its two jobs -- `coverage run -m pytest` and
 then `pylint buy_agent` and `mypy buy_agent` on Python 3.14, `npm run
-test:coverage`, `npm run build`
+test:coverage`, `npm run build`, `npm run lint`
 and `npm run format:check` on Node 22.23.2 -- over `ubuntu-latest` and `windows-latest`, with `fail-fast`
 off so a failure on one platform still reports the other. This project is
 written on Windows and its runners were Linux, each checking the half of the

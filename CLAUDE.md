@@ -94,6 +94,7 @@ npm install
 npm test                                      # vitest in jsdom
 npm run test:coverage                         # the same, then the coverage floor
 npm run build                                 # dist/ui/browser, what the server serves
+npm run lint                                  # ESLint and angular-eslint, templates included
 npm run format:check                          # Prettier reading; `npm run format` writes
 npm start                                     # dev server on :4200, proxying /api to :8000
 
@@ -107,12 +108,15 @@ Angular CLI, not by anything here), and nothing on the Python side needs Node.
 The Python half has a linter and a type checker and no formatter -- pylint and
 mypy, both over the package and both from the repository root, where one finds
 `.pylintrc` and the other the `[mypy]` section of `setup.cfg` (ADR-0048,
-ADR-0063) -- and the UI has it the other way about: Prettier and nothing linting
-it, its own type check being half of `npm run build`. Both are gates
-rather than habits, which is what keeps that asymmetry honest: `npm run
-format:check` is the same glob reading rather than writing, it runs in `ci.yml`
-after the tests and the build for the reason pylint runs last in the other job,
-and `npm run format` is what to run when it goes red. `npm run build` is the
+ADR-0063) -- and the UI has a linter and a formatter: `npm run lint`, ESLint with
+`angular-eslint` over `src/` and its templates, configured by `.pylintrc`'s rule
+in `ui/eslint.config.mjs` (ADR-0066), and Prettier, its own type check being half
+of `npm run build`. All of them are gates rather than habits: the linter runs in
+`ci.yml` after the tests and the build for the reason pylint runs after the tests
+in the other job, and has to come out with no message, warnings and unused
+suppressions included; `npm run format:check` is the same glob as `npm run
+format` reading rather than writing, runs last, and `npm run format` is what to
+run when it goes red. `npm run build` is the
 UI's other check and is a type check before it is a build: `ui/tsconfig.json`
 sets `strict` and `strictTemplates` for both halves of the workspace and
 `ui/tsconfig.app.json` adds `noUncheckedIndexedAccess` for the shipped one,
@@ -300,10 +304,11 @@ waiting on it (ADR-0032).
 `.github/workflows/ci.yml` runs two jobs for pushes to `main` and every pull
 request: `coverage run -m pytest`, `coverage report` and then `pylint buy_agent`
 and `mypy buy_agent` on Python 3.14, and `npm run test:coverage`, `npm run build`
-and `npm run format:check` in `ui/` on Node 22.23.2. The lint and the type check
-are last in that job on purpose: a job stops at its first failing step, and of
-the three the tests are what a change is about -- and the formatting check is last in the other for that same
-reason, the tests and the build being what a change is about there. Either
+`npm run lint` and `npm run format:check` in `ui/` on Node 22.23.2. The lint and
+the type check are last in that job on purpose: a job stops at its first failing
+step, and of the three the tests are what a change is about -- and the lint and
+the formatting check are last in the other for that same reason, the tests and
+the build being what a change is about there. Either
 platform alone leaves half the platform differences unchecked (ADR-0020), so
 both jobs are still matrixed over `ubuntu-latest` and `windows-latest`. Not on
 the same trigger, though (ADR-0037): a push and a pull request are gated on
@@ -393,7 +398,7 @@ the matrix is over platforms only, one Python and one Node, since the
   published unattended: each is installed or run and asked for `/api/config` and
   `/`. Linux only, like every schedule beside it.
 
-Five files configure all of that, and `docs/testing.md` says why each is set the
+Six files configure all of that, and `docs/testing.md` says why each is set the
 way it is.
 
 - `pytest.ini` sets `pythonpath = .`, which is why the package imports without
@@ -442,8 +447,8 @@ way it is.
   a branch floor there would measure the instrumentation. Don't add one -- and
   the two it is silent about, `branches` and `functions`, are left out rather
   than set low, an omitted threshold being the only one that cannot drift.
-- `ui/tsconfig.json` says how much `npm run build` checks, which is the one of
-  the five that is not a number: `strict` is the family, shared by the app and
+- `ui/tsconfig.json` says how much `npm run build` checks, which is one of the
+  two of the six that are not a number: `strict` is the family, shared by the app and
   the specs, `strictTemplates` beside it is that family over the bindings and is
   shared for the same reason -- a component's template is checked from the
   outside, so a spec rendering it is compiled against the same class -- and
@@ -460,6 +465,18 @@ way it is.
   mirror test above goes on passing. `tests/test_conventions.py` holds all three
   settings on for that reason: nothing else here would notice a build that
   quietly checks less.
+- `ui/eslint.config.mjs` is `.pylintrc` for the front end and holds no number
+  either (ADR-0066): the presets `typescript-eslint` and `angular-eslint`
+  recommend, plus the rules this UI already holds everywhere -- `OnPush`,
+  signals, `inject()`, no `$any` in a template -- each turned on beside the
+  sentence saying so, and the rules that were run and left off each carrying its
+  answer. A rule is run over `ui/src` before it is turned on and what it finds is
+  fixed, and a line it misreads is suppressed in a comment directly above it with
+  the reason; `reportUnusedDisableDirectives` fails one nothing needs any more.
+  Specs are linted by the same rules, having needed no override. Its one rule
+  that is not a preset's is the CSP below as `no-restricted-syntax`: an `on*`
+  attribute or a `javascript:` URL in a template is refused at build time rather
+  than silently by the browser.
 
 ## Architecture
 
@@ -1333,7 +1350,11 @@ UI's build are coupled: `optimization.styles.inlineCritical` is off in
 stylesheet with an inline `onload`, and `script-src 'self'` refuses to run it,
 leaving the sheet at `media="print"` and the page unstyled. Neither suite can
 see that; it takes a browser. Anything else adding an inline handler, an inline
-`<script>` or a request to another origin has the same shape of symptom.
+`<script>` or a request to another origin has the same shape of symptom -- and
+the first of those is the one the linter sees: `ui/eslint.config.mjs` refuses an
+`on*` attribute and a `javascript:` URL in any template (ADR-0066). An inline
+`<script>` is dropped by Angular's compiler from a component template and by its
+parser before a rule could look, so in `src/index.html` it stays this paragraph.
 
 ### The components
 

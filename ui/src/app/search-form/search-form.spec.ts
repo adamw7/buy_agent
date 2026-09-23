@@ -2,7 +2,7 @@ import { TestBed, ComponentFixture } from '@angular/core/testing';
 
 import { accessibilityProblems } from '../a11y';
 import { SearchForm } from './search-form';
-import { OLLAMA, VLLM, defaults, status } from '../testing';
+import { VLLM, defaults, status } from '../testing';
 import type {
   AgentDefaults,
   InstalledModel,
@@ -115,7 +115,7 @@ describe('SearchForm', () => {
     submitted = [];
     fixture = TestBed.createComponent(SearchForm);
     fixture.componentRef.setInput('defaults', DEFAULTS);
-    fixture.componentInstance.search.subscribe((options) => submitted.push(options));
+    fixture.componentInstance.run.subscribe((options) => submitted.push(options));
     await fixture.whenStable();
   });
 
@@ -1309,7 +1309,7 @@ describe('SearchForm, paying', () => {
     fixture = TestBed.createComponent(SearchForm);
     fixture.componentRef.setInput('defaults', defaults);
     submitted = [];
-    fixture.componentInstance.search.subscribe((options) => submitted.push(options));
+    fixture.componentInstance.run.subscribe((options) => submitted.push(options));
     await fixture.whenStable();
   };
 

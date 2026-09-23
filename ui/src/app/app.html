@@ -63,7 +63,7 @@
     [checked]="sourcesCheck()"
     [noticed]="boundsCheck()"
     [rejected]="rejected()"
-    (search)="start($event)"
+    (run)="start($event)"
     (stop)="stop()"
     (refresh)="refreshModels($event)"
     (check)="checkSources($event)"
@@ -105,7 +105,7 @@
               <select
                 name="resort"
                 [disabled]="reordering() || running()"
-                (change)="resort($any($event.target))"
+                (change)="resort($event)"
               >
                 <!-- `selected` on the option rather than `value` on the select:
                      the options are written by a loop, and the select's value

@@ -292,7 +292,8 @@ export class App {
   }
 
   /** Ask for the same products in another order, without searching for them again. */
-  protected resort(control: HTMLSelectElement): void {
+  protected resort(event: Event): void {
+    const control = event.target as HTMLSelectElement;
     const sortBy = control.value as SortBy;
     const found = this.result();
     if (!found || sortBy === found.sort_by || this.reordering()) {
