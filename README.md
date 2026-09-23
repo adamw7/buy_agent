@@ -350,7 +350,9 @@ python -m buy_agent "headphones" --pay --rail http --merchant-url https://pay.ex
 No merchant, wallet or processor is named anywhere in this project. The rail is
 a row in a table (`buy_agent/rails.py`), the address is the whole of the
 integration, and the endpoint is asked for a signed checkout at `{url}/checkout`
-and presented the mandates at `{url}/payment`.
+and presented the mandates at `{url}/payment`. `python -m demo.merchant` is a
+local one to point it at, which charges nobody
+([demo/README.md](demo/README.md#a-merchant-for-the-http-rail)).
 
 **Only a product the sources actually priced can be bought.** This is the
 grounding rule turned around: a price no page printed is blanked before ranking,
@@ -1040,7 +1042,10 @@ pinned is known to be broken today (ADR-0062) -- are there too.
 - **No real money has moved through the `http` rail.** It has been driven end to
   end against a purpose-built local counterparty -- one that signs the checkout,
   receives both mandates and checks that the Payment Mandate binds to the
-  checkout *it* signed -- and against no payment processor. AP2 deliberately
+  checkout *it* signed -- and against no payment processor. That counterparty is
+  [`demo/merchant.py`](demo/README.md#a-merchant-for-the-http-rail), and
+  `python -m demo.merchant --once` drives the rail against it on any machine
+  with the AP2 SDK installed. AP2 deliberately
   says nothing about the commerce protocol around it, so the two request shapes
   (`{url}/checkout`, `{url}/payment`) are this project's choice and are the part
   to expect to adjust for whatever you integrate with. The mandates inside them

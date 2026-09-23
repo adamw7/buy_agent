@@ -25,8 +25,8 @@ beside a picture of the page it links to (ADR-0065).
 tier as a container, and what a release publishes), `docs/testing.md` (both
 suites, the coverage floors, the nightly run, the benchmark, the mutation run
 and the nightly audit of both dependency lists) and `demo/README.md` (three recorded runs of the UI, one of them with a
-synthesised soundtrack, the two stills the README shows, and the harness that
-took all five).
+synthesised soundtrack, the two stills the README shows, the harness that
+took all five, and a local merchant for the `http` rail).
 
 The rules below are the *rules*. `docs/adr/` is why each exists and what was
 rejected; the module docstrings carry the local detail. Prefer adding a rule
@@ -1464,7 +1464,8 @@ that takes no pictures. Angular components are tested in jsdom with `TestBed`,
 ### demo/
 
 `demo/README.md` says what the three recordings show, what is real in them and
-how to take them again. Five things about the directory hold here.
+how to take them again, and how to run the merchant beside them. Six things
+about the directory hold here.
 
 - `demo/server.py` starts the *real* `buy_agent.server` with only `search_web`,
   `enrich` and the chat model replaced, so everything between the search and the
@@ -1496,6 +1497,15 @@ how to take them again. Five things about the directory hold here.
   so a field added to the settings makes it taller rather than falling off the
   bottom. `docs/results.png` is the same script given `--script`, which runs
   that script's request and clips to the results section instead.
+- `demo/merchant.py` is the counterparty the `http` rail was driven against:
+  it answers `{url}/checkout` and `{url}/payment`, signs the checkout itself and
+  accepts a payment only when both mandates bind to that checkout, at its
+  amount, currency and payee, once. It verifies with the AP2 SDK's own verifier
+  and never with `buy_agent.mandates` -- the agent's code checking the agent's
+  work being a mirror -- and a merchant that accepted anything would prove
+  nothing, so `--once` presents a tampered and a replayed authorisation too and
+  fails if either is taken. It names no real merchant (ADR-0046) and charges
+  nobody.
 - Nothing here is imported by `buy_agent/` or by either suite, so it is not
   covered, not mutated and, per `.dockerignore`, not in the image.
 
