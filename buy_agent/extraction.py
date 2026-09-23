@@ -180,13 +180,8 @@ def clean_products(
             kept.append(product.model_copy(update={"name": name}))
         else:
             discarded.append(name or product.name)
-            record(
-                Removal(
-                    name=name or product.name,
-                    step="clean",
-                    reason="Reads as an article or a shop, not a product.",
-                )
-            )
+            reason = "Reads as an article or a shop, not a product."
+            record(Removal(name=discarded[-1], step="clean", reason=reason))
     if discarded:
         # The count at INFO, the names at DEBUG: a heuristic that drops a real product
         # should be diagnosable.
@@ -206,22 +201,15 @@ def deduplicate(
     # keep theirs: ``dedup_key`` is a verdict on a name, and the ones it turns down are
     # recorded, counted and then named -- three more readings of it, for a property that
     # rewrites the name twice to reach an answer.
-    named: list[Product] = []
-    nameless: list[Product] = []
+    keyed: dict[bool, list[Product]] = {True: [], False: []}
     for product in products:
-        if product.dedup_key:
-            named.append(_as_a_listing(product))
-        else:
-            nameless.append(product)
+        keyed[bool(product.dedup_key)].append(product)
+    named = [_as_a_listing(product) for product in keyed[True]]
+    nameless = keyed[False]
+    for product in nameless:
+        reason = "The name identifies nothing."
+        record(Removal(name=product.name, step="deduplicate", reason=reason))
     if nameless:
-        for product in nameless:
-            record(
-                Removal(
-                    name=product.name,
-                    step="deduplicate",
-                    reason="The name identifies nothing.",
-                )
-            )
         # Count then names, as everywhere a product is removed: "identifies nothing" is
         # a verdict on a name.
         logger.info("Dropped %d result(s) whose name identifies nothing", len(nameless))
@@ -279,13 +267,8 @@ def merge_variants(
                 kept = merged[index].name
                 gone = product.name if kept != product.name else existing.name
                 if gone != kept:
-                    record(
-                        Removal(
-                            name=gone,
-                            step="merge",
-                            reason=f"Folded into {kept}, which names the same thing.",
-                        )
-                    )
+                    reason = f"Folded into {kept}, which names the same thing."
+                    record(Removal(name=gone, step="merge", reason=reason))
                 break
         else:
             merged.append(product)

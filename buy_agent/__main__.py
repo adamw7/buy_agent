@@ -24,7 +24,7 @@ from buy_agent.config import (
     parse_currency,
     parse_region,
 )
-from buy_agent.journal import MAX_RUNS, RUNS, Journal
+from buy_agent.journal import MAX_RUNS, RUNS
 from buy_agent.logging_setup import configure_logging, log_changes
 from buy_agent.models import RankedProduct
 from buy_agent.money import CODES
@@ -64,9 +64,6 @@ NOTHING_FOUND = 3
 #: Exit code for a run that was asked to pay and did not.
 PAYMENT_FAILED = 4
 
-#: What ``--num-ctx`` holds when it was not given.
-_UNSET = object()
-
 
 #: The paying settings, and how each tells a value somebody typed from one left alone.
 _PAYING_FLAGS: tuple[tuple[str, str, Callable[[Any], bool]], ...] = (
@@ -74,16 +71,6 @@ _PAYING_FLAGS: tuple[tuple[str, str, Callable[[Any], bool]], ...] = (
     ("--merchant-url", "merchant_url", bool),
     ("--spend-limit", "spend_limit", lambda value: value is not None),
 )
-
-
-#: Which flag enforces each bound the request can ask for in words. Written here and
-#: nowhere below: the same reading is shown in the browser, which has no command line to
-#: type any of these into (ADR-0059).
-_ENFORCED_BY: dict[str, str] = {
-    "max_price": "--max-price",
-    "min_rating": "--min-rating",
-    "min_reviews": "--min-reviews",
-}
 
 
 def _offer_noticed_bounds(request: str, config: AgentConfig) -> None:
@@ -103,20 +90,11 @@ def _offer_noticed_bounds(request: str, config: AgentConfig) -> None:
             'Your request says "%s", which shapes the search and nothing else. '
             "%s %s is what would enforce it.",
             seen.phrase,
-            _ENFORCED_BY[seen.bound],
+            # The flag enforcing each bound is named here and nowhere below: the browser
+            # shows the same reading and has no command line to type it into.
+            f"--{seen.bound.replace('_', '-')}",
             seen.figure,
         )
-
-
-def _compare(journal: Journal, ranked: list[RankedProduct], *, asked: bool) -> None:
-    """Write this run down, and say what moved where that was asked for (ADR-0060).
-
-    Always the first half: a run is written down whether or not anybody asked to be
-    told, or there would never be an earlier one to compare the next with.
-    """
-    changes = journal.against([entry.product for entry in ranked])
-    if asked:
-        log_changes(changes, journal.compared_with())
 
 
 def _idle_paying_flags(args: argparse.Namespace) -> list[str]:
@@ -386,9 +364,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--num-ctx",
         type=_bounded(int, "num_ctx"),
-        # The sentinel, not the value: the help below names the default either way, and
-        # only a number actually typed is worth a warning.
-        default=_UNSET,
+        # None, not the value: the help below names the default either way, and only a
+        # number actually typed is worth a warning.
+        default=None,
         help=f"Context window in tokens (default: {_DEFAULTS.num_ctx}). The "
         "extraction prompt runs to ~4.3k tokens, so a larger window leaves room for "
         "more products; a model that need not think is fine on Ollama's own 4096. "
@@ -513,11 +491,11 @@ def main(argv: list[str] | None = None) -> int:
     # in is read off ``api.OPTIONS`` rather than written out a second time here: a
     # setting listed once is one both doors carry or neither does.
     settings = {option.field: getattr(args, option.key) for option in OPTIONS}
-    # The three the table cannot answer for. The sentinel above is not a value to pass
-    # on; repeated flags build a list, and no flag at all leaves ``None``, where the
+    # The three the table cannot answer for. An untyped ``--num-ctx`` is not a value to
+    # pass on; repeated flags build a list, and no flag at all leaves ``None``, where the
     # fallback is the config's own default rather than an empty one written down again;
     # and searching for fewer pages than the report intends to show would cap it.
-    settings["num_ctx"] = _DEFAULTS.num_ctx if args.num_ctx is _UNSET else args.num_ctx
+    settings["num_ctx"] = _DEFAULTS.num_ctx if args.num_ctx is None else args.num_ctx
     settings["sources"] = parse_sources(args.source) if args.source else _DEFAULTS.sources
     settings["search_results"] = max(args.results, args.top)
 
@@ -532,7 +510,7 @@ def main(argv: list[str] | None = None) -> int:
             "does" if len(idle) == 1 else "do",
         )
 
-    if args.num_ctx is not _UNSET and not config.model_server.takes_num_ctx:
+    if args.num_ctx is not None and not config.model_server.takes_num_ctx:
         # The form disables the field; the CLI has none to disable, so it says so here
         # rather than dropping the number without a word.
         logger.warning(
@@ -581,9 +559,12 @@ def main(argv: list[str] | None = None) -> int:
         # here rather than whenever the process ends.
         release(agent)
 
-    # After the report and under it: this is the second half of the answer, and the
-    # first half is what a run with no history at all still has.
-    _compare(journal, ranked, asked=args.compare)
+    # After the report and under it: this is the second half of the answer. The run is
+    # written down whether or not anybody asked to be told, or there would never be an
+    # earlier one to compare the next with (ADR-0060).
+    changes = journal.against([entry.product for entry in ranked])
+    if args.compare:
+        log_changes(changes, journal.compared_with())
 
     if args.json:
         # Written even when the run found nothing, and so before the exit code is
@@ -610,8 +591,7 @@ def main(argv: list[str] | None = None) -> int:
             # anywhere else in this run is.
             logger.warning("Interrupted. Nothing was bought.")
             return 130
-        if not bought:
-            return PAYMENT_FAILED
+        return 0 if bought else PAYMENT_FAILED
 
     return 0 if ranked else NOTHING_FOUND
 

@@ -1275,7 +1275,7 @@ everything else to the built Angular app, unknown paths falling back to
   the earlier line, not the only one. A region is deliberately *not* checked
   here: its shape stays in Python (ADR-0031), and what it gains is the mark.
 - **Loopback is not a boundary a browser respects, so every request is admitted
-  first.** `BuyAgentHandler._admits()` runs at the top of `do_GET`, `do_POST`
+  first.** `BuyAgentHandler._refused()` runs at the top of `do_GET`, `do_POST`
   and `do_HEAD` -- a new method added without it is unguarded and nothing fails
   -- and refuses `Sec-Fetch-Site: cross-site`, an `Origin` that is neither
   loopback nor equal to the request's own `Host`, and a `Host` outside

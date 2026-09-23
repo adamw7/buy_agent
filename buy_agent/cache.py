@@ -8,6 +8,7 @@ import logging
 import os
 import tempfile
 import time
+from collections import Counter
 from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -134,8 +135,7 @@ class DiskCache:
         """Delete what has expired and what no longer fits, and say how many went
         (ADR-0052)."""
         cutoff = time.time() - self.ttl
-        removed = 0
-        leftovers = 0
+        gone: Counter[str] = Counter()
         live: list[tuple[float, int, Path]] = []
         # ``glob`` answers an empty iterator for a directory it cannot list, so with the
         # three calls below guarded this cannot raise -- which is what lets
@@ -150,15 +150,12 @@ class DiskCache:
                 path.unlink()
             except OSError:  # a file another run is replacing right now
                 continue
-            if path.suffix == ".json":
-                removed += 1
-            else:
-                leftovers += 1
-        if leftovers:
+            gone[path.suffix] += 1
+        if gone[".tmp"]:
             logger.debug(
-                "Cleared %d abandoned temporary file(s) in %s", leftovers, self.directory
+                "Cleared %d abandoned temporary file(s) in %s", gone[".tmp"], self.directory
             )
-        return removed + self._evict(live)
+        return gone[".json"] + self._evict(live)
 
     def _evict(self, live: list[tuple[float, int, Path]]) -> int:
         """Delete the oldest of ``live`` until the rest fits, and say how many went."""
