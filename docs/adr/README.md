@@ -74,6 +74,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0063](0063-type-check-the-package-with-mypy.md) | Type-check the package, which was annotated and read by nothing | Accepted |
 | [0064](0064-measure-the-two-trees-beside-the-package.md) | Measure the two trees beside the package, without widening what three tools read | Accepted |
 | [0065](0065-photograph-each-products-page-from-a-server-bound-to-this-machine.md) | Photograph each product's page, from a server bound to this machine | Accepted |
+| [0066](0066-lint-the-ui-templates-included.md) | Lint the UI, templates included, the way pylint reads the package | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

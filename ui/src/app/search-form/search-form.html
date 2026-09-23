@@ -12,6 +12,9 @@
          holding `12abc` reports the empty string, so the model sees the `null` a
          *cleared* box means, and only the element itself still knows the
          difference. -->
+    <!-- eslint-disable @angular-eslint/template/no-duplicate-attributes --
+         the linter reads `[name]` and `[attr.name]` as one attribute written
+         twice; they are two bindings, and both are wanted (above). -->
     <input
       type="number"
       [name]="number.key"
@@ -28,6 +31,7 @@
       [attr.aria-invalid]="notes()[number.key] ? true : null"
       [attr.aria-describedby]="problemId(number.key)"
     />
+    <!-- eslint-enable @angular-eslint/template/no-duplicate-attributes -->
     <!-- Three things a box can have to say, in order of who is owed an answer: what
          is wrong with it, why it is holding a number nobody typed, and what it is
          for. The middle one is a hint and never a mark -- an offer read out of the
@@ -77,7 +81,7 @@
     }
   </div>
 
-  <details class="advanced" [open]="advanced()" (toggle)="advanced.set($any($event.target).open)">
+  <details class="advanced" [open]="advanced()" (toggle)="toggled($event)">
     <!-- The count rather than a bare word: shut, this panel is the only place
          a marked field could be, so the summary is what says there is one. -->
     <summary>
@@ -106,6 +110,9 @@
         </label>
       }
 
+      <!-- eslint-disable-next-line @angular-eslint/template/label-has-associated-control --
+           the control is inside the `@if` below, a select or an input, and the rule
+           does not look into a control-flow block for either. -->
       <label class="field">
         <span>Model</span>
         @if (modelOptions().length) {

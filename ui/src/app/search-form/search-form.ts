@@ -124,7 +124,9 @@ export class SearchForm {
    *  it. Not a `Rejection`: nothing here is wrong, so nothing here marks a box. */
   readonly noticed = input<BoundsCheck | null>(null);
 
-  readonly search = output<SearchOptions>();
+  /** Named for what it asks rather than `search`, which is a DOM event: an
+   *  `(search)` on this element would be answered by a native one bubbling up too. */
+  readonly run = output<SearchOptions>();
   readonly stop = output<void>();
   /** Ask what another server is serving, when the provider or the address changes. */
   readonly refresh = output<ModelSource>();
@@ -597,6 +599,11 @@ export class SearchForm {
     this.sourcesChanged();
   }
 
+  /** Follow the panel when the reader opens or shuts it, so a mark opening it is not undone. */
+  protected toggled(event: Event): void {
+    this.advanced.set((event.target as HTMLDetailsElement).open);
+  }
+
   protected submit(): void {
     if (!this.canSubmit() || this.running()) {
       return;
@@ -606,7 +613,7 @@ export class SearchForm {
     // Kept beside the request, so a refusal naming a field can be dropped as soon
     // as that field stops holding what was refused.
     this.submitted.set(options);
-    this.search.emit(options);
+    this.run.emit(options);
   }
 
   /** Every setting as a run would be asked for it. */

@@ -132,10 +132,15 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Last, for the reason pylint is last in the job above: a job stops at its
-      # first failing step, and of the checks here the tests and the build are what
-      # a change is about. Prettier formats this half of the project and nothing
-      # lints it, so `--check` is the whole of the gate -- `npm run format` is the
-      # same glob writing rather than reading.
+      # After the tests and the build, for the reason pylint is after the tests in
+      # the job above: a job stops at its first failing step, and those two are
+      # what a change is about. `ui/eslint.config.mjs` says what it checks and what
+      # it deliberately does not, `.pylintrc`'s rule one language over -- the CSP's
+      # refusal of an inline handler among them (ADR-0066).
+      - name: Run eslint
+        run: npm run lint
+
+      # Last: Prettier decides the layout the linter above leaves alone, and
+      # `npm run format` is the same glob writing rather than reading.
       - name: Check formatting
         run: npm run format:check

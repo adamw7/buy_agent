@@ -302,7 +302,6 @@ describe('App', () => {
   it('re-asks when the form is pointed at another server', async () => {
     /* The dropdown lists one server's models; a different server has its own. */
     const fixture = await render();
-    const page = fixture.nativeElement as HTMLElement;
 
     await fill(fixture, 'baseUrl', 'http://10.0.0.5:11434', true);
 
