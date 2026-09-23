@@ -8,6 +8,8 @@ best 3.
 
 ![The search form, with its settings open](docs/ui.png)
 
+![The top 3 of a run: price, rating, seller, quotes and what each score is made of](docs/results.png)
+
 Three runs of that page are recorded in `demo/`:
 [`wwii-books-1944-45.mpg`](demo/wwii-books-1944-45.mpg), fifteen seconds ending
 on the top 3 with the rest folded away;

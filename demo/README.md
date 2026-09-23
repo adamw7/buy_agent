@@ -177,6 +177,19 @@ the settings makes the picture taller instead of falling off the bottom of it,
 and rendered at twice the CSS width, since GitHub scales a README image down to
 its column. `--url`, `--width`, `--scale` and `--request` move the rest.
 
+`docs/results.png` -- the top 3 of a finished run, under the form in the main
+README -- is the same script given `--script`, which types that script's own
+request, presses the button and clips to the results once they land:
+
+```powershell
+python -m demo.server --script laptops --pace 0 --port 8000
+node demo/screenshot.mjs --script laptops --out docs/results.png
+```
+
+The name has to be the one the server was started with: the server searches
+that fabricated web, and the script only reads the sentence to type out of it.
+`--pace 0` here too, the run's pacing being something a still cannot show.
+
 Nothing here is imported by `buy_agent/` or by either test suite: `pytest.ini`
 keeps `testpaths = tests`, so this directory is never collected, and
 `.dockerignore` keeps it out of the image.
