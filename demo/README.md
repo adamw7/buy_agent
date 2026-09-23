@@ -4,6 +4,10 @@ Three runs of the UI, recorded in Chromium at 1280x720 and 25fps, in a program
 stream so they play anywhere -- two of them silent and the third with a
 soundtrack, MP2 being the audio that stream carries.
 
+Beside them is a counterparty for the `http` payment rail, so paying can be
+run end to end on one machine too -- see *A merchant for the `http` rail* at the
+end.
+
 | Video | The shopper asks for | Ends on | Sound |
 | --- | --- | --- | --- |
 | `wwii-books-1944-45.mpg` | *"wwii books about war in Europe 1944-45"* | the top 3, with the rest folded away | no |
@@ -189,6 +193,72 @@ node demo/screenshot.mjs --script laptops --out docs/results.png
 The name has to be the one the server was started with: the server searches
 that fabricated web, and the script only reads the sentence to type out of it.
 `--pace 0` here too, the run's pacing being something a still cannot show.
+
+## A merchant for the `http` rail
+
+`merchant.py` is the other half of `--rail http`: a local counterparty that
+answers the two requests the rail makes, so the rail can be seen working without
+writing that half first and without any payment processor behind it. It needs
+the AP2 SDK -- the same optional install paying needs, and it says so and stops
+without it -- and nothing else: no model, no web, no Ollama.
+
+```powershell
+python -m demo.merchant --once        # the whole round trip, in one process
+```
+
+`--once` makes a throwaway agent key, starts the merchant on a free port, and
+buys one made-up cart through the package's real `payment.pay_for` and the real
+`http` rail. Then it presents two authorisations a merchant must refuse -- one
+signed for a different amount than the checkout quoted, and one whose checkout
+was already paid -- and exits 1 if either is accepted. A merchant that took
+anything would prove nothing about the mandates, and those two are what show it
+is checking them.
+
+Run as a server it is what `--merchant-url` points at:
+
+```powershell
+$env:BUY_AGENT_AP2_KEY = "agent-key.pem"    # the agent's key; the merchant reads its public half
+python -m demo.merchant                     # on 127.0.0.1:8765
+python -m buy_agent "headphones" --pay --rail http --merchant-url http://127.0.0.1:8765
+```
+
+That run still asks a model for its products. To see the rail with neither a
+model nor the network, start `python -m demo.server --script laptops` beside it,
+from a shell with that same `$BUY_AGENT_AP2_KEY` -- the server is the agent that
+signs -- then tick **Pay for the top product** in the form, choose the HTTP
+endpoint rail, put the merchant's address in **Payment endpoint**, and press Pay
+on a card.
+
+What it answers is the whole of the contract `buy_agent/rails.py` speaks, which
+is this project's choice rather than AP2's and so the part to expect to adjust
+for a real counterparty:
+
+| Request | Body | Answer |
+| --- | --- | --- |
+| `POST /checkout` | `{"checkout": <the cart as AP2's checkout document>}` | `{"checkout_jwt": <that document, signed by the merchant>, "nonce": <a challenge>}` |
+| `POST /payment` | `{"transaction_id", "checkout_mandate", "payment_mandate"}` | `{"paid": true, "detail": ...}`, or `false` and why |
+
+The merchant assigns the order id, signs the checkout with a key of its own, and
+remembers it under the checkout's hash -- the `transaction_id` both mandates
+bind to. A payment is then accepted only when
+
+- it names a checkout this merchant signed and that has not been presented
+  before, a quote being good for one attempt whether or not it verifies;
+- the Checkout Mandate verifies against the agent's key and carries exactly
+  that signed checkout and its hash;
+- the Payment Mandate verifies, and its transaction, amount, currency and payee
+  are the checkout's.
+
+Every check goes through the AP2 SDK's own verifier rather than
+`buy_agent.mandates`, since a counterparty checking the agent's work with the
+agent's code is a mirror and not a check. Given `--mandate` (or
+`$BUY_AGENT_AP2_MANDATE`, which is how the agent is told the same thing), it
+expects AP2's other mode instead: the Payment Mandate is a chain from the
+shopper's open mandate, verified against that mandate's issuer, answering the
+nonce this merchant issued with the checkout, and inside the open mandate's
+constraints. A declined payment is an answer of `"paid": false` with the reason,
+which the agent reports as a refusal; a malformed request is a 400, which it
+reports as the counterparty failing. Either way, nothing is ever charged.
 
 Nothing here is imported by `buy_agent/` or by either test suite: `pytest.ini`
 keeps `testpaths = tests`, so this directory is never collected, and
