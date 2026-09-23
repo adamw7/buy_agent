@@ -25,8 +25,8 @@ beside a picture of the page it links to (ADR-0065).
 tier as a container, and what a release publishes), `docs/testing.md` (both
 suites, the coverage floors, the nightly run, the benchmark, the mutation run
 and the nightly audit of both dependency lists) and `demo/README.md` (three recorded runs of the UI, one of them with a
-synthesised soundtrack, the still the README shows, and the harness that took
-all four).
+synthesised soundtrack, the two stills the README shows, and the harness that
+took all five).
 
 The rules below are the *rules*. `docs/adr/` is why each exists and what was
 rejected; the module docstrings carry the local detail. Prefer adding a rule
@@ -1494,7 +1494,8 @@ how to take them again. Five things about the directory hold here.
   this server rather than off `buy_agent.server`, the model dropdown and the
   header pill being answers from an Ollama, and it is clipped to the form card,
   so a field added to the settings makes it taller rather than falling off the
-  bottom.
+  bottom. `docs/results.png` is the same script given `--script`, which runs
+  that script's request and clips to the results section instead.
 - Nothing here is imported by `buy_agent/` or by either suite, so it is not
   covered, not mutated and, per `.dockerignore`, not in the image.
 
