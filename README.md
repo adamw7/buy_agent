@@ -74,6 +74,26 @@ python -m playwright install --only-shell chromium
 this project does not use, so its real requirements are pinned in that file
 instead. Everything except `--pay` works without it.
 
+That needs Python 3.14 and, for the web UI, Node 22.23.3 or later -- the versions
+CI runs on.
+
+**Working on it** rather than running it needs more than that: the dev
+requirements, the UI's dependencies, and the AP2 SDK above, which stops being
+optional here -- without it the payment tests skip and the coverage floor cannot
+be met. One script does the lot, skipping whatever is already done, and a second
+runs every check a pull request is held to:
+
+```powershell
+.\scripts\setup.ps1        # .venv, requirements-dev.txt, the AP2 SDK, npm ci in ui/
+.\scripts\preflight.ps1    # the gate CI applies, both halves; -Only python|ui for one
+```
+
+`setup.ps1` checks Python and Node against the versions CI pins, and also
+checks how the checkout's line endings came out: a clone made before
+`.gitattributes` existed keeps its CRLF files, which fail the UI's formatting
+check, and the script tells you the one command that rewrites them
+([ADR-0067](docs/adr/0067-script-the-contributor-setup-and-the-gate.md)).
+
 Already running a vLLM? Skip step 1 and see
 [Running against vLLM](#running-against-vllm) -- `--provider vllm` is the whole
 difference.
@@ -219,7 +239,7 @@ aliases and marks embedding ones. `--num-ctx` and `--cpu-only` are not sent,
 since they belong to whatever the proxy routes to, and `--think` becomes
 `reasoning_effort`. Whether a request leaves the machine is up to the proxy's
 `config.yaml`
-([ADR-0067](docs/adr/0067-reach-a-litellm-proxy-as-a-third-model-server.md)).
+([ADR-0068](docs/adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md)).
 
 ### Thinking models
 
@@ -930,6 +950,8 @@ than working them out
 ## Tests
 
 ```powershell
+.\scripts\preflight.ps1       # everything CI checks, in its order -- or one at a time:
+
 python -m pytest              # the Python suite
 python -m pylint buy_agent    # ...and the linter over the package it covers
 python -m mypy buy_agent      # ...and the type checker, over that same package
@@ -950,7 +972,7 @@ cannot reach it, and a nightly job capped at five minutes is what runs it
 (ADR-0026). vLLM is not in that job -- it needs a GPU, and a CPU runner cannot
 host one honestly -- so its half is asserted in `tests/test_providers.py` and
 named as a gap in ADR-0028. A LiteLLM proxy is not in it either: in front of that
-same Ollama it would test the proxy's translation rather than this code (ADR-0067).
+same Ollama it would test the proxy's translation rather than this code (ADR-0068).
 
 Those tests ask whether the pipeline's promises held, which they do however
 badly the model read the pages -- so none of them can say whether a change made

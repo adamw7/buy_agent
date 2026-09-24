@@ -7,6 +7,9 @@ against a fixed answer key, a weekly mutation run and a nightly audit of both
 dependency lists. Everything the [README](../README.md) leaves out.
 
 ```powershell
+.\scripts\setup.ps1           # what every line below needs, the AP2 SDK included
+.\scripts\preflight.ps1       # everything ci.yml checks, both halves, in its order
+
 python -m pytest              # whole suite
 python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
 
@@ -24,7 +27,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-2676 Python tests and 276 UI tests. Nothing in either suite touches the network
+2693 Python tests and 276 UI tests. Nothing in either suite touches the network
 or a model server: the model is faked through the `llm=` argument of `BuyAgent`
 -- a class with one `answer` method, which is the whole of `chat.ChatModel`,
 both the search backend and the page fetcher are monkeypatched -- the backends'
@@ -65,9 +68,10 @@ Without that SDK the 74 tests that need it **skip**, the way
 `tests/test_start_script.py` skips where there is no PowerShell: `needs_ap2` in
 `tests/conftest.py` is the marker, and it asks `mandates.available()` once at
 import. `needs_powershell` is the other, and with neither `pwsh` nor
-`powershell` on PATH 16 of the 22 tests in that file sit out. So a machine with
-the SDK and no PowerShell reads `2660 passed, 16 skipped`, and a checkout set up
-with `requirements-dev.txt` alone reads `2586 passed, 90 skipped` rather than 74
+`powershell` on PATH 16 of the 22 tests in that file sit out, and all 4 in
+`tests/test_setup_scripts.py`. So a machine with
+the SDK and no PowerShell reads `2673 passed, 20 skipped`, and a checkout set up
+with `requirements-dev.txt` alone reads `2599 passed, 94 skipped` rather than 74
 failures claiming the project is broken when one optional feature is simply not
 installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide
@@ -397,7 +401,10 @@ a stubbed clock, a stubbed web request and a few files it dates itself, and
 reports what it found as JSON.
 Those tests skip where there is no `pwsh` or `powershell` on PATH -- neither
 Windows nor either runner CI uses -- and the Windows job runs them on the
-platform the script is actually for.
+platform the script is actually for. `tests/test_setup_scripts.py` puts
+`scripts/setup.ps1` and `scripts/preflight.ps1` through the same probe, for that
+they parse and for how each runs a program; what each installs and checks is held
+against `ci.yml` in `tests/test_conventions.py` (ADR-0067).
 
 ## Integration tests
 

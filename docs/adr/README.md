@@ -75,7 +75,8 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0064](0064-measure-the-two-trees-beside-the-package.md) | Measure the two trees beside the package, without widening what three tools read | Accepted |
 | [0065](0065-photograph-each-products-page-from-a-server-bound-to-this-machine.md) | Photograph each product's page, from a server bound to this machine | Accepted |
 | [0066](0066-lint-the-ui-templates-included.md) | Lint the UI, templates included, the way pylint reads the package | Accepted |
-| [0067](0067-reach-a-litellm-proxy-as-a-third-model-server.md) | Reach a LiteLLM proxy as a third model server, and never its SDK | Accepted |
+| [0067](0067-script-the-contributor-setup-and-the-gate.md) | Script a contributor's setup and the gate, and check every text file out with LF | Accepted |
+| [0068](0068-reach-a-litellm-proxy-as-a-third-model-server.md) | Reach a LiteLLM proxy as a third model server, and never its SDK | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

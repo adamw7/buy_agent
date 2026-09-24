@@ -54,7 +54,7 @@ every role itself and charges nobody
 
 Which model server that is -- Ollama by default, a vLLM already serving a model
 on a GPU box, or a LiteLLM proxy routing to either or to more
-([ADR-0067](adr/0067-reach-a-litellm-proxy-as-a-third-model-server.md)) -- is
+([ADR-0068](adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md)) -- is
 `AgentConfig.provider`, and nothing downstream of
 `buy_agent/providers.py` knows the difference: one table row holds a server whole,
 and `AgentConfig.model_server` is the only place a provider name becomes behaviour

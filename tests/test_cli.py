@@ -351,7 +351,7 @@ def test_choosing_a_provider_brings_its_model_and_its_server_with_it(fake_agent)
 
 def test_choosing_a_litellm_proxy_brings_its_alias_and_its_address(fake_agent) -> None:
     """The same complete choice for the third server: the proxy's placeholder alias and
-    port 4000, never the Ollama tag the run would otherwise start on (ADR-0067)."""
+    port 4000, never the Ollama tag the run would otherwise start on (ADR-0068)."""
     main(["headphones", "--provider", "litellm"])
     config = fake_agent["config"]
 

@@ -1,5 +1,5 @@
 """Which model server the agent talks to: Ollama, vLLM's OpenAI-compatible API, or a
-LiteLLM proxy speaking that same API (ADR-0028, ADR-0029, ADR-0032, ADR-0051, ADR-0067)."""
+LiteLLM proxy speaking that same API (ADR-0028, ADR-0029, ADR-0032, ADR-0051, ADR-0068)."""
 
 from __future__ import annotations
 
@@ -223,7 +223,7 @@ def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
 @dataclass(frozen=True, slots=True)
 class _OpenAIChat:
     """A server speaking the OpenAI chat API -- vLLM, or a LiteLLM proxy -- asked for one
-    schema-shaped answer (ADR-0004, ADR-0028, ADR-0067)."""
+    schema-shaped answer (ADR-0004, ADR-0028, ADR-0068)."""
 
     client: openai.OpenAI
     model: str
@@ -325,7 +325,7 @@ def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
 
 def _litellm_chat_model(config: AgentConfig) -> ChatModel:
     """A LiteLLM proxy, told to think in its own provider-neutral ``reasoning_effort``
-    and told nothing where ``reasoning`` is ``None`` (ADR-0019, ADR-0067)."""
+    and told nothing where ``reasoning`` is ``None`` (ADR-0019, ADR-0068)."""
     if config.reasoning is None:
         return _openai_chat_model(config, {})
     effort = "medium" if config.reasoning else "none"
@@ -356,7 +356,7 @@ def _litellm_installed(config: AgentConfig) -> list[InstalledModel]:
 
 
 def _litellm_hint(config: AgentConfig, exc: Exception) -> str:
-    """Turn a LiteLLM proxy's failure into something the user can act on (ADR-0067)."""
+    """Turn a LiteLLM proxy's failure into something the user can act on (ADR-0068)."""
     proxy = f"The LiteLLM proxy at {config.base_url}"
     if isinstance(exc, openai.AuthenticationError):
         return (

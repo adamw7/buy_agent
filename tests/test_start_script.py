@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -12,16 +11,11 @@ from typing import Any
 
 import pytest
 
+from tests.conftest import POWERSHELL, needs_powershell
+
 _ROOT = Path(__file__).resolve().parent.parent
 _START = _ROOT / "scripts" / "start.ps1"
 _PROBE = Path(__file__).resolve().parent / "start_script_probe.ps1"
-
-#: ``pwsh`` is PowerShell 7 and ``powershell`` is the 5.1 that ships with Windows.
-POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
-
-needs_powershell = pytest.mark.skipif(
-    POWERSHELL is None, reason="no pwsh or powershell on PATH to read the script with"
-)
 
 
 def start_script() -> str:

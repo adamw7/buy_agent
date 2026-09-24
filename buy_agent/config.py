@@ -16,7 +16,7 @@ from buy_agent.sources import Source
 
 #: Which model server a run talks to when nothing says otherwise: Ollama (ADR-0003),
 #: vLLM being the same pipeline over a server someone already runs (ADR-0028), and a
-#: LiteLLM proxy the same again over whatever that someone routes it to (ADR-0067).
+#: LiteLLM proxy the same again over whatever that someone routes it to (ADR-0068).
 DEFAULT_PROVIDER = os.getenv("BUY_AGENT_PROVIDER", "ollama")
 
 #: Which rail a payment goes through when nothing says otherwise.

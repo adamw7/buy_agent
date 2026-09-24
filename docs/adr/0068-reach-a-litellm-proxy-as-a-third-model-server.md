@@ -1,4 +1,4 @@
-# ADR-0067: Reach a LiteLLM proxy as a third model server, and never its SDK
+# ADR-0068: Reach a LiteLLM proxy as a third model server, and never its SDK
 
 - **Status:** Accepted
 - **Date:** 2026-09-24

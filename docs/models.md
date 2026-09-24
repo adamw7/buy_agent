@@ -10,7 +10,7 @@ re-pull and nothing here to run
 ([ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md)). A LiteLLM proxy
 (`--provider litellm`) serves whatever its `config.yaml` routes to, so a model
 behind it is kept current wherever it is served
-([ADR-0067](adr/0067-reach-a-litellm-proxy-as-a-third-model-server.md)).
+([ADR-0068](adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md)).
 
 A model tag follows the registry, so re-pulling it is how a model is updated --
 but `ollama pull` prints `success` whether it replaced anything or not.

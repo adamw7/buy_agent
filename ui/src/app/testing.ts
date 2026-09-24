@@ -29,7 +29,7 @@ export const VLLM: ProviderOption = {
   takes_cpu_only: false,
 };
 
-/** The proxy, which fixes neither the window nor the device itself (ADR-0067). */
+/** The proxy, which fixes neither the window nor the device itself (ADR-0068). */
 export const LITELLM: ProviderOption = {
   name: 'litellm',
   label: 'LiteLLM',

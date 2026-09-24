@@ -1035,7 +1035,7 @@ def test_the_listing_keeps_its_own_short_wait(pulled) -> None:
     assert asked_for["tags"]["timeout"] == providers_module._LIST_TIMEOUT
 
 
-# -- a LiteLLM proxy (ADR-0067) ------------------------------------------------
+# -- a LiteLLM proxy (ADR-0068) ------------------------------------------------
 
 LITELLM_CONFIG = AgentConfig(provider="litellm", model="local_model")
 

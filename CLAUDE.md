@@ -11,7 +11,7 @@ say about them, ranks them, and logs the top 3. Built on a local model, served
 by Ollama, by a vLLM behind its OpenAI-compatible API, or by whatever a LiteLLM
 proxy routes to behind that same API -- `AgentConfig.provider` chooses,
 `buy_agent/providers.py` is the only module that knows the difference (ADR-0028,
-ADR-0067), and each server's own client is called
+ADR-0068), and each server's own client is called
 directly: there is no framework between the prompt and the answer,
 `buy_agent/chat.py` being all of one there is (ADR-0038). `ui/` is an Angular
 front end onto the same pipeline, served by `buy_agent.server`. Optionally --
@@ -39,6 +39,9 @@ Dependencies live in a `.venv` created with stdlib `venv`; there is no
 `pyproject.toml` and no packaging step. Run everything from the repository root.
 
 ```powershell
+.\scripts\setup.ps1                           # all of the setup below, both halves (ADR-0067)
+.\scripts\preflight.ps1                       # the whole gate ci.yml applies; -Only python|ui
+
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt          # runtime deps: requirements.txt
@@ -266,7 +269,7 @@ and `$LITELLM_API_KEY` are the settings with no flag and no form field -- secret
 so they stay out of a shell history, out of `defaults_payload` and out of
 `provider_options()`. `$LITELLM_MODEL` defaults to `local_model`, a placeholder:
 a proxy's model is an alias out of its owner's `model_list`, which nothing here
-can know (ADR-0067).
+can know (ADR-0068).
 
 Every other CLI flag defaults to the matching `AgentConfig` field, so a new
 setting is added in `config.py` and picked up rather than repeated. One field is
@@ -602,7 +605,7 @@ was ever held to.
   errors meaning "not there", the sentence that failure carries) plus
   `takes_num_ctx` and `takes_cpu_only`, and `more_room` -- the tail of the
   sentence an unreadable answer is explained by, being the one piece of that
-  shared hint each server words its own way (ADR-0029, ADR-0067). The listing
+  shared hint each server words its own way (ADR-0029, ADR-0068). The listing
   answers `InstalledModel`s rather than names, since what a server holds and what
   a run can use are the same question only on vLLM: Ollama's `installed` asks
   `ollama show` per tag and a LiteLLM proxy's reads each alias's `mode` off
@@ -1966,7 +1969,7 @@ involved (ADR-0026). It is Ollama's alone: vLLM needs a GPU and a CPU runner
 cannot host one honestly, so that provider's half is asserted in
 `tests/test_providers.py` and named as a gap in ADR-0028 -- and a LiteLLM proxy
 in front of the same Ollama would test the proxy's translation rather than this
-code, which ADR-0067 names the same way. A directory rather
+code, which ADR-0068 names the same way. A directory rather
 than a marker, because `pytest.ini` keeps `testpaths = tests`: "nothing in the
 suite touches Ollama" is then a property of where a file sits, not of anyone
 remembering an annotation. Five things there are load-bearing:
@@ -2082,6 +2085,24 @@ goes through `Run`, since a native command that fails raises nothing whatever
 `$ErrorActionPreference` says. One PowerShell process for the whole module,
 starting one costing about as long as the rest of the suite; `pwsh` or
 `powershell`, whichever is on PATH, and the module skips where there is neither.
+
+`scripts/setup.ps1` and `scripts/preflight.ps1` are the contributor's half of
+that directory (ADR-0067): `start.ps1` sets a machine up to *run* the agent, and a
+checkout it set up passes nothing -- no pytest, no linter, no AP2 SDK. `setup.ps1`
+is `.claude/hooks/session-start.sh` for a person: a `.venv` holding
+`requirements-dev.txt` and the SDK in its two commands, `npm ci` in `ui/`, Python
+and Node checked against the pins it reads out of `ci.yml` and never writes down,
+and the count of CRLF files a clone made before `.gitattributes` still carries,
+named with the command that rewrites them rather than rewriting them over whatever
+is uncommitted. `preflight.ps1` is `ci.yml`'s checking steps, step for step and in
+order, each job stopping at its first failure and the other running anyway. Both
+are held by `tests/test_conventions.py` -- `setup.ps1` installs what `ci.yml`'s
+jobs install, `preflight.ps1` runs exactly the checks `ci.yml` runs -- and read
+through the same probe by `tests/test_setup_scripts.py`: every program
+`setup.ps1` runs goes through `Run` and is looked for with `Have` first, and every
+one `preflight.ps1` runs goes through `Job`, which records a failure rather than
+throwing it. `.gitattributes` is `* text=auto eol=lf` with the tree's binary kinds
+named, and a convention test finds every binary file and holds it to a line there.
 
 ## Environment
 
