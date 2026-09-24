@@ -41,6 +41,35 @@ def test_a_budget_is_read_however_a_shopper_writes_it(
 
 
 @pytest.mark.parametrize(
+    ("request_", "bound", "figure"),
+    [
+        ("a kettle under 129,99 €", "max_price", "129.99"),
+        ("a kettle under €49,5", "max_price", "49.5"),
+        ("a laptop under 1.299,99 €", "max_price", "1299.99"),
+        ("a laptop under 1.299 zł", "max_price", "1299"),
+        ("a phone under €1.000", "max_price", "1000"),
+        ("headphones at least 4,5 stars", "min_rating", "4.5"),
+        ("headphones with at least 1.200 reviews", "min_reviews", "1200"),
+    ],
+)
+def test_a_figure_is_read_in_either_convention(request_: str, bound: str, figure: str) -> None:
+    """Read the way a page's figures are (``money.plain_figures``): as digits and commas,
+    "under 129,99 €" offered a budget of 12999 and "1.200 reviews" a count of 1.2."""
+    seen = only(request_)
+
+    assert (seen.bound, seen.figure) == (bound, figure)
+
+
+def test_a_count_that_is_not_whole_is_not_offered() -> None:
+    """No box takes 4.5 reviews, so nothing is offered for one."""
+    assert notice("headphones with at least 4.5 reviews") == []
+
+
+def test_digits_that_are_no_number_are_not_offered() -> None:
+    assert notice("firmware under 1.2.3") == []
+
+
+@pytest.mark.parametrize(
     ("request_", "figure"),
     [
         ("headphones at least 4 stars", "4"),

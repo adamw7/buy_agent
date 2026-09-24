@@ -12,7 +12,7 @@ from typing import Any, get_args
 
 from buy_agent import mandates, payment
 from buy_agent.agent import BuyAgent, ModelUnavailableError, journal_for
-from buy_agent.api import OPTIONS, results_payload
+from buy_agent.api import OPTIONS, results_payload, takeable
 from buy_agent.bounds import notice
 from buy_agent.chat import release
 from buy_agent.config import (
@@ -82,7 +82,9 @@ def _offer_noticed_bounds(request: str, config: AgentConfig) -> None:
     flag.
     """
     for seen in notice(request):
-        if getattr(config, seen.bound) is not None:
+        # Held to the flag's own range, as the form's box is: "under $0.50" offered
+        # ``--max-price 0.5``, which that flag refuses as a usage error.
+        if not takeable(seen) or getattr(config, seen.bound) is not None:
             # Already set, and by the one thing that sets it. Saying it again would read
             # as the run having taken the words for the number.
             continue

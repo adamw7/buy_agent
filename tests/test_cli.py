@@ -1210,6 +1210,17 @@ def test_a_bound_the_request_asks_for_is_offered_and_not_applied(
     assert fake_agent["config"].max_price is None
 
 
+def test_a_bound_the_flag_would_refuse_is_not_offered(fake_agent, caplog) -> None:
+    """The form drops a figure outside the setting's range (``api.bounds_payload``), and
+    so does this door: offered, "under $0.50" named a ``--max-price 0.5`` that the flag
+    itself refuses as a usage error."""
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        main(["a cable under $0.50"])
+
+    assert "--max-price" not in caplog.text
+    assert fake_agent["config"].max_price is None
+
+
 def test_a_bound_already_set_is_not_offered_back(fake_agent, caplog) -> None:
     """Saying it again would read as the run having taken the words for the number."""
     with caplog.at_level(logging.INFO, logger="buy_agent"):

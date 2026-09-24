@@ -61,6 +61,16 @@ def test_missing_fields_become_empty_strings(monkeypatch) -> None:
     assert (result.title, result.url, result.snippet) == ("", "", "")
 
 
+def test_a_null_field_is_an_empty_string_and_not_the_word_none(monkeypatch) -> None:
+    """A JSON ``null`` is a key that is there: read with a default it became "None", a
+    title the model reads and an address the fetcher asks for."""
+    stub_ddgs(monkeypatch, results=[{"title": None, "href": None, "body": None}])
+
+    result = search_web("headphones")[0]
+
+    assert (result.title, result.url, result.snippet) == ("", "", "")
+
+
 def test_search_arguments_reach_the_backend(monkeypatch) -> None:
     seen = stub_ddgs(monkeypatch)
 

@@ -440,13 +440,17 @@ def bounds_payload(request: str) -> dict[str, Any]:
         "noticed": [
             {"bound": seen.bound, "value": seen.value, "note": seen.note}
             for seen in notice(request)
-            if _takeable(seen)
+            if takeable(seen)
         ],
     }
 
 
-def _takeable(seen: Noticed) -> bool:
-    """Whether the setting this was noticed for would accept the figure (ADR-0033)."""
+def takeable(seen: Noticed) -> bool:
+    """Whether the setting this was noticed for would accept the figure (ADR-0033).
+
+    Asked by both doors: a figure one of them offers is a figure its own range has to
+    take, or the offer is a flag -- or a box -- that refuses what it was just handed.
+    """
     minimum, maximum = LIMITS[seen.bound]
     return minimum <= seen.value <= maximum
 
