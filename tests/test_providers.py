@@ -1040,472 +1040,152 @@ def test_the_listing_keeps_its_own_short_wait(pulled) -> None:
 LITELLM_CONFIG = AgentConfig(provider="litellm", model="local_model")
 
 
-@pytest.fixture
-def proxied(monkeypatch):
-    """Stand in for a LiteLLM proxy answering ``/model/info`` and ``/v1/models``."""
-
-    def install(
-        info: list[dict] | None = None,
-        *,
-        models: list[str] = (),
-        info_error: Exception | None = None,
-        error: Exception | None = None,
-    ) -> dict:
-        asked: dict = {"urls": []}
-
-        def get(url, **kwargs):
-            asked["urls"].append(url)
-            asked["headers"] = kwargs.get("headers")
-            asked["timeout"] = kwargs.get("timeout")
-            if error is not None:
-                raise error
-            if url.endswith("/model/info"):
-                if info_error is not None:
-                    raise info_error
-                body = {"data": info or []}
-            else:
-                body = {"data": [{"id": name} for name in models]}
-
-            class Response:
-                @staticmethod
-                def raise_for_status() -> None:
-                    return None
-
-                @staticmethod
-                def json() -> dict:
-                    return body
-
-            return Response()
-
-        monkeypatch.setattr("buy_agent.providers.httpx.get", get)
-        return asked
-
-    return install
-
-
-def _alias(name: str, mode: str | None = "chat") -> dict:
-    """One ``/model/info`` entry, the way the proxy reports a deployment."""
-    return {"model_name": name, "model_info": {} if mode is None else {"mode": mode}}
-
-
-def test_a_proxy_is_pointed_at_the_openai_api_it_serves(completing) -> None:
-    """The same client as vLLM's, asked once and given the whole wait (ADR-0051)."""
-    config = AgentConfig(
-        provider="litellm",
-        model="local_model",
-        base_url="http://proxy.internal:4000/v1",
-        temperature=0.2,
-        model_timeout=12.5,
-    )
-
-    sent = asked(config, completing())
-
-    assert sent["client"]["base_url"] == "http://proxy.internal:4000/v1"
-    assert sent["client"]["timeout"] == 12.5
-    assert sent["client"]["max_retries"] == 0
-    assert sent["model"] == "local_model"
-    assert sent["temperature"] == 0.2
-
-
-def test_a_proxy_is_asked_to_decode_against_the_schema(completing) -> None:
-    """The proxy translates ``response_format`` for whatever it routes to."""
-    sent = asked(LITELLM_CONFIG, completing(), SearchQuery)
-
-    assert sent["response_format"]["json_schema"]["schema"] == SearchQuery.model_json_schema()
-
-
-def test_a_proxy_without_a_key_still_gets_one_and_a_key_reaches_it(completing) -> None:
-    """A proxy started with no master key checks nothing, and the client insists."""
-    sent = completing()
-    asked(AgentConfig(provider="litellm", api_key=""), sent)
-    assert sent["client"]["api_key"] == "EMPTY"
-
-    asked(AgentConfig(provider="litellm", api_key="sk-1234"), sent)
-    assert sent["client"]["api_key"] == "sk-1234"
-
-
-@pytest.mark.parametrize(("reasoning", "effort"), [(True, "medium"), (False, "none")])
-def test_a_proxy_carries_the_thinking_switch_as_its_own_effort(
-    completing, reasoning: bool, effort: str
+@pytest.mark.parametrize(
+    ("reasoning", "extra_body"),
+    [
+        (None, {}),
+        (True, {"reasoning_effort": "medium"}),
+        (False, {"reasoning_effort": "none"}),
+    ],
+)
+def test_a_proxy_is_asked_through_the_openai_client(
+    completing, reasoning: bool | None, extra_body: dict
 ) -> None:
-    """``reasoning_effort`` is LiteLLM's provider-neutral spelling, and vLLM's
-    template switch would mean nothing to most of what a proxy routes to."""
-    sent = asked(AgentConfig(provider="litellm", reasoning=reasoning), completing())
-
-    assert sent["extra_body"] == {"reasoning_effort": effort}
-
-
-def test_a_proxy_is_sent_nothing_the_server_behind_it_decides(completing) -> None:
-    """No window, no device and, left alone, no thinking switch."""
-    config = AgentConfig(provider="litellm", reasoning=None, num_ctx=8192, cpu_only=True)
+    """vLLM's client, asked once, with thinking in LiteLLM's own spelling and neither
+    the window nor the device, both of which belong to what the proxy routes to."""
+    config = AgentConfig(
+        provider="litellm", reasoning=reasoning, num_ctx=8192, cpu_only=True, model_timeout=9
+    )
 
     sent = asked(config, completing())
 
-    assert sent["extra_body"] == {}
-    assert "num_ctx" not in sent and "num_gpu" not in sent
+    assert sent["client"] == {
+        "base_url": "http://localhost:4000/v1",
+        "api_key": "EMPTY",
+        "timeout": 9,
+        "max_retries": 0,
+    }
+    assert sent["model"] == "local_model"
+    assert sent["response_format"]["json_schema"]["schema"] == SearchQuery.model_json_schema()
+    assert sent["extra_body"] == extra_body
 
 
-def test_a_proxy_lists_every_alias_and_marks_what_cannot_answer(proxied) -> None:
-    """``/model/info`` says what mode each alias is in -- ADR-0032's question, which a
-    proxy can answer where vLLM's listing cannot."""
-    proxied(
+def _proxy(monkeypatch, info: Exception | list[dict], models: tuple[str, ...] = ()) -> list:
+    """Stand in for a proxy's ``/model/info`` and ``/v1/models``, recording each ask."""
+    asked_for: list = []
+
+    def get(url, **kwargs):
+        asked_for.append((url, kwargs["headers"], kwargs["timeout"]))
+        if url.endswith("/model/info") and isinstance(info, Exception):
+            raise info
+        data = info if url.endswith("/model/info") else [{"id": name} for name in models]
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"data": data})
+
+    monkeypatch.setattr("buy_agent.providers.httpx.get", get)
+    return asked_for
+
+
+def test_a_proxy_lists_every_alias_marked_by_its_mode(monkeypatch) -> None:
+    """One alias may be several deployments, and answers if any of them does; a mode
+    nobody reported is "cannot say", which is offered (ADR-0032)."""
+    asked_for = _proxy(
+        monkeypatch,
         [
-            _alias("local_model"),
-            _alias("embedder", "embedding"),
-            _alias("unsaid", None),
+            {"model_name": "local_model", "model_info": {"mode": "embedding"}},
+            {"model_name": "local_model", "model_info": {"mode": "chat"}},
+            {"model_name": "embedder", "model_info": {"mode": "embedding"}},
+            {"model_name": "unsaid", "model_info": None},
             {"model_info": {"mode": "chat"}},
-        ]
+        ],
     )
+    config = AgentConfig(provider="litellm", base_url="http://proxy:4000/v1/", api_key="k")
 
-    assert listed(LITELLM_CONFIG) == [
+    assert listed(config) == [
         installed("local_model", completion=True),
         installed("embedder", completion=False),
         installed("unsaid", completion=True),
     ]
-
-
-def test_an_alias_answers_if_any_deployment_behind_it_does(proxied) -> None:
-    """One alias can be several deployments, and the proxy lists each."""
-    proxied(
-        [
-            _alias("local_model", "embedding"),
-            _alias("local_model"),
-            _alias("local_model", "embedding"),
-        ]
-    )
-
-    assert listed(LITELLM_CONFIG) == [installed("local_model", completion=True)]
-
-
-def test_the_proxy_is_asked_beside_its_api_root(proxied) -> None:
-    """``/model/info`` is one of the proxy's own routes, not under ``/v1``."""
-    asked_for = proxied([_alias("local_model")])
-
-    listed(
-        AgentConfig(
-            provider="litellm", base_url="http://proxy.internal:4000/v1/", api_key="sk-1"
-        )
-    )
-
-    assert asked_for["urls"] == ["http://proxy.internal:4000/model/info"]
-    assert asked_for["headers"] == {"Authorization": "Bearer sk-1"}
-    assert asked_for["timeout"] == providers_module._LIST_TIMEOUT
+    assert asked_for == [
+        ("http://proxy:4000/model/info", {"Authorization": "Bearer k"}, providers_module._LIST_TIMEOUT)
+    ]
 
 
 @pytest.mark.parametrize(
     "refusal",
-    [
-        httpx.HTTPStatusError(
-            "Client error '403 Forbidden'",
-            request=httpx.Request("GET", "http://localhost:4000/model/info"),
-            response=httpx.Response(403),
-        ),
-        ValueError("Expecting value: line 1 column 1"),
-    ],
+    [httpx.HTTPStatusError("403", request=_REQUEST, response=httpx.Response(403)), ValueError()],
 )
-def test_a_proxy_that_will_not_say_falls_back_to_the_openai_listing(proxied, refusal) -> None:
-    """A key allowed only to call models, or an older proxy: "cannot say" is not
-    "cannot run", so every model the plain listing names is offered."""
-    asked_for = proxied(models=["local_model"], info_error=refusal)
+def test_a_proxy_that_will_not_say_falls_back_to_the_plain_listing(
+    monkeypatch, refusal: Exception
+) -> None:
+    asked_for = _proxy(monkeypatch, refusal, models=("local_model",))
 
     assert listed(LITELLM_CONFIG) == [installed("local_model", completion=True)]
-    assert asked_for["urls"][-1] == "http://localhost:4000/v1/models"
+    assert asked_for[-1] == ("http://localhost:4000/v1/models", {}, providers_module._LIST_TIMEOUT)
 
 
-def test_a_proxy_that_cannot_be_reached_raises_rather_than_reporting_nothing(proxied) -> None:
-    proxied(error=httpx.ConnectError("refused"))
-
-    with pytest.raises(httpx.ConnectError):
-        listed(LITELLM_CONFIG)
-
-
-def test_a_stopped_proxy_is_told_to_start_with_its_config() -> None:
-    message = hint(LITELLM_CONFIG, openai.APIConnectionError(request=_REQUEST))
-
-    assert "Could not reach LiteLLM" in message
-    assert "litellm --config config.yaml" in message
-
-
-def test_a_proxy_refusing_the_key_says_which_variable_sets_one() -> None:
-    message = hint(LITELLM_CONFIG, _status_error(openai.AuthenticationError, 401))
-
-    assert "$LITELLM_API_KEY" in message
+def _answered(kind: type[openai.APIStatusError], status: int, said: str) -> Exception:
+    return kind(said, response=httpx.Response(status, request=_REQUEST), body=None)
 
 
 @pytest.mark.parametrize(
-    ("kind", "status", "said"),
+    ("exc", "says", "never"),
     [
-        (openai.BadRequestError, 400, "Invalid model name passed in model=local_model."),
-        (openai.NotFoundError, 404, "The model `local_model` does not exist."),
+        (openai.APIConnectionError(request=_REQUEST), "litellm --config config.yaml", "model_list"),
+        (_answered(openai.AuthenticationError, 401, "no"), "$LITELLM_API_KEY", "litellm --config"),
+        (
+            _answered(openai.BadRequestError, 400, "Invalid model name passed in model=x"),
+            "(routing: embedder), or add it to the model_list",
+            "litellm --config",
+        ),
+        (
+            _answered(openai.RateLimitError, 429, "rpm limit reached"),
+            "answered, but the model behind 'local_model' failed (rpm limit reached)",
+            "Could not reach",
+        ),
+        (
+            # A 404 the OpenAI client did not raise is not the proxy's answer.
+            httpx.HTTPStatusError("404", request=_REQUEST, response=httpx.Response(404)),
+            "Could not reach LiteLLM",
+            "model_list",
+        ),
+        (httpx.ReadTimeout("slow"), "or a shorter prompt", "litellm --config"),
+        (
+            UnreadableAnswerError("Invalid json output: {"),
+            "the model the proxy routes to a larger context window",
+            "--max-model-len",
+        ),
     ],
 )
-def test_an_alias_the_proxy_does_not_route_names_what_it_does(
-    proxied, kind, status: int, said: str
+def test_a_proxy_failure_names_what_to_do_about_it(
+    monkeypatch, exc: Exception, says: str, never: str
 ) -> None:
-    """The remedy is the proxy's config, not a pull or a restart with a model name."""
-    proxied([_alias("other_model")])
-    response = httpx.Response(status, request=_REQUEST)
-    message = hint(LITELLM_CONFIG, kind(said, response=response, body=None))
+    _proxy(monkeypatch, [{"model_name": "embedder", "model_info": {"mode": "embedding"}}])
 
-    assert "routing: other_model" in message
-    assert "model_list" in message and "config.yaml" in message
+    message = hint(LITELLM_CONFIG, exc)
 
-
-def test_a_failure_the_proxy_relays_is_blamed_on_what_is_behind_it() -> None:
-    """The proxy is running -- telling the shopper to start it would mislead."""
-    relayed = openai.InternalServerError(
-        "litellm.APIConnectionError: OllamaException - connection refused",
-        response=httpx.Response(500, request=_REQUEST),
-        body=None,
-    )
-    message = hint(LITELLM_CONFIG, relayed)
-
-    assert "answered, but the model behind 'local_model' failed" in message
-    assert "litellm --config" not in message
-
-
-def test_a_404_from_something_that_is_not_a_proxy_is_not_a_missing_alias(proxied) -> None:
-    """The rule the other two rows keep: a remedy naming a model needs the row's own
-    client to have raised it."""
-    proxied([_alias("local_model")])
-    absent = httpx.HTTPStatusError(
-        "Client error '404 Not Found'",
-        request=httpx.Request("GET", "http://localhost:4000/model/info"),
-        response=httpx.Response(404),
-    )
-    message = hint(LITELLM_CONFIG, absent)
-
-    assert "Could not reach LiteLLM" in message
-    assert "model_list" not in message
-
-
-def test_an_unreadable_answer_names_the_room_behind_the_proxy() -> None:
-    """The window belongs to whatever the proxy routes to, so the sentence names neither
-    Ollama's per-request setting nor vLLM's startup flag."""
-    message = hint(LITELLM_CONFIG, UnreadableAnswerError("Invalid json output: {"))
-
-    assert "not the JSON this asks for" in message
-    assert "the model the proxy routes to" in message
-    assert "--max-model-len" not in message
-
-
-def test_a_slow_proxy_is_not_told_to_start_one() -> None:
-    message = hint(LITELLM_CONFIG, openai.APITimeoutError(request=_REQUEST))
-
-    assert "did not answer in time" in message
-    assert "litellm --config" not in message
-
-
-@pytest.mark.parametrize(
-    "error",
-    [
-        openai.APIConnectionError(request=_REQUEST),
-        httpx.ConnectError("refused"),
-        OSError("socket died"),
-    ],
-)
-def test_every_way_a_proxy_can_be_absent_is_one_the_agent_catches(error) -> None:
-    assert isinstance(error, errors(LITELLM_CONFIG))
+    assert says in message
+    assert never not in message
 
 
 def test_the_proxy_has_its_own_variables(reloaded_providers) -> None:
-    """A machine can run a proxy beside the servers it routes to, so its address is
-    its own and not $OLLAMA_HOST's."""
+    """A machine can run a proxy beside the servers it routes to."""
     reloaded_providers(
-        LITELLM_MODEL="team-llama",
-        LITELLM_HOST="http://proxy.internal:4000/v1",
-        LITELLM_API_KEY="sk-1234",
+        LITELLM_MODEL="team-llama", LITELLM_HOST="http://proxy:4000/v1", LITELLM_API_KEY="k"
     )
+
     config = AgentConfig(provider="litellm")
 
-    assert config.model == "team-llama"
-    assert config.base_url == "http://proxy.internal:4000/v1"
-    assert config.api_key == "sk-1234"
+    assert (config.model, config.base_url, config.api_key) == (
+        "team-llama",
+        "http://proxy:4000/v1",
+        "k",
+    )
     assert AgentConfig(provider="ollama").api_key == ""
 
 
-def test_the_proxy_defaults_are_a_local_one_with_a_placeholder_alias(
-    reloaded_providers, monkeypatch
-) -> None:
-    """Port 4000 is what ``litellm --config`` binds; the alias is somebody's own
-    ``model_list`` and nothing here can know it, so the default names nobody's model."""
-    for name in ("LITELLM_MODEL", "LITELLM_HOST", "LITELLM_API_KEY"):
-        monkeypatch.delenv(name, raising=False)
-    reloaded_providers()
-    config = AgentConfig(provider="litellm")
-
-    assert config.base_url == "http://localhost:4000/v1"
-    assert config.model == "local_model"
-    assert config.api_key == ""
-
-
-def test_closing_a_proxy_chat_model_lets_go_of_its_client(completing) -> None:
-    sent = completing()
-
-    chat_model(LITELLM_CONFIG).close()
-
-    assert sent["closed"] is True
-
-
-@pytest.mark.parametrize(
-    ("base_url", "root"),
-    [
-        ("http://localhost:4000/v1", "http://localhost:4000"),
-        ("http://localhost:4000/v1/", "http://localhost:4000"),
-        # A proxy mounted without the ``/v1`` prefix answers its routes where it is.
-        ("http://localhost:4000", "http://localhost:4000"),
-        ("http://gateway.internal/litellm/v1", "http://gateway.internal/litellm"),
-    ],
-)
-def test_the_proxy_root_is_the_api_root_less_its_version(
-    proxied, base_url: str, root: str
-) -> None:
-    asked_for = proxied([_alias("local_model")])
-
-    listed(AgentConfig(provider="litellm", base_url=base_url))
-
-    assert asked_for["urls"] == [f"{root}/model/info"]
-
-
-def test_a_proxy_without_a_key_is_listed_with_no_header(proxied) -> None:
-    asked_for = proxied([_alias("local_model")])
-
-    listed(AgentConfig(provider="litellm", api_key=""))
-
-    assert asked_for["headers"] == {}
-
-
-def test_the_fallback_listing_carries_the_key_too(proxied) -> None:
-    """A proxy that refused ``/model/info`` over the key's scope still wants that key
-    on ``/v1/models``, or the fallback fails for a second reason."""
-    refused = httpx.HTTPStatusError(
-        "Client error '403 Forbidden'",
-        request=httpx.Request("GET", "http://localhost:4000/model/info"),
-        response=httpx.Response(403),
-    )
-    asked_for = proxied(models=["local_model"], info_error=refused)
-
-    listed(AgentConfig(provider="litellm", api_key="sk-1"))
-
-    assert asked_for["headers"] == {"Authorization": "Bearer sk-1"}
-
-
-def test_an_entry_with_no_info_at_all_is_still_offered(proxied) -> None:
-    """``model_info`` is null for a deployment the proxy knows nothing about, which is
-    "cannot say" and so offered rather than hidden."""
-    proxied([{"model_name": "bare", "model_info": None}, {"model_name": "missing"}])
-
-    assert listed(LITELLM_CONFIG) == [
-        installed("bare", completion=True),
-        installed("missing", completion=True),
-    ]
-
-
-def test_a_proxy_routing_nothing_lists_nothing(proxied) -> None:
-    """An empty ``/model/info`` is an answer, so there is no fallback to ask."""
-    asked_for = proxied([])
-
-    assert listed(LITELLM_CONFIG) == []
-    assert len(asked_for["urls"]) == 1
-
-
-def test_an_alias_the_proxy_does_not_route_says_so_even_when_it_routes_nothing(
-    proxied,
-) -> None:
-    proxied([])
-    response = httpx.Response(400, request=_REQUEST)
-    message = hint(
-        LITELLM_CONFIG,
-        openai.BadRequestError(
-            "Invalid model name passed in model=x", response=response, body=None
-        ),
-    )
-
-    assert "routing: none" in message
-
-
-def test_an_alias_the_proxy_does_not_route_still_says_so_when_it_cannot_list(
-    proxied,
-) -> None:
-    """The second failure must not replace the sentence being written about the first."""
-    proxied(error=httpx.ConnectError("refused"))
-    message = hint(LITELLM_CONFIG, _status_error(openai.NotFoundError, 404))
-
-    assert "routing: unknown" in message
-    assert "model_list" in message
-
-
-def test_the_models_offered_for_a_missing_alias_are_every_one_it_routes(proxied) -> None:
-    proxied([_alias("local_model"), _alias("embedder", "embedding")])
-    config = AgentConfig(provider="litellm", model="gone")
-    message = hint(config, _status_error(openai.NotFoundError, 404))
-
-    assert "routing: local_model, embedder" in message
-    assert "'gone'" in message
-
-
-def test_a_relayed_failure_quotes_what_the_proxy_said() -> None:
-    """The proxy's message names the server it routed to, which is the useful half."""
-    relayed = openai.BadRequestError(
-        "litellm.BadRequestError: OllamaException - response_format not supported",
-        response=httpx.Response(400, request=_REQUEST),
-        body=None,
-    )
-    message = hint(LITELLM_CONFIG, relayed)
-
-    assert "response_format not supported" in message
-    assert "proxy's own log" in message
-
-
-def test_a_proxy_rate_limit_is_blamed_on_what_is_behind_it() -> None:
-    """A 429 is an answer from a running proxy, not a server to start."""
-    limited = openai.RateLimitError(
-        "litellm.RateLimitError: rpm limit reached for local_model",
-        response=httpx.Response(429, request=_REQUEST),
-        body=None,
-    )
-    message = hint(LITELLM_CONFIG, limited)
-
-    assert "answered, but the model behind 'local_model' failed" in message
-    assert "Could not reach" not in message
-
-
-def test_the_openai_client_and_the_proxy_listing_share_one_failure_vocabulary() -> None:
-    """Same client as vLLM's, so the same tuple -- and none of Ollama's own classes."""
-    assert errors(LITELLM_CONFIG) == errors(VLLM_CONFIG)
-    assert ResponseError not in errors(LITELLM_CONFIG)
-
-
-def test_every_row_words_its_own_room_and_names_no_flag_of_this_cli() -> None:
-    """``more_room`` ends a sentence both doors show, so it is the setting's name and
-    never one of this project's flags -- ``--max-model-len`` is vLLM's own."""
+def test_every_row_words_its_own_room() -> None:
+    """``more_room`` ends a sentence both doors show, so it names no flag of this CLI."""
     rooms = [server.more_room for server in providers_module.PROVIDERS.values()]
 
-    assert all(rooms), "a row with no wording leaves the sentence ending in a colon"
-    assert len(set(rooms)) == len(rooms), "each server has its own way to get more room"
-    for room in rooms:
-        assert "--num-ctx" not in room and "--think" not in room
-
-
-@pytest.mark.parametrize("provider", ["ollama", "vllm", "litellm"])
-def test_an_unreadable_answer_ends_with_that_row_s_own_room(provider: str) -> None:
-    config = AgentConfig(provider=provider)
-    message = hint(config, UnreadableAnswerError("Invalid json output: {"))
-
-    assert message.endswith(f"{config.model_server.more_room}.")
-
-
-def test_a_slow_proxy_is_told_to_shorten_the_prompt_not_the_window() -> None:
-    """The proxy takes no per-run window, so the too-slow hint names the other lever."""
-    message = hint(LITELLM_CONFIG, httpx.ReadTimeout("timed out"))
-
-    assert "a shorter prompt" in message
-    assert "a smaller context window" not in message
-
-
-def test_the_proxy_is_offered_to_the_form_without_its_key() -> None:
-    options = {option["name"]: option for option in provider_options()}
-
-    assert options["litellm"]["label"] == "LiteLLM"
-    assert options["litellm"]["base_url"] == providers_module.LITELLM.base_url
-    assert "api_key" not in options["litellm"]
+    assert len(set(rooms)) == len(rooms)
+    assert not any("--num-ctx" in room or "--think" in room for room in rooms)

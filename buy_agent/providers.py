@@ -303,11 +303,6 @@ def _openai_models(config: AgentConfig) -> list[InstalledModel]:
     ]
 
 
-def _vllm_installed(config: AgentConfig) -> list[InstalledModel]:
-    """What vLLM is serving -- one model, in the list shape the picker wants."""
-    return _openai_models(config)
-
-
 def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
     """Turn a vLLM failure into something the user can act on."""
     detail = str(exc)
@@ -328,37 +323,22 @@ def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
     return _unreachable_hint(config, exc, f"vllm serve {config.model}")
 
 
-#: The ``mode`` a LiteLLM proxy reports for a model that answers a chat prompt; an
-#: ``embedding`` or ``image_generation`` alias is listed beside it and cannot (ADR-0032).
-_LITELLM_CHAT = "chat"
-
-#: What ``reasoning`` is sent to a LiteLLM proxy as: its own provider-neutral
-#: ``reasoning_effort``, which the proxy translates for whatever it routes to and drops
-#: where that has nothing to translate it into (ADR-0067).
-_REASONING_EFFORT = {True: "medium", False: "none"}
-
-
 def _litellm_chat_model(config: AgentConfig) -> ChatModel:
-    """A LiteLLM proxy through the OpenAI API it serves (ADR-0067)."""
-    extra_body: dict[str, Any] = {}
-    # Sent only when it was asked for, for the reason Ollama's ``think`` is: ``None``
-    # leaves the model behind the proxy to its own behaviour (ADR-0019).
-    if config.reasoning is not None:
-        extra_body["reasoning_effort"] = _REASONING_EFFORT[config.reasoning]
-    return _openai_chat_model(config, extra_body)
+    """A LiteLLM proxy, told to think in its own provider-neutral ``reasoning_effort``
+    and told nothing where ``reasoning`` is ``None`` (ADR-0019, ADR-0067)."""
+    if config.reasoning is None:
+        return _openai_chat_model(config, {})
+    effort = "medium" if config.reasoning else "none"
+    return _openai_chat_model(config, {"reasoning_effort": effort})
 
 
 def _litellm_installed(config: AgentConfig) -> list[InstalledModel]:
-    """Every alias the proxy routes, and whether each one answers a chat prompt.
-
-    ``/model/info`` says which mode each alias is in, which is the question ADR-0032
-    asks of Ollama's tags. A proxy that will not answer it -- an older one, or a key
-    allowed only to call models -- still answers the OpenAI listing, and "cannot say"
-    is not "cannot run".
-    """
+    """Every alias the proxy routes, marked by the ``mode`` ``/model/info`` reports
+    (ADR-0032). A proxy that will not say falls back to the plain listing: "cannot say"
+    is not "cannot run". Its own routes sit beside ``/v1``, not under it."""
     try:
         response = httpx.get(
-            f"{_proxy_root(config.base_url)}/model/info",
+            f"{config.base_url.rstrip('/').removesuffix('/v1')}/model/info",
             headers=_authorised(config),
             timeout=_LIST_TIMEOUT,
         )
@@ -368,43 +348,33 @@ def _litellm_installed(config: AgentConfig) -> list[InstalledModel]:
         return _openai_models(config)
     models: dict[str, bool] = {}
     for entry in entries:
-        if not (name := entry.get("model_name")):
-            continue
-        mode = (entry.get("model_info") or {}).get("mode")
-        # One alias can be several deployments; it answers if any of them does, and a
-        # deployment that reports no mode is one nothing can say about.
-        models[name] = models.get(name, False) or mode in (None, _LITELLM_CHAT)
+        if name := entry.get("model_name"):
+            # An alias of several deployments answers if any of them does.
+            mode = (entry.get("model_info") or {}).get("mode")
+            models[name] = models.get(name, False) or mode in (None, "chat")
     return [InstalledModel(name, completion) for name, completion in models.items()]
-
-
-def _proxy_root(base_url: str) -> str:
-    """The proxy's own address: its management routes sit beside ``/v1``, not under it."""
-    base = base_url.rstrip("/")
-    return base.removesuffix("/v1")
 
 
 def _litellm_hint(config: AgentConfig, exc: Exception) -> str:
     """Turn a LiteLLM proxy's failure into something the user can act on (ADR-0067)."""
-    detail = str(exc)
+    proxy = f"The LiteLLM proxy at {config.base_url}"
     if isinstance(exc, openai.AuthenticationError):
         return (
-            f"The LiteLLM proxy at {config.base_url} refused the API key ({detail}). "
+            f"{proxy} refused the API key ({exc}). "
             "Set $LITELLM_API_KEY to its master key or to a virtual key it issued."
         )
     lowered = _answered_by(exc, openai.APIStatusError)
-    if "invalid model name" in lowered or "not found" in lowered or "does not exist" in lowered:
+    if any(said in lowered for said in ("invalid model name", "not found", "not exist")):
         return (
-            f"The LiteLLM proxy at {config.base_url} routes no model called "
-            f"{config.model!r}. Ask for one it has (routing: {_listed(config)}), or add "
-            f"it to the model_list in the proxy's config.yaml and restart it."
+            f"{proxy} routes no model called {config.model!r}. Ask for one it has "
+            f"(routing: {_listed(config)}), or add it to the model_list in the "
+            f"proxy's config.yaml and restart it."
         )
     if lowered:
-        # The proxy answered, and what it relays is the failure of whatever it routes
-        # to -- an Ollama behind it that is stopped, a provider refusing the schema.
+        # Any other answer is the failure of whatever it routed to, relayed.
         return (
-            f"The LiteLLM proxy at {config.base_url} answered, but the model behind "
-            f"{config.model!r} failed ({detail}). The proxy's own log says which "
-            f"server it routed to."
+            f"{proxy} answered, but the model behind {config.model!r} failed ({exc}). "
+            "The proxy's own log says which server it routed to."
         )
     return _unreachable_hint(config, exc, "litellm --config config.yaml")
 
@@ -518,7 +488,7 @@ VLLM = Provider(
     # window there, so a run has nothing to say about it.
     takes_cpu_only=False,
     chat_model=_vllm_chat_model,
-    installed=_vllm_installed,
+    installed=_openai_models,
     # ``openai.OpenAIError`` is the root of that client's hierarchy.
     transport_errors=(openai.OpenAIError, OSError, httpx.HTTPError),
     hint=_hint(_vllm_hint),
@@ -530,19 +500,15 @@ VLLM = Provider(
 LITELLM = Provider(
     name="litellm",
     label="LiteLLM",
-    # An alias out of the proxy's own ``model_list``, which nothing here can know: a
-    # placeholder naming what goes there rather than a guess at somebody's config.
+    # An alias out of somebody's ``model_list``, which nothing here can know.
     model=os.getenv("LITELLM_MODEL", "local_model"),
-    # Port 4000 is what ``litellm --config`` binds with no ``--port``.
     base_url=os.getenv("LITELLM_HOST", "http://localhost:4000/v1"),
     api_key=os.getenv("LITELLM_API_KEY", ""),
-    # The window and the device belong to whatever the proxy routes to, and the proxy
-    # passes neither on as a per-request setting every backend reads.
+    # Both belong to whatever the proxy routes to.
     takes_num_ctx=False,
     takes_cpu_only=False,
     chat_model=_litellm_chat_model,
     installed=_litellm_installed,
-    # The same client as vLLM's, and the same listing transport.
     transport_errors=(openai.OpenAIError, OSError, httpx.HTTPError),
     hint=_hint(_litellm_hint),
     more_room=(

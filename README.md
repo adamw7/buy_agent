@@ -204,44 +204,22 @@ machine or network is inside that decision, not an exception to it.
 
 ### Running against a LiteLLM proxy
 
-A [LiteLLM](https://docs.litellm.ai/docs/simple_proxy) proxy puts several model
-servers behind one OpenAI-compatible address, with fallbacks and per-person keys.
-If you already run one, point the agent at it rather than past it:
+Already running a [LiteLLM](https://docs.litellm.ai/docs/simple_proxy) proxy?
+Point the agent at it rather than past it:
 
 ```powershell
 python -m buy_agent "espresso machine" --provider litellm --model local_model
-$env:BUY_AGENT_PROVIDER = 'litellm'   # ...or once, for every run in this shell
 ```
 
-The defaults are `$LITELLM_MODEL` and `$LITELLM_HOST` (`local_model`,
-`http://localhost:4000/v1`, the port `litellm --config` binds). The model is an
-alias out of the proxy's own `model_list`, so `local_model` is a placeholder:
-name one of yours. A proxy routing that alias to the Ollama on this machine is a
-few lines of its `config.yaml`:
-
-```yaml
-model_list:
-  - model_name: local_model
-    litellm_params:
-      model: ollama_chat/gemma4:12b
-      api_base: http://localhost:11434
-```
-
-It is only the proxy that is reached, with the `openai` client vLLM already
-uses. The LiteLLM SDK is not a dependency. The differences from vLLM:
-
-- **The Model dropdown lists the proxy's aliases** and marks the embedding ones
-  as `embedding only`, read off the proxy's `/model/info`.
-- **`--num-ctx` and `--cpu-only` are not sent.** The window and the device belong
-  to whatever the proxy routes to. `--think` / `--no-think` is sent as LiteLLM's
-  own `reasoning_effort`.
-- **A key, if the proxy wants one.** Set `$env:LITELLM_API_KEY` to its master key
-  or a virtual key it issued. As with vLLM, there is no flag for it.
-
-Where the proxy forwards a request is decided by its `config.yaml`, and so is
-whether your shopping request leaves the machine.
-[ADR-0067](docs/adr/0067-reach-a-litellm-proxy-as-a-third-model-server.md) has
-the reasoning, and why the SDK was rejected.
+The defaults are `$LITELLM_MODEL` (`local_model`, a placeholder: name an alias
+from your proxy's `model_list`), `$LITELLM_HOST` (`http://localhost:4000/v1`) and
+`$LITELLM_API_KEY`. Only the proxy is reached, with the `openai` client vLLM
+uses, so the LiteLLM SDK is not a dependency. The dropdown lists the proxy's
+aliases and marks embedding ones. `--num-ctx` and `--cpu-only` are not sent,
+since they belong to whatever the proxy routes to, and `--think` becomes
+`reasoning_effort`. Whether a request leaves the machine is up to the proxy's
+`config.yaml`
+([ADR-0067](docs/adr/0067-reach-a-litellm-proxy-as-a-third-model-server.md)).
 
 ### Thinking models
 

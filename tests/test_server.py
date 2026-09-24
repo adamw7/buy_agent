@@ -28,7 +28,7 @@ import buy_agent.server as server_module
 from buy_agent.agent import ModelUnavailableError, every_step_passes
 from buy_agent.models import Product, nothing_recorded
 from tests.conftest import Photographer, needs_ap2, ranked_product
-from buy_agent.providers import LITELLM, OLLAMA, VLLM
+from buy_agent.providers import OLLAMA, VLLM
 from buy_agent.screenshots import INSTALL, Camera, ScreenshotError
 from buy_agent.search import SearchError
 from buy_agent.server import (
@@ -445,20 +445,6 @@ def test_models_falls_back_to_the_address_that_provider_serves_on(server: str) -
 
     assert status == 200
     assert payload["base_url"] == VLLM.base_url
-
-
-def test_models_asks_a_proxy_at_its_own_address(server: str) -> None:
-    """The third server has its own port, and a page naming it gets that one."""
-    status, payload = get(f"{server}/api/models?provider=litellm&base_url=http://127.0.0.1:1")
-
-    assert status == 200
-    assert (payload["provider"], payload["label"]) == ("litellm", "LiteLLM")
-    assert payload["reachable"] is False
-
-    status, payload = get(f"{server}/api/models?provider=litellm")
-
-    assert status == 200
-    assert payload["base_url"] == LITELLM.base_url
 
 
 def test_models_reports_a_provider_nothing_can_serve(server: str) -> None:

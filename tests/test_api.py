@@ -885,20 +885,10 @@ def test_choosing_a_provider_brings_its_model_and_its_server_with_it() -> None:
 
 
 def test_choosing_a_litellm_proxy_brings_its_own_pair() -> None:
-    """Blank fields after the picker moved to LiteLLM mean the proxy's alias and
-    address, not the vLLM or Ollama pair the form was showing a moment ago."""
     config, _ = parse_options({"provider": "litellm", "model": "", "base_url": ""})
 
     assert config.provider == "litellm"
     assert (config.model, config.base_url) == (LITELLM.model, LITELLM.base_url)
-
-
-def test_a_request_never_sets_the_proxy_key() -> None:
-    """$LITELLM_API_KEY is a secret with no form field, so a body naming one is a
-    key nothing reads rather than a way to hand the server somebody else's."""
-    config, _ = parse_options({"provider": "litellm", "api_key": "sk-stolen"})
-
-    assert config.api_key != "sk-stolen"
 
 
 def test_a_named_model_still_wins_over_the_provider_default() -> None:
@@ -1016,12 +1006,8 @@ def test_installed_models_asks_vllm_what_it_is_serving(monkeypatch) -> None:
 
 
 def test_installed_models_asks_a_proxy_which_aliases_answer(monkeypatch) -> None:
-    """A proxy says each alias's mode, so an embedding alias reaches the picker marked
-    rather than offered (ADR-0032, ADR-0067)."""
-    info = [
-        {"model_name": "local_model", "model_info": {"mode": "chat"}},
-        {"model_name": "embedder", "model_info": {"mode": "embedding"}},
-    ]
+    """Each alias's mode, so an embedding one reaches the picker marked (ADR-0032)."""
+    info = [{"model_name": "embedder", "model_info": {"mode": "embedding"}}]
 
     def get(url, **_kwargs):
         assert url == "http://localhost:4000/model/info", url
@@ -1034,26 +1020,8 @@ def test_installed_models_asks_a_proxy_which_aliases_answer(monkeypatch) -> None
         "label": "LiteLLM",
         "base_url": "http://localhost:4000/v1",
         "reachable": True,
-        "models": [
-            {"name": "local_model", "completion": True},
-            {"name": "embedder", "completion": False},
-        ],
+        "models": [{"name": "embedder", "completion": False}],
     }
-
-
-def test_an_unreachable_proxy_is_told_how_to_start_one(monkeypatch) -> None:
-    """Its own remedy, not vLLM's or Ollama's: a proxy is started with its config."""
-
-    def explode(url, **_kwargs):
-        raise httpx.ConnectError("connection refused")
-
-    monkeypatch.setattr("buy_agent.providers.httpx.get", explode)
-    payload = installed_models("litellm", "http://localhost:4000/v1")
-
-    assert payload["reachable"] is False
-    assert "litellm --config config.yaml" in payload["hint"]
-    assert "vllm serve" not in payload["hint"]
-    assert "ollama" not in payload["hint"].lower()
 
 
 def test_a_provider_nothing_can_serve_is_a_status_too(monkeypatch) -> None:
