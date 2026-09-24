@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -40,6 +41,14 @@ if SOURCE_ROOT.name == "mutants":
 needs_ap2 = pytest.mark.skipif(
     not mandates.available(),
     reason=f"the optional AP2 SDK is not installed -- add it with:  {mandates.INSTALL}",
+)
+
+#: ``pwsh`` is PowerShell 7 and ``powershell`` is the 5.1 that ships with Windows.
+POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
+
+#: Skips a test that has to read one of the scripts in ``scripts/`` with PowerShell.
+needs_powershell = pytest.mark.skipif(
+    POWERSHELL is None, reason="no pwsh or powershell on PATH to read the script with"
 )
 
 

@@ -1286,9 +1286,9 @@ def test_the_startup_script_names_the_toolchains_ci_pins() -> None:
 _PIP_NOISE = {"--quiet", "--disable-pip-version-check"}
 
 
-def script_pip_installs() -> list[list[str]]:
-    """Every ``pip install`` the startup script runs, as its own argument list."""
-    blocks = re.findall(r"Run \$python @\((.*?)\)", start_script(), re.S)
+def pip_installs(source: str) -> list[list[str]]:
+    """Every ``pip install`` a PowerShell script here runs, as its own argument list."""
+    blocks = re.findall(r"Run \$python @\((.*?)\)", source, re.S)
     quoted = [re.findall(r"'([^']*)'", block) for block in blocks]
     return [
         [word for word in call[3:] if word not in _PIP_NOISE]
@@ -1304,7 +1304,7 @@ def test_the_startup_script_installs_the_ap2_sdk_the_way_mandates_says_to() -> N
     that collides with this project's, and applied to the file naming what the SDK
     imports it leaves ``cryptography`` without ``cffi`` and nothing able to sign."""
     wanted = [command.split()[2:] for command in mandates_module.INSTALL.split(" && ")]
-    ran = script_pip_installs()
+    ran = pip_installs(start_script())
 
     assert wanted, "mandates.INSTALL no longer names anything to install"
     for command in wanted:
@@ -1399,6 +1399,144 @@ def test_the_session_hook_reads_both_toolchain_pins_out_of_ci() -> None:
         assert ci_version(key) not in source, (
             f"{ci_version(key)} is ci.yml's to say, not the session hook's"
         )
+
+
+# -- the contributor's scripts -------------------------------------------------
+
+_SETUP = _ROOT / "scripts" / "setup.ps1"
+_PREFLIGHT = _ROOT / "scripts" / "preflight.ps1"
+
+
+def setup_script() -> str:
+    return _SETUP.read_text(encoding="utf-8")
+
+
+def ci_checks() -> list[str]:
+    """Every step of ci.yml that checks rather than installs, in the order it runs."""
+    steps = re.findall(
+        r"^      - name: (.+)\n        run: (.+)$", _CI.read_text(encoding="utf-8"), re.M
+    )
+    checks = [command for name, command in steps if not name.startswith("Install")]
+    assert checks, "no checking step in ci.yml; this rule has outlived itself"
+    return checks
+
+
+def ci_pip_installs() -> list[list[str]]:
+    """Every ``pip install`` ci.yml runs, one-line ``run:`` and block alike."""
+    return [
+        line.split()
+        for line in re.findall(
+            r"^\s+(?:run: )?pip install (.+)$", _CI.read_text(encoding="utf-8"), re.M
+        )
+    ]
+
+
+def test_the_setup_script_installs_what_ci_installs() -> None:
+    """It claims to set a checkout up for the gate, and the gate is what ci.yml's Python
+    job installs: the dev requirements and the AP2 SDK, the second of which a checkout
+    set up by README's own steps used to go without -- 74 tests skipped and a coverage
+    floor nobody could reach, on a checkout CI would pass (ADR-0067)."""
+    wanted = ci_pip_installs()
+    ran = pip_installs(setup_script())
+
+    assert wanted, "ci.yml installs nothing with pip; this rule has outlived itself"
+    for command in wanted:
+        assert command in ran, f"the setup script never runs: pip install {' '.join(command)}"
+
+
+def test_the_setup_script_installs_the_ap2_sdk_the_way_mandates_says_to() -> None:
+    """The rule `scripts/start.ps1` and the session hook are held to, for the same reason."""
+    ran = pip_installs(setup_script())
+
+    for command in mandates_module.INSTALL.split(" && "):
+        assert command.split()[2:] in ran, f"the setup script never runs: {command}"
+
+
+def test_the_setup_script_asks_python_whether_paying_is_available() -> None:
+    """pip exits 0 for an install of the SDK that cannot be imported, so the setup asks
+    the question both front doors ask rather than trusting the exit code."""
+    assert "from buy_agent.mandates import available" in setup_script()
+
+
+def test_the_setup_script_installs_the_ui_the_way_ci_does() -> None:
+    """``npm ci`` installs the lockfile as written; ``npm install`` may rewrite it, which
+    is a first-day diff in a file nobody meant to touch."""
+    installs = re.findall(
+        r"^      - name: Install.*\n        run: npm (\S+)$", _CI.read_text(encoding="utf-8"), re.M
+    )
+
+    assert installs, "ci.yml installs the UI with no npm command; this rule has moved"
+    for verb in installs:
+        assert f"Run 'npm' @('{verb}'" in setup_script(), f"the setup script never runs npm {verb}"
+
+
+def test_the_setup_script_reads_both_toolchain_pins_out_of_ci() -> None:
+    """The session hook's rule, one shell over: a version written into the script is a
+    sixth copy of ci.yml's pin, and the one a new joiner's machine is checked against."""
+    source = setup_script()
+
+    for key in ("node-version", "python-version"):
+        assert f"Pinned '{key}'" in source, f"the setup script never reads {key} out of ci.yml"
+        assert ci_version(key) not in source, (
+            f"{ci_version(key)} is ci.yml's to say, not the setup script's"
+        )
+
+
+def preflight_steps() -> list[str]:
+    """Every step ``scripts/preflight.ps1`` runs, as ci.yml writes the same command."""
+    source = _PREFLIGHT.read_text(encoding="utf-8")
+    return [
+        f"{program} {' '.join(re.findall(r"'([^']*)'", step))}"
+        for program, block in re.findall(r"^\s+Job '(\w+)' .*?@\((.*?)^\s+\)$", source, re.M | re.S)
+        for step in re.findall(r"^\s+, @\((.*)\)$", block, re.M)
+    ]
+
+
+def test_the_preflight_script_runs_what_ci_runs() -> None:
+    """Step for step and in ci.yml's order: a check missing from it is a green local run
+    and a red pull request, and one it adds is a red local run nobody else sees."""
+    assert preflight_steps() == ci_checks()
+
+
+def test_the_preflight_skill_runs_the_preflight_script() -> None:
+    """The skill and the script are one gate, and the script is the half a person runs."""
+    written = (_SKILLS / "preflight" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "scripts/preflight.ps1" in written
+
+
+# -- line endings --------------------------------------------------------------
+
+_GITATTRIBUTES = _ROOT / ".gitattributes"
+
+
+def gitattributes() -> list[str]:
+    return [line.strip() for line in _GITATTRIBUTES.read_text(encoding="utf-8").splitlines()]
+
+
+def test_every_text_file_is_checked_out_with_lf() -> None:
+    """Git for Windows checks text out with CRLF unless told otherwise, and Prettier then
+    reads every file in ui/src as misformatted -- on the platform this project is
+    developed on and on none of the runners, so nothing but a new joiner noticed."""
+    assert "* text=auto eol=lf" in gitattributes()
+
+
+def test_every_binary_file_in_the_tree_is_marked_binary() -> None:
+    """``text=auto`` guesses, and a guess that reads an image as text rewrites its bytes on
+    the way out. Found by looking for a NUL byte, which no text file here holds --
+    outside the interpreter's own cache, which is ignored rather than checked out."""
+    found = {
+        path.suffix
+        for directory in ("docs", "demo", "ui/public", "ui/src")
+        for path in (_ROOT / directory).rglob("*")
+        if path.is_file()
+        and "__pycache__" not in path.parts
+        and b"\0" in path.read_bytes()[:8192]
+    }
+
+    assert found, "no binary file in the tree; this rule has outlived itself"
+    for suffix in found:
+        assert f"*{suffix} binary" in gitattributes(), f"*{suffix} is left to a guess"
 
 
 # -- the nightly integration run -----------------------------------------------
@@ -2282,14 +2420,9 @@ def test_the_option_skill_names_the_tables_a_new_setting_joins() -> None:
 
 def test_the_preflight_skill_runs_what_ci_runs() -> None:
     """`.claude/skills/preflight` claims to be the CI gate, locally."""
-    steps = re.findall(
-        r"^      - name: (.+)\n        run: (.+)$", _CI.read_text(encoding="utf-8"), re.M
-    )
-    checks = [command for name, command in steps if not name.startswith("Install")]
     written = (_SKILLS / "preflight" / "SKILL.md").read_text(encoding="utf-8")
 
-    assert checks, "no checking step in ci.yml; this test has outlived its rule"
-    for command in checks:
+    for command in ci_checks():
         assert command in written, f"preflight does not run `{command}`, which ci.yml does"
 
 

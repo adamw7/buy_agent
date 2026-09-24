@@ -1,0 +1,17 @@
+# Every text file is checked out with LF, whatever core.autocrlf says.
+#
+# Git for Windows installs with core.autocrlf=true, which checks text out with
+# CRLF -- and Prettier, whose endOfLine is "lf", then reads every file in ui/src
+# as misformatted: `npm run format:check` failed on all of them on a clean clone,
+# and `npm run format` "fixed" that by rewriting files nobody had touched. CI never
+# saw it, the runners checking out LF. .claude/hooks/session-start.sh is the same
+# mistake a shell over: a CRLF shebang line names an interpreter that is not there.
+# Saying it here makes the checkout the same on every machine rather than on every
+# machine configured like the runners.
+* text=auto eol=lf
+
+# The four kinds of file here that are not text, said so rather than guessed at.
+*.png binary
+*.ico binary
+*.mpg binary
+*.wav binary
