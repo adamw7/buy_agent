@@ -357,7 +357,7 @@ export class SearchForm {
     this.providerOptions().find((option) => option.name === this.provider()),
   );
 
-  /** What to call this server on screen -- "Ollama", "vLLM". */
+  /** What to call this server on screen -- "Ollama", "vLLM", "LiteLLM". */
   protected readonly providerLabel = computed(
     () => this.chosenProvider()?.label ?? this.provider(),
   );
@@ -372,13 +372,13 @@ export class SearchForm {
   protected readonly cpuOnlyHint = computed(() =>
     this.takesCpuOnly()
       ? 'Slower, but it leaves the card free and runs a model too large to fit on it.'
-      : `${this.providerLabel()} is started on the device it serves from, so this is not a per-run setting there.`,
+      : `With ${this.providerLabel()} the device is chosen where the model is served, so this is not a per-run setting there.`,
   );
 
   /** Cleared, the field means "whatever the server defaults to" -- so name it. */
   protected readonly numCtxHint = computed(() => {
     if (!this.takesNumCtx()) {
-      return `Fixed when ${this.providerLabel()} starts`;
+      return `Fixed where ${this.providerLabel()}'s model is served`;
     }
     const fallback = this.defaults()?.num_ctx;
     return fallback ? `The default (${fallback})` : "Ollama's own (4096)";

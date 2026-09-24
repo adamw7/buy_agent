@@ -595,6 +595,25 @@ def test_a_setting_the_server_never_sees_is_not_part_of_the_question() -> None:
     assert "num_ctx" not in vllm
 
 
+def test_a_proxy_key_is_never_part_of_what_is_written_to_disk() -> None:
+    """The same rule for the third server's secret."""
+    fingerprint = _asks_the_same_question(
+        AgentConfig(provider="litellm", api_key="sk-secret")
+    )
+
+    assert "sk-secret" not in str(fingerprint)
+    assert "num_ctx" not in fingerprint, "the window belongs to what the proxy routes to"
+
+
+def test_two_proxies_are_two_questions() -> None:
+    """A remembered answer from one proxy is not one another would give -- they route
+    the same alias to whatever each owner configured."""
+    one = _asks_the_same_question(AgentConfig(provider="litellm", base_url="http://a:4000/v1"))
+    other = _asks_the_same_question(AgentConfig(provider="litellm", base_url="http://b:4000/v1"))
+
+    assert one != other
+
+
 @pytest.fixture
 def installed_models(monkeypatch):
     """Stand in for an Ollama being asked what it holds, so nothing opens a socket."""

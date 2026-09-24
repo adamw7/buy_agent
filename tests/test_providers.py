@@ -1337,3 +1337,175 @@ def test_the_proxy_defaults_are_a_local_one_with_a_placeholder_alias(
     assert config.base_url == "http://localhost:4000/v1"
     assert config.model == "local_model"
     assert config.api_key == ""
+
+
+def test_closing_a_proxy_chat_model_lets_go_of_its_client(completing) -> None:
+    sent = completing()
+
+    chat_model(LITELLM_CONFIG).close()
+
+    assert sent["closed"] is True
+
+
+@pytest.mark.parametrize(
+    ("base_url", "root"),
+    [
+        ("http://localhost:4000/v1", "http://localhost:4000"),
+        ("http://localhost:4000/v1/", "http://localhost:4000"),
+        # A proxy mounted without the ``/v1`` prefix answers its routes where it is.
+        ("http://localhost:4000", "http://localhost:4000"),
+        ("http://gateway.internal/litellm/v1", "http://gateway.internal/litellm"),
+    ],
+)
+def test_the_proxy_root_is_the_api_root_less_its_version(
+    proxied, base_url: str, root: str
+) -> None:
+    asked_for = proxied([_alias("local_model")])
+
+    listed(AgentConfig(provider="litellm", base_url=base_url))
+
+    assert asked_for["urls"] == [f"{root}/model/info"]
+
+
+def test_a_proxy_without_a_key_is_listed_with_no_header(proxied) -> None:
+    asked_for = proxied([_alias("local_model")])
+
+    listed(AgentConfig(provider="litellm", api_key=""))
+
+    assert asked_for["headers"] == {}
+
+
+def test_the_fallback_listing_carries_the_key_too(proxied) -> None:
+    """A proxy that refused ``/model/info`` over the key's scope still wants that key
+    on ``/v1/models``, or the fallback fails for a second reason."""
+    refused = httpx.HTTPStatusError(
+        "Client error '403 Forbidden'",
+        request=httpx.Request("GET", "http://localhost:4000/model/info"),
+        response=httpx.Response(403),
+    )
+    asked_for = proxied(models=["local_model"], info_error=refused)
+
+    listed(AgentConfig(provider="litellm", api_key="sk-1"))
+
+    assert asked_for["headers"] == {"Authorization": "Bearer sk-1"}
+
+
+def test_an_entry_with_no_info_at_all_is_still_offered(proxied) -> None:
+    """``model_info`` is null for a deployment the proxy knows nothing about, which is
+    "cannot say" and so offered rather than hidden."""
+    proxied([{"model_name": "bare", "model_info": None}, {"model_name": "missing"}])
+
+    assert listed(LITELLM_CONFIG) == [
+        installed("bare", completion=True),
+        installed("missing", completion=True),
+    ]
+
+
+def test_a_proxy_routing_nothing_lists_nothing(proxied) -> None:
+    """An empty ``/model/info`` is an answer, so there is no fallback to ask."""
+    asked_for = proxied([])
+
+    assert listed(LITELLM_CONFIG) == []
+    assert len(asked_for["urls"]) == 1
+
+
+def test_an_alias_the_proxy_does_not_route_says_so_even_when_it_routes_nothing(
+    proxied,
+) -> None:
+    proxied([])
+    response = httpx.Response(400, request=_REQUEST)
+    message = hint(
+        LITELLM_CONFIG,
+        openai.BadRequestError(
+            "Invalid model name passed in model=x", response=response, body=None
+        ),
+    )
+
+    assert "routing: none" in message
+
+
+def test_an_alias_the_proxy_does_not_route_still_says_so_when_it_cannot_list(
+    proxied,
+) -> None:
+    """The second failure must not replace the sentence being written about the first."""
+    proxied(error=httpx.ConnectError("refused"))
+    message = hint(LITELLM_CONFIG, _status_error(openai.NotFoundError, 404))
+
+    assert "routing: unknown" in message
+    assert "model_list" in message
+
+
+def test_the_models_offered_for_a_missing_alias_are_every_one_it_routes(proxied) -> None:
+    proxied([_alias("local_model"), _alias("embedder", "embedding")])
+    config = AgentConfig(provider="litellm", model="gone")
+    message = hint(config, _status_error(openai.NotFoundError, 404))
+
+    assert "routing: local_model, embedder" in message
+    assert "'gone'" in message
+
+
+def test_a_relayed_failure_quotes_what_the_proxy_said() -> None:
+    """The proxy's message names the server it routed to, which is the useful half."""
+    relayed = openai.BadRequestError(
+        "litellm.BadRequestError: OllamaException - response_format not supported",
+        response=httpx.Response(400, request=_REQUEST),
+        body=None,
+    )
+    message = hint(LITELLM_CONFIG, relayed)
+
+    assert "response_format not supported" in message
+    assert "proxy's own log" in message
+
+
+def test_a_proxy_rate_limit_is_blamed_on_what_is_behind_it() -> None:
+    """A 429 is an answer from a running proxy, not a server to start."""
+    limited = openai.RateLimitError(
+        "litellm.RateLimitError: rpm limit reached for local_model",
+        response=httpx.Response(429, request=_REQUEST),
+        body=None,
+    )
+    message = hint(LITELLM_CONFIG, limited)
+
+    assert "answered, but the model behind 'local_model' failed" in message
+    assert "Could not reach" not in message
+
+
+def test_the_openai_client_and_the_proxy_listing_share_one_failure_vocabulary() -> None:
+    """Same client as vLLM's, so the same tuple -- and none of Ollama's own classes."""
+    assert errors(LITELLM_CONFIG) == errors(VLLM_CONFIG)
+    assert ResponseError not in errors(LITELLM_CONFIG)
+
+
+def test_every_row_words_its_own_room_and_names_no_flag_of_this_cli() -> None:
+    """``more_room`` ends a sentence both doors show, so it is the setting's name and
+    never one of this project's flags -- ``--max-model-len`` is vLLM's own."""
+    rooms = [server.more_room for server in providers_module.PROVIDERS.values()]
+
+    assert all(rooms), "a row with no wording leaves the sentence ending in a colon"
+    assert len(set(rooms)) == len(rooms), "each server has its own way to get more room"
+    for room in rooms:
+        assert "--num-ctx" not in room and "--think" not in room
+
+
+@pytest.mark.parametrize("provider", ["ollama", "vllm", "litellm"])
+def test_an_unreadable_answer_ends_with_that_row_s_own_room(provider: str) -> None:
+    config = AgentConfig(provider=provider)
+    message = hint(config, UnreadableAnswerError("Invalid json output: {"))
+
+    assert message.endswith(f"{config.model_server.more_room}.")
+
+
+def test_a_slow_proxy_is_told_to_shorten_the_prompt_not_the_window() -> None:
+    """The proxy takes no per-run window, so the too-slow hint names the other lever."""
+    message = hint(LITELLM_CONFIG, httpx.ReadTimeout("timed out"))
+
+    assert "a shorter prompt" in message
+    assert "a smaller context window" not in message
+
+
+def test_the_proxy_is_offered_to_the_form_without_its_key() -> None:
+    options = {option["name"]: option for option in provider_options()}
+
+    assert options["litellm"]["label"] == "LiteLLM"
+    assert options["litellm"]["base_url"] == providers_module.LITELLM.base_url
+    assert "api_key" not in options["litellm"]

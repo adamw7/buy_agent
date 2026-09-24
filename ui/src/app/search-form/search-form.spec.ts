@@ -2,7 +2,7 @@ import { TestBed, ComponentFixture } from '@angular/core/testing';
 
 import { accessibilityProblems } from '../a11y';
 import { SearchForm } from './search-form';
-import { VLLM, defaults, status } from '../testing';
+import { LITELLM, VLLM, defaults, status } from '../testing';
 import type {
   AgentDefaults,
   InstalledModel,
@@ -800,7 +800,7 @@ describe('SearchForm', () => {
       (option) => option.value,
     );
 
-    expect(names).toEqual(['ollama', 'vllm']);
+    expect(names).toEqual(['ollama', 'vllm', 'litellm']);
   });
 
   it('brings the model and the address along when the provider changes', async () => {
@@ -810,6 +810,63 @@ describe('SearchForm', () => {
 
     expect(element<HTMLInputElement>('input[name="model"]').value).toBe(VLLM.model);
     expect(element<HTMLInputElement>('input[name="baseUrl"]').value).toBe(VLLM.base_url);
+  });
+
+  it('brings a LiteLLM proxy its own alias and address', async () => {
+    /* The third server has a pair of its own, and a proxy on :4000 asked for an
+       Ollama tag is a run that fails with nothing on the form to say why. */
+    await choose('select[name="provider"]', 'litellm');
+
+    expect(element<HTMLInputElement>('input[name="model"]').value).toBe(LITELLM.model);
+    expect(element<HTMLInputElement>('input[name="baseUrl"]').value).toBe(LITELLM.base_url);
+  });
+
+  it('asks a newly chosen proxy what it routes, at its own address', async () => {
+    const asked: ModelSource[] = [];
+    fixture.componentInstance.refresh.subscribe((source) => asked.push(source));
+
+    await choose('select[name="provider"]', 'litellm');
+
+    expect(asked).toEqual([{ provider: 'litellm', base_url: LITELLM.base_url }]);
+  });
+
+  it('closes both server-side settings for a proxy, and words neither as a startup', async () => {
+    /* A proxy starts nothing on a device and fixes no window of its own: both belong
+       to whatever it routes to, so the form says where they are decided rather than
+       "when LiteLLM starts", which would send a reader to restart the wrong thing. */
+    const numCtx = () => element<HTMLInputElement>('input[name="num_ctx"]');
+    const cpuOnly = () => element<HTMLInputElement>('input[name="cpu_only"]');
+    const said = () => cpuOnly().closest('.field')!.querySelector('small')!.textContent;
+
+    await choose('select[name="provider"]', 'litellm');
+
+    expect(numCtx().disabled).toBe(true);
+    expect(numCtx().placeholder).toBe("Fixed where LiteLLM's model is served");
+    expect(cpuOnly().disabled).toBe(true);
+    expect(said()).toContain('With LiteLLM the device is chosen where the model is served');
+    expect(said()).not.toContain('started');
+  });
+
+  it('sends neither server-side setting to a proxy', async () => {
+    await type('input[name="request"]', 'kettle');
+    await type('input[name="num_ctx"]', '9999');
+    const box = element<HTMLInputElement>('input[name="cpu_only"]');
+    box.checked = true;
+    box.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    await choose('select[name="provider"]', 'litellm');
+    await send();
+
+    expect(submitted[0].provider).toBe('litellm');
+    expect(submitted[0].num_ctx).toBeNull();
+    expect(submitted[0].cpu_only).toBeUndefined();
+  });
+
+  it('names the proxy the address field belongs to', async () => {
+    await choose('select[name="provider"]', 'litellm');
+
+    const label = element<HTMLInputElement>('input[name="baseUrl"]').closest('label')!;
+    expect(label.querySelector('span')!.textContent).toContain('LiteLLM address');
   });
 
   it('asks the newly chosen provider what it is serving', async () => {
@@ -899,7 +956,7 @@ describe('SearchForm', () => {
     await choose('select[name="provider"]', 'vllm');
 
     expect(field().disabled).toBe(true);
-    expect(field().placeholder).toBe('Fixed when vLLM starts');
+    expect(field().placeholder).toBe("Fixed where vLLM's model is served");
   });
 
   it('sends the CPU-only switch along with the request', async () => {
@@ -927,7 +984,7 @@ describe('SearchForm', () => {
     await choose('select[name="provider"]', 'vllm');
 
     expect(box().disabled).toBe(true);
-    expect(said()).toContain('vLLM is started on the device it serves from');
+    expect(said()).toContain('With vLLM the device is chosen where the model is served');
   });
 
   it('sends nothing for a device switch the provider has taken away', async () => {

@@ -48,6 +48,20 @@ def test_the_provider_name_resolves_to_the_behaviour_behind_it() -> None:
     keeps the agent, the API and the CLI from branching on a name (ADR-0029)."""
     assert AgentConfig().model_server is providers_module.OLLAMA
     assert AgentConfig(provider="vllm").model_server is providers_module.VLLM
+    assert AgentConfig(provider="litellm").model_server is providers_module.LITELLM
+
+
+def test_a_proxy_s_alias_address_and_key_come_from_its_own_row() -> None:
+    """All three are resolved off the row, the key included, since a proxy started
+    with a master key wants it on every request (ADR-0067)."""
+    config = AgentConfig(provider="litellm")
+    row = providers_module.LITELLM
+
+    assert (config.model, config.base_url, config.api_key) == (
+        row.model,
+        row.base_url,
+        row.api_key,
+    )
 
 
 def test_a_named_model_and_server_are_left_alone() -> None:
@@ -224,6 +238,13 @@ def test_the_provider_itself_can_be_set_from_the_environment(reloaded_config) ->
 
     assert reloaded.AgentConfig().provider == "vllm"
     assert reloaded.AgentConfig().base_url == providers_module.VLLM.base_url
+
+
+def test_a_machine_can_be_pointed_at_a_proxy_for_good(reloaded_config) -> None:
+    reloaded = reloaded_config(BUY_AGENT_PROVIDER="litellm")
+
+    assert reloaded.AgentConfig().provider == "litellm"
+    assert reloaded.AgentConfig().base_url == providers_module.LITELLM.base_url
 
 
 # -- paying --------------------------------------------------------------------
