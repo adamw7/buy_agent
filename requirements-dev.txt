@@ -20,7 +20,7 @@ pytest-timeout==2.4.0
 # above -- nothing in `buy_agent/` imports it, so it stays out of the image -- and
 # it reads the package rather than running it, so a lint costs no model, no
 # network and no run.
-pylint==4.0.8
+pylint==4.0.9
 
 # The type checker `.github/workflows/ci.yml` runs over `buy_agent/` beside pylint,
 # configured in `setup.cfg` and recorded in ADR-0063. The package was annotated
