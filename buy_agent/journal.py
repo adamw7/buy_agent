@@ -165,9 +165,7 @@ class Journal:
     # -- the disk ------------------------------------------------------------------
 
     def _path(self) -> Path | None:
-        if self.directory is None:
-            return None
-        return file_for(self.directory, self.key)
+        return None if self.directory is None else file_for(self.directory, self.key)
 
     def _last(self) -> Entry | None:
         """The most recent run of this search that was written down."""
@@ -265,12 +263,8 @@ def _moved(now: Recorded, before: Recorded | None, when: str) -> Change:
     """What one product of this run did, against what the last one said about it."""
     label = now.label()
     if before is None:
-        return Change(
-            name=now.name,
-            movement="new",
-            price_label=label,
-            detail=f"{label}, and not in the run of {when}.",
-        )
+        detail = f"{label}, and not in the run of {when}."
+        return Change(name=now.name, movement="new", price_label=label, detail=detail)
     was = before.label()
     if now.price is None or before.price is None or now.currency != before.currency:
         # One of the two is a figure this cannot be held against the other: a price no
@@ -287,26 +281,15 @@ def _moved(now: Recorded, before: Recorded | None, when: str) -> Change:
             ),
         )
     delta = round(now.price - before.price, 2)
-    if delta == 0:
-        return Change(
-            name=now.name,
-            movement="steady",
-            price_label=label,
-            was_label=was,
-            delta=0.0,
-            detail=f"{label}, unchanged since {when}.",
-        )
-    direction: Literal["cheaper", "dearer"] = "cheaper" if delta < 0 else "dearer"
+    movement: Movement = "steady" if delta == 0 else "cheaper" if delta < 0 else "dearer"
+    moved = f"{amount_label(abs(delta), now.currency)} {movement} than on {when}"
     return Change(
         name=now.name,
-        movement=direction,
+        movement=movement,
         price_label=label,
         was_label=was,
-        delta=delta,
-        detail=(
-            f"{label}, {amount_label(abs(delta), now.currency)} {direction} than "
-            f"on {when}."
-        ),
+        delta=delta or 0.0,
+        detail=f"{label}, {moved}." if delta else f"{label}, unchanged since {when}.",
     )
 
 
@@ -323,10 +306,7 @@ def _forget_the_least_recent(directory: Path, searches: int) -> int:
             dated.append((path.stat().st_mtime, path))
         except OSError:  # another run replacing it right now
             continue
-    forgotten = 0
-    for _, path in sorted(dated)[: max(0, len(dated) - searches)]:
-        if _unlink(path):
-            forgotten += 1
+    forgotten = sum(_unlink(path) for _, path in sorted(dated)[: max(0, len(dated) - searches)])
     if forgotten:
         logger.debug(
             "Forgot %d search(es) nobody has run lately, out of %s", forgotten, directory

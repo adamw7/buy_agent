@@ -95,17 +95,12 @@ class Constraints:
         kept = [products[index] for index in inside]
         excluded = [item.name for index, item in enumerate(products) if index not in held]
 
+        # The bounds as the shopper set them, in the currency they were settled in: the
+        # same phrase the logged line carries, so the panel and the progress cannot say
+        # two different things about one number (ADR-0043).
+        reason = f"Outside the limits you set ({self.describe(currency)})."
         for name in excluded:
-            # The bounds as the shopper set them, in the currency they were settled in:
-            # the same phrase the logged line carries, so the panel and the progress
-            # cannot say two different things about one number (ADR-0043).
-            record(
-                Removal(
-                    name=name,
-                    step="limits",
-                    reason=f"Outside the limits you set ({self.describe(currency)}).",
-                )
-            )
+            record(Removal(name=name, step="limits", reason=reason))
 
         if excluded:
             # The names at DEBUG under the count, as everywhere a product is removed:

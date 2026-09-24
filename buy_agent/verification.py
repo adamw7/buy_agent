@@ -135,13 +135,8 @@ def drop_ungrounded(
             kept.append(product)
         else:
             dropped.append(product.name)
-            record(
-                Removal(
-                    name=product.name,
-                    step="ground",
-                    reason="No page that was searched mentions it.",
-                )
-            )
+            reason = "No page that was searched mentions it."
+            record(Removal(name=product.name, step="ground", reason=reason))
 
     if dropped:
         # The count at INFO and the names at DEBUG, as everywhere a product is removed
