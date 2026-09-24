@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from buy_agent.extraction import GENERIC_WORDS, NAME_TOKENS, SUPERLATIVES
 from buy_agent.models import QUALIFIERS, Removal, nothing_recorded
+from buy_agent.money import plain_figures
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -17,12 +18,6 @@ if TYPE_CHECKING:
     from buy_agent.search import SearchResult
 
 logger = logging.getLogger(__name__)
-
-#: The two things a comma between digits can mean, told apart by how many digits follow:
-#: three groups thousands ("1,299" is 1299), one or two is a decimal point ("129,99" is
-#: 129.99).
-_THOUSANDS_SEPARATOR = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
-_DECIMAL_COMMA = re.compile(r"(?<=\d),(?=\d{1,2}(?!\d))")
 
 #: Fraction of a name's distinctive words that must appear in the sources.
 NAME_COVERAGE = 0.6
@@ -53,8 +48,9 @@ _COUNT_BEFORE = rf"{_COUNTED}\b[^\d]{{0,12}}"
 
 
 def normalise_numbers(text: str) -> str:
-    """Write every number one way, so the same figure compares equal either side."""
-    return _DECIMAL_COMMA.sub(".", _THOUSANDS_SEPARATOR.sub("", text))
+    """Write every number one way, so the same figure compares equal either side --
+    :func:`~buy_agent.money.plain_figures`, whose conventions are the currency table's."""
+    return plain_figures(text)
 
 
 def build_haystack(results: Sequence[SearchResult]) -> str:

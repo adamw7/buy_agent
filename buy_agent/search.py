@@ -257,9 +257,12 @@ def _results(
     rows = entries if isinstance(entries, list) else []
     return [
         SearchResult(
-            title=str(entry.get("title", "")),
-            url=str(entry.get(url_key, "")),
-            snippet=str(entry.get(text_key, "")),
+            # ``or ""`` rather than a default: a JSON ``null`` is a key that is there, and
+            # ``str`` of it is the word "None" -- a title the model reads and a URL the
+            # fetcher asks for.
+            title=str(entry.get("title") or ""),
+            url=str(entry.get(url_key) or ""),
+            snippet=str(entry.get(text_key) or ""),
         )
         for entry in rows[:limit]
         if isinstance(entry, dict)

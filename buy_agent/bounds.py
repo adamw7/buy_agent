@@ -23,7 +23,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from buy_agent.money import SCANNED_CODES, SIGNS, WORDS
+from buy_agent.money import SCANNED_CODES, SIGNS, WORDS, plain_figures
 
 #: The three bounds a request can ask for, named as the settings that would enforce
 #: them: this is what a door looks the noticed value up on and fills in.
@@ -34,11 +34,15 @@ Bound = Literal["max_price", "min_rating", "min_reviews"]
 #: oddly.
 _TOP_RATING = 5.0
 
-#: A number as a person writes one, thousands separator and all: "200", "1,500", "4.5".
-#: The lookahead is what stops the engine reading half of one: without it "under 1500
-#: and ..." backtracked to "150", the "0" after it satisfying "nothing else follows",
-#: and the request came back offering a budget nobody had written.
-_NUMBER = r"\d[\d,]*(?:\.\d+)?(?![\d,.]*\d)"
+#: A number as a person writes one, separators and all, in either convention: "200",
+#: "1,500", "4.5", "129,99", "1.299,99". Taken whole and read by
+#: :func:`~buy_agent.money.plain_figures`, which is how a page's figures are read too --
+#: read here as digits, commas and one decimal point, "under 129,99 €" offered a budget
+#: of 12999 and "at least 1.200 reviews" a count of 1.2. The lookahead is what stops the
+#: engine reading half of one: without it "under 1500 and ..." backtracked to "150", the
+#: "0" after it satisfying "nothing else follows", and the request came back offering a
+#: budget nobody had written.
+_NUMBER = r"\d(?:[\d,.]*\d)?(?![\d,.]*\d)"
 
 #: A currency written before the figure -- "$200", "€1,500". Only the one-character
 #: signs, which are the only spellings that go in front.
@@ -157,20 +161,25 @@ def _first(bound: Bound, pattern: re.Pattern[str], request: str) -> Noticed | No
     """The first thing in ``request`` that reads like this bound, or ``None``."""
     for match in pattern.finditer(request):
         value = _figure(match)
-        if not _plausible(bound, value):
+        if value is None or not _plausible(bound, value):
             continue
         return Noticed(bound=bound, value=value, phrase=match.group(0).strip())
     return None
 
 
-def _figure(match: re.Match[str]) -> float:
-    """The number one match found, out of whichever alternative matched.
+def _figure(match: re.Match[str]) -> float | None:
+    """The number one match found, out of whichever alternative matched, or ``None`` for
+    one that reads as no number at all.
 
-    Unguarded on purpose: every alternative of every pattern above captures exactly one
-    figure and every figure is digits, so there is always one and it always converts.
+    Every alternative of every pattern above captures exactly one figure, so there is
+    always one -- but digits and separators in any order are not always a number:
+    "1.2.3" is a version, and offering it as anything would be a guess.
     """
     written = next(group for group in match.groups() if group)
-    return float(written.replace(",", ""))
+    try:
+        return float(plain_figures(written))
+    except ValueError:
+        return None
 
 
 def _plausible(bound: Bound, value: float) -> bool:
@@ -178,8 +187,12 @@ def _plausible(bound: Bound, value: float) -> bool:
 
     The one judgement made here, and it is about the scale rather than about the
     shopper: a rating is out of five, so "over 2000 ratings" is not one however it was
-    phrased. Everything else is left to the door, where the ranges are.
+    phrased, and a count is whole. Everything else is left to the door, where the ranges
+    are.
     """
     if value <= 0:
         return False
+    if bound == "min_reviews":
+        # A count is a whole number: offered as "4.5 reviews", no box could take it.
+        return value.is_integer()
     return bound != "min_rating" or value <= _TOP_RATING

@@ -17,6 +17,7 @@ from buy_agent.verification import (
     mentions_number,
     mentions_rating,
     mentions_review_count,
+    normalise_numbers,
     source_urls,
     verify_numbers,
     verify_opinions,
@@ -157,6 +158,40 @@ def test_a_thousands_separator_is_still_one() -> None:
 
     assert mentions_number(haystack, 1299)
     assert mentions_number(haystack, 12500)
+
+
+@pytest.mark.parametrize(
+    ("page", "price"),
+    [
+        ("Preis: 1.299,00 €", 1299),
+        ("Preis: 1.299,99 € inkl. MwSt.", 1299.99),
+        ("Cena: 1.299 zł", 1299),
+        ("Jetzt 1.299,- €", 1299),
+        ("Prix : 12.499,00 €", 12499),
+    ],
+)
+def test_thousands_grouped_with_dots_are_thousands(page: str, price: float) -> None:
+    """The continental convention: read as a decimal point, "1.299,00 €" backed a price
+    of 1.299 and never the 1299 the model read off it -- every price over a thousand on
+    such a shop was blanked by grounding."""
+    haystack = build_haystack([SearchResult(snippet=page)])
+
+    assert mentions_number(haystack, price)
+    assert not mentions_number(haystack, 1.299)
+
+
+def test_a_count_grouped_with_dots_is_counted() -> None:
+    haystack = build_haystack([SearchResult(snippet="4,6 von 5 Sternen aus 12.500 Bewertungen")])
+
+    assert mentions_number(haystack, 12500)
+    assert mentions_number(haystack, 4.6)
+
+
+@pytest.mark.parametrize("page", ["On sale for $179.99", "Weighs 0.125 kg", "Firmware 1.2.3"])
+def test_a_decimal_point_is_still_one(page: str) -> None:
+    """Two decimals, a leading zero or a version number: none of those is a thousands
+    group, and each is left exactly as the page wrote it."""
+    assert normalise_numbers(page) == page
 
 
 @pytest.mark.parametrize("value", [129, 129.0, 4.3])

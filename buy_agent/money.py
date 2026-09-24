@@ -3,6 +3,7 @@ ADR-0054)."""
 
 from __future__ import annotations
 
+import re
 from decimal import ROUND_HALF_UP, Decimal
 
 #: How a page's -- or a small model's -- way of naming a currency reads as the ISO code
@@ -74,6 +75,36 @@ _ZERO_DECIMAL = frozenset(
     }
 )
 _THREE_DECIMAL = frozenset({"BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"})
+
+#: Thousands grouped with dots, the way most of the continent writes a figure: "1.299,99
+#: €", "1.299 zł", "12.500 Bewertungen". A dot followed by exactly three digits is how no
+#: price and no count is written as a fraction, so the groups are read as thousands --
+#: up to a decimal comma, or to the end of the figure. Left as a decimal point, every
+#: price over a thousand on a German, Polish, French or Spanish shop read as a figure
+#: between one and a thousand, and grounding blanked all of them.
+_DOTTED_THOUSANDS = re.compile(
+    r"(?<![\d.,])[1-9]\d{0,2}(?:\.\d{3})+(?=,\d{1,2}(?![\d.,]*\d)|(?![\d.,]*\d))"
+)
+
+#: The other two things a comma between digits can mean, told apart by how many digits
+#: follow: three groups thousands ("1,299" is 1299), one or two is a decimal point
+#: ("129,99" is 129.99).
+_THOUSANDS_COMMA = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
+_DECIMAL_COMMA = re.compile(r"(?<=\d),(?=\d{1,2}(?!\d))")
+
+
+def plain_figures(text: str) -> str:
+    """Every figure in ``text`` written one way -- no grouping, a dot for the decimal
+    point -- whichever convention wrote it: "1,299.99", "1.299,99" and "1299.99" are one
+    number, and so are "129,99" and "129.99".
+
+    The one reading shared by everything that reads a figure somebody else wrote:
+    :mod:`buy_agent.verification` over a page, and :mod:`buy_agent.bounds` over a
+    request. Two readings would let a request offer a budget in one convention that the
+    pages are held to in the other.
+    """
+    ungrouped = _DOTTED_THOUSANDS.sub(lambda match: match.group(0).replace(".", ""), text)
+    return _DECIMAL_COMMA.sub(".", _THOUSANDS_COMMA.sub("", ungrouped))
 
 
 def code_for(value: str) -> str | None:
