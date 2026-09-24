@@ -1,4 +1,4 @@
-"""The two model servers, and the four things each of them answers differently."""
+"""The three model servers, and the four things each of them answers differently."""
 
 from __future__ import annotations
 
@@ -213,6 +213,7 @@ def pulled(monkeypatch):
 def test_a_provider_is_found_by_the_name_the_config_carries() -> None:
     assert provider_for("ollama") is providers_module.OLLAMA
     assert provider_for("vllm") is providers_module.VLLM
+    assert provider_for("litellm") is providers_module.LITELLM
 
 
 def test_an_unknown_provider_names_the_ones_that_exist() -> None:
@@ -256,6 +257,7 @@ def test_only_one_of_them_takes_the_context_window_per_request() -> None:
     setting for it would be a field that quietly does nothing."""
     assert providers_module.OLLAMA.takes_num_ctx is True
     assert providers_module.VLLM.takes_num_ctx is False
+    assert providers_module.LITELLM.takes_num_ctx is False
 
 
 def test_only_one_of_them_takes_the_device_per_request() -> None:
@@ -263,6 +265,7 @@ def test_only_one_of_them_takes_the_device_per_request() -> None:
     its window there: a per-run switch would quietly do nothing."""
     assert providers_module.OLLAMA.takes_cpu_only is True
     assert providers_module.VLLM.takes_cpu_only is False
+    assert providers_module.LITELLM.takes_cpu_only is False
 
 
 # -- building the chat model ---------------------------------------------------
@@ -421,11 +424,11 @@ def test_a_configured_key_reaches_the_client(completing) -> None:
     assert sent["client"]["api_key"] == "s3cret"
 
 
-@pytest.mark.parametrize("provider", ["ollama", "vllm"])
+@pytest.mark.parametrize("provider", ["ollama", "vllm", "litellm"])
 def test_an_answer_that_is_not_the_schema_is_one_failure_either_way(
     chatting, completing, provider: str
 ) -> None:
-    """Both servers can answer with prose, and it is the same thing when they do
+    """Every server can answer with prose, and it is the same thing when they do
     -- one class, one wording, whichever of them said it (ADR-0038)."""
     chatting("I think the best headphones are...")
     completing("I think the best headphones are...")
@@ -435,7 +438,7 @@ def test_an_answer_that_is_not_the_schema_is_one_failure_either_way(
         asked(config, {})
 
 
-@pytest.mark.parametrize("provider", ["ollama", "vllm"])
+@pytest.mark.parametrize("provider", ["ollama", "vllm", "litellm"])
 def test_a_server_that_answers_with_nothing_says_so(
     chatting, completing, provider: str
 ) -> None:
@@ -1030,3 +1033,159 @@ def test_the_listing_keeps_its_own_short_wait(pulled) -> None:
     providers_module.OLLAMA.installed(AgentConfig(provider="ollama", model_timeout=600.0))
 
     assert asked_for["tags"]["timeout"] == providers_module._LIST_TIMEOUT
+
+
+# -- a LiteLLM proxy (ADR-0068) ------------------------------------------------
+
+LITELLM_CONFIG = AgentConfig(provider="litellm", model="local_model")
+
+
+@pytest.mark.parametrize(
+    ("reasoning", "extra_body"),
+    [
+        (None, {}),
+        (True, {"reasoning_effort": "medium"}),
+        (False, {"reasoning_effort": "none"}),
+    ],
+)
+def test_a_proxy_is_asked_through_the_openai_client(
+    completing, reasoning: bool | None, extra_body: dict
+) -> None:
+    """vLLM's client, asked once, with thinking in LiteLLM's own spelling and neither
+    the window nor the device, both of which belong to what the proxy routes to."""
+    config = AgentConfig(
+        provider="litellm", reasoning=reasoning, num_ctx=8192, cpu_only=True, model_timeout=9
+    )
+
+    sent = asked(config, completing())
+
+    assert sent["client"] == {
+        "base_url": "http://localhost:4000/v1",
+        "api_key": "EMPTY",
+        "timeout": 9,
+        "max_retries": 0,
+    }
+    assert sent["model"] == "local_model"
+    assert sent["response_format"]["json_schema"]["schema"] == SearchQuery.model_json_schema()
+    assert sent["extra_body"] == extra_body
+
+
+def _proxy(monkeypatch, info: Exception | list[dict], models: tuple[str, ...] = ()) -> list:
+    """Stand in for a proxy's ``/model/info`` and ``/v1/models``, recording each ask."""
+    asked_for: list = []
+
+    def get(url, **kwargs):
+        asked_for.append((url, kwargs["headers"], kwargs["timeout"]))
+        if url.endswith("/model/info") and isinstance(info, Exception):
+            raise info
+        data = info if url.endswith("/model/info") else [{"id": name} for name in models]
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"data": data})
+
+    monkeypatch.setattr("buy_agent.providers.httpx.get", get)
+    return asked_for
+
+
+def test_a_proxy_lists_every_alias_marked_by_its_mode(monkeypatch) -> None:
+    """One alias may be several deployments, and answers if any of them does; a mode
+    nobody reported is "cannot say", which is offered (ADR-0032)."""
+    asked_for = _proxy(
+        monkeypatch,
+        [
+            {"model_name": "local_model", "model_info": {"mode": "embedding"}},
+            {"model_name": "local_model", "model_info": {"mode": "chat"}},
+            {"model_name": "embedder", "model_info": {"mode": "embedding"}},
+            {"model_name": "unsaid", "model_info": None},
+            {"model_info": {"mode": "chat"}},
+        ],
+    )
+    config = AgentConfig(provider="litellm", base_url="http://proxy:4000/v1/", api_key="k")
+
+    assert listed(config) == [
+        installed("local_model", completion=True),
+        installed("embedder", completion=False),
+        installed("unsaid", completion=True),
+    ]
+    assert asked_for == [
+        ("http://proxy:4000/model/info", {"Authorization": "Bearer k"}, providers_module._LIST_TIMEOUT)
+    ]
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [httpx.HTTPStatusError("403", request=_REQUEST, response=httpx.Response(403)), ValueError()],
+)
+def test_a_proxy_that_will_not_say_falls_back_to_the_plain_listing(
+    monkeypatch, refusal: Exception
+) -> None:
+    asked_for = _proxy(monkeypatch, refusal, models=("local_model",))
+
+    assert listed(LITELLM_CONFIG) == [installed("local_model", completion=True)]
+    assert asked_for[-1] == ("http://localhost:4000/v1/models", {}, providers_module._LIST_TIMEOUT)
+
+
+def _answered(kind: type[openai.APIStatusError], status: int, said: str) -> Exception:
+    return kind(said, response=httpx.Response(status, request=_REQUEST), body=None)
+
+
+@pytest.mark.parametrize(
+    ("exc", "says", "never"),
+    [
+        (openai.APIConnectionError(request=_REQUEST), "litellm --config config.yaml", "model_list"),
+        (_answered(openai.AuthenticationError, 401, "no"), "$LITELLM_API_KEY", "litellm --config"),
+        (
+            _answered(openai.BadRequestError, 400, "Invalid model name passed in model=x"),
+            "(routing: embedder), or add it to the model_list",
+            "litellm --config",
+        ),
+        (
+            _answered(openai.RateLimitError, 429, "rpm limit reached"),
+            "answered, but the model behind 'local_model' failed (rpm limit reached)",
+            "Could not reach",
+        ),
+        (
+            # A 404 the OpenAI client did not raise is not the proxy's answer.
+            httpx.HTTPStatusError("404", request=_REQUEST, response=httpx.Response(404)),
+            "Could not reach LiteLLM",
+            "model_list",
+        ),
+        (httpx.ReadTimeout("slow"), "or a shorter prompt", "litellm --config"),
+        (
+            UnreadableAnswerError("Invalid json output: {"),
+            "the model the proxy routes to a larger context window",
+            "--max-model-len",
+        ),
+    ],
+)
+def test_a_proxy_failure_names_what_to_do_about_it(
+    monkeypatch, exc: Exception, says: str, never: str
+) -> None:
+    _proxy(monkeypatch, [{"model_name": "embedder", "model_info": {"mode": "embedding"}}])
+
+    message = hint(LITELLM_CONFIG, exc)
+
+    assert says in message
+    assert never not in message
+
+
+def test_the_proxy_has_its_own_variables(reloaded_providers) -> None:
+    """A machine can run a proxy beside the servers it routes to."""
+    reloaded_providers(
+        LITELLM_MODEL="team-llama", LITELLM_HOST="http://proxy:4000/v1", LITELLM_API_KEY="k"
+    )
+
+    config = AgentConfig(provider="litellm")
+
+    assert (config.model, config.base_url, config.api_key) == (
+        "team-llama",
+        "http://proxy:4000/v1",
+        "k",
+    )
+    assert AgentConfig(provider="ollama").api_key == ""
+
+
+def test_every_row_words_its_own_room() -> None:
+    """``more_room`` ends a sentence both doors show, so it names no flag of this CLI."""
+    rooms = [server.more_room for server in providers_module.PROVIDERS.values()]
+
+    assert len(set(rooms)) == len(rooms)
+    assert not any("--num-ctx" in room or "--think" in room for room in rooms)

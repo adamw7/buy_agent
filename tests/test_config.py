@@ -48,6 +48,7 @@ def test_the_provider_name_resolves_to_the_behaviour_behind_it() -> None:
     keeps the agent, the API and the CLI from branching on a name (ADR-0029)."""
     assert AgentConfig().model_server is providers_module.OLLAMA
     assert AgentConfig(provider="vllm").model_server is providers_module.VLLM
+    assert AgentConfig(provider="litellm").model_server is providers_module.LITELLM
 
 
 def test_a_named_model_and_server_are_left_alone() -> None:

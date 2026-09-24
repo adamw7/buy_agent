@@ -183,13 +183,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--model",
         default="",
         help="Model to use, empty for the provider's own default "
-        f"({_provider_defaults('model')}). Override with $OLLAMA_MODEL or $VLLM_MODEL.",
+        f"({_provider_defaults('model')}). Override with $OLLAMA_MODEL, $VLLM_MODEL or "
+        "$LITELLM_MODEL.",
     )
     parser.add_argument(
         "--base-url",
         default="",
         help="Model server URL, empty for the provider's own default "
-        f"({_provider_defaults('base_url')}). Override with $OLLAMA_HOST or $VLLM_HOST.",
+        f"({_provider_defaults('base_url')}). Override with $OLLAMA_HOST, $VLLM_HOST or "
+        "$LITELLM_HOST.",
     )
     parser.add_argument(
         "--results",
@@ -372,7 +374,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Context window in tokens (default: {_DEFAULTS.num_ctx}). The "
         "extraction prompt runs to ~4.3k tokens, so a larger window leaves room for "
         "more products; a model that need not think is fine on Ollama's own 4096. "
-        "Ollama only -- vLLM fixes its window with --max-model-len when it starts.",
+        "Ollama only -- vLLM fixes its window with --max-model-len when it starts, "
+        "and a LiteLLM proxy leaves it to the server it routes to.",
     )
     parser.add_argument(
         "--model-timeout",
@@ -401,7 +404,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Keep the model off the GPU entirely (default: --no-cpu-only, which "
         "leaves the offload to the model server). Slower, but it leaves the card "
         "free and runs a model too large to fit on it. Ollama only -- vLLM picks "
-        "its device when it starts.",
+        "its device when it starts, and a LiteLLM proxy leaves it to the server it "
+        "routes to.",
     )
     parser.add_argument(
         "--no-fetch",

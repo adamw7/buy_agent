@@ -17,7 +17,7 @@ from buy_agent.agent import ModelUnavailableError
 from buy_agent.api import results_payload
 from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.models import Product
-from buy_agent.providers import PROVIDERS, VLLM
+from buy_agent.providers import LITELLM, PROVIDERS, VLLM
 from buy_agent.rails import RAILS
 from buy_agent.search import SearchError
 from buy_agent.sources import Source
@@ -349,6 +349,16 @@ def test_choosing_a_provider_brings_its_model_and_its_server_with_it(fake_agent)
     assert (config.model, config.base_url) == (VLLM.model, VLLM.base_url)
 
 
+def test_choosing_a_litellm_proxy_brings_its_alias_and_its_address(fake_agent) -> None:
+    """The same complete choice for the third server: the proxy's placeholder alias and
+    port 4000, never the Ollama tag the run would otherwise start on (ADR-0068)."""
+    main(["headphones", "--provider", "litellm"])
+    config = fake_agent["config"]
+
+    assert config.provider == "litellm"
+    assert (config.model, config.base_url) == (LITELLM.model, LITELLM.base_url)
+
+
 def test_a_named_model_still_wins_over_the_provider_default(fake_agent) -> None:
     main(["headphones", "--provider", "vllm", "--model", "meta-llama/Llama-3.1-8B"])
 
@@ -383,6 +393,18 @@ def test_the_help_names_every_provider_default_rather_than_one(capsys) -> None:
     for server in PROVIDERS.values():
         assert server.model in printed
         assert server.base_url in printed
+
+
+def test_the_help_names_every_provider_s_variables_and_what_a_proxy_ignores(capsys) -> None:
+    """--help is the CLI's only documentation, so every server's variables are in it,
+    and so is why a proxy takes neither server-side setting."""
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    printed = " ".join(capsys.readouterr().out.split())
+
+    for name in ("OLLAMA", "VLLM", "LITELLM"):
+        assert f"${name}_MODEL" in printed and f"${name}_HOST" in printed
+    assert printed.count("a LiteLLM proxy leaves it to the server it routes to") == 2
 
 
 def test_fetching_is_on_unless_no_fetch_is_passed(fake_agent) -> None:

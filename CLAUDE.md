@@ -8,9 +8,10 @@ code in this repository.
 A shopping agent: it takes a plain-language request ("wireless headphones under
 $200"), searches the web, extracts up to 10 products along with what the pages
 say about them, ranks them, and logs the top 3. Built on a local model, served
-by Ollama or by a vLLM behind its OpenAI-compatible API --
-`AgentConfig.provider` chooses, `buy_agent/providers.py` is the only module that
-knows the difference (ADR-0028), and each server's own client is called
+by Ollama, by a vLLM behind its OpenAI-compatible API, or by whatever a LiteLLM
+proxy routes to behind that same API -- `AgentConfig.provider` chooses,
+`buy_agent/providers.py` is the only module that knows the difference (ADR-0028,
+ADR-0068), and each server's own client is called
 directly: there is no framework between the prompt and the answer,
 `buy_agent/chat.py` being all of one there is (ADR-0038). `ui/` is an Angular
 front end onto the same pipeline, served by `buy_agent.server`. Optionally --
@@ -60,7 +61,8 @@ python -m benchmark -v --json score.json      # ...and against whatever is servi
 
 python -m buy_agent "gaming laptop under $1500"          # run the agent
 python -m buy_agent "espresso machine" --model lfm2.5 -v
-python -m buy_agent "gaming laptop" --provider vllm      # the other model server
+python -m buy_agent "gaming laptop" --provider vllm      # another model server
+python -m buy_agent "gaming laptop" --provider litellm   # ...or a LiteLLM proxy
 python -m buy_agent "running shoes" --sort-by price --json results.json
 python -m buy_agent "headphones" --max-price 200 --min-rating 4.5   # bounds, enforced
 python -m buy_agent "headphones" --cache-ttl 0                      # every page fresh
@@ -164,8 +166,8 @@ A `node:22.23.3-bookworm-slim` stage builds `ui/`; a `python:3.14-slim` stage
 installs `requirements.txt` and gets the build copied to `ui/dist/ui/browser`
 beside the package, where `server.DEFAULT_UI_DIR` looks. Neither model server is
 in the image or started by it (ADR-0015): the container talks to the host's
-through `host.docker.internal`, which both `$OLLAMA_HOST` and `$VLLM_HOST` are
-set to, and which needs `--add-host=host.docker.internal:host-gateway` on Linux.
+through `host.docker.internal`, which `$OLLAMA_HOST`, `$VLLM_HOST` and
+`$LITELLM_HOST` are all set to, and which needs `--add-host=host.docker.internal:host-gateway` on Linux.
 `ENTRYPOINT` is `python` and `CMD` is `-m buy_agent.server --host 0.0.0.0`, so
 the CLI is reachable from the same image and `--host` stays out of the server's
 own default. No pull request builds it -- `release.yml` does, once per release
@@ -255,15 +257,19 @@ configured on the machine is not what the request got wrong.
 
 `$BUY_AGENT_PROVIDER` moves which model server a run talks to, and each provider
 has its own variables behind it -- `$OLLAMA_MODEL`/`$OLLAMA_HOST` and
-`$VLLM_MODEL`/`$VLLM_HOST`/`$VLLM_API_KEY` -- read on that server's own row in
+`$VLLM_MODEL`/`$VLLM_HOST`/`$VLLM_API_KEY` and
+`$LITELLM_MODEL`/`$LITELLM_HOST`/`$LITELLM_API_KEY` -- read on that server's own row in
 `providers.PROVIDERS` (ADR-0029). `AgentConfig.model`, `base_url` and `api_key`
 therefore default to the *empty string* and are resolved per provider in
 `__post_init__`: which value is right depends on a sibling field, so a plain
-default could only ever be right for one of the two, and "unset" is spelled the
+default could only ever be right for one of them, and "unset" is spelled the
 way a blank form field is (ADR-0012). Hence `--model` and `--base-url` default
 to `""` and interpolate every provider's pair into their help. `$VLLM_API_KEY`
-is the one setting with no flag and no form field -- a secret, so it stays out
-of a shell history, out of `defaults_payload` and out of `provider_options()`.
+and `$LITELLM_API_KEY` are the settings with no flag and no form field -- secrets,
+so they stay out of a shell history, out of `defaults_payload` and out of
+`provider_options()`. `$LITELLM_MODEL` defaults to `local_model`, a placeholder:
+a proxy's model is an alias out of its owner's `model_list`, which nothing here
+can know (ADR-0068).
 
 Every other CLI flag defaults to the matching `AgentConfig` field, so a new
 setting is added in `config.py` and picked up rather than repeated. One field is
@@ -282,8 +288,9 @@ given `num_ctx=None, reasoning=None`, reachable from neither front end
 (ADR-0019).
 `num_ctx` and `cpu_only` are the two settings the providers do not share, and
 they are the same shape: vLLM fixes its window with `--max-model-len` at startup
-and picks its device with `--device` there, so `Provider.takes_num_ctx` and
-`Provider.takes_cpu_only` are both false for it, neither value is sent, and both
+and picks its device with `--device` there, and a LiteLLM proxy leaves both to
+whatever it routes to, so `Provider.takes_num_ctx` and `Provider.takes_cpu_only`
+are both false for those two, neither value is sent, and both
 front ends say so rather than accepting a setting nothing reads. `cpu_only` is
 Ollama's `num_gpu: 0` -- no layers on the card -- sent only when it was asked
 for, `False` meaning "offload whatever you would have" rather than a number to
@@ -291,8 +298,9 @@ send, exactly as `num_ctx`'s `None` does. It is deliberately not in the
 fingerprint a remembered answer is filed under, for `model_timeout`'s reason:
 *where* a run computed an answer decides nothing about what the model said.
 `reasoning` *is* shared: Ollama's `think`, vLLM's
-`chat_template_kwargs.enable_thinking`. So is `model_timeout`, the longest one
-question may take: both rows set it on the client they build and neither asks
+`chat_template_kwargs.enable_thinking`, LiteLLM's own `reasoning_effort`
+(`"medium"` or `"none"`). So is `model_timeout`, the longest one question may
+take: every row sets it on the client they build and neither asks
 twice -- the OpenAI client is given `max_retries=0`, a client retrying behind the
 number making it mean three times itself (ADR-0051). Left unset it was not a long
 wait but no wait at all on Ollama, whose client disables httpx's own, so a server
@@ -579,7 +587,7 @@ was ever held to.
 | `money.py` | Every currency table: how a spelling is placed, which ones a page is scanned for, how an amount is written and counted (ADR-0054) |
 | `search.py` | Which backend a search is asked through, one row each -- and nothing else (ADR-0021, ADR-0057) |
 | `sources.py` | What a trusted source is: domain, term, `site:` query, `covers` |
-| `providers.py` | Everything that differs between Ollama and vLLM, and nothing else |
+| `providers.py` | Everything that differs between Ollama, vLLM and a LiteLLM proxy, and nothing else |
 | `screenshots.py` | The browser seam: a picture of a page, in a headless Chromium one thread owns -- and the only module that imports `playwright` (ADR-0065) |
 | `payment.py` | What may be bought and for how much: a cart out of a grounded product, the spend limit, the receipt -- and one failure |
 | `mandates.py` | The AP2 seam, and the only module that imports `ap2` (ADR-0046) |
@@ -595,11 +603,16 @@ was ever held to.
   `base_url`, `api_key`, from its own environment variables) beside how it is
   talked to (the client, how it declares a schema, the listing, the transport
   errors meaning "not there", the sentence that failure carries) plus
-  `takes_num_ctx` and `takes_cpu_only` (ADR-0029). The listing answers `InstalledModel`s rather than
-  names, since what a server holds and what a run can use are the same question
-  only on vLLM: Ollama's `installed` asks `ollama show` per tag, so an
-  embedding-only pull is marked in the picker rather than offered (ADR-0032),
-  and a failed probe leaves the tag usable. The module imports nothing from
+  `takes_num_ctx` and `takes_cpu_only`, and `more_room` -- the tail of the
+  sentence an unreadable answer is explained by, being the one piece of that
+  shared hint each server words its own way (ADR-0029, ADR-0068). The listing
+  answers `InstalledModel`s rather than names, since what a server holds and what
+  a run can use are the same question only on vLLM: Ollama's `installed` asks
+  `ollama show` per tag and a LiteLLM proxy's reads each alias's `mode` off
+  `/model/info`, so an embedding-only model is marked in the picker rather than
+  offered (ADR-0032), and a failed probe leaves the model usable -- a proxy that
+  will not say falling back to its `/v1/models`. vLLM's and LiteLLM's rows share
+  the one OpenAI-compatible chat call and listing rather than each keeping a copy. The module imports nothing from
   `config`; the dependency runs the other way, and `AgentConfig.model_server` is
   the *only* place a provider name becomes behaviour -- so `agent.py` reads
   `config.model_server.chat_model(config)`, catches `.transport_errors` and
@@ -995,8 +1008,8 @@ stream the server drops mid-object arrive as raw `httpx` errors, neither an
 different class from httpx's identically named one. Which failure is which moved
 with ADR-0038 -- the chat call is the plain path now, not the streaming one --
 so the tuple is read off what the client actually raises rather than off this
-paragraph. vLLM's is `openai.OpenAIError`, the root of that client's hierarchy,
-plus the two above for the listing.
+paragraph. vLLM's and LiteLLM's are `openai.OpenAIError`, the root of that
+client's hierarchy, plus the two above for the listing.
 
 A server that answers with something that is not the JSON asked for is the third
 of those three and not a fourth: `chat.UnreadableAnswerError` *is* a
@@ -1562,9 +1575,9 @@ real DuckDuckGo silently. The HTTP rail's transport is patched at
 
 **Where the model clients are patched.** Both are patched where
 `buy_agent.providers` imported them -- `providers.Client` for Ollama's chat and
-for the `show` a listing asks per tag, `providers.openai.OpenAI` for vLLM's
-chat. Both listings are patched at `providers.httpx.get`, Ollama's `/api/tags`
-beside vLLM's `/v1/models`. The tags are read off the endpoint rather than
+for the `show` a listing asks per tag, `providers.openai.OpenAI` for vLLM's and
+LiteLLM's chat. Every listing is patched at `providers.httpx.get`, Ollama's
+`/api/tags` beside vLLM's `/v1/models` and a LiteLLM proxy's `/model/info`. The tags are read off the endpoint rather than
 through the client's typed listing, which declares one of the two spellings that
 endpoint names a model by and discards the other: a tag arriving as `name` alone
 reached the picker as nothing at all. What a setting reaches is asserted on the
@@ -1954,7 +1967,9 @@ policy nobody has decided.
 `integration/` is the second Python suite and the only place a real model is
 involved (ADR-0026). It is Ollama's alone: vLLM needs a GPU and a CPU runner
 cannot host one honestly, so that provider's half is asserted in
-`tests/test_providers.py` and named as a gap in ADR-0028. A directory rather
+`tests/test_providers.py` and named as a gap in ADR-0028 -- and a LiteLLM proxy
+in front of the same Ollama would test the proxy's translation rather than this
+code, which ADR-0068 names the same way. A directory rather
 than a marker, because `pytest.ini` keeps `testpaths = tests`: "nothing in the
 suite touches Ollama" is then a property of where a file sits, not of anyone
 remembering an annotation. Five things there are load-bearing:
@@ -2033,12 +2048,14 @@ with no arguments (ADR-0023) -- venv, Ollama, `ollama pull`, `ng build`, the
 server, the browser, each step skipped when already done. It decides nothing the
 rest of the project decides: the provider, model and address are read off one
 `AgentConfig()` with a `python -c`, so `$BUY_AGENT_PROVIDER`,
-`$OLLAMA_MODEL`/`$OLLAMA_HOST` and `$VLLM_MODEL`/`$VLLM_HOST` still reach it and
+`$OLLAMA_MODEL`/`$OLLAMA_HOST`, `$VLLM_MODEL`/`$VLLM_HOST` and
+`$LITELLM_MODEL`/`$LITELLM_HOST` still reach it and
 no default is written down twice. Off one config rather than three constants,
 because the pair belongs to the provider. Ollama is the only server it starts --
 the install-and-pull half is behind a provider check, and anything else is
 waited for at `/models` and named rather than launched, a vLLM needing a GPU, a
-served model and flags this script has no business choosing. Paying is the same
+served model and flags this script has no business choosing, and a LiteLLM proxy
+the `config.yaml` saying what it routes to. Paying is the same
 shape one step further: the AP2 SDK is an optional install and somebody else's
 git repository, so it is fetched only where the environment already names a
 rail, a merchant, a key or a mandate -- the settings nothing but a payment reads

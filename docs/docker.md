@@ -30,11 +30,13 @@ docker run --rm buy-agent -m buy_agent "espresso machine" --top 5
 docker run --rm -v "${PWD}:/out" buy-agent -m buy_agent "running shoes" --json /out/results.json
 ```
 
-The other model server is the same story with the other pair of variables: the
-image sets `VLLM_HOST` to `host.docker.internal:8000/v1` beside `OLLAMA_HOST`,
-so a vLLM on the host needs only the provider named -- as a variable for every
-run in that container, or per search from the form's **Model server** picker
-([ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md)):
+The other model servers are the same story with their own variables: the image
+sets `VLLM_HOST` to `host.docker.internal:8000/v1` and `LITELLM_HOST` to
+`host.docker.internal:4000/v1` beside `OLLAMA_HOST`, so a vLLM or a LiteLLM
+proxy on the host needs only the provider named -- as a variable for every run in
+that container, or per search from the form's **Model server** picker
+([ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md),
+[ADR-0068](adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md)):
 
 ```powershell
 docker run --rm -e BUY_AGENT_PROVIDER=vllm -p 8000:8000 buy-agent

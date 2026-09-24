@@ -27,7 +27,7 @@ from buy_agent.api import (
 from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.models import Offer, Product, Removal, nothing_recorded
 from buy_agent.ranking import RankingWeights, rank_products
-from buy_agent.providers import VLLM
+from buy_agent.providers import LITELLM, VLLM
 from buy_agent.screenshots import ScreenshotError
 from buy_agent import money
 from buy_agent.search import BACKENDS, SearchError
@@ -311,7 +311,7 @@ def test_one_step_outside_a_range_is_rejected(data: dict) -> None:
         ({"think": "maybe"}, "think must be true or false; got 'maybe'."),
         ({"cpu_only": "sometimes"}, "cpu_only must be true or false; got 'sometimes'."),
         ({"sort_by": "cheapness"}, "sort_by must be one of score, price, rating; got 'cheapness'."),
-        ({"provider": "llama.cpp"}, "provider must be one of ollama, vllm; got 'llama.cpp'."),
+        ({"provider": "llama.cpp"}, "provider must be one of ollama, vllm, litellm; got 'llama.cpp'."),
     ],
 )
 def test_a_rejection_says_what_was_wrong_and_what_was_wanted(data: dict, message: str) -> None:
@@ -884,6 +884,13 @@ def test_choosing_a_provider_brings_its_model_and_its_server_with_it() -> None:
     assert config.base_url == VLLM.base_url
 
 
+def test_choosing_a_litellm_proxy_brings_its_own_pair() -> None:
+    config, _ = parse_options({"provider": "litellm", "model": "", "base_url": ""})
+
+    assert config.provider == "litellm"
+    assert (config.model, config.base_url) == (LITELLM.model, LITELLM.base_url)
+
+
 def test_a_named_model_still_wins_over_the_provider_default() -> None:
     config, _ = parse_options({"provider": "vllm", "model": "meta-llama/Llama-3.1-8B"})
 
@@ -908,7 +915,7 @@ def test_the_defaults_carry_every_provider_with_its_own_pair() -> None:
     that arrived without them would leave the other one's tag in the box."""
     options = {option["name"]: option for option in defaults_payload()["provider_options"]}
 
-    assert set(options) == {"ollama", "vllm"}
+    assert set(options) == {"ollama", "vllm", "litellm"}
     assert options["vllm"]["model"] == VLLM.model
     assert options["vllm"]["base_url"] == VLLM.base_url
     assert options["ollama"]["label"] == "Ollama"
@@ -928,6 +935,7 @@ def test_the_defaults_say_which_providers_take_a_context_window() -> None:
 
     assert options["ollama"]["takes_num_ctx"] is True
     assert options["vllm"]["takes_num_ctx"] is False
+    assert options["litellm"]["takes_num_ctx"] is False
 
 
 def test_the_defaults_say_which_providers_can_be_kept_off_the_gpu() -> None:
@@ -937,6 +945,7 @@ def test_the_defaults_say_which_providers_can_be_kept_off_the_gpu() -> None:
 
     assert options["ollama"]["takes_cpu_only"] is True
     assert options["vllm"]["takes_cpu_only"] is False
+    assert options["litellm"]["takes_cpu_only"] is False
 
 
 def test_installed_models_lists_what_ollama_has(monkeypatch) -> None:
@@ -993,6 +1002,25 @@ def test_installed_models_asks_vllm_what_it_is_serving(monkeypatch) -> None:
         "base_url": "http://localhost:8000/v1",
         "reachable": True,
         "models": [{"name": "Qwen/Qwen3-8B", "completion": True}],
+    }
+
+
+def test_installed_models_asks_a_proxy_which_aliases_answer(monkeypatch) -> None:
+    """Each alias's mode, so an embedding one reaches the picker marked (ADR-0032)."""
+    info = [{"model_name": "embedder", "model_info": {"mode": "embedding"}}]
+
+    def get(url, **_kwargs):
+        assert url == "http://localhost:4000/model/info", url
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"data": info})
+
+    monkeypatch.setattr("buy_agent.providers.httpx.get", get)
+
+    assert installed_models("litellm", "http://localhost:4000/v1") == {
+        "provider": "litellm",
+        "label": "LiteLLM",
+        "base_url": "http://localhost:4000/v1",
+        "reachable": True,
+        "models": [{"name": "embedder", "completion": False}],
     }
 
 

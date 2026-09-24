@@ -13,8 +13,9 @@
 
     Only Ollama is started for you. It installs nothing anyway (see Have), and a
     vLLM needs a GPU, a served model and flags this script has no business
-    choosing -- so with $env:BUY_AGENT_PROVIDER set to vllm this waits for one to
-    be answering and says where, rather than trying to launch it.
+    choosing, as a LiteLLM proxy needs the config.yaml saying what it routes to
+    -- so with $env:BUY_AGENT_PROVIDER set to either this waits for one to be
+    answering and says where, rather than trying to launch it.
 
     Paying is the one thing it sets up only when asked. The AP2 SDK is an
     optional install and a git checkout of somebody else's repository, so it is
@@ -26,8 +27,9 @@
     Deliberately without parameters: everything it could ask is already a
     setting somewhere the rest of the project reads it from. The provider, the
     model and the server address come from buy_agent.config -- which is to say
-    from $env:BUY_AGENT_PROVIDER, $env:OLLAMA_MODEL and $env:OLLAMA_HOST, or
-    $env:VLLM_MODEL and $env:VLLM_HOST -- and anything past that is what
+    from $env:BUY_AGENT_PROVIDER, $env:OLLAMA_MODEL and $env:OLLAMA_HOST,
+    $env:VLLM_MODEL and $env:VLLM_HOST, or $env:LITELLM_MODEL and
+    $env:LITELLM_HOST -- and anything past that is what
     `python -m buy_agent.server --help` takes.
 
 .EXAMPLE
@@ -158,8 +160,8 @@ try {
 
     # The defaults live in one place and are read whole, off an AgentConfig, so
     # that $BUY_AGENT_PROVIDER picks the pair it decides -- $OLLAMA_MODEL and
-    # $OLLAMA_HOST, or $VLLM_MODEL and $VLLM_HOST. A tag repeated here would be a
-    # second default, silently disagreeing.
+    # $OLLAMA_HOST, $VLLM_MODEL and $VLLM_HOST, or $LITELLM_MODEL and $LITELLM_HOST.
+    # A tag repeated here would be a second default, silently disagreeing.
     $provider = Run $python @(
         '-c', 'from buy_agent.config import AgentConfig; print(AgentConfig().provider)'
     ) 'could not read the provider out of buy_agent.config'
@@ -199,14 +201,15 @@ try {
         }
     } else {
         # Waited for rather than started: a vLLM needs a GPU, a served model and
-        # flags this script has no business choosing. The probe is /models, which
+        # flags this script has no business choosing, and a LiteLLM proxy the
+        # config.yaml saying what it routes to. The probe is /models, which
         # is the OpenAI-compatible listing the form's model picker calls anyway --
         # the API root itself answers 404 on a server that is working perfectly.
         Step "$provider at $llm"
         if (Answers "$llm/models" 1) {
             Note "already running -- this run will ask it for $model"
         } else {
-            throw "nothing is answering at $llm -- start it there (vllm serve $model), " +
+            throw "nothing is answering at $llm -- start $provider there, serving $model, " +
                 "or unset `$env:BUY_AGENT_PROVIDER to go back to Ollama"
         }
     }

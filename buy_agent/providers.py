@@ -1,5 +1,5 @@
-"""Which model server the agent talks to: Ollama, or vLLM's OpenAI-compatible API
-(ADR-0028, ADR-0029, ADR-0032, ADR-0051)."""
+"""Which model server the agent talks to: Ollama, vLLM's OpenAI-compatible API, or a
+LiteLLM proxy speaking that same API (ADR-0028, ADR-0029, ADR-0032, ADR-0051, ADR-0068)."""
 
 from __future__ import annotations
 
@@ -23,9 +23,9 @@ if TYPE_CHECKING:
     from buy_agent.chat import Message
     from buy_agent.config import AgentConfig
 
-#: What the OpenAI client is given when no key is configured. vLLM serves without one,
-#: but the client refuses to send a request with no key at all, so a placeholder stands
-#: in for the header vLLM is not checking.
+#: What the OpenAI client is given when no key is configured. vLLM and a LiteLLM proxy
+#: started without a master key both serve without one, but the client refuses to send a
+#: request with no key at all, so a placeholder stands in for the header nobody checks.
 _NO_KEY = "EMPTY"
 
 #: How long to wait on a model listing -- all of it, not each request in it (ADR-0032,
@@ -76,6 +76,10 @@ class Provider:
     #: beside it handed a value its own signature refuses.
     transport_errors: tuple[type[Exception], ...]
     hint: Hint
+    #: How to give a model that ran out of room more of it, as the tail of a sentence
+    #: both doors show: a per-request window where the row takes one, and otherwise
+    #: whatever fixes the window for that server (ADR-0019).
+    more_room: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,9 +221,9 @@ def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
 
 
 @dataclass(frozen=True, slots=True)
-class _VLLMChat:
-    """vLLM through the OpenAI client, asked for one schema-shaped answer (ADR-0004,
-    ADR-0028)."""
+class _OpenAIChat:
+    """A server speaking the OpenAI chat API -- vLLM, or a LiteLLM proxy -- asked for one
+    schema-shaped answer (ADR-0004, ADR-0028, ADR-0068)."""
 
     client: openai.OpenAI
     model: str
@@ -250,16 +254,13 @@ class _VLLMChat:
         return read_answer(response.choices[0].message.content or "", schema)
 
     def close(self) -> None:
-        """Let go of the connection this client keeps to vLLM, as Ollama's does."""
+        """Let go of the connection this client keeps to the server, as Ollama's does."""
         self.client.close()
 
 
-def _vllm_chat_model(config: AgentConfig) -> ChatModel:
-    """vLLM through its OpenAI-compatible API (ADR-0019)."""
-    extra_body: dict[str, Any] = {}
-    if config.reasoning is not None:
-        extra_body["chat_template_kwargs"] = {"enable_thinking": config.reasoning}
-    return _VLLMChat(
+def _openai_chat_model(config: AgentConfig, extra_body: dict[str, Any]) -> ChatModel:
+    """The OpenAI client, pointed at whatever this config names and asked once (ADR-0051)."""
+    return _OpenAIChat(
         client=openai.OpenAI(
             base_url=config.base_url,
             api_key=config.api_key or _NO_KEY,
@@ -273,11 +274,26 @@ def _vllm_chat_model(config: AgentConfig) -> ChatModel:
     )
 
 
-def _vllm_installed(config: AgentConfig) -> list[InstalledModel]:
-    """What vLLM is serving -- one model, in the list shape the picker wants."""
-    headers = {"Authorization": f"Bearer {config.api_key}"} if config.api_key else {}
+def _vllm_chat_model(config: AgentConfig) -> ChatModel:
+    """vLLM through its OpenAI-compatible API (ADR-0019)."""
+    extra_body: dict[str, Any] = {}
+    if config.reasoning is not None:
+        extra_body["chat_template_kwargs"] = {"enable_thinking": config.reasoning}
+    return _openai_chat_model(config, extra_body)
+
+
+def _authorised(config: AgentConfig) -> dict[str, str]:
+    """The header a listing carries where a key is configured, and none where it is not."""
+    return {"Authorization": f"Bearer {config.api_key}"} if config.api_key else {}
+
+
+def _openai_models(config: AgentConfig) -> list[InstalledModel]:
+    """What an OpenAI-compatible server lists at ``/models``, every entry taken as able
+    to answer -- that listing says nothing else about it."""
     response = httpx.get(
-        f"{config.base_url.rstrip('/')}/models", headers=headers, timeout=_LIST_TIMEOUT
+        f"{config.base_url.rstrip('/')}/models",
+        headers=_authorised(config),
+        timeout=_LIST_TIMEOUT,
     )
     response.raise_for_status()
     return [
@@ -305,6 +321,62 @@ def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
             f"with:  vllm serve {config.model}"
         )
     return _unreachable_hint(config, exc, f"vllm serve {config.model}")
+
+
+def _litellm_chat_model(config: AgentConfig) -> ChatModel:
+    """A LiteLLM proxy, told to think in its own provider-neutral ``reasoning_effort``
+    and told nothing where ``reasoning`` is ``None`` (ADR-0019, ADR-0068)."""
+    if config.reasoning is None:
+        return _openai_chat_model(config, {})
+    effort = "medium" if config.reasoning else "none"
+    return _openai_chat_model(config, {"reasoning_effort": effort})
+
+
+def _litellm_installed(config: AgentConfig) -> list[InstalledModel]:
+    """Every alias the proxy routes, marked by the ``mode`` ``/model/info`` reports
+    (ADR-0032). A proxy that will not say falls back to the plain listing: "cannot say"
+    is not "cannot run". Its own routes sit beside ``/v1``, not under it."""
+    try:
+        response = httpx.get(
+            f"{config.base_url.rstrip('/').removesuffix('/v1')}/model/info",
+            headers=_authorised(config),
+            timeout=_LIST_TIMEOUT,
+        )
+        response.raise_for_status()
+        entries = response.json().get("data", [])
+    except (httpx.HTTPError, ValueError):
+        return _openai_models(config)
+    models: dict[str, bool] = {}
+    for entry in entries:
+        if name := entry.get("model_name"):
+            # An alias of several deployments answers if any of them does.
+            mode = (entry.get("model_info") or {}).get("mode")
+            models[name] = models.get(name, False) or mode in (None, "chat")
+    return [InstalledModel(name, completion) for name, completion in models.items()]
+
+
+def _litellm_hint(config: AgentConfig, exc: Exception) -> str:
+    """Turn a LiteLLM proxy's failure into something the user can act on (ADR-0068)."""
+    proxy = f"The LiteLLM proxy at {config.base_url}"
+    if isinstance(exc, openai.AuthenticationError):
+        return (
+            f"{proxy} refused the API key ({exc}). "
+            "Set $LITELLM_API_KEY to its master key or to a virtual key it issued."
+        )
+    lowered = _answered_by(exc, openai.APIStatusError)
+    if any(said in lowered for said in ("invalid model name", "not found", "not exist")):
+        return (
+            f"{proxy} routes no model called {config.model!r}. Ask for one it has "
+            f"(routing: {_listed(config)}), or add it to the model_list in the "
+            f"proxy's config.yaml and restart it."
+        )
+    if lowered:
+        # Any other answer is the failure of whatever it routed to, relayed.
+        return (
+            f"{proxy} answered, but the model behind {config.model!r} failed ({exc}). "
+            "The proxy's own log says which server it routed to."
+        )
+    return _unreachable_hint(config, exc, "litellm --config config.yaml")
 
 
 def _answered_by(exc: Exception, client_error: type[Exception]) -> str:
@@ -351,19 +423,12 @@ def _too_slow_hint(config: AgentConfig, exc: Exception) -> str:
 def _unreadable_hint(config: AgentConfig, exc: Exception) -> str:
     """A server that answered, with something that is not the JSON asked for (ADR-0019)."""
     server = config.model_server
-    room = (
-        "give it more room with a larger context window, or turn thinking off"
-        if server.takes_num_ctx
-        # ``--max-model-len`` stays: it is vLLM's own startup flag, which is the same
-        # thing to type wherever this sentence is read.
-        else "ask for fewer products, or restart it with a larger --max-model-len"
-    )
     said = str(exc).strip()
     detail = said.splitlines()[0] if said else type(exc).__name__
     return (
         f"{server.label} at {config.base_url} answered with something that is not "
         f"the JSON this asks for ({detail}). The model {config.model!r} may have run "
-        f"out of room before it finished: {room}."
+        f"out of room before it finished: {server.more_room}."
     )
 
 
@@ -407,6 +472,7 @@ OLLAMA = Provider(
     # ``OSError``.
     transport_errors=(ResponseError, RequestError, OSError, httpx.HTTPError),
     hint=_hint(_ollama_hint),
+    more_room="give it more room with a larger context window, or turn thinking off",
 )
 
 VLLM = Provider(
@@ -422,15 +488,40 @@ VLLM = Provider(
     # window there, so a run has nothing to say about it.
     takes_cpu_only=False,
     chat_model=_vllm_chat_model,
-    installed=_vllm_installed,
+    installed=_openai_models,
     # ``openai.OpenAIError`` is the root of that client's hierarchy.
     transport_errors=(openai.OpenAIError, OSError, httpx.HTTPError),
     hint=_hint(_vllm_hint),
+    # ``--max-model-len`` stays: it is vLLM's own startup flag, which is the same thing
+    # to type wherever this sentence is read.
+    more_room="ask for fewer products, or restart it with a larger --max-model-len",
+)
+
+LITELLM = Provider(
+    name="litellm",
+    label="LiteLLM",
+    # An alias out of somebody's ``model_list``, which nothing here can know.
+    model=os.getenv("LITELLM_MODEL", "local_model"),
+    base_url=os.getenv("LITELLM_HOST", "http://localhost:4000/v1"),
+    api_key=os.getenv("LITELLM_API_KEY", ""),
+    # Both belong to whatever the proxy routes to.
+    takes_num_ctx=False,
+    takes_cpu_only=False,
+    chat_model=_litellm_chat_model,
+    installed=_litellm_installed,
+    transport_errors=(openai.OpenAIError, OSError, httpx.HTTPError),
+    hint=_hint(_litellm_hint),
+    more_room=(
+        "ask for fewer products, or give the model the proxy routes to a larger "
+        "context window where that server is started"
+    ),
 )
 
 #: Every provider, by the name the CLI, the API and ``$BUY_AGENT_PROVIDER`` use
 #: (ADR-0029).
-PROVIDERS: dict[str, Provider] = {provider.name: provider for provider in (OLLAMA, VLLM)}
+PROVIDERS: dict[str, Provider] = {
+    provider.name: provider for provider in (OLLAMA, VLLM, LITELLM)
+}
 
 
 def provider_for(name: str) -> Provider:
