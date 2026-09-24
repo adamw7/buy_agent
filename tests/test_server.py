@@ -664,6 +664,17 @@ def test_a_chunked_request_never_reaches_the_agent(server: str) -> None:
     assert StubAgent.captured == {}
 
 
+def test_a_body_posted_to_no_endpoint_does_not_desync_the_connection(server: str) -> None:
+    """The one POST answered before its body is read: a 404 for a path nothing serves."""
+    smuggled(
+        server,
+        b"POST /api/nope HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 45\r\n\r\n"
+        b"GET /api/config HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
+        "404",
+        "the smuggled request was answered",
+    )
+
+
 def test_a_negative_content_length_does_not_desync_the_connection(server: str) -> None:
     """The third way to declare a body this loop will never read."""
     smuggled(

@@ -373,6 +373,16 @@ def test_a_brave_answer_becomes_search_results(monkeypatch) -> None:
     }
 
 
+def test_brave_is_never_asked_for_more_than_it_answers(monkeypatch) -> None:
+    """A run may ask for fifty results; Brave answers at most twenty and refuses a larger
+    ``count`` rather than answering fewer."""
+    seen = stub_http(monkeypatch, payload={"web": {"results": []}})
+
+    search_web("headphones", max_results=50, backend=_with_key(BRAVE, "k"))
+
+    assert seen["params"]["count"] == 20
+
+
 def test_brave_without_a_key_says_which_variable_to_set(monkeypatch) -> None:
     """Not a transport failure, so it is not asked twice: a second keyless request is
     a second refusal."""
