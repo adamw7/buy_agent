@@ -7,7 +7,7 @@
 
 # -- stage 1: build the UI ----------------------------------------------------
 # The Node version CI builds with; the Angular CLI refuses anything older.
-FROM node:22.23.2-bookworm-slim AS ui
+FROM node:22.23.3-bookworm-slim AS ui
 
 WORKDIR /ui
 
