@@ -7,8 +7,18 @@ description: Run the full gate CI applies -- both test suites, both coverage flo
 
 `.github/workflows/ci.yml` runs two jobs on every push to `main` and every pull
 request, on Linux; Windows runs the same two on Saturdays and on a manual run
-(ADR-0037). This is the same gate, locally. Run it from the repository root with
-`.venv` active.
+(ADR-0037). This is the same gate, locally, and `scripts/preflight.ps1` runs the
+whole of it -- both jobs, step for step and in `ci.yml`'s order, each stopping at
+its first failure as a runner does and the other running anyway:
+
+```powershell
+.\scripts\preflight.ps1               # both halves
+.\scripts\preflight.ps1 -Only python  # ...or one, for a change that touched one
+```
+
+Run it from the repository root; it finds `.venv` itself. A checkout that has none
+yet is set up by `scripts/setup.ps1`, which installs everything below needs,
+the AP2 SDK included (ADR-0067). The commands it runs, and what each is for:
 
 ## Python (Python 3.14)
 

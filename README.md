@@ -74,6 +74,26 @@ python -m playwright install --only-shell chromium
 this project does not use, so its real requirements are pinned in that file
 instead. Everything except `--pay` works without it.
 
+That needs Python 3.14 and, for the web UI, Node 22.23.3 or later -- the versions
+CI runs on.
+
+**Working on it** rather than running it needs more than that: the dev
+requirements, the UI's dependencies, and the AP2 SDK above, which stops being
+optional here -- without it the payment tests skip and the coverage floor cannot
+be met. One script does the lot, skipping whatever is already done, and a second
+runs every check a pull request is held to:
+
+```powershell
+.\scripts\setup.ps1        # .venv, requirements-dev.txt, the AP2 SDK, npm ci in ui/
+.\scripts\preflight.ps1    # the gate CI applies, both halves; -Only python|ui for one
+```
+
+`setup.ps1` checks Python and Node against the versions CI pins, and also
+checks how the checkout's line endings came out: a clone made before
+`.gitattributes` existed keeps its CRLF files, which fail the UI's formatting
+check, and the script tells you the one command that rewrites them
+([ADR-0067](docs/adr/0067-script-the-contributor-setup-and-the-gate.md)).
+
 Already running a vLLM? Skip step 1 and see
 [Running against vLLM](#running-against-vllm) -- `--provider vllm` is the whole
 difference.
@@ -908,6 +928,8 @@ than working them out
 ## Tests
 
 ```powershell
+.\scripts\preflight.ps1       # everything CI checks, in its order -- or one at a time:
+
 python -m pytest              # the Python suite
 python -m pylint buy_agent    # ...and the linter over the package it covers
 python -m mypy buy_agent      # ...and the type checker, over that same package
