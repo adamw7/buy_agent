@@ -503,7 +503,7 @@ def test_a_bound_written_into_the_request_is_offered_with_pythons_sentence() -> 
         {
             "bound": "max_price",
             "value": 200.0,
-            "note": 'From your request: "under $200". Nothing is enforced unless you set it.',
+            "note": 'From your request: "under $200". Clear the box to search without it.',
         }
     ]
 

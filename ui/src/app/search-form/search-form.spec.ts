@@ -247,6 +247,78 @@ describe('SearchForm', () => {
     expect(element<HTMLInputElement>('input[name="max_price"]').value).toBe('');
   });
 
+  it('follows the request with a figure it filled in and nobody touched', async () => {
+    /* Kept, "under $90" was sent with "kettle under $150" under a note quoting the
+       $150 -- and cleared from the request, sent with every search after it. */
+    const box = () => element<HTMLInputElement>('input[name="max_price"]');
+    await type('input[name="request"]', 'kettle under $90');
+    await noticed('kettle under $90', [
+      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+    ]);
+
+    await type('input[name="request"]', 'kettle under $150');
+    await noticed('kettle under $150', [
+      { bound: 'max_price', value: 150, note: 'From your request: "under $150".' },
+    ]);
+    expect(box().value).toBe('150');
+
+    await type('input[name="request"]', 'kettle under $90');
+    await noticed('kettle under $90', [
+      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+    ]);
+    expect(box().value).toBe('90');
+
+    await type('input[name="request"]', 'kettle');
+    expect(box().value).toBe('90');
+    await noticed('kettle', []);
+    expect(box().value).toBe('');
+    await send();
+    expect(submitted[0].max_price).toBeNull();
+
+    await type('input[name="request"]', 'kettle under $90');
+    await noticed('kettle under $90', [
+      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+    ]);
+    expect(box().value).toBe('90');
+  });
+
+  it('leaves a figure it filled in alone once the shopper has changed it', async () => {
+    await type('input[name="request"]', 'kettle under $90');
+    await noticed('kettle under $90', [
+      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+    ]);
+    await type('input[name="max_price"]', '80');
+
+    await type('input[name="request"]', 'kettle');
+    await noticed('kettle', []);
+
+    expect(element<HTMLInputElement>('input[name="max_price"]').value).toBe('80');
+  });
+
+  it('says a figure came from the request only while the box still holds it', async () => {
+    await type('input[name="max_price"]', '50');
+    await type('input[name="request"]', 'kettle under $90');
+    await noticed('kettle under $90', [
+      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+    ]);
+    const box = element<HTMLInputElement>('input[name="max_price"]').closest('label')!;
+
+    expect(box.querySelector('.noticed')).toBeNull();
+  });
+
+  it('does not remember a figure read off the request it was sent with', async () => {
+    /* The request is not remembered, so a bound read off it would come back on the
+       next visit as a filter nobody typed and no note explains. */
+    await type('input[name="request"]', 'kettle under $90');
+    await noticed('kettle under $90', [
+      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+    ]);
+    await send();
+
+    expect(submitted[0].max_price).toBe(90);
+    expect(JSON.parse(localStorage.getItem('buy_agent.settings')!).maxPrice).toBeNull();
+  });
+
   it('ignores a bound it has no box for', async () => {
     /* A fourth bound named by Python and not yet drawn here is nothing to fill in,
        and never a crash. */

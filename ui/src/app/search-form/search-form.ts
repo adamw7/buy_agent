@@ -453,13 +453,25 @@ export class SearchForm {
   /** What to say under a box holding a number nobody typed, by the key it is sent
    *  under. Python's sentence, and a hint rather than a mark: nothing is wrong. */
   protected noticedNote(key: string): string {
-    return this.noticedNow().find((bound) => bound.bound === key)?.note ?? '';
+    const offer = this.noticedNow().find((bound) => bound.bound === key);
+    // Only while the box still holds that figure: under a number from an earlier
+    // request, or one the shopper typed, the sentence attributes it to words that
+    // asked for something else.
+    const row = this.numberFields.find((field) => field.key === key);
+    return offer && row?.value() === offer.value ? offer.note : '';
   }
 
   /** Which offers this form has already acted on, so a box the shopper then cleared
    *  is not filled in again on the next render. Keyed by the setting and the figure,
    *  so a re-worded request offering a different number is a new offer. */
   private readonly offered = new Set<string>();
+
+  /** The boxes holding a figure this form filled in and nobody has touched since, by
+   *  key: those are the request's and follow it, where a box somebody typed in is
+   *  theirs. Left filled when the request moves on, a budget read off "under $900"
+   *  was sent with "gaming laptop under $1500" under a note quoting the $1500 -- and
+   *  then remembered, an invisible filter on every search after it. */
+  private readonly filled = new Map<string, number>();
 
   /** What the server said about the sources field, while it is still about what the field holds. */
   private readonly sourcesProblem = computed(() => {
@@ -560,18 +572,42 @@ export class SearchForm {
     // Fill in a bound the request asked for in words, once, and only where the box is
     // empty: offering is the whole of it, so a box the shopper has typed in or cleared
     // is theirs. The panel opens with it, since an offer nobody can see is not one.
+    // A figure it filled in and nobody touched is the request's, so it follows the
+    // request: replaced by what a reworded one asks for, and cleared once the answer
+    // about the request now in the box offers nothing for it.
     effect(() => {
+      const check = this.noticed();
+      const answered = check !== null && check.request === this.request().trim();
       const offers = this.noticedNow();
       untracked(() => {
+        for (const [key, value] of this.filled) {
+          const row = this.numberFields.find((field) => field.key === key);
+          if (row?.value() !== value) {
+            this.filled.delete(key);
+          } else if (answered && !offers.some((bound) => bound.bound === key)) {
+            // Cleared by the form and not the shopper, so a request asking for it
+            // again is offered it again.
+            row.value.set(null);
+            this.filled.delete(key);
+            this.offered.delete(`${key}=${value}`);
+          }
+        }
         for (const bound of offers) {
           const row = this.numberFields.find((field) => field.key === bound.bound);
           const mark = `${bound.bound}=${bound.value}`;
-          if (!row || this.offered.has(mark)) {
+          if (!row) {
+            continue;
+          }
+          // `offered` guards only a box somebody cleared; one the form still owns
+          // takes whatever the request now asks for, back to a figure it once held too.
+          const owned = this.filled.has(bound.bound);
+          if (!owned && this.offered.has(mark)) {
             continue;
           }
           this.offered.add(mark);
-          if (row.value() === null) {
+          if (owned || row.value() === null) {
             row.value.set(bound.value);
+            this.filled.set(bound.bound, bound.value);
             this.advanced.set(true);
           }
         }
@@ -704,6 +740,13 @@ export class SearchForm {
     const saved: Record<string, unknown> = {};
     for (const [key, field] of Object.entries(this.settings)) {
       saved[key] = field.value();
+    }
+    // A figure read off this request is part of the question, not a standing answer.
+    for (const [key, value] of this.filled) {
+      const name = camelCase(key);
+      if (saved[name] === value) {
+        saved[name] = null;
+      }
     }
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(saved));

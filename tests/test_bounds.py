@@ -148,4 +148,4 @@ def test_the_note_quotes_the_words_it_read_and_says_it_applies_nothing() -> None
     note = only("headphones under $200").note
 
     assert 'under $200' in note
-    assert "Nothing is enforced unless you set it." in note
+    assert "Clear the box to search without it." in note
