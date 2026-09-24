@@ -250,13 +250,10 @@ class BuyAgent:
             # Asked once per result and both answers kept: the count and the names below
             # are the other side of this same list, and reading ``covers`` again for each
             # of them is one judgement made three times.
-            kept: list[SearchResult] = []
-            outside: list[SearchResult] = []
+            covered: dict[bool, list[SearchResult]] = {True: [], False: []}
             for result in found:
-                if source.covers(result.url):
-                    kept.append(result)
-                else:
-                    outside.append(result)
+                covered[source.covers(result.url)].append(result)
+            kept, outside = covered[True], covered[False]
             if outside:
                 # Count then names, as everywhere something is taken away. There is no
                 # falling back to the wider web (ADR-0027), so an over-strict ``covers``

@@ -1620,7 +1620,7 @@ def test_an_unpayable_product_is_a_400_naming_the_field(server: str) -> None:
 
 
 def test_paying_is_guarded_like_every_other_method(server: str) -> None:
-    """`_admits` runs at the top of `do_POST`, so a new endpoint added under it
+    """`_refused` runs at the top of `do_POST`, so a new endpoint added under it
     is guarded by being there -- this is what says it still is."""
     request = urllib.request.Request(
         f"{server}/api/pay",
@@ -1714,7 +1714,7 @@ def test_a_page_that_would_not_be_photographed_is_a_502(tmp_path: Path) -> None:
 
 
 def test_a_picture_is_guarded_like_every_other_request(tmp_path: Path) -> None:
-    """``_admits`` runs at the top of ``do_GET``: a page on another site cannot point
+    """``_refused`` runs at the top of ``do_GET``: a page on another site cannot point
     this server's browser anywhere, which is the rule that makes a camera safe to have."""
     camera = Photographer()
     with serving(tmp_path, camera=camera) as base:

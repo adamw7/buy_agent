@@ -259,9 +259,13 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
     # -- who is allowed to ask --------------------------------------------------
 
-    def _admits(self) -> bool:
-        """Whether this request came from the page this server serves (ADR-0018)."""
-        return self._origin_admits() and self._host_admits()
+    def _refused(self) -> bool:
+        """Refuse a request that did not come from the page this server serves, and say
+        whether it was (ADR-0018)."""
+        if self._origin_admits() and self._host_admits():
+            return False
+        self._refuse()
+        return True
 
     def _origin_admits(self) -> bool:
         """Reject a request a page on another site made."""
@@ -308,8 +312,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     # The verb as it arrives on the wire, which is what the base class dispatches on.
     # pylint: disable-next=invalid-name
     def do_GET(self) -> None:
-        if not self._admits():
-            self._refuse()
+        if self._refused():
             return
         url = urlparse(self.path)
         params = {key: values[-1] for key, values in parse_qs(url.query).items()}
@@ -352,8 +355,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     # The verb as it arrives on the wire, which is what the base class dispatches on.
     # pylint: disable-next=invalid-name
     def do_POST(self) -> None:
-        if not self._admits():
-            self._refuse()
+        if self._refused():
             return
         url = urlparse(self.path)
         # Both answer the same shape, and only one runs anything (ADR-0035).
@@ -383,8 +385,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     # pylint: disable-next=invalid-name
     def do_HEAD(self) -> None:
         """Answer HEAD like GET, minus the body -- but never by running a search."""
-        if not self._admits():
-            self._refuse()
+        if self._refused():
             return
         if urlparse(self.path).path == "/api/search/stream":
             self._send_json(405, {"error": "A search stream has to be asked for with GET."})
@@ -396,7 +397,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     def _models(self, params: dict[str, str]) -> dict[str, Any]:
         """What the named server is serving, for the form's model picker."""
         provider = params.get("provider") or DEFAULT_PROVIDER
-        base_url = params.get("base_url") or _default_base_url(provider)
+        server = PROVIDERS.get(provider)
+        base_url = params.get("base_url") or (server.base_url if server else "")
         return installed_models(provider, base_url)
 
     def _search(
@@ -699,12 +701,6 @@ def _clashing_provider(port: int, exc: OSError) -> str:
                 f"--port {port + 1}"
             )
     return ""
-
-
-def _default_base_url(provider: str) -> str:
-    """Where that provider listens when the request named no address."""
-    server = PROVIDERS.get(provider)
-    return server.base_url if server else ""
 
 
 def _hostname(netloc: str) -> str:
