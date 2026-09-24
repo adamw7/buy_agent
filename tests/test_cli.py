@@ -438,6 +438,18 @@ def test_scores_are_rounded_in_the_json(fake_agent, tmp_path) -> None:
     assert json.loads(destination.read_text(encoding="utf-8"))[0]["score"] == 0.1235
 
 
+def test_the_json_writes_a_currency_sign_as_itself(fake_agent, tmp_path) -> None:
+    """A file somebody opens reads "zł", not an escape sequence standing for it."""
+    fake_agent["result"] = [ranked_product(Product(name="Słuchawki €"), score=0.5, rank=1)]
+    destination = tmp_path / "out.json"
+
+    main(["headphones", "--json", str(destination)])
+
+    written = destination.read_text(encoding="utf-8")
+    assert "Słuchawki €" in written
+    assert json.loads(written)[0]["name"] == "Słuchawki €"
+
+
 def test_the_json_carries_every_product_field(fake_agent, tmp_path) -> None:
     destination = tmp_path / "out.json"
 

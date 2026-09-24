@@ -572,7 +572,9 @@ def main(argv: list[str] | None = None) -> int:
         # looking current.
         payload = results_payload(ranked, config.currency or None)
         try:
-            args.json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            args.json.write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
         except OSError as exc:
             # Worth an exit code and not a traceback: the report is already on stdout,
             # so what failed is the copy.

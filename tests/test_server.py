@@ -1174,6 +1174,29 @@ def test_the_app_is_served_and_owns_its_own_routes(tmp_path: Path) -> None:
         assert get(f"{base}/%2e%2e/%2e%2e/requirements.txt")[1] == "<app-root></app-root>"
 
 
+def test_a_hashed_file_is_kept_for_good_and_the_page_is_asked_about_again(
+    tmp_path: Path,
+) -> None:
+    """``index.html`` names the hashed files, so it is the one that must never go stale."""
+    (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
+    for name in ("main-AC2JNJ6W.js", "styles-5JQDSYP3.css", "main.js", "favicon.ico"):
+        (tmp_path / name).write_text("x", encoding="utf-8")
+
+    def cache_control(path: str) -> str:
+        with urllib.request.urlopen(f"{base}{path}", timeout=10) as response:
+            return response.headers.get("Cache-Control", "")
+
+    with serving(tmp_path) as base:
+        assert "immutable" in cache_control("/main-AC2JNJ6W.js")
+        assert "immutable" in cache_control("/styles-5JQDSYP3.css")
+        # A development build names its files without a hash, and keeping one of
+        # those for a year is a page running last week's code.
+        assert cache_control("/main.js") == "no-cache"
+        assert cache_control("/favicon.ico") == "no-cache"
+        assert cache_control("/") == "no-cache"
+        assert cache_control("/results/3") == "no-cache"
+
+
 def test_the_content_type_table_answers_and_not_the_platform(tmp_path: Path, monkeypatch) -> None:
     """On Windows ``mimetypes`` reads the registry and can call a .js text/plain."""
     monkeypatch.setattr(
