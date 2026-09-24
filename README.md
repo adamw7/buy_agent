@@ -1,8 +1,8 @@
 # buy_agent
 
 A shopping agent built on a local model -- served by
-[Ollama](https://ollama.com), or by a [vLLM](https://docs.vllm.ai) you already
-run. Tell it what you want to buy; it searches the web, pulls out up to 10
+[Ollama](https://ollama.com), by a [vLLM](https://docs.vllm.ai) you already
+run, or by whatever a [LiteLLM](https://docs.litellm.ai) proxy of yours routes to. Tell it what you want to buy; it searches the web, pulls out up to 10
 products along with what the pages say about them, ranks them, and logs the
 best 3.
 
@@ -102,8 +102,8 @@ python -m buy_agent "espresso machine" --compare          # ...and what moved si
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--provider` | `ollama` (or `$BUY_AGENT_PROVIDER`) | `ollama` or `vllm` |
-| `--model` | the provider's own | Ollama tag, or the name a vLLM was started with |
+| `--provider` | `ollama` (or `$BUY_AGENT_PROVIDER`) | `ollama`, `vllm` or `litellm` |
+| `--model` | the provider's own | Ollama tag, the name a vLLM was started with, or a LiteLLM proxy's alias |
 | `--base-url` | the provider's own | Where that server listens |
 | `--results` | `10` | How many products to find (1-50) |
 | `--top` | `3` | How many to log (1-50) |
@@ -201,6 +201,47 @@ one seam rather than two code paths, and why it does not reopen the
 no-accounts-no-keys decision in
 [ADR-0003](docs/adr/0003-local-ollama-no-api-keys.md): a vLLM on your own
 machine or network is inside that decision, not an exception to it.
+
+### Running against a LiteLLM proxy
+
+A [LiteLLM](https://docs.litellm.ai/docs/simple_proxy) proxy puts several model
+servers behind one OpenAI-compatible address, with fallbacks and per-person keys.
+If you already run one, point the agent at it rather than past it:
+
+```powershell
+python -m buy_agent "espresso machine" --provider litellm --model local_model
+$env:BUY_AGENT_PROVIDER = 'litellm'   # ...or once, for every run in this shell
+```
+
+The defaults are `$LITELLM_MODEL` and `$LITELLM_HOST` (`local_model`,
+`http://localhost:4000/v1`, the port `litellm --config` binds). The model is an
+alias out of the proxy's own `model_list`, so `local_model` is a placeholder:
+name one of yours. A proxy routing that alias to the Ollama on this machine is a
+few lines of its `config.yaml`:
+
+```yaml
+model_list:
+  - model_name: local_model
+    litellm_params:
+      model: ollama_chat/gemma4:12b
+      api_base: http://localhost:11434
+```
+
+It is only the proxy that is reached, with the `openai` client vLLM already
+uses. The LiteLLM SDK is not a dependency. The differences from vLLM:
+
+- **The Model dropdown lists the proxy's aliases** and marks the embedding ones
+  as `embedding only`, read off the proxy's `/model/info`.
+- **`--num-ctx` and `--cpu-only` are not sent.** The window and the device belong
+  to whatever the proxy routes to. `--think` / `--no-think` is sent as LiteLLM's
+  own `reasoning_effort`.
+- **A key, if the proxy wants one.** Set `$env:LITELLM_API_KEY` to its master key
+  or a virtual key it issued. As with vLLM, there is no flag for it.
+
+Where the proxy forwards a request is decided by its `config.yaml`, and so is
+whether your shopping request leaves the machine.
+[ADR-0067](docs/adr/0067-reach-a-litellm-proxy-as-a-third-model-server.md) has
+the reasoning, and why the SDK was rejected.
 
 ### Thinking models
 
@@ -606,13 +647,15 @@ run is a few seconds.
 Ctrl+C stops the server, and the Ollama too if the script started it. It has no
 options on purpose: the provider, model and address are
 `$env:BUY_AGENT_PROVIDER`, `$env:OLLAMA_MODEL`/`$env:OLLAMA_HOST` (or
-`$env:VLLM_MODEL`/`$env:VLLM_HOST`) as everywhere else, and anything past that
+`$env:VLLM_MODEL`/`$env:VLLM_HOST`, or `$env:LITELLM_MODEL`/`$env:LITELLM_HOST`)
+as everywhere else, and anything past that
 is a flag on the server itself.
 
 Ollama is the only model server it starts for you: with
-`$env:BUY_AGENT_PROVIDER` set to `vllm` it waits for one to answer and says
-where instead of launching it, a vLLM wanting a GPU, a served model and flags
-this script has no business choosing. Node is the one thing it will not install
+`$env:BUY_AGENT_PROVIDER` set to `vllm` or `litellm` it waits for one to answer
+and says where instead of launching it, a vLLM wanting a GPU, a served model and
+flags this script has no business choosing, and a proxy the `config.yaml` saying
+what it routes to. Node is the one thing it will not install
 -- without `npm` on PATH it says so and serves the API anyway, so the page is
 the 503 until a build exists.
 
@@ -658,7 +701,8 @@ build kept elsewhere, and `--host` / `--port` move the binding, which is
 loopback on port 8000 by default. Port 8000 is also where a vLLM started with no
 arguments listens, so on a machine serving one give the UI another port (`--port
 8001`) -- otherwise the bind fails, and the server says so and names the clash.
-The model server need not be local either: `$OLLAMA_HOST` and `$VLLM_HOST`, or
+The model server need not be local either: `$OLLAMA_HOST`, `$VLLM_HOST` and
+`$LITELLM_HOST`, or
 the address field under Settings, point the run at another machine. To work on
 the UI itself, run the Angular dev server rather than rebuilding for every
 change -- see [The dev server](#the-dev-server).
@@ -686,10 +730,10 @@ the `curl` below still works, and reaching the server by another name -- a
 container published on a LAN -- means naming it with `--allowed-host buy.lan`.
 See [ADR-0018](docs/adr/0018-guard-the-loopback-server-against-other-pages.md).
 
-Under Settings, **Model server** picks between Ollama and vLLM and brings that
-one's model and address with it, and **Model** is a dropdown of what that server
-is actually serving -- what `ollama list` prints, or the one entry a vLLM
-reports at `/v1/models` -- refetched when the address field is pointed
+Under Settings, **Model server** picks between Ollama, vLLM and LiteLLM and
+brings that one's model and address with it, and **Model** is a dropdown of what
+that server is actually serving -- what `ollama list` prints, the one entry a vLLM
+reports at `/v1/models`, or the aliases a LiteLLM proxy routes -- refetched when the address field is pointed
 elsewhere. Three cases are marked rather than hidden. A model configured but not
 served stays in the list as `not served`, so a stale setting is visible rather
 than silently swapped. One that *is* pulled but cannot answer a prompt is
@@ -927,7 +971,8 @@ are actually put to Ollama. It lives outside `testpaths`, so `python -m pytest`
 cannot reach it, and a nightly job capped at five minutes is what runs it
 (ADR-0026). vLLM is not in that job -- it needs a GPU, and a CPU runner cannot
 host one honestly -- so its half is asserted in `tests/test_providers.py` and
-named as a gap in ADR-0028.
+named as a gap in ADR-0028. A LiteLLM proxy is not in it either: in front of that
+same Ollama it would test the proxy's translation rather than this code (ADR-0067).
 
 Those tests ask whether the pipeline's promises held, which they do however
 badly the model read the pages -- so none of them can say whether a change made

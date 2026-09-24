@@ -42,13 +42,14 @@ COPY --from=ui /ui/dist/ui/browser/ ./ui/dist/ui/browser/
 RUN useradd --create-home --uid 1000 shopper
 USER shopper
 
-# The model server runs on the host, not in here -- either of them. Docker
+# The model server runs on the host, not in here -- any of them. Docker
 # Desktop resolves this name on its own; on Linux,
-# `--add-host=host.docker.internal:host-gateway` supplies it. Both addresses are
-# set because either provider can be chosen per run, from the form or from
-# `--provider`, and the one that is not being used costs nothing.
+# `--add-host=host.docker.internal:host-gateway` supplies it. Every address is
+# set because any provider can be chosen per run, from the form or from
+# `--provider`, and the ones that are not being used cost nothing.
 ENV OLLAMA_HOST=http://host.docker.internal:11434 \
-    VLLM_HOST=http://host.docker.internal:8000/v1
+    VLLM_HOST=http://host.docker.internal:8000/v1 \
+    LITELLM_HOST=http://host.docker.internal:4000/v1
 
 EXPOSE 8000
 

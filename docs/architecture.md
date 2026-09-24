@@ -20,7 +20,7 @@ graph TB
 
     system["<b>buy_agent</b><br/><i>[Software System]</i><br/>Turns a plain-language request into<br/>a ranked shortlist of real products,<br/>each figure backed by a source page"]
 
-    ollama["<b>Model server</b><br/><i>[External System]</i><br/>A local Ollama, or a vLLM behind its<br/>OpenAI-compatible API. Refines the<br/>query and extracts products, under a<br/>JSON schema that constrains decoding"]
+    ollama["<b>Model server</b><br/><i>[External System]</i><br/>A local Ollama, or a vLLM or LiteLLM proxy<br/>behind an OpenAI-compatible API. Refines the<br/>query and extracts products, under a<br/>JSON schema that constrains decoding"]
     ddg["<b>Search backend</b><br/><i>[External System]</i><br/>DuckDuckGo with no key, a SearXNG<br/>the shopper runs, or Brave on a key<br/>they hold -- one row each"]
     shops["<b>Shop and review pages</b><br/><i>[External System]</i><br/>The pages the search returns;<br/>the only source of prices,<br/>ratings and review counts"]
     counterparty["<b>AP2 endpoint</b><br/><i>[External System]</i><br/>Whatever merchant or credential provider<br/>the operator names, reached only by a<br/>run that was asked to buy. None is<br/>named in this project"]
@@ -52,8 +52,10 @@ to whatever counterparty the operator named, and the rail it defaults to plays
 every role itself and charges nobody
 ([ADR-0046](adr/0046-pay-on-the-shoppers-behalf-with-ap2.md)).
 
-Which model server that is -- Ollama by default, or a vLLM already serving a model
-on a GPU box -- is `AgentConfig.provider`, and nothing downstream of
+Which model server that is -- Ollama by default, a vLLM already serving a model
+on a GPU box, or a LiteLLM proxy routing to either or to more
+([ADR-0067](adr/0067-reach-a-litellm-proxy-as-a-third-model-server.md)) -- is
+`AgentConfig.provider`, and nothing downstream of
 `buy_agent/providers.py` knows the difference: one table row holds a server whole,
 and `AgentConfig.model_server` is the only place a provider name becomes behaviour
 ([ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md),

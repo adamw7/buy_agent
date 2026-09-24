@@ -311,7 +311,7 @@ def test_one_step_outside_a_range_is_rejected(data: dict) -> None:
         ({"think": "maybe"}, "think must be true or false; got 'maybe'."),
         ({"cpu_only": "sometimes"}, "cpu_only must be true or false; got 'sometimes'."),
         ({"sort_by": "cheapness"}, "sort_by must be one of score, price, rating; got 'cheapness'."),
-        ({"provider": "llama.cpp"}, "provider must be one of ollama, vllm; got 'llama.cpp'."),
+        ({"provider": "llama.cpp"}, "provider must be one of ollama, vllm, litellm; got 'llama.cpp'."),
     ],
 )
 def test_a_rejection_says_what_was_wrong_and_what_was_wanted(data: dict, message: str) -> None:
@@ -908,7 +908,7 @@ def test_the_defaults_carry_every_provider_with_its_own_pair() -> None:
     that arrived without them would leave the other one's tag in the box."""
     options = {option["name"]: option for option in defaults_payload()["provider_options"]}
 
-    assert set(options) == {"ollama", "vllm"}
+    assert set(options) == {"ollama", "vllm", "litellm"}
     assert options["vllm"]["model"] == VLLM.model
     assert options["vllm"]["base_url"] == VLLM.base_url
     assert options["ollama"]["label"] == "Ollama"
