@@ -9,6 +9,7 @@ import json
 import logging
 import mimetypes
 import queue
+import re
 import socket
 import sys
 import threading
@@ -68,6 +69,14 @@ _MAX_BODY_BYTES = 64 * 1024
 #: enough that nobody is shown a price banner a day old.
 _SCREENSHOT_CACHE = "private, max-age=3600"
 
+#: A file ``ng build`` named after its own content -- ``main-AC2JNJ6W.js`` -- which is
+#: a different name the day it holds different bytes, so a browser may keep it for good.
+#: Anything else, ``index.html`` first, is asked about again on every load: it is what
+#: names the hashed files, and a stale one is a page pointing at a build that is gone.
+_HASHED_ASSET = re.compile(r"-[A-Z0-9]{8}\.[a-z0-9]+$")
+_IMMUTABLE = "public, max-age=31536000, immutable"
+_REVALIDATE = "no-cache"
+
 #: How long one blocking read or write on a connection may take (ADR-0034).
 _REQUEST_TIMEOUT = 30.0
 
@@ -87,6 +96,10 @@ _CROSS_SITE = "cross-site"
 _SECURITY_HEADERS = (
     ("X-Content-Type-Options", "nosniff"),
     ("Referrer-Policy", "no-referrer"),
+    # Nothing another window opens can reach back into this one, and none of the
+    # powerful features is the page's to ask for: it uses none of them.
+    ("Cross-Origin-Opener-Policy", "same-origin"),
+    ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()"),
     (
         "Content-Security-Policy",
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
@@ -512,7 +525,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             or mimetypes.guess_type(target.name)[0]
             or "application/octet-stream"
         )
-        self._send_bytes(200, body, content_type)
+        cache = _IMMUTABLE if _HASHED_ASSET.search(target.name) else _REVALIDATE
+        self._send_bytes(200, body, content_type, headers=(("Cache-Control", cache),))
 
     def _send_unbuilt(self) -> None:
         """Say the app has not been built, in whatever the asker can read."""
