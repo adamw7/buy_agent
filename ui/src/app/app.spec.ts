@@ -447,6 +447,29 @@ describe('App', () => {
     expect(page.querySelector('.also summary')!.textContent).toContain('1 more');
   });
 
+  it('brings the results into view when they land below the fold', async () => {
+    /* jsdom lays nothing out, so where an element sits is stubbed: below the
+       window for the first run, in view for the second. */
+    const scrolled = vi.fn();
+    const proto = HTMLElement.prototype as HTMLElement & { scrollIntoView?: unknown };
+    const original = proto.scrollIntoView;
+    proto.scrollIntoView = scrolled;
+    const where = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue({ top: window.innerHeight + 500 } as DOMRect);
+    try {
+      const fixture = await ran(agent, 'kettle', RESULT);
+      expect(scrolled).toHaveBeenCalledTimes(1);
+
+      where.mockReturnValue({ top: 10 } as DOMRect);
+      await ran(agent, 'toaster', RESULT, fixture);
+      expect(scrolled).toHaveBeenCalledTimes(1);
+    } finally {
+      where.mockRestore();
+      proto.scrollIntoView = original;
+    }
+  });
+
   it('shows a failed run as a message, not as an empty page', async () => {
     const fixture = await render();
     const page = fixture.nativeElement as HTMLElement;

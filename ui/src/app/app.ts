@@ -1,4 +1,13 @@
-import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import type { Subscription } from 'rxjs';
 
 import { AgentService } from './agent';
@@ -31,6 +40,8 @@ import type { Rejection } from './search-form/search-form';
 })
 export class App {
   private readonly agent = inject(AgentService);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
 
   protected readonly defaults = signal<AgentDefaults | null>(null);
   protected readonly status = signal<ModelStatus | null>(null);
@@ -276,6 +287,7 @@ export class App {
           this.logs.update((lines) => [...lines, event.line]);
         } else if (event.kind === 'result') {
           this.result.set(event.result);
+          this.showResults();
         } else {
           this.failure.set(event.message);
           // Named a field, so the form can mark the box it came out of rather
@@ -289,6 +301,25 @@ export class App {
       },
       complete: () => this.running.set(false),
     });
+  }
+
+  /**
+   * Bring what a run found onto the screen once it is drawn. The results land under
+   * the form and the progress panel, which on a phone -- the settings open -- is
+   * three screens down, and nothing on the one in view changed but the button: a
+   * finished run read as one that was still going, or had found nothing. Only where
+   * they start below the fold, so a reader already looking at them is not moved.
+   */
+  private showResults(): void {
+    afterNextRender(
+      () => {
+        const landed = this.host.nativeElement.querySelector('.results, .banner.quiet');
+        if (landed && landed.getBoundingClientRect().top > window.innerHeight) {
+          landed.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+        }
+      },
+      { injector: this.injector },
+    );
   }
 
   /** Ask for the same products in another order, without searching for them again. */

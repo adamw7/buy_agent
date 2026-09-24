@@ -134,7 +134,7 @@ class Noticed(BaseModel):
     @property
     def note(self) -> str:
         """Why this box holds a number nobody typed, in Python's words (ADR-0012)."""
-        return f'From your request: "{self.phrase}". Nothing is enforced unless you set it.'
+        return f'From your request: "{self.phrase}". Clear the box to search without it.'
 
 
 def notice(request: str) -> list[Noticed]:
