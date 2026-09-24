@@ -227,7 +227,7 @@ try {
         } else {
             Note 'npm is not on PATH, so the page will be a 503 -- the API still answers'
         }
-        Note 'install Node 22.23.2+ from https://nodejs.org and run this again for the page'
+        Note 'install Node 22.23.3+ from https://nodejs.org and run this again for the page'
     } else {
         Push-Location $ui
         try {

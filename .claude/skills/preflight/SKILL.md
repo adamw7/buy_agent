@@ -48,7 +48,7 @@ python -m mypy buy_agent
   fix the declaration rather than widening it, which is what the pragmas above
   are for.
 
-## UI (Node 22.23.2)
+## UI (Node 22.23.3)
 
 ```powershell
 cd ui

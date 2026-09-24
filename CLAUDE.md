@@ -157,7 +157,7 @@ docker run --rm -p 8000:8000 buy-agent
 docker run --rm buy-agent -m buy_agent "espresso machine"
 ```
 
-A `node:22.23.2-bookworm-slim` stage builds `ui/`; a `python:3.14-slim` stage
+A `node:22.23.3-bookworm-slim` stage builds `ui/`; a `python:3.14-slim` stage
 installs `requirements.txt` and gets the build copied to `ui/dist/ui/browser`
 beside the package, where `server.DEFAULT_UI_DIR` looks. Neither model server is
 in the image or started by it (ADR-0015): the container talks to the host's
@@ -304,7 +304,7 @@ waiting on it (ADR-0032).
 `.github/workflows/ci.yml` runs two jobs for pushes to `main` and every pull
 request: `coverage run -m pytest`, `coverage report` and then `pylint buy_agent`
 and `mypy buy_agent` on Python 3.14, and `npm run test:coverage`, `npm run build`
-`npm run lint` and `npm run format:check` in `ui/` on Node 22.23.2. The lint and
+`npm run lint` and `npm run format:check` in `ui/` on Node 22.23.3. The lint and
 the type check are last in that job on purpose: a job stops at its first failing
 step, and of the three the tests are what a change is about -- and the lint and
 the formatting check are last in the other for that same reason, the tests and

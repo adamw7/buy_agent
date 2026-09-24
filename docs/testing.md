@@ -379,7 +379,7 @@ Both suites run on Windows and on Linux, on different triggers.
 `.github/workflows/ci.yml` spreads its two jobs -- `coverage run -m pytest` and
 then `pylint buy_agent` and `mypy buy_agent` on Python 3.14, `npm run
 test:coverage`, `npm run build`, `npm run lint`
-and `npm run format:check` on Node 22.23.2 -- over `ubuntu-latest` and `windows-latest`, with `fail-fast`
+and `npm run format:check` on Node 22.23.3 -- over `ubuntu-latest` and `windows-latest`, with `fail-fast`
 off so a failure on one platform still reports the other. This project is
 written on Windows and its runners were Linux, each checking the half of the
 differences the other hides: a path separator, a default encoding, a socket that
