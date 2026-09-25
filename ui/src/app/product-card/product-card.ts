@@ -34,20 +34,16 @@ export class ProductCard {
   /** How much each criterion counted, as the run that produced this reported it. */
   readonly weights = input<ScoreWeights | null>(null);
 
-  /** Whether the server takes pictures of pages, so this card may ask for one of its
-   *  own (ADR-0065). The server's to say: the page asks only one that has a camera. */
+  /** Whether the server has a camera, so this card may ask for a picture (ADR-0065). */
   readonly screenshots = input(false);
 
   /** Whether this run may pay at all: the shopper asked for it and the server can. */
   readonly canPay = input(false);
 
-  /** The rail the payment would go through, so the confirmation can say whether
-   *  anybody is about to be charged. Python decides that, on the rail's row. */
+  /** The payment's rail row, which says whether anyone is charged. */
   readonly rail = input<RailOption | null>(null);
 
-  /** The product a payment is in flight for, anywhere on the page, or null for
-   *  none. The name and not a boolean: one at a time is why every card's button
-   *  goes dead, and which one is why exactly one of them has something to say. */
+  /** The product a payment is in flight for, page-wide, or null. */
   readonly paying = input<string | null>(null);
 
   /** What came of paying for *this* product, once something did. */
@@ -59,19 +55,14 @@ export class ProductCard {
   /** Whether this card is showing its confirmation. */
   protected readonly confirming = signal(false);
 
-  /** Whether any payment is in flight: one at a time, page-wide, so every button
-   *  on every card stands down until it lands. */
+  /** Whether any payment is in flight: one at a time, page-wide. */
   protected readonly locked = computed(() => this.paying() !== null);
 
-  /** Whether the payment in flight is *this* card's. Paying is two calls to a
-   *  counterparty on a 30-second budget each, and until now the whole of what the
-   *  page did about that was grey three buttons out: the one action on this page
-   *  that moves money was the only one with nothing saying it was happening, on a
-   *  wait longer than any of the ones that do. */
+  /** Whether the payment in flight is this card's, so it can say it is waiting. */
   protected readonly authorising = computed(() => this.paying() === this.product().name);
 
-  /** Whether to offer the button at all: the run asked, the server can, this
-   *  product has a price a source printed, and nothing has been bought yet. */
+  /** Whether to offer the button: paying is on, this product can be paid, and
+   *  nothing has been bought yet. */
   protected readonly offersPayment = computed(
     () => this.canPay() && this.product().cannot_pay === null && this.receipt() === null,
   );
@@ -91,9 +82,7 @@ export class ProductCard {
 
   protected confirm(): void {
     const product = this.product();
-    // `pay_currency` and not `currency`: the money a purchase is in is the run's, so a page that
-    // printed a bare "329.00" leaves the product's own `null` while the cart is in USD all the same
-    // (ADR-0043).
+    // The cart's currency, not the product's own (ADR-0043).
     if (product.price === null || product.pay_currency === null) {
       return;
     }
@@ -119,13 +108,10 @@ export class ProductCard {
     }));
   });
 
-  /** The page whose picture did not come, by its address: a card handed a product
-   *  that links somewhere else asks again rather than staying blank. */
+  /** The address whose picture failed; another address is asked again. */
   private readonly unphotographed = signal<string | null>(null);
 
-  /** Where the picture of this product's page is asked for, or null where there is
-   *  nothing to ask: a server with no camera, a product no page was linked for, or a
-   *  page that already would not be photographed. */
+  /** The picture's URL, or null: no camera, no link, or it already failed. */
   protected readonly shot = computed(() => {
     const url = this.product().url;
     if (!this.screenshots() || !url || url === this.unphotographed()) {
@@ -134,15 +120,12 @@ export class ProductCard {
     return screenshotUrl(url);
   });
 
-  /** What the picture is of, for whoever cannot see it -- and, being the only thing in
-   *  its link, what that link is called. */
+  /** The picture's alt text, which also names its link. */
   protected readonly shotLabel = computed(
     () => `Screenshot of the page at ${this.host() ?? this.product().url}`,
   );
 
-  /** The picture did not come -- the page would not load, or the browser would not
-   *  start. The frame goes rather than staying as a broken image; the title still
-   *  links to the page. */
+  /** The picture failed: drop the frame rather than show a broken image. */
   protected lost(): void {
     this.unphotographed.set(this.product().url);
   }

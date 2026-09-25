@@ -171,9 +171,7 @@ export function receipt(overrides: Partial<Receipt> = {}): Receipt {
   };
 }
 
-/** One ranked product, whole, with whatever the spec is about on top. Here
- *  rather than in either spec that needs one: `RankedProduct` mirrors
- *  `product_payload` field for field, so a field added there is added once. */
+/** One whole ranked product, with the spec's overrides on top. */
 export function product(overrides: Partial<RankedProduct> = {}): RankedProduct {
   return {
     rank: 1,

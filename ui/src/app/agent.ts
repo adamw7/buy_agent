@@ -39,8 +39,7 @@ export class AgentService {
     return this.http.get<SourcesCheck>('/api/sources', { params: { sources } });
   }
 
-  /** What the server reads out of a request: the bounds it asks for in words, for
-   *  the form to offer. Nothing is applied -- see `BoundsCheck`. */
+  /** Bounds the request states in words, for the form to offer (see `BoundsCheck`). */
   checkBounds(request: string): Observable<BoundsCheck> {
     return this.http.get<BoundsCheck>('/api/bounds', { params: { request } });
   }
@@ -81,9 +80,7 @@ export class AgentService {
 
       source.addEventListener('failure', (event) => {
         const payload = JSON.parse(event.data);
-        // `field` names the box the bad value came out of, where the failure was
-        // about one -- Python's judgement, which the page shows beside that input
-        // rather than only in the banner (ADR-0033).
+        // `field` names the box to mark, where there is one (ADR-0033).
         finish({
           kind: 'failure',
           message: payload.error,
@@ -92,8 +89,7 @@ export class AgentService {
         });
       });
 
-      // EventSource reports transport trouble here, and would then reconnect and
-      // start the search over -- so close it ourselves and say what happened.
+      // EventSource would reconnect and rerun the search, so close it ourselves.
       source.addEventListener('error', () => {
         if (ended) {
           return;
@@ -111,9 +107,7 @@ export class AgentService {
   }
 }
 
-/** Where a picture of the page at `url` is asked for (ADR-0065). A path and not a
- *  request: an `<img>` asks for it, which is what lets the browser wait for it,
- *  lazily, and keep it for as long as the server says it may. */
+/** The screenshot URL for `url`, for an `<img>` to load lazily (ADR-0065). */
 export function screenshotUrl(url: string): string {
   return `/api/screenshot?${new URLSearchParams({ url })}`;
 }

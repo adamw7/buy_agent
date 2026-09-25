@@ -52,8 +52,7 @@ export class App {
   protected readonly rejected = signal<Rejection | null>(null);
   /** What the server made of the sources field, for the form to show. */
   protected readonly sourcesCheck = signal<SourcesCheck | null>(null);
-  /** What the server read out of the request: bounds it asks for in words, for the
-   *  form to offer. Nothing here is applied -- the shopper submits it or clears it. */
+  /** Bounds the request states in words, for the form to offer (ADR-0059). */
   protected readonly boundsCheck = signal<BoundsCheck | null>(null);
   protected readonly running = signal(false);
   protected readonly started = signal(false);
@@ -74,11 +73,8 @@ export class App {
   /** The product being paid for, by name -- one payment at a time, page-wide. */
   protected readonly paying = signal<string | null>(null);
 
-  /** What came of each payment, by the name of the product it bought. Most names
-   *  bought nothing, so the map says a miss is a miss rather than leaving that to
-   *  `noUncheckedIndexedAccess`, which is the app's own setting and not the specs':
-   *  the card is handed `?? null` for a miss, and typed as a hit that is a `??`
-   *  `strictTemplates` reports as one to delete. */
+  /** Receipts by product name. Typed with `undefined` itself: the specs compile
+   *  without `noUncheckedIndexedAccess`, and the template's `?? null` needs it. */
   protected readonly receipts = signal<Record<string, Receipt | undefined>>({});
 
   /** A payment that did not happen. */
@@ -89,12 +85,10 @@ export class App {
     () => (this.defaults()?.pay_available ?? false) && (this.ranWith()?.pay ?? false),
   );
 
-  /** Whether a card may ask for a picture of its page, which is the server's to know. */
+  /** Whether cards may ask for a screenshot (the server's answer). */
   protected readonly screenshots = computed(() => this.defaults()?.screenshots ?? false);
 
-  /** The rail the run was started with, as the row Python sent for it -- so the
-   *  confirmation says whether anybody is about to be charged without the page
-   *  deciding that from a name. */
+  /** The run's rail row, so the confirmation can say whether anyone is charged. */
   protected readonly payRail = computed<RailOption | null>(() => {
     const name = this.ranWith()?.rail;
     const rows = this.defaults()?.rail_options ?? [];
@@ -107,9 +101,7 @@ export class App {
     return result ? result.products.slice(0, result.top_n) : [];
   });
 
-  /** What the finished run may be re-ordered by: the server's own list, which is
-   *  the same one the form's Rank by field is built from -- offered in two
-   *  places and chosen in neither. */
+  /** The criteria a finished run may be re-sorted by, from the server. */
   protected readonly sortOptions = computed<SortBy[]>(() => this.defaults()?.sort_options ?? []);
 
   /** Everything the agent found beyond those, kept because it was still ranked. */
@@ -121,9 +113,7 @@ export class App {
   /** What to do about a model server that did not answer, shown under the pill. */
   protected readonly unreachable = computed(() => {
     const server = this.status();
-    // Nothing while a listing is in flight: the remedy under the pill is about the last
-    // answer, and leaving it up beside "Asking Ollama…" tells somebody who has just run
-    // that command that it did not work, before anything has been asked.
+    // Hidden while asking: it is about the previous answer.
     if (this.checking() || !server || server.reachable) {
       return null;
     }
@@ -138,17 +128,11 @@ export class App {
   );
 
   private run: Subscription | null = null;
-  /** The three requests whose answer is about a question the page can have moved on
-   *  from: a re-sort of products the next search is about to replace, a listing of a
-   *  server the form is no longer pointed at, and a reading of a sources field since
-   *  typed over -- that one asked afresh on every blur. Held so the newer ask cancels
-   *  the older, an answer that arrives second not being the answer to the second
-   *  question. */
+  /** Requests a newer ask supersedes; held so it can cancel them. */
   private reorder: Subscription | null = null;
   private listing: Subscription | null = null;
   private sources: Subscription | null = null;
-  /** A reading of the request field since typed over, for the reason the sources one
-   *  is held: an answer that arrives second is not the answer to the second question. */
+  /** Likewise, for the request field's bounds reading. */
   private bounds: Subscription | null = null;
   /** A payment in flight. */
   private pay: Subscription | null = null;
@@ -178,21 +162,16 @@ export class App {
     if (!target) {
       return;
     }
-    // Two of these can be in flight at once -- the provider picker fills in the
-    // address and both ask -- and the slower one answering last would leave the
-    // pill and the model list describing a server the form is not pointed at.
+    // Cancel an older listing, whose late answer would describe the wrong server.
     this.listing?.unsubscribe();
-    // Said before the request rather than after it: this is the wait, and a
-    // superseded listing leaves it standing for the newer one to clear, which is
-    // what it is -- still asking, about a different server.
+    // Set before asking; a superseded listing leaves it for the newer one to clear.
     this.asking.set(target);
     this.listing = this.agent.models(target).subscribe({
       next: (status) => {
         this.status.set(status);
         this.asking.set(null);
       },
-      // The agent server itself did not answer, so nothing came back to name the
-      // provider with -- the defaults it served earlier are where that name is.
+      // The agent server did not answer; name the provider from the defaults.
       error: () => {
         this.status.set({
           ...target,
@@ -243,13 +222,8 @@ export class App {
     });
   }
 
-  /** The form has moved past the refusal it was given: the setting it named holds
-   *  something else now, and the form has already dropped the mark under that box. The
-   *  banner saying the same thing is the more prominent of the two and was the one left
-   *  standing, refusing a value nobody could see any more. A refusal names a setting
-   *  only where the options were read before the run opened, so there is nothing in the
-   *  panel to keep either -- the page goes back to what it was before the refused run
-   *  rather than to an empty Progress panel with nothing to explain it. */
+  /** The refused box holds something else now: drop the banner too, returning the page
+   *  to how it was before the refused run. */
   protected dropRefusal(): void {
     this.failure.set(null);
     this.rejected.set(null);
@@ -260,9 +234,7 @@ export class App {
 
   protected start(options: SearchOptions): void {
     this.run?.unsubscribe();
-    // A re-sort still in flight is about the run being replaced: left running, its answer lands on
-    // a cleared page and puts the last search's products back under a progress panel narrating the
-    // next one.
+    // Cancel a re-sort of the run being replaced.
     this.reorder?.unsubscribe();
     this.reorder = null;
     this.reordering.set(false);
@@ -274,8 +246,7 @@ export class App {
     this.stopped.set(false);
     this.running.set(true);
     this.started.set(true);
-    // A new run is a new set of products: last run's receipts belong to
-    // products that are no longer on the page.
+    // Receipts belong to the previous run's products.
     this.ranWith.set(options);
     this.receipts.set({});
     this.paying.set(null);
@@ -290,8 +261,7 @@ export class App {
           this.showResults();
         } else {
           this.failure.set(event.message);
-          // Named a field, so the form can mark the box it came out of rather
-          // than leaving the banner to be read against ten settings.
+          // So the form can mark that box (ADR-0033).
           this.rejected.set(event.field ? { field: event.field, message: event.message } : null);
         }
       },
@@ -303,13 +273,7 @@ export class App {
     });
   }
 
-  /**
-   * Bring what a run found onto the screen once it is drawn. The results land under
-   * the form and the progress panel, which on a phone -- the settings open -- is
-   * three screens down, and nothing on the one in view changed but the button: a
-   * finished run read as one that was still going, or had found nothing. Only where
-   * they start below the fold, so a reader already looking at them is not moved.
-   */
+  /** Scroll a finished run's results into view, if they start below the fold. */
   private showResults(): void {
     afterNextRender(
       () => {
@@ -338,18 +302,13 @@ export class App {
         products: found.products,
         sort_by: sortBy,
         top: found.top_n,
-        // The scale the run was counted on: left out, the set would vote again and a
-        // re-sort could answer a different order for the same products.
+        // The run's own scale, so the set does not vote again (ADR-0056).
         currency: this.ranWith()?.currency,
       })
       .subscribe({
         next: (result) => {
-          // A re-sort runs no pipeline, so it took nothing out and answers an empty
-          // `dropped` (ADR-0035). Carried across rather than taken, or re-ordering the
-          // results would quietly empty the panel saying what the *run* left out.
-          // `changes` and `compared_with` travel with `dropped` and for the same
-          // reason: a re-sort ran no pipeline, so it compared nothing and answers an
-          // empty list rather than speaking for a run it never saw (ADR-0060).
+          // A re-sort answers these empty; keep the run's own (ADR-0035, ADR-0055,
+          // ADR-0060).
           this.result.set({
             ...result,
             dropped: found.dropped,
@@ -380,8 +339,7 @@ export class App {
     if (!found || !settings || this.paying() !== null) {
       return;
     }
-    // The rank is where this product sits in the list being sent, which is what
-    // the server indexes by; the name is what the answer is filed under here.
+    // The server indexes by rank; the receipt is filed by name.
     const { rank, name } = product;
     this.paying.set(name);
     this.payFailed.set(null);
@@ -393,8 +351,7 @@ export class App {
         rail: settings.rail,
         merchant_url: settings.merchant_url,
         spend_limit: settings.spend_limit,
-        // As the re-sort sends it, and for the same reason: the cart is priced on
-        // the run's own scale.
+        // As a re-sort sends it.
         currency: settings.currency,
       })
       .subscribe({
@@ -415,12 +372,8 @@ export class App {
       });
   }
 
-  /** Whether the run this answer is about is still the one on screen. A payment in
-   *  flight is not cancelled the way a re-sort is -- unsubscribing aborts the request,
-   *  and a request that may have moved money is nobody's to abandon halfway -- so it
-   *  runs to the end and its answer is dropped here instead. Receipts are filed by
-   *  product name (ADR-0035), and a second search for the same thing finds the same
-   *  names, so a late receipt left to land marks a product this run never bought. */
+  /** Whether this answer's run is still on screen. A payment is never cancelled (it
+   *  may have moved money), so a late answer is dropped here instead (ADR-0035). */
   private stillThisRun(settings: SearchOptions): boolean {
     return this.ranWith() === settings;
   }
@@ -443,8 +396,8 @@ export class App {
     this.stopped.set(true);
     this.logs.update((lines) => [
       ...lines,
-      // The only line the browser writes itself, so it is the only one timed off the browser's
-      // clock -- in the format Python sends the rest in, since the panel shows them in one column.
+      // The one browser-written line, timed in Python's format.
+
       {
         time: now(),
         level: 'WARNING',
