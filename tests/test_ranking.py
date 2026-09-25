@@ -167,6 +167,20 @@ def test_sort_by_rating_puts_unrated_products_last() -> None:
     assert [entry.product.name for entry in ranked] == ["excellent", "ok", "unrated"]
 
 
+def test_sort_by_rating_puts_a_zero_rating_below_every_other() -> None:
+    """0.0 is a rating somebody gave, and the worst one: it sorts under 0.5 and above
+    a product nobody rated, rather than being read as the missing figure it is not."""
+    ranked = rank_products(
+        [
+            product("unrated"),
+            product("awful", rating=0.0),
+            product("poor", rating=0.5),
+        ],
+        sort_by="rating",
+    )
+    assert [entry.product.name for entry in ranked] == ["poor", "awful", "unrated"]
+
+
 def test_equal_scores_break_ties_by_name() -> None:
     ranked = rank_products([product("beta"), product("alpha")])
     assert [entry.product.name for entry in ranked] == ["alpha", "beta"]
@@ -237,6 +251,15 @@ def test_popularity_saturates_past_a_thousand_reviews() -> None:
     assert popularity_of(999) == pytest.approx(1.0)
     assert popularity_of(10_000) == pytest.approx(1.0)
     assert popularity_of(1_000_000) == pytest.approx(1.0)
+
+
+def test_each_tenfold_more_reviews_is_a_third_of_the_way_to_saturation() -> None:
+    """The curve itself, which the tests either side of this one describe the shape
+    of: ``log10(n + 1) / 3``, so 9 reviews score a third and 99 two thirds. A curve
+    three times as steep would still rise, still flatten and still saturate, and
+    would pass every one of them while reaching the ceiling at two reviews."""
+    assert popularity_of(9) == pytest.approx(1 / 3)
+    assert popularity_of(99) == pytest.approx(2 / 3)
 
 
 def test_early_reviews_are_worth_more_than_late_ones() -> None:

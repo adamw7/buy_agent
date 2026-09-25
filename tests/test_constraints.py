@@ -148,6 +148,17 @@ def test_dropping_the_last_product_is_a_warning(caplog) -> None:
     assert [record.levelname for record in caplog.records] == ["WARNING"]
 
 
+def test_a_bound_that_leaves_something_to_report_is_not_a_warning(caplog) -> None:
+    """The other half of that: a warning on every run a bound was set for is a
+    warning nobody reads by the time one of them emptied the report."""
+    with caplog.at_level(logging.INFO, logger="buy_agent.constraints"):
+        Constraints(max_price=200.0).apply(
+            [product("cheap", price=99.0), product("dear", price=900.0)]
+        )
+
+    assert [record.levelname for record in caplog.records] == ["INFO"]
+
+
 @pytest.mark.parametrize(
     ("bounds", "expected"),
     [

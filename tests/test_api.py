@@ -526,6 +526,11 @@ def test_a_figure_at_the_top_of_the_range_still_is() -> None:
     assert bounds_payload(f"a house under ${LIMITS['max_price'][1]}")["noticed"]
 
 
+def test_a_figure_at_the_bottom_of_the_range_still_is() -> None:
+    """...at both ends of it: a budget of the smallest the box takes is one it takes."""
+    assert bounds_payload(f"a charging cable under ${LIMITS['max_price'][0]}")["noticed"]
+
+
 def test_the_answer_names_the_request_it_was_about() -> None:
     """The box is typed into while the answer is in flight, as the sources field is."""
     assert bounds_payload("  headphones  ")["request"] == "  headphones  "
@@ -578,6 +583,62 @@ def test_an_unknown_figure_is_labelled_not_hidden() -> None:
     assert payload["price"] is None
     assert payload["price_label"] == "price unknown"
     assert payload["rating_label"] == "unrated"
+
+
+def test_a_second_run_of_one_search_says_what_moved_since_the_first() -> None:
+    """The journal is opened before the run and written after it, so the second run of
+    a search is answered with the first as what it was compared against -- which is
+    everything the page's "since last time" panel has to draw (ADR-0060)."""
+    config = AgentConfig()
+    run_search("headphones", config, agent_factory=agent_returning(RANKED)["factory"])
+    cheaper = [
+        ranked_product(
+            RANKED[0].product.model_copy(update={"price": 299.0}), score=0.9, rank=1
+        ),
+        RANKED[1],
+    ]
+
+    payload = run_search(
+        "headphones", config, agent_factory=agent_returning(cheaper)["factory"]
+    )
+
+    assert payload["compared_with"]
+    assert {
+        change["name"]: change["movement"] for change in payload["changes"]
+    }["Sony WH-1000XM5"] == "cheaper"
+
+
+def test_a_first_run_has_nothing_to_compare_with() -> None:
+    payload = run_search(
+        "headphones", AgentConfig(), agent_factory=agent_returning(RANKED)["factory"]
+    )
+
+    assert (payload["changes"], payload["compared_with"]) == ([], None)
+
+
+#: Two dollar prices and one in euros: a set that votes for dollars, for a run told to
+#: count in euros -- the one arrangement where the vote and the setting disagree.
+_MOSTLY_DOLLARS = [
+    Product(name="Bose QC", price=279.0, currency="USD", url="https://shop/b"),
+    Product(name="JBL Live", price=149.0, currency="USD", url="https://shop/j"),
+    Product(name="Sony XM5", price=329.0, currency="EUR", url="https://shop/x"),
+]
+
+
+def test_a_run_told_to_count_in_a_currency_answers_on_that_scale() -> None:
+    """``results_payload`` is handed the run's currency rather than letting the set
+    vote again, or the card offers to buy the dollar listings a euro run refuses."""
+    ranked = rank_products(_MOSTLY_DOLLARS, currency="EUR")
+
+    payload = run_search(
+        "headphones",
+        AgentConfig(currency="EUR"),
+        agent_factory=agent_returning(ranked)["factory"],
+    )
+    by_name = {entry["name"]: entry for entry in payload["products"]}
+
+    assert by_name["Sony XM5"]["pay_currency"] == "EUR"
+    assert by_name["Bose QC"]["cannot_pay"]
 
 
 def test_no_products_is_an_answer_not_a_failure() -> None:
@@ -743,6 +804,16 @@ def test_a_re_sort_reports_the_weights_it_ranked_by() -> None:
     """It ranks with the defaults, having no config to read -- so it says so,
     rather than leaving the cards it answers with nothing to draw."""
     assert rank_again(posted())["weights"] == RankingWeights().fractions
+
+
+def test_a_re_sort_that_was_told_nothing_else_answers_with_the_defaults() -> None:
+    """The products are the one thing it needs; everything else has the answer a run
+    with nothing set would have given."""
+    payload = rank_again({"products": results_payload(RANKED)})
+
+    assert payload["request"] == ""
+    assert payload["top_n"] == AgentConfig().top_n
+    assert payload["sort_by"] == "score"
 
 
 def test_reordering_keeps_the_request_and_the_count_it_was_given() -> None:
@@ -1052,6 +1123,25 @@ def _serving(models: list[str]):
         return Response()
 
     return get
+
+
+def test_the_listing_is_asked_of_the_address_the_form_named(monkeypatch) -> None:
+    """The picker asks about the server in the box, which is seldom the default one --
+    a second machine, a port moved off vLLM's 8000 -- and an answer about another
+    server is a model list for a server nobody chose."""
+    asked: list[str] = []
+    serving = _serving(["Qwen/Qwen3-8B"])
+
+    def get(url, **kwargs):
+        asked.append(url)
+        return serving(url, **kwargs)
+
+    monkeypatch.setattr("buy_agent.providers.httpx.get", get)
+
+    payload = installed_models("vllm", "http://gpu-box.lan:9000/v1")
+
+    assert payload["reachable"] is True
+    assert asked == ["http://gpu-box.lan:9000/v1/models"]
 
 
 def test_an_unreachable_ollama_is_a_status_not_an_error(monkeypatch) -> None:
@@ -1712,6 +1802,28 @@ def test_a_re_sort_is_counted_on_the_scale_the_run_was_counted_on() -> None:
     assert [entry["name"] for entry in reordered["products"]] == ["Sony XM5", "Bose QC"]
 
 
+def test_a_re_sort_answers_on_the_scale_it_was_told_as_well_as_ordering_on_it() -> None:
+    """The order is one half; what each card may be bought for is the other, and the
+    set left to itself would vote for dollars (ADR-0056)."""
+    products = results_payload(rank_products(_MOSTLY_DOLLARS, currency="EUR"), "EUR")
+
+    reordered = rank_again({"products": products, "currency": "EUR"})
+    by_name = {entry["name"]: entry for entry in reordered["products"]}
+
+    assert by_name["Sony XM5"]["pay_currency"] == "EUR"
+    assert by_name["Bose QC"]["cannot_pay"]
+
+
+def test_a_re_sort_refuses_a_currency_the_way_a_run_does() -> None:
+    """With the sentence ``parse_currency`` writes and the box it belongs under, since
+    the page posts back what the form held (ADR-0033, ADR-0056)."""
+    with pytest.raises(ApiError) as refused:
+        rank_again({"products": results_payload(RANKED), "currency": "bucks"})
+
+    assert (refused.value.status, refused.value.field) == (400, "currency")
+    assert "'bucks' is not a currency this run can count in" in str(refused.value)
+
+
 def test_a_re_sort_told_no_currency_lets_the_products_vote() -> None:
     euros = Product(name="Sony XM5", price=329.0, currency="EUR", url="https://shop/x")
     dollars = Product(name="Bose QC", price=279.0, currency="USD", url="https://shop/b")
@@ -1786,6 +1898,13 @@ def test_only_a_web_page_is_photographed(address: str) -> None:
 
     assert refused.value.status == 400
     assert camera.asked == [], "the browser was pointed at it anyway"
+
+
+def test_a_page_served_without_tls_is_still_a_web_page() -> None:
+    """Plenty of shops still answer on plain http, and the card links to them."""
+    camera = Photographer()
+
+    assert screenshot("http://shop.example/xm5", camera) == b"jpeg of http://shop.example/xm5"
 
 
 def test_a_page_that_would_not_be_photographed_is_the_page_s_failure() -> None:

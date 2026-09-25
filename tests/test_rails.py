@@ -280,6 +280,8 @@ def test_a_refusal_with_no_reason_still_says_what_did_not_happen(
     # understood the request and declined it is answering about the request, so this
     # one stays the 400 it reads as.
     assert not isinstance(excinfo.value, RailUnreachableError)
+    # And with no colon hanging off the end promising a reason that never comes.
+    assert str(excinfo.value).endswith(f"did not complete the payment for {CART.label()}.")
 
 
 @needs_ap2

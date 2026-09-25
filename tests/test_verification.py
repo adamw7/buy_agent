@@ -460,6 +460,20 @@ def test_figures_are_verified_across_all_of_the_results() -> None:
     assert grounded[0].price == 149.0
 
 
+def test_a_name_that_ends_one_page_is_not_run_into_the_next() -> None:
+    """The pages are pooled into one haystack, and the last word of one is still a
+    word of its own rather than the front half of the next page's first."""
+    haystack = build_haystack(
+        [
+            # On the content, which is the end of a result as it is pooled.
+            SearchResult(title="Best budget ANC", content="Our pick is the Anker Q30"),
+            SearchResult(title="Another page entirely", content="Nothing to see."),
+        ]
+    )
+
+    assert mentions_name(haystack, "Anker Q30")
+
+
 def test_grounding_reports_what_it_dropped(caplog) -> None:
     with caplog.at_level(logging.INFO, logger="buy_agent.verification"):
         ground([Product(name="Bonavita Gooseneck Kettle", price=80.0)], SOURCES)
@@ -596,6 +610,23 @@ def test_a_link_the_model_copied_off_a_searched_page_is_kept() -> None:
     assert linked.url == "https://shop.example/sony"
 
 
+def test_a_searched_link_is_kept_over_an_earlier_page_that_also_mentions_it() -> None:
+    """The model's link is a choice among the searched pages, not a guess to be
+    replaced by the first one that happens to name the product: a roundup ahead of
+    the shop in the results mentions it too, and the shop is where the model was
+    pointing (ADR-0017)."""
+    roundup = SearchResult(
+        title="The best cheap headphones",
+        url="https://roundup.example/cheap",
+        snippet="Our pick is the Sony WH-CH720N.",
+    )
+    product = Product(name="Sony WH-CH720N", url="https://shop.example/sony")
+
+    linked = attribute_sources([product], [roundup, *PAGES])[0]
+
+    assert linked.url == "https://shop.example/sony"
+
+
 def test_each_product_gets_its_own_page() -> None:
     """Attribution is per product, not one link for the whole run."""
     linked = attribute_sources(
@@ -659,6 +690,20 @@ def test_a_replaced_link_is_reported(caplog) -> None:
         attribute_sources([product], PAGES)
 
     assert "1 link(s)" in caplog.text
+
+
+def test_every_replaced_link_is_counted(caplog) -> None:
+    """The count is what the INFO line is for, so one link is not enough to show it
+    is one."""
+    products = [
+        Product(name="Sony WH-CH720N", url="https://invented.example/a"),
+        Product(name="Anker Soundcore Q30", url="https://invented.example/b"),
+    ]
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.verification"):
+        attribute_sources(products, PAGES)
+
+    assert "Dropped 2 link(s)" in caplog.text
 
 
 def test_the_link_that_was_replaced_is_named_for_the_reader_who_asked(caplog) -> None:
@@ -785,6 +830,26 @@ def test_a_word_changed_in_the_middle_of_a_quote_fails() -> None:
     assert opinions_after("the noise cancelling is uncanny for the money") == []
 
 
+#: Nine words the page never printed together: the first seven are on it word for
+#: word, the last two are the model's own.
+_NINE_WORDS = "reviewers found the noise cancelling uncanny for its price"
+#: ...and eight, of which only the first six are.
+_EIGHT_WORDS = "reviewers found the noise cancelling uncanny in practice"
+
+
+def test_a_quote_with_exactly_the_share_of_its_runs_found_is_kept() -> None:
+    """Five runs of five words, three of them on the page: the bar is at least
+    ``_QUOTE_COVERAGE``, and a quote sitting on it is one the page printed with its
+    tail reworded -- which is the end the tolerance is for."""
+    assert opinions_after(_NINE_WORDS) == [_NINE_WORDS]
+
+
+def test_a_quote_whose_second_half_is_invented_is_dropped() -> None:
+    """Four runs, two found: half a sentence off the page is still a sentence
+    nobody wrote, whatever it opens with."""
+    assert opinions_after(_EIGHT_WORDS) == []
+
+
 def test_a_quote_shorter_than_one_run_has_to_appear_whole() -> None:
     assert opinions_after("too bulky") == ["too bulky"]
     assert opinions_after("too heavy") == []
@@ -841,6 +906,22 @@ def test_dropped_opinions_are_reported(caplog) -> None:
         verify_opinions([product], OPINIONATED)
 
     assert "Dropped 1 opinion" in caplog.text
+
+
+def test_the_opinions_dropped_are_counted_across_products_and_not_the_kept_ones(
+    caplog,
+) -> None:
+    """Two products, one invented quote each and a real one beside the first: two
+    dropped, which is neither the last product's count nor every quote there was."""
+    products = [
+        Product(name="Sony WH-CH720N", opinions=said("battery life is poor", "too bulky")),
+        Product(name="Anker Q45", opinions=said("the bass is muddy")),
+    ]
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.verification"):
+        verify_opinions(products, OPINIONATED)
+
+    assert "Dropped 2 opinion(s)" in caplog.text
 
 
 def test_a_grouped_number_in_a_quote_matches_the_page_that_grouped_it() -> None:
@@ -945,6 +1026,9 @@ def test_a_product_with_nothing_said_about_it_is_left_alone() -> None:
         "12,500 verified customer reviews",
         "Reviews (12,500)",
         "12,500 reviewers agreed",
+        # A shop's heading capitalises the noun, on either side of the figure.
+        "12,500 Ratings",
+        "Customer Reviews: 12,500",
     ],
 )
 def test_review_counts_are_recognised_however_they_are_written(snippet: str) -> None:

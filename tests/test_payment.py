@@ -50,6 +50,13 @@ def test_a_product_whose_price_grounding_blanked_may_not_be() -> None:
     assert terms_for(unpriced, "USD")[0] is None
 
 
+def test_a_price_under_one_unit_is_still_an_amount() -> None:
+    """The line is at nothing, not at a whole unit: a cable at 99 cents is owed."""
+    cheap = SONY.model_copy(update={"price": 0.99})
+
+    assert terms_for(cheap, "USD") == ((0.99, "USD"), None)
+
+
 @pytest.mark.parametrize("price", [0.0, -42.5])
 def test_a_price_that_is_no_amount_may_not_be_paid_either(price: float) -> None:
     """The other way a price can fail to be one."""
@@ -177,6 +184,31 @@ def test_the_offer_a_cart_is_for_is_the_one_the_headline_price_came_off() -> Non
     assert (found.price, found.url) == (SONY.price, "https://a.example/p")
 
 
+@pytest.mark.parametrize(
+    "decoy",
+    [
+        Offer(price=SONY.price, currency="EUR", seller="EuroShop", url="https://eu.example/p"),
+        Offer(price=499.0, currency="USD", seller="ShopB", url="https://b.example/p"),
+    ],
+    ids=["same figure, other currency", "same currency, other figure"],
+)
+def test_an_offer_matching_only_half_of_the_pair_is_not_the_one_bought(decoy: Offer) -> None:
+    """Listed ahead of the real one, so a match on either half alone would find it
+    first and name its shop on the cart."""
+    listed = SONY.model_copy(
+        update={
+            "seller": None,
+            "offers": [
+                decoy,
+                Offer(price=SONY.price, currency="USD", seller="ShopA", url="https://a.example/p"),
+            ],
+        }
+    )
+
+    assert payment.offer_for(listed) == listed.offers[1]
+    assert merchant_for(listed) == "ShopA"
+
+
 def test_a_merchant_is_never_the_shop_that_quoted_another_price() -> None:
     """Before the offers, a winner that named no shop took the loser's -- so the cart
     named the seller of the 499 beside the price of the 329.99."""
@@ -256,6 +288,24 @@ def test_the_dry_run_signs_a_real_authorisation_and_charges_nobody(
 
 
 @needs_ap2
+def test_an_authorisation_is_logged_with_what_it_was_for_and_who_gave_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The one line a terminal keeps of a purchase: the item, the amount, whether a
+    person or an open mandate authorised it, and the transaction a merchant would
+    quote back."""
+    config = AgentConfig(pay=True)
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.payment"):
+        receipt = pay_for(cart_for(SONY, [SONY], config), config)
+
+    assert (
+        f"Authorised {SONY.name} at 329.99 USD (approved in person), "
+        f"transaction {receipt.transaction_id}"
+    ) in caplog.text
+
+
+@needs_ap2
 def test_an_ephemeral_signature_says_so_rather_than_passing_for_one(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -268,6 +318,7 @@ def test_an_ephemeral_signature_says_so_rather_than_passing_for_one(
 
     assert "generated" in caplog.text
     assert mandates.KEY_PATH in caplog.text
+    assert f"the {config.rail_used.label} chain" in caplog.text
 
 
 @needs_ap2
@@ -337,16 +388,18 @@ def test_a_broken_mandate_file_is_the_one_failure_a_payment_has(
 
 @needs_ap2
 def test_paying_on_an_open_mandate_is_reported_as_autonomous(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     agent, _issuer = open_mandate(tmp_path, monkeypatch)
     enrolled_key(tmp_path, monkeypatch, agent)
     config = AgentConfig(pay=True)
 
-    receipt = pay_for(cart_for(SONY, [SONY], config), config)
+    with caplog.at_level(logging.INFO, logger="buy_agent.payment"):
+        receipt = pay_for(cart_for(SONY, [SONY], config), config)
 
     assert receipt.autonomous is True
     assert receipt.enrolled_key is True
+    assert "(an open mandate)" in caplog.text
 
 
 @needs_ap2
@@ -550,8 +603,10 @@ def test_a_very_long_name_is_cut_to_an_id_a_merchant_can_hold() -> None:
         (SONY.model_copy(update={"price": None}), "products"),
         (SONY.model_copy(update={"currency": None}), "products"),
         (SONY.model_copy(update={"url": None}), "products"),
+        (SONY.model_copy(update={"price": 0.0}), "products"),
+        (SONY.model_copy(update={"currency": "¥"}), "products"),
     ],
-    ids=["unpriced", "no currency", "no page"],
+    ids=["unpriced", "no currency", "no page", "no amount", "no scale"],
 )
 def test_every_refusal_names_the_field_the_browser_should_mark(
     product: Product, expected: str

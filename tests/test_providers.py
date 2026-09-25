@@ -292,6 +292,34 @@ def test_closing_a_chat_model_lets_go_of_the_client_underneath(
     assert vllm_sent["closed"] is True
 
 
+#: A conversation of both turns, as ``chat.Chain`` hands one over.
+_CONVERSATION = [
+    {"role": "system", "content": "Rewrite the request as a shopping query."},
+    {"role": "user", "content": "headphones under $200"},
+]
+
+
+def test_the_prompt_is_what_ollama_is_asked(chatting) -> None:
+    """Every setting below is asserted on the request, and so is the one thing every
+    request is for."""
+    sent = chatting()
+
+    chat_model(AgentConfig(provider="ollama")).answer(_CONVERSATION, SearchQuery)
+
+    assert sent["messages"] == _CONVERSATION
+
+
+@pytest.mark.parametrize("provider", ["vllm", "litellm"])
+def test_the_prompt_is_what_an_openai_compatible_server_is_asked(
+    completing, provider: str
+) -> None:
+    sent = completing()
+
+    chat_model(AgentConfig(provider=provider)).answer(_CONVERSATION, SearchQuery)
+
+    assert sent["messages"] == _CONVERSATION
+
+
 def test_ollama_is_given_the_window_and_the_thinking_switch(chatting) -> None:
     """Both are Ollama request options, and ADR-0019 is about them arriving."""
     config = AgentConfig(
@@ -545,6 +573,16 @@ def test_the_whole_listing_is_held_to_the_one_short_timeout(pulled) -> None:
     assert asked["opened"]["timeout"] == providers_module._LIST_TIMEOUT
 
 
+def test_every_tag_is_probed_at_the_address_that_was_listed(pulled) -> None:
+    """``ollama show`` asked of the default host while ``/api/tags`` was read off
+    another would mark one machine's models with another's capabilities."""
+    asked = pulled(["gemma4:12b"])
+
+    listed(AgentConfig(provider="ollama", base_url="http://gpu-box.lan:11434"))
+
+    assert asked["opened"]["base_url"] == "http://gpu-box.lan:11434"
+
+
 def test_the_listing_lets_go_of_what_it_opened(pulled) -> None:
     """The listing opens a client of its own, and closing it is its own too."""
     asked = pulled(["gemma4:12b"])
@@ -645,6 +683,17 @@ def test_a_stopped_vllm_is_told_to_serve_the_model_it_was_asked_for() -> None:
 
     assert "vllm serve Qwen/Qwen3-8B" in message
     assert VLLM_CONFIG.base_url in message
+    assert "(Connection error.)" in message, "with the transport's own words"
+
+
+def test_a_refused_vllm_key_quotes_the_refusal() -> None:
+    response = httpx.Response(401, request=_REQUEST)
+    refused = openai.AuthenticationError("Invalid API key: sk-...", response=response, body=None)
+
+    message = hint(VLLM_CONFIG, refused)
+
+    assert "refused the API key (Invalid API key: sk-...)" in message
+    assert "$VLLM_API_KEY" in message
 
 
 def test_a_slow_vllm_is_not_told_to_start_one(serving) -> None:
@@ -654,6 +703,22 @@ def test_a_slow_vllm_is_not_told_to_start_one(serving) -> None:
     assert "did not answer in time" in message
     assert "vllm serve" not in message
     assert "Qwen/Qwen3-8B" in message
+
+
+def test_a_slow_ollama_is_offered_the_window_it_can_be_given() -> None:
+    """The remedy is the row's: a smaller window is something Ollama takes per run,
+    where vLLM fixed its own at startup and can only be sent a shorter prompt."""
+    assert "or a smaller context window." in hint(OLLAMA_CONFIG, httpx.ReadTimeout("slow"))
+    assert "or a shorter prompt." in hint(VLLM_CONFIG, httpx.ReadTimeout("slow"))
+
+
+def test_a_timeout_that_says_nothing_is_named_by_its_kind() -> None:
+    """httpx raises its timeouts with no message at all, which would leave "()" in the
+    middle of the one sentence the shopper gets."""
+    assert "did not answer in time (ReadTimeout)" in hint(OLLAMA_CONFIG, httpx.ReadTimeout(""))
+    assert "did not answer in time (timed out)" in hint(
+        OLLAMA_CONFIG, httpx.ReadTimeout("timed out")
+    )
 
 
 def test_a_slow_vllm_reported_by_httpx_says_the_same_thing() -> None:
@@ -964,6 +1029,7 @@ def test_the_listing_budget_covers_the_listing_and_not_each_tag(monkeypatch) -> 
     """``_LIST_TIMEOUT`` on the client bounds one question; a listing asks many."""
     started = threading.Event()
     release = threading.Event()
+    finished = threading.Event()
 
     class Slow:
         def __init__(self, base_url: str, **kwargs) -> None:
@@ -972,6 +1038,7 @@ def test_the_listing_budget_covers_the_listing_and_not_each_tag(monkeypatch) -> 
         def show(self, name: str):
             started.set()
             release.wait(timeout=5.0)
+            finished.set()
             return SimpleNamespace(capabilities=[_COMPLETION])
 
         def close(self) -> None:
@@ -988,11 +1055,15 @@ def test_the_listing_budget_covers_the_listing_and_not_each_tag(monkeypatch) -> 
     monkeypatch.setattr(providers_module, "_LIST_TIMEOUT", 0.05)
     try:
         models = providers_module._ollama_installed(AgentConfig())
+        # Read before the release: a listing that waited out its probes -- in ``wait``,
+        # in ``result`` or in the pool's shutdown -- answers only once they gave up.
+        waited_for_them = finished.is_set()
     finally:
         # Before the assertions: a probe still blocked here is a non-daemon pool
         # thread, and the interpreter joins those on the way out.
         release.set()
 
+    assert not waited_for_them, "the listing answered on its budget, not the probes'"
     assert started.is_set(), "the probes did go out"
     assert [model.name for model in models] == ["a:1", "b:1", "c:1"]
     assert all(model.completion for model in models), "a tag that did not say is offered"
@@ -1083,6 +1154,22 @@ def _proxy(monkeypatch, info: Exception | list[dict], models: tuple[str, ...] = 
 
     monkeypatch.setattr("buy_agent.providers.httpx.get", get)
     return asked_for
+
+
+def test_an_alias_that_can_chat_anywhere_is_offered_whichever_deployment_is_last(
+    monkeypatch,
+) -> None:
+    """The other order from the test below: a chat deployment listed first and an
+    embedding one after it is still an alias that answers a prompt."""
+    _proxy(
+        monkeypatch,
+        [
+            {"model_name": "local_model", "model_info": {"mode": "chat"}},
+            {"model_name": "local_model", "model_info": {"mode": "embedding"}},
+        ],
+    )
+
+    assert listed(LITELLM_CONFIG) == [installed("local_model", completion=True)]
 
 
 def test_a_proxy_lists_every_alias_marked_by_its_mode(monkeypatch) -> None:
@@ -1191,6 +1278,14 @@ def test_a_proxy_failure_names_what_to_do_about_it(
 
     assert says in message
     assert never not in message
+    assert LITELLM_CONFIG.base_url in message, "every one of them names the proxy asked"
+
+
+def test_an_unreachable_proxy_quotes_the_transport() -> None:
+    message = hint(LITELLM_CONFIG, httpx.ConnectError("connection refused"))
+
+    assert "(connection refused)" in message
+    assert "litellm --config config.yaml" in message
 
 
 def test_the_proxy_has_its_own_variables(reloaded_providers) -> None:

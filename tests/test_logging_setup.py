@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import logging
 import re
 import sys
@@ -274,6 +275,21 @@ def test_a_handler_that_is_not_the_console_still_sees_the_whole_run(split_stream
     assert any("Sony WH-1000XM5" in message for message in collected)
 
 
+def test_a_stream_that_is_not_the_console_is_not_told_to_skip_the_report(
+    split_streams,
+) -> None:
+    """A handler on the root writing to a file of somebody's is not the terminal the
+    report was taken off, so the whole run still reaches it."""
+    split_streams()
+    written = io.StringIO()
+    logging.getLogger().addHandler(logging.StreamHandler(written))
+    configure_logging()
+
+    log_top_products(ranked(Product(name="Sony WH-1000XM5")), 1)
+
+    assert "Sony WH-1000XM5" in written.getvalue()
+
+
 def test_nothing_found_is_not_reported_on_stdout(split_streams) -> None:
     """There is no report, so the line saying so is the run talking: stderr."""
     streams = split_streams()
@@ -310,6 +326,10 @@ def test_the_narration_keeps_the_prefix_the_report_drops(basic_config) -> None:
     assert "%(name)s" in basic_config["format"]
     assert "%(asctime)s" not in _REPORT_FORMAT
     assert "%(name)s" not in _REPORT_FORMAT
+    # The time of day to the second, which is what the gap is read in -- logging's own
+    # default spends a date and the milliseconds on every line of a one-minute run, and
+    # the browser's panel writes the same %H:%M:%S beside each line it relays.
+    assert basic_config["datefmt"] == "%H:%M:%S"
 
 
 def test_a_relay_still_sees_the_report_as_an_ordinary_record(split_streams) -> None:
@@ -516,6 +536,18 @@ def test_the_comparison_is_part_of_the_report(report) -> None:
         for record in report.records
         if record.name == "buy_agent"
     )
+
+
+def test_the_comparison_is_a_block_of_its_own(report) -> None:
+    """Ruled off the way the products are, so a ``> top.txt`` reads two blocks and not
+    one long one."""
+    log_changes([moved("Sage Bambino", "cheaper", "329.00 USD, 20.00 USD cheaper.")], "11 Sep")
+
+    lines = [record.getMessage() for record in report.records]
+    assert set(lines[0]) == {"="}, "the block opens with a rule"
+    assert lines[1] == "WHAT CHANGED SINCE 11 SEP"
+    assert lines[2] == lines[0], "the title sits between two of them"
+    assert lines[-1] == lines[0], "and it closes with the same rule"
 
 
 def test_a_sentence_in_the_block_is_the_journal_s_own(report) -> None:

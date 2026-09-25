@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import json
 import logging
+import mimetypes
 import os
 import re
 import socket
@@ -36,6 +37,7 @@ from buy_agent.server import (
     DEFAULT_UI_DIR,
     _KEEPALIVE_SECONDS,
     _LOOPBACK_HOSTS,
+    _MAX_BODY_BYTES,
     _SECURITY_HEADERS,
     BuyAgentHandler,
     _bound_host,
@@ -406,18 +408,23 @@ def test_a_get_that_raises_is_answered_rather_than_dropped(server: str, monkeypa
 
 
 def test_unknown_api_paths_are_not_swallowed_by_the_app(server: str) -> None:
-    """An /api typo must 404, not quietly return index.html."""
-    assert get(f"{server}/api/nope")[0] == 404
-    assert post(f"{server}/api/nope", {})[0] == 404
+    """An /api typo must 404, not quietly return index.html -- and say which path it
+    was, the typo being the whole of what is wrong."""
+    assert get(f"{server}/api/nope") == (404, {"error": "No such endpoint: /api/nope"})
+    assert post(f"{server}/api/nope", {}) == (404, {"error": "No such endpoint: /api/nope"})
 
 
 def test_head_does_not_start_a_search(server: str) -> None:
-    """A monitor probing the stream endpoint must not spend a minute of Ollama."""
-    request = urllib.request.Request(f"{server}/api/search/stream?request=x", method="HEAD")
-    try:
-        urllib.request.urlopen(request, timeout=10)
-    except urllib.error.HTTPError as error:
-        assert error.code == 405
+    """A monitor probing the stream endpoint must not spend a minute of Ollama. Read off
+    the raw reply, since a HEAD answered 200 raises nothing for an ``except`` to check
+    -- and the run it started would be in a thread nothing here waits for."""
+    reply = raw(
+        server,
+        b"HEAD /api/search/stream?request=x HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+        b"Connection: close\r\n\r\n",
+    )
+
+    assert "405" in reply.splitlines()[0]
     assert "request" not in StubAgent.captured
 
 
@@ -426,6 +433,7 @@ def test_models_reports_an_unreachable_ollama(server: str, monkeypatch) -> None:
     assert status == 200
     assert payload["reachable"] is False
     assert payload["provider"] == "ollama", "the provider is what the address was asked as"
+    assert payload["base_url"] == "http://127.0.0.1:1", "and the address is the one named"
 
 
 def test_models_asks_the_provider_the_request_named(server: str) -> None:
@@ -476,6 +484,20 @@ def test_a_body_over_the_cap_is_refused_without_being_read(server: str) -> None:
     )
 
     assert "413" in reply.splitlines()[0]
+    assert reply.endswith('"error": "Request body is too large.", "field": null}')
+
+
+def test_a_body_exactly_at_the_cap_is_read(server: str) -> None:
+    """The cap is the most a body may be, not the first size refused: a finished run
+    posted back for a re-sort can be large, and one byte of padding should not tip it."""
+    padding = _MAX_BODY_BYTES - len(b'{"products": [], "x": ""}')
+    body = b'{"products": [], "x": "' + b"x" * padding + b'"}'
+    assert len(body) == _MAX_BODY_BYTES
+
+    status, answer = post(f"{server}/api/rank", body)
+
+    assert status == 200
+    assert answer["products"] == []
 
 
 def test_a_content_length_that_is_not_a_number_is_the_clients_mistake(server: str) -> None:
@@ -530,6 +552,15 @@ def test_a_page_on_another_site_cannot_start_a_run(server: str) -> None:
     assert "403" in reply.splitlines()[0]
     assert "captured" not in StubAgent.captured
     assert "request" not in StubAgent.captured
+
+
+def test_a_refusal_says_why_in_the_body_too(server: str) -> None:
+    """A tool that is not a browser reads the body, and a 403 with nothing in it reads as
+    a server that is broken rather than one that is guarded."""
+    reply = ask(server, Host="evil.example")
+
+    assert reply.splitlines()[0].endswith("403 Forbidden")
+    assert reply.endswith('{"error": "This API only answers its own page."}')
 
 
 def test_a_cross_site_request_carrying_no_origin_is_still_refused(server: str) -> None:
@@ -625,6 +656,17 @@ def test_every_response_says_what_the_page_may_do(server: str) -> None:
 
     for name, value in _SECURITY_HEADERS:
         assert f"{name}: {value}" in reply
+
+
+def test_the_stream_is_a_200_no_proxy_holds_back_or_rewrites(server: str) -> None:
+    """``no-transform`` is what keeps a compressing proxy from buffering the stream until
+    the run is over, which is the whole of the progress panel gone."""
+    with urllib.request.urlopen(f"{server}/api/search/stream?request=x", timeout=30) as response:
+        status, cache = response.status, response.headers["Cache-Control"]
+        response.read()
+
+    assert status == 200
+    assert cache == "no-cache, no-transform"
 
 
 def test_the_stream_carries_the_security_headers_too(server: str) -> None:
@@ -1102,11 +1144,11 @@ def test_an_unbuilt_ui_says_how_to_build_it(tmp_path: Path) -> None:
 def test_an_unbuilt_ui_says_it_to_a_browser_as_a_page(tmp_path: Path) -> None:
     """The one client that matters here, and the one that cannot read JSON."""
     with serving(unbuilt_workspace(tmp_path)) as server:
-        status, page = _call(
-            urllib.request.Request(f"{server}/", headers={"Accept": "text/html,*/*;q=0.8"})
-        )
+        status, headers, body = picture(f"{server}/", Accept="text/html,*/*;q=0.8")
+    page = body.decode("utf-8")
 
     assert status == 503
+    assert headers["Content-Type"] == "text/html; charset=utf-8", "a page a browser draws"
     assert page.startswith("<!doctype html>")
     assert "npm install &amp;&amp; npm run build" in page
     # No script and nothing from another origin: the CSP that goes out with it is
@@ -1225,6 +1267,21 @@ def test_the_content_type_table_answers_and_not_the_platform(tmp_path: Path, mon
         assert content_type(f"{base}/font.woff2").startswith("font/woff2")
 
 
+def test_an_extension_only_the_platform_knows_is_served_as_the_platform_says(
+    tmp_path: Path,
+) -> None:
+    """Past the table, the type ``mimetypes`` guesses -- which is its first answer, the
+    second being an encoding and not a type at all. Asked here too rather than written
+    down, the platform being what it reads on Windows."""
+    guessed = mimetypes.guess_type("manual.pdf")[0]
+    assert guessed, "this platform knows no type for a PDF; pick another extension"
+    (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
+    (tmp_path / "manual.pdf").write_bytes(b"%PDF-1.7")
+
+    with serving(tmp_path) as base:
+        assert content_type(f"{base}/manual.pdf") == guessed
+
+
 def test_an_extension_the_table_does_not_know_still_gets_served(tmp_path: Path) -> None:
     """The table covers what ng build emits; anything else falls back rather than 404s."""
     (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
@@ -1271,6 +1328,10 @@ def test_the_port_a_model_server_also_wants_is_named_in_the_refusal(
 
     assert "vLLM" in caplog.text
     assert "--port 8001" in caplog.text
+    said = OSError(errno.EADDRINUSE, os.strerror(errno.EADDRINUSE))
+    assert f"Could not listen on 127.0.0.1:8000 ({said})" in caplog.text, (
+        "and first, which address it was and what the socket said"
+    )
 
 
 def test_a_port_nobody_else_claims_is_refused_without_the_aside(monkeypatch, caplog) -> None:
@@ -1423,7 +1484,61 @@ def test_a_built_ui_is_not_warned_about(monkeypatch, tmp_path: Path, caplog) -> 
     with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
         main(["--ui-dir", str(tmp_path)])
 
+    # Both halves: this directory is no Angular workspace, so the remedy an unbuilt one
+    # is told would not have said "npm run build" in the first place.
+    assert "No built UI" not in caplog.text
     assert "npm run build" not in caplog.text
+
+
+def test_the_server_is_built_where_the_command_line_says(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """The address, the port and the build, as given -- and the camera is decided by
+    the same address the socket is bound to (ADR-0065)."""
+    built: dict[str, Any] = {}
+    cameras_asked: list[str] = []
+
+    def remember(*args: Any, **kwargs: Any) -> FakeHttpd:
+        built.update(args=args, **kwargs)
+        return FakeHttpd()
+
+    monkeypatch.setattr(server_module, "create_server", remember)
+    monkeypatch.setattr(server_module, "camera_for", lambda host: cameras_asked.append(host))
+
+    main(["--host", "127.0.0.2", "--port", "8123", "--ui-dir", str(tmp_path)])
+
+    assert built["args"] == ("127.0.0.2", 8123)
+    assert built["ui_dir"] == tmp_path
+    assert cameras_asked == ["127.0.0.2"]
+
+
+@pytest.mark.parametrize("verbose", [False, True], ids=["quiet", "verbose"])
+def test_the_server_is_as_talkative_as_it_was_asked_to_be(
+    monkeypatch, tmp_path: Path, verbose: bool
+) -> None:
+    configured: list[bool] = []
+    monkeypatch.setattr(server_module, "create_server", lambda *a, **k: FakeHttpd())
+    monkeypatch.setattr(
+        server_module, "configure_logging", lambda *, verbose: configured.append(verbose)
+    )
+
+    main(["--ui-dir", str(tmp_path), *(["--verbose"] if verbose else [])])
+
+    assert configured == [verbose]
+
+
+def test_an_ipv6_bind_is_announced_at_an_address_a_browser_takes(
+    monkeypatch, tmp_path: Path, caplog
+) -> None:
+    """An IPv6 socket's address is four fields, not two, and the URL wants brackets."""
+    httpd = FakeHttpd()
+    httpd.server_address = ("::1", 8000, 0, 0)  # type: ignore[assignment]
+    monkeypatch.setattr(server_module, "create_server", lambda *a, **k: httpd)
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.server"):
+        assert main(["--host", "::1", "--ui-dir", str(tmp_path)]) == 0
+
+    assert "buy_agent UI on http://[::1]:8000" in caplog.text
 
 
 def test_the_log_relay_is_taken_off_the_package_logger_on_the_way_out(
@@ -1484,6 +1599,28 @@ def test_a_line_from_a_thread_the_run_started_still_reaches_the_stream() -> None
         "https://a.example asked to be tried again; waiting 3.0s",
         "https://b.example asked to be tried again; waiting 3.0s",
     ]
+
+
+def test_a_relayed_line_is_timed_when_it_was_logged_and_not_when_it_was_sent() -> None:
+    """The panel reads the gaps between lines, so the time is the record's own: a line
+    that waited in the queue behind a slow write keeps the moment it was logged."""
+    sink: queue.Queue[Any] = queue.Queue()
+    logged = time.time() - 3 * 3600 - 17
+    record = logging.LogRecord("buy_agent.agent", logging.INFO, __file__, 1, "x", None, None)
+    record.created = logged
+
+    def run() -> None:
+        _relay.attach(sink)
+        try:
+            _relay.emit(record)
+        finally:
+            _relay.detach()
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    worker.join(timeout=10)
+
+    assert sink.get_nowait()["time"] == time.strftime("%H:%M:%S", time.localtime(logged))
 
 
 def test_a_thread_outside_the_run_is_not_one_of_its_lines() -> None:
@@ -1719,6 +1856,18 @@ def test_the_form_is_told_this_server_takes_screenshots(tmp_path: Path) -> None:
 
     assert with_camera["screenshots"] is True
     assert without["screenshots"] is False
+
+
+def test_a_picture_asked_for_without_an_address_is_refused(tmp_path: Path) -> None:
+    """The ``<img>`` always names one, so a request without is somebody else's, and is
+    answered as a bad request rather than pointed at nothing."""
+    camera = Photographer()
+    with serving(tmp_path, camera=camera) as base:
+        status, answer = get(f"{base}/api/screenshot")
+
+    assert status == 400
+    assert answer["error"] == "Not a web page to photograph: ''"
+    assert camera.asked == []
 
 
 def test_a_server_with_no_camera_answers_in_json(server: str) -> None:

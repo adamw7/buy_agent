@@ -209,6 +209,22 @@ def test_several_named_sources_are_listed_as_a_sentence(
     assert "rtings.com, @mkbhd and wired.com were searched" in caplog.text
 
 
+def test_two_named_sources_are_joined_the_way_two_are_written(
+    agent_factory, extracted_products, caplog
+) -> None:
+    """Two is the case the list's commas do not reach, and the one run together."""
+    agent, _ = agent_factory(
+        FakeLLM(products=extracted_products),
+        [],
+        sources=parse_sources(["rtings.com", "@mkbhd"]),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        agent.run("espresso machine")
+
+    assert "Only rtings.com and @mkbhd were searched" in caplog.text
+
+
 def test_an_empty_search_with_nothing_narrowing_it_stops_after_the_query(
     agent_factory, extracted_products, caplog
 ) -> None:
@@ -582,6 +598,16 @@ def test_the_api_key_is_never_part_of_what_is_written_to_disk() -> None:
     fingerprint = _asks_the_same_question(AgentConfig(provider="vllm", api_key="secret"))
 
     assert "secret" not in str(fingerprint)
+
+
+def test_a_different_window_on_ollama_is_a_different_question() -> None:
+    """``num_ctx`` decides whether the extraction fits at all (ADR-0019, ADR-0050), so
+    an answer cut off in a window too small to hold it is not the answer a wider one
+    would have been handed back."""
+    narrow = _asks_the_same_question(AgentConfig(provider="ollama", num_ctx=4096))
+    wide = _asks_the_same_question(AgentConfig(provider="ollama", num_ctx=16384))
+
+    assert narrow != wide
 
 
 def test_a_setting_the_server_never_sees_is_not_part_of_the_question() -> None:
@@ -1353,6 +1379,60 @@ def test_bounds_that_admit_nothing_end_the_run_without_a_report(
 
     assert "0 of 2 product(s) are within the limits (at most 1.00 USD)" in caplog.text
     assert "No products to report" not in caplog.text
+
+
+def test_what_a_run_took_out_is_handed_to_whoever_is_recording(
+    agent_factory, search_results
+) -> None:
+    """``run`` passes its recorder down to every step that removes a product, the page
+    taken for one and the product outside the limits included -- which is what the
+    browser's "left out" panel is built from (ADR-0055)."""
+    found = ProductList(
+        products=[
+            ExtractedProduct(name="The 5 best headphones of 2026"),
+            ExtractedProduct(name="Sony WH-1000XM5", price=328.0, currency="USD"),
+            ExtractedProduct(name="Anker Soundcore Q30", price=79.0, currency="USD"),
+        ]
+    )
+    agent, _ = agent_factory(FakeLLM(products=found), search_results, max_price=200.0)
+    removed: list = []
+
+    agent.run("headphones", record=removed.append)
+
+    assert [(removal.name, removal.step) for removal in removed] == [
+        ("The 5 best headphones of 2026", "clean"),
+        ("Sony WH-1000XM5", "limits"),
+    ]
+
+
+def test_the_report_is_headed_by_the_order_the_run_ranked_in(
+    agent_factory, search_results, extracted_products, caplog
+) -> None:
+    """``run`` hands the report the ``sort_by`` it ranked with, so the heading cannot
+    say one order over a list in another."""
+    agent, _ = agent_factory(FakeLLM(products=extracted_products), search_results)
+
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        agent.run("headphones", sort_by="price")
+
+    assert "PRODUCTS, CHEAPEST FIRST" in caplog.text
+
+
+def test_the_report_names_the_weights_the_run_ranked_by(
+    agent_factory, search_results, extracted_products, caplog
+) -> None:
+    """The score line puts each share beside its weight (ADR-0045), and a run blended
+    on rating alone is read against that blend and not the default one."""
+    agent, _ = agent_factory(
+        FakeLLM(products=extracted_products),
+        search_results,
+        weights=RankingWeights(rating=1.0, popularity=0.0, price=0.0),
+    )
+
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        agent.run("headphones")
+
+    assert "rating 0.94 x1.00" in caplog.text
 
 
 def test_a_run_with_no_bounds_reports_everything_it_found(

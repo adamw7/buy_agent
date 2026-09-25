@@ -86,6 +86,12 @@ def test_a_query_string_names_a_page_and_is_not_part_of_the_source() -> None:
     assert parse_source("youtube.com/channel/UC123?tab=videos#top").term == "UC123"
 
 
+def test_a_fragment_names_a_place_on_a_page_and_is_not_part_of_the_source() -> None:
+    """With no query string ahead of it, which is the case the line above cannot
+    tell apart from one that splits on ``?`` alone."""
+    assert parse_source("rtings.com/headphones#reviews").term == "headphones"
+
+
 @pytest.mark.parametrize(
     "spec",
     [
@@ -105,6 +111,13 @@ def test_something_that_names_no_site_is_refused_with_the_shapes_that_work(spec)
         parse_source(spec)
 
     assert "blank" in str(failure.value) or "rtings.com" in str(failure.value)
+
+
+def test_a_refusal_quotes_back_what_was_typed() -> None:
+    """The form shows it under a box holding several sources, so which one of them
+    names nothing is half of the sentence."""
+    with pytest.raises(ValueError, match="'Marques Brownlee' does not name a source"):
+        parse_source("Marques Brownlee")
 
 
 # -- narrowing the search ------------------------------------------------------
@@ -169,6 +182,15 @@ def test_one_string_can_hold_several_however_they_are_separated() -> None:
         "rtings.com",
         "youtube.com",
         "notebookcheck.net",
+    ]
+
+
+def test_a_separator_in_front_of_the_first_one_names_nothing_and_stops_nothing() -> None:
+    """``, rtings.com`` is a field somebody started typing into after a comma, and
+    the empty piece in front of it is skipped rather than read as the end."""
+    assert [source.domain for source in parse_sources(", rtings.com @mkbhd")] == [
+        "rtings.com",
+        "youtube.com",
     ]
 
 
