@@ -381,6 +381,10 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         }
         run = endpoints.get(url.path)
         if run is None:
+            # Answered without reading the body, which would otherwise be parsed as the
+            # next request on this connection -- ``_read_json``'s reason, on the one POST
+            # path that never reaches it.
+            self.close_connection = True
             self._send_json(404, _no_such_endpoint(url.path))
             return
         try:

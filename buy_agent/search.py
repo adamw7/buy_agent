@@ -31,6 +31,11 @@ _RETRY_WAIT = 2.0
 #: that is not going to.
 _TIMEOUT = 10.0
 
+#: The most results Brave's search API answers one request with. A run may ask for up to
+#: fifty -- ``search_results`` follows ``num_products`` -- and Brave refuses a larger
+#: ``count`` outright rather than answering fewer, which read as the address being wrong.
+_BRAVE_MAX_COUNT = 20
+
 #: Where the search looks when a caller names nothing. Written here rather than read off
 #: :mod:`buy_agent.config`, which is the module that reads *this* one.
 _DEFAULT_REGION = "us-en"
@@ -189,7 +194,7 @@ def _brave_find(backend: Backend, query: Query) -> list[SearchResult]:
         backend.endpoint,
         params={
             "q": query.text,
-            "count": query.max_results,
+            "count": min(query.max_results, _BRAVE_MAX_COUNT),
             "country": query.country,
             "search_lang": query.language,
         },
