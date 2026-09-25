@@ -358,13 +358,17 @@ def _litellm_installed(config: AgentConfig) -> list[InstalledModel]:
 def _litellm_hint(config: AgentConfig, exc: Exception) -> str:
     """Turn a LiteLLM proxy's failure into something the user can act on (ADR-0068)."""
     proxy = f"The LiteLLM proxy at {config.base_url}"
-    if isinstance(exc, openai.AuthenticationError):
+    if isinstance(exc, openai.AuthenticationError) or _no_key_store(exc):
         return (
             f"{proxy} refused the API key ({exc}). "
             "Set $LITELLM_API_KEY to its master key or to a virtual key it issued."
         )
     lowered = _answered_by(exc, openai.APIStatusError)
-    if any(said in lowered for said in ("invalid model name", "not found", "not exist")):
+    # The proxy's own words for an alias outside its model_list. A "not found" is not
+    # it: that is the server behind a routed alias relaying its own miss -- an Ollama
+    # never told to pull the model -- and saying the proxy lacks an alias the listing
+    # beside it names is a remedy that contradicts itself.
+    if "invalid model name" in lowered:
         return (
             f"{proxy} routes no model called {config.model!r}. Ask for one it has "
             f"(routing: {_listed(config)}), or add it to the model_list in the "
@@ -377,6 +381,21 @@ def _litellm_hint(config: AgentConfig, exc: Exception) -> str:
             "The proxy's own log says which server it routed to."
         )
     return _unreachable_hint(config, exc, "litellm --config config.yaml")
+
+
+def _no_key_store(exc: Exception) -> bool:
+    """Whether a proxy with no database behind it was handed a key other than its master
+    key. It answers 400 "No connected db." rather than 401, having nowhere to look a
+    virtual key up -- to the chat call and to the listing alike, the latter arriving as
+    a plain httpx error. The wording is LiteLLM's alone, so unlike a bare 404 it cannot
+    have come from something else listening at that address."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        said = exc.response.text
+    elif isinstance(exc, openai.APIStatusError):
+        said = str(exc)
+    else:
+        return False
+    return "no connected db" in said.lower()
 
 
 def _answered_by(exc: Exception, client_error: type[Exception]) -> str:
