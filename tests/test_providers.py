@@ -1138,6 +1138,32 @@ def _answered(kind: type[openai.APIStatusError], status: int, said: str) -> Exce
             "litellm --config",
         ),
         (
+            # A key a proxy with no database cannot look up, answered with a 400.
+            _answered(openai.BadRequestError, 400, "No connected db."),
+            "$LITELLM_API_KEY",
+            "answered, but",
+        ),
+        (
+            # ...and the same refusal, met first by the listing.
+            httpx.HTTPStatusError(
+                "400",
+                request=_REQUEST,
+                response=httpx.Response(400, text='{"error":{"message":"No connected db."}}'),
+            ),
+            "$LITELLM_API_KEY",
+            "Could not reach",
+        ),
+        (
+            # The routed server's own miss, relayed: the alias is the proxy's.
+            _answered(
+                openai.NotFoundError,
+                404,
+                "litellm.NotFoundError: Ollama_chatException - model 'qwen3' not found",
+            ),
+            "answered, but the model behind 'local_model' failed (litellm.NotFoundError",
+            "model_list",
+        ),
+        (
             _answered(openai.RateLimitError, 429, "rpm limit reached"),
             "answered, but the model behind 'local_model' failed (rpm limit reached)",
             "Could not reach",
