@@ -1,7 +1,6 @@
 """The AP2 seam: a cart in, a signed mandate chain out, and the check back (ADR-0046)."""
 
-# Said once rather than on each of the eleven lines below: every import of the SDK here is
-# deferred into the function that needs it, which is what the paragraph above is about.
+# The SDK is optional, so every import of it is deferred into the function needing it.
 # pylint: disable=import-outside-toplevel
 
 from __future__ import annotations
@@ -63,8 +62,7 @@ class Authorisation:
 def _sdk() -> Any:
     """The AP2 SDK, imported now rather than at module import."""
     try:
-        # Two of the three are imported for whether they import at all, which is the
-        # question being asked; the third is what the answer is read off.
+        # Importing them is the availability check.
         import ap2.sdk.jwt_helper
         import ap2.sdk.mandate
         import ap2.sdk.utils
@@ -75,7 +73,7 @@ def _sdk() -> Any:
 
 
 def _jwk_class() -> Any:
-    """jwcrypto's key type, imported through the same translation the SDK is."""
+    """jwcrypto's key type, imported like the SDK."""
     try:
         from jwcrypto.jwk import JWK  # part of the deferred SDK stack
     except ImportError as exc:
@@ -85,8 +83,7 @@ def _jwk_class() -> Any:
 
 def _missing(exc: ImportError) -> str:
     """What to say when part of the signing stack will not import."""
-    # ``name`` is what a ``ModuleNotFoundError`` carries and a bare ``ImportError`` does
-    # not, so the sentence still reads without one.
+    # A bare ``ImportError`` may carry no ``name``.
     missing = repr(exc.name) if exc.name else "part of it"
     return (
         f"Paying needs the AP2 SDK and what it imports, and {missing} is not "
@@ -95,7 +92,7 @@ def _missing(exc: ImportError) -> str:
 
 
 def available() -> bool:
-    """Is the SDK installed? Asked by both front doors, which say so up front."""
+    """Whether the SDK is installed."""
     try:
         _sdk()
     except MandateError:
@@ -104,11 +101,9 @@ def available() -> bool:
 
 
 def _jwk(private_key: Any, kid: str) -> Any:
-    """A jwcrypto key carrying a key id, which every signature here is traced by."""
-    # Lower-case rather than the SDK's own ``JWK``: whether pylint reads that name as a
-    # class alias depends on ``jwcrypto`` being importable, and the SDK is an optional
-    # install -- so the upper-case spelling linted clean where it was installed and
-    # failed with ``invalid-name`` on a checkout without it.
+    """A jwcrypto key with a key id."""
+    # Lower-case: pylint's ``invalid-name`` verdict on ``JWK`` depends on whether the
+    # optional SDK is installed.
     jwk_class = _jwk_class()
 
     material = json.loads(jwk_class.from_pyca(private_key).export())
@@ -117,7 +112,7 @@ def _jwk(private_key: Any, kid: str) -> Any:
 
 
 def generate_key(kid: str = "agent-ephemeral") -> Any:
-    """A fresh P-256 key, living exactly as long as this process does."""
+    """A fresh P-256 key for this process only."""
     try:
         from cryptography.hazmat.primitives.asymmetric import ec
     except ImportError as exc:
@@ -202,9 +197,7 @@ def open_mandate() -> tuple[str, Any] | None:
     try:
         document = json.loads(Path(location).read_text(encoding="utf-8"))
         token = str(document["mandate"])
-        # Asked for after the file has been read: reading JSON needs none of the signing
-        # stack, and asked first it answered a malformed mandate with the sentence about
-        # installing the SDK -- pip, over a path that is wrong.
+        # After reading the file, so a bad file is not reported as a missing SDK.
         issuer = _jwk_class()(**document["issuer_jwk"])
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise MandateError(
@@ -215,9 +208,8 @@ def open_mandate() -> tuple[str, Any] | None:
 
 
 def authorise(cart: Cart, checkout: SignedCheckout, *, key: Any, nonce: str) -> Authorisation:
-    """Sign what this cart needs in order to be paid for, in whichever mode applies."""
-    # Asked before the SDK is, so a mandate file that will not read fails with its own
-    # sentence rather than with the one about installing ``ap2``.
+    """Sign what this cart needs to be paid for, in whichever mode applies."""
+    # Before the SDK, so a bad mandate file reports itself.
     configured = open_mandate()
     sdk = _sdk()
     now = int(time.time())
@@ -225,8 +217,7 @@ def authorise(cart: Cart, checkout: SignedCheckout, *, key: Any, nonce: str) -> 
     payload = _payment_mandate(cart, checkout, now)
 
     if configured is None:
-        # Human present: the shopper looked at this exact cart, so the closed Payment
-        # Mandate is signed directly by the surface that asked.
+        # Human present: sign the closed Payment Mandate directly.
         payment = client.create(payloads=[payload], issuer_key=key)
     else:
         # Human not present: close the open mandate the shopper signed, within it.
@@ -270,8 +261,8 @@ def _payment_mandate(cart: Cart, checkout: SignedCheckout, now: int) -> Any:
         transaction_id=checkout.hash,
         payee=Merchant(**cart.merchant_payload()),
         payment_amount=Amount(amount=cart.amount, currency=cart.currency),
-        # The instrument is a reference and never a number: an agent carrying the digits
-        # would be the stored card AP2 exists to do without.
+        # A reference, never card digits.
+
         payment_instrument=PaymentInstrument(
             id=cart.instrument, type="card", description="Held by the credential provider"
         ),

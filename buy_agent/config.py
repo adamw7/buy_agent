@@ -14,16 +14,13 @@ from buy_agent.ranking import RankingWeights
 from buy_agent.search import Backend, backend_for
 from buy_agent.sources import Source
 
-#: Which model server a run talks to when nothing says otherwise: Ollama (ADR-0003),
-#: vLLM being the same pipeline over a server someone already runs (ADR-0028), and a
-#: LiteLLM proxy the same again over whatever that someone routes it to (ADR-0068).
+#: The default model server (ADR-0003, ADR-0028, ADR-0068).
 DEFAULT_PROVIDER = os.getenv("BUY_AGENT_PROVIDER", "ollama")
 
-#: Which rail a payment goes through when nothing says otherwise.
+#: The default payment rail.
 DEFAULT_RAIL = os.getenv("BUY_AGENT_RAIL", "dry-run")
 
-#: Which search backend a run asks when nothing says otherwise: DuckDuckGo, which needs
-#: no key and no account (ADR-0057).
+#: The default search backend: DuckDuckGo, needing no key (ADR-0057).
 DEFAULT_BACKEND = os.getenv("BUY_AGENT_BACKEND", "ddg")
 
 #: The range each numeric setting is held to, by the field it bounds.
@@ -38,18 +35,16 @@ LIMITS: dict[str, tuple[int, int]] = {
     "max_price": (1, 10_000_000),
     "min_rating": (0, 5),
     "min_reviews": (0, 10_000_000),
-    # 0 is off -- every page read fresh -- and the ceiling is 30 days, past which a
-    # stored price is not evidence of anything (ADR-0040).
+    # 0 is off; past 30 days a stored price is no evidence (ADR-0040).
     "cache_ttl": (0, 2_592_000),
     # The most one payment may be.
     "spend_limit": (1, 10_000_000),
 }
 
-#: Where the search looks when nothing says otherwise.
+#: The default search region.
 DEFAULT_REGION = "us-en"
 
-#: What a search region looks like: a country then a language, hyphenated -- ``us-en``,
-#: ``pl-pl``, the three-letter ``hk-tzh`` (ADR-0031).
+#: A search region: country then language, e.g. ``us-en``, ``hk-tzh`` (ADR-0031).
 REGION = re.compile(r"[a-z]{2}-[a-z]{2,3}")
 
 
@@ -65,13 +60,8 @@ def parse_region(spec: str) -> str:
 
 
 def parse_currency(spec: str) -> str:
-    """``spec`` as the currency a run counts itself in, or nothing at all (ADR-0056).
-
-    Blank is the default and means "whatever the pages quote", which is the vote
-    ADR-0043 settled the scale by. A spelling is folded the way a page's is -- ``$``
-    and ``usd`` are both USD -- and anything this run could never place is refused
-    here rather than silently leaving every price off the scale.
-    """
+    """``spec`` as the run's currency code, or blank for the pages' vote (ADR-0056,
+    ADR-0043). Spellings fold (``$``, ``usd``); unplaceable ones are refused."""
     named = spec.strip()
     if not named:
         return ""
@@ -87,9 +77,8 @@ def parse_currency(spec: str) -> str:
 
 @dataclass(slots=True)
 class AgentConfig:
-    """Everything the agent needs to know that is not the user's query (ADR-0050,
-    ADR-0051, ADR-0044, ADR-0039, ADR-0043, ADR-0027, ADR-0040, ADR-0046,
-    ADR-0056, ADR-0057, ADR-0060)."""
+    """Every setting of a run besides the request (ADR-0050, ADR-0051, ADR-0044,
+    ADR-0039, ADR-0043, ADR-0027, ADR-0040, ADR-0046, ADR-0056, ADR-0057, ADR-0060)."""
 
     provider: str = DEFAULT_PROVIDER
     model: str = ""
@@ -124,37 +113,34 @@ class AgentConfig:
 
     @property
     def search_backend(self) -> Backend:
-        """The backend this config names, and everything that differs about it (ADR-0057)."""
+        """The backend row this config names (ADR-0057)."""
         return backend_for(self.backend)
 
     @property
     def rail_used(self) -> Rail:
-        """The rail this config names, and everything that differs about it (ADR-0046)."""
+        """The rail row this config names (ADR-0046)."""
         return rail_for(self.rail)
 
     @property
     def model_server(self) -> Provider:
-        """The server this config names, and everything that differs about it (ADR-0029)."""
+        """The provider row this config names (ADR-0029)."""
         return provider_for(self.provider)
 
     def __post_init__(self) -> None:
-        """Fill in whichever of the three the provider decides (ADR-0012)."""
+        """Resolve per-row defaults and validate names (ADR-0012)."""
         server = self.model_server  # raises for a name nothing can serve
         self.model = self.model or server.model
         self.base_url = self.base_url or server.base_url
         self.api_key = self.api_key or server.api_key
         self.region = parse_region(self.region)
         self.currency = parse_currency(self.currency)
-        # Resolved here for the reason the provider is: a name nothing can search is
-        # refused where the config is built rather than a minute into the run.
+        # Refuse an unknown backend now rather than a minute into the run.
         backend_for(self.backend)
 
         rail = self.rail_used  # raises for a name nothing can pay through
         self.merchant_url = (self.merchant_url or rail.endpoint).rstrip("/")
         if self.pay and rail.needs_endpoint and not self.merchant_url:
-            # Named as the setting and not as the flag: both front doors show this
-            # sentence, and the browser is handed it under a box labelled "Payment
-            # endpoint" with no command line to type a flag into.
+            # Names the setting, not the flag: the browser shows this too.
             raise ValueError(
                 f"Paying through {rail.label} needs an address: give it a payment "
                 f"endpoint, or set $BUY_AGENT_MERCHANT_URL."

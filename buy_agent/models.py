@@ -22,7 +22,7 @@ _PUNCTUATION = re.compile(r"[^\w\s]")
 #: How many opinions a product is reported with.
 MAX_OPINIONS = 3
 
-#: Longer than this is not a quote any more; it is the model retelling the page.
+#: Longer than this is a retelling, not a quote.
 _MAX_OPINION_LENGTH = 240
 
 
@@ -65,12 +65,9 @@ class ExtractedProduct(BaseModel):
 
     def to_product(self) -> Product:
         """Convert sentinels back into ``None`` and tidy up whitespace."""
-        # Neither qualifier outlives the figure it describes -- :data:`QUALIFIERS`, one
-        # stage earlier than ``verify_numbers``.
+        # A qualifier never outlives its figure (:data:`QUALIFIERS`).
         rating = self.rating if 0 <= self.rating <= 5 else None
-        # ``> 0`` rather than ``>= 0``, matching ``review_count``: zero is the other
-        # thing a model writes for "unknown", and grounding need only find a bare "0" in
-        # ten pages of "$0 shipping" for ranking to top the report with it.
+        # ``> 0``: models also write 0 for unknown, and "$0 shipping" would ground it.
         price = self.price if isfinite(self.price) and self.price > 0 else None
         return Product(
             name=_clean(self.name),
@@ -88,22 +85,17 @@ class ExtractedProduct(BaseModel):
 
 
 class Opinion(BaseModel):
-    """One thing a source page said about a product, and the page that said it (ADR-0025,
-    ADR-0042, ADR-0017)."""
+    """A quote about a product, and the page that printed it (ADR-0025, ADR-0042,
+    ADR-0017)."""
 
     text: str
     url: str | None = None
 
 
 class Offer(BaseModel):
-    """One listing's own price for a product, beside who was quoting it (ADR-0058).
+    """One listing's price, currency, shop and page (ADR-0058).
 
-    The four fields travel together for :data:`QUALIFIERS`' reason one step further on:
-    a price, the currency it was written in, the shop quoting it and the page it was
-    printed on are one listing's four facts, and any of them taken on its own describes
-    a listing that does not exist. Which is why a merge keeps both offers whole rather
-    than filling one's gaps from the other -- the rule :func:`_merge_opinions` already
-    holds for two reviewers, applied to two shops.
+    The four travel together, so merges keep offers whole rather than mixing fields.
     """
 
     price: float
@@ -138,11 +130,10 @@ class Product(BaseModel):
     review_count: int | None = None
     seller: str | None = None
     url: str | None = None
-    #: What the sources say about it, in their words, each beside the page that said it.
+    #: Quotes from the sources, each with its page.
     opinions: list[Opinion] = []
-    #: Every listing the sources printed for it, the headline price among them
-    #: (ADR-0058). Empty until ``deduplicate`` seeds it, and empty for a product no
-    #: page priced.
+    #: Every priced listing, the headline among them (ADR-0058); seeded by
+    #: ``deduplicate``.
     offers: list[Offer] = []
     notes: str | None = None
 
@@ -163,13 +154,9 @@ class Product(BaseModel):
         return f"{self.rating:.1f}/5{reviews}"
 
     def offers_label(self) -> str | None:
-        """What the pages quoted for this, where more than one of them quoted anything
-        (ADR-0058), or ``None`` where a range would be the headline price again.
+        """The spread of listings' prices, or ``None`` for fewer than two (ADR-0058).
 
-        The spread is measured over the listings priced the way the headline is, since
-        two prices in two currencies have nothing between them and this run converts
-        nothing (ADR-0043). One outside that scale is counted and not measured, which is
-        the same answer :func:`comparable_price` gives everywhere else.
+        Measured in the headline's currency only; others are counted (ADR-0043).
         """
         if len(self.offers) < 2:
             return None
@@ -192,21 +179,14 @@ QUALIFIERS: dict[str, tuple[str, ...]] = {
 
 
 def dominant_currency(products: Iterable[Product], named: str | None = None) -> str | None:
-    """The currency this set of products is priced in, where they agree on one (ADR-0043).
-
-    ``named`` is the shopper's own answer to that question, and it wins outright: the
-    vote below is what a run falls back on when nobody said, not evidence to be weighed
-    against a choice (ADR-0056). Nothing else changes -- a price outside the scale is
-    still :func:`comparable_price`'s ``None``, which scores neutral, sinks in a price
-    sort and passes every bound.
-    """
+    """The currency the set is counted in: ``named`` if given (ADR-0056), else the
+    majority of priced products (ADR-0043)."""
     if named:
         return named
     counted = Counter(
         product.currency
         for product in products
-        # A currency with no price beside it describes nothing (ADR-0022) and so does
-        # not get to decide what the set is counted in.
+        # A currency with no price describes nothing (ADR-0022).
         if product.price is not None and product.currency is not None
     )
     # ``most_common`` sorts stably, so equal counts stay in first-seen order.
@@ -214,8 +194,7 @@ def dominant_currency(products: Iterable[Product], named: str | None = None) -> 
 
 
 def comparable_price(product: Product, currency: str | None) -> float | None:
-    """``product``'s price on this run's own scale, or ``None`` if it is not on it
-    (ADR-0043)."""
+    """``product``'s price if it is on this run's scale, else ``None`` (ADR-0043)."""
     on_the_scale = currency is None or product.currency in (None, currency)
     return product.price if on_the_scale else None
 
@@ -247,32 +226,25 @@ class RankedProduct(BaseModel):
 class Removal(BaseModel):
     """One candidate that left the report, and what took it out (ADR-0055)."""
 
-    #: The name it was carrying when it went -- the cleaned one where cleaning kept it,
-    #: since that is the name the rest of the run would have called it by.
+    #: Its name when removed (cleaned, where cleaning ran).
     name: str
-    #: Which heuristic removed it, as a word the report can group by.
+    #: Which step removed it.
     step: str
-    #: Why, written out: the browser shows this sentence and composes none of its own.
+    #: Why, as the sentence the browser shows.
     reason: str
 
 
-#: How a step hands over what it removed. A step answers its survivors as it always did
-#: and says the rest here, which is what keeps the removals out of every signature the
-#: pipeline is tested through (ADR-0055).
+#: How a step reports what it removed, beside returning survivors (ADR-0055).
 Recorder: TypeAlias = "Callable[[Removal], None]"
 
 
 def nothing_recorded(_removal: Removal) -> None:
-    """The default recorder: nobody is keeping what the steps took out."""
+    """The default recorder: discards."""
 
 
 def dedup_key(name: str) -> str:
     """Loose identity for a product name: same modulo case, punctuation and spacing.
-
-    A function as well as a property, because :mod:`buy_agent.journal` matches what a
-    past run reported against what this one did and there must not be two spellings of
-    "the same product" (ADR-0060).
-    """
+    Also used by :mod:`buy_agent.journal` (ADR-0060)."""
     return _WHITESPACE.sub(" ", _PUNCTUATION.sub(" ", name.lower())).strip()
 
 
@@ -289,8 +261,7 @@ def distinct_quotes(values: Iterable[Opinion]) -> list[Opinion]:
 
 
 def _quotes(values: list[str]) -> list[Opinion]:
-    """Tidy the quoted opinions, dropping blanks, repeats and whole paragraphs (ADR-0017,
-    ADR-0042)."""
+    """Tidy quotes, dropping blanks, repeats and paragraphs (ADR-0017, ADR-0042)."""
     cleaned = (_clean(value) for value in values)
     return distinct_quotes(
         Opinion(text=quote)

@@ -1,5 +1,5 @@
-"""The seam between a prompt and a model server's answer: what LangChain used to be
-(ADR-0002, ADR-0038)."""
+"""The seam between a prompt and a model's answer, replacing LangChain (ADR-0002,
+ADR-0038)."""
 
 from __future__ import annotations
 
@@ -19,22 +19,19 @@ from pydantic import BaseModel, ValidationError
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-#: One turn sent to a model server, in the shape both read it: ollama's
-#: ``chat(messages=...)`` and the OpenAI API's ``messages`` take the same pair.
+#: One turn, in the shape both ollama and the OpenAI API take.
 Message: TypeAlias = dict[str, str]
 
-#: The Pydantic model one call is constrained to and read back as -- ``SearchQuery`` for
-#: the refining step, ``ProductList`` for the extracting one (ADR-0004).
+#: The Pydantic model a call is constrained to and read back as (ADR-0004).
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
-#: How much of an unreadable answer the failure carries: enough to recognise a
-#: half-finished object by, short enough for a one-line hint.
+#: How much of an unreadable answer the failure quotes.
 _QUOTED = 200
 
 
 class UnreadableAnswerError(ValueError):
-    """The server answered, with something that is not the JSON it was asked for
-    (ADR-0009, ADR-0019)."""
+    """The server answered with something other than the JSON asked for (ADR-0009,
+    ADR-0019)."""
 
 
 class ChatModel(Protocol):
@@ -46,14 +43,14 @@ class ChatModel(Protocol):
 
 @runtime_checkable
 class Closable(Protocol):
-    """Something holding a connection open that can be told to let go of it."""
+    """Something holding a connection open."""
 
     def close(self) -> None:
-        """Let go of it. Asked by whoever opened it, once, and never mid-answer."""
+        """Release it; called once, by whoever opened it."""
 
 
 def release(held: object) -> None:
-    """Let go of whatever ``held`` has open, where it has anything at all."""
+    """Close ``held`` if it is closable."""
     if isinstance(held, Closable):
         held.close()
 

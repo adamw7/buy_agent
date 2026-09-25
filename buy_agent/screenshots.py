@@ -1,15 +1,11 @@
-"""A picture of the page a product links to, for the card that links to it (ADR-0065).
+"""A picture of the page a product card links to (ADR-0065).
 
-The one module that imports Playwright, and the one place the package starts a process of
-its own: a headless Chromium, launched on the first picture anybody asks for and let go
-once nobody has asked for one in a while. It is optional twice over -- the library is an
-install of its own, and only a server bound to this machine asks for a camera at all --
-so a checkout without it runs, serves and passes its suite exactly as before.
+The only module importing Playwright, and the only process the package starts: a
+headless Chromium, launched on first use and closed when idle. Optional: a separate
+install, used only by a loopback server.
 
-Playwright's synchronous objects belong to the thread that made them, so one worker thread
-owns the browser and every request thread hands it a job and waits. One browser, one page
-at a time: ten pictures a run is not worth ten browsers, and the order the jobs arrive in
-is the order the cards are drawn in, the top of the report first.
+Playwright's sync objects belong to their thread, so one worker owns the browser and
+request threads queue jobs for it, one page at a time.
 """
 
 from __future__ import annotations
@@ -24,45 +20,35 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: What to type when screenshots are wanted and not installed: the library, and then the
-#: one browser it drives, which it downloads rather than finding on the machine.
+#: How to install the library and the browser it downloads.
 INSTALL = (
     "pip install -r requirements-screenshots.txt && "
     "python -m playwright install --only-shell chromium"
 )
 
-#: The window a page is laid out in -- a laptop's, so a shop draws its desktop layout
-#: rather than the one it keeps for a phone.
+#: A laptop's window, for the desktop layout.
 VIEWPORT = {"width": 1280, "height": 800}
 
-#: Half a pixel per CSS pixel, which makes that window a 640 x 400 picture: twice what
-#: the card draws, so it is sharp on a high-density screen, and a fifth of the bytes a
-#: full-size one takes. Chromium lays the page out at the full width either way.
+#: A 640 x 400 picture: twice the card's size, for high-density screens.
 SCALE = 0.5
 
-#: JPEG quality: a page's text at that size is a texture, not something to read.
+#: JPEG quality; the text is not meant to be read.
 QUALITY = 70
 
-#: How long a page may take to have a document at all. A result page that has not
-#: answered in this long is one nobody wanted a picture of.
+#: How long a page may take to produce a document.
 LOAD_SECONDS = 15.0
 
-#: How much longer it is given to finish loading -- the images, the fonts -- before the
-#: picture is taken of whatever it has drawn. Shops load trackers for a long time.
+#: Further time to finish loading before shooting whatever is drawn.
 SETTLE_SECONDS = 3.0
 
-#: How long the browser stays up with nobody asking. A run's cards ask within seconds of
-#: each other; a minute later nobody is looking at them any more.
+#: How long an idle browser stays up.
 IDLE_SECONDS = 60.0
 
-#: How long a request waits for its picture, the jobs ahead of it included: ten pages at
-#: :data:`LOAD_SECONDS` and :data:`SETTLE_SECONDS` each, with room to spare.
+#: How long a request waits, queued jobs included: ten pages with room to spare.
 WAIT_SECONDS = 240.0
 
-#: A browser-ish agent, for the reason ``fetch.USER_AGENT`` is one: headless Chromium
-#: says so in its own, and the shops that answer python-httpx with a 403 answer
-#: "HeadlessChrome" the same way. Written again rather than imported, the fetcher being a
-#: step of the pipeline and this a seam that knows nothing of the package above it.
+#: A desktop agent, since shops refuse "HeadlessChrome". Duplicated from ``fetch``: this
+#: seam imports nothing from the package.
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
@@ -70,12 +56,11 @@ USER_AGENT = (
 
 
 class ScreenshotError(Exception):
-    """A picture that could not be taken, and why -- a page that would not load, or a
-    browser that would not start."""
+    """A picture that could not be taken, and why."""
 
 
 class Browser(Protocol):
-    """What the camera needs of a browser: a picture of one address, and letting go."""
+    """What the camera needs of a browser."""
 
     def shoot(self, url: str) -> bytes: ...
 
@@ -85,8 +70,7 @@ class Browser(Protocol):
 def _sync_api() -> Any:
     """Playwright's synchronous API, imported now rather than at module import."""
     try:
-        # Deferred, and the reason this module can be imported where the library is not
-        # installed: whether it imports is the question being asked.
+        # Deferred: the library is optional, and importing it is the check.
         # pylint: disable-next=import-outside-toplevel
         from playwright import sync_api
     except ImportError as exc:
@@ -97,7 +81,7 @@ def _sync_api() -> Any:
 
 
 def available() -> bool:
-    """Is Playwright installed? Whether its browser is gets found out by launching it."""
+    """Whether Playwright is installed (the browser is found out at launch)."""
     try:
         _sync_api()
     except ScreenshotError:
@@ -106,7 +90,7 @@ def available() -> bool:
 
 
 def _first_line(exc: Exception) -> str:
-    """The sentence out of a Playwright error, which goes on to print a call log."""
+    """A Playwright error's first line, without its call log."""
     return (str(exc).strip().splitlines() or [type(exc).__name__])[0]
 
 
@@ -136,8 +120,7 @@ class Chromium:
             response = page.goto(
                 url, wait_until="domcontentloaded", timeout=LOAD_SECONDS * 1000
             )
-            # A shop's "access denied" is a page too, and a picture of it next to the
-            # product would say the link is broken when it opens fine in a real browser.
+            # An error page would misrepresent a link that works in a real browser.
             if response is not None and response.status >= 400:
                 raise ScreenshotError(f"{url} answered {response.status}")
             try:
@@ -184,11 +167,9 @@ class _Job:
 
 
 class Camera:
-    """Takes pictures of pages, one at a time, in a browser nobody else touches.
+    """Takes pictures of pages, one at a time, in a browser of its own.
 
-    ``launch`` is the seam the suite hands a stand-in through, the way ``BuyAgent`` is
-    handed its model: nothing here is worth a real browser to test, and a real browser is
-    exactly what a test may not start.
+    ``launch`` is the test seam: no test starts a real browser.
     """
 
     def __init__(
@@ -206,7 +187,7 @@ class Camera:
         self._worker: threading.Thread | None = None
 
     def shoot(self, url: str) -> bytes:
-        """A JPEG of the page at ``url``, taken now or once the pictures ahead of it are."""
+        """A JPEG of the page at ``url``, after any queued ahead of it."""
         job = _Job(url)
         with self._lock:
             self._jobs.put(job)
@@ -218,8 +199,7 @@ class Camera:
         return job.wait(self._wait)
 
     def close(self) -> None:
-        """Let the browser go now rather than after :data:`IDLE_SECONDS` -- the server's
-        shutdown, which would otherwise leave it to the process exiting."""
+        """Close the browser now, on server shutdown."""
         with self._lock:
             worker = self._worker
             if worker is None:
@@ -234,19 +214,16 @@ class Camera:
                 browser = self._take(job, browser)
         finally:
             with self._lock:
-                # Said again here for an exit nobody planned, so the next picture asked
-                # for starts a worker rather than queueing behind one that is gone.
+                # Also on an unplanned exit, so the next job starts a new worker.
                 if self._worker is threading.current_thread():
                     self._worker = None
             if browser is not None:
                 _let_go(browser)
 
     def _next(self) -> _Job | None:
-        """The next picture asked for, or ``None`` once nobody has asked for a while.
+        """The next job, or ``None`` once idle.
 
-        Whether nobody has is decided under the lock :meth:`shoot` queues under, so a job
-        arriving at that moment either lands before the decision and is taken, or after
-        it and starts a worker of its own -- never on a queue nobody is reading.
+        Decided under :meth:`shoot`'s lock, so no job lands on a queue nobody reads.
         """
         try:
             return self._jobs.get(timeout=self._idle)
@@ -259,7 +236,7 @@ class Camera:
                     return None
 
     def _take(self, job: _Job, browser: Browser | None) -> Browser | None:
-        """Take one picture, answering the job either way. The browser to keep using."""
+        """Take one picture, answering the job; return the browser to keep using."""
         try:
             if browser is None:
                 browser = self._launch()
@@ -267,8 +244,7 @@ class Camera:
         except ScreenshotError as exc:
             logger.debug("%s", exc)
             job.fail(exc)
-        # Anything else is a browser that failed in a way nothing here expected, which is
-        # not one to go on photographing with: the next job launches a fresh one.
+        # An unexpected failure: discard this browser; the next job launches another.
         # pylint: disable-next=broad-exception-caught
         except Exception as exc:
             logger.warning("The screenshot browser failed: %s", _first_line(exc))
@@ -280,10 +256,10 @@ class Camera:
 
 
 def _let_go(browser: Browser) -> None:
-    """Close a browser, whatever state it is in: it is being let go either way."""
+    """Close a browser, whatever state it is in."""
     try:
         browser.close()
-    # A browser that crashed has nothing left to close, and saying so is all there is to do.
+    # A crashed browser has nothing to close; log and move on.
     # pylint: disable-next=broad-exception-caught
     except Exception as exc:
         logger.debug("Closing the screenshot browser failed: %s", _first_line(exc))

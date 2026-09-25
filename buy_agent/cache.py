@@ -25,16 +25,13 @@ logger = logging.getLogger(__name__)
 #: How long a stored entry stays usable, in seconds.
 DEFAULT_TTL = 86_400.0
 
-#: How much disk one kind of entry may take up, oldest first out -- age alone being no
-#: bound on size (ADR-0052).
+#: Disk cap per kind of entry, oldest out first (ADR-0052).
 MAX_BYTES = 256 * 1024 * 1024
 
-#: Under the directory each platform keeps disposable things in: deleting the whole of
-#: it costs one slow run.
+#: Under the platform's cache directory: deleting it costs one slow run.
 _DIRECTORY = "buy-agent"
 
-#: The two kinds of entry, each in its own directory: pruned and counted separately, and
-#: keyed differently -- a URL against a whole request.
+#: The two kinds of entry, each in its own directory.
 PAGES = "pages"
 ANSWERS = "answers"
 
@@ -44,36 +41,22 @@ def default_dir(kind: str) -> Path:
     named = os.getenv("BUY_AGENT_CACHE_DIR")
     if named:
         return Path(named) / kind
-    # LOCALAPPDATA on Windows, XDG_CACHE_HOME where it is set, and ~/.cache -- which is
-    # the fallback on every platform that named neither.
+    # LOCALAPPDATA on Windows, else XDG_CACHE_HOME, else ~/.cache.
     base = os.getenv("LOCALAPPDATA") or os.getenv("XDG_CACHE_HOME")
     root = Path(base) if base else Path.home() / ".cache"
     return root / _DIRECTORY / kind
 
 
 def file_for(directory: Path, key: str) -> Path:
-    """Which file in ``directory`` holds what was stored under ``key``.
-
-    Hashed rather than spelled out, a key here being a URL or a whole request, and
-    shared with :mod:`buy_agent.journal` for the plainer reason two spellings of one
-    key would be two files.
-    """
+    """The file in ``directory`` for ``key``, hashed (shared with :mod:`buy_agent.journal`)."""
     return directory / f"{hashlib.sha256(key.encode('utf-8')).hexdigest()}.json"
 
 
 def write_atomically(directory: Path, destination: Path, text: str) -> OSError | None:
-    """Put ``text`` at ``destination``, and say what stopped it where something did.
+    """Write ``text`` via a temporary file and a rename; return the failure, if any.
 
-    Written beside the destination and moved onto it, so nothing ever reads half a
-    file, and the half-written one is taken back where the move failed -- left behind
-    it would be read as an entry. Shared with :mod:`buy_agent.journal`, which keeps a
-    different thing under different rules (ADR-0060) and keeps it the same way: what is
-    written down here is worth less than the run it would otherwise interrupt, so
-    neither caller ever raises.
-
-    The failure is answered rather than logged, because what to call it is the caller's:
-    a page not cached and a journal not written are the same ``OSError`` and not the
-    same sentence.
+    Never raises: shared with :mod:`buy_agent.journal` (ADR-0060), and each caller words
+    the failure its own way.
     """
     temporary = ""
     try:
@@ -84,8 +67,7 @@ def write_atomically(directory: Path, destination: Path, text: str) -> OSError |
         os.replace(temporary, destination)
     except OSError as exc:
         with suppress(OSError):
-            # Empty only where ``mkstemp`` is what failed, and then there is nothing on
-            # disk to take back.
+            # Empty only if ``mkstemp`` failed, leaving nothing to remove.
             if temporary:
                 Path(temporary).unlink(missing_ok=True)
         return exc
@@ -100,9 +82,7 @@ class DiskCache:
     ) -> None:
         self.directory = directory
         self.ttl = ttl
-        #: The most this directory may hold once the expired entries are out of it -- a
-        #: bound on disk rather than on age, which :meth:`prune` enforces by deleting
-        #: the oldest first (ADR-0052).
+        #: The size cap :meth:`prune` enforces, oldest first (ADR-0052).
         self.max_bytes = max_bytes
 
     def get(self, key: str) -> str | None:
@@ -113,8 +93,7 @@ class DiskCache:
                 return None
             entry = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            # ValueError covers both ways a file can fail to be an entry: bytes that are
-            # not UTF-8 (UnicodeDecodeError) and text that is not JSON.
+            # ValueError covers both bad UTF-8 and bad JSON.
             return None
         if not isinstance(entry, dict) or entry.get("key") != key:
             return None
@@ -137,9 +116,8 @@ class DiskCache:
         cutoff = time.time() - self.ttl
         gone: Counter[str] = Counter()
         live: list[tuple[float, int, Path]] = []
-        # ``glob`` answers an empty iterator for a directory it cannot list, so with the
-        # three calls below guarded this cannot raise -- which is what lets
-        # ``open_cache`` call it unguarded.
+        # Cannot raise (``glob`` of an unreadable directory is empty), so callers need
+        # no guard.
         for path in (*self.directory.glob("*.json"), *self.directory.glob("*.tmp")):
             try:
                 stat = path.stat()
@@ -172,9 +150,7 @@ class DiskCache:
             total -= size
             if total <= self.max_bytes:
                 break
-        # DEBUG like everything else here: a cache tidying itself is nobody's news, and
-        # the line a shopper reads about the cache is ``enrich``'s count of how many
-        # pages came off disk.
+        # DEBUG: a cache tidying itself is nobody's news.
         logger.debug(
             "Dropped %d cached entr%s from %s to stay under %d bytes",
             evicted,
@@ -215,8 +191,7 @@ class RememberedAnswers:
             try:
                 remembered = read_answer(stored, schema)
             except UnreadableAnswerError:
-                # A miss like any other: it should not happen, the schema being part of
-                # the key, and it costs a model call rather than a run.
+                # Unexpected (the schema is in the key); treat as a miss.
                 logger.debug("A remembered answer could not be read back")
             else:
                 logger.info("Reused a remembered %s answer", schema.__name__)
@@ -227,11 +202,11 @@ class RememberedAnswers:
         return answer
 
     def close(self) -> None:
-        """Let go of what the model underneath holds open."""
+        """Release the underlying model."""
         release(self.model)
 
     def _key(self, messages: Sequence[Message], schema: type[SchemaT]) -> str:
-        """Everything this question is: the request, the schema, and the run (ADR-0004)."""
+        """The request, the schema and the run's fingerprint (ADR-0004)."""
         return json.dumps(
             {
                 **self.fingerprint,
@@ -250,8 +225,8 @@ def remember_answers(
     ttl: float,
     deterministic: bool,
 ) -> ChatModel:
-    """``model``, answering off disk where it may, or ``model`` itself where not
-    (ADR-0044)."""
+    """``model``, cached on disk when the run is deterministic (ADR-0044)."""
+
     if not deterministic:
         return model
     cache = open_cache(ANSWERS, ttl)

@@ -5,14 +5,11 @@ export function saveText(filename: string, body: string, type: string): void {
   link.href = href;
   link.download = filename;
   link.hidden = true;
-  // In the document for the click and out again after it: a click on an anchor no
-  // document has adopted is ignored outright by some browsers, and a download that
-  // never starts looks exactly like a button that does nothing.
+  // Attached for the click: some browsers ignore a click on a detached anchor.
   document.body.append(link);
   link.click();
   link.remove();
-  // And the URL let go on a later turn, not this one: revoking it in the same tick as the click can
-  // cancel the transfer the click has only just asked for.
+  // Revoked later: revoking in the same tick can cancel the download.
   setTimeout(() => URL.revokeObjectURL(href), RELEASE_AFTER_MS);
 }
 

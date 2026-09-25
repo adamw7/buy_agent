@@ -23,7 +23,7 @@ import { filename, saveText } from '../save';
 export class ProgressLog {
   readonly lines = input.required<LogLine[]>();
   readonly running = input(false);
-  /** What ended the run badly, if anything -- one of the two things the offered file is for. */
+  /** What ended the run badly, if anything. */
   readonly failure = input<string | null>(null);
   /** Whether the reader ended the run themselves. */
   readonly stopped = input(false);
@@ -47,10 +47,7 @@ export class ProgressLog {
   /** What the pill says once the run has stopped: how much it logged and how long that took. */
   protected readonly summary = computed(() => {
     const count = this.lines().length;
-    // Counted in English, like the two other counts on the page -- the header's
-    // "4 models" and the form's "1 setting to look at". A run refused before it
-    // started logs one line, so "1 lines" is the reading this pill gets most often
-    // when something has gone wrong.
+    // Singular for one, like the page's other counts.
     const lines = `${count} line${count === 1 ? '' : 's'}`;
     const took = this.elapsed();
     return took ? `${lines} · ${took}` : lines;
@@ -81,8 +78,7 @@ export class ProgressLog {
 
   /** Take the reader's position as the answer to "keep following?". */
   protected follow(event: Event): void {
-    // The element that scrolled, rather than the view query: it is the panel
-    // either way, and an event has one where a query may not have resolved yet.
+    // The event's target, since the view query may not have resolved yet.
     const element = event.target as HTMLElement;
     const fromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
     this.sticking = fromBottom <= STICK_MARGIN;
@@ -106,9 +102,7 @@ export class ProgressLog {
     }
   }
 
-  /** The level, where it is one this panel colours, and nothing where it is not:
-   *  every line has a level and naming it on all of them is three columns saying
-   *  INFO down the left edge. */
+  /** The level, only where the panel colours it: a colour is never the only carrier. */
   protected marked(level: string): string {
     return COLOURED.includes(level) ? level : '';
   }
@@ -124,9 +118,7 @@ export class ProgressLog {
   }
 }
 
-/** How near the bottom still counts as being at it: a line's height, so a panel
- *  a pixel or two off the end -- which a fractional scroll position leaves it --
- *  is not read as someone having deliberately scrolled away. */
+/** How near the bottom counts as at it: a line's height, tolerating fractional scroll. */
 const STICK_MARGIN = 24;
 
 /** The levels the panel gives a colour to, which are the levels it names. */
