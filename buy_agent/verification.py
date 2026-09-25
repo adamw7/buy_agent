@@ -1,5 +1,5 @@
-"""Check extracted products against the text they were supposedly read from (ADR-0006,
-ADR-0017, ADR-0024, ADR-0025)."""
+"""Check extracted products against their source text (ADR-0006, ADR-0017, ADR-0024,
+ADR-0025)."""
 
 from __future__ import annotations
 
@@ -22,34 +22,30 @@ logger = logging.getLogger(__name__)
 #: Fraction of a name's distinctive words that must appear in the sources.
 NAME_COVERAGE = 0.6
 
-#: How a quote is compared with the sources: as overlapping runs of this many
-#: consecutive words, of which :data:`_QUOTE_COVERAGE` must be found.
+#: A quote is matched as overlapping runs of this many words, of which
+#: :data:`_QUOTE_COVERAGE` must be found.
 _QUOTE_WINDOW = 5
 _QUOTE_COVERAGE = 0.6
 
-#: A rating is a small number that occurs in text for a hundred other reasons, so it
-#: counts only written like one: "4.3/5", "4.3 out of 5", "4.3 stars", "rated 4.3".
+#: A rating counts only beside its scale: "4.3/5", "4.3 stars", "rated 4.3".
 _RATING_AFTER = r"(?:\s*(?:/\s*5\b|(?:out\s+of|of)\s+5\b)|[\s-]*stars?\b)"
-#: The gap stays generous -- "rated a solid 4.6" is how pages write it.
+#: A generous gap, for "rated a solid 4.6".
 _RATING_BEFORE = rf"(?:rated|rating|score[ds]?)\b(?![^\d]{{0,12}}{SUPERLATIVES}\b)[^\d]{{0,12}}"
 _RATING_OUT_OF_TEN = r"\s*(?:/\s*10\b|(?:out\s+of|of)\s+10\b)"
 
-#: A review count is a small whole number, which is what a year, a model number and a
-#: price all are -- so checked bare it grounds on any of them: "720" out of "WH-CH720N",
-#: "2023" out of a release date.
+#: A review count counts only beside who is counted; bare, "720" would match
+#: "WH-CH720N".
 _COUNTED = (
     r"(?:reviews?|ratings?|reviewers?|shoppers?|customers?|buyers?|owners?|users?|votes?)"
 )
-#: Two words of room, which is what a page puts between: "3,200 global ratings", "1,024
-#: verified customer reviews".
+#: Two words of room: "1,024 verified customer reviews".
 _COUNT_AFTER = rf"\s+(?:\w+\s+){{0,2}}{_COUNTED}\b"
 #: The same gap :data:`_RATING_BEFORE` leaves, for "Reviews (3,200)".
 _COUNT_BEFORE = rf"{_COUNTED}\b[^\d]{{0,12}}"
 
 
 def normalise_numbers(text: str) -> str:
-    """Write every number one way, so the same figure compares equal either side --
-    :func:`~buy_agent.money.plain_figures`, whose conventions are the currency table's."""
+    """Write every number one way (:func:`~buy_agent.money.plain_figures`)."""
     return plain_figures(text)
 
 
@@ -122,8 +118,7 @@ def mentions_name(haystack: str, name: str) -> bool:
 def drop_ungrounded(
     products: Sequence[Product], haystack: str, *, record: Recorder = nothing_recorded
 ) -> list[Product]:
-    """Remove products ``haystack`` never mentions: a name absent from every result cannot
-    have been read from one (ADR-0055)."""
+    """Remove products ``haystack`` never mentions (ADR-0055)."""
     kept: list[Product] = []
     dropped: list[str] = []
     for product in products:
@@ -135,9 +130,7 @@ def drop_ungrounded(
             record(Removal(name=product.name, step="ground", reason=reason))
 
     if dropped:
-        # The count at INFO and the names at DEBUG, as everywhere a product is removed
-        # -- most worth naming here, ``mentions_name`` deciding whether a product is
-        # real at all.
+        # Count at INFO, names at DEBUG, as everywhere a product is removed.
         logger.info("Dropped %d product(s) absent from the search results", len(dropped))
         logger.debug(
             "Absent from the search results: %s", ", ".join(repr(name) for name in dropped)
@@ -151,11 +144,9 @@ def ground(
     *,
     record: Recorder = nothing_recorded,
 ) -> list[Product]:
-    """Keep only what the sources support: real products, figures, quotes and links.
+    """Keep only what the sources support: products, figures, quotes and links.
 
-    Only the first of the four removes a whole product, so it is the only one handed the
-    recorder: a blanked figure, quote or link leaves the product in the report, saying so
-    on its own card (ADR-0055).
+    Only dropping a product is recorded; blanked fields show on the card (ADR-0055).
     """
     haystack = build_haystack(results)
     kept = verify_numbers(drop_ungrounded(products, haystack, record=record), haystack)
@@ -186,8 +177,7 @@ def attribute_sources(
         if url is None:
             if product.url:
                 invented += 1
-                # A link is the field the model is worst at and the one the shopper
-                # clicks, so which page it invented is worth having (ADR-0017).
+                # The field the model is worst at and the shopper clicks (ADR-0017).
                 logger.debug("Never searched: %r for %r", product.url, product.name)
             url = next(
                 (page for page, text in pages if mentions_name(text, product.name)), None
@@ -201,8 +191,7 @@ def attribute_sources(
     return attributed
 
 
-#: Each figure that has to be found in the sources, and how it is written when it is --
-#: a price as a number, a rating and a review count as themselves (ADR-0022).
+#: Each grounded figure and how it must appear in the sources (ADR-0022).
 _GROUNDED_FIGURES: tuple[tuple[str, Callable[[str, float], bool]], ...] = (
     ("price", mentions_number),
     ("rating", mentions_rating),
@@ -266,9 +255,7 @@ def verify_opinions(
         ]
         kept: list[Opinion] = []
         for opinion in product.opinions:
-            # A loop rather than a comprehension: it answers two things at once, whether
-            # any page printed the quote and which was first -- and ``None`` is taken, a
-            # page that printed it and has no URL.
+            # The first page printing it; its URL may be ``None``.
             for url, words in mine:
                 if quotes_sources(words, opinion.text):
                     kept.append(opinion.model_copy(update={"url": url}))

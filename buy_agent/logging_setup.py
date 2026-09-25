@@ -17,31 +17,25 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("buy_agent")
 
-#: Libraries that log a line per call: one per model server (ADR-0028), plus the search
-#: backend, which prints "Error in engine ..." for each engine that failed even when the
-#: rest answered.
+#: Libraries that log a line per call; quiet unless ``--verbose`` (ADR-0028).
 _NOISY_LIBRARIES = ("httpx", "openai", "ddgs")
 
-#: The transport underneath those, held down at ``--verbose`` too: httpcore traces every
-#: request in a dozen DEBUG lines, burying the ones ``-v`` was asked for.
+#: Held at INFO even with ``--verbose``: a dozen DEBUG lines per request.
 _TRACE_LIBRARIES = ("httpcore",)
 
 _FORMAT = "%(asctime)s %(levelname)-7s %(name)s | %(message)s"
 _DATEFMT = "%H:%M:%S"
 
-#: How the report itself is written, which is not how the narration is.
+#: The report is written plainly; the narration keeps ``_FORMAT``.
 _REPORT_FORMAT = "%(message)s"
 
-#: The attribute marking the records that *are* the report, as against the narration
-#: around it.
+#: The record attribute marking report lines.
 _REPORT = "report"
 
-#: Names the stdout handler, so a second ``configure_logging`` replaces it rather than
-#: printing every line of the report twice.
+#: Names the stdout handler, so reconfiguring replaces rather than duplicates it.
 _REPORT_HANDLER = "buy_agent-report"
 
-#: The rule above and below each block of the report. Both blocks are one report, so
-#: they are ruled off to one width rather than to two numbers that can drift.
+#: The rule around each block of the report.
 _RULE = "=" * 62
 
 
@@ -49,17 +43,13 @@ def configure_logging(*, verbose: bool = False) -> None:
     """Send agent logs to stderr and the report to stdout."""
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(level=level, format=_FORMAT, datefmt=_DATEFMT)
-    # ``basicConfig`` does nothing where the root logger already has a handler -- an
-    # embedder's, or pytest's -- and the level is what it silently skips, so
-    # ``--verbose`` asked for DEBUG and got INFO.
+    # ``basicConfig`` is a no-op once the root has a handler, level included.
     logging.getLogger().setLevel(level)
     _split_report_from_progress()
     for plumbing in _TRACE_LIBRARIES:
         logging.getLogger(plumbing).setLevel(logging.INFO)
     if not verbose:
-        # All three narrate at INFO and drown out the report: httpx logs every request
-        # the ollama client makes, the OpenAI client a line per retry, and ddgs a line
-        # per search engine that did not answer.
+        # They narrate at INFO and drown out the report.
         for chatty in _NOISY_LIBRARIES:
             logging.getLogger(chatty).setLevel(logging.WARNING)
 
@@ -78,9 +68,7 @@ def _split_report_from_progress() -> None:
     handler.addFilter(_is_report)
     package.addHandler(handler)
 
-    # The record still propagates to whatever basicConfig put on the root, so the other
-    # half of the split is telling that handler to leave the report alone -- only the
-    # console one, a handler writing elsewhere being nobody's stream to take lines out of.
+    # Keep the report off the stderr console handler only; other handlers still get it.
     for console in logging.getLogger().handlers:
         if getattr(console, "stream", None) is sys.stderr and _not_report not in console.filters:
             console.addFilter(_not_report)
@@ -119,7 +107,7 @@ def log_top_products(
     """Log the best ``top_n`` products, one block each."""
     weights = weights or RankingWeights()
     if not ranked:
-        # Not part of the report: there is none. It is the run saying why.
+        # Narration, not report: there is no report.
         logger.warning("No products to report.")
         return
 
@@ -134,8 +122,7 @@ def log_top_products(
             "     score  : %.3f  (%s)", entry.score, _parts(entry.breakdown, weights)
         )
         _report("     price  : %s", product.price_label())
-        # Under the price it is a spread of, and only where several pages priced it:
-        # what the run read and used to throw all but one of away (ADR-0058).
+        # Only where several pages priced it (ADR-0058).
         if (offers := product.offers_label()) is not None:
             _report("     offers : %s", offers)
         _report("     rating : %s", product.rating_label())
@@ -145,7 +132,7 @@ def log_top_products(
             _report("     url    : %s", product.url)
         if product.notes:
             _report("     note   : %s", product.notes)
-        # Quoted rather than summarised, and last: the longer read (ADR-0042).
+        # Quotes last: the longer read (ADR-0042).
         for opinion in product.opinions:
             elsewhere = opinion.url and opinion.url != product.url
             _report(
@@ -157,14 +144,11 @@ def log_top_products(
 def log_changes(changes: Sequence[Change], since: str | None) -> None:
     """Log what moved since the last run of this search, one line each (ADR-0060).
 
-    Part of the report and not of the narration: it is an answer somebody asked for, it
-    goes to stdout with the products, and a ``> top.txt`` keeps it. Every sentence in it
-    is the journal's own -- the browser shows the same ones, and two wordings for one
-    judgement is how the two come to disagree.
+    Part of the report (stdout). The sentences are the journal's, shared with the
+    browser.
     """
     if not changes or since is None:
-        # Not a warning and not a line: a first run of a search has nothing to compare
-        # against, which is the ordinary case and not a failure.
+        # A first run is the ordinary case, not a warning.
         logger.info("Nothing to compare: no earlier run of this search was kept.")
         return
 

@@ -1,5 +1,4 @@
-"""The sources a shopper trusts, and what "trusted" is allowed to mean (ADR-0027,
-ADR-0021)."""
+"""The sources a shopper trusts, and what "trusted" means (ADR-0027, ADR-0021)."""
 
 from __future__ import annotations
 
@@ -17,24 +16,20 @@ _HOSTNAME = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z
 #: A URL scheme, or the ``//`` of a scheme-relative one.
 _SCHEME = re.compile(r"^(?:[a-z][a-z0-9+.-]*:)?//", re.IGNORECASE)
 
-#: What separates one source from the next when they arrive as one string, as they do
-#: from the web form.
+#: What separates sources given as one string (the web form).
 _SEPARATORS = re.compile(r"[,\s]+")
 
-#: Path segments that route to a place rather than name one: YouTube writes a channel
-#: ``/@mkbhd`` or ``/c/mkbhd``, Reddit ``/r/headphones`` -- in each the identifying
-#: segment is the next.
+#: Path segments that route rather than name (``/c/mkbhd``, ``/r/headphones``): the
+#: identifying segment is the next one.
 _ROUTING = frozenset({"c", "user", "channel", "r", "u"})
 
-#: Where a bare ``@handle`` lives -- how people name the one kind of source that is a
-#: person rather than a site, and there is only one site it could mean.
+#: Where a bare ``@handle`` lives.
 _HANDLE_HOST = "youtube.com"
 
 #: What has to follow that ``@``.
 _HANDLE = re.compile(r"@[a-z0-9][a-z0-9._-]*", re.IGNORECASE)
 
-#: Stripped off a host before it is compared: ``www.rtings.com`` and ``rtings.com`` are
-#: the same source, and pages link to both.
+#: Stripped off a host before comparing: ``www.rtings.com`` is ``rtings.com``.
 _WWW = "www."
 
 #: The shapes that work, written once.
@@ -62,8 +57,7 @@ class Source:
         try:
             host = urlsplit(url).hostname
         except ValueError:
-            # An unbracketed IPv6 literal raises rather than naming a host, and a page
-            # whose address cannot be read is nobody's.
+            # E.g. an unbracketed IPv6 literal: an unreadable address is nobody's.
             return False
         if not host:
             return False
@@ -83,8 +77,7 @@ def parse_source(spec: str) -> Source:
             raise _not_a_source(spec)
         return Source(spec=spec, domain=_HANDLE_HOST, term=handle)
 
-    # Everything after the host is a path, and everything before it is a scheme or
-    # credentials -- neither says which site this is.
+    # Drop the scheme, credentials, port and path: only the host names the site.
     host, _, path = _SCHEME.sub("", spec).partition("/")
     host = host.split("@")[-1].split(":")[0].lower().removeprefix(_WWW)
     if not _HOSTNAME.fullmatch(host):
@@ -99,7 +92,7 @@ def _not_a_source(spec: str) -> ValueError:
 
 
 def _not_a_source_at_all() -> ValueError:
-    """The refusal for a spec naming nothing at all, which two callers reach."""
+    """The refusal for a blank spec."""
     return ValueError(f"A source cannot be blank. {_SHAPES}")
 
 

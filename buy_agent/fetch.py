@@ -30,30 +30,18 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 )
 
-#: Which spellings make a line worth keeping is :mod:`buy_agent.money`'s to say, not
-#: this module's: a currency it can place and this one cannot see is every price on a
-#: shop dropped before the model ever sees it, which is what ``--region pl-pl`` was
-#: until ``zł`` was added to one table and not the other (ADR-0043, ADR-0054).
-#: Which case each half is read in is that module's to say too, and the halves differ:
-#: the words are folded, since a page writes "129 dollars" and "129 Dollars" alike, and
-#: the codes are read as written, since it writes "129 TRY" and never "129 try" -- while
-#: "try" is an English word, and folded in it made "Try 3 of these" a price line.
+#: Currency spellings come from :mod:`buy_agent.money`, so every placeable currency is
+#: seen (ADR-0043, ADR-0054). Words are case-folded; codes are not ("Try" is no lira).
 _CURRENCY = "(?i:" + "|".join(WORDS) + ")|" + "|".join(SCANNED_CODES)
 
-#: A sign sits on either side of the figure, exactly as a word or a code does: "€129" is
-#: how English writes a price and "129,99 €" is how most of the continent writes the same
-#: one -- and "99 $" is French Canada's. Read one way round only, every price on such a
-#: shop was dropped before the model saw it, which is the failure ``zł`` was until the
-#: tables were merged (ADR-0054), reached through the other half of the scan.
+#: A currency on either side of the figure: "€129" and "129,99 €" (ADR-0054).
 _PRICE = re.compile(
     r"[" + re.escape(SIGNS) + r"]\s?\d"
     r"|\d\s?[" + re.escape(SIGNS) + r"]"
     r"|\b(?:" + _CURRENCY + r")\b\s*\d"
     r"|\d\s*(?:" + _CURRENCY + r")\b",
 )
-#: A hyphen counts where a space does: "a 4.5-star average" is how a roundup writes what
-#: a shop writes "4.5 stars", and keeping one form only let a page's punctuation decide
-#: whether its rating reached the model.
+#: A hyphen counts as a space: "4.5-star" and "4.5 stars".
 _RATING = re.compile(
     r"\d(?:\.\d)?(?:\s*(?:/\s*(?:5|10)\b|out of\s*(?:5|10)\b)|[\s-]*stars?\b)"
     r"|\b(?:rated|rating)\b[^\d]{0,12}\d",
@@ -92,8 +80,7 @@ _XML_DECLARATION = re.compile(r"^\s*<\?xml[^>]*\?>")
 _MIN_SEGMENT = 4
 _MAX_SEGMENT = 300
 
-#: An opinion is a sentence, not a figure, so it gets a floor of its own -- which is what
-#: keeps a bare "Pros" heading, whose content is the lines below it, out of the prompt.
+#: An opinion's floor, which keeps a bare "Pros" heading out.
 _MIN_OPINION = 25
 
 #: What the two sweeps are given when a caller does not say.
@@ -122,14 +109,11 @@ _TRANSFER_FAILED = "failed mid-transfer"
 _NOT_HTML = "did not answer with HTML"
 _NOTHING_KEPT = "quoted no prices and no verdicts"
 
-#: What a request for one page can fail with. Named once and caught twice -- the first
-#: attempt and the second -- so a class added here cannot reach only one of them:
-#: ``InvalidURL`` beside httpx's root because a result's address is whatever the search
-#: answered with, and that one is raised before any request is made.
+#: What fetching a page can raise, caught on both attempts. ``InvalidURL`` is not under
+#: httpx's root.
 _CANNOT_FETCH = (httpx.HTTPError, httpx.InvalidURL)
 
-#: Which phrase each kind of transport failure gets, in the order asked -- see
-#: :func:`describe_failure`.
+#: The tally's phrase per transport failure, asked in order.
 _FAILURE_PHRASES: tuple[tuple[tuple[type[Exception], ...], str], ...] = (
     ((httpx.TimeoutException,), _TIMED_OUT),
     ((httpx.TooManyRedirects,), _LOOPED),
@@ -163,8 +147,7 @@ def html_to_text(markup: str) -> str:
         return ""
     for element in document.xpath("//script|//style|//noscript|//svg"):
         element.drop_tree()
-    # itertext, not text_content: one line per element, so a price stays separable from
-    # the product name sitting in the element above it.
+    # One line per element, keeping a price apart from the name above it.
     return "\n".join(document.itertext())
 
 
@@ -174,10 +157,8 @@ def condense(text: str, *, max_chars: int, opinion_chars: int = _OPINION_BUDGET)
     segments = [segment for segment in segments if segment]
 
     taken: set[int] = set()
-    # What the excerpt already holds, each match paired with the line above it: a
-    # repeat is the same words about the same thing and not the same words. Two
-    # products a page prices alike print that figure twice, and keyed on the words
-    # alone the second was dropped -- leaving its name over the next one's price.
+    # Matches already kept, keyed with the line above: two products at one price are
+    # not a repeat.
     seen: set[tuple[str, str]] = set()
 
     def sweep(matches: Callable[[str], bool], *, floor: int, budget: int) -> None:
@@ -188,8 +169,7 @@ def condense(text: str, *, max_chars: int, opinion_chars: int = _OPINION_BUDGET)
             """Add a segment; False once the budget is spent."""
             nonlocal spent
             segment = segments[index]
-            # Already in the excerpt -- taken by the other sweep, or as the line
-            # above the match before this one: kept, and paid for where it was.
+            # Already taken, and paid for, elsewhere.
             if index in taken or len(segment) > _MAX_SEGMENT:
                 return True
             if spent + len(segment) > budget:
@@ -201,19 +181,15 @@ def condense(text: str, *, max_chars: int, opinion_chars: int = _OPINION_BUDGET)
         for index, segment in enumerate(segments):
             if not (floor <= len(segment) <= _MAX_SEGMENT) or not matches(segment):
                 continue
-            # The line above is what tells one of these apart from the next, so it is
-            # half of what makes this line one the excerpt already has.
+            # The line above distinguishes one match from the next.
             entry = (segments[index - 1] if index else "", segment)
             if entry in seen:
                 continue
-            # The matching line first, and a match that will not fit still ends the
-            # sweep: the prompt is the page read top down, so skipping an expensive
-            # listing for a cheap one below reorders its argument.
+            # A match that does not fit ends the sweep: the page is kept in order.
             if not take(index):
                 break
             seen.add(entry)
-            # Then the line above it -- usually the product this is about, shop pages
-            # putting the price under the name.
+            # Then the line above, usually the product's name.
             if index:
                 take(index - 1)
 
@@ -274,9 +250,7 @@ def read_page(
 
     text = html_to_text(fetched.text)
     if not text:
-        # Markup nothing could parse, named rather than left as empty text: it keeps
-        # ``PageText``'s rule that text is empty exactly when a problem says why, and
-        # nothing empty reaches the cache.
+        # Named, so empty text always has a problem and never reaches the cache.
         logger.debug("Nothing could be read out of %s", url)
         return PageText("", _NOTHING_KEPT)
     return PageText(text)
@@ -302,18 +276,13 @@ def _asked_again(
     wait: Callable[[float], None] | None,
 ) -> PageText:
     """The page on a second attempt, where this failure was worth one."""
-    # Asked in this order and in one condition, so there is no third state to cover: no
-    # clock to wait by, or nothing worth waiting for, and the delay is only read where
-    # the first of those passed.
+    # No clock to wait with, or nothing worth waiting for.
     if wait is None or (delay := _come_back_in(exc)) is None:
-        # The URL and the exception stay at DEBUG: one line per result is ten lines of
-        # narration, and the tally carries the shape of the trouble.
+        # DEBUG: the tally at INFO summarises.
         logger.debug("Could not fetch %s: %s", url, exc)
         return PageText("", describe_failure(exc))
 
-    # INFO, unlike the line above it, and the one per-page line here that is: this one
-    # is time the shopper is spending rather than a page they are not getting, and a run
-    # that took ten seconds longer should say which pages asked for them.
+    # INFO: the shopper is spending this time.
     logger.info("%s asked to be tried again; waiting %.1fs", url, delay)
     wait(delay)
     try:
@@ -324,8 +293,7 @@ def _asked_again(
 
 
 def _come_back_in(exc: Exception) -> float | None:
-    """How long this failure says to wait before asking again, or None for "do not"
-    (ADR-0053)."""
+    """How long to wait before a retry, or None for no retry (ADR-0053)."""
     if not isinstance(exc, httpx.HTTPStatusError):
         return None
     if exc.response.status_code not in _RETRY_STATUSES:
@@ -334,10 +302,7 @@ def _come_back_in(exc: Exception) -> float | None:
         asked = float(exc.response.headers.get("retry-after", ""))
     except ValueError:
         return _RETRY_WAIT
-    # Neither the floor nor the cap holds a NaN -- every comparison against one is
-    # false, so it comes through both and ends the whole run at ``time.sleep``, one
-    # page's header costing every other page's fetch. A header naming no number is
-    # what a date already is here.
+    # A NaN would pass both bounds and crash ``time.sleep``.
     if isnan(asked):
         return _RETRY_WAIT
     return min(max(asked, 0.0), _MAX_RETRY_WAIT)
@@ -364,8 +329,7 @@ def describe_failure(exc: Exception) -> str:
         code = exc.response.status_code
         word = _STATUS_WORDS.get(code) or ("failed" if code >= 500 else "rejected")
         return f"{word} ({code})"
-    # In order: a ConnectTimeout is not a ConnectError, but the two read as one thing
-    # and are counted as one, so the timeout is asked first.
+    # In order, so a ConnectTimeout counts as a timeout.
     for kinds, phrase in _FAILURE_PHRASES:
         if isinstance(exc, kinds):
             return phrase
@@ -425,8 +389,8 @@ def enrich(
     cached = sum(1 for page in pages if page.cached)
     failures = summarise_failures(page.problem for page in pages if page.problem)
     logger.log(
-        # Nothing read at all is what the shopper most needs told: every figure ahead is
-        # about to be blanked by grounding.
+        # Nothing read means grounding will blank every figure.
+
         logging.WARNING if urls and not with_content else logging.INFO,
         "Got usable page text from %d of %d result(s)%s%s",
         with_content,

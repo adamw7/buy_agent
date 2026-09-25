@@ -52,27 +52,21 @@ logger = logging.getLogger(__name__)
 #: Where ``ng build`` leaves the app, relative to the repository root.
 DEFAULT_UI_DIR = Path(__file__).resolve().parent.parent / "ui" / "dist" / "ui" / "browser"
 
-#: Where the server listens when nothing says otherwise: this machine only, on the port
-#: the ``Dockerfile``'s ``EXPOSE`` and the URL ``scripts/start.ps1`` opens a browser at
-#: are both held to by a convention test.
+#: The default bind: loopback, on the port the ``Dockerfile`` and ``scripts/start.ps1``
+#: are held to by a convention test.
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
 
-#: How long the SSE loop waits for a log line before sending a ``ping``, so a quiet
-#: stream is not timed out by a browser or a proxy.
+#: Seconds of silence before an SSE ``ping``, so proxies keep a quiet stream open.
 _KEEPALIVE_SECONDS = 15.0
 
 _MAX_BODY_BYTES = 64 * 1024
 
-#: How long a browser may keep a picture of a page before asking for it again. An hour:
-#: long enough that a second run of the same search draws its cards at once, and short
-#: enough that nobody is shown a price banner a day old.
+#: How long a browser may cache a screenshot.
 _SCREENSHOT_CACHE = "private, max-age=3600"
 
-#: A file ``ng build`` named after its own content -- ``main-AC2JNJ6W.js`` -- which is
-#: a different name the day it holds different bytes, so a browser may keep it for good.
-#: Anything else, ``index.html`` first, is asked about again on every load: it is what
-#: names the hashed files, and a stale one is a page pointing at a build that is gone.
+#: A content-hashed build file (``main-AC2JNJ6W.js``), cacheable for good; anything
+#: else, ``index.html`` above all, is revalidated on every load.
 _HASHED_ASSET = re.compile(r"-[A-Z0-9]{8}\.[a-z0-9]+$")
 _IMMUTABLE = "public, max-age=31536000, immutable"
 _REVALIDATE = "no-cache"
@@ -80,10 +74,8 @@ _REVALIDATE = "no-cache"
 #: How long one blocking read or write on a connection may take (ADR-0034).
 _REQUEST_TIMEOUT = 30.0
 
-#: The ports a socket can actually be bound to. Held at the door for the reason
-#: ``config.LIMITS`` holds the run's numbers there: out of range, ``bind`` raises an
-#: ``OverflowError``, which is not the ``OSError`` ``main`` answers -- so a mistyped
-#: port left the traceback the rest of this file exists to avoid.
+#: Bindable ports. Checked at the door: out of range, ``bind`` raises ``OverflowError``,
+#: which ``main``'s ``OSError`` handler misses.
 _PORTS = (0, 65535)
 
 #: Host names that mean "this machine".
@@ -96,8 +88,7 @@ _CROSS_SITE = "cross-site"
 _SECURITY_HEADERS = (
     ("X-Content-Type-Options", "nosniff"),
     ("Referrer-Policy", "no-referrer"),
-    # Nothing another window opens can reach back into this one, and none of the
-    # powerful features is the page's to ask for: it uses none of them.
+    # No opener access, and no powerful features: the page uses none.
     ("Cross-Origin-Opener-Policy", "same-origin"),
     ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()"),
     (
@@ -165,18 +156,17 @@ p {{ color: #5c6470; }}
 
 
 def _unexpected(exc: Exception) -> dict[str, Any]:
-    """The body a failure nothing planned for is answered with, wherever it lands."""
+    """The body of an unplanned 500."""
     return {"error": f"Unexpected failure: {exc}"}
 
 
 def _no_such_endpoint(path: str) -> dict[str, Any]:
-    """The body a path under ``/api`` that routes nowhere is answered with."""
+    """The body of an unknown ``/api`` path."""
     return {"error": f"No such endpoint: {path}"}
 
 
 class _Stopped(Exception):
-    """Raised inside a run whose reader has gone, to end it at a step boundary (ADR-0009,
-    ADR-0034)."""
+    """Ends a run whose reader has gone, at a step boundary (ADR-0009, ADR-0034)."""
 
 
 def _stop_when(stopped: threading.Event) -> Checkpoint:
@@ -189,7 +179,7 @@ def _stop_when(stopped: threading.Event) -> Checkpoint:
     return checkpoint
 
 
-#: Where the lines of the run being watched go, or ``None`` for a run nobody is streaming.
+#: Where the watched run's log lines go; ``None`` when nobody is streaming.
 _sink: ContextVar[queue.Queue[Any] | None] = ContextVar("buy_agent_stream", default=None)
 
 
@@ -203,8 +193,7 @@ class _LogRelay(logging.Handler):
         try:
             sink.put(
                 {
-                    # The CLI's own clock and format: without it a four-minute
-                    # extraction reads exactly like a four-second one.
+                    # The CLI's clock: gaps between lines show slow steps.
                     "time": time.strftime("%H:%M:%S", time.localtime(record.created)),
                     "level": record.levelname,
                     "logger": record.name,
@@ -230,8 +219,7 @@ def _install_relay() -> None:
     """Put the relay on the package logger. Idempotent -- ``addHandler`` dedupes."""
     package_logger = logging.getLogger("buy_agent")
     package_logger.addHandler(_relay)
-    # Progress is logged at INFO, which a logger left at its default drops before any
-    # handler sees it.
+    # Progress is at INFO, which the default level drops.
     if package_logger.getEffectiveLevel() > logging.INFO:
         package_logger.setLevel(logging.INFO)
 
@@ -239,16 +227,12 @@ def _install_relay() -> None:
 class BuyAgentHandler(BaseHTTPRequestHandler):
     """Routes ``/api`` to the agent and everything else to the built UI."""
 
-    # ``close_connection`` is ``BaseHTTPRequestHandler``'s rather than this project's:
-    # the base class sets it while handling a request and not in its ``__init__``, so
-    # the eight places below that set it are answering the base class rather than
-    # defining state of their own.
+    # ``close_connection`` belongs to the base class, which sets it outside ``__init__``.
     # pylint: disable=attribute-defined-outside-init
 
     server_version = "buy_agent"
     protocol_version = "HTTP/1.1"
-    #: Read by ``socketserver`` when the connection is set up -- see
-    #: :data:`_REQUEST_TIMEOUT`, which is why there is one at all.
+    #: Read by ``socketserver`` at connection setup (see :data:`_REQUEST_TIMEOUT`).
     timeout = _REQUEST_TIMEOUT
 
     def __init__(
@@ -262,19 +246,17 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     ) -> None:
         self.ui_dir = ui_dir
         self.agent_factory = agent_factory
-        #: None accepts every ``Host`` -- what an operator binding a public interface
-        #: has already chosen.
+        #: None accepts every ``Host``, as a public bind does.
         self.allowed_hosts = allowed_hosts
-        #: None takes no pictures, which is every server but one bound to this machine
-        #: with Playwright installed (ADR-0065).
+        #: None takes no pictures (ADR-0065).
         self.camera = camera
         super().__init__(*args, **kwargs)
 
     # -- who is allowed to ask --------------------------------------------------
 
     def _refused(self) -> bool:
-        """Refuse a request that did not come from the page this server serves, and say
-        whether it was (ADR-0018)."""
+        """Refuse a request not from this server's own page; say whether it was
+        (ADR-0018)."""
         if self._origin_admits() and self._host_admits():
             return False
         self._refuse()
@@ -285,15 +267,12 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         if self.headers.get("Sec-Fetch-Site", "").strip().lower() == _CROSS_SITE:
             return False
         origin = self.headers.get("Origin")
-        # "null" is an opaque origin -- a sandboxed iframe, a data: document -- and is
-        # never this app, which is served from a real one.
+        # "null" (a sandboxed iframe, a data: document) is never this app.
         if origin is None or origin == "null":
             return origin is None
 
         netloc = urlparse(origin).netloc.strip().lower()
-        # An origin equal to the authority the request was addressed to is this server's
-        # own page: the browser writes both headers and a page elsewhere cannot make
-        # them agree.
+        # Origin equal to Host is our own page: another page cannot forge both.
         if netloc and netloc == self.headers.get("Host", "").strip().lower():
             return True
         return _hostname(netloc) in _LOOPBACK_HOSTS
@@ -306,8 +285,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
     def _refuse(self) -> None:
         """Answer a request from somewhere else, without doing any of its work."""
-        # Deliberately terse and not CORS-negotiable: there is nothing here another site
-        # is meant to ask for.
+        # Terse and not CORS-negotiable: nothing here is for other sites.
         self.close_connection = True
         # All three headers the checks read, as they arrived.
         logger.warning(
@@ -322,16 +300,15 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
     # -- routing ---------------------------------------------------------------
 
-    # The verb as it arrives on the wire, which is what the base class dispatches on.
+    # The base class dispatches on the verb's name.
     # pylint: disable-next=invalid-name
     def do_GET(self) -> None:
         if self._refused():
             return
         url = urlparse(self.path)
         params = {key: values[-1] for key, values in parse_qs(url.query).items()}
-        # Outside the guard below, and first: it writes its own response as it goes, so
-        # there is no status left for a late failure -- and it has a ``failure`` event
-        # for the ones it can still report.
+        # Outside the guard: the stream spends its status line early and reports
+        # failures as ``failure`` events.
         if url.path == "/api/search/stream":
             self._stream_search(params)
             return
@@ -341,49 +318,41 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             elif url.path == "/api/models":
                 self._send_json(200, self._models(params))
             elif url.path == "/api/sources":
-                # 200 whatever it holds: what was asked is whether this parses, and that
-                # question was answered (ADR-0033).
+                # 200 either way: the answer is the verdict (ADR-0033).
                 self._send_json(200, sources_payload(params.get("sources", "")))
             elif url.path == "/api/bounds":
-                # The second endpoint that runs nothing, and the only one that answers
-                # with a value rather than a verdict: what the request itself asks for,
-                # offered for the form to fill in and never applied (ADR-0059).
+                # Offered to the form, never applied (ADR-0059).
                 self._send_json(200, bounds_payload(params.get("request", "")))
             elif url.path == "/api/screenshot":
-                # The one endpoint that answers with something other than JSON, because
-                # an ``<img>`` is what asks for it (ADR-0065).
+                # A JPEG, for an ``<img>`` (ADR-0065).
                 self._send_screenshot(params.get("url", ""))
             elif url.path.startswith("/api/"):
                 self._send_json(404, _no_such_endpoint(url.path))
             else:
                 self._serve_static(url.path)
-        # A 500 beats a dropped connection: an exception out of a handler escapes to
-        # socketserver, which closes the socket unanswered, and the page reads that as
-        # the agent server being down.
+        # A 500 beats socketserver closing the socket unanswered, which reads as a
+        # server that is down.
         # pylint: disable-next=broad-exception-caught
         except Exception as exc:
             logger.exception("Unexpected failure answering %s", url.path)
             self._send_json(500, _unexpected(exc))
 
-    # The verb as it arrives on the wire, which is what the base class dispatches on.
+    # The base class dispatches on the verb's name.
     # pylint: disable-next=invalid-name
     def do_POST(self) -> None:
         if self._refused():
             return
         url = urlparse(self.path)
-        # Both answer the same shape, and only one runs anything (ADR-0035).
+        # Same shape; only a search runs anything (ADR-0035).
         endpoints: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
             "/api/search": self._search,
             "/api/rank": rank_again,
-            # Runs no pipeline either, and a POST for the reason a re-sort is: a query
-            # string carries neither a run's products nor the approval.
+            # A POST: a query string cannot carry the products or the approval.
             "/api/pay": pay_now,
         }
         run = endpoints.get(url.path)
         if run is None:
-            # Answered without reading the body, which would otherwise be parsed as the
-            # next request on this connection -- ``_read_json``'s reason, on the one POST
-            # path that never reaches it.
+            # The body is unread, so the connection must close (as in ``_read_json``).
             self.close_connection = True
             self._send_json(404, _no_such_endpoint(url.path))
             return
@@ -392,13 +361,13 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             self._send_json(200, run(payload))
         except ApiError as exc:
             self._send_json(exc.status, exc.payload())
-        # A 500 beats a dropped connection, for the reason ``do_GET`` gives.
+        # As in ``do_GET``.
         # pylint: disable-next=broad-exception-caught
         except Exception as exc:
             logger.exception("Unexpected failure during a search")
             self._send_json(500, _unexpected(exc))
 
-    # The verb as it arrives on the wire, which is what the base class dispatches on.
+    # The base class dispatches on the verb's name.
     # pylint: disable-next=invalid-name
     def do_HEAD(self) -> None:
         """Answer HEAD like GET, minus the body -- but never by running a search."""
@@ -412,7 +381,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     # -- the agent -------------------------------------------------------------
 
     def _models(self, params: dict[str, str]) -> dict[str, Any]:
-        """What the named server is serving, for the form's model picker."""
+        """The named server's models, for the form's picker."""
         provider = params.get("provider") or DEFAULT_PROVIDER
         server = PROVIDERS.get(provider)
         base_url = params.get("base_url") or (server.base_url if server else "")
@@ -450,8 +419,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         stopped = threading.Event()
         for event, data in self._search_events(params, stopped):
             if not self._send_event(event, data):
-                # Coarse and not instant: a model call in flight finishes first, nothing
-                # here being able to cancel one.
+                # Takes effect at the next step; a model call cannot be cancelled.
                 stopped.set()
                 logger.info("Client disconnected; stopping the run at its next step")
                 return
@@ -474,8 +442,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
                 logger.info("Run stopped before %s: nobody is reading it", where)
             except ApiError as exc:
                 outcome["error"] = (exc.status, exc.payload())
-            # The stream reports its failures and never crashes on one: the status line
-            # is spent, so a ``failure`` event is all that is left to send.
+            # The status line is spent, so report as a ``failure`` event.
             # pylint: disable-next=broad-exception-caught
             except Exception as exc:
                 logger.exception("Unexpected failure during a streamed search")
@@ -505,7 +472,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             yield "failure", {**payload, "status": status}
 
     def _send_screenshot(self, address: str) -> None:
-        """A JPEG of the page a card links to, or the JSON saying why there is none."""
+        """A JPEG of a card's page, or JSON saying why not."""
         try:
             picture = screenshot(address, self.camera)
         except ApiError as exc:
@@ -533,7 +500,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         self._send_bytes(200, body, content_type, headers=(("Cache-Control", cache),))
 
     def _send_unbuilt(self) -> None:
-        """Say the app has not been built, in whatever the asker can read."""
+        """Say the app is not built, as HTML or JSON per ``Accept``."""
         if "text/html" not in self.headers.get("Accept", ""):
             remedy = _unbuilt_remedy(self.ui_dir)
             self._send_json(503, {"error": _UNBUILT.format(remedy=remedy)})
@@ -557,8 +524,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         except (OSError, ValueError):
             # A percent-encoded NUL makes resolve() raise.
             return index
-        # A candidate outside the UI directory is someone walking out of it with '..';
-        # fall through to the app rather than reading the filesystem.
+        # Outside the UI directory (a '..' walk): serve the app instead.
         if relative and candidate.is_relative_to(root) and candidate.is_file():
             return candidate
         return index
@@ -566,9 +532,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     # -- plumbing --------------------------------------------------------------
 
     def _read_json(self) -> dict[str, Any]:
-        # A body left unread stays in the socket, where the next request on a kept-alive
-        # connection would be parsed out of the leftover bytes -- so every such path
-        # ends the connection.
+        # An unread body would be parsed as the next request, so every such path closes
+        # the connection.
         if self.headers.get("Transfer-Encoding"):
             self.close_connection = True
             raise ApiError("Send a body with a Content-Length; chunked is not read here.", 411)
@@ -624,16 +589,14 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
                 self.send_header(name, value)
             self._send_security_headers()
             if self.close_connection:
-                # Say so, rather than letting the client discover it when its next
-                # request on this connection is answered with a reset.
+                # Tell the client rather than let its next request meet a reset.
                 self.send_header("Connection", "close")
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(body)
         except OSError:
-            # And nothing more goes over it: after a write that timed out the socket
-            # refuses reads too, so leaving it open sends that failure to
-            # ``socketserver`` -- the silent close every catch-all here avoids.
+            # A timed-out socket refuses reads too; left open, socketserver would close it
+            # silently.
             self.close_connection = True
             logger.debug("Client went away before the response was written")
 
@@ -647,7 +610,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             return False
         return True
 
-    # ``format`` shadows the builtin and is the base class's own parameter name.
+    # ``format`` is the base class's parameter name.
     # pylint: disable-next=redefined-builtin
     def log_message(self, format: str, *args: Any) -> None:
         """Send request logging through logging, not straight to stderr."""
@@ -661,7 +624,7 @@ def _workspace_for(ui_dir: Path) -> Path | None:
 
 
 def _unbuilt_remedy(ui_dir: Path) -> str:
-    """What to do about a missing build, for whoever is looking at this ``--ui-dir``."""
+    """The remedy for a missing build at this ``--ui-dir``."""
     workspace = _workspace_for(ui_dir)
     if workspace is None:
         return (
@@ -675,7 +638,7 @@ def _unbuilt_remedy(ui_dir: Path) -> str:
 
 
 def _unbuilt_remedy_html(ui_dir: Path) -> str:
-    """The same two remedies for a browser, which can show the command as a block."""
+    """The same remedy as HTML."""
     workspace = _workspace_for(ui_dir)
     if workspace is None:
         return (
@@ -700,14 +663,8 @@ def _browsable_url(host: str, port: int) -> str:
 
 
 def _clashing_provider(port: int, exc: OSError) -> str:
-    """The sentence naming the model server whose own default address is ``port``.
-
-    Only for the failure it is a remedy for. "Serve the UI somewhere else" answers a
-    port already taken and nothing else: a host that does not resolve fails the same
-    bind with the same port in the message, and was answered with a new port that
-    would not have helped -- the address being what is wrong, which is the reading
-    ``providers._answered_by`` already makes about a hint naming a model.
-    """
+    """The sentence naming the model server whose default address is ``port`` -- only
+    for ``EADDRINUSE``, not a bad host."""
     if exc.errno != errno.EADDRINUSE:
         return ""
     for server in PROVIDERS.values():
@@ -730,29 +687,21 @@ def _hostname(netloc: str) -> str:
 
 
 def _bound_host(address: str) -> str:
-    """The host out of an address somebody typed at the command line, lowercased.
+    """The host of a typed address, lowercased.
 
-    Not the same reading as :func:`_hostname`, which is handed what a browser wrote: an
-    address bar brackets an IPv6 literal and ``--host`` does not, so the colons in a bare
-    ``::1`` are the address rather than a port separator. Split at the first of them it
-    named nothing at all -- which is what ``_LOOPBACK_HOSTS`` failed to match, so a bind
-    to IPv6 loopback read as a public interface and turned the ``Host`` check off
-    (ADR-0018), and an ``--allowed-host`` naming one allowed ``""``: the very thing a
-    request with no ``Host`` header at all comes to.
+    Unlike :func:`_hostname`, a bare IPv6 literal (``::1``) is not split at its colons
+    (ADR-0018).
     """
     host = address.strip().lower()
     if host.startswith("["):
         return _hostname(host)
-    # One colon is ``host:port``; more than one is an IPv6 literal written bare, which
-    # carries no port for the same reason it needs the brackets when it does.
+    # One colon is ``host:port``; more is a bare IPv6 literal, with no port.
     return host if host.count(":") > 1 else host.partition(":")[0]
 
 
 def allowed_hosts_for(host: str, extra: Sequence[str] = ()) -> frozenset[str] | None:
     """Which ``Host`` headers a server bound to ``host`` should answer."""
-    # Whatever names nothing is dropped rather than admitted: a blank is what a request
-    # sending no ``Host`` arrives as, and an entry that cannot be read is not the host
-    # somebody meant to name.
+    # Drop blanks: a request with no ``Host`` arrives as one.
     named = frozenset(filter(None, map(_bound_host, extra)))
     if _bound_host(host) not in _LOOPBACK_HOSTS:
         return named or None
@@ -760,14 +709,8 @@ def allowed_hosts_for(host: str, extra: Sequence[str] = ()) -> frozenset[str] | 
 
 
 def _family_for(host: str) -> int:
-    """Which socket family an address has to be bound on.
-
-    A colon in a bind address is an IPv6 literal -- ``--host`` carries no port, the port
-    being ``--port``. Told apart here rather than left to the base class, which is
-    ``AF_INET`` and nothing else: every IPv6 bind failed outright, ``::1`` included,
-    which is the address :data:`_LOOPBACK_HOSTS` names and :func:`_browsable_url` is
-    written to print.
-    """
+    """The socket family for a bind address: a colon means IPv6 (the base class is
+    ``AF_INET`` only)."""
     return socket.AF_INET6 if ":" in host else socket.AF_INET
 
 
@@ -801,13 +744,9 @@ def create_server(
 
 
 def camera_for(host: str) -> Camera | None:
-    """The camera a server bound to ``host`` takes its screenshots with, if it may take
-    any (ADR-0065).
+    """A camera for a loopback bind with Playwright installed, else ``None`` (ADR-0065).
 
-    Only on this machine's own addresses. The admission checks keep a page on another
-    site out, and nothing keeps out a program on the network asking for itself: bound
-    anywhere else, this would photograph any address -- the router's page, a service
-    behind the firewall -- for whoever can reach the port, and hand the picture back.
+    Bound publicly, it would photograph internal pages for anyone on the network.
     """
     if not available():
         logger.info(
@@ -826,18 +765,11 @@ def camera_for(host: str) -> Camera | None:
 
 
 def _port(text: str) -> int:
-    """``--port`` as argparse takes it: a number a socket could be bound to.
-
-    The rule ``__main__._bounded`` holds for every number the agent takes -- an
-    out-of-range one is a usage error rather than a failure further in. Here "further
-    in" is ``socket.bind``, whose ``OverflowError`` goes straight past the ``OSError``
-    ``main`` reports a refused bind with.
-    """
+    """``--port`` as argparse takes it: a bindable port, else a usage error."""
     minimum, maximum = _PORTS
     try:
         port = int(text)
-    # Read here rather than left to argparse, which names the *converter* in its own
-    # message -- "invalid _port value", where a reader wants "a whole number".
+    # argparse would say "invalid _port value".
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"must be a whole number; got {text!r}") from exc
     if not minimum <= port <= maximum:
@@ -852,10 +784,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="buy_agent.server",
         description="Serve the buy_agent UI and its JSON API on localhost.",
     )
-    # Both name their default, the way every other flag in this project does: the port
-    # is the address somebody is about to type, and the host is the difference between a
-    # server only this machine can reach and one the network can -- which also turns the
-    # ``Host`` check off (ADR-0018).
+    # Both name their default, like every flag here (ADR-0018).
     parser.add_argument(
         "--host",
         default=DEFAULT_HOST,
@@ -903,9 +832,8 @@ def main(argv: list[str] | None = None) -> int:
         rail_for(DEFAULT_RAIL)
         backend_for(DEFAULT_BACKEND)
     except ValueError as exc:
-        # Every page load resolves all three names, the form's defaults being an
-        # ``AgentConfig``, so a misspelt ``$BUY_AGENT_PROVIDER``, ``$BUY_AGENT_RAIL``
-        # or ``$BUY_AGENT_BACKEND`` is said here rather than as a 500 per page.
+        # Refuse a misspelt ``$BUY_AGENT_PROVIDER``, ``$BUY_AGENT_RAIL`` or
+        # ``$BUY_AGENT_BACKEND`` now, not as a 500 per page load.
         logger.error("%s", exc)
         return 1
 
@@ -936,8 +864,8 @@ def main(argv: list[str] | None = None) -> int:
     host, port = httpd.server_address[:2]
     logger.info("buy_agent UI on %s", _browsable_url(str(host), port))
     if not (args.ui_dir / "index.html").is_file():
-        # The same remedy the 503 quotes: said at startup to the shell still on screen,
-        # and again to whoever loads the page.
+        # The remedy the 503 page quotes.
+
         logger.warning(
             "No built UI at %s -- the API works, but the page will not. %s",
             args.ui_dir,

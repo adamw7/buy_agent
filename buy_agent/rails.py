@@ -1,4 +1,4 @@
-"""Who the agent actually pays through: one row per rail, and nothing else (ADR-0046)."""
+"""The payment rails, one row each (ADR-0046)."""
 
 from __future__ import annotations
 
@@ -36,16 +36,14 @@ class Rail:
     moves_money: bool
     checkout: Callable[[Cart, AgentConfig], tuple[SignedCheckout, str]]
     settle: Callable[[Cart, Authorisation, AgentConfig], Settlement]
-    #: What "the counterparty is not there" looks like from this row's own client, as the
-    #: ``except`` clause that catches it binds it. ``Exception`` and not ``BaseException``: every
-    #: class any row names is one, and a wider declaration is what left the ``hint``
-    #: beside it handed a value its own signature refuses.
+    #: What "the counterparty is not there" raises through this row's client; typed
+    #: ``Exception`` so ``hint`` can accept what the ``except`` binds.
     transport_errors: tuple[type[Exception], ...]
     hint: Callable[[AgentConfig, Exception], str]
 
 
 def _dry_run_checkout(cart: Cart, config: AgentConfig) -> tuple[SignedCheckout, str]:
-    """Sign the checkout as the merchant, because here we are also the merchant."""
+    """Sign the checkout ourselves: the dry run is also the merchant."""
     del config
     document = mandates.checkout_document(cart, order_id=_DRY_RUN_ORDER)
     signed = mandates.sign_checkout(document, mandates.generate_key("dry-run-merchant"))
@@ -68,12 +66,10 @@ def _dry_run_settle(
 
 
 def _post(url: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """One JSON call to a counterparty, with the answer read as JSON.
+    """One JSON call to a counterparty.
 
-    An answer that is not one is the counterparty's failure and not the request's, so it
-    is a :class:`RailUnreachableError` beside the connection that was refused: the far
-    end being up is no answer at all if what it sent back cannot be read, and 400 would
-    send a shopper off to correct a form with nothing wrong with it.
+    An unreadable answer is the counterparty's failure, so :class:`RailUnreachableError`
+    (502) rather than a 400 blaming the form.
     """
     response = httpx.post(url, json=payload, timeout=_TIMEOUT)
     response.raise_for_status()
@@ -94,14 +90,12 @@ def _http_checkout(cart: Cart, config: AgentConfig) -> tuple[SignedCheckout, str
     answer = _post(f"{config.merchant_url}/checkout", {"checkout": document})
     token = answer.get("checkout_jwt")
     if not isinstance(token, str) or not token:
-        # Readable, and still not an answer to what was asked -- so the same failure as
-        # an unreadable one rather than anything the shopper can put right.
+        # Readable but useless: the counterparty's failure, as above.
         raise RailUnreachableError(
             f"{config.merchant_url} did not return a signed checkout "
             f"(no 'checkout_jwt' in its answer), so there is no price to authorise."
         )
-    # A counterparty that issues its own challenge gets to; one that does not is given
-    # ours, so the presentation is still bound to a single use.
+    # Use the counterparty's challenge if it sent one, else ours: one use either way.
     nonce = answer.get("nonce")
     return (
         mandates.SignedCheckout(jwt=token, hash=mandates.checkout_hash(token)),
@@ -120,8 +114,7 @@ def _http_settle(cart: Cart, authorisation: Authorisation, config: AgentConfig) 
         },
     )
     if not answer.get("paid"):
-        # Deliberately the plain failure: a counterparty that understood the request and
-        # declined it is answering about the request, which is what 400 is for.
+        # A decline is about the request: the plain failure, read as 400.
         raise PaymentError(
             f"{config.merchant_url} did not complete the payment for {cart.label()}"
             f"{_because(answer)}."
@@ -130,13 +123,13 @@ def _http_settle(cart: Cart, authorisation: Authorisation, config: AgentConfig) 
 
 
 def _because(answer: dict[str, Any]) -> str:
-    """The far end's own reason, where it gave one. Its words, not ours."""
+    """The far end's own reason, if it gave one."""
     detail = str(answer.get("detail") or "").strip()
     return f": {detail}" if detail else ""
 
 
 def _http_hint(config: AgentConfig, exc: Exception) -> str:
-    """Nothing answered, so the endpoint itself is what is missing."""
+    """Nothing answered: the endpoint is what is missing."""
     return (
         f"Could not reach the payment endpoint at {config.merchant_url} ({exc}). "
         f"Check the address, or sign without paying by paying through {DRY_RUN.label}."
@@ -166,8 +159,7 @@ HTTP = Rail(
     moves_money=True,
     checkout=_http_checkout,
     settle=_http_settle,
-    # ``HTTPError`` is httpx's root: a refused connection, a timeout, and the statuses
-    # ``raise_for_status`` turns into one.
+    # httpx's root: refusals, timeouts and ``raise_for_status``.
     transport_errors=(httpx.HTTPError, OSError),
     hint=_http_hint,
 )
@@ -187,7 +179,7 @@ def rail_for(name: str) -> Rail:
 
 
 def rail_options() -> list[dict[str, object]]:
-    """Every rail a payment can be pointed at, as the form's picker needs it."""
+    """Every rail, as the form's picker needs it."""
     return [
         {
             "name": rail.name,

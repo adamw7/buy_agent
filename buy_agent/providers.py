@@ -1,5 +1,5 @@
-"""Which model server the agent talks to: Ollama, vLLM's OpenAI-compatible API, or a
-LiteLLM proxy speaking that same API (ADR-0028, ADR-0029, ADR-0032, ADR-0051, ADR-0068)."""
+"""The model servers -- Ollama, vLLM, a LiteLLM proxy -- one row each (ADR-0028,
+ADR-0029, ADR-0032, ADR-0051, ADR-0068)."""
 
 from __future__ import annotations
 
@@ -23,29 +23,22 @@ if TYPE_CHECKING:
     from buy_agent.chat import Message
     from buy_agent.config import AgentConfig
 
-#: What the OpenAI client is given when no key is configured. vLLM and a LiteLLM proxy
-#: started without a master key both serve without one, but the client refuses to send a
-#: request with no key at all, so a placeholder stands in for the header nobody checks.
+#: A placeholder key: the OpenAI client refuses to send none, and keyless servers ignore it.
 _NO_KEY = "EMPTY"
 
-#: How long to wait on a model listing -- all of it, not each request in it (ADR-0032,
-#: ADR-0051).
+#: The budget for a whole model listing (ADR-0032, ADR-0051).
 _LIST_TIMEOUT = 5.0
 
-#: What an Ollama model's capabilities must include to answer a prompt at all (ADR-0032).
+#: The Ollama capability needed to answer a prompt (ADR-0032).
 _COMPLETION = "completion"
 
-#: What a row turns one of its failures into: a sentence naming what to do about it.
+#: Turns a row's failure into a remedy sentence.
 Hint: TypeAlias = "Callable[[AgentConfig, Exception], str]"
 
-#: How each client says a server took the prompt and never came back: the OpenAI one
-#: raises its own class, and everything else -- both listings included -- arrives as
-#: httpx's. Named once rather than half of it per row.
+#: Timeouts from either client.
 _TIMEOUTS = (httpx.TimeoutException, openai.APITimeoutError)
 
-#: How many of those second questions to have in flight at once: together, the listing
-#: being on one short budget, but capped -- fifty pulled tags should not get fifty
-#: threads to save milliseconds on a local call.
+#: Concurrent ``ollama show`` probes.
 _PROBES = 8
 
 
@@ -70,15 +63,12 @@ class Provider:
     takes_cpu_only: bool
     chat_model: Callable[[AgentConfig], ChatModel]
     installed: Callable[[AgentConfig], list[InstalledModel]]
-    #: What "the server is not there" looks like from this row's own client, as the
-    #: ``except`` clause that catches it binds it. ``Exception`` and not ``BaseException``: every
-    #: class any row names is one, and a wider declaration is what left the ``hint``
-    #: beside it handed a value its own signature refuses.
+    #: What "the server is not there" raises through this row's client; typed
+    #: ``Exception`` so ``hint`` can accept what the ``except`` binds.
     transport_errors: tuple[type[Exception], ...]
     hint: Hint
-    #: How to give a model that ran out of room more of it, as the tail of a sentence
-    #: both doors show: a per-request window where the row takes one, and otherwise
-    #: whatever fixes the window for that server (ADR-0019).
+    #: How to give a model more room, as the tail of the unreadable-answer hint
+    #: (ADR-0019).
     more_room: str
 
 
@@ -96,13 +86,10 @@ class _OllamaChat:
     def answer(self, messages: Sequence[Message], schema: type[SchemaT]) -> SchemaT:
         """One chat call, read back as ``schema``."""
         options: dict[str, Any] = {"temperature": self.temperature}
-        # Sent only when there is one: ``None`` means "leave the model's own alone", and
-        # a null in the options is not that (ADR-0019).
+        # ``None`` means leave the model's own (ADR-0019).
         if self.num_ctx is not None:
             options["num_ctx"] = self.num_ctx
-        # Sent only when it was asked for, for the same reason: no layers on the GPU is
-        # an instruction, and "however many you would have offloaded" is the absence of
-        # one rather than a number to send.
+        # Sent only when asked for: ``False`` means the default offload.
         if self.cpu_only:
             options["num_gpu"] = 0
         response = self.client.chat(
@@ -115,7 +102,7 @@ class _OllamaChat:
         return read_answer(response.message.content or "", schema)
 
     def close(self) -> None:
-        """Let go of the connection this client keeps to Ollama."""
+        """Close the client's connection pool."""
         self.client.close()
 
 
@@ -141,13 +128,12 @@ def _ollama_installed(config: AgentConfig) -> list[InstalledModel]:
     try:
         return _probe(client, names, deadline)
     finally:
-        # Closed here for the reason a chat model is: the pool this opened is this
-        # function's to let go of, and a listing is asked again on every provider change.
+        # This function opened the pool, so it closes it.
         client.close()
 
 
 def _ollama_tags(config: AgentConfig) -> list[str]:
-    """What Ollama says it is holding, each tag named the way Ollama named it."""
+    """The tags Ollama holds."""
     response = httpx.get(
         _ollama_url(config.base_url, "/api/tags"), timeout=_LIST_TIMEOUT
     )
@@ -160,13 +146,13 @@ def _ollama_tags(config: AgentConfig) -> list[str]:
 
 
 def _ollama_url(base_url: str, path: str) -> str:
-    """An address of Ollama's, joined the way its own client would have joined it."""
+    """An Ollama URL, joined as its client would join it."""
     base = base_url if "://" in base_url else f"http://{base_url}"
     return f"{base.rstrip('/')}{path}"
 
 
 def _probe(client: Client, names: list[str], deadline: float) -> list[InstalledModel]:
-    """Ask every tag what it can do, with one budget for the lot of them."""
+    """Probe every tag's capabilities within one deadline."""
     pool = ThreadPoolExecutor(max_workers=min(len(names), _PROBES))
     try:
         probes = [(name, pool.submit(_ollama_capability, client, name)) for name in names]
@@ -176,8 +162,7 @@ def _probe(client: Client, names: list[str], deadline: float) -> list[InstalledM
             for name, probe in probes
         ]
     finally:
-        # Not the context manager: its exit waits for the probes that ran past the
-        # deadline, which is the wait this budget exists to end.
+        # Not a context manager, whose exit would wait for late probes.
         pool.shutdown(wait=False, cancel_futures=True)
 
 
@@ -197,8 +182,7 @@ def _ollama_capability(client: Client, name: str) -> InstalledModel:
 def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
     """Turn an Ollama failure into something the user can act on (ADR-0032)."""
     lowered = _answered_by(exc, ResponseError)
-    # Refused as a *name* before any tag is looked up -- a space, a bracket, a URL -- so
-    # pulling it is no remedy either: `ollama pull` refuses the same string.
+    # A malformed name: pulling it would fail too.
     if "invalid model name" in lowered:
         return (
             f"Ollama cannot read {config.model!r} as a model name ({exc}). "
@@ -222,8 +206,8 @@ def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
 
 @dataclass(frozen=True, slots=True)
 class _OpenAIChat:
-    """A server speaking the OpenAI chat API -- vLLM, or a LiteLLM proxy -- asked for one
-    schema-shaped answer (ADR-0004, ADR-0028, ADR-0068)."""
+    """An OpenAI-compatible chat API (vLLM, LiteLLM) asked for one schema-shaped answer
+    (ADR-0004, ADR-0028, ADR-0068)."""
 
     client: openai.OpenAI
     model: str
@@ -234,12 +218,8 @@ class _OpenAIChat:
         """One chat completion, read back as ``schema``."""
         response = self.client.chat.completions.create(
             model=self.model,
-            # A :data:`~buy_agent.chat.Message` is a plain ``{"role", "content"}`` dict,
-            # which is what that client's own parameter type is at run time and not what
-            # it is declared as. Translating between the two vocabularies is this row's
-            # job and nobody else's, exactly as the schema below is -- the seam knows
-            # nothing about either server (ADR-0038), so the ``TypedDict`` stays on this
-            # side of it.
+            # Our plain dicts are the client's ``TypedDict`` at run time; the cast stays
+            # on this side of the seam (ADR-0038).
             messages=cast("list[ChatCompletionMessageParam]", list(messages)),
             temperature=self.temperature,
             response_format={
@@ -254,12 +234,12 @@ class _OpenAIChat:
         return read_answer(response.choices[0].message.content or "", schema)
 
     def close(self) -> None:
-        """Let go of the connection this client keeps to the server, as Ollama's does."""
+        """Close the client's connection pool."""
         self.client.close()
 
 
 def _openai_chat_model(config: AgentConfig, extra_body: dict[str, Any]) -> ChatModel:
-    """The OpenAI client, pointed at whatever this config names and asked once (ADR-0051)."""
+    """The OpenAI client for this config, without retries (ADR-0051)."""
     return _OpenAIChat(
         client=openai.OpenAI(
             base_url=config.base_url,
@@ -283,13 +263,12 @@ def _vllm_chat_model(config: AgentConfig) -> ChatModel:
 
 
 def _authorised(config: AgentConfig) -> dict[str, str]:
-    """The header a listing carries where a key is configured, and none where it is not."""
+    """The auth header, if a key is configured."""
     return {"Authorization": f"Bearer {config.api_key}"} if config.api_key else {}
 
 
 def _openai_models(config: AgentConfig) -> list[InstalledModel]:
-    """What an OpenAI-compatible server lists at ``/models``, every entry taken as able
-    to answer -- that listing says nothing else about it."""
+    """The ``/models`` listing, each taken as able to answer."""
     response = httpx.get(
         f"{config.base_url.rstrip('/')}/models",
         headers=_authorised(config),
@@ -324,8 +303,7 @@ def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
 
 
 def _litellm_chat_model(config: AgentConfig) -> ChatModel:
-    """A LiteLLM proxy, told to think in its own provider-neutral ``reasoning_effort``
-    and told nothing where ``reasoning`` is ``None`` (ADR-0019, ADR-0068)."""
+    """A LiteLLM proxy; ``reasoning`` maps to ``reasoning_effort`` (ADR-0019, ADR-0068)."""
     if config.reasoning is None:
         return _openai_chat_model(config, {})
     effort = "medium" if config.reasoning else "none"
@@ -333,9 +311,8 @@ def _litellm_chat_model(config: AgentConfig) -> ChatModel:
 
 
 def _litellm_installed(config: AgentConfig) -> list[InstalledModel]:
-    """Every alias the proxy routes, marked by the ``mode`` ``/model/info`` reports
-    (ADR-0032). A proxy that will not say falls back to the plain listing: "cannot say"
-    is not "cannot run". Its own routes sit beside ``/v1``, not under it."""
+    """Every routed alias, marked by its ``/model/info`` ``mode`` (ADR-0032); falls back
+    to ``/models``. ``/model/info`` sits beside ``/v1``."""
     try:
         response = httpx.get(
             f"{config.base_url.rstrip('/').removesuffix('/v1')}/model/info",
@@ -364,10 +341,7 @@ def _litellm_hint(config: AgentConfig, exc: Exception) -> str:
             "Set $LITELLM_API_KEY to its master key or to a virtual key it issued."
         )
     lowered = _answered_by(exc, openai.APIStatusError)
-    # The proxy's own words for an alias outside its model_list. A "not found" is not
-    # it: that is the server behind a routed alias relaying its own miss -- an Ollama
-    # never told to pull the model -- and saying the proxy lacks an alias the listing
-    # beside it names is a remedy that contradicts itself.
+    # The proxy's own words for an unknown alias; a "not found" is relayed from behind.
     if "invalid model name" in lowered:
         return (
             f"{proxy} routes no model called {config.model!r}. Ask for one it has "
@@ -375,7 +349,7 @@ def _litellm_hint(config: AgentConfig, exc: Exception) -> str:
             f"proxy's config.yaml and restart it."
         )
     if lowered:
-        # Any other answer is the failure of whatever it routed to, relayed.
+        # Any other answer is relayed from the routed server.
         return (
             f"{proxy} answered, but the model behind {config.model!r} failed ({exc}). "
             "The proxy's own log says which server it routed to."
@@ -384,11 +358,8 @@ def _litellm_hint(config: AgentConfig, exc: Exception) -> str:
 
 
 def _no_key_store(exc: Exception) -> bool:
-    """Whether a proxy with no database behind it was handed a key other than its master
-    key. It answers 400 "No connected db." rather than 401, having nowhere to look a
-    virtual key up -- to the chat call and to the listing alike, the latter arriving as
-    a plain httpx error. The wording is LiteLLM's alone, so unlike a bare 404 it cannot
-    have come from something else listening at that address."""
+    """Whether a database-less proxy refused a non-master key: it answers 400 "No
+    connected db." rather than 401."""
     if isinstance(exc, httpx.HTTPStatusError):
         said = exc.response.text
     elif isinstance(exc, openai.APIStatusError):
@@ -399,22 +370,16 @@ def _no_key_store(exc: Exception) -> bool:
 
 
 def _answered_by(exc: Exception, client_error: type[Exception]) -> str:
-    """What the *model server itself* said, lower-cased -- and nothing at all where the
-    failure is not one of its answers.
+    """What the model server itself answered, lower-cased, or ``""`` if the failure is
+    not the row client's answer.
 
-    A remedy naming a model ("pull it", "serve it") is only right where the thing at
-    that address is the server this row is about, and the way to know is the class the
-    row's own client raises for an answer it got. Read off the text alone, a bare 404
-    from whatever else is listening there says "not found" too -- so an Ollama address
-    pointed at a vLLM, or at this project's own server, was answered with
-    ``ollama pull``, which succeeds against the real Ollama and changes nothing. The
-    address is what is wrong, and :func:`_unreachable_hint` is the sentence that says so.
+    A bare 404 from something else at that address must not earn a model remedy.
     """
     return str(exc).lower() if isinstance(exc, client_error) else ""
 
 
 def _hint(specific: Hint) -> Hint:
-    """A row's ``hint``: the two failures both servers meet, then this one's own."""
+    """A row's ``hint``: the shared failures first, then the row's own."""
 
     def hint(config: AgentConfig, exc: Exception) -> str:
         if isinstance(exc, UnreadableAnswerError):
@@ -430,7 +395,7 @@ def _too_slow_hint(config: AgentConfig, exc: Exception) -> str:
     """A server that took the prompt and never came back."""
     server = config.model_server
     smaller = "a smaller context window" if server.takes_num_ctx else "a shorter prompt"
-    # A timeout often stringifies to nothing, and "()" says less than the class.
+    # A timeout often stringifies to nothing.
     detail = str(exc) or type(exc).__name__
     return (
         f"{server.label} at {config.base_url} did not answer in time ({detail}). "
@@ -440,7 +405,7 @@ def _too_slow_hint(config: AgentConfig, exc: Exception) -> str:
 
 
 def _unreadable_hint(config: AgentConfig, exc: Exception) -> str:
-    """A server that answered, with something that is not the JSON asked for (ADR-0019)."""
+    """A server that answered with something other than the JSON asked for (ADR-0019)."""
     server = config.model_server
     said = str(exc).strip()
     detail = said.splitlines()[0] if said else type(exc).__name__
@@ -452,7 +417,7 @@ def _unreadable_hint(config: AgentConfig, exc: Exception) -> str:
 
 
 def _unreachable_hint(config: AgentConfig, exc: Exception, start: str) -> str:
-    """Nothing answered at all, so the server itself is what is missing."""
+    """Nothing answered: the server is what is missing."""
     return (
         f"Could not reach {config.model_server.label} at {config.base_url} ({exc}). "
         f"Start it with:  {start}"
@@ -460,11 +425,10 @@ def _unreachable_hint(config: AgentConfig, exc: Exception, start: str) -> str:
 
 
 def _listed(config: AgentConfig, *, completing: bool = False) -> str:
-    """What the server has, for a message -- or "unknown" if it cannot be asked."""
+    """The server's models for a message, or "unknown"."""
     try:
         models = config.model_server.installed(config)
-    # Any transport failure means "cannot say", and a hint is already being written: the
-    # second failure must not replace it with a traceback.
+    # A second failure while writing a hint must not become a traceback.
     # pylint: disable-next=broad-exception-caught
     except Exception:
         return "unknown"
@@ -480,15 +444,12 @@ OLLAMA = Provider(
     base_url=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
     api_key="",
     takes_num_ctx=True,
-    # Ollama decides per request how much of the model goes to the GPU, so "none of it"
-    # is a thing one run can ask for.
+    # GPU offload is per request on Ollama.
     takes_cpu_only=True,
     chat_model=_ollama_chat_model,
     installed=_ollama_installed,
-    # Both halves are load-bearing, the ollama client converting exactly one of its
-    # transport failures: a refused connection becomes a builtin ``ConnectionError``,
-    # while a slow model and a dropped stream arrive as raw ``httpx`` errors, neither an
-    # ``OSError``.
+    # A refused connection arrives as ``ConnectionError``; timeouts and dropped streams
+    # as raw ``httpx`` errors.
     transport_errors=(ResponseError, RequestError, OSError, httpx.HTTPError),
     hint=_hint(_ollama_hint),
     more_room="give it more room with a larger context window, or turn thinking off",
@@ -497,22 +458,19 @@ OLLAMA = Provider(
 VLLM = Provider(
     name="vllm",
     label="vLLM",
-    # A repository id rather than a tag: what ``vllm serve`` is given and what
-    # ``/v1/models`` reports back.
+    # A repository id, as ``vllm serve`` takes it.
     model=os.getenv("VLLM_MODEL", "Qwen/Qwen3-8B"),
     base_url=os.getenv("VLLM_HOST", "http://localhost:8000/v1"),
     api_key=os.getenv("VLLM_API_KEY", ""),
     takes_num_ctx=False,
-    # vLLM picks its device when it starts (``--device``), exactly as it fixes its
-    # window there, so a run has nothing to say about it.
+    # Fixed at startup, like the window.
     takes_cpu_only=False,
     chat_model=_vllm_chat_model,
     installed=_openai_models,
-    # ``openai.OpenAIError`` is the root of that client's hierarchy.
+    # ``openai.OpenAIError`` is the client's root.
     transport_errors=(openai.OpenAIError, OSError, httpx.HTTPError),
     hint=_hint(_vllm_hint),
-    # ``--max-model-len`` stays: it is vLLM's own startup flag, which is the same thing
-    # to type wherever this sentence is read.
+    # vLLM's own flag, not ours, so fine to name at either door.
     more_room="ask for fewer products, or restart it with a larger --max-model-len",
 )
 
@@ -554,7 +512,8 @@ def provider_for(name: str) -> Provider:
 
 
 def provider_options() -> list[dict[str, object]]:
-    """Every provider a run can be pointed at, as the form's picker needs it."""
+    """Every provider, as the form's picker needs it."""
+
     return [
         {
             "name": server.name,

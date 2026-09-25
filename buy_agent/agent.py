@@ -35,26 +35,23 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: Called at each of a run's step boundaries with the name of the step about to start
-#: (ADR-0034).
+#: Called with the name of each step about to start (ADR-0034).
 Checkpoint: TypeAlias = "Callable[[str], None]"
 
-#: How the two steps that talk to the web wait before asking a second time (ADR-0053).
+#: How the web-facing steps wait before a retry (ADR-0053).
 Wait: TypeAlias = "Callable[[float], None]"
 
 
 def every_step_passes(_step: str) -> None:
-    """The default checkpoint: nobody is watching, so every boundary passes."""
+    """The default checkpoint: every boundary passes."""
 
 
 class ModelUnavailableError(RuntimeError):
-    """Raised when the model could not be used: no server, no model, or no answer
-    (ADR-0028, ADR-0009)."""
+    """No server, no model, or no answer (ADR-0028, ADR-0009)."""
 
 
 def _asks_the_same_question(config: AgentConfig) -> dict[str, object]:
-    """Everything besides the prompt that decides what a model answers (ADR-0044)
-    (ADR-0051)."""
+    """Everything besides the prompt that decides the answer (ADR-0044, ADR-0051)."""
     fingerprint: dict[str, object] = {
         "provider": config.provider,
         "model": config.model,
@@ -67,22 +64,11 @@ def _asks_the_same_question(config: AgentConfig) -> dict[str, object]:
 
 
 def journal_for(request: str, config: AgentConfig) -> Journal:
-    """The journal of this exact search, ready to be asked what moved (ADR-0060).
+    """The journal of this exact search (ADR-0060).
 
-    Keyed by the request and by the settings that decided *what was asked*: where it
-    searched, on which scale, through which backend, of which sources, under which
-    bounds and how many products deep. A comparison across two different budgets is a
-    comparison of two different questions.
-
-    Not by the model, the provider or the window -- those decide how well the question
-    was answered rather than what it was, and filing an answer under them would leave
-    every change of model a search with no history at all. Which is the opposite reading
-    from the cache's (:func:`_asks_the_same_question`), and deliberately: that one is
-    keyed on the model because it hands an answer *back*, and this one is read by a
-    person.
-
-    Built before the run and asked afterwards, so what it hands over is the last run and
-    not this one.
+    Keyed on what was *asked*, never on the model: a model change is not a new search.
+    The cache keys the other way (:func:`_asks_the_same_question`) because it hands an
+    answer back. Built before the run, so it holds the previous one.
     """
     return open_journal(
         request,
@@ -101,31 +87,28 @@ def journal_for(request: str, config: AgentConfig) -> Journal:
 
 
 def _and_list(items: list[str]) -> str:
-    """``a``, ``a and b``, ``a, b and c`` -- a list somebody reads rather than parses."""
+    """``a``, ``a and b``, ``a, b and c``."""
     if len(items) < 2:
         return "".join(items)
     return f"{', '.join(items[:-1])} and {items[-1]}"
 
 
 class BuyAgent:
-    """Finds products for a shopper, ranks them, and logs the best few (ADR-0002,
-    ADR-0028)."""
+    """Finds, ranks and logs products for a shopper (ADR-0002, ADR-0028)."""
 
     def __init__(
         self, config: AgentConfig | None = None, *, llm: ChatModel | None = None
     ) -> None:
         """Build an agent."""
         self.config = config or AgentConfig()
-        # The remembering goes here rather than in ``providers``: it has nothing to do
-        # with which server is answering, so neither row declares it.
+        # Here, not in ``providers``: caching is no server's concern.
         self.llm = llm or remember_answers(
             self.config.model_server.chat_model(self.config),
             fingerprint=_asks_the_same_question(self.config),
             ttl=self.config.cache_ttl,
             deterministic=self.config.temperature == 0,
         )
-        #: What :meth:`close` lets go of: the model this agent opened, never one it was
-        #: handed -- closing that would be this agent deciding somebody else's lifetime.
+        #: What :meth:`close` releases: only a model this agent opened, never one handed in.
         self._opened = None if llm else self.llm
         self.query_chain = build_query_chain(self.llm)
         self.extraction_chain = build_extraction_chain(self.llm)
@@ -142,12 +125,9 @@ class BuyAgent:
         checkpoint: Checkpoint = every_step_passes,
         record: Recorder = nothing_recorded,
     ) -> list[RankedProduct]:
-        """Search for what the shopper asked for and log the top products (ADR-0009,
-        ADR-0034, ADR-0055).
+        """Search, rank and log the top products (ADR-0009, ADR-0034, ADR-0055).
 
-        ``record`` is handed each candidate the run took out, the way ``checkpoint`` is
-        handed each step: the answer is still the ranked products, and a caller that
-        wants to say why the report is short asks for the rest here.
+        ``record`` receives each candidate the run removed.
 
         Raises:
             ValueError: if the request is empty.
@@ -185,17 +165,14 @@ class BuyAgent:
             logger.warning("No products could be extracted from the search results.")
             return []
 
-        # After the merging: ``deduplicate`` fills a listing's gaps from another listing
-        # of the same product, so a price known only once the two are merged would be
-        # judged here on a blank (ADR-0039).
+        # After merging, which may supply the price a bound judges (ADR-0039).
         products = Constraints.from_config(self.config).apply(products, record=record)
         if not products:
             return []
 
         self._warn_if_nothing_is_on_the_named_scale(products)
 
-        # Ranking is cheap, but it ends in ``log_top_products``, and a report is worth
-        # not writing for a run nobody is reading any more.
+        # Cheap, but it writes the report, which a stopped run should not.
         checkpoint("rank")
         ranked = rank_products(
             products,
@@ -209,14 +186,8 @@ class BuyAgent:
         return ranked
 
     def _warn_if_nothing_is_on_the_named_scale(self, products: Sequence[Product]) -> None:
-        """Say so, loudly, where the shopper named a currency nothing is priced in.
-
-        Naming one is the single way to ask for a report whose price criterion is
-        entirely assumed (ADR-0056). Left to the vote, the scale is by construction the
-        one most of the set is on; named, it can be a currency no page printed -- and
-        every price then scores ``NEUTRAL``, which is the true state of what the run
-        knows and is worth reading before the ranking is.
-        """
+        """Warn when the named currency prices nothing, so every price scores neutral
+        (ADR-0056)."""
         named = self.config.currency
         if not named or any(
             comparable_price(product, named) is not None for product in products
@@ -247,18 +218,14 @@ class BuyAgent:
         pooled: dict[str, SearchResult] = {}
         for source in sources:
             found = self._ask_the_web(source.site_query(query), share)
-            # Asked once per result and both answers kept: the count and the names below
-            # are the other side of this same list, and reading ``covers`` again for each
-            # of them is one judgement made three times.
+            # ``covers`` asked once per result; both sides are reported below.
             covered: dict[bool, list[SearchResult]] = {True: [], False: []}
             for result in found:
                 covered[source.covers(result.url)].append(result)
             kept, outside = covered[True], covered[False]
             if outside:
-                # Count then names, as everywhere something is taken away. There is no
-                # falling back to the wider web (ADR-0027), so an over-strict ``covers``
-                # is an empty report, and the count alone cannot say which page would
-                # have answered it.
+                # Count at INFO, names at DEBUG: with no fallback to the wider web
+                # (ADR-0027), an over-strict ``covers`` needs the names to diagnose.
                 logger.info(
                     "Ignored %d result(s) from outside %s", len(outside), source.domain
                 )
@@ -272,8 +239,7 @@ class BuyAgent:
         return list(pooled.values())[:width]
 
     def _ask_the_web(self, query: str, limit: int) -> list[SearchResult]:
-        """One search, through this run's backend, on its region and its clock (ADR-0053,
-        ADR-0057)."""
+        """One search through this run's backend and region (ADR-0053, ADR-0057)."""
         return search_web(
             query,
             max_results=limit,
@@ -283,11 +249,11 @@ class BuyAgent:
         )
 
     def _empty_search_note(self) -> str:
-        """What narrowed this search, for the one line that says it found nothing."""
+        """What narrowed this search, for the empty-search warning."""
         return f"{self._region_note() or '.'}{self._sources_note()}"
 
     def _sources_note(self) -> str:
-        """The named sources, when they are what the search was confined to (ADR-0027)."""
+        """The named sources, if any (ADR-0027)."""
         sources = self.config.sources
         if not sources:
             return ""
@@ -299,7 +265,7 @@ class BuyAgent:
         )
 
     def _region_note(self) -> str:
-        """The region, when it is one worth suspecting of an empty search (ADR-0031)."""
+        """The region, unless it is the default (ADR-0031)."""
         region = self.config.region
         if region == DEFAULT_REGION:
             return ""
@@ -315,8 +281,7 @@ class BuyAgent:
             refined = self._invoke(self.query_chain, {"request": request})
         except ModelUnavailableError:
             raise
-        # A bad query is recoverable -- searching the raw request still works, so what
-        # went wrong is narrower than the catch and the catch is deliberate.
+        # Any failure here is recoverable: the raw request still searches.
         # pylint: disable-next=broad-exception-caught
         except Exception:
             logger.warning("Query refinement failed; using the raw request", exc_info=True)
@@ -344,9 +309,7 @@ class BuyAgent:
         try:
             extracted = self._invoke(self.extraction_chain, payload)
         except UnreadableAnswerError as exc:
-            # Caught here rather than in ``_invoke``, which the recoverable step goes
-            # through too: a fumbled query falls back to the raw request, an unreadable
-            # extraction has nothing to.
+            # Here, not in ``_invoke``: the query step recovers, this one cannot.
             logger.debug("The model's answer could not be read", exc_info=True)
             server = self.config.model_server
             raise ModelUnavailableError(server.hint(self.config, exc)) from exc
@@ -357,7 +320,8 @@ class BuyAgent:
         return deduplicate(grounded, self.config.num_products, record=record)
 
     def _invoke(self, chain: Chain[Any], payload: dict[str, Any]) -> Any:
-        """Invoke a chain, turning transport errors into an actionable message (ADR-0009)."""
+        """Invoke a chain; transport errors become an actionable message (ADR-0009)."""
+
         server = self.config.model_server
         try:
             return chain.invoke(payload)

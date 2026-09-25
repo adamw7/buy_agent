@@ -1,6 +1,5 @@
-"""The two LLM steps -- rewrite the request as a search query, then read products out of
-the search results -- plus the deterministic clean-up that follows (ADR-0004, ADR-0038).
-"""
+"""The two LLM steps (query, then products) and the clean-up after them (ADR-0004,
+ADR-0038)."""
 
 from __future__ import annotations
 
@@ -75,8 +74,7 @@ EXTRACTION_PROMPT = Prompt(
     human="Shopper's request: {request}\n\nSearch results:\n\n{results}",
 )
 
-#: The words a roundup ranks with, shared with :mod:`buy_agent.verification` the way
-#: :data:`GENERIC_WORDS` is.
+#: The words a roundup ranks with (shared with :mod:`buy_agent.verification`).
 SUPERLATIVES = r"(?:best|top|cheapest|worst|greatest)"
 
 #: A name opening on a superlative: "12 Best ...", "The 5 Best ...", "Top ...".
@@ -122,8 +120,7 @@ GENERIC_WORDS = frozenset(
     """.split()
 )
 
-#: How a name is broken into words, shared with :mod:`buy_agent.verification` -- merging
-#: and grounding must agree on what a name's words are.
+#: How a name splits into words; shared so merging and grounding agree.
 NAME_TOKENS = re.compile(r"[a-z0-9]+")
 
 
@@ -161,8 +158,7 @@ def looks_like_a_product(name: str) -> bool:
         return True
     if not _SUPERLATIVE.match(name):
         return False
-    # Past the superlative and past the word after it -- the category qualifier a
-    # headline puts there, the brand a product does.
+    # Past the superlative and the next word (a category, or a brand).
     tail = _SUPERLATIVE.sub("", name, count=1).split(maxsplit=1)
     return len(tail) > 1 and bool(_MODEL_NUMBER.search(tail[1]))
 
@@ -183,8 +179,7 @@ def clean_products(
             reason = "Reads as an article or a shop, not a product."
             record(Removal(name=discarded[-1], step="clean", reason=reason))
     if discarded:
-        # The count at INFO, the names at DEBUG: a heuristic that drops a real product
-        # should be diagnosable.
+        # Count at INFO, names at DEBUG.
         logger.info("Discarded %d result(s) that were pages, not products", len(discarded))
         logger.debug(
             "Discarded as pages, not products: %s", ", ".join(repr(n) for n in discarded)
@@ -197,10 +192,7 @@ def deduplicate(
 ) -> list[Product]:
     """Drop repeats of the same product, keeping the most complete entry (ADR-0055,
     ADR-0058)."""
-    # One pass and both answers kept, the way ``clean_products`` and ``drop_ungrounded``
-    # keep theirs: ``dedup_key`` is a verdict on a name, and the ones it turns down are
-    # recorded, counted and then named -- three more readings of it, for a property that
-    # rewrites the name twice to reach an answer.
+    # ``dedup_key`` is costly, so it is read once per product.
     keyed: dict[bool, list[Product]] = {True: [], False: []}
     for product in products:
         keyed[bool(product.dedup_key)].append(product)
@@ -210,8 +202,7 @@ def deduplicate(
         reason = "The name identifies nothing."
         record(Removal(name=product.name, step="deduplicate", reason=reason))
     if nameless:
-        # Count then names, as everywhere a product is removed: "identifies nothing" is
-        # a verdict on a name.
+        # Count at INFO, names at DEBUG.
         logger.info("Dropped %d result(s) whose name identifies nothing", len(nameless))
         logger.debug(
             "Nothing to identify them by: %s",
@@ -225,12 +216,9 @@ def deduplicate(
 
 
 def _as_a_listing(product: Product) -> Product:
-    """One grounded listing, carrying its own price as the offer it is (ADR-0058).
+    """One grounded listing, carrying its price as its one offer (ADR-0058).
 
-    Seeded here rather than at extraction, because this is the last point at which one
-    ``Product`` is still one listing: every figure on it has been through ``ground``, so
-    no offer can carry a price the sources do not back, and the very next step folds
-    several of them into one.
+    Seeded here: after ``ground``, and before merging folds listings together.
     """
     if product.price is None:
         return product
@@ -256,14 +244,10 @@ def merge_variants(
     for product in products:
         for index, existing in enumerate(merged):
             if _same_product(existing.name, product.name):
-                # The other way a product leaves the report without being dropped: the
-                # merged entry keeps the shorter of the two names, so the other is
-                # simply gone.
+                # The shorter name survives; the other leaves the report.
                 logger.debug("Folded %r together with %r", existing.name, product.name)
                 merged[index] = _combine(existing, product)
-                # Recorded after the merge and not before it: which of the two names
-                # survives is ``_combine``'s to decide, and the one that went is the
-                # other one.
+                # After the merge: ``_combine`` picks the survivor.
                 kept = merged[index].name
                 gone = product.name if kept != product.name else existing.name
                 if gone != kept:
@@ -286,12 +270,8 @@ def _same_product(left: str, right: str) -> bool:
     return (left_tokens ^ right_tokens) <= GENERIC_WORDS
 
 
-#: Fields worth carrying over from a weaker listing, and the list to edit when one is
-#: added to ``Product`` (ADR-0022). Two neighbours are deliberately *not* in it, and for
-#: one reason: ``opinions`` and ``offers`` are the fields where the two listings do not
-#: conflict. Two reviewers are no disagreement and neither are two shops, so both are
-#: kept whole -- which is the opposite of filling a gap, and is why each has a merge of
-#: its own below rather than a row here (ADR-0042, ADR-0058).
+#: Fields a weaker listing may fill in (ADR-0022). ``opinions`` and ``offers`` never
+#: conflict, so both are kept whole by merges of their own (ADR-0042, ADR-0058).
 _MERGEABLE_FIELDS = ("price", "rating", "seller", "url", "notes")
 
 
@@ -313,11 +293,8 @@ def _merge_opinions(winner: Product, loser: Product) -> list[Opinion]:
 
 
 def _merge_offers(winner: Product, loser: Product) -> list[Offer]:
-    """Both listings' offers, the winner's first, without repeats (ADR-0058).
-
-    The headline price is still the winner's and nothing here moves it: this is the
-    record of what the pages quoted, which is the half a merge used to throw away.
-    """
+    """Both listings' offers, the winner's first, without repeats (ADR-0058). The
+    headline price stays the winner's."""
     seen: dict[tuple[float, str | None, str | None, str | None], Offer] = {}
     for offer in (*winner.offers, *loser.offers):
         seen.setdefault((offer.price, offer.currency, offer.seller, offer.url), offer)
@@ -331,13 +308,12 @@ def _fill_gaps(winner: Product, loser: Product) -> dict[str, object]:
         qualifiers = QUALIFIERS.get(figure, ())
         ours, theirs = getattr(winner, figure), getattr(loser, figure)
         if ours is None and theirs is not None:
-            # The loser's whole group moves across, and any qualifier the winner was
-            # left holding goes with the blank it used to describe.
+            # The loser's figure moves with its qualifiers (ADR-0022).
             updates[figure] = theirs
             updates.update({name: getattr(loser, name) for name in qualifiers})
         elif ours is not None and ours == theirs:
-            # Both listings printed this figure, so the loser's qualifier describes the
-            # very one being kept.
+            # Same figure on both, so the loser's qualifiers describe it too.
+
             updates.update(
                 {
                     name: getattr(loser, name)

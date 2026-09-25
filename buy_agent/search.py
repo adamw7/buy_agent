@@ -1,5 +1,4 @@
-"""Which search backend the agent asks: one row per backend, and nothing else (ADR-0021,
-ADR-0053, ADR-0057)."""
+"""The search backends, one row each (ADR-0021, ADR-0053, ADR-0057)."""
 
 from __future__ import annotations
 
@@ -18,26 +17,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: What ddgs says when every engine answered and none had anything: a query that matched
-#: nothing arrives as an exception like any other.
+#: ddgs's message for "matched nothing", which it raises.
 _NO_RESULTS = "No results found."
 
-#: How long to wait before asking a second time, where the caller handed something to
-#: wait with (ADR-0053).
+#: The wait before a retry (ADR-0053).
 _RETRY_WAIT = 2.0
 
-#: How long to wait on a backend that is asked over HTTP. Shorter than a model call by
-#: an order of magnitude: a search engine that has not answered in ten seconds is one
-#: that is not going to.
+#: Timeout for an HTTP backend.
 _TIMEOUT = 10.0
 
-#: The most results Brave's search API answers one request with. A run may ask for up to
-#: fifty -- ``search_results`` follows ``num_products`` -- and Brave refuses a larger
-#: ``count`` outright rather than answering fewer, which read as the address being wrong.
+#: Brave's maximum ``count``; it refuses a larger one rather than answering fewer.
 _BRAVE_MAX_COUNT = 20
 
-#: Where the search looks when a caller names nothing. Written here rather than read off
-#: :mod:`buy_agent.config`, which is the module that reads *this* one.
+#: The default region (not imported: :mod:`buy_agent.config` imports this module).
 _DEFAULT_REGION = "us-en"
 
 
@@ -62,12 +54,8 @@ class SearchResult(BaseModel):
 
 @dataclass(frozen=True, slots=True)
 class Query:
-    """One question for a backend: what to look for, how much of it, and where.
-
-    The region arrives as this project spells it -- a country and then a language
-    (ADR-0031) -- and each backend wants its own half of that, so the splitting is done
-    once here rather than on every row.
-    """
+    """One question for a backend; splits the region for rows that want a half
+    (ADR-0031)."""
 
     text: str
     max_results: int
@@ -88,51 +76,37 @@ class Query:
 class Backend:
     """One way of searching the web: where it is, and how it is asked.
 
-    ``find`` and ``hint`` are handed the row itself, the way a provider's are handed the
-    config they were resolved from: there is no config here to hand over -- a search
-    takes a query and answers results -- and the address and the key a row was built
-    with are the two things its own functions need.
+    ``find`` and ``hint`` receive the row itself, which carries the address and key.
     """
 
     name: str
     label: str
-    #: Where it listens, from its own environment variable. Empty for a backend that is
-    #: reached through a library rather than an address of its own.
+    #: Where it listens (its own env var); empty for a library-backed row.
     endpoint: str
-    #: Its key, read off its own environment variable and nowhere else: a secret has no
-    #: flag and no form field, exactly as ``$VLLM_API_KEY`` has neither.
+    #: Its key, from its env var only: secrets have no flag or form field.
     api_key: str
     needs_key: bool
     find: Callable[[Backend, Query], list[SearchResult]]
-    #: What "the backend is not there" looks like from this row's own client, as the
-    #: ``except`` clause that catches it binds it. ``Exception`` and not ``BaseException``: every
-    #: class any row names is one, and a wider declaration is what left the ``hint``
-    #: beside it handed a value its own signature refuses.
+    #: What "the backend is not there" raises through this row's client; typed
+    #: ``Exception`` so ``hint`` can accept what the ``except`` binds.
     transport_errors: tuple[type[Exception], ...]
     hint: Callable[[Backend, Exception], str]
 
     @property
     def configured(self) -> bool:
-        """Whether this backend has what it needs to be asked at all.
-
-        The only thing a row can be missing is its key -- every address here has a
-        default -- so this is that question, and it is what the form's picker marks a
-        backend with rather than working the rule out in TypeScript.
-        """
+        """Whether the backend has the key it needs; the form's picker shows this."""
         return not self.needs_key or bool(self.api_key)
 
 
 def _ddg_find(backend: Backend, query: Query) -> list[SearchResult]:
-    """DuckDuckGo through ``ddgs``, which fronts several engines and raises only when
-    every one of them failed."""
+    """DuckDuckGo through ``ddgs``, which raises only when every engine failed."""
     del backend
     try:
         raw: list[dict[str, Any]] = DDGS().text(
             query.text, max_results=query.max_results, region=query.region
         )
     except DDGSException as exc:
-        # The one backend that answers "nothing matched" by raising. Read here rather
-        # than above the rows: what an empty answer looks like is the backend's own.
+        # The one backend that raises for "nothing matched".
         if str(exc) == _NO_RESULTS:
             logger.info("Search matched nothing for %r", query.text)
             return []
@@ -141,7 +115,7 @@ def _ddg_find(backend: Backend, query: Query) -> list[SearchResult]:
 
 
 def _ddg_hint(backend: Backend, exc: Exception) -> str:
-    """DuckDuckGo's one failure worth a remedy: it is rate-limiting this machine."""
+    """DuckDuckGo's usual failure: rate-limiting."""
     return (
         f"{backend.label} could not be asked ({exc}). It rate-limits heavy use and "
         f"there is no key to raise that with, so the answers are to wait, or to point "
@@ -171,7 +145,7 @@ def _searxng_find(backend: Backend, query: Query) -> list[SearchResult]:
 
 
 def _searxng_hint(backend: Backend, exc: Exception) -> str:
-    """Nothing answered, so the instance itself is what is missing."""
+    """Nothing answered: the instance is what is missing."""
     return _unreachable_hint(
         backend,
         exc,
@@ -183,8 +157,7 @@ def _searxng_hint(backend: Backend, exc: Exception) -> str:
 def _brave_find(backend: Backend, query: Query) -> list[SearchResult]:
     """Brave's search API, on a key read off the environment (ADR-0057)."""
     if not backend.api_key:
-        # Not a transport failure, so it is not asked twice: a second identical request
-        # with no key is a second 401.
+        # Not a transport failure, so never retried.
         raise SearchError(
             f"{backend.label} needs a key and $BRAVE_API_KEY is not set. It is read "
             f"off the environment and has no flag and no form field, the way every "
@@ -222,7 +195,7 @@ def _brave_hint(backend: Backend, exc: Exception) -> str:
 
 
 def _unreachable_hint(backend: Backend, exc: Exception, remedy: str) -> str:
-    """The sentence both addressed backends write, said once above the rows."""
+    """The unreachable-address sentence both HTTP backends share."""
     return (
         f"Could not reach {backend.label} at {backend.endpoint} ({exc}). {remedy}. "
         f"Or search through {DDG.label}, which needs no server of your own."
@@ -230,12 +203,7 @@ def _unreachable_hint(backend: Backend, exc: Exception, remedy: str) -> str:
 
 
 def _answer(backend: Backend, response: httpx.Response) -> dict[str, Any]:
-    """What a backend sent back, as the object it was asked for.
-
-    Readable and still not an answer is the same failure as unreadable, and neither is
-    worth a second identical request: a backend answering HTML where JSON was asked for
-    is one that is configured wrongly, not one that is busy.
-    """
+    """A backend's answer as a JSON object, or a (non-retried) :class:`SearchError`."""
     try:
         payload = response.json()
     except ValueError as exc:
@@ -254,17 +222,11 @@ def _answer(backend: Backend, response: httpx.Response) -> dict[str, Any]:
 def _results(
     entries: Any, *, url_key: str, text_key: str, limit: int
 ) -> list[SearchResult]:
-    """One backend's list of hits, as the results the rest of the run passes around.
-
-    Each backend names the same three things differently and nothing else about them
-    differs, so the two keys are the row's and the shaping is shared.
-    """
+    """A backend's hits as :class:`SearchResult`; only the key names differ per row."""
     rows = entries if isinstance(entries, list) else []
     return [
         SearchResult(
-            # ``or ""`` rather than a default: a JSON ``null`` is a key that is there, and
-            # ``str`` of it is the word "None" -- a title the model reads and a URL the
-            # fetcher asks for.
+            # ``or ""``: a JSON ``null`` would otherwise become "None".
             title=str(entry.get("title") or ""),
             url=str(entry.get(url_key) or ""),
             snippet=str(entry.get(text_key) or ""),
@@ -277,13 +239,12 @@ def _results(
 DDG = Backend(
     name="ddg",
     label="DuckDuckGo",
-    # Reached through ``ddgs`` rather than at an address, so there is none to name.
+    # Reached through ``ddgs``, not an address.
     endpoint="",
     api_key="",
     needs_key=False,
     find=_ddg_find,
-    # ``DDGSException`` is the root of that library's hierarchy, and a rate limit and a
-    # backend failure both land there.
+    # The library's root: rate limits and outages alike.
     transport_errors=(DDGSException, OSError),
     hint=_ddg_hint,
 )
@@ -293,12 +254,10 @@ SEARXNG = Backend(
     label="SearXNG",
     endpoint=os.getenv("SEARXNG_HOST", "http://localhost:8080"),
     api_key="",
-    # No key and no account, which is the whole reason it is here: the model already
-    # runs on the shopper's own machine (ADR-0003, ADR-0057).
+    # No key and no account, like the local model (ADR-0003, ADR-0057).
     needs_key=False,
     find=_searxng_find,
-    # ``HTTPError`` is httpx's root: a refused connection, a timeout, and the statuses
-    # ``raise_for_status`` turns into one.
+    # httpx's root: refusals, timeouts and ``raise_for_status``.
     transport_errors=(httpx.HTTPError, OSError),
     hint=_searxng_hint,
 )
@@ -314,8 +273,7 @@ BRAVE = Backend(
     hint=_brave_hint,
 )
 
-#: Every search backend, by the name the CLI, the API and ``$BUY_AGENT_BACKEND`` use
-#: (ADR-0057).
+#: Every backend, by the name the CLI, the API and ``$BUY_AGENT_BACKEND`` use (ADR-0057).
 BACKENDS: dict[str, Backend] = {
     backend.name: backend for backend in (DDG, SEARXNG, BRAVE)
 }
@@ -332,7 +290,7 @@ def backend_for(name: str) -> Backend:
 
 
 def backend_options() -> list[dict[str, object]]:
-    """Every backend a run can be pointed at, as the form's picker needs it."""
+    """Every backend, as the form's picker needs it."""
     return [
         {
             "name": backend.name,
@@ -362,11 +320,8 @@ def search_web(
     while True:
         try:
             results = backend.find(backend, asked)
-        # The row declares its failures as ``type[Exception]``, which is what the other
-        # two tables declare theirs as; read off a tuple of them alone, pylint sees a
-        # class it cannot confirm is one. Those two are reached through a property it
-        # cannot infer and this one through a default it can, which is the whole of the
-        # difference.
+        # pylint infers this tuple through the default row and cannot confirm its
+        # members are exceptions; they are typed ``type[Exception]``.
         # pylint: disable-next=catching-non-exception
         except backend.transport_errors as exc:  # rate limits and outages both land here
             attempts_left -= 1
@@ -374,9 +329,8 @@ def search_web(
                 raise SearchError(
                     f"Web search failed for {query!r}: {backend.hint(backend, exc)}"
                 ) from exc
-            # WARNING rather than INFO: this is the failure the run would have ended on,
-            # and the line is what says a run that took two seconds longer was one that
-            # nearly did not happen.
+            # WARNING: this is the failure the run nearly ended on.
+
             logger.warning(
                 "Web search failed for %r (%s); asking again in %.0fs",
                 query,

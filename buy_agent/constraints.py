@@ -1,5 +1,4 @@
-"""What the shopper will accept, applied to the products before they are ranked (ADR-0039,
-ADR-0007)."""
+"""The shopper's bounds, applied before ranking (ADR-0039, ADR-0007)."""
 
 from __future__ import annotations
 
@@ -23,14 +22,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: How a bound gets at the figure it judges: off the product, and off the currency the
-#: run's prices are counted in, which only the price cares about.
+#: Reads a bound's figure off a product, given the run's currency (used by price only).
 Reader: TypeAlias = "Callable[[Product, str | None], float | None]"
 
-#: One row per bound: the field holding it -- named the same here and on
-#: :class:`~buy_agent.config.AgentConfig`, which lets ``from_config`` be a comprehension
-#: -- how the figure is read off a product, what "outside" means, and how it reads in
-#: the line a run logs (ADR-0039, ADR-0043).
+#: One row per bound: field name (as on :class:`~buy_agent.config.AgentConfig`), reader,
+#: what "outside" means, and its phrase in the log (ADR-0039, ADR-0043).
 _BOUNDS: tuple[tuple[str, Reader, Callable[[float, float], bool], str], ...] = (
     ("max_price", comparable_price, operator.gt, "at most {:,.2f}"),
     ("min_rating", lambda p, _: p.rating, operator.lt, "rated at least {:g}"),
@@ -45,14 +41,13 @@ class Constraints:
     max_price: float | None = None
     min_rating: float | None = None
     min_reviews: int | None = None
-    #: The scale the budget is read on, where the shopper named one rather than leaving
-    #: the set to vote (ADR-0056). Not a bound: it decides what the one with a unit
-    #: means, which is why ``given`` does not count it.
+    #: The budget's currency when the shopper named one (ADR-0056). Not a bound, so
+    #: ``given`` ignores it.
     currency: str | None = None
 
     @classmethod
     def from_config(cls, config: AgentConfig) -> Constraints:
-        """The three bounds a run was configured with, off the config that holds them."""
+        """The bounds a run was configured with."""
         return cls(
             **{name: getattr(config, name) for name, *_ in _BOUNDS},
             currency=config.currency or None,
@@ -61,8 +56,7 @@ class Constraints:
     @property
     def given(self) -> bool:
         """Whether the shopper set any of them."""
-        # Every row ``_set`` yields is a non-empty tuple, so the rows themselves are the
-        # truthy thing to ask about.
+        # Every row ``_set`` yields is a non-empty, so truthy, tuple.
         return any(self._set())
 
     def admits(self, product: Product, currency: str | None = None) -> bool:
@@ -74,8 +68,7 @@ class Constraints:
 
     def describe(self, currency: str | None = None) -> str:
         """The bounds as one phrase, for the line the run logs about them."""
-        # The budget is the one bound whose figure carries a unit, so its reader being
-        # ``comparable_price`` is what identifies it -- no extra column.
+        # The budget, the one bound with a unit, is the row read by ``comparable_price``.
         unit = f" {currency}" if currency else ""
         return ", ".join(
             phrase.format(bound) + (unit if read is comparable_price else "")
@@ -95,22 +88,18 @@ class Constraints:
         kept = [products[index] for index in inside]
         excluded = [item.name for index, item in enumerate(products) if index not in held]
 
-        # The bounds as the shopper set them, in the currency they were settled in: the
-        # same phrase the logged line carries, so the panel and the progress cannot say
-        # two different things about one number (ADR-0043).
+        # The same phrase as the log line, so panel and progress agree (ADR-0043).
         reason = f"Outside the limits you set ({self.describe(currency)})."
         for name in excluded:
             record(Removal(name=name, step="limits", reason=reason))
 
         if excluded:
-            # The names at DEBUG under the count, as everywhere a product is removed:
-            # "why is the one I had in mind not in there?" is what a bound provokes.
+            # Names at DEBUG, count at INFO, as everywhere a product is removed.
             logger.debug(
                 "Outside the limits: %s", ", ".join(repr(name) for name in excluded)
             )
         logger.log(
-            # Nothing left is worth interrupting for: the run found products and is
-            # about to report none of them, which an empty web looks like too.
+            # An empty result would otherwise look like an empty web.
             logging.WARNING if not kept else logging.INFO,
             "%d of %d product(s) are within the limits (%s)",
             len(kept),
@@ -128,10 +117,9 @@ class Constraints:
                 (products[index] for index in inside), self.currency
             )
             kept = [index for index in inside if self.admits(products[index], currency)]
-            # Nothing left settles nothing -- an empty set is counted in no currency at
-            # all -- so the answer is the currency that emptied it, which is the one the
-            # line the shopper reads has to name: "0 of 2 within the limits (at most
-            # 1.00)" leaves out the half of the bound nobody typed.
+            # An empty set has no currency, so report the one that emptied it: the log
+            # line must name it.
+
             if not kept or len(kept) == len(inside):
                 return kept, currency
             inside = kept
