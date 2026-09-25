@@ -2060,6 +2060,17 @@ def files_the_skills_name() -> list[Path]:
     ]
 
 
+def dependency_lists_reached() -> list[Path]:
+    """Every requirements file at the top of the tree. The suite opens some of them by a
+    name no test writes down -- the one a workflow, the session hook or another list's
+    ``-r`` line gave it -- which none of the four above can see, and which is how the
+    audit's own list went uncopied and the Saturday run died at its baseline. It is
+    every list and not a guess at which: `test_every_dependency_list_is_audited_or_named`
+    holds each one to being resolved by the audit, which opens it, or exempt by a name
+    written here."""
+    return [_ROOT / name for name in dependency_lists()]
+
+
 def test_a_mutation_run_copies_everything_the_tests_reach_for() -> None:
     """A mutation run tests a copy of the tree under mutants/, and this suite both reads
     files rather than importing them and imports from outside the package being
@@ -2071,7 +2082,13 @@ def test_a_mutation_run_copies_everything_the_tests_reach_for() -> None:
         + ini_values(_MUTMUT, "mutmut", "source_paths")
     )
     copied = [_ROOT / name for name in also_copy]
-    needed = files_read() + files_imported() + files_named_at_the_root() + files_the_skills_name()
+    needed = (
+        files_read()
+        + files_imported()
+        + files_named_at_the_root()
+        + files_the_skills_name()
+        + dependency_lists_reached()
+    )
 
     assert needed, "the suite reads and imports nothing; this test has outlived its rule"
     for path in needed:

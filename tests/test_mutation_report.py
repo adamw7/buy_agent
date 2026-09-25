@@ -239,6 +239,26 @@ def test_a_run_that_produced_no_results_fails_rather_than_reporting_success(
     assert "no results at all" in capsys.readouterr().out
 
 
+def test_a_run_that_stopped_at_its_baseline_is_not_reported_as_a_clean_sheet(
+    tmp_path: Path, capsys
+) -> None:
+    """What mutmut lists when a test fails on the unmutated code: every mutant, none
+    of them tried. The score is undefined, not low -- so the report says nothing was
+    tested rather than publishing a column of dashes under "Every mutant was caught",
+    which is what the Saturday job summary carried the week that happened."""
+    listing = "".join(
+        f"    buy_agent.{module}.x_f__mutmut_{n}: not checked\n"
+        for module in ("ranking", "search")
+        for n in range(3)
+    )
+
+    assert main([write(tmp_path, listing)]) == 1
+    published = capsys.readouterr().out
+    assert "6 mutants and not one of them tested" in published
+    assert "Every mutant was caught." not in published
+    assert "| `buy_agent." not in published
+
+
 @pytest.mark.parametrize(
     "name, tool", [("absent.txt", MUTMUT), ("absent.json", STRYKER)]
 )

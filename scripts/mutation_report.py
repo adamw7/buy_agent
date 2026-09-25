@@ -218,7 +218,22 @@ def report(mutants: list[Mutant], tool: Tool) -> tuple[list[str], bool]:
         return [heading, "", "The run produced no results at all."], False
 
     achieved = score(statuses, tool)
-    passed = achieved is not None and achieved >= tool.floor
+    if achieved is None:
+        # Nothing was put to the tests, so there are no survivors to list -- which the
+        # table and the list below would otherwise publish as "Every mutant was caught"
+        # under a column of dashes. It is what a run that stopped at its baseline reads
+        # as: mutmut marks every mutant "not checked" when a test fails on the code as
+        # written, before the first mutant is tried.
+        return [
+            heading,
+            "",
+            f"{total} mutants and not one of them tested, so there is no score to hold "
+            f"to the {tool.floor:.0f}% floor. A run that stops before its first mutant "
+            "reads like this -- mutmut's does when a test fails on the code as written "
+            "-- and the job's log names that test.",
+        ], False
+
+    passed = achieved >= tool.floor
     verdict = "clears" if passed else "is under"
     lines = [
         heading,
