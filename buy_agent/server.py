@@ -12,6 +12,7 @@ import queue
 import re
 import socket
 import sys
+import textwrap
 import threading
 import time
 from contextvars import ContextVar
@@ -779,10 +780,20 @@ def _port(text: str) -> int:
     return port
 
 
+class _Help(argparse.HelpFormatter):
+    """Wraps a flag's help between words and never inside one, as ``__main__``'s does:
+    textwrap breaks at a hyphen, and ``--allowed-`` ending a line is a flag nobody can
+    copy."""
+
+    def _split_lines(self, text: str, width: int) -> list[str]:
+        return textwrap.wrap(" ".join(text.split()), width, break_on_hyphens=False)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="buy_agent.server",
         description="Serve the buy_agent UI and its JSON API on localhost.",
+        formatter_class=_Help,
     )
     # Both name their default, like every flag here (ADR-0018).
     parser.add_argument(

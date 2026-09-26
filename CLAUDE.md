@@ -1710,8 +1710,11 @@ the other is otherwise invisible to both suites. It asserts that
   `--num-ctx` into;
 - every flag of either parser that takes a value and has a default names it in
   its help, `--help` being the CLI's only documentation and a default left out a
-  fact with nowhere else to be read; and every `SortBy` has an `ORDERINGS` phrase
-  naming a direction, which `--sort-by`'s help and the form's pickers both say;
+  fact with nowhere else to be read; neither parser's help breaks a word at its
+  hyphen at any width, a flag split over two lines being one nobody can copy --
+  so each keeps a `_Help` of its own, `argparse` being theirs and nobody else's;
+  and every `SortBy` has an `ORDERINGS` phrase naming a direction, which
+  `--sort-by`'s help and the form's pickers both say;
 - the `Dockerfile` pins the versions CI tests against, copies the built UI where
   the server looks, exposes the port it binds and installs the runtime
   dependencies only, and `.dockerignore` keeps out everything `.gitignore` does

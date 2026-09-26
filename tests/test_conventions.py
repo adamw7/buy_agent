@@ -3042,6 +3042,28 @@ def test_the_help_text_argparse_prints_raw_is_wrapped_by_hand(
             )
 
 
+@pytest.mark.parametrize("columns", [60, 70, 80, 90, 100, 120])
+@pytest.mark.parametrize(
+    "parser",
+    [pytest.param(build_parser(), id="cli"), pytest.param(build_server_parser(), id="server")],
+)
+def test_the_help_never_breaks_a_word_at_its_hyphen(
+    parser: argparse.ArgumentParser, columns: int, monkeypatch
+) -> None:
+    """``textwrap`` breaks at a hyphen unless told not to, and that is where every flag
+    here has one: at 80 columns ``--no-cpu-only`` came out as ``--no-`` ending one
+    line and ``cpu-only`` starting the next, and every width split one of its own --
+    ``--max-price``, ``--allowed-host``, the ``dry-run`` a reader would type. A flag
+    broken across two lines is one nobody can copy."""
+    monkeypatch.setenv("COLUMNS", str(columns))
+
+    for line in parser.format_help().splitlines():
+        assert not re.search(r"\w-$", line), (
+            f"{parser.prog} --help at {columns} columns breaks a word at its hyphen: "
+            f"{line.strip()!r}"
+        )
+
+
 # -- the front end's own checks ------------------------------------------------
 
 _UI_TSCONFIG = _ROOT / "ui" / "tsconfig.json"

@@ -6,6 +6,7 @@ import argparse
 import json
 import logging
 import sys
+import textwrap
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, get_args
@@ -146,6 +147,16 @@ def _checked(check: Callable[[str], object]) -> Callable[[str], str]:
     return parse
 
 
+class _Help(argparse.RawDescriptionHelpFormatter):
+    """Wraps a flag's help between words and never inside one: textwrap breaks at a
+    hyphen, which left ``--no-`` ending one line and ``cpu-only`` starting the next --
+    a flag, or a value like ``dry-run``, that nobody can copy -- at whatever width the
+    terminal happened to be."""
+
+    def _split_lines(self, text: str, width: int) -> list[str]:
+        return textwrap.wrap(" ".join(text.split()), width, break_on_hyphens=False)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="buy_agent",
@@ -165,7 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {PAYMENT_FAILED}  --pay was asked for and nothing was bought\n"
             "  130  interrupted with Ctrl-C\n"
         ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=_Help,
     )
     parser.add_argument("request", help="What you want to buy, in plain words.")
     parser.add_argument(
