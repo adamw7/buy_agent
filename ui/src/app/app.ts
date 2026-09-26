@@ -107,7 +107,8 @@ export class App {
     const defaults = this.defaults();
     return (defaults?.sort_options ?? []).map((name) => ({
       name,
-      label: defaults?.sort_labels[name] ?? name,
+      // A server older than the page -- a build under one still running -- sends none.
+      label: defaults?.sort_labels?.[name] ?? name,
     }));
   });
 

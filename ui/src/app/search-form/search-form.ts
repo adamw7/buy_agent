@@ -257,7 +257,8 @@ export class SearchForm {
   protected readonly sortOptions = computed(() => {
     const defaults = this.defaults();
     const names: SortBy[] = defaults?.sort_options ?? ['score', 'price', 'rating'];
-    return names.map((name) => ({ name, label: defaults?.sort_labels[name] ?? name }));
+    // A server older than the page -- a build under one still running -- sends none.
+    return names.map((name) => ({ name, label: defaults?.sort_labels?.[name] ?? name }));
   });
 
   protected readonly providerOptions = computed<ProviderOption[]>(

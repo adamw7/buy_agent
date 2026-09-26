@@ -723,6 +723,25 @@ describe('SearchForm', () => {
     ]);
   });
 
+  it('lists the criteria by name for a server too old to send their labels', async () => {
+    /* `ng build` writes under a server that may still be running the code from
+       before it: one missing field is no reason to take the whole form down. */
+    const older = { ...DEFAULTS } as Partial<AgentDefaults>;
+    delete older.sort_labels;
+    const next = TestBed.createComponent(SearchForm);
+    next.componentRef.setInput('defaults', older);
+    await next.whenStable();
+
+    const select = (next.nativeElement as HTMLElement).querySelector<HTMLSelectElement>(
+      'select[name="sortBy"]',
+    )!;
+    expect([...select.options].map((option) => option.textContent!.trim())).toEqual([
+      'score',
+      'price',
+      'rating',
+    ]);
+  });
+
   it('ignores a provider the server no longer offers, and its pair with it', async () => {
     /* A provider dropped from the table -- or a name this build never had --
        leaves the picker matching nothing, which takes the model and address
