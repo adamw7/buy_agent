@@ -31,7 +31,7 @@ from buy_agent.money import CODES
 from buy_agent.payment import PaymentError
 from buy_agent.providers import PROVIDERS, provider_for
 from buy_agent.rails import RAILS, rail_for
-from buy_agent.ranking import SortBy
+from buy_agent.ranking import ORDERINGS, SortBy
 from buy_agent.search import BACKENDS, SearchError, backend_for
 from buy_agent.sources import parse_named_sources, parse_sources
 
@@ -190,7 +190,10 @@ def build_parser() -> argparse.ArgumentParser:
         # Read off the type, so it matches rank_products.
         choices=get_args(SortBy),
         default="score",
-        help="Ranking criterion (default: score, a blend of rating, reviews and price).",
+        # Each with its direction, off the table the report's heading reads.
+        help="How to order the report: "
+        + ", ".join(f"{name} for {phrase}" for name, phrase in ORDERINGS.items())
+        + " (default: score, a blend of rating, reviews and price).",
     )
     parser.add_argument(
         "--region",

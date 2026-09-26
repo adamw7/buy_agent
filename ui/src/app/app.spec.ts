@@ -933,6 +933,20 @@ describe('App results', () => {
     expect(select.value).toBe('score');
   });
 
+  it('names each criterion by the order it puts the products in', async () => {
+    /* Beside "Top 2 of 3" this control is the only thing on the page saying what
+       order the cards are in, and "price" does not say which end comes first. */
+    const page = (await finished()).nativeElement as HTMLElement;
+    const select = page.querySelector<HTMLSelectElement>('select[name="resort"]')!;
+
+    expect([...select.options].map((option) => option.textContent!.trim())).toEqual([
+      'Best score first',
+      'Cheapest first',
+      'Best rated first',
+    ]);
+    expect(select.selectedOptions[0]!.textContent!.trim()).toBe('Best score first');
+  });
+
   it('re-orders a finished run without searching for it again', async () => {
     /* The whole point: the products are already on the page, and reordering them
        used to cost another search, ten more page fetches and another extraction

@@ -252,9 +252,13 @@ export class SearchForm {
     merchantUrl: setting(this.merchantUrl, (d) => d.merchant_url, asText),
   };
 
-  protected readonly sortOptions = computed<SortBy[]>(
-    () => this.defaults()?.sort_options ?? ['score', 'price', 'rating'],
-  );
+  /** Each criterion named by the order it puts a run in: "price" alone cannot say
+   *  cheapest from dearest. By name only until the defaults have said. */
+  protected readonly sortOptions = computed(() => {
+    const defaults = this.defaults();
+    const names: SortBy[] = defaults?.sort_options ?? ['score', 'price', 'rating'];
+    return names.map((name) => ({ name, label: defaults?.sort_labels[name] ?? name }));
+  });
 
   protected readonly providerOptions = computed<ProviderOption[]>(
     () => this.defaults()?.provider_options ?? [],

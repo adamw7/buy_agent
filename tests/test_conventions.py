@@ -292,6 +292,26 @@ def _typescript_sort_union() -> str:
     return match.group(1)
 
 
+def test_both_doors_say_which_end_of_each_criterion_comes_first() -> None:
+    """In the words the report's heading uses. A criterion's name does not carry its
+    direction -- ``price`` is cheapest first here and could as well be dearest -- so
+    the form's two pickers list ``sort_labels`` rather than the names, and
+    ``--sort-by`` spells the same phrases out where ``choices`` shows only the names.
+    """
+    cli = {action.dest: action for action in build_parser()._actions}["sort_by"]
+    explained = " ".join((cli.help or "").split())
+    labels = defaults_payload()["sort_labels"]
+
+    for criterion, phrase in ORDERINGS.items():
+        assert f"{criterion} for {phrase}" in explained, (
+            f"--sort-by offers {criterion!r} without saying it means {phrase!r}"
+        )
+        assert labels[criterion].lower() == phrase, (
+            f"the form lists {criterion!r} as {labels[criterion]!r}; the report says "
+            f"{phrase!r}"
+        )
+
+
 # -- the ranges a request is held to -------------------------------------------
 
 

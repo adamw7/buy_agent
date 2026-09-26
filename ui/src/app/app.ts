@@ -101,8 +101,15 @@ export class App {
     return result ? result.products.slice(0, result.top_n) : [];
   });
 
-  /** The criteria a finished run may be re-sorted by, from the server. */
-  protected readonly sortOptions = computed<SortBy[]>(() => this.defaults()?.sort_options ?? []);
+  /** The criteria a finished run may be re-sorted by, from the server, each named by the
+   *  order it puts the products in: "price" alone cannot say cheapest from dearest. */
+  protected readonly sortOptions = computed(() => {
+    const defaults = this.defaults();
+    return (defaults?.sort_options ?? []).map((name) => ({
+      name,
+      label: defaults?.sort_labels[name] ?? name,
+    }));
+  });
 
   /** Everything the agent found beyond those, kept because it was still ranked. */
   protected readonly rest = computed(() => {

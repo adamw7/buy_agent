@@ -898,11 +898,14 @@ was ever held to.
   field name cannot say -- and `BuyAgent.run` hands `log_top_products` the
   `sort_by` it ranked with, so the heading cannot drift from the order beneath
   it. Sorted by rating the block reads 0.68, 0.98, 0.83 down the left edge, which
-  is a ranking that looks broken until the heading explains it; the browser has
-  the criterion in a control beside the results and a `> top.txt` had nothing at
-  all. Named for `score` too, since a report is read by whoever was handed it and
-  not only by whoever typed the command. A fourth criterion needs a phrase there,
-  which `tests/test_conventions.py` holds against `SortBy`.
+  is a ranking that looks broken until the heading explains it; a `> top.txt` had
+  nothing at all. Named for `score` too, since a report is read by whoever was
+  handed it and not only by whoever typed the command. The browser's control
+  beside the results is its heading, and it said "price" -- so `defaults_payload`
+  sends the same phrases as `sort_labels`, both of the form's ordering pickers
+  list those rather than the names, and `--sort-by`'s help spells each one out
+  where `choices` shows only the names. A fourth criterion needs a phrase there,
+  which `tests/test_conventions.py` holds against `SortBy` and against both doors.
 - **The report is output; the progress is narration.** `logging_setup` splits
   them by handler rather than by logger: `log_top_products` marks its records
   and they go to stdout, everything else to the stderr handler `basicConfig`
@@ -1703,7 +1706,7 @@ the other is otherwise invisible to both suites. It asserts that
 - every flag of either parser that takes a value and has a default names it in
   its help, `--help` being the CLI's only documentation and a default left out a
   fact with nowhere else to be read; and every `SortBy` has an `ORDERINGS` phrase
-  naming a direction;
+  naming a direction, which `--sort-by`'s help and the form's pickers both say;
 - the `Dockerfile` pins the versions CI tests against, copies the built UI where
   the server looks, exposes the port it binds and installs the runtime
   dependencies only, and `.dockerignore` keeps out everything `.gitignore` does

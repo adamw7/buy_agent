@@ -36,7 +36,7 @@ from buy_agent.payment import (
 )
 from buy_agent.providers import PROVIDERS, provider_options
 from buy_agent.rails import RAILS, rail_options
-from buy_agent.ranking import RankingWeights, SortBy, rank_products
+from buy_agent.ranking import ORDERINGS, RankingWeights, SortBy, rank_products
 from buy_agent.screenshots import ScreenshotError
 from buy_agent.search import BACKENDS, SearchError, backend_options
 from buy_agent.sources import Source, format_sources, parse_sources
@@ -359,6 +359,9 @@ def defaults_payload(*, screenshots: bool = False) -> dict[str, Any]:
         "screenshots": screenshots,
         "sort_by": "score",
         "sort_options": list(SORT_OPTIONS),
+        # Each criterion as the order it puts a run in, the report's own words: a
+        # picker reading "price" cannot say cheapest from dearest.
+        "sort_labels": {name: phrase.capitalize() for name, phrase in ORDERINGS.items()},
         "limits": limits_payload(),
     }
 

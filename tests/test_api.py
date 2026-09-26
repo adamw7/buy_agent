@@ -26,7 +26,7 @@ from buy_agent.api import (
 )
 from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.models import Offer, Product, Removal, nothing_recorded
-from buy_agent.ranking import RankingWeights, rank_products
+from buy_agent.ranking import ORDERINGS, RankingWeights, rank_products
 from buy_agent.providers import LITELLM, VLLM
 from buy_agent.screenshots import ScreenshotError
 from buy_agent import money
@@ -979,6 +979,17 @@ def test_defaults_payload_matches_the_config() -> None:
     assert payload["sort_options"] == ["score", "price", "rating"]
     # One text field holding all of them, which is what the form sends back.
     assert payload["sources"] == ""
+
+
+def test_the_defaults_name_every_criterion_by_the_order_it_produces() -> None:
+    """The two ordering controls list these, and "price" alone does not say cheapest
+    from dearest: the half of an ordering the report's heading says (ADR-0012)."""
+    labels = defaults_payload()["sort_labels"]
+
+    assert list(labels) == defaults_payload()["sort_options"]
+    assert labels["price"] == "Cheapest first"
+    for criterion, label in labels.items():
+        assert label.lower() == ORDERINGS[criterion]
 
 
 def test_the_defaults_carry_every_provider_with_its_own_pair() -> None:

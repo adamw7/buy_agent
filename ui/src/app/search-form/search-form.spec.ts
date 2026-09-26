@@ -707,6 +707,22 @@ describe('SearchForm', () => {
     expect(form.querySelector<HTMLSelectElement>('select[name="sortBy"]')!.value).toBe('price');
   });
 
+  it("names each rank criterion by the order it produces, in Python's words", async () => {
+    /* "price" was the whole of what the option said, and it does not say cheapest
+       from dearest -- the half of an ordering a field name cannot carry. The report
+       has always said it in its heading; the picker now lists the same words. */
+    const form = await seeded();
+    const options = [
+      ...form.querySelector<HTMLSelectElement>('select[name="sortBy"]')!.options,
+    ].map((option) => [option.value, option.textContent!.trim()]);
+
+    expect(options).toEqual([
+      ['score', 'Best score first'],
+      ['price', 'Cheapest first'],
+      ['rating', 'Best rated first'],
+    ]);
+  });
+
   it('ignores a provider the server no longer offers, and its pair with it', async () => {
     /* A provider dropped from the table -- or a name this build never had --
        leaves the picker matching nothing, which takes the model and address

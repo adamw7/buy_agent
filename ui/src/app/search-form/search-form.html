@@ -232,8 +232,8 @@
       <label class="field">
         <span>Rank by</span>
         <select name="sortBy" [(ngModel)]="sortBy" [disabled]="running()">
-          @for (option of sortOptions(); track option) {
-            <option [value]="option">{{ option }}</option>
+          @for (option of sortOptions(); track option.name) {
+            <option [value]="option.name">{{ option.label }}</option>
           }
         </select>
         <!-- Which run this one is about. A finished run has a control of its own

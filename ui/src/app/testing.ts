@@ -134,6 +134,7 @@ export function defaults(overrides: Partial<AgentDefaults> = {}): AgentDefaults 
     spend_limit: null,
     sort_by: 'score',
     sort_options: ['score', 'price', 'rating'],
+    sort_labels: { score: 'Best score first', price: 'Cheapest first', rating: 'Best rated first' },
     limits: LIMITS,
     ...overrides,
   };
