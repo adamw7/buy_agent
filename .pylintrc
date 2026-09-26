@@ -17,7 +17,8 @@ extension-pkg-allow-list = lxml.etree
 
 # The optional AP2 SDK and the two libraries it signs with. `mandates.py` defers
 # every one of those imports because a checkout may not have them (ADR-0046), and
-# the suite answers an absent SDK by skipping 73 tests rather than failing them.
+# the suite answers an absent SDK by skipping the tests that need it rather than
+# failing them.
 # Left resolvable, this is the one check here that would be red on a checkout the
 # tests call fine -- and it would be red only where the SDK is missing, which is
 # the machine least able to do anything about it. Playwright is the same answer for

@@ -390,7 +390,6 @@ def enrich(
     failures = summarise_failures(page.problem for page in pages if page.problem)
     logger.log(
         # Nothing read means grounding will blank every figure.
-
         logging.WARNING if urls and not with_content else logging.INFO,
         "Got usable page text from %d of %d result(s)%s%s",
         with_content,

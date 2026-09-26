@@ -513,7 +513,6 @@ def provider_for(name: str) -> Provider:
 
 def provider_options() -> list[dict[str, object]]:
     """Every provider, as the form's picker needs it."""
-
     return [
         {
             "name": server.name,

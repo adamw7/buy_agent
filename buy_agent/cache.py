@@ -226,7 +226,6 @@ def remember_answers(
     deterministic: bool,
 ) -> ChatModel:
     """``model``, cached on disk when the run is deterministic (ADR-0044)."""
-
     if not deterministic:
         return model
     cache = open_cache(ANSWERS, ttl)

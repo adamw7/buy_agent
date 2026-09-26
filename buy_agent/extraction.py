@@ -313,7 +313,6 @@ def _fill_gaps(winner: Product, loser: Product) -> dict[str, object]:
             updates.update({name: getattr(loser, name) for name in qualifiers})
         elif ours is not None and ours == theirs:
             # Same figure on both, so the loser's qualifiers describe it too.
-
             updates.update(
                 {
                     name: getattr(loser, name)

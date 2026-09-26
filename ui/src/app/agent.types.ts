@@ -324,7 +324,6 @@ export interface PayOptions {
   merchant_url?: string;
   spend_limit?: number | null;
   /** The run's currency, as a re-sort sends it. */
-
   currency?: string;
 }
 

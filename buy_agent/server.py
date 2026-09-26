@@ -39,9 +39,9 @@ from buy_agent.api import (
 from buy_agent.config import DEFAULT_BACKEND, DEFAULT_PROVIDER, DEFAULT_RAIL
 from buy_agent.logging_setup import configure_logging
 from buy_agent.providers import PROVIDERS, provider_for
+from buy_agent.rails import rail_for
 from buy_agent.screenshots import INSTALL, Camera, available
 from buy_agent.search import backend_for
-from buy_agent.rails import rail_for
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -365,7 +365,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         # As in ``do_GET``.
         # pylint: disable-next=broad-exception-caught
         except Exception as exc:
-            logger.exception("Unexpected failure during a search")
+            logger.exception("Unexpected failure answering %s", url.path)
             self._send_json(500, _unexpected(exc))
 
     # The base class dispatches on the verb's name.
@@ -876,7 +876,6 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("buy_agent UI on %s", _browsable_url(str(host), port))
     if not (args.ui_dir / "index.html").is_file():
         # The remedy the 503 page quotes.
-
         logger.warning(
             "No built UI at %s -- the API works, but the page will not. %s",
             args.ui_dir,

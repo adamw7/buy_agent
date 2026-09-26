@@ -1572,6 +1572,13 @@ def test_every_text_file_is_checked_out_with_lf() -> None:
     assert "* text=auto eol=lf" in gitattributes()
 
 
+def opens_with_a_nul(path: Path) -> bool:
+    """Whether a NUL byte is in the file's first 8 KiB, read without the rest: ``demo/``
+    alone holds twenty megabytes of recordings."""
+    with path.open("rb") as handle:
+        return b"\0" in handle.read(8192)
+
+
 def test_every_binary_file_in_the_tree_is_marked_binary() -> None:
     """``text=auto`` guesses, and a guess that reads an image as text rewrites its bytes on
     the way out. Found by looking for a NUL byte, which no text file here holds --
@@ -1580,9 +1587,7 @@ def test_every_binary_file_in_the_tree_is_marked_binary() -> None:
         path.suffix
         for directory in ("docs", "demo", "ui/public", "ui/src")
         for path in (_ROOT / directory).rglob("*")
-        if path.is_file()
-        and "__pycache__" not in path.parts
-        and b"\0" in path.read_bytes()[:8192]
+        if path.is_file() and "__pycache__" not in path.parts and opens_with_a_nul(path)
     }
 
     assert found, "no binary file in the tree; this rule has outlived itself"

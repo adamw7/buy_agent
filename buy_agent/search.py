@@ -330,7 +330,6 @@ def search_web(
                     f"Web search failed for {query!r}: {backend.hint(backend, exc)}"
                 ) from exc
             # WARNING: this is the failure the run nearly ended on.
-
             logger.warning(
                 "Web search failed for %r (%s); asking again in %.0fs",
                 query,

@@ -433,7 +433,7 @@ way it is.
   mutating the answer key is a different question from mutating the code it
   scores, and `scripts/start.ps1` is not Python at all -- its gate is
   `tests/test_start_script.py`.
-- `.pylintrc` is the one of the four that holds no number: the linter has to come
+- `.pylintrc` is the first of the three that hold no number: the linter has to come
   out with no message at all. Every check this project has answered differently
   is turned off there with the answer, and every line the tool misreads carries a
   `# pylint: disable` and the sentence saying why (ADR-0048). Which checks *run*
@@ -458,8 +458,8 @@ way it is.
   a branch floor there would measure the instrumentation. Don't add one -- and
   the two it is silent about, `branches` and `functions`, are left out rather
   than set low, an omitted threshold being the only one that cannot drift.
-- `ui/tsconfig.json` says how much `npm run build` checks, which is one of the
-  two of the six that are not a number: `strict` is the family, shared by the app and
+- `ui/tsconfig.json` says how much `npm run build` checks, which is the second of
+  the three that are not a number: `strict` is the family, shared by the app and
   the specs, `strictTemplates` beside it is that family over the bindings and is
   shared for the same reason -- a component's template is checked from the
   outside, so a spec rendering it is compiled against the same class -- and
@@ -1033,7 +1033,7 @@ model may have run out of (ADR-0019). Caught there rather than in `_invoke`,
 which the recoverable step goes through too: a fumbled query still falls back to
 the raw request.
 
-### Options, and the nine that are special
+### Options, and the ten that are special
 
 **A setting is one row in one table too**, and the same table for both doors:
 `api.OPTIONS` says which request key each carries, which `AgentConfig` field it

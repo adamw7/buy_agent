@@ -143,9 +143,7 @@ class Product(BaseModel):
         return dedup_key(self.name)
 
     def price_label(self) -> str:
-        if self.price is None:
-            return "price unknown"
-        return amount_label(self.price, self.currency)
+        return price_label(self.price, self.currency)
 
     def rating_label(self) -> str:
         if self.rating is None:
@@ -246,6 +244,12 @@ def dedup_key(name: str) -> str:
     """Loose identity for a product name: same modulo case, punctuation and spacing.
     Also used by :mod:`buy_agent.journal` (ADR-0060)."""
     return _WHITESPACE.sub(" ", _PUNCTUATION.sub(" ", name.lower())).strip()
+
+
+def price_label(price: float | None, currency: str | None) -> str:
+    """A price as every surface writes it, an unknown one included (ADR-0012). Also
+    used by :mod:`buy_agent.journal` (ADR-0060)."""
+    return "price unknown" if price is None else amount_label(price, currency)
 
 
 def _clean(value: str) -> str:

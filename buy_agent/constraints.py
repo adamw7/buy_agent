@@ -119,7 +119,6 @@ class Constraints:
             kept = [index for index in inside if self.admits(products[index], currency)]
             # An empty set has no currency, so report the one that emptied it: the log
             # line must name it.
-
             if not kept or len(kept) == len(inside):
                 return kept, currency
             inside = kept

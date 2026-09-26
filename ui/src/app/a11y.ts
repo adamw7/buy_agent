@@ -70,7 +70,6 @@ export async function accessibilityProblems(
   const unknown = rules.filter((rule) => !known.has(rule));
   if (unknown.length) {
     // `runOnly` silently drops an unknown rule, which would pass.
-
     throw new Error(`not rules axe knows about: ${unknown.join(', ')}`);
   }
 

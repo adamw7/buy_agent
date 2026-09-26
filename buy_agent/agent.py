@@ -38,9 +38,6 @@ logger = logging.getLogger(__name__)
 #: Called with the name of each step about to start (ADR-0034).
 Checkpoint: TypeAlias = "Callable[[str], None]"
 
-#: How the web-facing steps wait before a retry (ADR-0053).
-Wait: TypeAlias = "Callable[[float], None]"
-
 
 def every_step_passes(_step: str) -> None:
     """The default checkpoint: every boundary passes."""
@@ -321,7 +318,6 @@ class BuyAgent:
 
     def _invoke(self, chain: Chain[Any], payload: dict[str, Any]) -> Any:
         """Invoke a chain; transport errors become an actionable message (ADR-0009)."""
-
         server = self.config.model_server
         try:
             return chain.invoke(payload)
