@@ -255,6 +255,11 @@ export class App {
     this.run = this.agent.search(options).subscribe({
       next: (event) => {
         if (event.kind === 'log') {
+          // The first line, not the click: a run refused before it opens logs none,
+          // and the box it marks is in the form this would scroll away from.
+          if (!this.logs().length) {
+            this.reveal('app-progress-log');
+          }
           this.logs.update((lines) => [...lines, event.line]);
         } else if (event.kind === 'result') {
           this.result.set(event.result);
@@ -263,11 +268,16 @@ export class App {
           this.failure.set(event.message);
           // So the form can mark that box (ADR-0033).
           this.rejected.set(event.field ? { field: event.field, message: event.message } : null);
+          // A refusal is said on its box, and the form opens the panel it is in.
+          if (!event.field) {
+            this.reveal('.banner.failed');
+          }
         }
       },
       error: (error: Error) => {
         this.failure.set(error.message);
         this.running.set(false);
+        this.reveal('.banner.failed');
       },
       complete: () => this.running.set(false),
     });
@@ -282,6 +292,21 @@ export class App {
           landed.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
         }
       },
+      { injector: this.injector },
+    );
+  }
+
+  /** Scroll a panel the run just drew as little as shows it whole, which is not at all
+   *  where it already is. With Settings open -- and a budget in the request opens them
+   *  by itself -- the form alone is taller than a laptop's window, so the progress and
+   *  the failure both landed below the fold, and a click that started a run looked like
+   *  one that did nothing. */
+  private reveal(selector: string): void {
+    afterNextRender(
+      () =>
+        this.host.nativeElement
+          .querySelector(selector)
+          ?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' }),
       { injector: this.injector },
     );
   }

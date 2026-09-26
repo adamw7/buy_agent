@@ -447,29 +447,6 @@ describe('App', () => {
     expect(page.querySelector('.also summary')!.textContent).toContain('1 more');
   });
 
-  it('brings the results into view when they land below the fold', async () => {
-    /* jsdom lays nothing out, so where an element sits is stubbed: below the
-       window for the first run, in view for the second. */
-    const scrolled = vi.fn();
-    const proto = HTMLElement.prototype as HTMLElement & { scrollIntoView?: unknown };
-    const original = proto.scrollIntoView;
-    proto.scrollIntoView = scrolled;
-    const where = vi
-      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
-      .mockReturnValue({ top: window.innerHeight + 500 } as DOMRect);
-    try {
-      const fixture = await ran(agent, 'kettle', RESULT);
-      expect(scrolled).toHaveBeenCalledTimes(1);
-
-      where.mockReturnValue({ top: 10 } as DOMRect);
-      await ran(agent, 'toaster', RESULT, fixture);
-      expect(scrolled).toHaveBeenCalledTimes(1);
-    } finally {
-      where.mockRestore();
-      proto.scrollIntoView = original;
-    }
-  });
-
   it('shows a failed run as a message, not as an empty page', async () => {
     const fixture = await render();
     const page = fixture.nativeElement as HTMLElement;
@@ -750,6 +727,125 @@ describe('App', () => {
     await searchFor(fixture, 'kettle');
     fixture.destroy();
     expect(agent.unsubscribed).toBe(true);
+  });
+});
+
+describe('App keeping a run in view', () => {
+  /* With Settings open the form alone is taller than a laptop's window, and a budget
+     in the request opens them by itself -- so everything a run produces lands below
+     the fold, and a click that started one looked like a click that did nothing.
+     jsdom lays nothing out, so each scroll is recorded by what it was asked of and
+     how, and where an element sits is stubbed: below the window unless a test moves
+     it. Whether a panel scrolled as little as `nearest` asks is the browser's to
+     decide, which is the point of asking for it. */
+  let agent: FakeAgent;
+  let top: number;
+  let scrolled: string[];
+  const proto = HTMLElement.prototype as HTMLElement & { scrollIntoView?: unknown };
+  const original = proto.scrollIntoView;
+
+  beforeEach(() => {
+    localStorage.clear();
+    agent = new FakeAgent();
+    TestBed.configureTestingModule({ providers: [{ provide: AgentService, useValue: agent }] });
+    top = window.innerHeight + 500;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+      () => ({ top }) as DOMRect,
+    );
+    scrolled = [];
+    proto.scrollIntoView = function (this: HTMLElement, how?: ScrollIntoViewOptions) {
+      const what = this.matches('app-progress-log')
+        ? 'progress'
+        : this.matches('.banner.failed')
+          ? 'failure'
+          : this.matches('.results')
+            ? 'results'
+            : this.className;
+      scrolled.push(`${what} ${how?.block ?? ''}`);
+    };
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    proto.scrollIntoView = original;
+  });
+
+  const line = (message: string): SearchEvent => ({
+    kind: 'log',
+    line: { time: '18:12:19', level: 'INFO', logger: 'buy_agent.agent', message },
+  });
+
+  const failed = (field: string | null = null): SearchEvent => ({
+    kind: 'failure',
+    message: field ? "'english' is not a search region." : 'Start it with: ollama serve',
+    status: field ? 400 : 503,
+    field,
+  });
+
+  /** Put an event on the run's stream, and let the page draw it. */
+  const send = async (fixture: ComponentFixture<App>, event: SearchEvent) => {
+    agent.stream.next(event);
+    await fixture.whenStable();
+  };
+
+  it('brings the progress into view, whole, with the first line of a run', async () => {
+    const fixture = await render();
+    await searchFor(fixture, 'kettle');
+    expect(scrolled).toEqual([]);
+
+    await send(fixture, line('Shopping for: kettle'));
+    await send(fixture, line('Search returned 10 results'));
+
+    // Once: a reader who scrolls back up to the form is left there.
+    expect(scrolled).toEqual(['progress nearest']);
+  });
+
+  it('brings a failure into view, whole', async () => {
+    const fixture = await render();
+    await searchFor(fixture, 'kettle');
+
+    await send(fixture, failed());
+
+    expect(scrolled).toEqual(['failure nearest']);
+  });
+
+  it('brings a dropped connection into view the way it does a failure', async () => {
+    const fixture = await render();
+    await searchFor(fixture, 'kettle');
+
+    agent.stream.error(new Error('Lost the connection to the agent. Is it still running?'));
+    await fixture.whenStable();
+
+    expect(scrolled).toEqual(['failure nearest']);
+  });
+
+  it('leaves a refusal on the box it marks, rather than scrolling to the banner', async () => {
+    /* A run refused before it opens logs nothing, and the form opens its panel on the
+       marked box -- the banner below the form says the same sentence, and scrolling
+       to it would take the box out of view. */
+    const fixture = await render();
+    await searchFor(fixture, 'kettle');
+
+    await send(fixture, failed('region'));
+
+    expect(fixture.nativeElement.querySelector('input[name="region"]').classList).toContain(
+      'invalid',
+    );
+    expect(scrolled).toEqual([]);
+  });
+
+  it('brings the results into view when they land below the fold, and only then', async () => {
+    const fixture = await ran(agent, 'kettle', RESULT);
+    expect(scrolled).toEqual(['results start']);
+
+    // A stream of its own, so the second run really lands: this time in view.
+    agent.stream = new Subject<SearchEvent>();
+    top = 10;
+    await ran(agent, 'toaster', RESULT, fixture);
+
+    expect(agent.searched).toHaveLength(2);
+    expect(fixture.nativeElement.querySelector('.results')).not.toBeNull();
+    expect(scrolled).toEqual(['results start']);
   });
 });
 

@@ -72,7 +72,7 @@
   />
 
   @if (failure(); as message) {
-    <p class="card banner" role="alert">{{ message }}</p>
+    <p class="card banner failed" role="alert">{{ message }}</p>
   }
 
   @if (started()) {

@@ -104,6 +104,16 @@ It follows the tail the way a terminal does, but only while the reader is at it:
 the scroll handler sets `sticking` from how far the panel is from the bottom, so
 a reader who scrolled up to re-read a finished step is left there.
 
+`App` brings it into view with the run's first line, scrolling as little as shows
+it whole. With Settings open -- and a budget in the request opens them by itself
+-- the form alone is taller than a laptop's window, so the panel used to land
+below the fold and **Find products** looked like a button that had done nothing.
+That is also why it holds the height it will grow to while the run is going:
+growing a line at a time, it crept back under the fold newest lines first. A
+failure's banner is brought into view the same way. A refusal is not: it logs
+nothing, and the form marks the box it names and opens the panel that box is in,
+which scrolling to the banner repeating it would take out of view.
+
 It offers **Download log** for a run that failed and for one the reader stopped,
 and for no other -- a run that finished is on the page in front of you, while
 those two leave nothing there at all, and the reason to stop one is usually that
