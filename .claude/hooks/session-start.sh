@@ -100,6 +100,12 @@ keep_on_path "$node_bin"
 # a copy of it newer than the lockfile is a tree already installed from that
 # lockfile -- which is a resumed session, where a reinstall is half a minute spent
 # to change nothing. A missing marker is the cold container this hook is for.
+#
+# `npm ci` and not `npm install`, as in ci.yml and scripts/setup.ps1: it installs
+# the lockfile as written, where `npm install` under the pinned Node's npm rewrote
+# it -- every `libc` field gone -- leaving each session a diff in a file nobody
+# touched. And since restoring that file makes it newer than the marker, the next
+# resume reinstalled and rewrote it again.
 ui="ui/ has no package.json"
 installed="$root/ui/node_modules/.package-lock.json"
 if [ -f "$root/ui/package.json" ]; then
@@ -107,10 +113,10 @@ if [ -f "$root/ui/package.json" ]; then
     ui="ui/node_modules is installed"
   else
     say "session-start: installing ui/ dependencies."
-    if (cd "$root/ui" && npm install --no-audit --no-fund >&2); then
+    if (cd "$root/ui" && npm ci --no-audit --no-fund >&2); then
       ui="ui/node_modules is installed"
     else
-      ui="npm install in ui/ FAILED -- run it by hand before trusting a UI test run"
+      ui="npm ci in ui/ FAILED -- run it by hand before trusting a UI test run"
     fi
   fi
   say "session-start: $ui."

@@ -521,7 +521,9 @@ Node below the one `ci.yml` pins, which the Angular CLI refuses outright, so
 every session used to open by hunting for another interpreter and finding none.
 The hook fetches the pinned build into `/opt/node-<version>`, leaves it on
 `$PATH` through `$CLAUDE_ENV_FILE` -- the Bash tool starting a fresh shell per
-call, so exporting it is not enough -- and runs `npm install` in `ui/`. Those
+call, so exporting it is not enough -- and runs `npm ci` in `ui/`, the command
+`ci.yml` runs, since `npm install` under that Node's npm rewrites the lockfile and
+left every session a diff in a file nobody touched. Those
 images ship no Python dependencies at all, so it does the other half too, which
 is `ci.yml`'s Python job and not a second opinion about it: a `.venv`,
 `requirements-dev.txt`, and then the AP2 SDK in an install of its own for the

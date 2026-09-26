@@ -1388,6 +1388,26 @@ def test_the_session_hook_installs_requirements_files_that_are_there() -> None:
         assert (_ROOT / name).is_file(), f"the session hook installs a file that is not there: {name}"
 
 
+def ui_installs_in_ci() -> list[str]:
+    """The npm verb each of ci.yml's install steps runs in ``ui/``."""
+    installs = re.findall(
+        r"^      - name: Install.*\n        run: npm (\S+)$", _CI.read_text(encoding="utf-8"), re.M
+    )
+
+    assert installs, "ci.yml installs the UI with no npm command; this rule has moved"
+    return installs
+
+
+def test_the_session_hook_installs_the_ui_the_way_ci_does() -> None:
+    """``npm install`` under the pinned Node's npm rewrote the lockfile, so every session
+    opened on a diff in a file nobody touched -- and restoring it made the lockfile newer
+    than the install marker, so the next resume installed and rewrote it again."""
+    runs = re.findall(r'cd "\$root/ui" && npm (\S+)', session_hook())
+
+    assert runs, "the session hook runs no npm command in ui/; this rule has moved"
+    assert set(runs) == set(ui_installs_in_ci())
+
+
 def test_the_session_hook_reads_both_toolchain_pins_out_of_ci() -> None:
     """`ci.yml` is the one pin the Dockerfile, the startup script and docs/testing.md
     already chase, and a hook writing either version down again is a fifth copy -- one
@@ -1461,12 +1481,7 @@ def test_the_setup_script_asks_python_whether_paying_is_available() -> None:
 def test_the_setup_script_installs_the_ui_the_way_ci_does() -> None:
     """``npm ci`` installs the lockfile as written; ``npm install`` may rewrite it, which
     is a first-day diff in a file nobody meant to touch."""
-    installs = re.findall(
-        r"^      - name: Install.*\n        run: npm (\S+)$", _CI.read_text(encoding="utf-8"), re.M
-    )
-
-    assert installs, "ci.yml installs the UI with no npm command; this rule has moved"
-    for verb in installs:
+    for verb in ui_installs_in_ci():
         assert f"Run 'npm' @('{verb}'" in setup_script(), f"the setup script never runs npm {verb}"
 
 

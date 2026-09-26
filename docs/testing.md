@@ -27,7 +27,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-2795 Python tests and 276 UI tests. Nothing in either suite touches the network
+2796 Python tests and 276 UI tests. Nothing in either suite touches the network
 or a model server: the model is faked through the `llm=` argument of `BuyAgent`
 -- a class with one `answer` method, which is the whole of `chat.ChatModel`,
 both the search backend and the page fetcher are monkeypatched -- the backends'
@@ -70,8 +70,8 @@ Without that SDK the 76 tests that need it **skip**, the way
 import. `needs_powershell` is the other, and with neither `pwsh` nor
 `powershell` on PATH 16 of the 22 tests in that file sit out, and all 4 in
 `tests/test_setup_scripts.py`. So a machine with
-the SDK and no PowerShell reads `2775 passed, 20 skipped`, and a checkout set up
-with `requirements-dev.txt` alone reads `2699 passed, 96 skipped` rather than 76
+the SDK and no PowerShell reads `2776 passed, 20 skipped`, and a checkout set up
+with `requirements-dev.txt` alone reads `2700 passed, 96 skipped` rather than 76
 failures claiming the project is broken when one optional feature is simply not
 installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide
