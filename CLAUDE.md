@@ -986,11 +986,12 @@ and found nothing, which a shell told 1 could not tell from a stopped model
 server. `PAYMENT_FAILED` (4) is a run that was asked to pay and did not. 2 is
 argparse's own. So the codes a script branches on are the six `--help` ends by
 listing. `main` has a second, unrelated `except` for an `OSError` from writing
-the `--json` file, which is why `tests/test_conventions.py` reads the handlers
-of the `try` holding the `.run()` call rather than every handler in the
-function. `api._STATUS` maps the same three onto HTTP statuses (400, 503, 502).
-A new failure mode needs handling in all three places, or it reaches the user as
-a traceback and the browser as a 500.
+the `--json` file -- a disk refusing it once the run is over, a missing directory
+being the flag's usage error -- which is why `tests/test_conventions.py` reads
+the handlers of the `try` holding the `.run()` call rather than every handler in
+the function. `api._STATUS` maps the same three onto HTTP statuses (400, 503,
+502). A new failure mode needs handling in all three places, or it reaches the
+user as a traceback and the browser as a 500.
 
 A *payment* fails at its own door and is deliberately not a fourth row there
 (ADR-0046). `payment.PaymentError` is the one thing paying raises --
@@ -1066,7 +1067,11 @@ excepted -- there the flag is the right name for the flag.
   and read by both doors: written on each of them, the CLI comes to accept what
   the API refuses. On the CLI the check is a `type` function, so an out-of-range
   number is a usage error rather than a minute wasted;
-  `tests/test_conventions.py` asserts the two doors refuse the same numbers.
+  `tests/test_conventions.py` asserts the two doors refuse the same numbers, and
+  text where a number goes in the same words -- `api.number_kind`'s, "must be a
+  number", where argparse left alone names the converter ("invalid float value").
+  `--json` is held to the same rule though it is no setting: its `type` refuses a
+  directory that is not there, the file being written only once the run is over.
 - **`region`** is the same rule for a shape rather than a range: `config.REGION`
   is a country and then a language (`us-en`, `pl-pl`, three-letter `hk-tzh`),
   `config.parse_region` is the only place it is checked, and both doors go

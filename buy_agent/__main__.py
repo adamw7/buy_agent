@@ -12,7 +12,7 @@ from typing import Any, get_args
 
 from buy_agent import mandates, payment
 from buy_agent.agent import BuyAgent, ModelUnavailableError, journal_for
-from buy_agent.api import OPTIONS, results_payload, takeable
+from buy_agent.api import OPTIONS, number_kind, results_payload, takeable
 from buy_agent.bounds import notice
 from buy_agent.chat import release
 from buy_agent.config import (
@@ -99,20 +99,38 @@ def _provider_defaults(setting: str) -> str:
 
 
 def _bounded(kind: Callable[[str], Any], field: str) -> Callable[[str], Any]:
-    """A number type held to its ``LIMITS`` range, as the API holds it."""
+    """A number type held to its ``LIMITS`` range, and refused in the words the API
+    refuses it with."""
     minimum, maximum = LIMITS[field]
 
     def parse(text: str) -> Any:
-        value = kind(text)  # argparse turns the ValueError into "invalid value"
+        try:
+            value = kind(text)
+        except ValueError as exc:
+            # argparse's own names the converter: "invalid float value".
+            raise argparse.ArgumentTypeError(
+                f"must be {number_kind(kind)}; got {text!r}"
+            ) from exc
         if not minimum <= value <= maximum:
             raise argparse.ArgumentTypeError(
                 f"must be between {minimum} and {maximum}; got {value}"
             )
         return value
 
-    # So argparse's own message reads "invalid int value".
-    parse.__name__ = kind.__name__
     return parse
+
+
+def _json_file(text: str) -> Path:
+    """A ``--json`` file whose directory is there, checked before the run: written at the
+    end, a typo in the path otherwise costs the whole run first."""
+    path = Path(text)
+    if path.is_dir():
+        raise argparse.ArgumentTypeError(f"{str(path)!r} is a directory; name a file in it")
+    if not path.parent.is_dir():
+        raise argparse.ArgumentTypeError(
+            f"there is no directory {str(path.parent)!r} to write {path.name} into"
+        )
+    return path
 
 
 def _checked(check: Callable[[str], object]) -> Callable[[str], str]:
@@ -392,7 +410,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--json",
-        type=Path,
+        type=_json_file,
         # "--json JSON" would read like a format switch.
         metavar="FILE",
         help="Also write all results, not only the top ones, to this JSON file.",

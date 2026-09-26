@@ -556,6 +556,11 @@ def _bounded(kind: Callable[[str], _Number]) -> Callable[[str, str], _Number]:
     return parse
 
 
+def number_kind(kind: Callable[[str], object]) -> str:
+    """What a number setting holds, in the words both doors refuse anything else with."""
+    return "a whole number" if kind is int else "a number"
+
+
 def _as_number(
     kind: Callable[[str], _Number],
     # Not ``_Number``: the int bounds of a float setting would force ints.
@@ -568,8 +573,9 @@ def _as_number(
     try:
         number = kind(text)
     except ValueError as exc:
-        described = "a whole number" if kind is int else "a number"
-        raise ApiError(f"{key} must be {described}; got {text!r}.", field=key) from exc
+        raise ApiError(
+            f"{key} must be {number_kind(kind)}; got {text!r}.", field=key
+        ) from exc
     if not minimum <= number <= maximum:
         raise ApiError(
             f"{key} must be between {minimum} and {maximum}; got {number}.", field=key

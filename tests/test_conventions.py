@@ -338,6 +338,22 @@ def test_both_front_doors_hold_a_number_to_the_same_range(
             cli_main(["headphones", flag, str(outside)])
 
 
+@pytest.mark.parametrize("key", sorted(limits_payload()))
+def test_both_front_doors_refuse_text_in_a_number_in_the_same_words(
+    key: str, capsys
+) -> None:
+    """Worded at each door on its own, the form was told "must be a number" and the
+    terminal "invalid float value" -- the name of the converter that failed, which
+    is what argparse says when a ``type`` raises ``ValueError``."""
+    with pytest.raises(ApiError) as refused:
+        parse_options({key: "many"})
+    with pytest.raises(SystemExit):
+        cli_main(["headphones", f"--{key.replace('_', '-')}", "many"])
+
+    said = str(refused.value).removeprefix(f"{key} ").rstrip(".")
+    assert said in capsys.readouterr().err
+
+
 def test_a_run_of_the_defaults_is_inside_every_range() -> None:
     """A default the front ends would refuse is one nobody can accept either."""
     defaults = AgentConfig()
