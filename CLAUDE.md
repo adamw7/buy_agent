@@ -1140,7 +1140,10 @@ excepted -- there the flag is the right name for the flag.
   ordinary numbers with one rule of their own: they default to `None`, so a
   blank is not "the default value" but "no bound at all", and a product whose
   figure is unknown passes every one of them (ADR-0039). The form says so rather
-  than showing a fallback number: their placeholder is "No limit". `max_price`
+  than showing a fallback number: their placeholder is "No limit". And each
+  says the second half under its box and in its `--help` -- that a product it
+  cannot judge is still shown -- since a "price unknown" in a run capped at 10
+  otherwise reads as a cap that did not hold. `max_price`
   is read in the currency the run's own prices are counted in, and a price
   outside it is a figure the bound cannot judge -- so it passes too, and the
   line the run logs names the currency (ADR-0043).

@@ -165,17 +165,19 @@ export class SearchForm {
 
   /** Every number field, in the order the form draws them. */
   protected readonly numberFields: NumberField[] = [
+    // Each bound says what it does with a figure no page printed: it keeps the product
+    // (ADR-0039), and a "price unknown" in a run capped at 10 reads as a broken cap.
     field('max_price', 'Max price', this.maxPrice, {
       step: 0.01,
       // Name the scale it is read in.
-      hint: () => `In ${this.scale()}; nothing is converted.`,
+      hint: () => `In ${this.scale()}; nothing is converted. Unpriced products are still shown.`,
     }),
     field('min_rating', 'Min rating', this.minRating, {
       step: 0.1,
       hint: 'Out of 5. Unrated products are still shown.',
     }),
     field('min_reviews', 'Min reviews', this.minReviews, {
-      hint: 'How many reviews a rating has to average.',
+      hint: 'How many reviews a rating has to average. Products with no count are still shown.',
     }),
     field('results', 'Products to find', this.results, { remembersBlank: false }),
     field('top', 'Products to highlight', this.top, { remembersBlank: false }),

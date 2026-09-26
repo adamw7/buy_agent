@@ -275,10 +275,18 @@
         <small>{{ cpuOnlyHint() }}</small>
       </div>
 
-      <label class="field checkbox">
-        <input name="fetch" type="checkbox" [(ngModel)]="fetchPages" [disabled]="running()" />
-        <span>Read the result pages</span>
-      </label>
+      <!-- Its sentence under it, outside the flex row, as the two boxes either side
+           of it have theirs. It was a paragraph at the foot of the panel: below every
+           other setting on a desktop, and a screen away on a phone. -->
+      <div class="field">
+        <label class="checkbox">
+          <input name="fetch" type="checkbox" [(ngModel)]="fetchPages" [disabled]="running()" />
+          <span>Read the result pages</span>
+        </label>
+        <small>
+          Off, only the search snippets are read: much faster, but they rarely quote a price.
+        </small>
+      </div>
 
       <!-- The `small` sits outside the checkbox label, which is a flex row and would
            put the sentence beside the box rather than under it -- as the CPU-only one
@@ -367,11 +375,6 @@
     <p class="hint">
       Naming trusted sources — a site, a section of one, or a YouTube handle — searches those and
       nothing else, so every price, rating and quote comes from a page you chose.
-    </p>
-
-    <p class="hint">
-      Turning off page reading falls back to search snippets: much faster, but snippets rarely quote
-      a price.
     </p>
   </details>
 </form>

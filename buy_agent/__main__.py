@@ -288,7 +288,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=_bounded(int, "min_reviews"),
         default=_DEFAULTS.min_reviews,
         help="Report nothing whose rating was averaged over fewer reviews than "
-        "this (default: no limit). A 5.0 from two people is not a rating.",
+        "this (default: no limit). A 5.0 from two people is not a rating. A rating "
+        "with no count beside it is kept, for the reason unpriced products are.",
     )
     parser.add_argument(
         "--cache-ttl",

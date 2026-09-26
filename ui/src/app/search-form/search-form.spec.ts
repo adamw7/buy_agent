@@ -353,6 +353,16 @@ describe('SearchForm', () => {
     expect(submitted[1].journal).toBe(false);
   });
 
+  it('says under the page-reading box what turning it off costs', async () => {
+    /* The sentence was a paragraph at the foot of the panel, below every other
+       setting -- the one checkbox here with nothing under it. */
+    const box = element<HTMLInputElement>('input[name="fetch"]');
+
+    expect(box.closest('.field')!.querySelector('small')!.textContent).toContain(
+      'rarely quote a price',
+    );
+  });
+
   it('starts from the agent config defaults the server served', async () => {
     expect(element<HTMLInputElement>('input[name="model"]').value).toBe('llama3.2');
     expect(element<HTMLInputElement>('input[name="results"]').value).toBe('10');
@@ -1363,6 +1373,16 @@ describe('SearchForm', () => {
     await choose('select[name="currency"]', 'PLN');
 
     expect(hint()).toContain('In PLN');
+  });
+
+  it('says under every bound that a product it cannot judge is kept', async () => {
+    /* A bound admits a product whose figure no page printed (ADR-0039), so a run capped
+       at 10 can report one reading "price unknown". Min rating always said so; the
+       other two did not, and read as a limit that had not held. */
+    for (const key of ['max_price', 'min_rating', 'min_reviews']) {
+      const hint = element(`input[name="${key}"]`).closest('label')!.querySelector('small')!;
+      expect(hint.textContent).toContain('still shown');
+    }
   });
 
   it('says what a named currency costs a price in any other one', async () => {
