@@ -430,7 +430,6 @@ export class App {
     this.logs.update((lines) => [
       ...lines,
       // The one browser-written line, timed in Python's format.
-
       {
         time: now(),
         level: 'WARNING',

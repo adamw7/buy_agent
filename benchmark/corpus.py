@@ -297,4 +297,3 @@ PAGES: tuple[SearchResult, ...] = (
 
 #: What the shopper typed.
 REQUEST = "comfortable noise cancelling headphones for flights, under $350"
-

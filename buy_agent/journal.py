@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel, ValidationError
 
 from buy_agent.cache import default_dir, file_for, write_atomically
-from buy_agent.models import Product, dedup_key
+from buy_agent.models import Product, dedup_key, price_label
 from buy_agent.money import amount_label
 
 if TYPE_CHECKING:
@@ -63,9 +63,7 @@ class Recorded(BaseModel):
 
     def label(self) -> str:
         """The price as every surface writes it (ADR-0012)."""
-        if self.price is None:
-            return "price unknown"
-        return amount_label(self.price, self.currency)
+        return price_label(self.price, self.currency)
 
 
 class Entry(BaseModel):
@@ -274,7 +272,6 @@ def _forget_the_least_recent(directory: Path, searches: int) -> int:
 
 def _unlink(path: Path) -> bool:
     """Delete a file, saying whether it went."""
-
     try:
         path.unlink()
     except OSError:

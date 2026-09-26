@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:  # pragma: no cover -- import-time typing only
-    from buy_agent.rails import Cart
+if TYPE_CHECKING:
+    from buy_agent.payment import Cart
 
 #: Where the agent's own signing key lives (ADR-0046).
 KEY_PATH = "BUY_AGENT_AP2_KEY"
@@ -262,7 +262,6 @@ def _payment_mandate(cart: Cart, checkout: SignedCheckout, now: int) -> Any:
         payee=Merchant(**cart.merchant_payload()),
         payment_amount=Amount(amount=cart.amount, currency=cart.currency),
         # A reference, never card digits.
-
         payment_instrument=PaymentInstrument(
             id=cart.instrument, type="card", description="Held by the credential provider"
         ),

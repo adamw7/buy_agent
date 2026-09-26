@@ -634,7 +634,6 @@ OPTIONS: tuple[_Option, ...] = (
 )
 
 #: The ``LIMITS`` field bounding each numeric request key (ADR-0033).
-
 _BOUNDED: dict[str, str] = {
     option.key: option.field for option in OPTIONS if option.field in LIMITS
 }

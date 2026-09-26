@@ -10,6 +10,8 @@
         <span class="pill">{{ summary() }}</span>
       }
 
+      <!-- Beside the line count, not in the error banner: the file is the log, and
+           this is where the log is. -->
       @if (keepable()) {
         <button type="button" class="secondary small save" (click)="download()">
           Download log

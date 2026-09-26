@@ -764,7 +764,7 @@ def test_a_handler_does_not_wait_on_a_stalled_client_for_ever(
 
     # Answered rather than dropped, and answered as itself: without the clause
     # that names it, the timeout reached ``do_POST``'s catch-all and was logged
-    # as an "Unexpected failure during a search" over a traceback.
+    # as an unexpected failure over a traceback.
     assert "408" in reply.splitlines()[0]
     assert "Connection: close" in reply
 

@@ -24,9 +24,6 @@ h2 {
   gap: 10px;
 }
 
-/* Offered beside the line count, not in the error banner: the file is the log,
-   and this is where the log is -- `.small`, like the two beside other headings. */
-
 .working {
   color: var(--accent);
 }

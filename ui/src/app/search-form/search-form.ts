@@ -752,7 +752,6 @@ function amongst<T extends string>(
 const asThinking: Parser<Thinking> = (raw) => (raw === 'on' || raw === 'off' ? raw : undefined);
 
 /** `null` seeds `off`, which is what the server does with it anyway. */
-
 function toThinking(value: boolean | null): Thinking {
   return value ? 'on' : 'off';
 }

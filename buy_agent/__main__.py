@@ -38,6 +38,7 @@ from buy_agent.sources import parse_named_sources, parse_sources
 
 logger = logging.getLogger("buy_agent")
 
+
 def _a_row_of(table: Mapping[str, Any], named: str) -> str:
     """``named`` if the table has it, else any row: a misspelt env var is reported by
     ``_checked``, not as a traceback before ``--help``."""
@@ -577,7 +578,6 @@ def main(argv: list[str] | None = None) -> int:
             bought = _bought(ranked, config)
         except KeyboardInterrupt:
             # Ctrl-C at the approval prompt: answered as anywhere else.
-
             logger.warning("Interrupted. Nothing was bought.")
             return 130
         return 0 if bought else PAYMENT_FAILED

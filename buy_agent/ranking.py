@@ -83,7 +83,7 @@ def score_product(
     read = {
         "rating": None if product.rating is None else product.rating / 5,
         # log10 so the 10th review counts for far more than the 10_000th; saturates at
-        # 1_000 (ADR-0035).
+        # 1_000 (ADR-0007).
         "popularity": (
             min(1.0, math.log10(product.review_count + 1) / 3)
             if product.review_count and product.review_count > 0
@@ -124,7 +124,6 @@ def rank_products(
     prices = [comparable_price(product, currency) for product in products]
     on_the_scale = [price for price in prices if price is not None]
     # Nothing placeable means no ends: ``None``.
-
     cheapest = min(on_the_scale, default=None)
     priciest = max(on_the_scale, default=None)
 
