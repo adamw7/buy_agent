@@ -131,24 +131,70 @@ stamp="$venv/.session-start-installed"
 venv_bin=""
 py="python is unavailable"
 
+# The interpreter the venv is built from, as its path and its version: the newest
+# one on PATH, and not whichever one `python3` names. The images this runs in point
+# python3 at 3.11 with a 3.12 and a 3.13 beside it, and 3.11 cannot so much as parse
+# the suite -- quotes nested in an f-string are 3.12's (PEP 701). A final release
+# beats a pre-release whatever the numbers say, the next Python's release candidate
+# being newer than any final and the pydantic ci.yml installs refusing to import on
+# one. Every directory on PATH is looked in, since the first match of a name is the
+# venv's own once a session has put it there -- and those are no candidates for
+# building it. Between two of one version the earlier on PATH stays. Prints nothing
+# where there is no Python at all.
+newest_python() {
+  local directory path said version level final best="" best_version="" best_final=""
+  local -a directories
+  IFS=: read -ra directories <<< "$PATH"
+  for directory in "${directories[@]}"; do
+    case "$directory" in "$venv"/*) continue ;; esac
+    for path in "$directory"/python*; do
+      [[ ${path##*/} =~ ^python(3(\.[0-9]+)?)?$ ]] && [ -x "$path" ] || continue
+      said=$("$path" -c 'import platform, sys; print(platform.python_version(), sys.version_info.releaselevel)' 2>/dev/null) || continue
+      read -r version level <<< "$said"
+      final=""
+      [ "$level" = final ] && final=yes
+      if [ -z "$best" ] \
+         || { [ -n "$final" ] && [ -z "$best_final" ]; } \
+         || { [ "$final" = "$best_final" ] && ! at_least "$version" "$best_version"; }; then
+        best=$path best_version=$version best_final=$final
+      fi
+    done
+  done
+  if [ -n "$best" ]; then
+    printf '%s %s\n' "$best" "$best_version"
+  fi
+}
+
 install_python() {
-  local system_py have_py req up_to_date
-  system_py=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
-  if [ -z "$system_py" ]; then
+  local chosen system_py have_py built req up_to_date
+  chosen=$(newest_python)
+  if [ -z "$chosen" ]; then
     say "session-start: no python on PATH; leaving the Python side alone."
     return 1
   fi
+  system_py=${chosen% *}
+  have_py=${chosen##* }
 
-  # Unlike Node there is no portable build to fetch, so an interpreter under the
-  # pin is said once and used anyway: it is the platform difference ci.yml
+  # Unlike Node there is no portable build to fetch, so the newest interpreter under
+  # the pin is said once and used anyway: it is the platform difference ci.yml
   # matrixes for, not a session that cannot run the suite.
-  have_py=$("$system_py" -c 'import platform; print(platform.python_version())' 2>/dev/null || true)
-  if [ -n "$want_py" ] && [ -n "$have_py" ] && ! at_least "$want_py" "$have_py"; then
-    say "session-start: python $have_py is under ci.yml's $want_py pin; using it anyway."
+  if [ -n "$want_py" ] && ! at_least "$want_py" "$have_py"; then
+    say "session-start: python $have_py is the newest on PATH and under ci.yml's $want_py pin; using it anyway."
+  fi
+
+  # A venv built from an older interpreter -- by this hook before it looked past
+  # python3, or before a newer one arrived -- is rebuilt rather than kept. Its stamp
+  # goes with it, so the install below runs again.
+  if [ -x "$venv/bin/python" ]; then
+    built=$("$venv/bin/python" -c 'import platform; print(platform.python_version())' 2>/dev/null || true)
+    if [ -z "$built" ] || ! at_least "$have_py" "$built"; then
+      say "session-start: .venv runs python ${built:-that will not start}, older than $have_py; rebuilding it."
+      rm -rf "$venv"
+    fi
   fi
 
   if [ ! -x "$venv/bin/python" ]; then
-    say "session-start: creating .venv."
+    say "session-start: creating .venv with python $have_py at $system_py."
     rm -rf "$venv"
     if ! "$system_py" -m venv "$venv" >&2; then
       say "session-start: python -m venv failed; leaving the Python side alone."
@@ -203,7 +249,7 @@ say "session-start: $py."
 keep_on_path "$venv_bin"
 
 # Which interpreter the venv ended up with is worth a session knowing, the pin
-# being one thing the image is free to be under.
+# being one thing the newest the image carries is free to be under.
 python_line="there is no .venv, so $py"
 if [ -n "$venv_bin" ] && [ -x "$venv_bin/python" ]; then
   python_line=$(printf '.venv runs Python %s (ci.yml pins %s), and %s' \

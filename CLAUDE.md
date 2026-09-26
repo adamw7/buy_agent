@@ -532,10 +532,15 @@ pass. That venv goes on `$PATH` the same way the interpreter does. It reads both
 versions out of `ci.yml` rather than writing them down again, by the rule
 `scripts/start.ps1` follows: that file is the one pin the `Dockerfile`, the
 start script and `docs/testing.md` already chase, and a fourth copy is a fourth
-thing to bump. Only Node's pin is *held* to, though: there is no portable Python
-build to fetch, so an interpreter under that pin is named at startup and used
-anyway, which is the platform difference `ci.yml` matrixes for rather than a
-session that cannot run the suite. It is a no-op outside a remote session
+thing to bump. Only Node's pin is *fetched*, though: there is no portable Python
+build to fetch, so the venv is built from the newest interpreter on `$PATH` --
+not whichever one `python3` names, which on those images is a 3.11 that cannot
+parse the suite, beside a 3.12 and a 3.13 -- a final release ahead of a release
+candidate, never one of the venv's own, and the venv rebuilt when a session finds
+it older than that; `tests/test_session_hook.py` runs that choice against
+stand-ins. One under the pin is named at startup and used anyway, which is the
+platform difference `ci.yml` matrixes for rather than a session that cannot run
+the suite. It is a no-op outside a remote session
 (`$CLAUDE_CODE_REMOTE`), a no-op once the interpreter is unpacked and the venv
 carries a stamp newer than every requirements file, and every failure in it is a
 warning rather than a stop -- a session that starts with the old Node is the
@@ -1645,8 +1650,11 @@ sitting out. So a marker on a test that does not need the SDK fails the run that
 matters, and a test that needs one and carries none is red on every checkout the
 marker exists for. `needs_ap2` sits on the parametrised *case* that reaches the
 signing stack, not on a whole function whose other half fakes the import it is
-about. `docs/testing.md` is the one place all three counts are written down, so
-a new test file is one edit there.
+about. `tests/test_session_hook.py` has a marker of its own, and it is the
+platform rather than a prerequisite: it runs the hook's choice of interpreter
+under bash with `#!/bin/sh` stand-ins, so it skips on Windows, where the hook
+never runs. `docs/testing.md` is the one place all three counts are written down,
+so a new test file is one edit there.
 
 ### The convention tests
 
