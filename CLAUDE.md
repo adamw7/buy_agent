@@ -1403,6 +1403,13 @@ rules a change to them may not break.
 - **`progress-log` is presentation, not judgement.** Download log is offered for a
   failed run and a stopped one only. `transcript()` appends the failure message,
   which never reached the panel as a log line.
+- **What a run produces is brought into view; a refusal is not.** With Settings
+  open the form alone outgrows a laptop's window, so `App.reveal` scrolls the
+  progress panel up with a run's first line and a failure's banner when it
+  lands, as little as shows each whole (`nearest`), and `showResults` the
+  results. The panel holds its full height while running, or it grows back under
+  the fold. A failure naming a field is left alone: it logs nothing, and the
+  form's mark on that box is what a scroll to the banner would take out of view.
 - **What a run took out is listed under what it found, in Python's words**
   (ADR-0055). The panel groups `dropped` and counts it and composes no sentence of
   its own, which is ADR-0012 on this payload. It is drawn under the "Nothing came
