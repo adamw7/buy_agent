@@ -107,6 +107,14 @@ describe('ProgressLog', () => {
     expect(log.querySelector('.idle')).not.toBeNull();
   });
 
+  it('holds the height it will grow to while a run is going, and only then', async () => {
+    /* So the page can scroll it into view whole from its first line: growing a line
+       at a time, it crept back under the fold newest lines first. jsdom lays nothing
+       out, so what is asserted is the state the stylesheet sizes it by. */
+    expect((await render(LINES, true)).querySelector('.log')!.classList).toContain('running');
+    expect((await render(LINES)).querySelector('.log')!.classList).not.toContain('running');
+  });
+
   it('counts the lines once the run is over', async () => {
     expect((await render(LINES)).querySelector('.pill')!.textContent).toContain('2 lines');
   });

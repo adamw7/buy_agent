@@ -36,7 +36,7 @@ from buy_agent.payment import (
 )
 from buy_agent.providers import PROVIDERS, provider_options
 from buy_agent.rails import RAILS, rail_options
-from buy_agent.ranking import RankingWeights, SortBy, rank_products
+from buy_agent.ranking import ORDERINGS, RankingWeights, SortBy, rank_products
 from buy_agent.screenshots import ScreenshotError
 from buy_agent.search import BACKENDS, SearchError, backend_options
 from buy_agent.sources import Source, format_sources, parse_sources
@@ -359,6 +359,9 @@ def defaults_payload(*, screenshots: bool = False) -> dict[str, Any]:
         "screenshots": screenshots,
         "sort_by": "score",
         "sort_options": list(SORT_OPTIONS),
+        # Each criterion as the order it puts a run in, the report's own words: a
+        # picker reading "price" cannot say cheapest from dearest.
+        "sort_labels": {name: phrase.capitalize() for name, phrase in ORDERINGS.items()},
         "limits": limits_payload(),
     }
 
@@ -553,6 +556,11 @@ def _bounded(kind: Callable[[str], _Number]) -> Callable[[str, str], _Number]:
     return parse
 
 
+def number_kind(kind: Callable[[str], object]) -> str:
+    """What a number setting holds, in the words both doors refuse anything else with."""
+    return "a whole number" if kind is int else "a number"
+
+
 def _as_number(
     kind: Callable[[str], _Number],
     # Not ``_Number``: the int bounds of a float setting would force ints.
@@ -565,8 +573,9 @@ def _as_number(
     try:
         number = kind(text)
     except ValueError as exc:
-        described = "a whole number" if kind is int else "a number"
-        raise ApiError(f"{key} must be {described}; got {text!r}.", field=key) from exc
+        raise ApiError(
+            f"{key} must be {number_kind(kind)}; got {text!r}.", field=key
+        ) from exc
     if not minimum <= number <= maximum:
         raise ApiError(
             f"{key} must be between {minimum} and {maximum}; got {number}.", field=key

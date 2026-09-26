@@ -757,9 +757,11 @@ offers **Download log**: the lines it was showing plus the error that ended the
 run. The panel scrolls and the next search clears it, so without this a failure
 worth reporting is gone as soon as it is retried, and the reason to stop a run
 is usually that it had gone quiet for four minutes. A finished run has two
-controls of its own: **Re-order these** posts the products back to `POST
-/api/rank`, which calls the same `rank_products` a run ends with and nothing
-else, so the ordering is still Python's and only the minute is skipped;
+controls of its own: **Re-order these** -- whose choices say which end comes
+first, **Cheapest first** rather than *price*, in the words the CLI's report
+heading uses -- posts the products back to `POST /api/rank`, which calls the
+same `rank_products` a run ends with and nothing else, so the ordering is still
+Python's and only the minute is skipped;
 **Download results** saves the answer the server sent, which is the same
 document `--json` writes
 ([ADR-0035](docs/adr/0035-re-sort-a-finished-run-without-running-it-again.md)).

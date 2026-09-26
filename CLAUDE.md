@@ -898,11 +898,14 @@ was ever held to.
   field name cannot say -- and `BuyAgent.run` hands `log_top_products` the
   `sort_by` it ranked with, so the heading cannot drift from the order beneath
   it. Sorted by rating the block reads 0.68, 0.98, 0.83 down the left edge, which
-  is a ranking that looks broken until the heading explains it; the browser has
-  the criterion in a control beside the results and a `> top.txt` had nothing at
-  all. Named for `score` too, since a report is read by whoever was handed it and
-  not only by whoever typed the command. A fourth criterion needs a phrase there,
-  which `tests/test_conventions.py` holds against `SortBy`.
+  is a ranking that looks broken until the heading explains it; a `> top.txt` had
+  nothing at all. Named for `score` too, since a report is read by whoever was
+  handed it and not only by whoever typed the command. The browser's control
+  beside the results is its heading, and it said "price" -- so `defaults_payload`
+  sends the same phrases as `sort_labels`, both of the form's ordering pickers
+  list those rather than the names, and `--sort-by`'s help spells each one out
+  where `choices` shows only the names. A fourth criterion needs a phrase there,
+  which `tests/test_conventions.py` holds against `SortBy` and against both doors.
 - **The report is output; the progress is narration.** `logging_setup` splits
   them by handler rather than by logger: `log_top_products` marks its records
   and they go to stdout, everything else to the stderr handler `basicConfig`
@@ -983,11 +986,12 @@ and found nothing, which a shell told 1 could not tell from a stopped model
 server. `PAYMENT_FAILED` (4) is a run that was asked to pay and did not. 2 is
 argparse's own. So the codes a script branches on are the six `--help` ends by
 listing. `main` has a second, unrelated `except` for an `OSError` from writing
-the `--json` file, which is why `tests/test_conventions.py` reads the handlers
-of the `try` holding the `.run()` call rather than every handler in the
-function. `api._STATUS` maps the same three onto HTTP statuses (400, 503, 502).
-A new failure mode needs handling in all three places, or it reaches the user as
-a traceback and the browser as a 500.
+the `--json` file -- a disk refusing it once the run is over, a missing directory
+being the flag's usage error -- which is why `tests/test_conventions.py` reads
+the handlers of the `try` holding the `.run()` call rather than every handler in
+the function. `api._STATUS` maps the same three onto HTTP statuses (400, 503,
+502). A new failure mode needs handling in all three places, or it reaches the
+user as a traceback and the browser as a 500.
 
 A *payment* fails at its own door and is deliberately not a fourth row there
 (ADR-0046). `payment.PaymentError` is the one thing paying raises --
@@ -1063,7 +1067,11 @@ excepted -- there the flag is the right name for the flag.
   and read by both doors: written on each of them, the CLI comes to accept what
   the API refuses. On the CLI the check is a `type` function, so an out-of-range
   number is a usage error rather than a minute wasted;
-  `tests/test_conventions.py` asserts the two doors refuse the same numbers.
+  `tests/test_conventions.py` asserts the two doors refuse the same numbers, and
+  text where a number goes in the same words -- `api.number_kind`'s, "must be a
+  number", where argparse left alone names the converter ("invalid float value").
+  `--json` is held to the same rule though it is no setting: its `type` refuses a
+  directory that is not there, the file being written only once the run is over.
 - **`region`** is the same rule for a shape rather than a range: `config.REGION`
   is a country and then a language (`us-en`, `pl-pl`, three-letter `hk-tzh`),
   `config.parse_region` is the only place it is checked, and both doors go
@@ -1132,7 +1140,10 @@ excepted -- there the flag is the right name for the flag.
   ordinary numbers with one rule of their own: they default to `None`, so a
   blank is not "the default value" but "no bound at all", and a product whose
   figure is unknown passes every one of them (ADR-0039). The form says so rather
-  than showing a fallback number: their placeholder is "No limit". `max_price`
+  than showing a fallback number: their placeholder is "No limit". And each
+  says the second half under its box and in its `--help` -- that a product it
+  cannot judge is still shown -- since a "price unknown" in a run capped at 10
+  otherwise reads as a cap that did not hold. `max_price`
   is read in the currency the run's own prices are counted in, and a price
   outside it is a figure the bound cannot judge -- so it passes too, and the
   line the run logs names the currency (ADR-0043).
@@ -1392,6 +1403,13 @@ rules a change to them may not break.
 - **`progress-log` is presentation, not judgement.** Download log is offered for a
   failed run and a stopped one only. `transcript()` appends the failure message,
   which never reached the panel as a log line.
+- **What a run produces is brought into view; a refusal is not.** With Settings
+  open the form alone outgrows a laptop's window, so `App.reveal` scrolls the
+  progress panel up with a run's first line and a failure's banner when it
+  lands, as little as shows each whole (`nearest`), and `showResults` the
+  results. The panel holds its full height while running, or it grows back under
+  the fold. A failure naming a field is left alone: it logs nothing, and the
+  form's mark on that box is what a scroll to the banner would take out of view.
 - **What a run took out is listed under what it found, in Python's words**
   (ADR-0055). The panel groups `dropped` and counts it and composes no sentence of
   its own, which is ADR-0012 on this payload. It is drawn under the "Nothing came
@@ -1702,8 +1720,11 @@ the other is otherwise invisible to both suites. It asserts that
   `--num-ctx` into;
 - every flag of either parser that takes a value and has a default names it in
   its help, `--help` being the CLI's only documentation and a default left out a
-  fact with nowhere else to be read; and every `SortBy` has an `ORDERINGS` phrase
-  naming a direction;
+  fact with nowhere else to be read; neither parser's help breaks a word at its
+  hyphen at any width, a flag split over two lines being one nobody can copy --
+  so each keeps a `_Help` of its own, `argparse` being theirs and nobody else's;
+  and every `SortBy` has an `ORDERINGS` phrase naming a direction, which
+  `--sort-by`'s help and the form's pickers both say;
 - the `Dockerfile` pins the versions CI tests against, copies the built UI where
   the server looks, exposes the port it binds and installs the runtime
   dependencies only, and `.dockerignore` keeps out everything `.gitignore` does

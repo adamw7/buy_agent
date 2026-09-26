@@ -292,6 +292,26 @@ def _typescript_sort_union() -> str:
     return match.group(1)
 
 
+def test_both_doors_say_which_end_of_each_criterion_comes_first() -> None:
+    """In the words the report's heading uses. A criterion's name does not carry its
+    direction -- ``price`` is cheapest first here and could as well be dearest -- so
+    the form's two pickers list ``sort_labels`` rather than the names, and
+    ``--sort-by`` spells the same phrases out where ``choices`` shows only the names.
+    """
+    cli = {action.dest: action for action in build_parser()._actions}["sort_by"]
+    explained = " ".join((cli.help or "").split())
+    labels = defaults_payload()["sort_labels"]
+
+    for criterion, phrase in ORDERINGS.items():
+        assert f"{criterion} for {phrase}" in explained, (
+            f"--sort-by offers {criterion!r} without saying it means {phrase!r}"
+        )
+        assert labels[criterion].lower() == phrase, (
+            f"the form lists {criterion!r} as {labels[criterion]!r}; the report says "
+            f"{phrase!r}"
+        )
+
+
 # -- the ranges a request is held to -------------------------------------------
 
 
@@ -316,6 +336,22 @@ def test_both_front_doors_hold_a_number_to_the_same_range(
             parse_options({key: outside})
         with pytest.raises(SystemExit):
             cli_main(["headphones", flag, str(outside)])
+
+
+@pytest.mark.parametrize("key", sorted(limits_payload()))
+def test_both_front_doors_refuse_text_in_a_number_in_the_same_words(
+    key: str, capsys
+) -> None:
+    """Worded at each door on its own, the form was told "must be a number" and the
+    terminal "invalid float value" -- the name of the converter that failed, which
+    is what argparse says when a ``type`` raises ``ValueError``."""
+    with pytest.raises(ApiError) as refused:
+        parse_options({key: "many"})
+    with pytest.raises(SystemExit):
+        cli_main(["headphones", f"--{key.replace('_', '-')}", "many"])
+
+    said = str(refused.value).removeprefix(f"{key} ").rstrip(".")
+    assert said in capsys.readouterr().err
 
 
 def test_a_run_of_the_defaults_is_inside_every_range() -> None:
@@ -3004,6 +3040,28 @@ def test_the_help_text_argparse_prints_raw_is_wrapped_by_hand(
                 f"{parser.prog}'s {block} has a {len(line)}-character line, which "
                 f"argparse prints as written: wrap it at {_HELP_WIDTH}"
             )
+
+
+@pytest.mark.parametrize("columns", [60, 70, 80, 90, 100, 120])
+@pytest.mark.parametrize(
+    "parser",
+    [pytest.param(build_parser(), id="cli"), pytest.param(build_server_parser(), id="server")],
+)
+def test_the_help_never_breaks_a_word_at_its_hyphen(
+    parser: argparse.ArgumentParser, columns: int, monkeypatch
+) -> None:
+    """``textwrap`` breaks at a hyphen unless told not to, and that is where every flag
+    here has one: at 80 columns ``--no-cpu-only`` came out as ``--no-`` ending one
+    line and ``cpu-only`` starting the next, and every width split one of its own --
+    ``--max-price``, ``--allowed-host``, the ``dry-run`` a reader would type. A flag
+    broken across two lines is one nobody can copy."""
+    monkeypatch.setenv("COLUMNS", str(columns))
+
+    for line in parser.format_help().splitlines():
+        assert not re.search(r"\w-$", line), (
+            f"{parser.prog} --help at {columns} columns breaks a word at its hyphen: "
+            f"{line.strip()!r}"
+        )
 
 
 # -- the front end's own checks ------------------------------------------------

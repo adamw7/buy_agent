@@ -6,13 +6,14 @@ import argparse
 import json
 import logging
 import sys
+import textwrap
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, get_args
 
 from buy_agent import mandates, payment
 from buy_agent.agent import BuyAgent, ModelUnavailableError, journal_for
-from buy_agent.api import OPTIONS, results_payload, takeable
+from buy_agent.api import OPTIONS, number_kind, results_payload, takeable
 from buy_agent.bounds import notice
 from buy_agent.chat import release
 from buy_agent.config import (
@@ -31,7 +32,7 @@ from buy_agent.money import CODES
 from buy_agent.payment import PaymentError
 from buy_agent.providers import PROVIDERS, provider_for
 from buy_agent.rails import RAILS, rail_for
-from buy_agent.ranking import SortBy
+from buy_agent.ranking import ORDERINGS, SortBy
 from buy_agent.search import BACKENDS, SearchError, backend_for
 from buy_agent.sources import parse_named_sources, parse_sources
 
@@ -99,20 +100,38 @@ def _provider_defaults(setting: str) -> str:
 
 
 def _bounded(kind: Callable[[str], Any], field: str) -> Callable[[str], Any]:
-    """A number type held to its ``LIMITS`` range, as the API holds it."""
+    """A number type held to its ``LIMITS`` range, and refused in the words the API
+    refuses it with."""
     minimum, maximum = LIMITS[field]
 
     def parse(text: str) -> Any:
-        value = kind(text)  # argparse turns the ValueError into "invalid value"
+        try:
+            value = kind(text)
+        except ValueError as exc:
+            # argparse's own names the converter: "invalid float value".
+            raise argparse.ArgumentTypeError(
+                f"must be {number_kind(kind)}; got {text!r}"
+            ) from exc
         if not minimum <= value <= maximum:
             raise argparse.ArgumentTypeError(
                 f"must be between {minimum} and {maximum}; got {value}"
             )
         return value
 
-    # So argparse's own message reads "invalid int value".
-    parse.__name__ = kind.__name__
     return parse
+
+
+def _json_file(text: str) -> Path:
+    """A ``--json`` file whose directory is there, checked before the run: written at the
+    end, a typo in the path otherwise costs the whole run first."""
+    path = Path(text)
+    if path.is_dir():
+        raise argparse.ArgumentTypeError(f"{str(path)!r} is a directory; name a file in it")
+    if not path.parent.is_dir():
+        raise argparse.ArgumentTypeError(
+            f"there is no directory {str(path.parent)!r} to write {path.name} into"
+        )
+    return path
 
 
 def _checked(check: Callable[[str], object]) -> Callable[[str], str]:
@@ -126,6 +145,16 @@ def _checked(check: Callable[[str], object]) -> Callable[[str], str]:
         return text
 
     return parse
+
+
+class _Help(argparse.RawDescriptionHelpFormatter):
+    """Wraps a flag's help between words and never inside one: textwrap breaks at a
+    hyphen, which left ``--no-`` ending one line and ``cpu-only`` starting the next --
+    a flag, or a value like ``dry-run``, that nobody can copy -- at whatever width the
+    terminal happened to be."""
+
+    def _split_lines(self, text: str, width: int) -> list[str]:
+        return textwrap.wrap(" ".join(text.split()), width, break_on_hyphens=False)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -147,7 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {PAYMENT_FAILED}  --pay was asked for and nothing was bought\n"
             "  130  interrupted with Ctrl-C\n"
         ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        formatter_class=_Help,
     )
     parser.add_argument("request", help="What you want to buy, in plain words.")
     parser.add_argument(
@@ -190,7 +219,10 @@ def build_parser() -> argparse.ArgumentParser:
         # Read off the type, so it matches rank_products.
         choices=get_args(SortBy),
         default="score",
-        help="Ranking criterion (default: score, a blend of rating, reviews and price).",
+        # Each with its direction, off the table the report's heading reads.
+        help="How to order the report: "
+        + ", ".join(f"{name} for {phrase}" for name, phrase in ORDERINGS.items())
+        + " (default: score, a blend of rating, reviews and price).",
     )
     parser.add_argument(
         "--region",
@@ -256,7 +288,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=_bounded(int, "min_reviews"),
         default=_DEFAULTS.min_reviews,
         help="Report nothing whose rating was averaged over fewer reviews than "
-        "this (default: no limit). A 5.0 from two people is not a rating.",
+        "this (default: no limit). A 5.0 from two people is not a rating. A rating "
+        "with no count beside it is kept, for the reason unpriced products are.",
     )
     parser.add_argument(
         "--cache-ttl",
@@ -389,7 +422,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--json",
-        type=Path,
+        type=_json_file,
         # "--json JSON" would read like a format switch.
         metavar="FILE",
         help="Also write all results, not only the top ones, to this JSON file.",

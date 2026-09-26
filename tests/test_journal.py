@@ -181,24 +181,30 @@ def test_a_product_that_has_left_the_report_is_listed_last(tmp_path: Path) -> No
 
 
 @pytest.mark.parametrize(
-    ("before", "now"),
+    ("before", "now", "converted"),
     [
         # Two prices in two currencies have nothing between them (ADR-0043).
-        ((329.0, "USD"), (329.0, "EUR")),
-        # And a figure no page printed this time is not a movement either.
-        ((329.0, "USD"), (None, None)),
-        ((None, None), (329.0, "USD")),
+        ((329.0, "USD"), (329.0, "EUR"), True),
+        # And a figure no page printed is not a movement either -- for a reason of
+        # its own, which "price unknown" already says: there was nothing to convert.
+        ((329.0, "USD"), (None, None), False),
+        ((None, None), (329.0, "USD"), False),
+        ((None, None), (None, None), False),
     ],
 )
 def test_two_prices_that_cannot_be_held_against_each_other_report_no_movement(
-    tmp_path: Path, before: tuple[float | None, str | None], now: tuple[float | None, str | None]
+    tmp_path: Path,
+    before: tuple[float | None, str | None],
+    now: tuple[float | None, str | None],
+    converted: bool,
 ) -> None:
     journal(tmp_path).against([priced("Sage Bambino", *before)])
 
     change = journal(tmp_path).against([priced("Sage Bambino", *now)])[0]
 
     assert change.movement == "unplaced"
-    assert "nothing is converted" in change.detail
+    assert change.detail.endswith("so there is no movement to report.")
+    assert ("nothing is converted" in change.detail) is converted
 
 
 def test_two_runs_match_a_product_by_the_identity_a_run_already_uses(

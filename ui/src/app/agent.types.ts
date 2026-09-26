@@ -217,6 +217,9 @@ export interface AgentDefaults {
   spend_limit: number | null;
   sort_by: SortBy;
   sort_options: SortBy[];
+  /** Each criterion as the order it produces -- "Cheapest first" -- which is what the
+   *  two ordering controls list it by; Python's words, as the report's heading is. */
+  sort_labels: Record<SortBy, string>;
   /** Each number's range, keyed as sent (`results`, `top`, ...); absent is unbounded. */
   limits: Record<string, Limit>;
 }

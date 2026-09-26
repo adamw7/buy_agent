@@ -165,17 +165,19 @@ export class SearchForm {
 
   /** Every number field, in the order the form draws them. */
   protected readonly numberFields: NumberField[] = [
+    // Each bound says what it does with a figure no page printed: it keeps the product
+    // (ADR-0039), and a "price unknown" in a run capped at 10 reads as a broken cap.
     field('max_price', 'Max price', this.maxPrice, {
       step: 0.01,
       // Name the scale it is read in.
-      hint: () => `In ${this.scale()}; nothing is converted.`,
+      hint: () => `In ${this.scale()}; nothing is converted. Unpriced products are still shown.`,
     }),
     field('min_rating', 'Min rating', this.minRating, {
       step: 0.1,
       hint: 'Out of 5. Unrated products are still shown.',
     }),
     field('min_reviews', 'Min reviews', this.minReviews, {
-      hint: 'How many reviews a rating has to average.',
+      hint: 'How many reviews a rating has to average. Products with no count are still shown.',
     }),
     field('results', 'Products to find', this.results, { remembersBlank: false }),
     field('top', 'Products to highlight', this.top, { remembersBlank: false }),
@@ -252,9 +254,14 @@ export class SearchForm {
     merchantUrl: setting(this.merchantUrl, (d) => d.merchant_url, asText),
   };
 
-  protected readonly sortOptions = computed<SortBy[]>(
-    () => this.defaults()?.sort_options ?? ['score', 'price', 'rating'],
-  );
+  /** Each criterion named by the order it puts a run in: "price" alone cannot say
+   *  cheapest from dearest. By name only until the defaults have said. */
+  protected readonly sortOptions = computed(() => {
+    const defaults = this.defaults();
+    const names: SortBy[] = defaults?.sort_options ?? ['score', 'price', 'rating'];
+    // A server older than the page -- a build under one still running -- sends none.
+    return names.map((name) => ({ name, label: defaults?.sort_labels?.[name] ?? name }));
+  });
 
   protected readonly providerOptions = computed<ProviderOption[]>(
     () => this.defaults()?.provider_options ?? [],

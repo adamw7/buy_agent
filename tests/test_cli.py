@@ -568,11 +568,45 @@ def test_a_stale_json_file_is_overwritten_by_an_empty_run(fake_agent, tmp_path) 
     assert "yesterday" not in destination.read_text(encoding="utf-8")
 
 
-def test_an_unwritable_json_path_is_an_exit_code_not_a_traceback(
-    fake_agent, tmp_path, caplog
+def test_a_json_path_with_no_directory_is_a_usage_error_before_the_run(
+    fake_agent, tmp_path, capsys
 ) -> None:
-    """A mistyped ``--json`` path must not end a minute of work in a stack trace."""
+    """The file is written once the run is over, so a typo in its directory used to
+    cost the whole run -- minutes, on a real model -- before being mentioned at all.
+    Refused at the door instead, the rule every other value on this command line
+    keeps."""
     destination = tmp_path / "no-such-directory" / "out.json"
+
+    with pytest.raises(SystemExit) as exit_info:
+        main(["headphones", "--json", str(destination)])
+
+    assert exit_info.value.code == 2
+    assert "config" not in fake_agent, "no agent was built, so nothing was searched"
+    error = capsys.readouterr().err
+    assert "--json" in error and "no-such-directory" in error and "out.json" in error
+
+
+def test_a_json_path_naming_a_directory_is_a_usage_error_too(
+    fake_agent, tmp_path, capsys
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        main(["headphones", "--json", str(tmp_path)])
+
+    assert exit_info.value.code == 2
+    assert "is a directory" in capsys.readouterr().err
+
+
+def test_an_unwritable_json_path_is_an_exit_code_not_a_traceback(
+    fake_agent, tmp_path, caplog, monkeypatch
+) -> None:
+    """A file its directory will not take once the run is over -- a full disk, a
+    read-only share -- must not end a minute of work in a stack trace."""
+    destination = tmp_path / "out.json"
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise PermissionError(13, "Permission denied", str(destination))
+
+    monkeypatch.setattr(Path, "write_text", refuse)
 
     with caplog.at_level(logging.ERROR, logger="buy_agent"):
         assert main(["headphones", "--json", str(destination)]) == 1

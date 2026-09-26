@@ -353,6 +353,16 @@ describe('SearchForm', () => {
     expect(submitted[1].journal).toBe(false);
   });
 
+  it('says under the page-reading box what turning it off costs', async () => {
+    /* The sentence was a paragraph at the foot of the panel, below every other
+       setting -- the one checkbox here with nothing under it. */
+    const box = element<HTMLInputElement>('input[name="fetch"]');
+
+    expect(box.closest('.field')!.querySelector('small')!.textContent).toContain(
+      'rarely quote a price',
+    );
+  });
+
   it('starts from the agent config defaults the server served', async () => {
     expect(element<HTMLInputElement>('input[name="model"]').value).toBe('llama3.2');
     expect(element<HTMLInputElement>('input[name="results"]').value).toBe('10');
@@ -705,6 +715,41 @@ describe('SearchForm', () => {
     const form = await seeded();
 
     expect(form.querySelector<HTMLSelectElement>('select[name="sortBy"]')!.value).toBe('price');
+  });
+
+  it("names each rank criterion by the order it produces, in Python's words", async () => {
+    /* "price" was the whole of what the option said, and it does not say cheapest
+       from dearest -- the half of an ordering a field name cannot carry. The report
+       has always said it in its heading; the picker now lists the same words. */
+    const form = await seeded();
+    const options = [
+      ...form.querySelector<HTMLSelectElement>('select[name="sortBy"]')!.options,
+    ].map((option) => [option.value, option.textContent!.trim()]);
+
+    expect(options).toEqual([
+      ['score', 'Best score first'],
+      ['price', 'Cheapest first'],
+      ['rating', 'Best rated first'],
+    ]);
+  });
+
+  it('lists the criteria by name for a server too old to send their labels', async () => {
+    /* `ng build` writes under a server that may still be running the code from
+       before it: one missing field is no reason to take the whole form down. */
+    const older = { ...DEFAULTS } as Partial<AgentDefaults>;
+    delete older.sort_labels;
+    const next = TestBed.createComponent(SearchForm);
+    next.componentRef.setInput('defaults', older);
+    await next.whenStable();
+
+    const select = (next.nativeElement as HTMLElement).querySelector<HTMLSelectElement>(
+      'select[name="sortBy"]',
+    )!;
+    expect([...select.options].map((option) => option.textContent!.trim())).toEqual([
+      'score',
+      'price',
+      'rating',
+    ]);
   });
 
   it('ignores a provider the server no longer offers, and its pair with it', async () => {
@@ -1328,6 +1373,16 @@ describe('SearchForm', () => {
     await choose('select[name="currency"]', 'PLN');
 
     expect(hint()).toContain('In PLN');
+  });
+
+  it('says under every bound that a product it cannot judge is kept', async () => {
+    /* A bound admits a product whose figure no page printed (ADR-0039), so a run capped
+       at 10 can report one reading "price unknown". Min rating always said so; the
+       other two did not, and read as a limit that had not held. */
+    for (const key of ['max_price', 'min_rating', 'min_reviews']) {
+      const hint = element(`input[name="${key}"]`).closest('label')!.querySelector('small')!;
+      expect(hint.textContent).toContain('still shown');
+    }
   });
 
   it('says what a named currency costs a price in any other one', async () => {
