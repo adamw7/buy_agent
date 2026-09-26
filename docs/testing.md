@@ -70,8 +70,8 @@ Without that SDK the 76 tests that need it **skip**, the way
 import. `needs_powershell` is the other, and with neither `pwsh` nor
 `powershell` on PATH 16 of the 22 tests in that file sit out, and all 4 in
 `tests/test_setup_scripts.py`. So a machine with
-the SDK and no PowerShell reads `2776 passed, 20 skipped`, and a checkout set up
-with `requirements-dev.txt` alone reads `2700 passed, 96 skipped` rather than 76
+the SDK and no PowerShell reads `2803 passed, 20 skipped`, and a checkout set up
+with `requirements-dev.txt` alone reads `2727 passed, 96 skipped` rather than 76
 failures claiming the project is broken when one optional feature is simply not
 installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide
