@@ -166,9 +166,36 @@ def test_a_count_of_stars_is_not_a_rating() -> None:
     assert notice("headphones over 2000 stars") == []
 
 
+def test_a_star_count_that_is_no_rating_does_not_hide_the_rating_after_it() -> None:
+    """The first figure of a shape that fails its scale is skipped, not the end of the
+    search: "the first of each shape wins" is the first one that could be a bound."""
+    seen = only("a star projector with over 2000 stars, at least 4.5 stars")
+
+    assert (seen.bound, seen.figure) == ("min_rating", "4.5")
+
+
 def test_nothing_is_ever_offered_as_a_bound_of_zero() -> None:
     """A bound of nothing bounds nothing, and "under 0" is not a budget."""
     assert notice("headphones under 0") == []
+
+
+@pytest.mark.parametrize(
+    ("request_", "bound", "figure"),
+    [
+        # The smallest of each that is still something...
+        ("a charging cable under $1", "max_price", "1"),
+        ("headphones at least 1 star", "min_rating", "1"),
+        ("headphones with at least 1 review", "min_reviews", "1"),
+        # ...and the top of the one scale that has a top.
+        ("headphones at least 5 stars", "min_rating", "5"),
+    ],
+)
+def test_the_ends_of_each_scale_are_still_bounds(request_: str, bound: str, figure: str) -> None:
+    """Positive is the whole of the floor and five stars is inside the rating's
+    scale, not past it."""
+    seen = only(request_)
+
+    assert (seen.bound, seen.figure) == (bound, figure)
 
 
 def test_the_note_quotes_the_words_it_read_and_says_it_applies_nothing() -> None:

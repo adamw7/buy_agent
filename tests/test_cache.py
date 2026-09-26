@@ -162,6 +162,50 @@ def test_a_write_that_fails_leaves_nothing_behind(
     assert list(cache.directory.iterdir()) == []
 
 
+def test_a_write_that_fails_says_so_for_the_reader_who_asked(
+    cache: DiskCache, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Not an error -- the run goes on and simply fetches again next time -- but a cache
+    that never fills is worth being able to see, at DEBUG and naming where."""
+    monkeypatch.setattr("buy_agent.cache.os.replace", _raising(OSError("disk full")))
+
+    with caplog.at_level(logging.DEBUG, logger="buy_agent.cache"):
+        cache.put(URL, "text")
+
+    assert f"Could not cache an entry in {cache.directory}" in caplog.text
+    assert "disk full" in caplog.text, "with the failure itself attached"
+
+
+def test_a_write_that_worked_says_nothing(
+    cache: DiskCache, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.DEBUG, logger="buy_agent.cache"):
+        cache.put(URL, "text")
+
+    assert caplog.records == []
+
+
+def test_an_entry_is_written_beside_itself_and_renamed_into_place(
+    cache: DiskCache, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """In the cache's own directory, so the rename is atomic, and as a ``.tmp``, so a
+    run killed mid-write leaves a file ``prune`` knows to clear."""
+    renamed: list[tuple[Path, Path]] = []
+    real_replace = os.replace
+
+    def replace(source: str, destination: str) -> None:
+        renamed.append((Path(source), Path(destination)))
+        real_replace(source, destination)
+
+    monkeypatch.setattr("buy_agent.cache.os.replace", replace)
+
+    cache.put(URL, "text")
+
+    [(written, entry)] = renamed
+    assert (written.parent, written.suffix) == (cache.directory, ".tmp")
+    assert entry == cache._path(URL)
+
+
 def test_a_temporary_file_that_cannot_be_removed_is_not_an_error(
     cache: DiskCache, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -186,6 +230,15 @@ def test_pruning_drops_the_stale_and_keeps_the_fresh(tmp_path: Path) -> None:
     assert cache.prune() == 1
     assert cache.get(URL) is None
     assert cache.get("https://example.com/new") == "new"
+
+
+def test_pruning_counts_every_entry_it_dropped(tmp_path: Path) -> None:
+    cache = DiskCache(tmp_path, ttl=3600)
+    for url in (URL, "https://example.com/other"):
+        cache.put(url, "old")
+        _age(cache, url, seconds=7200)
+
+    assert cache.prune() == 2
 
 
 def test_pruning_a_directory_that_is_not_there_removes_nothing(tmp_path: Path) -> None:
@@ -263,6 +316,11 @@ def test_a_time_to_live_of_zero_means_no_cache_at_all() -> None:
     """One setting rather than a number and a switch that can disagree."""
     assert open_cache(PAGES, 0) is None
     assert open_cache(PAGES, -1) is None
+
+
+def test_any_time_to_live_at_all_is_a_cache() -> None:
+    """The other side of that line, which is at nothing and not at a second."""
+    assert open_cache(PAGES, 1) is not None
 
 
 def test_opening_a_cache_gives_one_at_the_default_directory(

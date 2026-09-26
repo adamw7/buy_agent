@@ -31,7 +31,8 @@ from tests.conftest import FakeLLM, said
 
 def test_format_results_numbers_every_result(search_results) -> None:
     rendered = format_results(search_results)
-    assert "[1]" in rendered
+    assert rendered.startswith("[1]\n"), "counted from one, the way the prompt reads"
+    assert "[0]" not in rendered
     assert "[2]" in rendered
     assert "https://example.com/sony" in rendered
 
@@ -291,6 +292,15 @@ def test_the_shorter_name_wins_a_tie() -> None:
     assert merged[0].name == "JBL Live 780NC"
 
 
+def test_the_shorter_name_wins_even_where_it_sorts_later() -> None:
+    """Shorter, not first in the alphabet: the descriptive word here is at the front."""
+    merged = merge_variants(
+        [Product(name="Black JBL Live 780NC"), Product(name="JBL Live 780NC")]
+    )
+
+    assert merged[0].name == "JBL Live 780NC"
+
+
 @pytest.mark.parametrize(
     ("left", "right"),
     [
@@ -382,6 +392,11 @@ def test_a_name_cleaned_away_to_nothing_is_still_named_in_the_log(caplog) -> Non
 
     assert "'Reviews'" in caplog.text
     assert not looks_like_a_product("")
+
+
+def test_clean_name_strips_furniture_and_not_the_letters_a_name_ends_in() -> None:
+    """What comes off the ends is separators and spaces, never a model's own letter."""
+    assert clean_name("Xbox Series X | GameSite") == "Xbox Series X"
 
 
 def test_clean_name_leaves_a_name_with_nothing_to_strip_alone() -> None:
@@ -583,6 +598,20 @@ def test_a_qualifier_moves_when_both_pages_quote_the_same_figure() -> None:
         [
             Product(name="Acme X1", price=199.0, rating=4.5, url="https://a"),
             Product(name="Acme X1 Wireless", rating=4.5, review_count=800),
+        ]
+    )
+
+    assert len(merged) == 1
+    assert merged[0].rating_label() == "4.5/5 (800 reviews)"
+
+
+def test_a_count_of_its_own_is_kept_when_both_pages_quote_the_same_rating() -> None:
+    """The other side of that: a qualifier moves only into a gap. Two pages averaging
+    4.5 over different numbers of reviews are two facts, and the winner's stays."""
+    merged = merge_variants(
+        [
+            Product(name="Acme X1", price=199.0, rating=4.5, review_count=800, url="https://a"),
+            Product(name="Acme X1 Wireless", rating=4.5, review_count=20),
         ]
     )
 
@@ -831,11 +860,21 @@ def test_every_listing_that_was_priced_becomes_an_offer() -> None:
     """One ``Product`` is still one listing at this point, so its own price is the
     offer it is."""
     kept = deduplicate(
-        [Product(name="Sony WH-1000XM5", price=329.0, currency="USD", seller="Shop")], 10
+        [
+            Product(
+                name="Sony WH-1000XM5",
+                price=329.0,
+                currency="USD",
+                seller="Shop",
+                url="https://shop.example/xm5",
+            )
+        ],
+        10,
     )
 
+    # The page too, which is what a cart for this offer names (ADR-0058).
     assert kept[0].offers == [
-        Offer(price=329.0, currency="USD", seller="Shop", url=None)
+        Offer(price=329.0, currency="USD", seller="Shop", url="https://shop.example/xm5")
     ]
 
 

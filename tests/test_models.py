@@ -444,6 +444,19 @@ def test_several_listings_at_one_price_report_that_price() -> None:
     assert priced.offers_label() == "2 listings, 329.00 USD"
 
 
+def test_two_listings_sharing_the_lowest_price_are_still_a_range() -> None:
+    """The ends of the spread are the cheapest and the dearest, not the first two: a
+    tie at the bottom is not every shop agreeing."""
+    priced = Product(
+        name="Sony WH-1000XM5",
+        price=329.0,
+        currency="USD",
+        offers=[offer(329.0), offer(299.0), offer(299.0)],
+    )
+
+    assert priced.offers_label() == "3 listings, 299.00-329.00 USD"
+
+
 def test_a_listing_off_the_runs_scale_is_counted_and_not_measured() -> None:
     """Two prices in two currencies have nothing between them, and nothing is
     converted (ADR-0043)."""

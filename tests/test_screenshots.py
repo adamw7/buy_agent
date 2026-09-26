@@ -19,8 +19,10 @@ import pytest
 from buy_agent import screenshots
 from buy_agent.screenshots import (
     INSTALL,
+    LOAD_SECONDS,
     QUALITY,
     SCALE,
+    SETTLE_SECONDS,
     USER_AGENT,
     VIEWPORT,
     Camera,
@@ -114,6 +116,25 @@ def test_one_browser_takes_every_picture_while_somebody_is_asking(cameras) -> No
 
     assert len(launch.launched) == 1
     assert launch.launched[0].shot == [SHOP, ROUNDUP]
+
+
+def test_pictures_are_taken_on_a_thread_that_never_holds_the_server_open(cameras) -> None:
+    """One thread of the camera's own, which Playwright's objects belong to, and a
+    daemon: a server stopped mid-picture exits rather than waiting on the browser."""
+    ran_on: list[threading.Thread] = []
+
+    class Watched(StandIn):
+        def shoot(self, url: str) -> bytes:
+            ran_on.append(threading.current_thread())
+            return super().shoot(url)
+
+    camera = cameras(Launcher(Watched()))
+
+    camera.shoot(SHOP)
+
+    [thread] = ran_on
+    assert thread is not threading.current_thread()
+    assert thread.daemon
 
 
 def test_the_browser_is_let_go_once_nobody_has_asked_for_a_while(cameras) -> None:
@@ -272,6 +293,7 @@ class World:
         self.pages_closed = 0
         self.browser_closed = False
         self.stopped = False
+        self.settled_within: float | None = None
 
 
 class FakePage:
@@ -286,6 +308,7 @@ class FakePage:
 
     def wait_for_load_state(self, state: str, *, timeout: float) -> None:
         assert state == "load"
+        self.world.settled_within = timeout
         if self.world.still_loading:
             raise FakeTimeout(f"Timeout {timeout:.0f}ms exceeded.")
 
@@ -379,6 +402,17 @@ def test_a_page_is_photographed_at_the_size_the_card_draws_it(world: World) -> N
     assert world.pages_closed == 1
 
 
+def test_a_page_is_given_its_two_waits_in_the_milliseconds_playwright_counts_in(
+    world: World,
+) -> None:
+    """Playwright's ``timeout`` is milliseconds, not seconds, so a wait written in
+    seconds would be a thousandth of itself -- and ``None`` is no limit at all."""
+    Chromium().shoot(SHOP)
+
+    assert world.visits[0][1]["timeout"] == LOAD_SECONDS * 1000
+    assert world.settled_within == SETTLE_SECONDS * 1000
+
+
 def test_the_agent_is_not_the_one_headless_chromium_announces() -> None:
     """Shops that turn away python-httpx turn away "HeadlessChrome" the same way."""
     assert "Headless" not in USER_AGENT
@@ -402,12 +436,15 @@ def test_a_page_that_answered_with_nothing_to_report_is_still_photographed(
     assert Chromium().shoot(SHOP) == b"\xff\xd8 a jpeg"
 
 
-def test_a_page_that_answered_with_an_error_is_not_photographed(world: World) -> None:
+@pytest.mark.parametrize("status", [400, 403])
+def test_a_page_that_answered_with_an_error_is_not_photographed(
+    world: World, status: int
+) -> None:
     """A shop's "access denied" beside its product says the link is broken, when it
-    opens fine in the shopper's own browser."""
-    world.status = 403
+    opens fine in the shopper's own browser -- from the first error status on."""
+    world.status = status
 
-    with pytest.raises(ScreenshotError, match="answered 403"):
+    with pytest.raises(ScreenshotError, match=f"answered {status}"):
         Chromium().shoot(SHOP)
     assert world.pictures == []
     assert world.pages_closed == 1

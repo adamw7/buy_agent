@@ -345,9 +345,62 @@ def test_a_searxng_answer_becomes_search_results(monkeypatch) -> None:
         ("Sony XM5", "https://shop/x", "$328")
     ]
     assert seen["url"] == "http://localhost:8080/search"
-    assert seen["params"]["q"] == "headphones"
-    assert seen["params"]["format"] == "json"
-    assert seen["params"]["language"] == "pl"
+    assert seen["params"] == {
+        "q": "headphones",
+        "format": "json",
+        "language": "pl",
+        "safesearch": 0,
+    }
+
+
+@pytest.mark.parametrize("keyed", [False, True], ids=["searxng", "brave"])
+def test_a_backend_asked_over_http_is_asked_with_a_bound_on_the_wait(
+    monkeypatch, keyed: bool
+) -> None:
+    """httpx waits forever when told ``None``, and an instance that took the request
+    and went quiet would hang the run on its first step."""
+    seen = stub_http(monkeypatch, payload={"results": [], "web": {"results": []}})
+
+    search_web("headphones", backend=_with_key(BRAVE, "k") if keyed else SEARXNG)
+
+    assert isinstance(seen["timeout"], (int, float)) and seen["timeout"] > 0
+
+
+def test_an_address_written_with_a_trailing_slash_is_the_same_address(monkeypatch) -> None:
+    """``$SEARXNG_HOST`` copied out of an address bar ends in one."""
+    seen = stub_http(monkeypatch, payload={"results": []})
+
+    search_web("headphones", backend=_at(SEARXNG, "http://searx.lan:8888/"))
+
+    assert seen["url"] == "http://searx.lan:8888/search"
+
+
+def test_ddg_answering_more_than_was_asked_is_cut_to_what_was_asked(monkeypatch) -> None:
+    """``max_results`` is a request to the library, not a promise it keeps."""
+    stub_ddgs(
+        monkeypatch,
+        results=[{"title": f"Hit {n}", "href": f"https://x/{n}", "body": ""} for n in range(3)],
+    )
+
+    assert [r.title for r in search_web("headphones", max_results=2)] == ["Hit 0", "Hit 1"]
+
+
+def test_brave_answering_more_than_was_asked_is_cut_to_what_was_asked(monkeypatch) -> None:
+    stub_http(
+        monkeypatch,
+        payload={
+            "web": {
+                "results": [
+                    {"title": f"Hit {n}", "url": f"https://x/{n}", "description": ""}
+                    for n in range(3)
+                ]
+            }
+        },
+    )
+
+    found = search_web("headphones", max_results=2, backend=_with_key(BRAVE, "k"))
+
+    assert [r.title for r in found] == ["Hit 0", "Hit 1"]
 
 
 def test_a_brave_answer_becomes_search_results(monkeypatch) -> None:
@@ -413,7 +466,7 @@ def test_an_answer_that_is_not_json_is_the_backend_s_own_failure(monkeypatch) ->
 def test_an_answer_that_is_not_an_object_is_the_same_failure(monkeypatch) -> None:
     stub_http(monkeypatch, payload=["one", "two"])
 
-    with pytest.raises(SearchError, match="not an object"):
+    with pytest.raises(SearchError, match="answered with list, not an object"):
         search_web("headphones", backend=SEARXNG)
 
 
@@ -432,15 +485,18 @@ def test_an_unreachable_instance_names_its_address_and_the_way_back(monkeypatch)
 
     said = str(failure.value)
     assert "http://localhost:8080" in said
+    assert "(refused)" in said, "with what the transport said"
     assert "$SEARXNG_HOST" in said
     assert DDG.label in said
 
 
-def test_a_refused_brave_key_is_said_as_a_refused_key(monkeypatch) -> None:
-    """A 401 is not "the address is wrong", which is what the other sentence says."""
+@pytest.mark.parametrize("status", [401, 403])
+def test_a_refused_brave_key_is_said_as_a_refused_key(monkeypatch, status: int) -> None:
+    """Neither is "the address is wrong", which is what the other sentence says: an
+    unknown key and one past its plan are both the key."""
     request = httpx.Request("GET", BRAVE.endpoint)
     refused = httpx.HTTPStatusError(
-        "401", request=request, response=httpx.Response(401, request=request)
+        str(status), request=request, response=httpx.Response(status, request=request)
     )
     stub_http(monkeypatch, error=refused)
 
@@ -456,7 +512,7 @@ def test_a_brave_outage_falls_back_to_the_address_sentence(monkeypatch) -> None:
     )
     stub_http(monkeypatch, error=down)
 
-    with pytest.raises(SearchError, match=r"\$BRAVE_HOST"):
+    with pytest.raises(SearchError, match=r"\(503\)\. Check the address in \$BRAVE_HOST"):
         search_web("headphones", backend=_with_key(BRAVE, "k"))
 
 
@@ -480,6 +536,20 @@ def _with_key(backend: Backend, key: str) -> Backend:
         label=backend.label,
         endpoint=backend.endpoint,
         api_key=key,
+        needs_key=backend.needs_key,
+        find=backend.find,
+        transport_errors=backend.transport_errors,
+        hint=backend.hint,
+    )
+
+
+def _at(backend: Backend, endpoint: str) -> Backend:
+    """``backend`` as it would have been built with that address in its environment."""
+    return Backend(
+        name=backend.name,
+        label=backend.label,
+        endpoint=endpoint,
+        api_key=backend.api_key,
         needs_key=backend.needs_key,
         find=backend.find,
         transport_errors=backend.transport_errors,

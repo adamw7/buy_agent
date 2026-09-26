@@ -27,7 +27,7 @@ python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
 ```
 
-2693 Python tests and 276 UI tests. Nothing in either suite touches the network
+2789 Python tests and 276 UI tests. Nothing in either suite touches the network
 or a model server: the model is faked through the `llm=` argument of `BuyAgent`
 -- a class with one `answer` method, which is the whole of `chat.ChatModel`,
 both the search backend and the page fetcher are monkeypatched -- the backends'
@@ -64,20 +64,20 @@ network; the HTTP rail's transport is patched where `buy_agent.rails` imported
 it. The 31 tests in `integration/` are the exception that proves it, and they
 live outside `testpaths` so a bare `pytest` cannot reach them.
 
-Without that SDK the 74 tests that need it **skip**, the way
+Without that SDK the 76 tests that need it **skip**, the way
 `tests/test_start_script.py` skips where there is no PowerShell: `needs_ap2` in
 `tests/conftest.py` is the marker, and it asks `mandates.available()` once at
 import. `needs_powershell` is the other, and with neither `pwsh` nor
 `powershell` on PATH 16 of the 22 tests in that file sit out, and all 4 in
 `tests/test_setup_scripts.py`. So a machine with
-the SDK and no PowerShell reads `2673 passed, 20 skipped`, and a checkout set up
-with `requirements-dev.txt` alone reads `2599 passed, 94 skipped` rather than 74
+the SDK and no PowerShell reads `2769 passed, 20 skipped`, and a checkout set up
+with `requirements-dev.txt` alone reads `2693 passed, 96 skipped` rather than 76
 failures claiming the project is broken when one optional feature is simply not
 installed. It is not a way of
 not noticing: both workflows install the SDK, so on the runs that decide
 anything nothing here is skipped and the coverage floor still has to be met --
-which it cannot be with 74 tests sitting out. Nor is it a way of skipping more
-than that: every one of the 74 really does fail without the SDK, and the marker
+which it cannot be with 76 tests sitting out. Nor is it a way of skipping more
+than that: every one of the 76 really does fail without the SDK, and the marker
 goes on the parametrised case rather than the function where only one case
 needs it.
 
@@ -550,9 +550,11 @@ where the suite takes six seconds, and it is a report rather than a gate
 (ADR-0016). The job summary carries the score, a row per module worst first, and
 the functions the survivors cluster in; the full list is uploaded as an
 artifact. The run fails only if the score drops under 75% -- a guard against a
-module arriving with thin tests, not a target. It sits at 77% today, a good
-share of the survivors being equivalent mutants: a reworded log line, a debug
-counter nothing reads.
+module arriving with thin tests, not a target. It sits at 84% today, a good
+share of the survivors being equivalent mutants: a reworded log line or `--help`
+sentence -- the two parsers' help text alone is over a third of them -- a debug
+counter nothing reads, a header name in a case HTTP never distinguishes, a key
+that is only ever hashed.
 
 To run it locally (settings, including what to mutate and what to copy alongside
 it, are in `setup.cfg`):

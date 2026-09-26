@@ -94,6 +94,13 @@ def test_repeated_lines_appear_once() -> None:
     assert condense(repeated, max_chars=1000).count("$129.00") == 1
 
 
+def test_a_repeat_is_skipped_and_the_lines_after_it_are_still_read() -> None:
+    """A page that prints its headline deal twice has not run out of prices."""
+    page = "Sony WH-CH720N\n$129.00\nSony WH-CH720N\n$129.00\nBose QuietComfort\n$279.00"
+
+    assert "$279.00" in condense(page, max_chars=1000)
+
+
 def test_the_same_figure_under_two_names_is_two_figures() -> None:
     """A repeat is the same words about the same thing, not the same words. Two
     products a page prices alike print that figure twice, and deduplicating by the
@@ -436,6 +443,20 @@ def test_enrich_reports_how_many_pages_were_usable(monkeypatch, caplog) -> None:
 
     assert "Got usable page text from 1 of 2 result(s)" in caplog.text
     assert "1 could not be reached" in caplog.text
+
+
+def test_a_tally_with_nothing_going_wrong_ends_at_the_count(monkeypatch, caplog) -> None:
+    """No colon introducing a list of failures that is not there."""
+    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
+        enrich([SearchResult(url="https://good.example")], max_chars=1000)
+
+    assert [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("Got usable page text")
+    ] == ["Got usable page text from 1 of 1 result(s)"]
 
 
 # -- why the pages that yielded nothing yielded nothing --------------------------
@@ -829,6 +850,19 @@ def test_the_opinion_budget_reaches_the_pages(monkeypatch) -> None:
     assert "uncanny" in enriched[0].content
 
 
+def test_leaving_the_opinions_unread_reaches_the_pages(monkeypatch) -> None:
+    """The other half of that: a budget of nothing is passed on as nothing, rather than
+    each page falling back to the default and reading them anyway."""
+    stub_client(monkeypatch, lambda url: make_response(url, f"<p>{REVIEW}</p>"))
+
+    enriched = enrich(
+        [SearchResult(url="https://audiosite.example")], max_chars=1000, opinion_chars=0
+    )
+
+    assert "$129.00" in enriched[0].content
+    assert "uncanny" not in enriched[0].content
+
+
 def test_a_product_called_pro_is_not_mistaken_for_a_pros_list() -> None:
     """Half the products on a headphone page are a "Pro" of something."""
     assert condense("Apple AirPods Pro (2nd generation)", max_chars=1000) == ""
@@ -846,6 +880,78 @@ def test_a_page_is_read_only_as_far_as_the_ceiling(monkeypatch) -> None:
 
     assert "$129.00" in page.text, "what arrived before the cut is still read"
     assert page.problem is None
+
+
+#: A page arriving in three pieces, each a line with a price of its own.
+_CHUNKS = (b"<p>Sony WH-CH720N $129.00</p>", b"<p>Bose QC Ultra $379.00</p>", b"<p>JBL $99.00</p>")
+
+
+@pytest.mark.parametrize(
+    ("ceiling", "third_read"),
+    [
+        # Exactly the first two pieces: reached, so the third is never asked for...
+        (len(_CHUNKS[0]) + len(_CHUNKS[1]), False),
+        # ...and a byte more than them: not yet reached, so it is.
+        (len(_CHUNKS[0]) + len(_CHUNKS[1]) + 1, True),
+    ],
+)
+def test_the_ceiling_is_counted_across_every_piece_that_arrived(
+    monkeypatch, ceiling: int, third_read: bool
+) -> None:
+    """Every byte counted once, from nothing, until the total reaches the ceiling --
+    which one piece at a time is the only way a page larger than it arrives."""
+    monkeypatch.setattr("buy_agent.fetch._MAX_PAGE_BYTES", ceiling)
+    stub_client(
+        monkeypatch,
+        lambda url: httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            content=iter(_CHUNKS),
+            request=httpx.Request("GET", url),
+        ),
+    )
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://huge.example", max_chars=1000)
+
+    assert "$379.00" in page.text
+    assert ("$99.00" in page.text) is third_read
+
+
+def test_a_page_is_read_in_the_encoding_it_declares(monkeypatch) -> None:
+    """A shop still serving Latin-1 prints its accents in bytes UTF-8 cannot read."""
+    stub_client(
+        monkeypatch,
+        lambda url: httpx.Response(
+            200,
+            headers={"content-type": "text/html; charset=iso-8859-1"},
+            content="<p>Café Noir espresso machine £129.00</p>".encode("iso-8859-1"),
+            request=httpx.Request("GET", url),
+        ),
+    )
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://cafe.example", max_chars=1000)
+
+    assert "Café Noir" in page.text
+
+
+def test_a_byte_no_encoding_can_read_does_not_cost_the_page(monkeypatch) -> None:
+    """Replaced, not raised: one bad byte in a footer is not the page's prices gone."""
+    stub_client(
+        monkeypatch,
+        lambda url: httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            content=b"<p>Sony WH-CH720N $129.00</p><p>\xff</p>",
+            request=httpx.Request("GET", url),
+        ),
+    )
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://odd.example", max_chars=1000)
+
+    assert "$129.00" in page.text
 
 
 def test_a_page_served_as_something_else_is_dropped_before_its_body(monkeypatch) -> None:
@@ -1031,7 +1137,7 @@ def test_a_rate_limited_page_is_asked_again_after_the_wait_it_asked_for(monkeypa
     assert "$129.99" in page.text
     assert page.problem is None
     assert waits == [2.0], "the wait the shop asked for, and one of them"
-    assert len(asked) == 2
+    assert asked == ["https://shop.example"] * 2, "and the second time, the same page"
 
 
 def test_a_page_that_asks_again_without_saying_when_still_gets_one_more_try(

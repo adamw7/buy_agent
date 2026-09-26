@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -460,6 +461,34 @@ def test_scores_are_rounded_in_the_json(fake_agent, tmp_path) -> None:
     assert json.loads(destination.read_text(encoding="utf-8"))[0]["score"] == 0.1235
 
 
+def test_the_json_is_written_for_a_person_to_read(fake_agent, tmp_path) -> None:
+    """Indented, since the file is opened by somebody as often as by a script."""
+    destination = tmp_path / "out.json"
+
+    main(["headphones", "--json", str(destination)])
+
+    assert destination.read_text(encoding="utf-8").startswith('[\n  {\n    "')
+
+
+def test_the_json_is_counted_on_the_currency_the_run_was_told_to(
+    fake_agent, tmp_path
+) -> None:
+    """The file is what a script buys from, so it is on the scale the ranking used and
+    not a second vote of the set -- which here would have been dollars (ADR-0056)."""
+    fake_agent["result"] = [
+        ranked_product(payable_product(name="Bose QC", currency="USD"), score=0.6, rank=1),
+        ranked_product(payable_product(name="JBL Live", currency="USD"), score=0.5, rank=2),
+        ranked_product(payable_product(name="Sony XM5", currency="EUR"), score=0.4, rank=3),
+    ]
+    destination = tmp_path / "out.json"
+
+    main(["headphones", "--currency", "EUR", "--json", str(destination)])
+
+    written = {entry["name"]: entry for entry in json.loads(destination.read_text("utf-8"))}
+    assert written["Sony XM5"]["pay_currency"] == "EUR"
+    assert written["Bose QC"]["cannot_pay"]
+
+
 def test_the_json_writes_a_currency_sign_as_itself(fake_agent, tmp_path) -> None:
     """A file somebody opens reads "zł", not an escape sequence standing for it."""
     fake_agent["result"] = [ranked_product(Product(name="Słuchawki €"), score=0.5, rank=1)]
@@ -888,6 +917,25 @@ def test_the_dry_run_pays_for_the_top_product_once_it_is_approved(
     assert "Type yes to authorise" in capsys.readouterr().err
 
 
+@needs_ap2
+def test_a_purchase_ends_with_the_line_that_points_back_at_its_authorisation(
+    fake_agent, monkeypatch, caplog
+) -> None:
+    """What was bought, for how much and from whom, beside the hash of the mandate
+    chain -- the one handle on it a receipt is allowed to carry (ADR-0046)."""
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("yes\n"))
+
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        main(["headphones", "--pay"])
+
+    covers = [record.getMessage() for record in caplog.records if " covers " in record.getMessage()]
+    assert len(covers) == 1
+    reference, rest = covers[0].removeprefix("Authorisation ").split(" covers ")
+    assert re.fullmatch(r"[A-Za-z0-9_-]{43}=?", reference), "a SHA-256, base64url"
+    assert rest == "Sony WH-1000XM5 at 329.99 USD from AudioSite"
+
+
 def test_the_prompt_restates_the_cart_and_whether_anybody_is_charged(
     fake_agent, monkeypatch, capsys
 ) -> None:
@@ -903,6 +951,21 @@ def test_the_prompt_restates_the_cart_and_whether_anybody_is_charged(
     assert "Sony WH-1000XM5" in shown
     assert "AudioSite" in shown
     assert "will NOT be charged" in shown
+
+
+def test_the_prompt_on_a_rail_that_moves_money_says_somebody_will_be_charged(
+    fake_agent, monkeypatch, capsys
+) -> None:
+    """The half of that line that matters most: said wrongly on a real counterparty, the
+    one sentence standing between a keypress and a charge promises there is none."""
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("no\n"))
+
+    main(["headphones", "--pay", "--rail", "http", "--merchant-url", "https://pay.example"])
+
+    shown = capsys.readouterr().err
+    assert "you will be charged" in shown
+    assert "NOT" not in shown
 
 
 def test_anything_but_yes_buys_nothing(fake_agent, monkeypatch, caplog) -> None:
@@ -1252,6 +1315,17 @@ def test_a_bound_already_set_is_not_offered_back(fake_agent, caplog) -> None:
     assert fake_agent["config"].max_price == 150
 
 
+def test_a_bound_already_set_does_not_stop_the_next_one_being_offered(
+    fake_agent, caplog
+) -> None:
+    """Skipped one at a time: the budget was given as a flag, the rating was not."""
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        main(["headphones under $200 with at least 4.5 stars", "--max-price", "150"])
+
+    assert "--max-price" not in caplog.text
+    assert "--min-rating 4.5 is what would enforce it" in caplog.text
+
+
 def test_a_number_about_something_else_is_not_offered_as_a_bound(
     fake_agent, caplog
 ) -> None:
@@ -1312,3 +1386,4 @@ def test_comparing_a_search_never_run_before_says_so(fake_agent, caplog) -> None
         main(["espresso machine", "--compare"])
 
     assert "Nothing to compare" in caplog.text
+    assert "--compare has nothing to read" not in caplog.text, "the journal is on"
