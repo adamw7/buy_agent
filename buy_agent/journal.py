@@ -232,16 +232,15 @@ def _moved(now: Recorded, before: Recorded | None, when: str) -> Change:
         return Change(name=now.name, movement="new", price_label=label, detail=detail)
     was = before.label()
     if now.price is None or before.price is None or now.currency != before.currency:
-        # A missing price or another currency: nothing is converted (ADR-0043).
+        # A missing price says why itself; two currencies need the reason (ADR-0043).
+        missing = now.price is None or before.price is None
+        why = "" if missing else "; nothing is converted"
         return Change(
             name=now.name,
             movement="unplaced",
             price_label=label,
             was_label=was,
-            detail=(
-                f"{label} now and {was} on {when}; nothing is converted, so there is "
-                f"no movement to report."
-            ),
+            detail=f"{label} now and {was} on {when}{why}, so there is no movement to report.",
         )
     delta = round(now.price - before.price, 2)
     movement: Movement = "steady" if delta == 0 else "cheaper" if delta < 0 else "dearer"
