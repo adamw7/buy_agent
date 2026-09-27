@@ -144,6 +144,37 @@ def test_a_figure_is_read_whole_or_not_at_all() -> None:
     assert only("laptop under 1,500").figure == "1500"
 
 
+@pytest.mark.parametrize(
+    ("request_", "figure", "phrase"),
+    [
+        ("a laptop under 1 500 zł", "1500", "under 1 500 zł"),
+        ("a laptop under 1 299,99 zł", "1299.99", "under 1 299,99 zł"),
+        ("a laptop under 1 299,-", "1299", "under 1 299"),
+        ("a laptop under 1\u00a0500", "1500", "under 1\u00a0500"),
+        ("a laptop 1 500 PLN or less", "1500", "1 500 PLN or less"),
+    ],
+)
+def test_a_figure_grouped_with_spaces_is_read_whole(
+    request_: str, figure: str, phrase: str
+) -> None:
+    """Polish and French group thousands with a space; read as "1", the first group,
+    "under 1 500 zł" offered a budget every priced product was over."""
+    seen = only(request_)
+
+    assert (seen.bound, seen.figure, seen.phrase) == ("max_price", figure, phrase)
+
+
+@pytest.mark.parametrize(
+    "request_",
+    ["a laptop under 1 500", "a laptop under 1 500 hours", "headphones under $1 500"],
+)
+def test_a_space_that_may_not_group_offers_neither_half(request_: str) -> None:
+    """With no currency or decimal comma closing it, "1 500" may be two figures, and
+    neither is offered: missing an offer costs nothing, where offering "1" drops every
+    priced product."""
+    assert notice(request_) == []
+
+
 def test_all_three_are_read_out_of_one_request() -> None:
     found = notice("headphones under $200 with at least 500 reviews and 4.5+ stars")
 

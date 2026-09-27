@@ -12,7 +12,15 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from buy_agent.money import SCANNED_CODES, SIGNS, WORDS, plain_figures
+from buy_agent.money import (
+    GROUP_SPACES,
+    SCANNED_CODES,
+    SIGNS,
+    SPACED_THOUSANDS,
+    WORDS,
+    plain_figures,
+    ungroup,
+)
 
 #: The bounds a request can ask for, named as the settings that enforce them.
 Bound = Literal["max_price", "min_rating", "min_reviews"]
@@ -20,10 +28,14 @@ Bound = Literal["max_price", "min_rating", "min_reviews"]
 #: The highest plausible rating.
 _TOP_RATING = 5.0
 
-#: A number in either convention ("1,500", "1.299,99"), read by
-#: :func:`~buy_agent.money.plain_figures`. The lookahead stops backtracking into part of
-#: one ("1500" read as "150").
-_NUMBER = r"\d(?:[\d,.]*\d)?(?![\d,.]*\d)"
+#: A number in any convention ("1,500", "1.299,99", "1 500 zł"), read by
+#: :func:`~buy_agent.money.plain_figures`. The lookaheads stop backtracking into part of
+#: one: "1500" read as "150", or "1 500" as "1" where a space grouping it was not
+#: taken (``money.SPACED_THOUSANDS`` says when one is).
+_NUMBER = (
+    rf"(?:{SPACED_THOUSANDS}"
+    rf"|\d(?:[\d,.]*\d)?(?![\d,.]*\d)(?![{re.escape(GROUP_SPACES)}]\d{{3}}(?!\d)))"
+)
 
 #: A currency sign before the figure ("$200").
 _SIGN = f"[{re.escape(SIGNS)}]" if SIGNS else r"(?!)"
@@ -129,7 +141,8 @@ def _figure(match: re.Match[str]) -> float | None:
     """The match's one captured figure, or ``None`` if it is no number ("1.2.3")."""
     written = next(group for group in match.groups() if group)
     try:
-        return float(plain_figures(written))
+        # The currency that let a space group it is outside the capture.
+        return float(plain_figures(ungroup(written)))
     except ValueError:
         return None
 
