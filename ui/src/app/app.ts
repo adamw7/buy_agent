@@ -360,14 +360,23 @@ export class App {
         },
         error: (failure: unknown) => {
           this.reorderFailed.set(
-            `Could not re-order these by ${sortBy}; they are still ranked by ` +
-              `${found.sort_by}. ${refusal(failure)}`,
+            `Could not re-order these: they are still ${this.ordering(found.sort_by)}, ` +
+              `not ${this.ordering(sortBy)}. ${refusal(failure)}`,
           );
           // Put the control back to the order these products are actually in.
           control.value = found.sort_by;
           this.reordering.set(false);
         },
       });
+  }
+
+  /** A criterion as the order it puts products in, for a sentence -- "cheapest first",
+   *  the control's own words, where "price" beside a control reading "Cheapest first"
+   *  named something the reader could not find. By name for a server older than the
+   *  page, which sends no labels. */
+  private ordering(name: SortBy): string {
+    const label = this.defaults()?.sort_labels?.[name];
+    return label ? label.charAt(0).toLowerCase() + label.slice(1) : `by ${name}`;
   }
 
   /** Buy one of these products, having been shown that somebody approved it. */

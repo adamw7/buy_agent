@@ -8,6 +8,7 @@ import { App } from './app';
 import { AgentService } from './agent';
 import { WEIGHTS, defaults, product, receipt, status } from './testing';
 import type {
+  AgentDefaults,
   BoundsCheck,
   Change,
   ModelSource,
@@ -985,9 +986,37 @@ describe('App results', () => {
     await rankBy(fixture, 'rating');
 
     const page = fixture.nativeElement as HTMLElement;
-    expect(page.querySelector('.results .banner')!.textContent).toContain('still ranked by score');
+    expect(page.querySelector('.results .banner')!.textContent).toContain(
+      'still best score first, not best rated first',
+    );
     expect(page.querySelector('app-progress-log .save')).toBeNull();
     expect(page.querySelector('app-product-card')!.textContent).toContain('Best Kettle');
+  });
+
+  it('names the orders a failed re-order is about the way the control does', async () => {
+    /* "Could not re-order these by price; they are still ranked by score", beside a
+       control whose options read "Cheapest first" and "Best score first": neither word
+       was anywhere on the screen. A server older than the page sends no labels, and
+       the names are all there is to say. */
+    agent.rankResponse = () => throwError(() => new Error('offline'));
+    const fixture = await finished();
+    await rankBy(fixture, 'price');
+    const banner = () =>
+      (fixture.nativeElement as HTMLElement).querySelector('.results .banner')!.textContent;
+
+    expect(banner()).toContain('they are still best score first, not cheapest first');
+
+    const older = { ...DEFAULTS } as Partial<AgentDefaults>;
+    delete older.sort_labels;
+    agent.defaultsResponse = of(older as AgentDefaults);
+    // A run of its own: the first one completed the stream it came back on.
+    agent.stream = new Subject<SearchEvent>();
+    const unlabelled = await finished();
+    await rankBy(unlabelled, 'price');
+
+    expect(
+      (unlabelled.nativeElement as HTMLElement).querySelector('.results .banner')!.textContent,
+    ).toContain('they are still by score, not by price');
   });
 
   it('says what the server said about a re-order it refused', async () => {
