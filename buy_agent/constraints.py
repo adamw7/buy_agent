@@ -112,16 +112,21 @@ class Constraints:
         """Which products are inside the bounds, by index, and in which currency
         (ADR-0043)."""
         inside = list(range(len(products)))
+        judged: str | None = None
         while True:
-            currency = dominant_currency(
-                (products[index] for index in inside), self.currency
+            # What is left may vote for no currency -- unpriced, or priced bare -- and then
+            # keeps the one the rest were judged in, for the sentences to name. Who is
+            # inside cannot move: a bare price is the run's own either way (ADR-0043).
+            currency = (
+                dominant_currency((products[index] for index in inside), self.currency)
+                or judged
             )
             kept = [index for index in inside if self.admits(products[index], currency)]
             # An empty set has no currency, so report the one that emptied it: the log
             # line must name it.
             if not kept or len(kept) == len(inside):
                 return kept, currency
-            inside = kept
+            inside, judged = kept, currency
 
     def _set(self) -> Iterator[tuple[Reader, float, Callable[[float, float], bool], str]]:
         """The rows of :data:`_BOUNDS` the shopper actually gave a number for."""

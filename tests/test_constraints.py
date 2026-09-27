@@ -264,6 +264,16 @@ def test_the_budget_is_read_in_the_currency_the_report_is_counted_in(caplog) -> 
         # one that emptied the set: "(at most 200.00)" drops the half of the bound
         # nobody typed from the one report that most needs it.
         pytest.param([OVER], "at most 200.00 USD", id="a currency nothing survived"),
+        # What survived prices nothing, so it votes for no currency either: the one to
+        # name is still the one the rest were judged in, or every removal read "at
+        # most 200.00" beside a product priced "300.00 USD".
+        pytest.param(
+            [OVER, Product(name="Unpriced")], "at most 200.00 USD", id="only the unpriced survived"
+        ),
+        # A bare price is the run's own (ADR-0043), and names no currency to vote with.
+        pytest.param(
+            [OVER, Product(name="Bare", price=100.0)], "at most 200.00 USD", id="a bare price survived"
+        ),
         # Nothing to say, and "at most 200.00 None" would be worse than the
         # sentence the report always had.
         pytest.param([Product(name="Under", price=100.0)], "(at most 200.00)", id="no currency"),
@@ -324,6 +334,20 @@ def test_the_removal_names_the_currency_the_bound_was_settled_in() -> None:
     )
 
     assert "EUR" in removed[0].reason
+
+
+def test_the_removal_names_the_currency_when_only_an_unpriced_product_is_left() -> None:
+    """A budget of 100 over the laptops demo: six dollar prices out and the one no page
+    priced kept, so the set left voted for no currency -- and each of the six said it
+    was "Outside the limits you set (at most 100.00)", of nothing in particular."""
+    removed: list[Removal] = []
+    Constraints(max_price=100.0).apply(
+        [product("dear", price=900.0, currency="USD"), product("unpriced")],
+        record=removed.append,
+    )
+
+    assert [entry.name for entry in removed] == ["dear"]
+    assert removed[0].reason == "Outside the limits you set (at most 100.00 USD)."
 
 
 def test_bounds_nobody_set_remove_nothing_at_all() -> None:
