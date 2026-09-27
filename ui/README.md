@@ -98,6 +98,15 @@ the first load had no pill at all, Check again looked like a button that did
 nothing, and a model picked in that window was one the new server had never
 offered.
 
+A run is fresher news about the server than the listing the page asked for on
+load, so `App.recheckAfter` asks again where the two disagree: results came back
+while the pill said unreachable, or the run failed with the model server's 503
+while it said up. The first is the common one -- the remedy under the pill is one
+command, and the natural next click after running it is **Find products**, not
+**Check again** -- and it left "Start it with: ollama serve" in red above the
+results that run had just brought back. A run that agrees with the pill asks
+nothing, since the listing stands the model picker down while it is in flight.
+
 ### `progress-log`
 
 It follows the tail the way a terminal does, but only while the reader is at it:
@@ -131,6 +140,13 @@ afterwards, `elapsed()` while it is happening. The clock starts and stops on the
 `running` input, redraws once a second and is cleared on destroy; `duration()`
 writes seconds and minutes (`8s`, `2m 14s`) rather than a `0:08` clock, this
 being how long something took and not what time it is.
+
+The panel only says any of that to somebody looking at it, and a wait of minutes
+is one people spend in another tab. So `App.tabTitle` puts where the run stands
+in front of the page's name -- **Searching…**, then **7 found**, **Nothing
+found**, **Failed** or **Stopped** -- and nothing before a run has happened, the
+agent server not answering on load being a banner and not a run. It is not a
+second clock: a title redrawn every second is a tab strip that flickers.
 
 ### `product-card`
 

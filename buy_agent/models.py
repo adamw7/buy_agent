@@ -154,7 +154,8 @@ class Product(BaseModel):
     def offers_label(self) -> str | None:
         """The spread of listings' prices, or ``None`` for fewer than two (ADR-0058).
 
-        Measured in the headline's currency only; others are counted (ADR-0043).
+        Measured in the headline's currency only; others are counted, and said to be
+        elsewhere (ADR-0043).
         """
         if len(self.offers) < 2:
             return None
@@ -164,9 +165,24 @@ class Product(BaseModel):
         )
         if not placed:
             return listings
-        if placed[0] == placed[-1]:
-            return f"{listings}, {amount_label(placed[0], self.currency)}"
-        return f"{listings}, {placed[0]:,.2f}-{amount_label(placed[-1], self.currency)}"
+        spread = (
+            amount_label(placed[0], self.currency)
+            if placed[0] == placed[-1]
+            else f"{placed[0]:,.2f}-{amount_label(placed[-1], self.currency)}"
+        )
+        elsewhere = [offer.currency for offer in self.offers if offer.currency != self.currency]
+        if not elsewhere:
+            return f"{listings}, {spread}"
+        # Said, not only counted: "2 listings, 749.00 USD" read as two shops at 749.00
+        # when the other had quoted 689.00 EUR -- and the report lists no offers.
+        codes = set(elsewhere)
+        if codes == {None}:
+            where = "with no currency printed"
+        elif len(codes) == 1:
+            where = f"in {codes.pop()}"
+        else:
+            where = "in other currencies"
+        return f"{listings}: {spread}, and {len(elsewhere)} {where}"
 
 
 #: Fields that describe another field rather than the product (ADR-0022).

@@ -363,6 +363,17 @@ describe('SearchForm', () => {
     );
   });
 
+  it('says under the sources box what naming a source does', async () => {
+    /* It was a paragraph at the foot of the panel: on a phone two screens below the
+       box, and directly under the paying switch, which it then read as explaining. */
+    const box = element<HTMLInputElement>('input[name="sources"]');
+
+    expect(box.closest('.field')!.querySelector('small')!.textContent).toContain(
+      'Only those are searched',
+    );
+    expect(element('details.advanced').textContent).not.toContain('Naming trusted sources');
+  });
+
   it('starts from the agent config defaults the server served', async () => {
     expect(element<HTMLInputElement>('input[name="model"]').value).toBe('llama3.2');
     expect(element<HTMLInputElement>('input[name="results"]').value).toBe('10');
@@ -394,6 +405,14 @@ describe('SearchForm', () => {
     expect(submitted[0].max_price).toBe(200);
     expect(submitted[0].min_rating).toBe(4.5);
     expect(submitted[0].min_reviews).toBeNull();
+  });
+
+  it('says how long the cache box holds a page in words, not only in seconds', async () => {
+    /* It opens holding 86400, a number of seconds nobody reads as a day, which is
+       what --cache-ttl's help has always said beside it. */
+    const box = element<HTMLInputElement>('input[name="cache_ttl"]');
+
+    expect(box.closest('.field')!.querySelector('small')!.textContent).toContain('86400 is a day');
   });
 
   it('sends how long pages may be cached for', async () => {
@@ -812,18 +831,24 @@ describe('SearchForm', () => {
 
   it('falls back to typing a name when the server listed nothing', async () => {
     /* A dropdown holding one unusable entry is worse than a text box. */
-    fixture.componentRef.setInput('status', {
-      provider: 'ollama',
-      label: 'Ollama',
-      base_url: 'http://localhost:11434',
-      reachable: false,
-      models: [],
-    });
-    await fixture.whenStable();
+    await pulled([]);
 
     expect(element('select[name="model"]')).toBeNull();
     expect(element<HTMLInputElement>('input[name="model"]').value).toBe('llama3.2');
     expect(element('.field small')!.textContent).toContain('Ollama listed nothing');
+  });
+
+  it('says a server that could not be reached was not asked, rather than empty', async () => {
+    /* It listed nothing because nobody could ask it. "Ollama listed nothing to choose
+       from", under a header saying Ollama was unreachable, pointed at pulling a model
+       into a server that was not running. */
+    fixture.componentRef.setInput('status', status({ reachable: false, models: [] }));
+    await fixture.whenStable();
+
+    expect(element('select[name="model"]')).toBeNull();
+    const said = element('.field small')!.textContent;
+    expect(said).toContain('Ollama could not be reached');
+    expect(said).not.toContain('listed nothing');
   });
 
   it('asks for the model list of the server that was typed in', async () => {
@@ -1475,6 +1500,18 @@ describe('SearchForm, paying', () => {
   it('is off until somebody asks for it', async () => {
     expect(element<HTMLInputElement>('input[name="pay"]').checked).toBe(false);
     expect(fixture.nativeElement.querySelector('select[name="rail"]')).toBeNull();
+  });
+
+  it('says what the switch does here, which is offer and not buy', async () => {
+    /* "Pay for the top product" was `--pay`'s sentence. On this page nothing is bought
+       by ticking it: every product a page priced grows a Pay button, and each asks
+       again. It was also the one checkbox with nothing under it. */
+    const box = element<HTMLInputElement>('input[name="pay"]');
+    const field = box.closest('.field')!;
+
+    expect(box.closest('label')!.textContent).not.toContain('top product');
+    expect(field.querySelector('small')!.textContent).toContain('Pay button');
+    expect(field.querySelector('small')!.textContent).toContain('approve');
   });
 
   it('says so instead of offering a switch when the server cannot pay', async () => {

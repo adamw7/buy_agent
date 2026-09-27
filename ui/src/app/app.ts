@@ -5,9 +5,11 @@ import {
   Injector,
   afterNextRender,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
+import { Title } from '@angular/platform-browser';
 import type { Subscription } from 'rxjs';
 
 import { AgentService } from './agent';
@@ -118,6 +120,14 @@ export class App {
     return result ? result.products.slice(result.top_n) : [];
   });
 
+  /** How many products moved since the run compared against, for the panel to count.
+   *  Every product is listed, the unchanged ones with the rest, and counting those as
+   *  changes headed a run where no price had moved "7 changes since 27 Sep". */
+  protected readonly moved = computed(
+    () =>
+      (this.result()?.changes ?? []).filter((change) => !UNMOVED.includes(change.movement)).length,
+  );
+
   /** What to do about a model server that did not answer, shown under the pill. */
   protected readonly unreachable = computed(() => {
     const server = this.status();
@@ -145,7 +155,18 @@ export class App {
   /** A payment in flight. */
   private pay: Subscription | null = null;
 
+  /** What the browser tab says about the run on the page, if anything. A run takes
+   *  minutes, most of them in two model calls that log nothing, and a tab left in the
+   *  background said "buy_agent" from the click to the results. */
+  private readonly tabTitle = computed(() => {
+    const state = this.tabState();
+    return state ? `${state} — ${NAME}` : NAME;
+  });
+
   constructor() {
+    const title = inject(Title);
+    effect(() => title.setTitle(this.tabTitle()));
+
     inject(DestroyRef).onDestroy(() => {
       this.run?.unsubscribe();
       this.reorder?.unsubscribe();
@@ -162,6 +183,25 @@ export class App {
       },
       error: () => this.failure.set('Could not reach the agent server. Is it still running?'),
     });
+  }
+
+  /** Where the run on the page stands, in a word or two, or null before one has. */
+  private tabState(): string | null {
+    if (this.running()) {
+      return 'Searching…';
+    }
+    // Not the agent server failing to answer on load: that is no run.
+    if (!this.started()) {
+      return null;
+    }
+    const result = this.result();
+    if (result) {
+      return result.count ? `${result.count} found` : 'Nothing found';
+    }
+    if (this.stopped()) {
+      return 'Stopped';
+    }
+    return this.failure() === null ? null : 'Failed';
   }
 
   /** Ask what a model server is serving: the one named, or the one already shown. */
@@ -272,6 +312,7 @@ export class App {
         } else if (event.kind === 'result') {
           this.result.set(event.result);
           this.showResults();
+          this.recheckAfter(true);
         } else {
           this.failure.set(event.message);
           // So the form can mark that box (ADR-0033).
@@ -279,6 +320,10 @@ export class App {
           // A refusal is said on its box, and the form opens the panel it is in.
           if (!event.field) {
             this.reveal('.banner.failed');
+          }
+          // 503 is the model server's own failure (`api._STATUS`).
+          if (event.status === 503) {
+            this.recheckAfter(false);
           }
         }
       },
@@ -289,6 +334,18 @@ export class App {
       },
       complete: () => this.running.set(false),
     });
+  }
+
+  /** Ask the model server again where a run just contradicted the pill: results came
+   *  back while it said unreachable, or the run failed for want of it while it said
+   *  up. The pill is asked once, on load; the obvious next step after its remedy is
+   *  to start the server and press Find products, and the header went on saying
+   *  "Start it with: ollama serve" over the results that run brought back. */
+  private recheckAfter(answered: boolean): void {
+    const server = this.status();
+    if (server && !this.checking() && server.reachable !== answered) {
+      this.refreshModels();
+    }
   }
 
   /** Scroll a finished run's results into view, if they start below the fold. */
@@ -352,14 +409,23 @@ export class App {
         },
         error: (failure: unknown) => {
           this.reorderFailed.set(
-            `Could not re-order these by ${sortBy}; they are still ranked by ` +
-              `${found.sort_by}. ${refusal(failure)}`,
+            `Could not re-order these: they are still ${this.ordering(found.sort_by)}, ` +
+              `not ${this.ordering(sortBy)}. ${refusal(failure)}`,
           );
           // Put the control back to the order these products are actually in.
           control.value = found.sort_by;
           this.reordering.set(false);
         },
       });
+  }
+
+  /** A criterion as the order it puts products in, for a sentence -- "cheapest first",
+   *  the control's own words, where "price" beside a control reading "Cheapest first"
+   *  named something the reader could not find. By name for a server older than the
+   *  page, which sends no labels. */
+  private ordering(name: SortBy): string {
+    const label = this.defaults()?.sort_labels?.[name];
+    return label ? label.charAt(0).toLowerCase() + label.slice(1) : `by ${name}`;
   }
 
   /** Buy one of these products, having been shown that somebody approved it. */
@@ -442,6 +508,13 @@ export class App {
     ]);
   }
 }
+
+/** The page's name, which the tab carries after what the run is doing. */
+const NAME = 'buy_agent';
+
+/** The two movements that are not one: a price that held, and one there is nothing to
+ *  compare with (ADR-0043). Counted by, never composed from (ADR-0060). */
+const UNMOVED = ['steady', 'unplaced'];
 
 /** The wall clock as Python's `%H:%M:%S` writes it, for the one line above. */
 function now(): string {

@@ -8,7 +8,9 @@ import { App } from './app';
 import { AgentService } from './agent';
 import { WEIGHTS, defaults, product, receipt, status } from './testing';
 import type {
+  AgentDefaults,
   BoundsCheck,
+  Change,
   ModelSource,
   ModelStatus,
   PayOptions,
@@ -411,6 +413,60 @@ describe('App', () => {
     ]);
   });
 
+  it('asks again when a run brings results back from a server it said was down', async () => {
+    /* The remedy under the pill is one command, and the obvious next step after
+       running it is Find products rather than Check again. The results came back
+       through the server, and the header went on saying "Start it with: ollama
+       serve" above them. */
+    agent.modelsResponse = of({ ...STATUS, reachable: false, models: [], hint: 'ollama serve' });
+    const fixture = await render();
+    agent.modelsResponse = of(STATUS);
+
+    await ran(agent, 'kettle', RESULT, fixture);
+
+    const page = fixture.nativeElement as HTMLElement;
+    expect(agent.modelsAsked).toHaveLength(2);
+    expect(page.querySelector('.server-reason')).toBeNull();
+    expect(page.querySelector('.server')!.textContent).toContain('1 model');
+  });
+
+  it('asks again when a run fails for want of a server it said was up', async () => {
+    /* 503 is the model server's failure; the banner says so, and a green pill
+       above it said the opposite. */
+    const fixture = await render();
+    agent.modelsResponse = of({ ...STATUS, reachable: false, models: [], hint: 'ollama serve' });
+
+    await searchFor(fixture, 'kettle');
+    agent.stream.next({
+      kind: 'failure',
+      message: 'Could not reach Ollama.',
+      status: 503,
+      field: null,
+    });
+    await fixture.whenStable();
+
+    expect(agent.modelsAsked).toHaveLength(2);
+    expect((fixture.nativeElement as HTMLElement).querySelector('.server')!.textContent).toContain(
+      'Ollama unreachable',
+    );
+  });
+
+  it('leaves the pill alone where a run agrees with it, or is not about it', async () => {
+    /* A listing is a call per pulled tag on a five-second budget (ADR-0032), and the
+       model picker stands down while one is in flight: asking after every run would
+       cost that for nothing. A search that failed says nothing about the model. */
+    const fixture = await ran(agent, 'kettle', RESULT);
+    // Once, on load.
+    expect(agent.modelsAsked).toHaveLength(1);
+
+    agent.stream = new Subject<SearchEvent>();
+    await searchFor(fixture, 'kettle');
+    agent.stream.next({ kind: 'failure', message: 'Search failed.', status: 502, field: null });
+    await fixture.whenStable();
+
+    expect(agent.modelsAsked).toHaveLength(1);
+  });
+
   it('says so when the agent server itself cannot be reached', async () => {
     agent.defaultsResponse = throwError(() => new Error('offline'));
     const page = (await render()).nativeElement as HTMLElement;
@@ -654,6 +710,50 @@ describe('App', () => {
     expect(agent.unsubscribed).toBe(true);
     expect(page.textContent).toContain('Stopped watching.');
     expect(page.querySelector('button[type="submit"]')).not.toBeNull();
+  });
+
+  it('says in the tab where the run stands, for a tab left in the background', async () => {
+    /* A run takes minutes, most of them in two model calls that log nothing, and the
+       tab said "buy_agent" from the click to the results. */
+    const fixture = await render();
+    expect(document.title).toBe('buy_agent');
+
+    await searchFor(fixture, 'kettle');
+    expect(document.title).toBe('Searching… — buy_agent');
+
+    agent.stream.next({ kind: 'result', result: RESULT });
+    agent.stream.complete();
+    await fixture.whenStable();
+    expect(document.title).toBe('3 found — buy_agent');
+  });
+
+  it('says in the tab that a run found nothing, failed or was stopped', async () => {
+    const fixture = await ran(agent, 'kettle', { ...RESULT, count: 0, products: [] });
+    expect(document.title).toBe('Nothing found — buy_agent');
+
+    agent.stream = new Subject<SearchEvent>();
+    await searchFor(fixture, 'kettle');
+    // A failure ends the stream, as `AgentService` ends it.
+    agent.stream.next({ kind: 'failure', message: 'Search failed.', status: 502, field: null });
+    agent.stream.complete();
+    await fixture.whenStable();
+    expect(document.title).toBe('Failed — buy_agent');
+
+    agent.stream = new Subject<SearchEvent>();
+    await searchFor(fixture, 'kettle');
+    (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>('.actions button')!
+      .click();
+    await fixture.whenStable();
+    expect(document.title).toBe('Stopped — buy_agent');
+  });
+
+  it('keeps the tab plain when no run has happened yet', async () => {
+    /* The agent server not answering on load is a banner, not a run that failed. */
+    agent.defaultsResponse = throwError(() => new Error('offline'));
+    await render();
+
+    expect(document.title).toBe('buy_agent');
   });
 
   it('offers the log of a run somebody stopped, as it does one that failed', async () => {
@@ -984,9 +1084,37 @@ describe('App results', () => {
     await rankBy(fixture, 'rating');
 
     const page = fixture.nativeElement as HTMLElement;
-    expect(page.querySelector('.results .banner')!.textContent).toContain('still ranked by score');
+    expect(page.querySelector('.results .banner')!.textContent).toContain(
+      'still best score first, not best rated first',
+    );
     expect(page.querySelector('app-progress-log .save')).toBeNull();
     expect(page.querySelector('app-product-card')!.textContent).toContain('Best Kettle');
+  });
+
+  it('names the orders a failed re-order is about the way the control does', async () => {
+    /* "Could not re-order these by price; they are still ranked by score", beside a
+       control whose options read "Cheapest first" and "Best score first": neither word
+       was anywhere on the screen. A server older than the page sends no labels, and
+       the names are all there is to say. */
+    agent.rankResponse = () => throwError(() => new Error('offline'));
+    const fixture = await finished();
+    await rankBy(fixture, 'price');
+    const banner = () =>
+      (fixture.nativeElement as HTMLElement).querySelector('.results .banner')!.textContent;
+
+    expect(banner()).toContain('they are still best score first, not cheapest first');
+
+    const older = { ...DEFAULTS } as Partial<AgentDefaults>;
+    delete older.sort_labels;
+    agent.defaultsResponse = of(older as AgentDefaults);
+    // A run of its own: the first one completed the stream it came back on.
+    agent.stream = new Subject<SearchEvent>();
+    const unlabelled = await finished();
+    await rankBy(unlabelled, 'price');
+
+    expect(
+      (unlabelled.nativeElement as HTMLElement).querySelector('.results .banner')!.textContent,
+    ).toContain('they are still by score, not by price');
   });
 
   it('says what the server said about a re-order it refused', async () => {
@@ -1209,6 +1337,25 @@ describe('App what changed since last time', () => {
     ],
   };
 
+  /** A product whose price held, and one whose price there was nothing to compare with:
+   *  each is listed, and neither is a change. */
+  const STEADY: Change = {
+    name: 'Good Kettle',
+    movement: 'steady',
+    price_label: '200.00 USD',
+    was_label: '200.00 USD',
+    delta: 0,
+    detail: '200.00 USD, unchanged since 11 Sep.',
+  };
+  const UNPLACED: Change = {
+    name: 'Other Kettle',
+    movement: 'unplaced',
+    price_label: 'price unknown',
+    was_label: 'price unknown',
+    delta: null,
+    detail: 'price unknown now and price unknown on 11 Sep, so there is no movement to report.',
+  };
+
   const finished = (result: SearchResult = COMPARED) => ran(agent, 'kettle', result);
 
   /** Pick a criterion out of the Re-order these control beside the results. */
@@ -1252,6 +1399,46 @@ describe('App what changed since last time', () => {
     ).nativeElement as HTMLElement;
 
     expect(page.querySelector('.changes summary')!.textContent).toContain('2 changes since');
+  });
+
+  it('counts what moved, and lists everything it compared', async () => {
+    /* Every product is listed, the unchanged ones too -- and counted, they headed a
+       run in which no price had moved "7 changes since 27 Sep". */
+    const page = (await finished({ ...COMPARED, changes: [...COMPARED.changes, STEADY, UNPLACED] }))
+      .nativeElement as HTMLElement;
+
+    expect(page.querySelector('.changes summary')!.textContent).toContain('1 change since 11 Sep');
+    expect(page.querySelectorAll('.movements li')).toHaveLength(3);
+  });
+
+  it('says nothing moved when nothing did', async () => {
+    const page = (await finished({ ...COMPARED, changes: [STEADY, UNPLACED] }))
+      .nativeElement as HTMLElement;
+    const summary = page.querySelector('.changes summary')!.textContent!;
+
+    expect(summary).toContain('Nothing moved since 11 Sep');
+    expect(summary).not.toContain('change');
+    expect(page.querySelector('.changes')!.textContent).toContain('unchanged since 11 Sep');
+  });
+
+  it('draws each product apart from what it did, and colours what moved', async () => {
+    /* Left to the browser, the list was bulleted and indented and the name ran
+       straight into the sentence after it -- "Best Kettle99.00 USD" -- Angular
+       dropping the whitespace between the two spans. jsdom lays nothing out, but it
+       does cascade, so what is asserted is the rule each line is drawn by. */
+    const page = (await finished({ ...COMPARED, changes: [...COMPARED.changes, STEADY] }))
+      .nativeElement as HTMLElement;
+    const list = page.querySelector<HTMLElement>('.movements')!;
+    const [cheaper, steady] = [...list.querySelectorAll('li')];
+
+    expect(getComputedStyle(list).listStyle).toContain('none');
+    expect(getComputedStyle(cheaper!).display).toBe('flex');
+    expect(getComputedStyle(cheaper!).gap).toBeTruthy();
+    expect(getComputedStyle(cheaper!.querySelector('.moved-name')!).fontWeight).toBe('600');
+    // The sentence says "cheaper" either way; the colour is the glance.
+    expect(getComputedStyle(cheaper!.querySelector('.moved-why')!).color).not.toBe(
+      getComputedStyle(steady!.querySelector('.moved-why')!).color,
+    );
   });
 
   it('shows no panel for a first run of a search', async () => {

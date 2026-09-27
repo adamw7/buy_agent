@@ -459,7 +459,8 @@ def test_two_listings_sharing_the_lowest_price_are_still_a_range() -> None:
 
 def test_a_listing_off_the_runs_scale_is_counted_and_not_measured() -> None:
     """Two prices in two currencies have nothing between them, and nothing is
-    converted (ADR-0043)."""
+    converted (ADR-0043) -- but the one left out is said to be: "3 listings,
+    329.00-349.00 USD" read as three shops inside that range."""
     priced = Product(
         name="Sony WH-1000XM5",
         price=329.0,
@@ -467,7 +468,36 @@ def test_a_listing_off_the_runs_scale_is_counted_and_not_measured() -> None:
         offers=[offer(329.0), offer(299.0, "EUR"), offer(349.0)],
     )
 
-    assert priced.offers_label() == "3 listings, 329.00-349.00 USD"
+    assert priced.offers_label() == "3 listings: 329.00-349.00 USD, and 1 in EUR"
+
+
+@pytest.mark.parametrize(
+    ("elsewhere", "expected"),
+    [
+        # The laptops demo's third card: one shop in dollars, one in euros.
+        pytest.param([offer(689.0, "EUR")], "2 listings: 749.00 USD, and 1 in EUR", id="one"),
+        pytest.param(
+            [offer(689.0, "EUR"), offer(699.0, "EUR")],
+            "3 listings: 749.00 USD, and 2 in EUR",
+            id="one currency, twice",
+        ),
+        pytest.param(
+            [offer(689.0, "EUR"), offer(599.0, "GBP")],
+            "3 listings: 749.00 USD, and 2 in other currencies",
+            id="two currencies",
+        ),
+        # Not a currency at all, so not "another" one.
+        pytest.param(
+            [offer(749.0, None)], "2 listings: 749.00 USD, and 1 with no currency printed", id="bare"
+        ),
+    ],
+)
+def test_a_listing_off_the_scale_says_where_it_was(elsewhere: list[Offer], expected: str) -> None:
+    priced = Product(
+        name="Lenovo IdeaPad Slim 5 14", price=749.0, currency="USD", offers=[offer(749.0), *elsewhere]
+    )
+
+    assert priced.offers_label() == expected
 
 
 def test_listings_none_of_which_are_on_the_scale_are_only_counted() -> None:

@@ -425,9 +425,10 @@ refused here. There is no flag for this mode: the signed mandate *is* the
 authorisation
 ([ADR-0046](docs/adr/0046-pay-on-the-shoppers-behalf-with-ap2.md)).
 
-In the browser it is the same feature: tick **Pay for the top product** under
-Settings before the run, and each card that can be bought grows a Pay button
-that asks a second time before anything is signed.
+In the browser it is the same feature, offered on every card rather than for the
+top one: tick **Offer to pay for what it finds** under Settings before the run,
+and each card that can be bought grows a Pay button that asks a second time
+before anything is signed.
 
 ### Running the same search twice is nearly free
 

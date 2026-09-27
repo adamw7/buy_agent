@@ -723,7 +723,7 @@ def test_a_cpu_only_run_the_provider_takes_is_not_called_out(fake_agent, caplog)
 def test_a_paying_flag_without_pay_is_called_out(
     fake_agent, caplog, flag: str, value: str
 ) -> None:
-    """The form draws none of these until Pay for the top product is on."""
+    """The form draws none of these until its paying switch is ticked."""
     with caplog.at_level(logging.WARNING):
         main(["headphones", flag, value])
 
