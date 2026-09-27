@@ -1254,6 +1254,40 @@ describe('App what changed since last time', () => {
     expect(page.querySelector('.changes summary')!.textContent).toContain('2 changes since');
   });
 
+  it('draws each product apart from what it did, and colours what moved', async () => {
+    /* Left to the browser, the list was bulleted and indented and the name ran
+       straight into the sentence after it -- "Best Kettle99.00 USD" -- Angular
+       dropping the whitespace between the two spans. jsdom lays nothing out, but it
+       does cascade, so what is asserted is the rule each line is drawn by. */
+    const page = (
+      await finished({
+        ...COMPARED,
+        changes: [
+          ...COMPARED.changes,
+          {
+            name: 'Good Kettle',
+            movement: 'steady',
+            price_label: '200.00 USD',
+            was_label: '200.00 USD',
+            delta: 0,
+            detail: '200.00 USD, unchanged since 11 Sep.',
+          },
+        ],
+      })
+    ).nativeElement as HTMLElement;
+    const list = page.querySelector<HTMLElement>('.movements')!;
+    const [cheaper, steady] = [...list.querySelectorAll('li')];
+
+    expect(getComputedStyle(list).listStyle).toContain('none');
+    expect(getComputedStyle(cheaper!).display).toBe('flex');
+    expect(getComputedStyle(cheaper!).gap).toBeTruthy();
+    expect(getComputedStyle(cheaper!.querySelector('.moved-name')!).fontWeight).toBe('600');
+    // The sentence says "cheaper" either way; the colour is the glance.
+    expect(getComputedStyle(cheaper!.querySelector('.moved-why')!).color).not.toBe(
+      getComputedStyle(steady!.querySelector('.moved-why')!).color,
+    );
+  });
+
   it('shows no panel for a first run of a search', async () => {
     const page = (await finished(RESULT)).nativeElement as HTMLElement;
 

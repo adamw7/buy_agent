@@ -122,7 +122,12 @@ main {
   width: fit-content;
 }
 
-.removals {
+/* What moved since the last run is laid out the way what the run took out is:
+   left to the browser, the list was bulleted and indented, and the name ran into
+   the sentence after it with nothing between -- "MSI Modern 14599.00 USD", a
+   price nobody quoted. The gap is what keeps the two apart. */
+.removals,
+.movements {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -131,7 +136,8 @@ main {
   padding: 0;
 }
 
-.removals li {
+.removals li,
+.movements li {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 10px;
@@ -142,12 +148,30 @@ main {
 /* The name reads as the product it was, and the reason as the note beside it:
    the panel is a list of things that are *not* results, so nothing here is
    styled like a card. */
-.removed-name {
+.removed-name,
+.moved-name {
   font-weight: 600;
 }
 
-.removed-why {
+.removed-why,
+.moved-why {
   color: var(--text-dim);
+}
+
+/* The one word of `movement` the page reads, and only for a colour (ADR-0060):
+   the sentence beside it already says cheaper, dearer or new, so the colour is
+   never the only carrier. A price that went up is not an error, so it is the
+   warning colour and not the one the failures are drawn in. */
+.moved-cheaper .moved-why {
+  color: var(--good);
+}
+
+.moved-dearer .moved-why {
+  color: var(--warn);
+}
+
+.moved-new .moved-why {
+  color: var(--accent);
 }
 
 .results-head {
