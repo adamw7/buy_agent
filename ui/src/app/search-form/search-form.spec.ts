@@ -363,6 +363,17 @@ describe('SearchForm', () => {
     );
   });
 
+  it('says under the sources box what naming a source does', async () => {
+    /* It was a paragraph at the foot of the panel: on a phone two screens below the
+       box, and directly under the paying switch, which it then read as explaining. */
+    const box = element<HTMLInputElement>('input[name="sources"]');
+
+    expect(box.closest('.field')!.querySelector('small')!.textContent).toContain(
+      'Only those are searched',
+    );
+    expect(element('details.advanced').textContent).not.toContain('Naming trusted sources');
+  });
+
   it('starts from the agent config defaults the server served', async () => {
     expect(element<HTMLInputElement>('input[name="model"]').value).toBe('llama3.2');
     expect(element<HTMLInputElement>('input[name="results"]').value).toBe('10');

@@ -209,10 +209,17 @@
           [attr.aria-describedby]="problemId('sources')"
           (change)="sourcesChanged()"
         />
+        <!-- What naming a source does, under the box it is about. It was a paragraph
+             at the foot of the panel: below every other setting on a desktop, and on a
+             phone two screens down, directly under the paying switch -- which it then
+             read as the explanation of. -->
         @if (notes()['sources']; as problem) {
           <small class="problem" role="alert" [attr.id]="problemId('sources')">{{ problem }}</small>
         } @else {
-          <small>Leave empty to search the whole web.</small>
+          <small>
+            A site, a section of one, or a YouTube handle. Only those are searched, so every price,
+            rating and quote comes from a page you chose; leave it empty to search the whole web.
+          </small>
         }
       </label>
 
@@ -371,10 +378,5 @@
         </p>
       }
     </div>
-
-    <p class="hint">
-      Naming trusted sources — a site, a section of one, or a YouTube handle — searches those and
-      nothing else, so every price, rating and quote comes from a page you chose.
-    </p>
   </details>
 </form>
