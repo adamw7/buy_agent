@@ -180,6 +180,57 @@ def test_thousands_grouped_with_dots_are_thousands(page: str, price: float) -> N
     assert not mentions_number(haystack, 1.299)
 
 
+@pytest.mark.parametrize(
+    ("page", "price"),
+    [
+        ("Cena: 1 299,99 zł", 1299.99),
+        ("Cena: 1\u00a0299,99 zł", 1299.99),
+        ("Prix : 1\u202f299,00 €", 1299),
+        ("Cena: 1 299 zł", 1299),
+        ("Cena: 1 299 PLN", 1299),
+        ("Teraz 1 299,- zł", 1299),
+        ("Cena: 12 499,00", 12499),
+    ],
+)
+def test_thousands_grouped_with_spaces_are_thousands(page: str, price: float) -> None:
+    """Polish and French shops group with a space, and ``fetch.condense`` turns a
+    no-break one into an ordinary one: "1 299,99 zł" backed 299.99 and never 1299.99."""
+    haystack = build_haystack([SearchResult(snippet=page)])
+
+    assert mentions_number(haystack, price)
+    assert not mentions_number(haystack, 299)
+
+
+@pytest.mark.parametrize(
+    "page", ["Storage: 128 256 512 GB", "Pack of 2 250 ml bottles", "Battery: 5 000 mAh"]
+)
+def test_an_ordinary_space_between_figures_is_left_alone(page: str) -> None:
+    """With no decimal comma or currency closing the run, a space may just be standing
+    between two figures, and gluing them would blank both."""
+    assert normalise_numbers(page) == page
+
+
+def test_a_no_break_space_groups_a_count_too() -> None:
+    """A no-break space between digits is typesetting's thousands separator and nothing
+    else, so it groups without a currency beside it."""
+    haystack = build_haystack([SearchResult(snippet="4,6/5 z 12\u00a0500 opinii")])
+
+    assert mentions_number(haystack, 12500)
+
+
+@pytest.mark.parametrize(
+    "page", ["Price: 12.500 KWD", "KWD 12.500", "OMR12.500", "Only 1.250 BHD today"]
+)
+def test_a_dot_is_a_fraction_beside_a_currency_counted_in_thousandths(page: str) -> None:
+    """Three digits after the dot are fils or baisa, not thousands: "12.500 KWD" is
+    twelve and a half dinars."""
+    haystack = build_haystack([SearchResult(snippet=page)])
+
+    assert normalise_numbers(page) == page
+    assert not mentions_number(haystack, 12500)
+    assert not mentions_number(haystack, 1250)
+
+
 def test_a_count_grouped_with_dots_is_counted() -> None:
     haystack = build_haystack([SearchResult(snippet="4,6 von 5 Sternen aus 12.500 Bewertungen")])
 

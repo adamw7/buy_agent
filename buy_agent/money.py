@@ -64,11 +64,47 @@ _ZERO_DECIMAL = frozenset(
 )
 _THREE_DECIMAL = frozenset({"BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"})
 
+#: Where a grouped run of digits ends: a decimal comma and its cents ("1.299,99"), or
+#: nothing more of the number at all.
+_GROUPS_END = r"(?=,\d{1,2}(?![\d.,]*\d)|(?![\d.,]*\d))"
+
+#: The currencies counted in thousandths, where "12.500 KWD" is twelve and a half.
+_THOUSANDTHS = "|".join(sorted(_THREE_DECIMAL))
+
 #: Continental dot-grouped thousands ("1.299,99 €", "12.500 Bewertungen"): a dot before
-#: exactly three digits is never a fraction in a price or a count.
+#: exactly three digits groups thousands, except beside a currency counted in thousandths.
 _DOTTED_THOUSANDS = re.compile(
-    r"(?<![\d.,])[1-9]\d{0,2}(?:\.\d{3})+(?=,\d{1,2}(?![\d.,]*\d)|(?![\d.,]*\d))"
+    rf"(?<![\d.,])(?<!(?:{_THOUSANDTHS}) )(?<!{_THOUSANDTHS})"
+    rf"[1-9]\d{{0,2}}(?:\.\d{{3}})+{_GROUPS_END}(?!\s?(?:{_THOUSANDTHS})\b)"
 )
+
+#: The no-break, narrow no-break and thin spaces typesetting groups thousands with.
+_NO_BREAK_SPACES = "\u00a0\u202f\u2009"
+
+#: Every space thousands are grouped with ("1 299,99 zł"): those, and an ordinary one.
+GROUP_SPACES = " " + _NO_BREAK_SPACES
+
+#: A currency written after a figure ("1 299 zł", "1 299 PLN"), read as
+#: :mod:`buy_agent.fetch` reads one: words folded, codes as written.
+_CURRENCY_AFTER = (
+    rf"\s?(?:[{re.escape(SIGNS)}]|(?i:{'|'.join(map(re.escape, WORDS))})\b"
+    rf"|(?-i:{'|'.join(SCANNED_CODES)})\b)"
+)
+
+#: A number grouped with spaces, its cents included, as a pattern :mod:`buy_agent.bounds`
+#: reads a request with too. A no-break space groups and does nothing else; an ordinary
+#: one also stands between two figures ("128 256 512 GB"), so it groups only where a
+#: decimal comma or a currency closes the run as one amount. Written for ``VERBOSE`` too:
+#: no bare space.
+SPACED_THOUSANDS = (
+    rf"[1-9]\d{{0,2}}"
+    rf"(?:(?:[{re.escape(_NO_BREAK_SPACES)}]\d{{3}})+(?:,\d{{1,2}})?(?![\d.,]*\d)"
+    rf"|(?:[ ]\d{{3}})+"
+    rf"(?:,\d{{1,2}}(?![\d.,]*\d)|(?=,-)|(?:,\d{{1,2}})?(?={_CURRENCY_AFTER})))"
+)
+
+_SPACED = re.compile(rf"(?<![\d.,]){SPACED_THOUSANDS}")
+_GROUP_SPACE = re.compile(f"[{re.escape(GROUP_SPACES)}]")
 
 #: A comma before three digits groups thousands ("1,299"); before one or two it is a
 #: decimal point ("129,99").
@@ -77,14 +113,20 @@ _DECIMAL_COMMA = re.compile(r"(?<=\d),(?=\d{1,2}(?!\d))")
 
 
 def plain_figures(text: str) -> str:
-    """Every figure in ``text`` ungrouped with a decimal dot: "1,299.99", "1.299,99" and
-    "1299.99" all become 1299.99.
+    """Every figure in ``text`` ungrouped with a decimal dot: "1,299.99", "1.299,99",
+    "1 299,99" and "1299.99" all become 1299.99.
 
     Shared by :mod:`buy_agent.verification` and :mod:`buy_agent.bounds`, so a page and a
     request are read the same way.
     """
     ungrouped = _DOTTED_THOUSANDS.sub(lambda match: match.group(0).replace(".", ""), text)
+    ungrouped = _SPACED.sub(lambda match: ungroup(match.group(0)), ungrouped)
     return _DECIMAL_COMMA.sub(".", _THOUSANDS_COMMA.sub("", ungrouped))
+
+
+def ungroup(figure: str) -> str:
+    """``figure``, already known to be one number, without the spaces grouping it."""
+    return _GROUP_SPACE.sub("", figure)
 
 
 def code_for(value: str) -> str | None:
