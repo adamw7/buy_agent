@@ -1488,6 +1488,18 @@ describe('SearchForm, paying', () => {
     expect(fixture.nativeElement.querySelector('select[name="rail"]')).toBeNull();
   });
 
+  it('says what the switch does here, which is offer and not buy', async () => {
+    /* "Pay for the top product" was `--pay`'s sentence. On this page nothing is bought
+       by ticking it: every product a page priced grows a Pay button, and each asks
+       again. It was also the one checkbox with nothing under it. */
+    const box = element<HTMLInputElement>('input[name="pay"]');
+    const field = box.closest('.field')!;
+
+    expect(box.closest('label')!.textContent).not.toContain('top product');
+    expect(field.querySelector('small')!.textContent).toContain('Pay button');
+    expect(field.querySelector('small')!.textContent).toContain('approve');
+  });
+
   it('says so instead of offering a switch when the server cannot pay', async () => {
     /* A build without the AP2 SDK: a button whose only outcome is a message
        about pip is worse than a sentence. */

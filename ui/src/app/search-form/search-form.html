@@ -315,10 +315,22 @@
            about pip -- the same choice the model field makes when a server
            listed nothing. -->
       @if (payAvailable()) {
-        <label class="field checkbox">
-          <input name="pay" type="checkbox" [(ngModel)]="pay" [disabled]="running()" />
-          <span>Pay for the top product</span>
-        </label>
+        <!-- What it does on this page, which is not what `--pay` does: the CLI buys the
+             top product, and here every product a page priced grows a Pay button of its
+             own that asks again. "Pay for the top product" said the CLI's half -- a
+             switch promising to spend money on something nobody had seen yet, which is
+             the one label here that must not overstate. Its sentence sits outside the
+             flex row, as the three boxes before it have theirs. -->
+        <div class="field">
+          <label class="checkbox">
+            <input name="pay" type="checkbox" [(ngModel)]="pay" [disabled]="running()" />
+            <span>Offer to pay for what it finds</span>
+          </label>
+          <small>
+            Each product a page priced gets a Pay button, which asks you to approve its cart before
+            anything is signed.
+          </small>
+        </div>
 
         @if (pay()) {
           <label class="field">

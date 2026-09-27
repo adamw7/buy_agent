@@ -225,9 +225,9 @@ python -m buy_agent "headphones" --pay --rail http --merchant-url http://127.0.0
 That run still asks a model for its products. To see the rail with neither a
 model nor the network, start `python -m demo.server --script laptops` beside it,
 from a shell with that same `$BUY_AGENT_AP2_KEY` -- the server is the agent that
-signs -- then tick **Pay for the top product** in the form, choose the HTTP
-endpoint rail, put the merchant's address in **Payment endpoint**, and press Pay
-on a card.
+signs -- then tick **Offer to pay for what it finds** in the form, choose the
+HTTP endpoint rail, put the merchant's address in **Payment endpoint**, and press
+Pay on a card.
 
 What it answers is the whole of the contract `buy_agent/rails.py` speaks, which
 is this project's choice rather than AP2's and so the part to expect to adjust
