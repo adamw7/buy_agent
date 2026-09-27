@@ -200,9 +200,15 @@
          run it at all. Every sentence here is Python's, off the journal (ADR-0060). -->
     @if (found.changes.length && found.compared_with) {
       <details class="also changes">
+        <!-- What moved, and not how many were compared: every product is listed, the
+             unchanged ones too, and they are what the list answers and not what the
+             summary counts. -->
         <summary>
-          {{ found.changes.length }} change{{ found.changes.length === 1 ? '' : 's' }} since
-          {{ found.compared_with }}
+          @if (moved(); as count) {
+            {{ count }} change{{ count === 1 ? '' : 's' }} since {{ found.compared_with }}
+          } @else {
+            Nothing moved since {{ found.compared_with }}
+          }
         </summary>
         <ul class="movements">
           @for (change of found.changes; track change.name) {

@@ -9,6 +9,7 @@ import { AgentService } from './agent';
 import { WEIGHTS, defaults, product, receipt, status } from './testing';
 import type {
   BoundsCheck,
+  Change,
   ModelSource,
   ModelStatus,
   PayOptions,
@@ -1209,6 +1210,25 @@ describe('App what changed since last time', () => {
     ],
   };
 
+  /** A product whose price held, and one whose price there was nothing to compare with:
+   *  each is listed, and neither is a change. */
+  const STEADY: Change = {
+    name: 'Good Kettle',
+    movement: 'steady',
+    price_label: '200.00 USD',
+    was_label: '200.00 USD',
+    delta: 0,
+    detail: '200.00 USD, unchanged since 11 Sep.',
+  };
+  const UNPLACED: Change = {
+    name: 'Other Kettle',
+    movement: 'unplaced',
+    price_label: 'price unknown',
+    was_label: 'price unknown',
+    delta: null,
+    detail: 'price unknown now and price unknown on 11 Sep, so there is no movement to report.',
+  };
+
   const finished = (result: SearchResult = COMPARED) => ran(agent, 'kettle', result);
 
   /** Pick a criterion out of the Re-order these control beside the results. */
@@ -1254,27 +1274,33 @@ describe('App what changed since last time', () => {
     expect(page.querySelector('.changes summary')!.textContent).toContain('2 changes since');
   });
 
+  it('counts what moved, and lists everything it compared', async () => {
+    /* Every product is listed, the unchanged ones too -- and counted, they headed a
+       run in which no price had moved "7 changes since 27 Sep". */
+    const page = (await finished({ ...COMPARED, changes: [...COMPARED.changes, STEADY, UNPLACED] }))
+      .nativeElement as HTMLElement;
+
+    expect(page.querySelector('.changes summary')!.textContent).toContain('1 change since 11 Sep');
+    expect(page.querySelectorAll('.movements li')).toHaveLength(3);
+  });
+
+  it('says nothing moved when nothing did', async () => {
+    const page = (await finished({ ...COMPARED, changes: [STEADY, UNPLACED] }))
+      .nativeElement as HTMLElement;
+    const summary = page.querySelector('.changes summary')!.textContent!;
+
+    expect(summary).toContain('Nothing moved since 11 Sep');
+    expect(summary).not.toContain('change');
+    expect(page.querySelector('.changes')!.textContent).toContain('unchanged since 11 Sep');
+  });
+
   it('draws each product apart from what it did, and colours what moved', async () => {
     /* Left to the browser, the list was bulleted and indented and the name ran
        straight into the sentence after it -- "Best Kettle99.00 USD" -- Angular
        dropping the whitespace between the two spans. jsdom lays nothing out, but it
        does cascade, so what is asserted is the rule each line is drawn by. */
-    const page = (
-      await finished({
-        ...COMPARED,
-        changes: [
-          ...COMPARED.changes,
-          {
-            name: 'Good Kettle',
-            movement: 'steady',
-            price_label: '200.00 USD',
-            was_label: '200.00 USD',
-            delta: 0,
-            detail: '200.00 USD, unchanged since 11 Sep.',
-          },
-        ],
-      })
-    ).nativeElement as HTMLElement;
+    const page = (await finished({ ...COMPARED, changes: [...COMPARED.changes, STEADY] }))
+      .nativeElement as HTMLElement;
     const list = page.querySelector<HTMLElement>('.movements')!;
     const [cheaper, steady] = [...list.querySelectorAll('li')];
 

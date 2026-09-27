@@ -1419,8 +1419,9 @@ rules a change to them may not break.
   and `compared_with` travel with `dropped` and are carried across a re-sort for
   the same reason: a re-sort ran no pipeline, so it compared nothing and answers
   empty rather than speaking for a run it never saw. The panel counts and groups;
-  every sentence in it is the journal's own, and `movement` is a word to colour by
-  and never one to compose from.
+  every sentence in it is the journal's own, and `movement` is a word to colour and
+  count by and never one to compose from. What it counts is what moved: every
+  product compared is listed, and a `steady` or `unplaced` one is not a change.
 - **What each page priced a product at is under the price it is a spread of**
   (ADR-0058). `offers_label` is Python's sentence and so is each listing's
   `price_label` -- the card formats no amount, exactly as it formats no unknown

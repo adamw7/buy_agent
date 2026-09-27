@@ -118,6 +118,14 @@ export class App {
     return result ? result.products.slice(result.top_n) : [];
   });
 
+  /** How many products moved since the run compared against, for the panel to count.
+   *  Every product is listed, the unchanged ones with the rest, and counting those as
+   *  changes headed a run where no price had moved "7 changes since 27 Sep". */
+  protected readonly moved = computed(
+    () =>
+      (this.result()?.changes ?? []).filter((change) => !UNMOVED.includes(change.movement)).length,
+  );
+
   /** What to do about a model server that did not answer, shown under the pill. */
   protected readonly unreachable = computed(() => {
     const server = this.status();
@@ -442,6 +450,10 @@ export class App {
     ]);
   }
 }
+
+/** The two movements that are not one: a price that held, and one there is nothing to
+ *  compare with (ADR-0043). Counted by, never composed from (ADR-0060). */
+const UNMOVED = ['steady', 'unplaced'];
 
 /** The wall clock as Python's `%H:%M:%S` writes it, for the one line above. */
 function now(): string {
