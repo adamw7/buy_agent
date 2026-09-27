@@ -5,9 +5,11 @@ import {
   Injector,
   afterNextRender,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
+import { Title } from '@angular/platform-browser';
 import type { Subscription } from 'rxjs';
 
 import { AgentService } from './agent';
@@ -153,7 +155,18 @@ export class App {
   /** A payment in flight. */
   private pay: Subscription | null = null;
 
+  /** What the browser tab says about the run on the page, if anything. A run takes
+   *  minutes, most of them in two model calls that log nothing, and a tab left in the
+   *  background said "buy_agent" from the click to the results. */
+  private readonly tabTitle = computed(() => {
+    const state = this.tabState();
+    return state ? `${state} — ${NAME}` : NAME;
+  });
+
   constructor() {
+    const title = inject(Title);
+    effect(() => title.setTitle(this.tabTitle()));
+
     inject(DestroyRef).onDestroy(() => {
       this.run?.unsubscribe();
       this.reorder?.unsubscribe();
@@ -170,6 +183,25 @@ export class App {
       },
       error: () => this.failure.set('Could not reach the agent server. Is it still running?'),
     });
+  }
+
+  /** Where the run on the page stands, in a word or two, or null before one has. */
+  private tabState(): string | null {
+    if (this.running()) {
+      return 'Searching…';
+    }
+    // Not the agent server failing to answer on load: that is no run.
+    if (!this.started()) {
+      return null;
+    }
+    const result = this.result();
+    if (result) {
+      return result.count ? `${result.count} found` : 'Nothing found';
+    }
+    if (this.stopped()) {
+      return 'Stopped';
+    }
+    return this.failure() === null ? null : 'Failed';
   }
 
   /** Ask what a model server is serving: the one named, or the one already shown. */
@@ -476,6 +508,9 @@ export class App {
     ]);
   }
 }
+
+/** The page's name, which the tab carries after what the run is doing. */
+const NAME = 'buy_agent';
 
 /** The two movements that are not one: a price that held, and one there is nothing to
  *  compare with (ADR-0043). Counted by, never composed from (ADR-0060). */

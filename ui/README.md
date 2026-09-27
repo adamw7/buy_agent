@@ -141,6 +141,13 @@ afterwards, `elapsed()` while it is happening. The clock starts and stops on the
 writes seconds and minutes (`8s`, `2m 14s`) rather than a `0:08` clock, this
 being how long something took and not what time it is.
 
+The panel only says any of that to somebody looking at it, and a wait of minutes
+is one people spend in another tab. So `App.tabTitle` puts where the run stands
+in front of the page's name -- **Searching…**, then **7 found**, **Nothing
+found**, **Failed** or **Stopped** -- and nothing before a run has happened, the
+agent server not answering on load being a banner and not a run. It is not a
+second clock: a title redrawn every second is a tab strip that flickers.
+
 ### `product-card`
 
 It draws one product and, where the run asked to pay and the server can, offers

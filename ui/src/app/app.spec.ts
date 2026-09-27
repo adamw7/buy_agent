@@ -712,6 +712,50 @@ describe('App', () => {
     expect(page.querySelector('button[type="submit"]')).not.toBeNull();
   });
 
+  it('says in the tab where the run stands, for a tab left in the background', async () => {
+    /* A run takes minutes, most of them in two model calls that log nothing, and the
+       tab said "buy_agent" from the click to the results. */
+    const fixture = await render();
+    expect(document.title).toBe('buy_agent');
+
+    await searchFor(fixture, 'kettle');
+    expect(document.title).toBe('Searching… — buy_agent');
+
+    agent.stream.next({ kind: 'result', result: RESULT });
+    agent.stream.complete();
+    await fixture.whenStable();
+    expect(document.title).toBe('3 found — buy_agent');
+  });
+
+  it('says in the tab that a run found nothing, failed or was stopped', async () => {
+    const fixture = await ran(agent, 'kettle', { ...RESULT, count: 0, products: [] });
+    expect(document.title).toBe('Nothing found — buy_agent');
+
+    agent.stream = new Subject<SearchEvent>();
+    await searchFor(fixture, 'kettle');
+    // A failure ends the stream, as `AgentService` ends it.
+    agent.stream.next({ kind: 'failure', message: 'Search failed.', status: 502, field: null });
+    agent.stream.complete();
+    await fixture.whenStable();
+    expect(document.title).toBe('Failed — buy_agent');
+
+    agent.stream = new Subject<SearchEvent>();
+    await searchFor(fixture, 'kettle');
+    (fixture.nativeElement as HTMLElement)
+      .querySelector<HTMLButtonElement>('.actions button')!
+      .click();
+    await fixture.whenStable();
+    expect(document.title).toBe('Stopped — buy_agent');
+  });
+
+  it('keeps the tab plain when no run has happened yet', async () => {
+    /* The agent server not answering on load is a banner, not a run that failed. */
+    agent.defaultsResponse = throwError(() => new Error('offline'));
+    await render();
+
+    expect(document.title).toBe('buy_agent');
+  });
+
   it('offers the log of a run somebody stopped, as it does one that failed', async () => {
     /* A stopped run leaves no answer on the page and no banner either, and the
        reason to stop one is usually that it had gone quiet -- which is exactly
