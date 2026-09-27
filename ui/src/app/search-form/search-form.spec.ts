@@ -407,6 +407,14 @@ describe('SearchForm', () => {
     expect(submitted[0].min_reviews).toBeNull();
   });
 
+  it('says how long the cache box holds a page in words, not only in seconds', async () => {
+    /* It opens holding 86400, a number of seconds nobody reads as a day, which is
+       what --cache-ttl's help has always said beside it. */
+    const box = element<HTMLInputElement>('input[name="cache_ttl"]');
+
+    expect(box.closest('.field')!.querySelector('small')!.textContent).toContain('86400 is a day');
+  });
+
   it('sends how long pages may be cached for', async () => {
     await type('input[name="request"]', 'headphones');
     await type('input[name="cache_ttl"]', '0');

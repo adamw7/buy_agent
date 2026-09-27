@@ -193,7 +193,8 @@ export class SearchForm {
       hint: 'Seconds to wait for one answer. Asked once, so this is the whole wait.',
     }),
     field('cache_ttl', 'Cache pages for', this.cacheTtl, {
-      hint: 'Seconds a page, and the answer about it, stay usable. 0 is off.',
+      // The box opens holding 86400, which nobody reads as a day; `--cache-ttl` says so.
+      hint: 'Seconds a page, and the answer about it, stay usable: 86400 is a day, 0 is off.',
     }),
     field('spend_limit', 'Spend limit', this.spendLimit, {
       step: 0.01,
