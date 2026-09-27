@@ -123,8 +123,16 @@
           </select>
         } @else {
           <input name="model" [(ngModel)]="model" [disabled]="running() || checking()" />
+          <!-- Which of the two it was: a server that could not be reached listed
+               nothing because nobody could ask it, and saying it "listed nothing"
+               under a header saying it was unreachable sent the reader to pull a
+               model into a server that was not running. -->
           @if (!checking()) {
-            <small>{{ providerLabel() }} listed nothing to choose from, so type a name.</small>
+            @if (status()?.reachable === false) {
+              <small>{{ providerLabel() }} could not be reached, so type a name.</small>
+            } @else {
+              <small>{{ providerLabel() }} listed nothing to choose from, so type a name.</small>
+            }
           }
         }
         <!-- The list belongs to one server and the answer takes as long as that

@@ -823,18 +823,24 @@ describe('SearchForm', () => {
 
   it('falls back to typing a name when the server listed nothing', async () => {
     /* A dropdown holding one unusable entry is worse than a text box. */
-    fixture.componentRef.setInput('status', {
-      provider: 'ollama',
-      label: 'Ollama',
-      base_url: 'http://localhost:11434',
-      reachable: false,
-      models: [],
-    });
-    await fixture.whenStable();
+    await pulled([]);
 
     expect(element('select[name="model"]')).toBeNull();
     expect(element<HTMLInputElement>('input[name="model"]').value).toBe('llama3.2');
     expect(element('.field small')!.textContent).toContain('Ollama listed nothing');
+  });
+
+  it('says a server that could not be reached was not asked, rather than empty', async () => {
+    /* It listed nothing because nobody could ask it. "Ollama listed nothing to choose
+       from", under a header saying Ollama was unreachable, pointed at pulling a model
+       into a server that was not running. */
+    fixture.componentRef.setInput('status', status({ reachable: false, models: [] }));
+    await fixture.whenStable();
+
+    expect(element('select[name="model"]')).toBeNull();
+    const said = element('.field small')!.textContent;
+    expect(said).toContain('Ollama could not be reached');
+    expect(said).not.toContain('listed nothing');
   });
 
   it('asks for the model list of the server that was typed in', async () => {
