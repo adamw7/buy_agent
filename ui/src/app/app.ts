@@ -280,6 +280,7 @@ export class App {
         } else if (event.kind === 'result') {
           this.result.set(event.result);
           this.showResults();
+          this.recheckAfter(true);
         } else {
           this.failure.set(event.message);
           // So the form can mark that box (ADR-0033).
@@ -287,6 +288,10 @@ export class App {
           // A refusal is said on its box, and the form opens the panel it is in.
           if (!event.field) {
             this.reveal('.banner.failed');
+          }
+          // 503 is the model server's own failure (`api._STATUS`).
+          if (event.status === 503) {
+            this.recheckAfter(false);
           }
         }
       },
@@ -297,6 +302,18 @@ export class App {
       },
       complete: () => this.running.set(false),
     });
+  }
+
+  /** Ask the model server again where a run just contradicted the pill: results came
+   *  back while it said unreachable, or the run failed for want of it while it said
+   *  up. The pill is asked once, on load; the obvious next step after its remedy is
+   *  to start the server and press Find products, and the header went on saying
+   *  "Start it with: ollama serve" over the results that run brought back. */
+  private recheckAfter(answered: boolean): void {
+    const server = this.status();
+    if (server && !this.checking() && server.reachable !== answered) {
+      this.refreshModels();
+    }
   }
 
   /** Scroll a finished run's results into view, if they start below the fold. */

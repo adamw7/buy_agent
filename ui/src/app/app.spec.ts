@@ -413,6 +413,60 @@ describe('App', () => {
     ]);
   });
 
+  it('asks again when a run brings results back from a server it said was down', async () => {
+    /* The remedy under the pill is one command, and the obvious next step after
+       running it is Find products rather than Check again. The results came back
+       through the server, and the header went on saying "Start it with: ollama
+       serve" above them. */
+    agent.modelsResponse = of({ ...STATUS, reachable: false, models: [], hint: 'ollama serve' });
+    const fixture = await render();
+    agent.modelsResponse = of(STATUS);
+
+    await ran(agent, 'kettle', RESULT, fixture);
+
+    const page = fixture.nativeElement as HTMLElement;
+    expect(agent.modelsAsked).toHaveLength(2);
+    expect(page.querySelector('.server-reason')).toBeNull();
+    expect(page.querySelector('.server')!.textContent).toContain('1 model');
+  });
+
+  it('asks again when a run fails for want of a server it said was up', async () => {
+    /* 503 is the model server's failure; the banner says so, and a green pill
+       above it said the opposite. */
+    const fixture = await render();
+    agent.modelsResponse = of({ ...STATUS, reachable: false, models: [], hint: 'ollama serve' });
+
+    await searchFor(fixture, 'kettle');
+    agent.stream.next({
+      kind: 'failure',
+      message: 'Could not reach Ollama.',
+      status: 503,
+      field: null,
+    });
+    await fixture.whenStable();
+
+    expect(agent.modelsAsked).toHaveLength(2);
+    expect((fixture.nativeElement as HTMLElement).querySelector('.server')!.textContent).toContain(
+      'Ollama unreachable',
+    );
+  });
+
+  it('leaves the pill alone where a run agrees with it, or is not about it', async () => {
+    /* A listing is a call per pulled tag on a five-second budget (ADR-0032), and the
+       model picker stands down while one is in flight: asking after every run would
+       cost that for nothing. A search that failed says nothing about the model. */
+    const fixture = await ran(agent, 'kettle', RESULT);
+    // Once, on load.
+    expect(agent.modelsAsked).toHaveLength(1);
+
+    agent.stream = new Subject<SearchEvent>();
+    await searchFor(fixture, 'kettle');
+    agent.stream.next({ kind: 'failure', message: 'Search failed.', status: 502, field: null });
+    await fixture.whenStable();
+
+    expect(agent.modelsAsked).toHaveLength(1);
+  });
+
   it('says so when the agent server itself cannot be reached', async () => {
     agent.defaultsResponse = throwError(() => new Error('offline'));
     const page = (await render()).nativeElement as HTMLElement;

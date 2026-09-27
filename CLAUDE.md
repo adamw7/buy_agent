@@ -1400,6 +1400,9 @@ rules a change to them may not break.
   server itself did not answer, there being nothing to have asked. `App.asking`
   holds the `ModelSource` in flight, so the pill names the server being asked and
   not the one still on screen; `checking` stands the remedy and the picker down.
+  It is asked on load, on Check again, and after a run that contradicts it --
+  results from a server it called unreachable, a 503 from one it called up -- and
+  after no other run, a listing costing a call per pulled tag.
 - **`progress-log` is presentation, not judgement.** Download log is offered for a
   failed run and a stopped one only. `transcript()` appends the failure message,
   which never reached the panel as a log line.

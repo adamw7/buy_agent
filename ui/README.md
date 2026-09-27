@@ -98,6 +98,15 @@ the first load had no pill at all, Check again looked like a button that did
 nothing, and a model picked in that window was one the new server had never
 offered.
 
+A run is fresher news about the server than the listing the page asked for on
+load, so `App.recheckAfter` asks again where the two disagree: results came back
+while the pill said unreachable, or the run failed with the model server's 503
+while it said up. The first is the common one -- the remedy under the pill is one
+command, and the natural next click after running it is **Find products**, not
+**Check again** -- and it left "Start it with: ollama serve" in red above the
+results that run had just brought back. A run that agrees with the pill asks
+nothing, since the listing stands the model picker down while it is in flight.
+
 ### `progress-log`
 
 It follows the tail the way a terminal does, but only while the reader is at it:
