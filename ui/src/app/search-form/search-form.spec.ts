@@ -415,6 +415,14 @@ describe('SearchForm', () => {
     expect(box.closest('.field')!.querySelector('small')!.textContent).toContain('86400 is a day');
   });
 
+  it('says under the temperature box what a run above 0 gives up', async () => {
+    /* Only a run at 0 is cached (ADR-0044), which --temperature's help did not say
+       and the box, opening on a bare 0, gave no reason for either. */
+    const box = element<HTMLInputElement>('input[name="temperature"]');
+
+    expect(box.closest('.field')!.querySelector('small')!.textContent).toContain('never cached');
+  });
+
   it('sends how long pages may be cached for', async () => {
     await type('input[name="request"]', 'headphones');
     await type('input[name="cache_ttl"]', '0');

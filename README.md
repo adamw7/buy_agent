@@ -138,7 +138,7 @@ python -m buy_agent "espresso machine" --compare          # ...and what moved si
 | `--cache-ttl` | `86400` | Seconds a page, and the model's answer about it, stay usable on disk; `0` is off |
 | `--journal` / `--no-journal` | `--journal` | Write this run down, so the next run of the same search can say what moved |
 | `--compare` | off | Report what is cheaper, dearer, new or gone since the last run of this search |
-| `--temperature` | `0.0` | Model temperature, 0-2; extraction is a copying task |
+| `--temperature` | `0.0` | Model temperature, 0-2; extraction is a copying task, and a run above `0` can answer differently each time, so its answers are never cached |
 | `--num-ctx` | `16384` | Context window in tokens (Ollama only) |
 | `--model-timeout` | `600` | Seconds to wait for one answer; asked once, so this is the whole wait |
 | `--think` / `--no-think` | `--no-think` | Force thinking mode on or off |
