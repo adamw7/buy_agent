@@ -928,7 +928,13 @@ was ever held to.
   quietens libraries in two tiers: `_NOISY_LIBRARIES` log a line per call and go
   quiet until somebody asks for detail, while `_TRACE_LIBRARIES` -- httpcore, a
   dozen DEBUG lines per request -- are held down at `--verbose` too, being what
-  asking for detail would otherwise be spent on.
+  asking for detail would otherwise be spent on. Both lists name a library by the
+  name it logs under, and a model client's HTTP stack is a dependency that moves:
+  openai's 3.x line sends through `httpx2` and `httpcore2`, which neither list
+  named, so every vLLM and LiteLLM call printed its request above the report. So
+  `tests/test_logging_setup.py` builds each provider's client and holds every
+  logger the clients' dependencies created to one list or the other, rather than
+  reading the two lists back.
 - **A heuristic that takes something away says how many at INFO and which at
   DEBUG**, and `tests/test_logging_contract.py` drives all eight to say so, each
   step's own file pinning its wording. All eight do: `clean_products`,
@@ -1326,6 +1332,16 @@ everything else to the built Angular app, unknown paths falling back to
   is dropped rather than allowed. The family is that same address read once more:
   `_family_for` binds an IPv6 one on `AF_INET6`, `ThreadingHTTPServer` being `AF_INET`
   and nothing else and every IPv6 bind having failed outright.
+- **The server never asks itself for a model.** Its default port is vLLM's own
+  default address, so on `:8000` picking vLLM in the form fills in this very
+  server: asked, it answered with the page, which read as a vLLM that was not
+  running -- "Start it with: vllm serve", a command that then cannot bind the port
+  this server holds. `server._reaches` says whether an address lands here -- the
+  same port, on the bound host or on a loopback name where the bind takes those --
+  and `/api/models` answers such an address itself with the reason, while a run
+  naming one is refused on `base_url` before it opens, so the form marks the
+  address box (ADR-0033). Only the server can say it, being the one module that
+  knows where it is listening.
 - **Only a server bound to this machine takes pictures of pages** (ADR-0065). A
   browser that draws anything will draw the router's page as readily as a shop's,
   and the picture is that page handed back -- so `server.camera_for` gives a camera
@@ -1821,6 +1837,13 @@ the other is otherwise invisible to both suites. It asserts that
   `ui/tsconfig.app.json` `noUncheckedIndexedAccess`, since how much `npm run
   build` checks is a setting rather than a property of the build and a weaker one
   fails nothing;
+- every custom property a stylesheet under `ui/src` reads is one `styles.css`
+  declares, or the stylesheet itself does, and none is read with a fallback; and
+  every colour `styles.css` declares has a value under its dark scheme too. The
+  payment block read three tokens nothing declared, each with a light colour after
+  the comma, so the cart a person approves was pale text on a near-white box in the
+  dark scheme -- and contrast is a browser's to see, the components' accessibility
+  check running in jsdom;
 - every module in the package takes its logger off the package's own name,
   leaves its formatting to the logger, marks nothing as the report, configures
   logging nowhere but `logging_setup`, and writes to stdout not at all -- and

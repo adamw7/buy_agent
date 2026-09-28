@@ -17,11 +17,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("buy_agent")
 
-#: Libraries that log a line per call; quiet unless ``--verbose`` (ADR-0028).
-_NOISY_LIBRARIES = ("httpx", "openai", "ddgs")
+#: Libraries that log a line per call; quiet unless ``--verbose`` (ADR-0028). The
+#: OpenAI client sends through ``httpx2`` since its 3.x line, under a name of its own.
+_NOISY_LIBRARIES = ("httpx", "httpx2", "openai", "ddgs")
 
 #: Held at INFO even with ``--verbose``: a dozen DEBUG lines per request.
-_TRACE_LIBRARIES = ("httpcore",)
+_TRACE_LIBRARIES = ("httpcore", "httpcore2")
 
 _FORMAT = "%(asctime)s %(levelname)-7s %(name)s | %(message)s"
 _DATEFMT = "%H:%M:%S"

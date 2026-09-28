@@ -69,10 +69,17 @@ h1 {
 /* `pre-wrap` keeps the run of spaces Python puts before the command, which is
    what sets it apart from the sentence in front of it. On the sentence alone --
    the button beside it is markup, and would otherwise wear the newlines the
-   template is indented with. */
+   template is indented with. A failed run's banner carries the same sentences,
+   "Pull it with:  ollama pull ..." the commonest, and collapsed them to one space
+   there -- the one place the command was not set apart being the place a run's
+   own failure lands. Its template holds nothing around the message to wear. */
+.server-reason p,
+.banner.failed {
+  white-space: pre-wrap;
+}
+
 .server-reason p {
   margin: 0;
-  white-space: pre-wrap;
 }
 
 main {
@@ -94,7 +101,8 @@ main {
   color: var(--text-dim);
 }
 
-.results {
+.results,
+.stack {
   display: flex;
   flex-direction: column;
   gap: 12px;

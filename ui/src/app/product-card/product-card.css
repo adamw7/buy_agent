@@ -270,29 +270,22 @@ h3 a:hover {
   }
 }
 
-/** The payment block. */
+/* The payment block, drawn in the page's own tokens and its own button: every colour
+   here is one `styles.css` declares for both schemes. It read `--raised`, `--line`
+   and `--muted`, which nothing declares, so each fell back to a light-scheme colour
+   -- and in the dark one the cart a person approves, and the receipt after it, were
+   pale text on a near-white box. `tests/test_conventions.py` holds every `var()` to
+   a declared token, with no fallback to hide one that is not. */
 .pay {
   margin-block-start: 0.75rem;
-  padding: 0.45rem 0.9rem;
-  border: 1px solid var(--accent, #2f6f4f);
-  border-radius: 0.4rem;
-  background: var(--accent, #2f6f4f);
-  color: #fff;
-  font: inherit;
-  cursor: pointer;
-}
-
-.pay:disabled {
-  opacity: 0.6;
-  cursor: default;
 }
 
 .confirm {
   margin-block-start: 0.75rem;
   padding: 0.75rem;
-  border: 1px solid var(--line, #d5d5d5);
-  border-radius: 0.4rem;
-  background: var(--raised, #fbfbfa);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
 }
 
 .confirm p {
@@ -307,8 +300,8 @@ h3 a:hover {
 .receipt {
   margin-block-start: 0.75rem;
   padding: 0.6rem 0.75rem;
-  border-inline-start: 3px solid var(--accent, #2f6f4f);
-  background: var(--raised, #fbfbfa);
+  border-inline-start: 3px solid var(--accent);
+  background: var(--surface-2);
 }
 
 /* The reference is a hash: it has to be readable and copyable, and it must not
@@ -316,7 +309,7 @@ h3 a:hover {
 .receipt .reference {
   display: block;
   margin-block-start: 0.35rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--mono);
   font-size: 0.8em;
   overflow-wrap: anywhere;
 }
@@ -329,15 +322,15 @@ h3 a:hover {
   gap: 0.5rem;
   margin-block-start: 0.75rem;
   padding: 0.6rem 0.75rem;
-  border-inline-start: 3px solid var(--accent, #2f6f4f);
-  background: var(--raised, #fbfbfa);
+  border-inline-start: 3px solid var(--accent);
+  background: var(--surface-2);
 }
 
 /* Why a card has no button where its neighbours do -- Python's sentence, shown
    rather than swallowed. */
 .cannot-pay {
   margin-block-start: 0.75rem;
-  color: var(--muted, #666);
+  color: var(--text-dim);
   font-size: 0.9em;
 }
 
@@ -350,7 +343,7 @@ h3 a:hover {
 
 .offers summary {
   cursor: pointer;
-  color: var(--muted);
+  color: var(--text-dim);
 }
 
 .offers ul {
@@ -374,5 +367,5 @@ h3 a:hover {
 }
 
 .offer-seller {
-  color: var(--muted);
+  color: var(--text-dim);
 }

@@ -213,6 +213,16 @@ that never registered and is the moment somebody clicks again. It is said on the
 card, in the block the receipt lands in, for the reason the header pill says
 **Asking &lt;label&gt;…**: a wait with nothing else to report it reports itself.
 
+All three blocks -- the confirmation, the wait and the receipt -- are drawn in the
+page's own tokens and its own buttons, and nothing else. They used to read
+`--raised`, `--line` and `--muted`, which `styles.css` never declared, each with a
+light colour after the comma: right in the light scheme, which is the one anybody
+had opened the page in, and in the dark one the cart a person approves was pale
+text on a near-white box, beside a Pay button in white on a light violet. Nothing
+in jsdom measures contrast, so `tests/test_conventions.py` holds every stylesheet
+here to reading only a token `styles.css` declares, with no fallback, and every
+colour there to having a dark value too.
+
 That receipt belongs to the *product* and not to the rank it was bought at, and
 so does the card drawing it. A re-sort ranks the same products again from 1
 ([ADR-0035](../docs/adr/0035-re-sort-a-finished-run-without-running-it-again.md)),
@@ -366,7 +376,13 @@ models. Because the list belongs to one server, editing the address field emits
 `refresh` and `App.refreshModels` asks that one instead; `refresh` carries a
 `ModelSource`, the provider *and* the address, because a vLLM asked Ollama's
 question answers 404. Changing the provider picker emits the same event after
-filling the model and address fields from that provider's row. `takes_num_ctx`
+filling the model and address fields from that provider's row. That address can
+be the page's own: the server's default port is vLLM's default address, so on
+`:8000` picking vLLM fills in the server this page came from. The server answers
+that listing itself, with the reason under the pill, rather than asking itself and
+calling the page it got back a vLLM that is not running -- and a run naming it is
+refused on `base_url`, which marks the address box the way a refused region marks
+its own. `takes_num_ctx`
 and `takes_cpu_only` on that row are what disable the context field and the
 CPU-only box and replace their notes, rather than the form testing the
 provider's name.
