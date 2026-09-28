@@ -164,18 +164,23 @@
         @if (rest().length) {
           <details class="also">
             <summary>{{ rest().length }} more the agent found</summary>
-            @for (product of rest(); track product.name) {
-              <app-product-card
-                [product]="product"
-                [weights]="found.weights"
-                [screenshots]="screenshots()"
-                [canPay]="canPay()"
-                [rail]="payRail()"
-                [paying]="paying()"
-                [receipt]="receipts()[product.name] ?? null"
-                (pay)="payFor(product, $event)"
-              />
-            }
+            <!-- A column of their own: the `gap` on a `details` spaces its summary from
+                 its content and never reaches inside it, so these cards sat edge to edge
+                 under three spaced apart above them. -->
+            <div class="stack">
+              @for (product of rest(); track product.name) {
+                <app-product-card
+                  [product]="product"
+                  [weights]="found.weights"
+                  [screenshots]="screenshots()"
+                  [canPay]="canPay()"
+                  [rail]="payRail()"
+                  [paying]="paying()"
+                  [receipt]="receipts()[product.name] ?? null"
+                  (pay)="payFor(product, $event)"
+                />
+              }
+            </div>
           </details>
         }
       </section>

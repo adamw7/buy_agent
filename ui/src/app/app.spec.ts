@@ -501,6 +501,8 @@ describe('App', () => {
     expect(page.querySelector('.results h2')!.textContent).toContain('Top 2 of 3');
     expect(page.querySelectorAll('app-product-card')).toHaveLength(3);
     expect(page.querySelector('.also summary')!.textContent).toContain('1 more');
+    // In a column of their own, which is what spaces them: a `details` gap does not.
+    expect(page.querySelectorAll('.also > .stack > app-product-card')).toHaveLength(1);
   });
 
   it('shows a failed run as a message, not as an empty page', async () => {

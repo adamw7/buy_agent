@@ -20,7 +20,7 @@ from functools import partial
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import parse_qs, unquote, urlparse
 
 from buy_agent.agent import BuyAgent, Checkpoint, every_step_passes
@@ -81,6 +81,12 @@ _PORTS = (0, 65535)
 
 #: Host names that mean "this machine".
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+#: A bind on every interface, which a loopback name reaches too.
+_EVERYWHERE = frozenset({"0.0.0.0", "::", ""})
+
+#: The port an address with none means.
+_SCHEME_PORTS = {"http": 80, "https": 443}
 
 #: The ``Sec-Fetch-Site`` value meaning a page on another site made the request.
 _CROSS_SITE = "cross-site"
@@ -386,12 +392,37 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         provider = params.get("provider") or DEFAULT_PROVIDER
         server = PROVIDERS.get(provider)
         base_url = params.get("base_url") or (server.base_url if server else "")
+        if self._answered_here(base_url):
+            label = server.label if server else provider
+            # Not asked: what answers there is this page, and its reply reads as a
+            # model server that is not running -- "Start it with: vllm serve", which
+            # then cannot bind the port this server holds.
+            return {
+                "provider": provider,
+                "label": label,
+                "base_url": base_url,
+                "reachable": False,
+                "models": [],
+                "hint": _own_address(label, base_url),
+            }
         return installed_models(provider, base_url)
+
+    def _answered_here(self, address: str) -> bool:
+        """Whether ``address`` is this server's own, which a model server's default is
+        when the page is served on that server's port (vLLM's 8000 is this one's)."""
+        # A 2-tuple, or 4 on IPv6: ``_HTTPServer`` binds a family that has a port.
+        host, port = cast("tuple[Any, ...]", self.server.server_address)[:2]
+        return _reaches(address, str(host), int(port))
 
     def _search(
         self, data: dict[str, Any], *, checkpoint: Checkpoint = every_step_passes
     ) -> dict[str, Any]:
         config, sort_by = parse_options(data)
+        if self._answered_here(config.base_url):
+            # Before the run opens, on the box that holds it (ADR-0033).
+            raise ApiError(
+                _own_address(config.model_server.label, config.base_url), field="base_url"
+            )
         request = str(data.get("request") or "")
         return run_search(
             request,
@@ -677,6 +708,32 @@ def _clashing_provider(port: int, exc: OSError) -> str:
                 f"--port {port + 1}"
             )
     return ""
+
+
+def _reaches(address: str, host: str, port: int) -> bool:
+    """Whether ``address`` lands on a server bound to ``host`` and ``port``: the same
+    port, on the host itself or on a loopback name where the bind takes those."""
+    parsed = urlparse(address)
+    try:
+        named = parsed.port or _SCHEME_PORTS.get(parsed.scheme)
+    except ValueError:
+        # A port out of range names nothing, least of all this server.
+        return False
+    if named != port:
+        return False
+    target, bound = (parsed.hostname or "").lower(), host.lower()
+    takes_loopback = bound in _EVERYWHERE or bound in _LOOPBACK_HOSTS
+    return target == bound or (target in _LOOPBACK_HOSTS and takes_loopback)
+
+
+def _own_address(label: str, address: str) -> str:
+    """Why a model server cannot be asked at this page's own address. Names the form's
+    field, as every sentence read at both doors does."""
+    return (
+        f"{address} is this page's own address, not {label}'s: nothing else can listen "
+        f"on that port while this server does. Set the {label} address to wherever "
+        f"{label} is serving, or serve this page on another port."
+    )
 
 
 def _hostname(netloc: str) -> str:

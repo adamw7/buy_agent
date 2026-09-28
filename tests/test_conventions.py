@@ -3118,6 +3118,66 @@ def test_the_ui_is_compiled_with_its_checks_on(path: Path, option: str) -> None:
     )
 
 
+_UI_STYLES = _ROOT / "ui" / "src" / "styles.css"
+_UI_APP = _ROOT / "ui" / "src" / "app"
+
+#: A custom property read, and what follows its name: ``)`` or a fallback's comma.
+_TOKEN_READ = re.compile(r"var\(\s*(--[\w-]+)\s*([,)])")
+_TOKEN_DECLARED = re.compile(r"(--[\w-]+)\s*:\s*([^;]+);")
+_CSS_COMMENT = re.compile(r"/\*.*?\*/", re.S)
+
+#: Where the dark scheme's own values start in `styles.css`.
+_DARK_SCHEME = "@media (prefers-color-scheme: dark)"
+
+
+def stylesheets() -> list[Path]:
+    """Every stylesheet the UI ships: the global one and each component's."""
+    return [_UI_STYLES, *sorted(_UI_APP.rglob("*.css"))]
+
+
+def tokens_declared(css: str) -> dict[str, str]:
+    """The custom properties a stylesheet declares, by name, comments left out."""
+    return dict(_TOKEN_DECLARED.findall(_CSS_COMMENT.sub("", css)))
+
+
+@pytest.mark.parametrize("path", stylesheets(), ids=lambda path: path.name)
+def test_every_token_a_stylesheet_reads_is_one_the_page_declares(path: Path) -> None:
+    """The payment block read `--raised`, `--line` and `--muted`, which nothing declares,
+    each with a light-scheme colour after the comma -- so it looked right in the only
+    scheme anybody opened it in, and in the dark one the cart a person approves and the
+    receipt after it were pale text on a near-white box. A fallback is a colour written
+    for one scheme, which is why none is allowed: a token `styles.css` declares needs
+    none, and one it does not is the mistake the comma hides. A property a stylesheet
+    declares for itself (`--log-height`) is its own to read."""
+    written = _CSS_COMMENT.sub("", path.read_text(encoding="utf-8"))
+    declared = tokens_declared(_UI_STYLES.read_text(encoding="utf-8")) | tokens_declared(
+        written
+    )
+
+    for token, after in _TOKEN_READ.findall(written):
+        assert token in declared, f"{path.name} reads {token}, which nothing declares"
+        assert after == ")", (
+            f"{path.name} gives {token} a fallback, a colour for one scheme only"
+        )
+
+
+def test_every_colour_the_page_declares_has_a_dark_value_too() -> None:
+    """The other half of that: a colour token declared for the light scheme alone is the
+    same near-white box, reached through a name that *is* declared."""
+    light, _, dark = _UI_STYLES.read_text(encoding="utf-8").partition(_DARK_SCHEME)
+    colours = {
+        token
+        for token, value in tokens_declared(light).items()
+        if re.search(r"#[0-9a-f]{3,8}\b|rgb\(", value, re.I)
+    }
+
+    assert dark, f"styles.css no longer has a {_DARK_SCHEME} block"
+    assert colours, "styles.css declares no colours; this test has outlived its rule"
+    assert colours <= set(tokens_declared(dark)), (
+        f"{sorted(colours - set(tokens_declared(dark)))} have no dark value"
+    )
+
+
 # -- the prose -----------------------------------------------------------------
 
 #: A Markdown link, as every file here writes one: ``[the tour](README.md#what-this-is)``.

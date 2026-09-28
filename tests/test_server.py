@@ -465,6 +465,26 @@ def test_models_reports_a_provider_nothing_can_serve(server: str) -> None:
     assert "llama.cpp" in payload["detail"]
 
 
+def test_models_does_not_ask_this_server_for_a_model(server: str, monkeypatch) -> None:
+    """Served on port 8000 the page is at vLLM's own default address, so picking vLLM
+    filled in this very server: asked, it answered with the page, which read as a vLLM
+    that was not running -- "Start it with: vllm serve", a command that then cannot bind
+    the port this server holds. The address is what is wrong, and the hint says so."""
+    asked: list[str] = []
+    monkeypatch.setattr(server_module, "installed_models", lambda *args: asked.append(args))
+    own = f"{server.replace('127.0.0.1', 'localhost')}/v1"
+    query = urlencode({"provider": "vllm", "base_url": own})
+
+    status, payload = get(f"{server}/api/models?{query}")
+
+    assert status == 200
+    assert payload["reachable"] is False
+    assert (payload["label"], payload["base_url"]) == ("vLLM", own)
+    assert "this page's own address" in payload["hint"]
+    assert "vLLM address" in payload["hint"], "the form's name for the box"
+    assert not asked, "nothing was asked: what answers there is this page"
+
+
 def test_a_head_request_answers_like_a_get_without_the_body(server: str) -> None:
     """Only the stream refuses HEAD; everything else answers headers and no body."""
     request = urllib.request.Request(f"{server}/api/config", method="HEAD")
@@ -996,6 +1016,51 @@ def test_a_paying_rail_with_no_address_is_refused_at_the_box_it_came_from(
     assert data["field"] == "merchant_url"
     assert "needs an address" in data["error"]
     assert "request" not in StubAgent.captured, "nothing was run for a setting like this"
+
+
+@pytest.mark.parametrize("stream", [False, True], ids=["post", "stream"])
+def test_a_run_at_this_server_s_own_address_is_refused_at_that_box(
+    server: str, stream: bool
+) -> None:
+    """The run half of the same mistake: asked of this server, the chat call is a 404
+    and the run failed with "Could not reach vLLM ... Start it with: vllm serve"."""
+    options = {"request": "headphones", "provider": "vllm", "base_url": f"{server}/v1"}
+
+    if stream:
+        name, data = events(f"{server}/api/search/stream?{urlencode(options)}")[-1]
+        status = data["status"]
+        assert name == "failure"
+    else:
+        status, data = post(f"{server}/api/search", options)
+
+    assert status == 400
+    assert data["field"] == "base_url"
+    assert "this page's own address" in data["error"]
+    assert "request" not in StubAgent.captured, "nothing was run for a setting like this"
+
+
+@pytest.mark.parametrize(
+    ("address", "host", "port", "reaches"),
+    [
+        ("http://localhost:8000/v1", "127.0.0.1", 8000, True),
+        ("http://127.0.0.1:8000/v1", "127.0.0.1", 8000, True),
+        ("http://[::1]:8000/v1", "::1", 8000, True),
+        ("http://localhost:8000/v1", "0.0.0.0", 8000, True),
+        ("http://192.168.1.5:8000/v1", "192.168.1.5", 8000, True),
+        ("http://localhost", "127.0.0.1", 80, True),
+        ("https://localhost/v1", "127.0.0.1", 443, True),
+        ("http://localhost:8001/v1", "127.0.0.1", 8000, False),
+        ("http://localhost:8000/v1", "192.168.1.5", 8000, False),
+        ("http://gpu-box:8000/v1", "127.0.0.1", 8000, False),
+        ("http://localhost:99999/v1", "127.0.0.1", 8000, False),
+    ],
+)
+def test_an_address_reaches_this_server_on_its_port_and_a_host_bound_to_it(
+    address: str, host: str, port: int, reaches: bool
+) -> None:
+    """Loopback names reach a loopback or wildcard bind and nothing else; a bind to one
+    interface is reached by that interface's own address."""
+    assert server_module._reaches(address, host, port) is reaches
 
 
 def test_an_unexpected_failure_still_ends_the_stream(server: str) -> None:

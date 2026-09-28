@@ -596,6 +596,25 @@ describe('SearchForm', () => {
     expect(submit().disabled).toBe(false);
   });
 
+  it('marks the model server address a refused run named, and points the box at it', async () => {
+    /* A page served on port 8000 is at vLLM's own default address, so picking vLLM
+       fills in this very server -- which the server refuses on this box rather than
+       asking itself for a model and calling the answer an unstarted vLLM. */
+    fixture.componentRef.setInput('rejected', {
+      field: 'base_url',
+      message: "http://localhost:8000/v1 is this page's own address, not vLLM's.",
+    });
+    await fixture.whenStable();
+
+    const box = element<HTMLInputElement>('input[name="baseUrl"]');
+    const sentence = box.closest('label')!.querySelector('.problem')!;
+    expect(sentence.textContent).toContain("this page's own address");
+    expect(box.classList).toContain('invalid');
+    expect(box.getAttribute('aria-invalid')).toBe('true');
+    expect(box.getAttribute('aria-describedby')).toBe(sentence.id);
+    expect(await accessibilityProblems(fixture.nativeElement)).toEqual([]);
+  });
+
   it('says what the field holds now rather than what a run was refused for', async () => {
     await type('input[name="request"]', 'kettle');
     await type('input[name="results"]', '51');

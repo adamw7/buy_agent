@@ -6,6 +6,7 @@ import io
 import logging
 import re
 import sys
+from importlib import metadata
 
 import pytest
 
@@ -17,8 +18,11 @@ from buy_agent.logging_setup import (
     log_changes,
     log_top_products,
 )
+from buy_agent.chat import release
+from buy_agent.config import AgentConfig
 from buy_agent.journal import Change
 from buy_agent.models import Offer, Product, RankedProduct
+from buy_agent.providers import PROVIDERS, provider_for
 from buy_agent.ranking import RankingWeights, rank_products
 from tests.conftest import ranked_product, said
 
@@ -173,6 +177,57 @@ def test_the_transport_trace_is_held_down_at_verbose_too(
     configure_logging(verbose=verbose)
 
     assert logging.getLogger(library).level == logging.INFO
+
+
+def canonical(name: str) -> str:
+    """A distribution's name as pip spells it."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def installed_with(roots: set[str]) -> set[str]:
+    """``roots`` and every distribution installing them pulled in here, extras left out.
+    One a marker kept off this platform is not installed, and has no logger to find."""
+    found: set[str] = set()
+    waiting = list(roots)
+    while waiting:
+        name = waiting.pop()
+        if name in found:
+            continue
+        try:
+            requires = metadata.requires(name) or []
+        except metadata.PackageNotFoundError:
+            continue
+        found.add(name)
+        for line in requires:
+            if "extra ==" not in line:
+                waiting.append(canonical(re.split(r"[\s<>=!~;@\[(]", line, maxsplit=1)[0]))
+    return found
+
+
+def test_every_logger_a_model_client_brings_is_quietened_or_held_down(basic_config) -> None:
+    """Read off the clients rather than off the two lists: openai's 3.x line sends
+    through `httpx2`, which logs under a name of its own, so every vLLM and LiteLLM
+    call printed "HTTP Request: POST .../chat/completions" above the report and a
+    dozen `httpcore2` lines apiece at `--verbose` -- while the tests above, which read
+    those lists back, went on passing. Each row builds its client first, since the
+    transport's loggers are only created with one."""
+    for provider in PROVIDERS:
+        release(provider_for(provider).chat_model(AgentConfig(provider=provider)))
+    stack = installed_with({"ollama", "openai"})
+    # By name: every library in these stacks logs under its distribution's own.
+    brought = {
+        module
+        for module in {name.partition(".")[0] for name in logging.Logger.manager.loggerDict}
+        if canonical(module) in stack
+    }
+    quietened = {*_NOISY_LIBRARIES, *_TRACE_LIBRARIES}
+
+    configure_logging()
+
+    assert {"httpx", "httpx2"} <= brought, "the clients bring no HTTP library; test is stale"
+    assert brought <= quietened, (
+        f"{sorted(brought - quietened)} log on every request and nothing quietens them"
+    )
 
 
 @pytest.mark.parametrize(

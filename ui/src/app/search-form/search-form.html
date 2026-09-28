@@ -144,14 +144,25 @@
         }
       </label>
 
+      <!-- Marked like the boxes below it: the server refuses an address that is this
+           page's own, which is where vLLM's default lands when the page is served on
+           its port. -->
       <label class="field">
         <span>{{ providerLabel() }} address</span>
         <input
           name="baseUrl"
           [(ngModel)]="baseUrl"
           [disabled]="running()"
+          [class.invalid]="notes()['base_url']"
+          [attr.aria-invalid]="notes()['base_url'] ? true : null"
+          [attr.aria-describedby]="problemId('base_url')"
           (change)="serverChanged()"
         />
+        @if (notes()['base_url']; as problem) {
+          <small class="problem" role="alert" [attr.id]="problemId('base_url')">{{
+            problem
+          }}</small>
+        }
       </label>
 
       <label class="field">
