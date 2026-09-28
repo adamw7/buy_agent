@@ -181,7 +181,12 @@ export class SearchForm {
     }),
     field('results', 'Products to find', this.results, { remembersBlank: false }),
     field('top', 'Products to highlight', this.top, { remembersBlank: false }),
-    field('temperature', 'Temperature', this.temperature, { step: 0.1, remembersBlank: false }),
+    field('temperature', 'Temperature', this.temperature, {
+      step: 0.1,
+      // The box opens holding a bare 0, which says nothing of what raising it costs.
+      hint: 'Above 0 answers can vary from run to run and are never cached.',
+      remembersBlank: false,
+    }),
     field('num_ctx', 'Context window', this.numCtx, {
       hint: () =>
         this.takesNumCtx()

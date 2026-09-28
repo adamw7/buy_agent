@@ -368,7 +368,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--temperature",
         type=_bounded(float, "temperature"),
         default=_DEFAULTS.temperature,
-        help=f"Model temperature (default: {_DEFAULTS.temperature}).",
+        help=f"Model temperature (default: {_DEFAULTS.temperature}). Extraction "
+        "copies what the pages say, and 0 copies it the same way every time, which "
+        "makes it the only temperature whose answers --cache-ttl keeps. Above 0 the "
+        "model samples: every run asks it again, and two runs over the same pages "
+        "can report different products.",
     )
     parser.add_argument(
         "--num-ctx",

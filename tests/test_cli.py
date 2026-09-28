@@ -900,6 +900,15 @@ def test_the_cache_lifetime_is_the_flag_s_or_the_config_s_own(fake_agent) -> Non
     assert fake_agent["config"].cache_ttl == AgentConfig().cache_ttl
 
 
+def test_the_temperature_help_says_only_a_run_at_0_is_remembered() -> None:
+    """ADR-0044's gate, which only --cache-ttl's help used to mention: a reader raising
+    the temperature lost the cache with nothing beside the flag to warn them."""
+    action = next(a for a in build_parser()._actions if "--temperature" in a.option_strings)
+
+    assert "--cache-ttl" in action.help
+    assert "Above 0" in action.help
+
+
 # -- paying --------------------------------------------------------------------
 
 
