@@ -298,9 +298,11 @@ is being read on. The codes are Python's table, sent with the defaults, for the
 reason every other list here is.
 
 That scale then travels with the finished run. `App` sends it back on a re-sort
-and on a payment, out of the settings the run was started with: both are handed
-the products by the browser (ADR-0035), so a set left to vote again could come
-back in a different order, or priced into a different cart, for one run.
+and on a payment -- the currency the run was started with, and the run's own
+`scale` for when that was blank and the set voted: both are handed the products
+by the browser (ADR-0035), and a set left to vote again over them in rank order
+can break a tie the other way, coming back in a different order, or priced into
+a different cart, for one run.
 
 Its payment block is drawn only when `pay_available` says the server has the AP2
 SDK at all -- a switch whose only outcome is a message about pip is worse than a

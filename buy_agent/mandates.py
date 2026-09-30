@@ -31,6 +31,9 @@ INSTALL = (
 #: How long a mandate signed here stays valid.
 TTL_SECONDS = 600
 
+#: How to make the one kind of key the mandates are signed with.
+_MAKE_KEY = "openssl ecparam -genkey -name prime256v1 -noout -out agent-key.pem"
+
 #: Who each mandate is signed for.
 MERCHANT_AUDIENCE = "merchant"
 CREDENTIAL_PROVIDER_AUDIENCE = "credential-provider"
@@ -130,18 +133,26 @@ def load_key(*, required: bool) -> tuple[Any, bool]:
         if required:
             raise MandateError(
                 f"No signing key: set ${KEY_PATH} to an EC P-256 private key in PEM form. "
-                f"Make one with:  openssl ecparam -genkey -name prime256v1 -noout "
-                f"-out agent-key.pem"
+                f"Make one with:  {_MAKE_KEY}"
             )
         return generate_key(), False
 
     try:
         key = jwk_class.from_pem(Path(location).read_bytes())
-    except (OSError, ValueError) as exc:
+    # Not only ``OSError`` and ``ValueError``: a key behind a passphrase is a
+    # ``TypeError``, and a kind jwcrypto does not know is its own ``JWException``.
+    except Exception as exc:
         raise MandateError(f"Could not read the signing key at {location} ({exc}).") from exc
     if not key.has_private:
         raise MandateError(
             f"The key at {location} is a public key; signing needs the private one."
+        )
+    # Checked here, not at signing: an RSA or a P-384 key reads fine and then fails
+    # inside the SDK with an error that names neither the key nor its path.
+    if (key.get("kty"), key.get("crv")) != ("EC", "P-256"):
+        raise MandateError(
+            f"The key at {location} is not an EC P-256 key, and the mandates are signed "
+            f"with ES256, which takes no other. Make one with:  {_MAKE_KEY}"
         )
     key["kid"] = "agent"
     return key, True
@@ -197,14 +208,25 @@ def open_mandate() -> tuple[str, Any] | None:
     try:
         document = json.loads(Path(location).read_text(encoding="utf-8"))
         token = str(document["mandate"])
-        # After reading the file, so a bad file is not reported as a missing SDK.
-        issuer = _jwk_class()(**document["issuer_jwk"])
+        material = document["issuer_jwk"]
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        raise MandateError(
-            f"Could not read the open mandate at {location} ({exc}). It is a JSON "
-            f'document holding {{"mandate": "<SD-JWT>", "issuer_jwk": {{...}}}}.'
-        ) from exc
+        raise _unreadable_mandate(location, exc) from exc
+    # After reading the file, so a bad file is not reported as a missing SDK.
+    jwk_class = _jwk_class()
+    try:
+        issuer = jwk_class(**material)
+    # jwcrypto refuses key material it cannot use with a ``JWException`` of its own.
+    except Exception as exc:
+        raise _unreadable_mandate(location, exc) from exc
     return token, issuer
+
+
+def _unreadable_mandate(location: str, exc: Exception) -> MandateError:
+    """The refusal of an open mandate file, saying what one holds."""
+    return MandateError(
+        f"Could not read the open mandate at {location} ({exc}). It is a JSON "
+        f'document holding {{"mandate": "<SD-JWT>", "issuer_jwk": {{...}}}}.'
+    )
 
 
 def authorise(cart: Cart, checkout: SignedCheckout, *, key: Any, nonce: str) -> Authorisation:
@@ -222,13 +244,21 @@ def authorise(cart: Cart, checkout: SignedCheckout, *, key: Any, nonce: str) -> 
     else:
         # Human not present: close the open mandate the shopper signed, within it.
         open_token, issuer = configured
-        payment = client.present(
-            holder_key=key,
-            mandate_token=open_token,
-            payloads=[payload],
-            nonce=nonce,
-            aud=CREDENTIAL_PROVIDER_AUDIENCE,
-        )
+        try:
+            payment = client.present(
+                holder_key=key,
+                mandate_token=open_token,
+                payloads=[payload],
+                nonce=nonce,
+                aud=CREDENTIAL_PROVIDER_AUDIENCE,
+            )
+        # A token that is no SD-JWT is a plain ``ValueError`` out of the SDK, and any
+        # other refusal of it is as much the file's fault.
+        except Exception as exc:
+            raise MandateError(
+                f"The open mandate at ${MANDATE_PATH} could not be closed for this "
+                f"purchase ({exc})."
+            ) from exc
         violations = verify(
             payment,
             issuer=issuer,

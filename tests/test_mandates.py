@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -115,6 +116,53 @@ def test_a_public_key_is_refused_since_signing_needs_the_private_half(
     monkeypatch.setenv(mandates.KEY_PATH, str(public))
 
     with pytest.raises(MandateError, match="public key"):
+        mandates.load_key(required=True)
+
+
+@needs_ap2
+def test_a_key_behind_a_passphrase_is_refused_by_its_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing here can type the passphrase, and the loader says so with a ``TypeError``,
+    which reached the shopper as an unexpected failure rather than this sentence."""
+    locked = tmp_path / "locked.pem"
+    locked.write_bytes(
+        mandates.generate_key("agent").export_to_pem(private_key=True, password=b"secret")
+    )
+    monkeypatch.setenv(mandates.KEY_PATH, str(locked))
+
+    with pytest.raises(MandateError, match="Could not read the signing key") as refused:
+        mandates.load_key(required=True)
+
+    assert str(locked) in str(refused.value)
+
+
+@needs_ap2
+@pytest.mark.parametrize("kind", ["rsa", "p-384", "ed25519"])
+def test_a_key_that_cannot_sign_es256_is_refused_before_anything_is_signed(
+    kind: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each reads as a private key, and then failed inside the SDK with a ``TypeError``
+    or jwcrypto's own error, naming neither the key nor where it came from."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
+
+    made = {
+        "rsa": lambda: rsa.generate_private_key(public_exponent=65537, key_size=2048),
+        "p-384": lambda: ec.generate_private_key(ec.SECP384R1()),
+        "ed25519": ed25519.Ed25519PrivateKey.generate,
+    }[kind]()
+    path = tmp_path / "agent.pem"
+    path.write_bytes(
+        made.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    monkeypatch.setenv(mandates.KEY_PATH, str(path))
+
+    with pytest.raises(MandateError, match="not an EC P-256 key"):
         mandates.load_key(required=True)
 
 
@@ -304,6 +352,36 @@ def test_a_mandate_file_that_is_missing_is_refused_by_its_path(
 
     with pytest.raises(MandateError, match="Could not read the open mandate"):
         mandates.open_mandate()
+
+
+@needs_ap2
+def test_an_issuer_key_the_signing_stack_cannot_use_is_refused_by_its_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """jwcrypto refuses key material with an error of its own, not a ``ValueError``,
+    and it went past every handler to the shopper as an unexpected failure."""
+    _agent, _issuer = open_mandate(tmp_path, monkeypatch)
+    path = tmp_path / "mandate.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(json.dumps({**document, "issuer_jwk": {"kty": "EC"}}), encoding="utf-8")
+
+    with pytest.raises(MandateError, match="Could not read the open mandate"):
+        mandates.open_mandate()
+
+
+@needs_ap2
+def test_an_open_mandate_that_is_no_sd_jwt_is_refused_as_the_mandate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The SDK refuses the token with a plain ``ValueError`` when the purchase is signed,
+    well after the file was read."""
+    agent, _issuer = open_mandate(tmp_path, monkeypatch)
+    path = tmp_path / "mandate.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(json.dumps({**document, "mandate": "not-a-token"}), encoding="utf-8")
+
+    with pytest.raises(MandateError, match="open mandate .* could not be closed"):
+        mandates.authorise(CART, signed_checkout(), key=agent, nonce="n")
 
 
 # -- verification --------------------------------------------------------------

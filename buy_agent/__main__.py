@@ -32,7 +32,7 @@ from buy_agent.money import CODES
 from buy_agent.payment import PaymentError
 from buy_agent.providers import PROVIDERS, provider_for
 from buy_agent.rails import RAILS, rail_for
-from buy_agent.ranking import ORDERINGS, SortBy
+from buy_agent.ranking import ORDERINGS, SortBy, scale_of
 from buy_agent.search import BACKENDS, SearchError, backend_for
 from buy_agent.sources import parse_named_sources, parse_sources
 
@@ -462,7 +462,8 @@ def _bought(ranked: list[RankedProduct], config: AgentConfig) -> bool:
     """Buy the top-ranked product, and say what came of it (ADR-0009, ADR-0046)."""
     products = [entry.product for entry in ranked]
     try:
-        cart = payment.cart_for(products[0], products, config)
+        # In the currency the run was counted in, not a second vote (ADR-0056).
+        cart = payment.cart_for(products[0], products, config, scale=scale_of(ranked))
         if not payment.unattended() and not _approved(cart, config):
             logger.warning("Not paid: %s was not approved.", cart.title)
             return False

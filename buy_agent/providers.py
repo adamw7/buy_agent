@@ -8,6 +8,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeAlias, cast
+from urllib.parse import urlsplit
 
 import httpx
 import openai
@@ -40,6 +41,10 @@ _TIMEOUTS = (httpx.TimeoutException, openai.APITimeoutError)
 
 #: Concurrent ``ollama show`` probes.
 _PROBES = 8
+
+#: Where Ollama's client puts an address that names no host or no port.
+_OLLAMA_HOST = "127.0.0.1"
+_OLLAMA_PORT = 11434
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,9 +151,16 @@ def _ollama_tags(config: AgentConfig) -> list[str]:
 
 
 def _ollama_url(base_url: str, path: str) -> str:
-    """An Ollama URL, joined as its client would join it."""
-    base = base_url if "://" in base_url else f"http://{base_url}"
-    return f"{base.rstrip('/')}{path}"
+    """An Ollama URL, joined as its client would join it: an address written without a
+    scheme is plain HTTP on Ollama's own port, not HTTP's (``$OLLAMA_HOST=0.0.0.0``)."""
+    if "://" in base_url:
+        return f"{base_url.rstrip('/')}{path}"
+    split = urlsplit(f"http://{base_url}")
+    host = split.hostname or _OLLAMA_HOST
+    # ``hostname`` drops an IPv6 literal's brackets, which the URL needs back.
+    if ":" in host:
+        host = f"[{host}]"
+    return f"http://{host}:{split.port or _OLLAMA_PORT}{split.path.rstrip('/')}{path}"
 
 
 def _probe(client: Client, names: list[str], deadline: float) -> list[InstalledModel]:
@@ -231,7 +243,10 @@ class _OpenAIChat:
             },
             extra_body=self.extra_body,
         )
-        return read_answer(response.choices[0].message.content or "", schema)
+        # A server may answer with no choice at all: an answer with nothing to read, not
+        # an ``IndexError`` out of the run (ADR-0009).
+        content = response.choices[0].message.content if response.choices else None
+        return read_answer(content or "", schema)
 
     def close(self) -> None:
         """Close the client's connection pool."""

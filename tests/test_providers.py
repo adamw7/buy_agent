@@ -129,7 +129,9 @@ def completing(monkeypatch):
     """Stand in for the OpenAI client vLLM is reached through, capturing the call."""
     sent: dict = {}
 
-    def install(answered: str = '{"query": "a refined query"}') -> dict:
+    def install(
+        answered: str = '{"query": "a refined query"}', *, choices: list | None = None
+    ) -> dict:
         class FakeOpenAI:
             def __init__(self, **kwargs) -> None:
                 sent["client"] = kwargs
@@ -141,6 +143,8 @@ def completing(monkeypatch):
 
         def create(**kwargs):
             sent.update(kwargs)
+            if choices is not None:
+                return SimpleNamespace(choices=choices)
             choice = SimpleNamespace(message=SimpleNamespace(content=answered))
             return SimpleNamespace(choices=[choice])
 
@@ -479,6 +483,19 @@ def test_a_server_that_answers_with_nothing_says_so(
         asked(AgentConfig(provider=provider), {})
 
 
+@pytest.mark.parametrize("provider", ["vllm", "litellm"])
+def test_an_answer_with_no_choice_in_it_is_one_with_nothing_to_read(
+    completing, provider: str
+) -> None:
+    """An OpenAI-style server can answer with an empty ``choices`` list. Indexed, that
+    was an ``IndexError`` out of the run -- a failure that is none of its three, so a
+    500 in the browser and a traceback on the CLI (ADR-0009)."""
+    completing(choices=[])
+
+    with pytest.raises(UnreadableAnswerError, match="nothing at all"):
+        asked(AgentConfig(provider=provider), {})
+
+
 # -- what the server is serving ------------------------------------------------
 
 
@@ -533,6 +550,31 @@ def test_the_address_is_asked_however_it_was_written(pulled, base_url: str) -> N
     listed(AgentConfig(provider="ollama", base_url=base_url))
 
     assert asked["tags"]["url"] == "http://localhost:11434/api/tags"
+
+
+@pytest.mark.parametrize(
+    ("base_url", "url"),
+    [
+        ("0.0.0.0", "http://0.0.0.0:11434/api/tags"),
+        ("localhost", "http://localhost:11434/api/tags"),
+        ("gpu-box.lan/ollama/", "http://gpu-box.lan:11434/ollama/api/tags"),
+        ("[::1]", "http://[::1]:11434/api/tags"),
+        (":11435", "http://127.0.0.1:11435/api/tags"),
+        # A scheme brings its own port, as it does to the client.
+        ("http://gpu-box.lan", "http://gpu-box.lan/api/tags"),
+    ],
+)
+def test_an_address_with_no_scheme_is_on_ollamas_own_port(
+    pulled, base_url: str, url: str
+) -> None:
+    """``OLLAMA_HOST=0.0.0.0`` is how Ollama is told to listen everywhere, and its client
+    reads the address as port 11434. The listing read it as HTTP's port 80, so a server
+    every run reached was unreachable in the picker and "unknown" in every hint."""
+    asked = pulled(["gemma4:12b"])
+
+    listed(AgentConfig(provider="ollama", base_url=base_url))
+
+    assert asked["tags"]["url"] == url
 
 
 def test_a_tag_with_no_completion_to_give_is_listed_as_one(pulled) -> None:

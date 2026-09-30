@@ -439,7 +439,10 @@ docstrings. This is enforced by a convention test.
 - **`currency`:** `config.parse_currency` checks `money.placeable`, folding
   spellings. `--currency`'s help lists the codes. Blank means vote (ADR-0056).
   `rank_products`, `Constraints`, `payment.cart_for` and `api.results_payload`
-  all take the override, and a finished run carries its currency.
+  all take the override. A finished run carries the currency it was counted in
+  as `scale` (`ranking.scale_of`), and a re-sort and a payment are handed it back
+  rather than voting again: a vote over products in rank order can break a tie
+  the other way.
 - **`backend`, `provider` and `rail`** are checked against their table at both
   doors and offered in four places, the fourth being the picker rows
   (`backend_options()`, `ProviderOption`, `rail_options()`). When `provider`

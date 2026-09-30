@@ -395,8 +395,11 @@ export class App {
         products: found.products,
         sort_by: sortBy,
         top: found.top_n,
-        // The run's own scale, so the set does not vote again (ADR-0056).
+        // The run's own scale, so the set does not vote again (ADR-0056): the currency
+        // named, and the one the run was counted in where the set voted -- voting again
+        // over products in another order can break a tie the other way.
         currency: this.ranWith()?.currency,
+        scale: found.scale ?? undefined,
       })
       .subscribe({
         next: (result) => {
@@ -453,8 +456,9 @@ export class App {
         rail: settings.rail,
         merchant_url: settings.merchant_url,
         spend_limit: settings.spend_limit,
-        // As a re-sort sends it.
+        // As a re-sort sends them.
         currency: settings.currency,
+        scale: found.scale ?? undefined,
       })
       .subscribe({
         next: ({ receipt }) => {

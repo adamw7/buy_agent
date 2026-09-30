@@ -396,12 +396,14 @@ Eight details there are easy to get wrong and are deliberate:
   uses `GET /api/search/stream` and watches the same progress the CLI prints.
   `POST /api/search` is the same run in one response, for scripts.
 - **Re-ordering a finished run runs nothing.** `POST /api/rank` takes the products
-  the page is already holding and answers the shape a run answers with, having
-  called `rank_products` and nothing else. The ordering stays in Python; only the
-  searching is skipped (ADR-0035).
+  the page is already holding, with the currency the run counted them in, and
+  answers the shape a run answers with, having called `rank_products` and nothing
+  else. The ordering stays in Python; only the searching is skipped (ADR-0035,
+  ADR-0056).
 - **Paying runs nothing either, and the page witnesses the consent rather than
-  asserting it.** `POST /api/pay` takes the products the page is holding, which
-  one to buy, and an echo of the title, price and currency a person was shown.
+  asserting it.** `POST /api/pay` takes the products the page is holding and the
+  currency the run counted them in, which one to buy, and an echo of the title,
+  price and currency a person was shown.
   The cart is built on the server from those products and the echo has to match
   it, so a page showing a stale price cannot buy at that price and a page that
   asked nobody cannot guess the right echo (ADR-0012, ADR-0046). Whether a

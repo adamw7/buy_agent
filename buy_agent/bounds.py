@@ -55,12 +55,18 @@ _NOTHING_ELSE = (
     rf"(?:{_UNIT}|(?![\s-]*[A-Za-z])|(?=\s+(?:{'|'.join(_CARRIES_ON)})\b))"
 )
 
-#: A budget. A leading sign needs nothing more; a bare figure needs ``_NOTHING_ELSE``.
+#: Where a figure after a sign ends: anywhere but in a letter running on from it -- read
+#: as 2, "$2k" put a budget every priced product was over in the box -- unless that is a
+#: currency ("$200USD").
+_FIGURE_ENDS = rf"(?={_UNIT}|(?![A-Za-z]))"
+
+#: A budget. A leading sign needs only ``_FIGURE_ENDS``; a bare figure needs
+#: ``_NOTHING_ELSE``.
 _MAX_PRICE = re.compile(
     rf"""
       \b(?:under|below|less\s+than|cheaper\s+than|no\s+more\s+than|up\s+to
          |at\s+most|max(?:imum)?(?:\s+of)?)
-      \s*(?:{_SIGN}\s*({_NUMBER})|({_NUMBER}){_NOTHING_ELSE})
+      \s*(?:{_SIGN}\s*({_NUMBER}){_FIGURE_ENDS}|({_NUMBER}){_NOTHING_ELSE})
     | (?:{_SIGN}\s*)?\b({_NUMBER}){_UNIT}?\s+or\s+(?:less|under|cheaper)\b
     """,
     re.IGNORECASE | re.VERBOSE,

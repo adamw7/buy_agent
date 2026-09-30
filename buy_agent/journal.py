@@ -15,9 +15,9 @@ import logging
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from buy_agent.cache import default_dir, file_for, write_atomically
 from buy_agent.models import Product, dedup_key, price_label
@@ -49,7 +49,8 @@ class Recorded(BaseModel):
     """One product as a past run reported it (ADR-0060)."""
 
     name: str
-    price: float | None = None
+    # As on ``Product``: a NaN read back would be a movement of NaN, and invalid JSON.
+    price: Annotated[float | None, Field(allow_inf_nan=False)] = None
     currency: str | None = None
 
     @classmethod
@@ -73,6 +74,19 @@ class Entry(BaseModel):
     #: When it ran, in epoch seconds.
     at: float
     products: list[Recorded] = []
+
+    @field_validator("at")
+    @classmethod
+    def _dated(cls, at: float) -> float:
+        """A time :meth:`when` can put on this machine's calendar. Read back, anything
+        else is a damaged file, which costs a comparison rather than the run."""
+        try:
+            datetime.fromtimestamp(at)
+        # NaN is a ``ValueError``; too far out, an ``OverflowError`` or, on Windows,
+        # an ``OSError``.
+        except (ValueError, OverflowError, OSError) as exc:
+            raise ValueError(f"{at!r} is not a time this machine can date") from exc
+        return at
 
     def when(self) -> str:
         """The day it ran, on this machine's calendar: the one its log lines are timed

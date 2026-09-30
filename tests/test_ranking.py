@@ -5,7 +5,14 @@ from __future__ import annotations
 import pytest
 
 from buy_agent.models import Product
-from buy_agent.ranking import CRITERIA, NEUTRAL, RankingWeights, rank_products, score_product
+from buy_agent.ranking import (
+    CRITERIA,
+    NEUTRAL,
+    RankingWeights,
+    rank_products,
+    scale_of,
+    score_product,
+)
 
 
 def product(name: str, **kwargs: object) -> Product:
@@ -525,3 +532,29 @@ def test_a_currency_nothing_is_priced_in_scores_every_price_as_assumed() -> None
     ranked = rank_products(products, currency="JPY")
 
     assert all("price" in entry.breakdown.neutral for entry in ranked)
+
+
+@pytest.mark.parametrize(
+    ("named", "scale"),
+    [(None, "EUR"), ("USD", "USD")],
+    ids=["the vote, a tie going to the first seen", "the currency named"],
+)
+def test_every_product_of_a_ranking_says_the_currency_it_was_counted_in(
+    named: str | None, scale: str
+) -> None:
+    """Read back rather than voted on again: in rank order the dollar listing comes
+    first, and a second vote would break the tie for dollars (ADR-0056)."""
+    products = [
+        Product(name="Euro", price=90.0, currency="EUR"),
+        Product(name="Dollar", price=100.0, currency="USD", rating=5.0),
+    ]
+
+    ranked = rank_products(products, currency=named)
+
+    assert [entry.product.name for entry in ranked] == ["Dollar", "Euro"]
+    assert {entry.scale for entry in ranked} == {scale}
+    assert scale_of(ranked) == scale
+
+
+def test_a_ranking_of_nothing_was_counted_in_nothing() -> None:
+    assert scale_of([]) is None

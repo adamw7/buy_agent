@@ -22,7 +22,7 @@ from buy_agent.bounds import Noticed, notice
 from buy_agent.chat import release
 from buy_agent.config import LIMITS, AgentConfig, parse_currency, parse_region
 from buy_agent.models import Offer, Product, Removal, dominant_currency
-from buy_agent.money import CODES, amount_label
+from buy_agent.money import CODES, amount_label, code_for
 from buy_agent.payment import (
     Cart,
     PaymentError,
@@ -36,7 +36,7 @@ from buy_agent.payment import (
 )
 from buy_agent.providers import PROVIDERS, provider_options
 from buy_agent.rails import RAILS, rail_options
-from buy_agent.ranking import ORDERINGS, RankingWeights, SortBy, rank_products
+from buy_agent.ranking import ORDERINGS, RankingWeights, SortBy, rank_products, scale_of
 from buy_agent.screenshots import ScreenshotError
 from buy_agent.search import BACKENDS, SearchError, backend_options
 from buy_agent.sources import Source, format_sources, parse_sources
@@ -190,17 +190,19 @@ def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
     top_n = _read(data, "top", defaults.top_n, _bounded(int))
     # Explicit, so the answer reports the weights it ranked by.
     weights = RankingWeights()
-    # The run's own scale, so the set does not vote again (ADR-0056).
+    # The run's own scale, so the set does not vote again (ADR-0056): the currency the
+    # shopper named, else the one the run was counted in.
     currency = _read(data, "currency", "", _checked(parse_currency))
+    scale = currency or _read(data, "scale", "", _as_code)
     ranked = rank_products(
         _read_products(data),
         weights=weights,
         sort_by=cast(SortBy, sort_by),
-        currency=currency or None,
+        currency=scale or None,
     )
     # No pipeline ran, so no removals or changes; the page keeps the run's own
     # (ADR-0035, ADR-0055, ADR-0060).
-    return _run_payload(request, ranked, _Reported(top_n, sort_by, weights, currency or None))
+    return _run_payload(request, ranked, _Reported(top_n, sort_by, weights, scale or None))
 
 
 def mandate_support() -> bool:
@@ -222,9 +224,11 @@ def pay_now(data: Mapping[str, Any]) -> dict[str, Any]:
     if not products:
         raise ApiError("There are no products to pay for.", field="products")
     product = products[_rank(data, len(products))]
+    # The currency the run was counted in, so paying does not vote again (ADR-0056).
+    scale = _read(data, "scale", "", _as_code)
 
     try:
-        cart = cart_for(product, products, config)
+        cart = cart_for(product, products, config, scale=scale or None)
         if not unattended():
             _witnessed(data, cart)
         receipt = pay_for(cart, config)
@@ -283,13 +287,17 @@ def _run_payload(
     compared_with: str | None = None,
 ) -> dict[str, Any]:
     """The payload of a finished run or re-sort (ADR-0055, ADR-0060)."""
+    scale = _counted_in(ranked, reported.currency)
     return {
         "request": request.strip(),
         "count": len(ranked),
         "top_n": reported.top_n,
         "sort_by": reported.sort_by,
         "weights": reported.weights.fractions,
-        "products": results_payload(ranked, reported.currency),
+        "products": results_payload(ranked, scale),
+        # What a re-sort or a payment is handed back, so the set is not voted on again
+        # (ADR-0056); null where no price had a currency.
+        "scale": scale,
         # Removed candidates, each with Python's reason (ADR-0055).
         "dropped": [removal.model_dump() for removal in removals],
         # What moved since the last run of this search (ADR-0060).
@@ -303,8 +311,15 @@ def results_payload(
     ranked: Sequence[RankedProduct], named: str | None = None
 ) -> list[dict[str, Any]]:
     """A whole run's products as JSON, best first (ADR-0043, ADR-0056)."""
-    currency = dominant_currency((entry.product for entry in ranked), named)
+    currency = _counted_in(ranked, named)
     return [product_payload(entry, currency) for entry in ranked]
+
+
+def _counted_in(ranked: Sequence[RankedProduct], named: str | None) -> str | None:
+    """The currency a ranking's products are counted in: the one named, else the one it
+    was ranked in -- never a second vote over it in rank order, which can break a tie
+    the other way (ADR-0056) -- else, for a ranking that says none, the set's vote."""
+    return dominant_currency((entry.product for entry in ranked), named or scale_of(ranked))
 
 
 def offer_payload(offer: Offer) -> dict[str, Any]:
@@ -508,6 +523,12 @@ def _read_products(data: Mapping[str, Any]) -> list[Product]:
 def _as_text(_key: str, text: str) -> str:
     """Text as is (already stripped)."""
     return text
+
+
+def _as_code(_key: str, text: str) -> str:
+    """A currency folded the way a page's is (ADR-0054), whatever it is: a set may be
+    counted in one nothing can place, and a re-sort is counted in it all the same."""
+    return code_for(text) or ""
 
 
 def _among(options: tuple[str, ...]) -> Callable[[str, str], str]:
