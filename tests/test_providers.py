@@ -535,6 +535,31 @@ def test_the_address_is_asked_however_it_was_written(pulled, base_url: str) -> N
     assert asked["tags"]["url"] == "http://localhost:11434/api/tags"
 
 
+@pytest.mark.parametrize(
+    ("base_url", "url"),
+    [
+        ("0.0.0.0", "http://0.0.0.0:11434/api/tags"),
+        ("localhost", "http://localhost:11434/api/tags"),
+        ("gpu-box.lan/ollama/", "http://gpu-box.lan:11434/ollama/api/tags"),
+        ("[::1]", "http://[::1]:11434/api/tags"),
+        (":11435", "http://127.0.0.1:11435/api/tags"),
+        # A scheme brings its own port, as it does to the client.
+        ("http://gpu-box.lan", "http://gpu-box.lan/api/tags"),
+    ],
+)
+def test_an_address_with_no_scheme_is_on_ollamas_own_port(
+    pulled, base_url: str, url: str
+) -> None:
+    """``OLLAMA_HOST=0.0.0.0`` is how Ollama is told to listen everywhere, and its client
+    reads the address as port 11434. The listing read it as HTTP's port 80, so a server
+    every run reached was unreachable in the picker and "unknown" in every hint."""
+    asked = pulled(["gemma4:12b"])
+
+    listed(AgentConfig(provider="ollama", base_url=base_url))
+
+    assert asked["tags"]["url"] == url
+
+
 def test_a_tag_with_no_completion_to_give_is_listed_as_one(pulled) -> None:
     """The whole point of asking twice: an embedding model is pulled the same way a chat
     model is, sits in the same listing, and cannot answer a prompt."""
