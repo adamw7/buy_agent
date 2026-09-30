@@ -129,7 +129,9 @@ def completing(monkeypatch):
     """Stand in for the OpenAI client vLLM is reached through, capturing the call."""
     sent: dict = {}
 
-    def install(answered: str = '{"query": "a refined query"}') -> dict:
+    def install(
+        answered: str = '{"query": "a refined query"}', *, choices: list | None = None
+    ) -> dict:
         class FakeOpenAI:
             def __init__(self, **kwargs) -> None:
                 sent["client"] = kwargs
@@ -141,6 +143,8 @@ def completing(monkeypatch):
 
         def create(**kwargs):
             sent.update(kwargs)
+            if choices is not None:
+                return SimpleNamespace(choices=choices)
             choice = SimpleNamespace(message=SimpleNamespace(content=answered))
             return SimpleNamespace(choices=[choice])
 
@@ -474,6 +478,19 @@ def test_a_server_that_answers_with_nothing_says_so(
     nothing after it names no symptom at all."""
     chatting("")
     completing("")
+
+    with pytest.raises(UnreadableAnswerError, match="nothing at all"):
+        asked(AgentConfig(provider=provider), {})
+
+
+@pytest.mark.parametrize("provider", ["vllm", "litellm"])
+def test_an_answer_with_no_choice_in_it_is_one_with_nothing_to_read(
+    completing, provider: str
+) -> None:
+    """An OpenAI-style server can answer with an empty ``choices`` list. Indexed, that
+    was an ``IndexError`` out of the run -- a failure that is none of its three, so a
+    500 in the browser and a traceback on the CLI (ADR-0009)."""
+    completing(choices=[])
 
     with pytest.raises(UnreadableAnswerError, match="nothing at all"):
         asked(AgentConfig(provider=provider), {})

@@ -243,7 +243,10 @@ class _OpenAIChat:
             },
             extra_body=self.extra_body,
         )
-        return read_answer(response.choices[0].message.content or "", schema)
+        # A server may answer with no choice at all: an answer with nothing to read, not
+        # an ``IndexError`` out of the run (ADR-0009).
+        content = response.choices[0].message.content if response.choices else None
+        return read_answer(content or "", schema)
 
     def close(self) -> None:
         """Close the client's connection pool."""
