@@ -150,6 +150,13 @@ shop pages to answer out of it, so neither the sentence nor the pages are
 written down a second time in JavaScript. `--request` types something else,
 though each script's pages are written for its own.
 
+A budget named in the request is offered in its box before any run goes out
+([ADR-0059](../docs/adr/0059-notice-a-bound-in-the-request-and-offer-it.md)), so
+the laptops' "below 1000 USD" stops the first press of Find products at the offer,
+and the recorder presses it a second time to search with it. A take made now shows
+the offer landing between the two presses, which the one above -- recorded before
+the page waited for it -- does not.
+
 `record.mjs` needs Playwright (locally installed or global -- it looks in both),
 Python on PATH -- to read the script with, and to synthesise the track with --
 and an ffmpeg with the `mpeg` muxer and the `mpeg2video` and `mp2` encoders. The
@@ -183,7 +190,8 @@ its column. `--url`, `--width`, `--scale` and `--request` move the rest.
 
 `docs/results.png` -- the top 3 of a finished run, under the form in the main
 README -- is the same script given `--script`, which types that script's own
-request, presses the button and clips to the results once they land:
+request, presses the button -- twice where the request names a budget, as above --
+and clips to the results once they land:
 
 ```powershell
 python -m demo.server --script laptops --pace 0 --port 8000

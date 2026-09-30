@@ -1055,7 +1055,9 @@ pinned is known to be broken today (ADR-0062) -- are there too.
   is what enforces it. What the run does do is *read* the request in ordinary
   Python and say so: the CLI logs "your request says under $200 -- `--max-price
   200` is what would enforce it", and the browser pre-fills that box for the
-  shopper to submit or clear (ADR-0059). Nothing is ever applied that was not
+  shopper to submit or clear (ADR-0059) -- before the search rather than after it:
+  Find products waits for that reading, and one that fills a box stops at the box
+  instead of running without it. Nothing is ever applied that was not
   typed, because a model asked to read "200 hours of battery" as a budget drops
   every product in the run and reports only that nothing was found. And a product
   whose price no page printed is inside every budget, deliberately -- a blank is

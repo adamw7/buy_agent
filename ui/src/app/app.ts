@@ -266,7 +266,10 @@ export class App {
     }
     this.bounds = this.agent.checkBounds(request).subscribe({
       next: (check) => this.boundsCheck.set(check),
-      error: () => this.boundsCheck.set(null),
+      // Read as a request that asks for nothing, rather than as no answer: a submit
+      // waiting on the reading goes on, where waiting for one would never end, and a
+      // box filled for an earlier request is cleared rather than applied to this one.
+      error: () => this.boundsCheck.set({ request, noticed: [] }),
     });
   }
 

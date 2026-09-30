@@ -423,6 +423,79 @@ describe('ProductCard, paying', () => {
     expect(card.querySelector('.pay')).not.toBeNull();
   });
 
+  /** Press a button in the payment area from the keyboard: focused, then activated. */
+  const press = async (fixture: { whenStable(): Promise<unknown> }, button: HTMLElement) => {
+    button.focus();
+    button.click();
+    await fixture.whenStable();
+  };
+
+  it('keeps the keyboard in the confirmation Pay opened, short of the button that buys', async () => {
+    /* Pay is replaced by the confirmation, and focus on an element that is gone is
+       focus on nothing: the next Tab went on to the next card, straight past "Yes,
+       authorise it" and Cancel. On the cart, and not on the button that buys, or
+       Enter pressed twice would be the one click the two steps exist to prevent. */
+    const { fixture, card } = await payable(SONY);
+
+    await press(fixture, card.querySelector<HTMLButtonElement>('.pay')!);
+
+    expect(document.activeElement).toBe(card.querySelector('.confirm p'));
+    expect(await accessibilityProblems(card)).toEqual([]);
+  });
+
+  it('puts the keyboard back on Pay when the confirmation is cancelled', async () => {
+    const { fixture, card } = await payable(SONY);
+    await press(fixture, card.querySelector<HTMLButtonElement>('.pay')!);
+
+    await press(fixture, card.querySelector<HTMLButtonElement>('.confirm .secondary')!);
+
+    expect(document.activeElement).toBe(card.querySelector('button.pay'));
+  });
+
+  it('takes the keyboard on from the confirmation to the wait, and to the receipt', async () => {
+    const { fixture, card, approvals } = await payable(SONY);
+    await press(fixture, card.querySelector<HTMLButtonElement>('.pay')!);
+    await press(fixture, card.querySelector<HTMLButtonElement>('.confirm .pay')!);
+    expect(approvals).toHaveLength(1);
+
+    // What `App` does with the approval: this card's payment is the one in flight.
+    fixture.componentRef.setInput('paying', SONY.name);
+    await fixture.whenStable();
+    expect(document.activeElement).toBe(card.querySelector('.authorising'));
+
+    fixture.componentRef.setInput('paying', null);
+    fixture.componentRef.setInput('receipt', RECEIPT);
+    await fixture.whenStable();
+    expect(document.activeElement).toBe(card.querySelector('.receipt'));
+  });
+
+  it('puts the keyboard back on Pay when the payment did not go through', async () => {
+    /* The refusal is the page's banner, announced as it appears; the card is back to
+       offering the button, which is what somebody retrying presses. */
+    const { fixture, card } = await payable(SONY, { canPay: true, paying: SONY.name });
+    card.querySelector<HTMLElement>('.authorising')!.focus();
+
+    fixture.componentRef.setInput('paying', null);
+    await fixture.whenStable();
+
+    expect(document.activeElement).toBe(card.querySelector('button.pay'));
+  });
+
+  it('leaves the keyboard where the reader took it while the payment went through', async () => {
+    /* Thirty seconds a call is long enough to go and read another card, and a receipt
+       that pulled the focus back would be taking the reader somewhere they had left. */
+    const { fixture, card } = await payable(SONY, { canPay: true, paying: SONY.name });
+    card.querySelector<HTMLElement>('.authorising')!.focus();
+    const elsewhere = card.querySelector<HTMLAnchorElement>('h3 a')!;
+    elsewhere.focus();
+
+    fixture.componentRef.setInput('paying', null);
+    fixture.componentRef.setInput('receipt', RECEIPT);
+    await fixture.whenStable();
+
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
   it('says why a product cannot be bought rather than showing no button', async () => {
     /* A card with no button beside cards that have one is a question, and
        Python already wrote the answer. */

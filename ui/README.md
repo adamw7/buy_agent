@@ -213,6 +213,18 @@ that never registered and is the moment somebody clicks again. It is said on the
 card, in the block the receipt lands in, for the reason the header pill says
 **Asking &lt;label&gt;…**: a wait with nothing else to report it reports itself.
 
+Each of those blocks replaces the one before it where it stood, and with it the
+button that was pressed: Pay is gone once the confirmation is drawn, and focus on an
+element that is gone is focus on nothing. From the keyboard, Enter on Pay was followed
+by a Tab to the next card's title -- past "Yes, authorise it" and Cancel, which are the
+whole of the second step. So the payment area follows the focus (`focusin`, and a
+`focusout` to somewhere else) and after each redraw puts it on what replaced the block
+it was in, from `LANDING`: the cart the confirmation restates -- not the button under
+it that buys, where Enter pressed twice would be the one click the two steps exist to
+prevent -- Pay after Cancel or a payment that failed, the wait, and the receipt. Only a
+focus that was lost is moved, and without scrolling: thirty seconds a call is long
+enough to go and read another card.
+
 All three blocks -- the confirmation, the wait and the receipt -- are drawn in the
 page's own tokens and its own buttons, and nothing else. They used to read
 `--raised`, `--line` and `--muted`, which `styles.css` never declared, each with a
@@ -244,6 +256,24 @@ shopper submits the number or clears it. A cleared box is not filled in again --
 re-offering a figure somebody deleted is enforcing it slowly -- and an answer
 about a request the box no longer holds is dropped, the way the sources check's
 is.
+
+The offer has to land before the run it is about, and the request is read on
+`change` -- which Enter fires on its way to submitting, so the reading was always a
+few milliseconds behind a search sent from the keyboard. The run went without the
+figure and the figure landed after it: Max price read 700 "From your request" above
+results running to 899, in a panel that had opened under a run already going. So a
+submit waits while a reading is on its way (`reading`, `held`), and when it lands
+either goes or -- where the reading put a figure in a box -- sends nothing and puts
+the focus in that box, which reads the figure and Python's note out with the box's
+name. Pressing again searches with it; clearing it first searches without. Sent at
+once, it would be an offer applied before anybody saw it. `App` answers a reading it
+could not get as one that noticed nothing, since a submit waiting on it would wait
+for ever, and typing over the request takes a waiting submit back.
+
+The note goes above the box's hint rather than in place of it. No currency is carried
+over, so "below 1000 EUR" offers a bare 1000, read in whatever the run counts in, and
+the hint is the one sentence saying which -- the sentence a box holding a figure
+somebody else put there needs most.
 
 It remembers the advanced settings in `localStorage` and the request
 deliberately not -- what to shop for is a new question every time -- and every

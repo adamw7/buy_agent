@@ -105,7 +105,13 @@ await box.pressSequentially(request, { delay: 5 });
 let top = 0;
 let bottom;
 if (results) {
-  await page.getByRole("button", { name: "Find products" }).click();
+  const find = page.getByRole("button", { name: "Find products" });
+  await find.click();
+  // A budget written in the request is offered in its box before any run goes out
+  // (ADR-0059): a press that only showed the offer is followed by the one that
+  // searches with it, as the shopper's would be.
+  await page.locator("app-progress-log, small.noticed").first().waitFor();
+  if (!(await page.locator("app-progress-log").count())) await find.click();
   const section = page.locator("section.results");
   await section.waitFor({ state: "visible", timeout: 60_000 });
   await page.waitForTimeout(300);

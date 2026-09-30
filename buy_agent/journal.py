@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -40,8 +40,9 @@ MAX_SEARCHES = 200
 #: What a product did between two runs; ``unplaced`` for differing currencies (ADR-0043).
 Movement = Literal["new", "gone", "cheaper", "dearer", "steady", "unplaced"]
 
-#: A date as shown: "11 Sep".
-_WHEN = "%d %b"
+#: A date's month as shown: "Sep". The day goes in front unpadded, as a sentence
+#: writes it -- ``%d`` wrote "01 Oct", and ``%-d`` is not portable.
+_MONTH = "%b"
 
 
 class Recorded(BaseModel):
@@ -74,8 +75,10 @@ class Entry(BaseModel):
     products: list[Recorded] = []
 
     def when(self) -> str:
-        """The day it ran."""
-        return datetime.fromtimestamp(self.at, tz=timezone.utc).strftime(_WHEN)
+        """The day it ran, on this machine's calendar: the one its log lines are timed
+        by. Greenwich's dated an evening run west of it tomorrow."""
+        ran = datetime.fromtimestamp(self.at)
+        return f"{ran.day} {ran.strftime(_MONTH)}"
 
 
 class Change(BaseModel):

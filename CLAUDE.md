@@ -561,12 +561,18 @@ hold:
   links somewhere. It is `loading="lazy"`, reserves 640x400, and a failed image
   drops the frame by address.
 - Buying takes two clicks, and the second restates the *cart* (`pay_label`,
-  `pay_merchant`, the rail, whether anyone is charged).
+  `pay_merchant`, the rail, whether anyone is charged). A press moves the
+  keyboard to what replaced its block (`LANDING`): the cart and never the button
+  that buys, Pay again, the wait, the receipt. Focus the reader moved elsewhere
+  stays there.
 - Receipts are keyed by product name, never by index.
 - `pay` is the one setting not remembered in `localStorage`. Every storage call
   is wrapped.
 - A request-noticed bound fills its box once (`noticedNow`, `offered`) and marks
-  nothing.
+  nothing. Its note sits above the box's hint, never in its place. A submit waits
+  for a reading still on its way (`reading`, `held`), and one that puts a figure
+  in a box sends nothing and focuses that box. `App` answers a failed reading as
+  one that noticed nothing.
 - `problems()` gates `canSubmit` using server ranges and the last sources
   answer. Disabled fields are neither checked nor sent. `notes()` adds the
   server's `rejected` field while `submitted` still matches, and `moved` tells
@@ -629,7 +635,8 @@ rules a change must obey:
 - **Optional prerequisites skip, never fail:** `needs_powershell` and
   `needs_ap2` (in `tests/conftest.py`, and `skipif` only). `needs_ap2` goes on
   the parametrised case that reaches signing. `tests/test_session_hook.py` skips
-  on Windows.
+  on Windows, and so does `needs_tzset` in `tests/test_journal.py`, which moves
+  `$TZ` through `monkeypatch` and has to `time.tzset()` either side.
 
 **Convention tests** (`tests/test_conventions.py`) assert the rules that hold
 *between* modules and across the language boundary: the three failures agree;
