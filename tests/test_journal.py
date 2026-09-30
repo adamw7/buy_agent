@@ -323,6 +323,36 @@ def test_an_entry_that_is_not_a_run_is_read_as_no_history(tmp_path: Path) -> Non
     assert journal(tmp_path).compared_with() is None
 
 
+@pytest.mark.parametrize(
+    "run",
+    [
+        pytest.param({"at": float("nan")}, id="a time that is no number"),
+        pytest.param({"at": 1e300}, id="a time past any calendar"),
+        pytest.param(
+            {"at": time.time(), "products": [{"name": "Sage Bambino", "price": float("nan")}]},
+            id="a price that is no number",
+        ),
+    ],
+)
+def test_an_entry_that_reads_as_numbers_but_means_none_is_no_history(
+    tmp_path: Path, run: dict[str, object]
+) -> None:
+    """Each passed as a number and failed after the run: dating the comparison raised,
+    so every later run of the search ended in a traceback or a 500, and a NaN price
+    moved by NaN into a payload no browser can parse. Read as no history instead, the
+    next run replaces the file."""
+    kept = journal(tmp_path)
+    kept.against([priced("Sage Bambino", 349.0)])
+    written = next(iter(tmp_path.glob("*.json")))
+    written.write_text(json.dumps({"key": kept.key, "runs": [run]}), encoding="utf-8")
+
+    again = journal(tmp_path)
+
+    assert again.compared_with() is None
+    assert again.against([priced("Sage Bambino", 329.0)]) == []
+    assert journal(tmp_path).compared_with() is not None
+
+
 def test_a_half_written_journal_is_not_left_to_be_read_as_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
