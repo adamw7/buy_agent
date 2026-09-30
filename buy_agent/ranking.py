@@ -153,6 +153,15 @@ def rank_products(
         scored.sort(key=lambda item: (-item.parts.total, item.product.name.lower()))
 
     return [
-        RankedProduct(product=item.product, breakdown=item.parts, rank=index)
+        RankedProduct(product=item.product, breakdown=item.parts, rank=index, scale=currency)
         for index, item in enumerate(scored, start=1)
     ]
+
+
+def scale_of(ranked: Sequence[RankedProduct]) -> str | None:
+    """The currency a ranking was counted in (ADR-0056).
+
+    Read back, not voted again: a vote breaks a tie by which currency comes first, and
+    a ranking is no longer in the order the one it was counted in saw.
+    """
+    return ranked[0].scale if ranked else None

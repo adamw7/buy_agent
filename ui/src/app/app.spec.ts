@@ -61,6 +61,7 @@ const RESULT: SearchResult = {
   sort_by: 'score',
   weights: WEIGHTS,
   products: [ranked(1, 'Best Kettle'), ranked(2, 'Good Kettle'), ranked(3, 'Other Kettle')],
+  scale: 'USD',
   dropped: [{ name: 'The 5 best kettles of 2026', step: 'clean', reason: 'Reads as an article.' }],
   changes: [],
   compared_with: null,
@@ -99,6 +100,8 @@ class FakeAgent {
         ...entry,
         rank: index + 1,
       })),
+      // Counted in what it was handed, as `/api/rank` is (ADR-0056).
+      scale: options.currency || options.scale || null,
       // What `/api/rank` really answers: a re-sort runs no pipeline, so it
       // removed nothing and compared nothing (ADR-0035, ADR-0060).
       dropped: [],
@@ -999,6 +1002,18 @@ describe('App results', () => {
     expect(agent.ranked[0].currency).toBe('PLN');
   });
 
+  it('re-sorts on the scale the run was counted on where the set chose it', async () => {
+    /* With no currency named the set votes, and a tie goes to whichever currency came
+       first -- which, once the products are in rank order, can be the other one. The
+       run was counted in the one it answered with, so that is the one handed back. */
+    const page = await finished({ ...RESULT, scale: 'EUR' });
+
+    await rankBy(page, 'price');
+
+    expect(agent.ranked[0].currency).toBe('');
+    expect(agent.ranked[0].scale).toBe('EUR');
+  });
+
   it('calls the two ordering controls two different things', async () => {
     /* One re-orders products already on the screen and one sets the criterion the
        next run is ranked by. Both said "Rank by", so they read as one setting
@@ -1588,6 +1603,16 @@ describe('App paying', () => {
       currency: 'USD',
     });
     expect(agent.paid[0].rail).toBe('dry-run');
+  });
+
+  it('pays in the currency the run was counted in, not a second vote', async () => {
+    /* The cart is built by the server out of the products posted back, and left to
+       vote on them it can land on another currency than the cards were priced in
+       (ADR-0056). */
+    const fixture = await finished(true);
+    await buyTheTopOne(fixture);
+
+    expect(agent.paid[0].scale).toBe(RESULT.scale);
   });
 
   it('shows the receipt on the card that was bought', async () => {

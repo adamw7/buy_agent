@@ -230,6 +230,10 @@ class RankedProduct(BaseModel):
     product: Product
     breakdown: ScoreParts
     rank: int
+    #: The currency the whole set was counted in when this was ranked (ADR-0043), which
+    #: re-sorting or paying for it is counted in too rather than voted on again
+    #: (ADR-0056). ``None`` where no price had one, or where a ranking was built by hand.
+    scale: str | None = None
 
     @property
     def score(self) -> float:

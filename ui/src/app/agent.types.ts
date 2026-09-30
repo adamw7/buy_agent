@@ -106,6 +106,9 @@ export interface SearchResult {
   /** The weights every score was blended by. */
   weights: ScoreWeights;
   products: RankedProduct[];
+  /** The currency the run was counted in, which a re-sort and a payment are handed back
+   *  rather than letting the set vote again (ADR-0056); `null` where no price had one. */
+  scale: string | null;
   /** What the run removed (ADR-0055). Empty from a re-sort; the page keeps the run's. */
   dropped: Removal[];
   /** What moved since the last run (ADR-0060). Empty from a re-sort, as `dropped` is. */
@@ -313,6 +316,8 @@ export interface RankOptions {
   top: number;
   /** The run's currency, so the set does not vote again (ADR-0056). */
   currency?: string;
+  /** The currency the run was counted in where the set voted, for the same reason. */
+  scale?: string;
 }
 
 /** What a payment sends: the run's products, which to buy, and the approval shown. */
@@ -325,6 +330,8 @@ export interface PayOptions {
   spend_limit?: number | null;
   /** The run's currency, as a re-sort sends it. */
   currency?: string;
+  /** The currency the run was counted in, as a re-sort sends it. */
+  scale?: string;
 }
 
 /** What a streamed run emits: progress, then exactly one ending. */

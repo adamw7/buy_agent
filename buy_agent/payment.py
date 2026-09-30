@@ -172,9 +172,16 @@ def merchant_for(product: Product) -> str:
     return _paid_to(product)[0]
 
 
-def cart_for(product: Product, products: Sequence[Product], config: AgentConfig) -> Cart:
-    """The cart for one product of a finished run."""
-    currency = dominant_currency(products, config.currency or None)
+def cart_for(
+    product: Product,
+    products: Sequence[Product],
+    config: AgentConfig,
+    *,
+    scale: str | None = None,
+) -> Cart:
+    """The cart for one product of a finished run, in the currency the run was counted
+    in: the one the shopper named, else ``scale``, else the set's vote (ADR-0056)."""
+    currency = dominant_currency(products, config.currency or scale)
     price, currency = _check(product, currency)
 
     limit = config.spend_limit

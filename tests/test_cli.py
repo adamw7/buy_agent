@@ -20,6 +20,7 @@ from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.models import Product
 from buy_agent.providers import LITELLM, PROVIDERS, VLLM
 from buy_agent.rails import RAILS
+from buy_agent.ranking import rank_products
 from buy_agent.search import SearchError
 from buy_agent.sources import Source
 from tests.conftest import (
@@ -1060,6 +1061,24 @@ def test_a_product_no_source_priced_is_refused_with_the_reason(
         assert main(["headphones", "--pay"]) == main_module.PAYMENT_FAILED
 
     assert "not an amount" in caplog.text
+
+
+def test_the_top_product_is_paid_for_in_the_currency_the_run_was_counted_in(
+    fake_agent, monkeypatch, caplog
+) -> None:
+    """One euro listing and one dollar listing tie, and the run counts in euros, the one
+    it saw first. Voting again over the ranking, where the dollar Sony comes first, the
+    cart was in dollars: the Sony was bought at a price the run had never placed, and so
+    never held to a budget either (ADR-0056)."""
+    bose = Product(name="Bose QC45", price=299.0, currency="EUR", url="https://shop.example/b")
+    sony = payable_product(rating=4.8, review_count=3200)
+    fake_agent["result"] = rank_products([bose, sony])
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("yes\n"))
+
+    with caplog.at_level(logging.ERROR):
+        assert main(["headphones", "--pay"]) == main_module.PAYMENT_FAILED
+
+    assert "this run counts in EUR" in caplog.text
 
 
 @needs_ap2

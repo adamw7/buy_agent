@@ -1845,6 +1845,63 @@ def test_a_re_sort_told_no_currency_lets_the_products_vote() -> None:
     assert [entry["name"] for entry in reordered["products"]] == ["Bose QC", "Sony XM5"]
 
 
+#: One listing in each currency: a tie, which the vote gives to whichever comes first --
+#: the euro listing in the search's order, the dollar one once the Sony outranks it.
+_TIED = [
+    Product(name="Bose QC45", price=299.0, currency="EUR", url="https://shop.example/b"),
+    Product(
+        name="Sony XM5",
+        price=329.0,
+        currency="USD",
+        rating=4.8,
+        review_count=3200,
+        url="https://audio.example/s",
+    ),
+]
+
+
+def test_a_run_answers_in_the_currency_it_was_ranked_in_when_the_set_voted() -> None:
+    """Voted again over the ranking, the tie went the other way: the payload counted in
+    dollars a run ranked and bounded in euros, and offered to buy the one price that run
+    could not place (ADR-0056)."""
+    ranked = rank_products(_TIED)
+    assert [entry.product.name for entry in ranked] == ["Sony XM5", "Bose QC45"]
+
+    payload = run_search(
+        "headphones", AgentConfig(), agent_factory=agent_returning(ranked)["factory"]
+    )
+    by_name = {entry["name"]: entry for entry in payload["products"]}
+
+    assert payload["scale"] == "EUR"
+    assert by_name["Bose QC45"]["pay_currency"] == "EUR"
+    assert "this run counts in EUR" in by_name["Sony XM5"]["cannot_pay"]
+
+
+def test_a_re_sort_handed_the_scale_a_run_voted_for_is_counted_in_it() -> None:
+    """Folded as a page's spelling is, and taken as the run's own: voting again, the
+    re-sort counted the set in dollars."""
+    products = results_payload(rank_products(_TIED))
+
+    reordered = rank_again({"products": products, "sort_by": "price", "scale": "eur"})
+
+    assert reordered["scale"] == "EUR"
+    # The euro price is the one on the scale, so the dollar one sinks below it.
+    assert [entry["name"] for entry in reordered["products"]] == ["Bose QC45", "Sony XM5"]
+
+
+def test_a_payment_handed_the_scale_a_run_voted_for_is_counted_in_it() -> None:
+    """Voting again, the cart was in dollars, and the Sony was bought at a price the run
+    had never placed -- past a budget read in euros, it had not been judged at all."""
+    products = results_payload(rank_products(_TIED))
+    approved = {"title": "Sony XM5", "price": 329.0, "currency": "USD"}
+
+    with pytest.raises(ApiError) as refused:
+        pay_now({"products": products, "rank": 1, "scale": "EUR", "approved": approved})
+
+    assert (refused.value.status, refused.value.field) == (400, "products")
+    assert "this run counts in EUR" in str(refused.value)
+
+
 # -- the search backend a run asks (ADR-0057) ---------------------------------
 
 
