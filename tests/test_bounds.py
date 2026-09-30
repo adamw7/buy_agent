@@ -145,6 +145,20 @@ def test_a_figure_is_read_whole_or_not_at_all() -> None:
 
 
 @pytest.mark.parametrize(
+    "request_", ["a gaming laptop under $2k", "a tv under $1.5k", "a bike under €20K"]
+)
+def test_a_figure_running_on_into_a_letter_is_not_read_as_its_digits(request_: str) -> None:
+    """After a sign nothing more was needed, so "$2k" was read as a budget of 2 and the
+    form filled its box with a cap every priced product was over."""
+    assert notice(request_) == []
+
+
+def test_a_currency_written_against_the_figure_still_ends_it() -> None:
+    """A letter after the figure ends the reading unless it is the currency's."""
+    assert only("headphones under $200USD").figure == "200"
+
+
+@pytest.mark.parametrize(
     ("request_", "figure", "phrase"),
     [
         ("a laptop under 1 500 zł", "1500", "under 1 500 zł"),
