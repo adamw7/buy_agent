@@ -45,6 +45,13 @@ describe('SearchForm', () => {
     await fixture.whenStable();
   };
 
+  /** Leave a field, which is when the form asks the server about what it holds -- and
+   *  what Enter does to the request box on its way to submitting it. */
+  const leave = async (selector: string) => {
+    element<HTMLInputElement>(selector).dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+  };
+
   const choose = async (selector: string, value: string) => {
     const select = element<HTMLSelectElement>(selector);
     select.value = value;
@@ -204,6 +211,24 @@ describe('SearchForm', () => {
     expect(submit().disabled).toBe(false);
   });
 
+  it('still names the currency a budget read out of the request is counted in', async () => {
+    /* No currency is carried over (ADR-0059): "below 1000 EUR" offers a bare 1000,
+       counted in whatever the run counts in, "and the box says so". The note took the
+       place of the hint that did, so the box said where the number came from and
+       nothing about which currency it was being read in -- nor that a product nobody
+       priced is kept. */
+    await type('input[name="request"]', 'laptop below 1000 EUR');
+    await noticed('laptop below 1000 EUR', [
+      { bound: 'max_price', value: 1000, note: 'From your request: "below 1000 EUR".' },
+    ]);
+    const box = element('input[name="max_price"]').closest('label')!;
+
+    expect(box.querySelector('.noticed')!.textContent).toContain('below 1000 EUR');
+    expect(box.textContent).toContain('In the currency most of the pages quote');
+    expect(box.textContent).toContain('Unpriced products are still shown');
+    expect(await accessibilityProblems(fixture.nativeElement)).toEqual([]);
+  });
+
   it('opens the settings, since an offer nobody can see is not one', async () => {
     await type('input[name="request"]', 'kettle under $90');
     await noticed('kettle under $90', [
@@ -337,6 +362,113 @@ describe('SearchForm', () => {
     await fixture.whenStable();
 
     expect(asked).toEqual(['wireless noise cancelling headphones under $200']);
+  });
+
+  it('shows a figure read out of the request before any run is sent with it', async () => {
+    /* Enter leaves the request box and submits it in one keystroke, so the reading
+       landed a few milliseconds after the run had gone: Max price then read 700 "From
+       your request" above results running to 899, and opened the panel under a run
+       already going. The run now waits for the reading, and a figure it puts in a box
+       is shown -- and focused, so it is read out -- before anything is sent with it or
+       without it. Sent with it at once, it would be applied unseen (ADR-0059). */
+    await type('input[name="request"]', 'laptop under $700');
+    await leave('input[name="request"]');
+    await send();
+    expect(submitted).toEqual([]);
+
+    await noticed('laptop under $700', [
+      { bound: 'max_price', value: 700, note: 'From your request: "under $700".' },
+    ]);
+
+    const box = element<HTMLInputElement>('input[name="max_price"]');
+    expect(submitted).toEqual([]);
+    expect(box.value).toBe('700');
+    expect(element<HTMLDetailsElement>('details.advanced').open).toBe(true);
+    expect(document.activeElement).toBe(box);
+
+    await send();
+
+    expect(submitted).toHaveLength(1);
+    expect(submitted[0].max_price).toBe(700);
+  });
+
+  it('sends a submit that waited once the reading finds nothing new to show', async () => {
+    await type('input[name="request"]', 'kettle');
+    await leave('input[name="request"]');
+    await send();
+    expect(submitted).toEqual([]);
+
+    await noticed('kettle', []);
+
+    expect(submitted).toHaveLength(1);
+    expect(submitted[0].request).toBe('kettle');
+  });
+
+  it('does not hold a run back to show a figure the box already holds', async () => {
+    /* Seen once already, when the request was first left; the reading of the longer
+       request only says it again. */
+    const offer: NoticedBound[] = [
+      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+    ];
+    await type('input[name="request"]', 'kettle under $90');
+    await leave('input[name="request"]');
+    await noticed('kettle under $90', offer);
+    await type('input[name="request"]', 'kettle under $90, in red');
+    await leave('input[name="request"]');
+    await send();
+
+    await noticed('kettle under $90, in red', offer);
+
+    expect(submitted).toHaveLength(1);
+    expect(submitted[0].max_price).toBe(90);
+  });
+
+  it('takes a waiting submit back once the request is typed over', async () => {
+    /* It was a submit of what the box held then; sending the new words on the old
+       reading's say-so would be a run nobody asked for. */
+    await type('input[name="request"]', 'kettle');
+    await leave('input[name="request"]');
+    await send();
+
+    await type('input[name="request"]', 'kettle, in red');
+    await noticed('kettle', []);
+
+    expect(submitted).toEqual([]);
+  });
+
+  it('takes a waiting submit back when the typing and the reading land together', async () => {
+    /* One pass sees both: sent then, the run would carry words nobody had submitted. */
+    await type('input[name="request"]', 'kettle');
+    await leave('input[name="request"]');
+    await send();
+
+    const box = element<HTMLInputElement>('input[name="request"]');
+    box.value = 'kettle, in red';
+    box.dispatchEvent(new Event('input'));
+    await noticed('kettle', []);
+
+    expect(submitted).toEqual([]);
+  });
+
+  it('does not send a waiting submit past a box marked while it waited', async () => {
+    await type('input[name="request"]', 'kettle');
+    await leave('input[name="request"]');
+    await send();
+    await type('input[name="top"]', '0');
+
+    await noticed('kettle', []);
+
+    expect(submitted).toEqual([]);
+    expect(problem('top')).toContain('Between');
+  });
+
+  it('waits for no reading when the request was never left', async () => {
+    /* Nothing was asked, so nothing is on its way: a submit that waited for it would
+       wait for ever. */
+    await type('input[name="request"]', 'kettle');
+    await send();
+
+    expect(submitted).toHaveLength(1);
   });
 
   it('sends whether this run is to be remembered', async () => {

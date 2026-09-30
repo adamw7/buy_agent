@@ -1514,6 +1514,26 @@ describe('App reading the request', () => {
     const page = fixture.nativeElement as HTMLElement;
     expect(page.querySelector<HTMLInputElement>('input[name="max_price"]')!.value).toBe('');
   });
+
+  it('runs a search that waited on a reading the server then could not give', async () => {
+    /* The form holds a submit until the request it sends has been read (ADR-0059); a
+       reading that fails is one that noticed nothing, and a run left waiting on it
+       would wait for ever. */
+    const reading = new Subject<BoundsCheck>();
+    agent.boundsResponse = () => reading;
+    const fixture = await render();
+    await fill(fixture, 'request', 'kettle under $90', true);
+    (fixture.nativeElement as HTMLElement)
+      .querySelector('form')!
+      .dispatchEvent(new Event('submit'));
+    await fixture.whenStable();
+    expect(agent.searched).toHaveLength(0);
+
+    reading.error(new Error('down'));
+    await fixture.whenStable();
+
+    expect(agent.searched).toHaveLength(1);
+  });
 });
 
 describe('App paying', () => {

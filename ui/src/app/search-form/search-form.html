@@ -35,13 +35,20 @@
     <!-- Three things a box can have to say, in order of who is owed an answer: what
          is wrong with it, why it is holding a number nobody typed, and what it is
          for. The middle one is a hint and never a mark -- an offer read out of the
-         request is not something to correct (ADR-0059). -->
+         request is not something to correct (ADR-0059) -- and it goes above the last
+         rather than instead of it: "below 1000 EUR" puts a bare 1000 in Max price,
+         read in whatever currency the run counts in, and the hint is the one sentence
+         on the page saying so. In its place the box said "From your request" and
+         nothing about which currency the request was taken in. -->
     @if (notes()[number.key]; as problem) {
       <small class="problem" role="alert" [attr.id]="problemId(number.key)">{{ problem }}</small>
-    } @else if (noticedNote(number.key); as noticed) {
-      <small class="noticed">{{ noticed }}</small>
-    } @else if (number.hint(); as hint) {
-      <small>{{ hint }}</small>
+    } @else {
+      @if (noticedNote(number.key); as noticed) {
+        <small class="noticed">{{ noticed }}</small>
+      }
+      @if (number.hint(); as hint) {
+        <small>{{ hint }}</small>
+      }
     }
   </label>
 </ng-template>

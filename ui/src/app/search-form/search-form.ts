@@ -1,4 +1,16 @@
-import { Component, computed, effect, input, output, signal, untracked } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+  untracked,
+} from '@angular/core';
 import type { WritableSignal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -162,6 +174,20 @@ export class SearchForm {
 
   /** The settings a run was actually started with, for as long as they stand. */
   private readonly submitted = signal<SearchOptions | null>(null);
+
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
+
+  /** Whether the server is still reading the request it was last asked about, so a
+   *  submit can wait for what it reads rather than run ahead of it (ADR-0059). */
+  private reading = false;
+
+  /** The last reading the fill below saw, so it can tell one landing from the request
+   *  being typed into. */
+  private lastReading: BoundsCheck | null = null;
+
+  /** A submit waiting on that reading, by the request it was made with. */
+  private readonly held = signal<string | null>(null);
 
   /** Every number field, in the order the form draws them. */
   protected readonly numberFields: NumberField[] = [
@@ -506,6 +532,15 @@ export class SearchForm {
       const answered = check !== null && check.request === this.request().trim();
       const offers = this.noticedNow();
       untracked(() => {
+        // A reading landing, rather than the request being typed into. `App` drops a
+        // superseded one, so whatever lands answers the last question asked.
+        const landed = check !== this.lastReading;
+        this.lastReading = check;
+        if (landed) {
+          this.reading = false;
+        }
+        // The boxes this reading put a figure in that they were not holding.
+        const shown: NumberKey[] = [];
         for (const [key, value] of this.filled) {
           const row = this.numberFields.find((field) => field.key === key);
           if (row?.value() !== value) {
@@ -530,10 +565,26 @@ export class SearchForm {
           }
           this.offered.add(mark);
           if (owned || row.value() === null) {
+            if (row.value() !== bound.value) {
+              shown.push(row.key);
+            }
             row.value.set(bound.value);
             this.filled.set(bound.bound, bound.value);
             this.advanced.set(true);
           }
+        }
+        if (landed && this.held() !== null) {
+          this.release(shown);
+        }
+      });
+    });
+
+    // A held submit was for the request as it stood; typing over it takes it back.
+    effect(() => {
+      const request = this.request().trim();
+      untracked(() => {
+        if (this.held() !== request) {
+          this.held.set(null);
         }
       });
     });
@@ -566,11 +617,49 @@ export class SearchForm {
     if (!this.canSubmit() || this.running()) {
       return;
     }
+    // Asked about and not answered yet: Enter leaves the box and submits in one
+    // keystroke, so the reading was always a few milliseconds behind the run. What it
+    // read then filled a box the run never had, under results that ignored it
+    // (ADR-0059).
+    if (this.reading) {
+      this.held.set(this.request().trim());
+      return;
+    }
+    this.send();
+  }
+
+  /** Start a run with what the form holds. */
+  private send(): void {
     this.remember();
     const options = this.options();
     // So a refusal can be dropped once its field changes.
     this.submitted.set(options);
     this.run.emit(options);
+  }
+
+  /** The reading a submit waited on has landed: send it -- unless the reading put a
+   *  figure in a box, which is then where the shopper is taken, and the run waits for
+   *  them to send it with the figure or without. Sent at once, it would apply an offer
+   *  nobody had seen. */
+  private release(shown: readonly NumberKey[]): void {
+    const request = this.held();
+    this.held.set(null);
+    // Typed over since, it was a submit of a request no longer in the box.
+    if (request !== this.request().trim()) {
+      return;
+    }
+    const first = shown[0];
+    if (first === undefined) {
+      // Submitted again rather than sent, so a box marked in the meantime still stops it.
+      this.submit();
+      return;
+    }
+    // Once drawn: the panel the box is in has only just been opened.
+    afterNextRender(
+      () =>
+        this.host.nativeElement.querySelector<HTMLInputElement>(`input[name="${first}"]`)?.focus(),
+      { injector: this.injector },
+    );
   }
 
   /** Every setting as a run would be asked for it. */
@@ -638,7 +727,10 @@ export class SearchForm {
 
   /** The request was typed and left: ask the server what it asks for in words. */
   protected requestChanged(): void {
-    this.read.emit(this.request().trim());
+    const request = this.request().trim();
+    // An empty request is not asked about, so nothing is on its way.
+    this.reading = request !== '';
+    this.read.emit(request);
   }
 
   /** The sources field was left: ask the server what it makes of what it holds. */

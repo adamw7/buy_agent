@@ -1,4 +1,13 @@
-import { Component, computed, input, output, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  afterRenderEffect,
+  computed,
+  input,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
 
 import { screenshotUrl } from '../agent';
 import type { RailOption, RankedProduct, Receipt, ScoreWeights } from '../agent.types';
@@ -9,6 +18,13 @@ const CRITERIA = [
   'popularity',
   'price',
 ] as const satisfies readonly (keyof ScoreWeights)[];
+
+/** Where the keyboard goes in each block the payment area draws, in the order they are
+ *  drawn: the cart a confirmation restates -- never the button under it that buys, or
+ *  Enter pressed twice would be the single click the confirmation exists to prevent --
+ *  the wait, the receipt, and the Pay button a cancelled or failed payment comes back
+ *  to. */
+const LANDING = '.confirm p, .authorising, .receipt, button.pay';
 
 /** One criterion behind the score, as the card draws it. */
 interface ScoreShare {
@@ -55,6 +71,12 @@ export class ProductCard {
   /** Whether this card is showing its confirmation. */
   protected readonly confirming = signal(false);
 
+  /** The payment area, every press inside which redraws it. */
+  private readonly payment = viewChild<ElementRef<HTMLElement>>('payment');
+
+  /** Whether the keyboard focus is in the payment area. */
+  private focused = false;
+
   /** Whether any payment is in flight: one at a time, page-wide. */
   protected readonly locked = computed(() => this.paying() !== null);
 
@@ -71,6 +93,40 @@ export class ProductCard {
   protected readonly refusal = computed(() =>
     this.canPay() && this.receipt() === null ? this.product().cannot_pay : null,
   );
+
+  constructor() {
+    // Each press in the payment area replaces the block it was in -- Pay with the
+    // confirmation, Cancel with Pay, the confirmation with the wait, the wait with the
+    // receipt -- and focus on an element that is gone is focus on nothing: the next Tab
+    // went on to the next card, past "Yes, authorise it" and the Cancel beside it. So
+    // it goes to what replaced it, wherever the reader had not moved it themselves.
+    afterRenderEffect(() => {
+      // What the template draws the area from.
+      this.receipt();
+      this.authorising();
+      this.confirming();
+      this.offersPayment();
+      const area = this.payment()?.nativeElement;
+      const active = document.activeElement;
+      if (area && this.focused && (active === null || active === document.body)) {
+        area.querySelector<HTMLElement>(LANDING)?.focus({ preventScroll: true });
+      }
+    });
+  }
+
+  /** The keyboard focus came into the payment area. */
+  protected entered(): void {
+    this.focused = true;
+  }
+
+  /** The focus left the payment area for somewhere else. An area redrawn under the
+   *  focus sends it nowhere, which is not the reader leaving. */
+  protected left(event: FocusEvent): void {
+    const next = event.relatedTarget;
+    if (next instanceof Node && !this.payment()?.nativeElement.contains(next)) {
+      this.focused = false;
+    }
+  }
 
   protected startConfirming(): void {
     this.confirming.set(true);

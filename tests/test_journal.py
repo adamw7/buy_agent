@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable, Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -388,12 +390,59 @@ def test_a_directory_that_cannot_be_listed_is_an_empty_history(tmp_path: Path) -
 def test_compare_reads_the_day_off_the_run_it_is_comparing_with() -> None:
     """The date is inside every sentence, because the page shows the sentences and
     composes none of its own (ADR-0012)."""
-    before = Entry(at=1_757_548_800.0, products=[Recorded(name="Thing", price=10.0)])
+    # Noon on this machine's clock, which is 11 Sep wherever the suite is run.
+    at = datetime(2025, 9, 11, 12).timestamp()
+    before = Entry(at=at, products=[Recorded(name="Thing", price=10.0)])
 
     changes = compare(before, [Recorded(name="Thing", price=10.0)])
 
     assert before.when() == "11 Sep"
     assert changes[0].detail.endswith("unchanged since 11 Sep.")
+
+
+def test_a_day_before_the_tenth_is_written_as_a_sentence_writes_it() -> None:
+    """``%d`` read "unchanged since 01 Oct"."""
+    assert Entry(at=datetime(2026, 10, 1, 12).timestamp()).when() == "1 Oct"
+
+
+#: ``time.tzset`` is what makes a changed ``$TZ`` count, and Windows has none.
+needs_tzset = pytest.mark.skipif(
+    not hasattr(time, "tzset"), reason="no time.tzset to move this process's time zone with"
+)
+
+
+@pytest.fixture
+def zone(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[[str], None]]:
+    """Put this process in a POSIX time zone for one test, and back after it."""
+
+    def move(spec: str) -> None:
+        monkeypatch.setenv("TZ", spec)
+        time.tzset()
+
+    yield move
+    monkeypatch.undo()
+    time.tzset()
+
+
+@needs_tzset
+@pytest.mark.parametrize(
+    ("spec", "greenwich", "day"),
+    [
+        # 21:00 on 30 Sep, ten hours west of Greenwich, is 07:00 on 1 Oct there.
+        ("WEST+10", datetime(2026, 10, 1, 7, tzinfo=timezone.utc), "30 Sep"),
+        # 06:00 on 1 Oct, ten hours east of it, is 20:00 on 30 Sep there.
+        ("EAST-10", datetime(2026, 9, 30, 20, tzinfo=timezone.utc), "1 Oct"),
+    ],
+)
+def test_a_run_is_dated_by_the_calendar_its_log_lines_are_timed_by(
+    zone: Callable[[str], None], spec: str, greenwich: datetime, day: str
+) -> None:
+    """Dated by Greenwich's calendar, an evening's second run in California said the
+    first was "unchanged since 1 Oct" on the 30th, under log lines timed by the
+    shopper's own clock."""
+    zone(spec)
+
+    assert Entry(at=greenwich.timestamp()).when() == day
 
 
 def _raise_gone() -> float:
