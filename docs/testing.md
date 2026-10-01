@@ -133,6 +133,8 @@ Coverage cannot see rules that hold *between* files, so
   server, and `ui/src/app/agent.types.ts` mirrors every payload (ADR-0033);
 - the `Dockerfile`, `.dockerignore`, workflows, release, nightly, mutation and
   audit settings agree with each other and with CI's pins;
+- everything a release publishes is scanned before it is pushed and attested,
+  and only a job that attests can mint a token naming the run (ADR-0069);
 - ADRs are indexed, skills name real paths, and every Markdown link resolves;
 - the tsconfig strictness stays on, and every CSS token read is declared, with a
   dark value and no fallback;

@@ -166,7 +166,11 @@ Scheduled workflows (none gate a PR except dependency review):
   template checks.
 - `release.yml`: runs when a release is published. It builds the tarball/zip with
   `SHA256SUMS.txt` and the `ghcr.io` image, checks out `$TAG`, and smoke-tests
-  both (ADR-0030).
+  both (ADR-0030). Before the push, Grype scans the image's OS layer
+  (`.github/grype.yaml`; HIGH and above, fixed findings only) and Syft writes an
+  SPDX SBOM for the release. Both packages get build provenance, and
+  `id-token: write`/`attestations: write` go only on a job that attests
+  (ADR-0069).
 
 Config files (reasons in `docs/testing.md`):
 
