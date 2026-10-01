@@ -77,6 +77,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0066](0066-lint-the-ui-templates-included.md) | Lint the UI, templates included, the way pylint reads the package | Accepted |
 | [0067](0067-script-the-contributor-setup-and-the-gate.md) | Script a contributor's setup and the gate, and check every text file out with LF | Accepted |
 | [0068](0068-reach-a-litellm-proxy-as-a-third-model-server.md) | Reach a LiteLLM proxy as a third model server, and never its SDK | Accepted |
+| [0069](0069-scan-and-attest-what-a-release-publishes.md) | Scan and attest what a release publishes | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

@@ -1697,6 +1697,68 @@ def test_the_release_packages_the_tag_it_uploads_to() -> None:
     assert source.count("ref: ${{ env.TAG }}") == checkouts
 
 
+def workflow_jobs(workflow: Path) -> dict[str, str]:
+    """Each job of one workflow by its id, as the text between it and the next."""
+    source = workflow.read_text(encoding="utf-8")
+    _, found, jobs = source.partition("\njobs:\n")
+    assert found, f"{workflow.name} has no jobs"
+    parts = re.split(r"^  ([\w-]+):\n", jobs, flags=re.M)
+    return dict(zip(parts[1::2], parts[2::2]))
+
+
+#: What attesting provenance needs: a token naming the run, and the right to file
+#: what it signs. Nothing else in this repository needs either.
+_ATTESTING = ("id-token: write", "attestations: write")
+
+
+def test_only_a_job_that_attests_can_mint_a_token_naming_the_run() -> None:
+    """`id-token: write` lets a job prove to anyone that it is this workflow at this
+    commit, which is exactly what an attestation is for and exactly what nothing
+    else should be able to borrow (ADR-0069)."""
+    attesting = 0
+    for workflow in workflows():
+        for job, body in workflow_jobs(workflow).items():
+            attests = "uses: actions/attest-build-provenance@" in body
+            attesting += attests
+            for grant in _ATTESTING:
+                assert (grant in body) == attests, f"{workflow.name}: {job} and {grant!r}"
+
+    assert attesting, "nothing attests; this test has outlived its rule"
+
+
+def test_everything_a_release_publishes_is_attested() -> None:
+    """The archive and the image are what leaves the repository; a job that uploads
+    or pushes one without attesting it publishes something nobody can trace to the
+    run that made it."""
+    for job, body in workflow_jobs(_RELEASE).items():
+        if "gh release upload" in body or "docker push" in body:
+            assert "uses: actions/attest-build-provenance@" in body, job
+
+
+def test_the_image_is_scanned_and_listed_before_it_is_pushed() -> None:
+    """A scan after the push reports on an image already published, which is a red
+    job and a bad image in the registry rather than one or the other."""
+    image = workflow_jobs(_RELEASE)["image"]
+    push = image.index("docker push")
+
+    for step in ("uses: anchore/scan-action@", "uses: anchore/sbom-action@"):
+        assert step in image, f"the image job has no {step}"
+        assert image.index(step) < push, f"{step} comes after the push"
+
+
+def test_the_scan_fails_a_release_only_on_what_it_could_fix() -> None:
+    """A rebuild on the moving base tag is a release's one remedy, so a finding with
+    no fix would fail every release until Debian ships one -- a gate that is always
+    red is a gate nobody reads. The Python packages are pip-audit's (ADR-0062)."""
+    image = workflow_jobs(_RELEASE)["image"]
+
+    assert "severity-cutoff: high" in image
+    assert 'only-fixed: "true"' in image
+    match = re.search(r"config: (\S+)", image)
+    assert match, "the scan reads no config"
+    assert "type: python" in (_ROOT / match.group(1)).read_text(encoding="utf-8")
+
+
 # -- the suites themselves -----------------------------------------------------
 
 #: Both suites, as directories: everything under them is a module pytest imports

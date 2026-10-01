@@ -55,3 +55,31 @@ python -m buy_agent.server                       # http://127.0.0.1:8000
 
 The workflow starts both and asks each for `/api/config` and the page before
 publishing.
+
+### What you can verify
+
+Before the image is pushed, the workflow scans its OS layer with
+[Grype](https://github.com/anchore/grype) and fails on a HIGH or CRITICAL finding
+that has a fix. Its Python packages are `requirements.txt`, which the nightly
+`pip-audit` reads instead. Findings with no fix are reported but do not fail a
+release, since a rebuild could not remove them
+([ADR-0069](adr/0069-scan-and-attest-what-a-release-publishes.md)).
+
+Both packages carry build provenance: a signed statement of which workflow run,
+on which commit, produced them. `SHA256SUMS.txt` only shows the download arrived
+intact. Anyone who could replace the archive could replace the sums too. Check
+provenance with the GitHub CLI:
+
+```powershell
+gh attestation verify buy-agent-1.2.0.tar.gz --repo adamw7/buy_agent
+gh attestation verify oci://ghcr.io/adamw7/buy_agent:1.2.0 --repo adamw7/buy_agent
+```
+
+Each release also has `buy-agent-<version>.spdx.json`, an SBOM listing every
+package in the image, the Debian ones and the resolved Python ones. It answers
+"which `lxml` did 1.2.0 ship" without rebuilding anything, and can be re-scanned
+later against newer advisories:
+
+```powershell
+grype sbom:buy-agent-1.2.0.spdx.json
+```

@@ -1,0 +1,7 @@
+# What release.yml's scan of the image judges: the OS layer. The image's Python
+# packages are requirements.txt, which pip-audit reads nightly (ADR-0062), and a
+# second gate over the same pins would only fail a release on news the nightly
+# audit already broke.
+ignore:
+  - package:
+      type: python

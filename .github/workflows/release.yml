@@ -29,6 +29,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Attesting provenance: a token naming this run, and the right to file it.
+      id-token: write
+      attestations: write
     defaults:
       run:
         shell: bash
@@ -114,6 +117,15 @@ jobs:
           sha256sum "$NAME.tar.gz" "$NAME.zip" > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
+      # The sums say the bytes arrived intact; this says which run of which
+      # commit made them, which a sums file beside the archive cannot.
+      - name: Attest the archive
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/${{ env.NAME }}.tar.gz
+            dist/${{ env.NAME }}.zip
+
       # --clobber lets a re-run replace the assets.
       - name: Upload the assets
         env:
@@ -128,8 +140,11 @@ jobs:
     name: Container image
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # Write only to attach the SBOM to the release, as the archive job does.
+      contents: write
       packages: write
+      id-token: write
+      attestations: write
     defaults:
       run:
         shell: bash
@@ -174,6 +189,29 @@ jobs:
           docker rm -f buy-agent-smoke > /dev/null
           exit "$status"
 
+      # Before the push, so an image that fails is never published. The OS
+      # layer only: Python packages are pip-audit's, nightly (ADR-0062). Only
+      # fixed findings fail, because a rebuild on the moving base tag is the
+      # one remedy a release has -- an unfixed one would fail every release
+      # until Debian ships a patch, and a gate that is always red is ignored.
+      - name: Scan the image
+        uses: anchore/scan-action@v7
+        with:
+          image: ${{ env.IMAGE }}:${{ env.VERSION }}
+          config: .github/grype.yaml
+          severity-cutoff: high
+          only-fixed: "true"
+          output-format: table
+
+      - name: List what is in it
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE }}:${{ env.VERSION }}
+          format: spdx-json
+          output-file: buy-agent-${{ env.VERSION }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
       # `latest` follows full releases only, never a manual re-run.
       - name: Push it
         env:
@@ -185,3 +223,22 @@ jobs:
             docker tag "$IMAGE:$VERSION" "$IMAGE:latest"
             docker push "$IMAGE:latest"
           fi
+
+          # The registry's digest is what an attestation names, not a tag.
+          ref="$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$VERSION")"
+          echo "DIGEST=${ref#*@}" >> "$GITHUB_ENV"
+
+      # After the push, because the digest exists only once the registry has it.
+      - name: Attest the image
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ env.DIGEST }}
+          push-to-registry: true
+
+      - name: Upload the SBOM
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$TAG" "buy-agent-$VERSION.spdx.json" \
+            --clobber --repo "$GITHUB_REPOSITORY"
