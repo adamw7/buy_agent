@@ -1,32 +1,10 @@
-# Direct dependencies, pinned to the versions this was tested against.
-# Transitive packages (httpcore, primp, pydantic-core, ...) are resolved by pip.
-#
-# Direct meaning *imported by the package*, which is the rule
-# tests/test_conventions.py holds this file to in both directions: a pin nothing
-# imports fails, and so does an import pinned in no requirements file. It is not
-# the same as "would not be installed otherwise", and three of the six below are
-# named anyway for that reason -- `ollama` asks for httpx and pydantic, `ddgs`
-# for lxml. Taking one of those lines out drops no package from the image; it
-# drops the *version* this was tested against, leaving the floor some other
-# package happens to want today. Which is also the answer to whether the list
-# can be shortened: only by giving something up -- a model server (ADR-0028) or
-# the search -- and never for free.
-#
-# There is no LangChain here on purpose (ADR-0038): the two model calls are one
-# prompt and one JSON schema each, which `buy_agent/chat.py` is, and a framework
-# for them brought seventeen packages -- a tracing client, a tokeniser and their
-# own HTTP stack -- for a surface of six symbols.
-#
-# One per model server: `buy_agent.providers` builds a client on each and imports
-# both at module level, so neither is optional (ADR-0028).
+# Every package buy_agent imports, pinned to the version tested -- which
+# tests/test_conventions.py holds both ways. No framework for the model calls
+# (ADR-0038); one client per model server (ADR-0028). The optional AP2 SDK is
+# in requirements-ap2.txt.
 ollama==0.6.3
 openai==3.19.2
 ddgs==9.16.0
 pydantic==2.13.5
 httpx==0.28.1
 lxml==6.1.3
-
-# Paying is optional and so is what it needs: the AP2 SDK is installed from
-# `requirements-ap2.txt` with `--no-deps`, for the reasons written down there.
-# Nothing here imports it, and `buy_agent.mandates` defers its import so a build
-# without it has a working `--help` rather than an ImportError.

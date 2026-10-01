@@ -17,8 +17,8 @@ installs: *buying* what was found, authorised by signed
 product page from a loopback-bound server with Playwright (ADR-0065).
 
 Longer docs: `README.md` (tour), `docs/models.md`, `docs/docker.md`,
-`docs/testing.md` (suites, floors, nightly, benchmark, mutation, audit, and the
-full list of convention and architecture tests), `docs/architecture.md` (C4),
+`docs/testing.md` (suites, floors, nightly, benchmark, mutation, audit, and what
+the convention tests check), `docs/architecture.md` (C4),
 `ui/README.md` (components), `demo/README.md` (recordings, local merchant).
 `docs/adr/` explains why each rule exists. The rules themselves live here or in a
 convention test. Prefer adding a convention test over restating an ADR.
@@ -642,15 +642,8 @@ rules a change must obey:
   `$TZ` through `monkeypatch` and has to `time.tzset()` either side.
 
 **Convention tests** (`tests/test_conventions.py`) assert the rules that hold
-*between* modules and across the language boundary: the three failures agree;
-sort criteria, providers, rails and backends are offered everywhere; TS types
-mirror every payload; the form's ranges match `limits_payload`; no flag appears
-in sentences below the doors; `--help` names defaults; Docker, CI, release,
-nightly, mutation and audit settings agree; ADRs are indexed; links resolve;
-skills name real paths; the tsconfig strictness stays on; CSS tokens are declared
-with dark values; logging rules hold; `sys.exit` appears only in the `__main__`
-guard; the requirements match imports; and this file's conventions heading
-matches its count.
+*between* modules and across the language boundary, listed in `docs/testing.md`
+-- this file's conventions heading matching its count among them.
 
 **Architecture tests** (`tests/test_architecture.py`, ArchUnitPython, ADR-0047)
 hold the import graph:
@@ -678,12 +671,10 @@ hold the import graph:
 `only()`/`every_module_but()` verify that the modules they name exist, and a
 33rd test checks every module sits in exactly one layer.
 
-**The live suite** (`integration/`, ADR-0026) is Ollama-only. The model is real;
-the web is the `benchmark/corpus.py` pages run through real `fetch.condense`.
-One session-scoped `live_run` is asserted on for invariants, not correctness. An
-absent Ollama skips locally and fails when `$BUY_AGENT_REQUIRE_OLLAMA` is set.
-`$BUY_AGENT_TEST_MODEL` moves the tag. `integration/test_benchmark.py` scores the
-run against `FLOORS`.
+**The live suite** (`integration/`, ADR-0026) is Ollama-only, on the
+`benchmark/corpus.py` pages through real `fetch.condense`, asserting invariants of
+one session-scoped `live_run`. It skips without Ollama unless
+`$BUY_AGENT_REQUIRE_OLLAMA` is set; `$BUY_AGENT_TEST_MODEL` moves the tag.
 
 **The benchmark** (`benchmark/`, ADR-0036):
 

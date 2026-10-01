@@ -1,22 +1,12 @@
 # Keeping the models current
 
-The agent runs whatever model tag it is pointed at, and Ollama keeps that tag
-current only when told to. This is the script that tells it; setting the model
-up in the first place is in the [README](../README.md).
-
-Ollama's alone: a vLLM (`--provider vllm`) is started with the model it serves
-and updated by restarting it against a newer revision, so there is no tag to
-re-pull and nothing here to run
-([ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md)). A LiteLLM proxy
-(`--provider litellm`) serves whatever its `config.yaml` routes to, so a model
-behind it is kept current wherever it is served
-([ADR-0068](adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md)).
-
-A model tag follows the registry, so re-pulling it is how a model is updated --
-but `ollama pull` prints `success` whether it replaced anything or not.
-`scripts/update_ollama.py` pulls the models Ollama has and compares the digests
-either side of each pull, so the report says which builds actually moved. Run it
-from the repository root:
+An Ollama tag follows the registry, so re-pulling it is how a model is updated,
+but `ollama pull` prints `success` either way. `scripts/update_ollama.py` pulls
+the installed models and compares digests either side, so it says which builds
+moved. A vLLM is updated by restarting it, and a LiteLLM proxy wherever its
+models are served, so this is Ollama's alone
+([ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md),
+[ADR-0068](adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md)).
 
 ```powershell
 python -m scripts.update_ollama                      # every installed model
@@ -31,7 +21,6 @@ qwen2.5:7b       already current (845dbda0ea48)
 2 model(s): 1 updated, 1 already current.
 ```
 
-Naming a tag Ollama does not have installs it; a pull the registry refuses is
-reported against that model, the rest still run, and the script exits 1. The
-Ollama server itself is a platform install (winget, the install script, the
-macOS app) and is left to its own updater -- only the models are touched.
+Naming a tag Ollama lacks installs it. A refused pull is reported against its
+model, the rest still run, and the script exits 1. Ollama itself is left to its
+own updater.

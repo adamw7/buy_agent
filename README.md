@@ -1,25 +1,21 @@
 # buy_agent
 
-A shopping agent built on a local model -- served by
-[Ollama](https://ollama.com), by a [vLLM](https://docs.vllm.ai) you already
-run, or by whatever a [LiteLLM](https://docs.litellm.ai) proxy of yours routes to. Tell it what you want to buy; it searches the web, pulls out up to 10
-products along with what the pages say about them, ranks them, and logs the
-best 3.
+A shopping agent built on a local model, served by [Ollama](https://ollama.com),
+a [vLLM](https://docs.vllm.ai) you already run, or whatever a
+[LiteLLM](https://docs.litellm.ai) proxy of yours routes to. Tell it what you
+want to buy; it searches the web, pulls out up to 10 products with what the
+pages say about them, ranks them, and logs the best 3.
 
 ![The search form, with its settings open](docs/ui.png)
 
 ![The top 3 of a run: price, rating, seller, quotes and what each score is made of](docs/results.png)
 
 Three runs of that page are recorded in `demo/`:
-[`wwii-books-1944-45.mpg`](demo/wwii-books-1944-45.mpg), fifteen seconds ending
-on the top 3 with the rest folded away;
-[`wwii-books-1944-45-with-sound.mpg`](demo/wwii-books-1944-45-with-sound.mpg),
-fourteen seconds of the same run with a soundtrack, in which the six log lines
-that are the pipeline catching the model out each get a note of their own; and
-[`laptops-under-1000.mpg`](demo/laptops-under-1000.mpg), twenty-two seconds
-ending on the shop page behind the top product's link. All three are MPEG in a
-program stream, which no browser plays inline, so every link downloads.
-[The web UI](#the-web-ui) below is what they show, written down.
+[`wwii-books-1944-45.mpg`](demo/wwii-books-1944-45.mpg),
+[`wwii-books-1944-45-with-sound.mpg`](demo/wwii-books-1944-45-with-sound.mpg)
+(each log line where the pipeline catches the model out gets a note) and
+[`laptops-under-1000.mpg`](demo/laptops-under-1000.mpg). They are MPEG program
+streams, which browsers download rather than play.
 
 ```
 $ python -m buy_agent "wireless noise cancelling headphones under $200"
@@ -42,14 +38,14 @@ TOP 3 OF 9 PRODUCTS, BEST SCORE FIRST
      says   : the case is too bulky for a coat pocket
 ```
 
-[Architecture](docs/architecture.md) draws the whole of it as C4 diagrams --
-context, containers, the components inside the pipeline and inside the web tier,
-and one streamed run end to end. [How it works](#how-it-works) below is the same
-story in prose, and [docs/adr/](docs/adr/README.md) is why it is this way.
+[docs/architecture.md](docs/architecture.md) draws it as C4 diagrams,
+[How it works](#how-it-works) tells it in prose, and
+[docs/adr/](docs/adr/README.md) says why it is this way.
 
 ## Setup
 
-Everything runs locally; no API keys, no accounts.
+Everything runs locally; no API keys, no accounts. Python 3.14 and, for the web
+UI, Node 22.23.3 or later.
 
 ```powershell
 # 1. Ollama, with a model pulled
@@ -65,49 +61,33 @@ pip install -r requirements-dev.txt
 pip install -r requirements-ap2-deps.txt
 pip install --no-deps -r requirements-ap2.txt
 
-# 4. Optional: a picture of each result's page in the web UI (see "A picture of each page")
+# 4. Optional: a picture of each result's page in the web UI
 pip install -r requirements-screenshots.txt
 python -m playwright install --only-shell chromium
 ```
 
-`--no-deps` there is deliberate: the AP2 SDK's published metadata pins versions
-this project does not use, so its real requirements are pinned in that file
-instead. Everything except `--pay` works without it.
+`--no-deps` is deliberate: the AP2 SDK's metadata pins versions this project
+does not use, so its real requirements are pinned in the first file.
 
-That needs Python 3.14 and, for the web UI, Node 22.23.3 or later -- the versions
-CI runs on.
-
-**Working on it** rather than running it needs more than that: the dev
-requirements, the UI's dependencies, and the AP2 SDK above, which stops being
-optional here -- without it the payment tests skip and the coverage floor cannot
-be met. One script does the lot, skipping whatever is already done, and a second
-runs every check a pull request is held to:
+To work on it, one script sets up everything the gate needs (the AP2 SDK
+included, or the payment tests skip and the coverage floor is out of reach) and
+another runs the gate
+([ADR-0067](docs/adr/0067-script-the-contributor-setup-and-the-gate.md)):
 
 ```powershell
 .\scripts\setup.ps1        # .venv, requirements-dev.txt, the AP2 SDK, npm ci in ui/
 .\scripts\preflight.ps1    # the gate CI applies, both halves; -Only python|ui for one
 ```
 
-`setup.ps1` checks Python and Node against the versions CI pins, and also
-checks how the checkout's line endings came out: a clone made before
-`.gitattributes` existed keeps its CRLF files, which fail the UI's formatting
-check, and the script tells you the one command that rewrites them
-([ADR-0067](docs/adr/0067-script-the-contributor-setup-and-the-gate.md)).
+`setup.ps1` also checks the Python and Node versions and whether the checkout
+has CRLF line endings, which fail the UI's format check.
 
-Already running a vLLM? Skip step 1 and see
-[Running against vLLM](#running-against-vllm) -- `--provider vllm` is the whole
-difference.
-
-To run the web UI without either toolchain, build the image instead: see
-[Running in Docker](docs/docker.md). The model server still runs on the host. A
-published release needs no build at all -- an archive with the UI already built
-(unpack, `pip install -r requirements.txt`, run the server) and the same pair as
-a container image on `ghcr.io`, both explained in that page and in
-[ADR-0030](docs/adr/0030-publish-a-release-as-an-archive-and-an-image.md).
-
-A pulled tag follows the registry, and `python -m scripts.update_ollama`
-re-pulls the models Ollama has and reports which builds actually moved -- see
-[Keeping the models current](docs/models.md).
+Alternatives: [Running against vLLM](#running-against-vllm) skips step 1;
+[Running in Docker](docs/docker.md) needs neither toolchain; a published release
+carries the built UI as an archive and a `ghcr.io` image
+([ADR-0030](docs/adr/0030-publish-a-release-as-an-archive-and-an-image.md)).
+`python -m scripts.update_ollama` re-pulls Ollama's models and reports which
+moved ([docs/models.md](docs/models.md)).
 
 ## Usage
 
@@ -123,49 +103,34 @@ python -m buy_agent "espresso machine" --compare          # ...and what moved si
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--provider` | `ollama` (or `$BUY_AGENT_PROVIDER`) | `ollama`, `vllm` or `litellm` |
-| `--model` | the provider's own | Ollama tag, the name a vLLM was started with, or a LiteLLM proxy's alias |
+| `--model` | the provider's own | Ollama tag, the name a vLLM was started with, or a LiteLLM alias |
 | `--base-url` | the provider's own | Where that server listens |
 | `--results` | `10` | How many products to find (1-50) |
 | `--top` | `3` | How many to log (1-50) |
 | `--sort-by` | `score` | `score`, `price` or `rating`; the report's heading names which |
 | `--region` | `us-en` | Search region: a country, then a language -- `uk-en`, `pl-pl` |
-| `--backend` | `ddg` (or `$BUY_AGENT_BACKEND`) | Which search backend to ask: `ddg`, `searxng` or `brave` |
+| `--backend` | `ddg` (or `$BUY_AGENT_BACKEND`) | `ddg`, `searxng` or `brave` |
 | `--currency` | the pages' own | Count this run's prices in this currency; nothing is converted |
 | `--source` | -- | Take the facts from this source only; repeatable |
-| `--max-price` | no limit | Report nothing dearer, in the currency the run's prices are counted in |
+| `--max-price` | no limit | Report nothing dearer, in the run's currency |
 | `--min-rating` | no limit | Report nothing rated below this, out of 5 |
 | `--min-reviews` | no limit | Report nothing whose rating averages fewer reviews |
-| `--cache-ttl` | `86400` | Seconds a page, and the model's answer about it, stay usable on disk; `0` is off |
-| `--journal` / `--no-journal` | `--journal` | Write this run down, so the next run of the same search can say what moved |
-| `--compare` | off | Report what is cheaper, dearer, new or gone since the last run of this search |
-| `--temperature` | `0.0` | Model temperature, 0-2; extraction is a copying task, and a run above `0` can answer differently each time, so its answers are never cached |
+| `--cache-ttl` | `86400` | Seconds a page, and the model's answer about it, stay usable; `0` is off |
+| `--journal` / `--no-journal` | `--journal` | Write this run down for the next run to compare against |
+| `--compare` | off | Report what is cheaper, dearer, new or gone since the last run |
+| `--temperature` | `0.0` | 0-2; above `0` answers vary, so they are never cached |
 | `--num-ctx` | `16384` | Context window in tokens (Ollama only) |
-| `--model-timeout` | `600` | Seconds to wait for one answer; asked once, so this is the whole wait |
+| `--model-timeout` | `600` | Seconds to wait for one answer, which is asked once |
 | `--think` / `--no-think` | `--no-think` | Force thinking mode on or off |
-| `--cpu-only` / `--no-cpu-only` | `--no-cpu-only` | Keep the model off the GPU entirely (Ollama only) |
-| `--no-fetch` | off | Use search snippets only, without opening the result pages |
+| `--cpu-only` / `--no-cpu-only` | `--no-cpu-only` | Keep the model off the GPU (Ollama only) |
+| `--no-fetch` | off | Use search snippets only |
 | `--json` | -- | Also write every result to a JSON file |
 | `-v` | off | Debug logging |
 
-The report goes to **stdout** and the progress to **stderr**, so a redirect
-keeps the answer and leaves the narration on screen:
-
-```powershell
-python -m buy_agent "gaming laptop under $1500" > top.txt
-```
-
-The narration is prefixed with a clock, a level and the step that wrote it --
-the gap between two lines is what tells a four-minute extraction from a
-four-second one. The report is not: every line of it shares one timestamp, so
-the prefix would distinguish nothing and take thirty columns off the quotes,
-which are the longest thing in it. `top.txt` is the block above, as printed.
-
-The exit code says which kind of ending it was -- `0` found products, `1` failed
-(the reason is the last line on stderr), `2` is a usage error, `3` is a run that
-worked and found nothing, `4` is a run that was asked to pay and did not, and
-`130` is Ctrl-C. Only the first is an answer, and
-only the second is a bug worth chasing. `--json` is written either way, so a
-script waiting on that file gets `[]` rather than yesterday's results.
+The report goes to **stdout** and the timestamped progress to **stderr**, so
+`> top.txt` keeps just the answer. Exit codes: `0` found products, `1` failed
+(the reason is the last line on stderr), `2` usage error, `3` found nothing, `4`
+asked to pay and did not, `130` Ctrl-C. `--json` is written either way.
 
 As a library:
 
@@ -179,83 +144,48 @@ print(ranked[0].product.name, ranked[0].score)                 # returns all of 
 
 ### Running against vLLM
 
-Ollama is the default because it is the one you install in a minute on a laptop.
-On a machine that already serves a model with [vLLM](https://docs.vllm.ai) -- a
-shared GPU box, a lab server -- installing a second model server and pulling a
-second copy of the weights is pure waste, so point the agent at the one that is
-already running:
-
 ```powershell
 python -m buy_agent "gaming laptop under $1500" --provider vllm
 python -m buy_agent "espresso machine" --provider vllm --base-url http://gpu.lan:8000/v1
 $env:BUY_AGENT_PROVIDER = 'vllm'      # ...or once, for every run in this shell
 ```
 
-`--provider` on its own is a complete choice: `--model` and `--base-url` default
-to the pair belonging to whichever provider was named, so nothing has to be
-retyped to switch. Those defaults are `$VLLM_MODEL` and `$VLLM_HOST`
-(`Qwen/Qwen3-8B`, `http://localhost:8000/v1` -- the port and `/v1` root `vllm
-serve` gives you with no arguments), exactly as `$OLLAMA_MODEL` and
-`$OLLAMA_HOST` are Ollama's.
+`--provider` brings its own `--model` and `--base-url`: `$VLLM_MODEL` and
+`$VLLM_HOST` (`Qwen/Qwen3-8B`, `http://localhost:8000/v1`), as `$OLLAMA_MODEL`
+and `$OLLAMA_HOST` are Ollama's. Both servers constrain decoding to the JSON
+schema, so the run is otherwise the same. The differences:
 
-Everything else is the same run: both servers constrain decoding to the JSON
-schema, so extraction, grounding, quoting and ranking are unchanged, and
-`buy_agent/providers.py` is the only module that knows which is answering. Three
-differences are real, and none is hidden:
+- **A vLLM serves one model, chosen when it started.** Asking for another is
+  answered with what it is serving and how to restart it.
+- **`--num-ctx` and `--cpu-only` are Ollama's**, so neither is sent and the form
+  disables both. `--think` becomes `enable_thinking`.
+- **A key, if there is one**, comes from `$env:VLLM_API_KEY` only -- no flag, so
+  it stays out of shell history and out of what the API hands the browser.
 
-- **A vLLM serves one model, chosen when it started.** The Model dropdown has
-  one entry, and asking for a name it does not have is answered with what it
-  *is* serving and how to restart it -- there is nothing to pull.
-- **`--num-ctx` and `--cpu-only` are Ollama's.** vLLM fixes its window with
-  `--max-model-len` at startup and picks its device with `--device` there, so
-  neither is sent to it and the form disables both rather than taking a setting
-  it would ignore. `--think` / `--no-think` works on both: it becomes
-  `enable_thinking`, which is what the chat templates of the thinking models
-  vLLM serves read.
-- **A key, if there is one.** A vLLM started with `--api-key` wants it back;
-  `$env:VLLM_API_KEY` is how, and deliberately the only how -- no flag, so it
-  stays out of your shell history and out of what the web API hands the browser.
-
-[ADR-0028](docs/adr/0028-serve-the-model-from-ollama-or-vllm.md) has why this is
-one seam rather than two code paths, and why it does not reopen the
-no-accounts-no-keys decision in
-[ADR-0003](docs/adr/0003-local-ollama-no-api-keys.md): a vLLM on your own
-machine or network is inside that decision, not an exception to it.
+See [ADR-0028](docs/adr/0028-serve-the-model-from-ollama-or-vllm.md) for why a
+vLLM you run fits [ADR-0003](docs/adr/0003-local-ollama-no-api-keys.md).
 
 ### Running against a LiteLLM proxy
-
-Already running a [LiteLLM](https://docs.litellm.ai/docs/simple_proxy) proxy?
-Point the agent at it rather than past it:
 
 ```powershell
 python -m buy_agent "espresso machine" --provider litellm --model local_model
 ```
 
-The defaults are `$LITELLM_MODEL` (`local_model`, a placeholder: name an alias
-from your proxy's `model_list`), `$LITELLM_HOST` (`http://localhost:4000/v1`) and
-`$LITELLM_API_KEY`. Only the proxy is reached, with the `openai` client vLLM
-uses, so the LiteLLM SDK is not a dependency. The dropdown lists the proxy's
-aliases and marks embedding ones. `--num-ctx` and `--cpu-only` are not sent,
-since they belong to whatever the proxy routes to, and `--think` becomes
-`reasoning_effort`. Whether a request leaves the machine is up to the proxy's
-`config.yaml`
+The defaults are `$LITELLM_MODEL` (`local_model`, a placeholder for an alias in
+your proxy's `model_list`), `$LITELLM_HOST` (`http://localhost:4000/v1`) and
+`$LITELLM_API_KEY`. The proxy is reached with the `openai` client, so the
+LiteLLM SDK is not a dependency. `--num-ctx` and `--cpu-only` are not sent, and
+`--think` becomes `reasoning_effort`. Whether a request leaves the machine is up
+to the proxy's `config.yaml`
 ([ADR-0068](docs/adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md)).
 
 ### Thinking models
 
-The default is one, so the two settings a thinking model needs are the defaults
-too: thinking off, and a 16384-token window. Left to itself such a model fails
--- the extraction prompt runs to roughly 4.3k tokens, so inside Ollama's own
-4096 the model spends what is left thinking, is cut off before it writes any
-JSON, and the run ends with `Invalid json output:` and nothing after the colon.
-The wider window is also what gets you the full ten products rather than five:
-the prompt is only half of what has to fit, the JSON describing ten products
-with what was said about each being the other half (ADR-0050).
-
-So `--no-think` and `--num-ctx 16384` are no longer worth typing: `qwen3.5`,
-`gemma4`, `lfm2.5`, anything listing the `thinking` capability, is already
-covered, and a model that cannot think ignores both. Only a model you
-specifically want to hear reasoning from wants the flags back:
+The default model thinks, so thinking off and a 16384-token window are the
+defaults too. The extraction prompt is about 4.3k tokens; inside Ollama's own
+4096 the model thinks until it is cut off, and the run ends with
+`Invalid json output:`. The wider window also fits the JSON for all ten products
+(ADR-0050). Only a model you want to hear reasoning from needs the flag:
 
 ```powershell
 python -m buy_agent "wireless headphones under $200" --model qwen3.5:9b --think
@@ -263,10 +193,9 @@ python -m buy_agent "wireless headphones under $200" --model qwen3.5:9b --think
 
 ### Sources you trust
 
-By default the facts come from whatever ten pages the search returned, which for
-most shopping queries means affiliate roundups. `--source` says where they
-should come from instead -- a review site, a section of one, or a YouTube
-channel by its handle -- and the search then goes to those and nowhere else:
+By default the facts come from whatever ten pages the search returned, usually
+affiliate roundups. `--source` names a review site, a section of one, or a
+YouTube handle, and the search goes there and nowhere else:
 
 ```powershell
 python -m buy_agent "wireless earbuds under $150" --source rtings.com
@@ -274,96 +203,54 @@ python -m buy_agent "gaming laptop" --source @mkbhd --source notebookcheck.net
 python -m buy_agent "espresso machine" --source https://www.seriouseats.com/coffee
 ```
 
-Because the pages a run reads are the pages every figure and quote is checked
-against, narrowing them narrows the report: everything in it was printed by a
-page you named. Nothing falls back to the wider web, so naming sources with
-nothing to say about the request is a run that finds nothing -- which is the
-answer, and the report says so rather than quietly going elsewhere.
-
-Each source is searched separately (`site:` takes one domain at a time), and the
-number of pages read stays what `--results` asked for rather than multiplying by
-the sources. What is enforced is the **domain**; a handle or a section narrows
-the search but cannot be, a video's address saying which video it is and not who
-published it -- see
-[ADR-0027](docs/adr/0027-let-the-shopper-name-the-sources.md) for why that is
-the strongest rule the URLs support.
-
-The web UI has the same setting, as **Trusted sources** under Settings: one
-field, separated by spaces or commas.
+Every figure and quote is checked against the pages read, so everything in the
+report was printed by a source you named. Nothing falls back to the wider web.
+Each source is searched separately and the pool is cut back to `--results`. The
+**domain** is what is enforced; a handle or section only narrows the search
+([ADR-0027](docs/adr/0027-let-the-shopper-name-the-sources.md)). In the browser
+it is **Trusted sources** under Settings.
 
 ### Saying what you will actually buy
 
-"under $200" in the request only ever shaped the *search query* -- a page comes
-back for matching the words, not for obeying them -- so a run could top its
-report with a $328 pair and look right doing it, price being scored relative to
-whatever else came back. Three flags say it as a number instead, and Python
-enforces them:
+"under $200" in the request only shapes the search query. Three flags say it as
+a number, and Python enforces them after duplicates are merged and before
+ranking:
 
 ```powershell
 python -m buy_agent "wireless headphones" --max-price 200
 python -m buy_agent "espresso machine" --min-rating 4.5 --min-reviews 500
 ```
 
-They are applied after the pages have been read and the duplicates merged, and
-before the ranking -- so the "cheapest" in the report is the cheapest of what
-you could actually buy, not of a list you were shown none of. A run that set any
-of them says what they did, whether or not they did anything:
-
 ```
 1 of 10 product(s) are within the limits (at most 200.00, rated at least 4.5)
 ```
 
-**A product whose figure the run never learned is kept.** Grounding blanks every
-figure the source pages did not back, so a blank price is as often a page that
-did not print one as a product that costs too much. Dropping blanks would throw
-away real products for the extractor's misses, which is the same reason a
-missing figure scores neutral rather than zero
-([ADR-0039](docs/adr/0039-enforce-the-shoppers-bounds-in-python.md)).
+- **A product whose figure the run never learned is kept**, because a blank is
+  more often a page that printed none than a product that costs too much
+  ([ADR-0039](docs/adr/0039-enforce-the-shoppers-bounds-in-python.md)).
+- **Prices are compared inside one currency, and nothing is converted.** The
+  run counts in the commonest currency its pages printed; a price in any other
+  passes the budget, scores neutral and is marked "assumed"
+  ([ADR-0043](docs/adr/0043-compare-prices-only-within-one-currency.md)).
+- **`--currency` names that scale** instead of leaving it to the vote, and the
+  budget is read in it: `--max-price 800 --currency PLN` means 800 złoty. A
+  currency no page quotes gets a warning
+  ([ADR-0056](docs/adr/0056-let-the-shopper-name-the-currency.md)).
 
-**Prices are compared inside one currency, and nothing is converted.** A run's
-prices are counted in the commonest currency its pages printed, and a price in
-any other is a figure the run cannot place: it passes the budget, it scores
-neutral rather than being read as the number it happens to be, and the card
-marks it "assumed". A price a page printed with no currency at all is taken as
-the run's own. A rate table would be the first figure here that no source page
-printed, and a stale rate is a wrong ranking wearing a right one's clothes
-([ADR-0043](docs/adr/0043-compare-prices-only-within-one-currency.md)).
-
-**`--currency` names that scale instead of leaving it to the vote.** Which
-currency wins is otherwise an accident of what the search returned -- a shopper
-in Poland can get a set counted in USD because three American review sites
-out-numbered the two Polish shops. `--currency PLN` says which one it is; the
-form has the same picker, under "Count prices in", and its blank is the vote.
-Nothing else changes, and nothing is converted still: a price outside the named
-scale is the same blank it was, and the budget is read on the scale too, so
-`--max-price 800 --currency PLN` means 800 złoty. Naming a currency your pages
-never quote is the one way to ask for a report whose price criterion is entirely
-assumed, so the run says so in a warning rather than quietly ordering by rating
-and reviews alone
-([ADR-0056](docs/adr/0056-let-the-shopper-name-the-currency.md)).
-
-```powershell
-python -m buy_agent "sluchawki bezprzewodowe" --region pl-pl --currency PLN --max-price 800
-```
-
-The bounds are not read out of the request by the model, deliberately: a model
-that saw "under $200" in "headphones with 200 hours of battery" would drop every
-product in the run, and the report would say only that nothing was found. The
-number goes in the flag, or in the box under Settings in the browser.
+The bounds are never read out of the request and applied: "200 hours of battery"
+would drop every product. Instead the run notices a bound in the request and
+offers it -- the CLI names the flag, and the browser pre-fills the box
+([ADR-0059](docs/adr/0059-notice-a-bound-in-the-request-and-offer-it.md)).
 
 ### Letting it buy
 
-Off by default, and off again unless you install one more thing. When it is on,
-the agent can complete the purchase itself -- authorised by signed
-[AP2](https://ap2-protocol.org) mandates rather than by a card number it holds.
+Off by default, and impossible without the AP2 SDK. When on, the agent completes
+the purchase, authorised by signed [AP2](https://ap2-protocol.org) mandates
+rather than a card number:
 
 ```powershell
-pip install -r requirements-ap2-deps.txt
-pip install --no-deps -r requirements-ap2.txt
 python -m buy_agent "wireless headphones under $200" --pay
 ```
-
-That asks first:
 
 ```
   Pay 329.99 USD for Sony WH-1000XM5
@@ -373,116 +260,59 @@ That asks first:
   Type yes to authorise:
 ```
 
-Two things about that prompt are the point. It restates the **cart** -- what the
-mandates will actually carry -- rather than the request that found it. And a run
-with no terminal to ask at is *refused* rather than assumed: a script that piped
-in nothing would otherwise have bought something.
-
-**The default rail charges nobody.** `--pay` on its own signs a real, verifiable
-AP2 authorisation and stops there, which is what makes the switch safe to try.
-Paying for real means naming somewhere to pay:
+The prompt restates the **cart**, and a run with no terminal is refused rather
+than assumed. **The default rail charges nobody**: it signs a real, verifiable
+authorisation and stops. Paying for real means naming somewhere to pay:
 
 ```powershell
-python -m buy_agent "headphones" --pay --rail http --merchant-url https://pay.example
+python -m buy_agent "headphones" --pay --rail http --merchant-url https://pay.example --spend-limit 250
 ```
 
-No merchant, wallet or processor is named anywhere in this project. The rail is
-a row in a table (`buy_agent/rails.py`), the address is the whole of the
-integration, and the endpoint is asked for a signed checkout at `{url}/checkout`
-and presented the mandates at `{url}/payment`. `python -m demo.merchant` is a
-local one to point it at, which charges nobody
+No merchant is named anywhere in this project. The `http` rail asks
+`{url}/checkout` for a signed checkout and presents the mandates at
+`{url}/payment`; `python -m demo.merchant` is a local one that charges nobody
 ([demo/README.md](demo/README.md#a-merchant-for-the-http-rail)).
+`--spend-limit` is a ceiling in the run's currency. Any of those flags without
+`--pay` is named as idle.
 
-**Only a product the sources actually priced can be bought.** This is the
-grounding rule turned around: a price no page printed is blanked before ranking,
-so there is nothing to authorise; a price in a currency this run cannot place is
-a number and not an amount. That is deliberately the opposite of what the bounds
-above do with the same blank -- a filter that cannot judge a product keeps it,
-because dropping it would punish the extractor's miss, and money has no such
-luxury.
+**Only a product the sources priced can be bought**: a blanked price, an
+unprinted currency, or a price outside the run's currency is refused -- the
+opposite of the bounds, which keep what they cannot judge.
 
-**`--spend-limit` is the ceiling**, read in the currency the run counts in:
-
-```powershell
-python -m buy_agent "headphones" --pay --spend-limit 250
-```
-
-None of those three do anything on their own, so a run given one without `--pay`
-says which word is missing rather than spending its minute and then buying
-nothing.
-
-Signing needs a key. `$BUY_AGENT_AP2_KEY` points at an EC P-256 private key --
-`openssl ecparam -genkey -name prime256v1 -noout -out agent-key.pem` -- and the
-dry run will generate a throwaway one and say so rather than refusing, since it
-has no counterparty to have trusted anything.
-
-**Buying while you are not there** is AP2's other mode, and it needs a mandate
-you signed in advance: `$BUY_AGENT_AP2_MANDATE` names a JSON file holding an
-*open* mandate and the key it was issued under. Its constraints -- an amount
-range, the merchants allowed, an expiry -- are checked before anything is sent,
-by the same evaluator a credential provider would run, so a cart outside them is
-refused here. There is no flag for this mode: the signed mandate *is* the
-authorisation
-([ADR-0046](docs/adr/0046-pay-on-the-shoppers-behalf-with-ap2.md)).
-
-In the browser it is the same feature, offered on every card rather than for the
-top one: tick **Offer to pay for what it finds** under Settings before the run,
-and each card that can be bought grows a Pay button that asks a second time
-before anything is signed.
+`$BUY_AGENT_AP2_KEY` points at an EC P-256 private key (`openssl ecparam -genkey
+-name prime256v1 -noout -out agent-key.pem`); the dry run generates a throwaway
+one. `$BUY_AGENT_AP2_MANDATE` names a pre-signed *open* mandate for buying while
+you are not there; its constraints are checked before anything is sent
+([ADR-0046](docs/adr/0046-pay-on-the-shoppers-behalf-with-ap2.md)). In the
+browser, tick **Offer to pay for what it finds** and each card that can be bought
+gets a Pay button that asks twice.
 
 ### Running the same search twice is nearly free
 
-Most of a repeated run is opening the ten pages it opened last time and then
-asking the model the identical question about them. Both are kept on disk for a
-day, so a second run of the same search costs almost nothing -- which is the
-difference between a minute and a second or two when what you are actually
-changing is a bound, a weight or the sort order, all of which happen *after* the
-model has spoken. It also stops ten more requests going to shops that
-rate-limit, and stops two runs of one search disagreeing because a shop answered
-403 the second time.
+Fetched page text and the model's answer are kept on disk for a day, so
+re-running to change a bound, a weight or the sort order takes seconds and asks
+the shops nothing.
 
 ```powershell
 python -m buy_agent "headphones" --cache-ttl 0      # every page and answer fresh
 $env:BUY_AGENT_CACHE_DIR = "D:\scratch\buy-agent" # somewhere else
 ```
 
-What is stored is the page *text* rather than the condensed excerpt, so changing
-`page_chars` re-condenses instead of replaying a stale excerpt, and a cached run
-extracts from exactly what a fresh one would have -- which is what keeps the
-cache invisible to grounding. Only pages that were actually read are stored: a
-403 stays live, so a shop that has stopped refusing is noticed on the next run.
-Every failure -- an unwritable directory, a corrupt entry, a full disk -- is a
-cache miss and never a failed run
-([ADR-0040](docs/adr/0040-cache-the-page-text-on-disk.md)).
-
-It is bounded twice over. `--cache-ttl` is how long an entry stays usable, and
-`cache.MAX_BYTES` is how much one kind of them may take up -- 256 MB per
-directory, oldest first out, enforced when a run opens the cache. Age alone was no
-bound on size: the TTL ceiling is thirty days, what is stored is the whole text of
-a page rather than the excerpt, and nothing ever deleted an entry that had not
-expired, so a month of shopping was a month of pages on a disk nobody was watching
-([ADR-0052](docs/adr/0052-cap-the-cache-by-size-as-well-as-age.md)).
-
-What the model answered is kept the same way, under a key holding the whole
-question: the prompt with those pages in it, the schema, the model, the server
-and the settings the request carries. So a reworded prompt, a widened page
-budget or another model all ask again, and the only thing that comes off disk is
-the same question put to the same server twice. A run at a `temperature` above 0
-is never remembered at all -- a model asked to sample has no one answer, and
-replaying one sample would be the cache deciding the result
-([ADR-0044](docs/adr/0044-remember-a-deterministic-model-answer.md)).
-
-The cost is honest and worth knowing: a day-old entry is a day-old price,
-reported as current, and a day-old answer is that same figure one step further
-from the source. `--cache-ttl 0` is the answer when the figures have to be live.
+The page *text* is stored, not the excerpt, so a cached run extracts from what a
+fresh one would. Only pages that were read are stored, and every cache failure is
+a miss, never a failed run
+([ADR-0040](docs/adr/0040-cache-the-page-text-on-disk.md)). Each kind is capped
+at 256 MB, oldest out first
+([ADR-0052](docs/adr/0052-cap-the-cache-by-size-as-well-as-age.md)). An answer
+is keyed on the whole question -- prompt, pages, schema, model, server and
+settings -- and a run above temperature 0 is never remembered
+([ADR-0044](docs/adr/0044-remember-a-deterministic-model-answer.md)). A day-old
+entry is a day-old price; `--cache-ttl 0` when figures must be live.
 
 ### ...and it says what moved
 
-The reason to run the same search twice is that a price may have moved, and both
-of the things above exist to make the *next* run cheaper rather than to remember
-what the last one said. A third directory does that one: `runs/`, beside `pages/`
-and `answers/`, holding a name, a price and a currency per product and nothing
-else.
+`runs/`, beside the cache, keeps a name, price and currency per product for each
+search:
 
 ```powershell
 python -m buy_agent "espresso machine" --compare
@@ -500,108 +330,43 @@ WHAT CHANGED SINCE 11 SEP
 ==============================================================
 ```
 
-It is not a third kind of cache entry, and the differences are the whole of the
-design ([ADR-0060](docs/adr/0060-keep-a-run-journal-beside-the-cache-not-in-it.md)).
-It **never expires** -- a record that did would be no use for the one question it
-answers -- and is bounded by a *count* instead: ten runs per search, and two
-hundred searches, the least recently run one out first. Pruning oldest-first, the
-way the cache does, would delete exactly the entry a comparison wants.
-
-A search is the request *and* what shaped the question -- the region, the scale,
-the sources, the three bounds -- so `--max-price 200` has a history of its own and
-is never compared against an unbounded run. Deliberately *not* the model or the
-provider: those decide how well the question was answered rather than what was
-asked, and keying on them would make every change of model a search starting over.
-
-`--no-journal` writes nothing down, `$BUY_AGENT_CACHE_DIR`'s `runs/` is where it
-all is, and deleting that directory throws the whole history away. The browser
-shows the same comparison as a panel under the results, in the same sentences.
+It never expires and is bounded by count: ten runs per search, two hundred
+searches, least recently run out first. A search is the request plus what shaped
+it (region, scale, sources, bounds), never the model
+([ADR-0060](docs/adr/0060-keep-a-run-journal-beside-the-cache-not-in-it.md)).
+`--no-journal` writes nothing. The browser shows the same comparison under the
+results.
 
 ### What each page priced it at
 
-The agent reads up to ten pages a run and several of them price the same
-product. It used to keep one figure and throw the rest away: two pages quoting
-129 and 149 left one price in the report and nothing anywhere saying the other
-had existed.
-
-Every listing that survived grounding is now kept as an **offer** -- the price,
-the currency it was written in, the shop quoting it and the page it was on -- and
-a merge keeps both listings' offers whole, the way it already keeps both
-listings' quotes. The card says **3 listings, 129.00-149.00 USD** and opens onto
-each one with a `source` link; the CLI report has an `offers` line under the
-price ([ADR-0058](docs/adr/0058-keep-every-listing-a-product-was-priced-at.md)).
-
-The headline price does not move, and neither does anything downstream of it: the
-ranking, the bounds and the currency vote all read one price, or ADR-0043 would
-have two answers to "what is this priced at". What the offers change is *paying*.
-The cart is built from the listing the headline price came off, so it names the
-shop that quoted that figure and links the page that printed it -- where before, a
-winning listing that named no shop would take the name of one selling at
-something else entirely.
-
-That last mistake can still be *displayed*: a merged product's `seller` is still
-whichever listing supplied one, so a card can read "349.00 USD" beside a shop that
-quoted 329.00. What changed is that it is now visible -- the spread is directly
-under the price, and the confirmation, the cart and the receipt all read the
-offer's merchant rather than that field.
+Every grounded listing is kept as an **offer** -- price, currency, shop and page
+-- and merging keeps all of them. The card says **3 listings, 129.00-149.00 USD**
+and the CLI adds an `offers` line. Ranking, bounds and the currency vote still
+read one headline price; the cart is built from the listing that price came off,
+so it names the shop that quoted it
+([ADR-0058](docs/adr/0058-keep-every-listing-a-product-was-priced-at.md)).
 
 ### What the pages say
 
-Every product in the report carries up to three quotes: the `says` lines under
-the top 3 on the CLI, the quoted lines under each card in the browser, the
-`opinions` array in `--json` and in what the API answers with. They are the
-source pages' own words, and they are there because a price says what a thing
-costs and only these lines say whether to want it.
+Each product carries up to three quotes: `says` lines on the CLI, quoted lines on
+each card, `opinions` in the JSON. Each page is swept twice, on separate budgets:
+for lines quoting a figure and for lines passing judgement, judged by a
+vocabulary of verdicts ("reviewers found", "the downside is"), never of subject
+matter ([ADR-0024](docs/adr/0024-read-and-quote-what-the-sources-say.md)).
 
-Having any means reading the pages, so each one is swept twice -- once for the
-lines quoting a price or a rating, once for the lines passing judgement -- and
-each sweep has a budget of its own, so a shop page listing forty prices still
-contributes a verdict and a page of prose still contributes its price. What
-counts as judgement is a vocabulary of who is speaking and what they concluded
-("reviewers found", "the downside is", "disappointing"), never one of subject
-matter: "wireless" or "battery" would take every line on a headphone page
-([ADR-0024](docs/adr/0024-read-and-quote-what-the-sources-say.md)).
-
-Each quote is then checked before it is shown, and against the pages that name
-the product rather than against the run's pages pooled -- a verdict on the
-kettle three results down is no evidence about these headphones. What is checked
-is the quote as running text: overlapping runs of five consecutive words, most
-of which have to be found. A small model paraphrasing what it read fails that,
-and the quote is dropped
-([ADR-0025](docs/adr/0025-check-a-quote-against-the-page-it-came-from.md)); a
-product whose quotes all fail is still reported, with none. An invented price is
-a number nobody wrote, but an invented quote is words in a reviewer's mouth.
-
-**Each quote names the page that printed it** -- a `source` link beside it on
-the card, the URL after the `says` line on the CLI where it is not the product's
-own link, and a `url` beside the `text` in the JSON. The check above already has
-to find that page to keep the quote, so it is kept rather than thrown away: a
-figure can be checked by following the product's link, and without this a quote
-could be checked by nobody. The tolerance for a word of the model's own at
-either end is deliberate and stays; what changes is that a paraphrase which
-slips through is now one click from being visible as one
-([ADR-0042](docs/adr/0042-keep-the-page-a-quote-came-from.md)).
-
-None of it is scored -- the ranking is the figures alone -- so the quotes are
-what to read when two candidates come out within a hair of each other.
-`--no-fetch` leaves nothing to quote, a search snippet passing judgement about
-as rarely as it quotes a price, and `AgentConfig(opinion_chars=0)` reads the
-pages but skips the second sweep, which like the budgets themselves is reachable
-from Python and neither front end.
+A quote must appear as running text -- most of its overlapping five-word runs --
+on a page that names the product, or it is dropped
+([ADR-0025](docs/adr/0025-check-a-quote-against-the-page-it-came-from.md)). Each
+quote links the page that printed it
+([ADR-0042](docs/adr/0042-keep-the-page-a-quote-came-from.md)). Quotes are not
+scored.
 
 ### Why the report is as short as it is
 
-A run thins its own results, and the report is what survived. Five heuristics
-take a whole candidate out: a headline the model reported as a product, a name no
-page that was searched mentions, a name that identifies nothing, a listing folded
-into another under the same product's name, and anything outside the bounds you
-set. Each of those is a judgement worth arguing with, and a report of two
-products has nothing on it to argue with.
-
-So a run says what it took out as well as what it kept. On the CLI that is the
-line per step you have always had -- the count at INFO, the names under `-v`. In
-the browser it is a panel under the results, **N candidates the agent took out**,
-each with the name it went under and the reason the step gave for taking it:
+Five steps take a whole candidate out: a headline reported as a product, a name
+no searched page mentions, a name that identifies nothing, a duplicate merged
+into another, and anything outside your bounds. The CLI logs a count per step
+(names under `-v`); the browser lists each under the results with Python's reason:
 
 ```
 The 5 best kettles of 2026   Reads as an article or a shop, not a product.
@@ -609,193 +374,80 @@ Bonavita Gooseneck Kettle    No page that was searched mentions it.
 Fellow Stagg EKG Pro         Outside the limits you set (at most 100.00 USD).
 ```
 
-It is drawn under an empty report too, which is the run the question is loudest
-on: "nothing came back" and "everything came back and your budget excluded it"
-are different answers, and only one of them means the search went wrong. The
-sentences are Python's own, written beside the step that does the removing
-([ADR-0055](docs/adr/0055-report-what-a-run-took-out.md)) -- the page groups them
-and counts them and writes none of them.
-
-The three steps that *blank* something are deliberately not in there: a price no
-page backs, a quote nobody wrote and a link to a page nobody searched each leave
-the product in the report, which then says "price unknown" or shows no quote, on
-its own card. A panel listing those would be listing the results again.
+([ADR-0055](docs/adr/0055-report-what-a-run-took-out.md)). Steps that only
+*blank* a price, quote or link leave the product on its own card.
 
 ## The web UI
 
-The same agent, with a page in front of it. `buy_agent.server` serves a small
-JSON API and the built Angular app in `ui/`. Three ways to run it: the script
-below, the same three steps by hand, or [the container](docs/docker.md), which
-needs neither toolchain.
+`buy_agent.server` serves a JSON API and the Angular app built from `ui/`.
 
 ### Starting it on localhost
 
-Two things run and one gets built: Ollama with a model pulled, the Angular
-build, and the server that serves that build alongside the API.
-`scripts/start.ps1` does all three and takes no arguments:
-
 ```powershell
 .\scripts\start.ps1
 ```
 
-It creates `.venv`, installs `requirements.txt`, starts Ollama, pulls the
-default model and builds `ui/` where each is not already done -- the build and
-`npm install` counting as not done once a pull has changed what they are made
-from -- then runs the server in the foreground and opens the page, so a second
-run is a few seconds.
-Ctrl+C stops the server, and the Ollama too if the script started it. It has no
-options on purpose: the provider, model and address are
-`$env:BUY_AGENT_PROVIDER`, `$env:OLLAMA_MODEL`/`$env:OLLAMA_HOST` (or
-`$env:VLLM_MODEL`/`$env:VLLM_HOST`, or `$env:LITELLM_MODEL`/`$env:LITELLM_HOST`)
-as everywhere else, and anything past that
-is a flag on the server itself.
+It creates `.venv`, installs `requirements.txt`, starts Ollama, pulls the default
+model and builds `ui/` where each is not already done, then serves and opens the
+page. Ctrl+C stops the server, and Ollama if it started it. It takes no
+arguments: the provider, model and address come from `$env:BUY_AGENT_PROVIDER`,
+`$env:OLLAMA_MODEL`/`$env:OLLAMA_HOST` (or the `VLLM_`/`LITELLM_` pairs). It
+starts only Ollama; for vLLM or LiteLLM it waits for the server you run. Without
+`npm` it serves the API and a 503 page. It installs the AP2 SDK only when
+`$env:BUY_AGENT_RAIL`, `$env:BUY_AGENT_MERCHANT_URL`, `$env:BUY_AGENT_AP2_KEY` or
+`$env:BUY_AGENT_AP2_MANDATE` is set. Under a restrictive execution policy, run
+`powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1`.
 
-Ollama is the only model server it starts for you: with
-`$env:BUY_AGENT_PROVIDER` set to `vllm` or `litellm` it waits for one to answer
-and says where instead of launching it, a vLLM wanting a GPU, a served model and
-flags this script has no business choosing, and a proxy the `config.yaml` saying
-what it routes to. Node is the one thing it will not install
--- without `npm` on PATH it says so and serves the API anyway, so the page is
-the 503 until a build exists.
-
-[Paying](#letting-it-buy) needs one more install, and the script does that one
-only when asked -- where `$env:BUY_AGENT_RAIL`, `$env:BUY_AGENT_MERCHANT_URL`,
-`$env:BUY_AGENT_AP2_KEY` or `$env:BUY_AGENT_AP2_MANDATE` is set, which is the
-environment saying a payment is meant. Set none and it says so and carries on,
-and the page offers no Buy button; the smallest way to ask for one is:
-
-```powershell
-$env:BUY_AGENT_RAIL = 'dry-run'      # the default rail, which charges nobody
-.\scripts\start.ps1
-```
-
-A PowerShell that refuses unsigned scripts takes the same file the long way
-round:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
-```
-
-By hand, the same three things:
+By hand:
 
 ```powershell
 # 1. Ollama, in its own terminal -- skip it if Ollama already runs as a service
 ollama serve
-ollama pull gemma4:12b             # once; pulled tags are what the Model dropdown lists
+ollama pull gemma4:12b
 
 # 2. The UI, built once -- and again after any change under ui/src
-cd ui
-npm install
-npm run build                      # writes ui/dist/ui/browser
-cd ..
+cd ui; npm install; npm run build; cd ..
 
-# 3. The server, in a second terminal
+# 3. The server
 .venv\Scripts\Activate.ps1
 python -m buy_agent.server         # http://127.0.0.1:8000
 ```
 
-Then open <http://127.0.0.1:8000> and search. Skip step 2 and the API still
-answers, but the page is a 503 telling you to build it; `--ui-dir` points at a
-build kept elsewhere, and `--host` / `--port` move the binding, which is
-loopback on port 8000 by default. Port 8000 is also where a vLLM started with no
-arguments listens, so on a machine serving one give the UI another port (`--port
-8001`) -- otherwise the bind fails, and the server says so and names the clash.
-The model server need not be local either: `$OLLAMA_HOST`, `$VLLM_HOST` and
-`$LITELLM_HOST`, or
-the address field under Settings, point the run at another machine. To work on
-the UI itself, run the Angular dev server rather than rebuilding for every
-change -- see [The dev server](#the-dev-server).
+Without step 2 the page is a 503 saying how to build it. `--ui-dir` points at a
+build elsewhere; `--host`/`--port` move the loopback binding. vLLM also defaults
+to port 8000, so give one of them another port. The recordings at the top are of
+this page with only the search, fetches and model scripted
+([demo/README.md](demo/README.md)).
 
-The three recordings at the top of this page are of this page. Everything in
-them between the search and the ranking is the real pipeline -- only the search,
-the page fetches and the model are scripted stand-ins -- so the progress panel
-is showing grounding actually throwing figures, quotes and links away. The one
-with sound has none captured either: Chromium records no audio, so the track is
-synthesised from a cue per thing that happened, which is how a dropped figure
-can be heard as well as read. [demo/README.md](demo/README.md) says what is real
-in them, what is not, and how to record them -- and the picture -- again.
+The server answers its own page and nothing else: a cross-site request, a
+foreign `Origin` or a `Host` that merely resolves here is refused. `curl` still
+works; another name needs `--allowed-host buy.lan`
+([ADR-0018](docs/adr/0018-guard-the-loopback-server-against-other-pages.md)).
 
-The page takes the same settings the CLI takes as flags, shows the agent's log
-lines as the run happens, and lists the ranked products with a link to the page
-each was found on. It binds loopback by default: it drives a model on your own
-machine, and is not meant to be exposed.
-
-Loopback keeps it off the network but not out of the browser, where any page you
-have open can send requests to `127.0.0.1`. So the server answers its own page
-and nothing else: a request a page on another site made is refused, as is one
-addressed to a name that merely resolves here -- a rebinding attack, from this
-end. Clients that are not browsers send none of the headers that decide this, so
-the `curl` below still works, and reaching the server by another name -- a
-container published on a LAN -- means naming it with `--allowed-host buy.lan`.
-See [ADR-0018](docs/adr/0018-guard-the-loopback-server-against-other-pages.md).
-
-Under Settings, **Model server** picks between Ollama, vLLM and LiteLLM and
-brings that one's model and address with it, and **Model** is a dropdown of what
-that server is actually serving -- what `ollama list` prints, the one entry a vLLM
-reports at `/v1/models`, or the aliases a LiteLLM proxy routes -- refetched when the address field is pointed
-elsewhere. Three cases are marked rather than hidden. A model configured but not
-served stays in the list as `not served`, so a stale setting is visible rather
-than silently swapped. One that *is* pulled but cannot answer a prompt is
-`embedding only` rather than a choice that costs a whole run to find out about:
-`nomic-embed-text` and the other embedding models, which `ollama list` prints
-exactly like a chat model
-([ADR-0032](docs/adr/0032-say-which-models-can-answer-a-prompt.md)). And a
-server that answered with nothing turns the field back into a text box. The pill
-in the header names whichever server the list came from, so a page pointed at a
-vLLM never reports an Ollama being down.
-
-A setting the server would refuse is refused on the page instead, before a run
-starts. The ranges come down with the defaults, so **Products to find** of 51
-marks the field and greys out the button rather than opening a stream to be told
-a minute later. A Trusted sources field is read by the same `parse_sources` the
-CLI uses. What the page cannot judge for itself it still shows in the right
-place -- a run refused for one value comes back naming the field, and that box
-is marked along with the banner
-([ADR-0033](docs/adr/0033-let-the-form-refuse-what-the-server-would.md)).
-
-When a run ends badly -- or when you stop one yourself -- the Progress panel
-offers **Download log**: the lines it was showing plus the error that ended the
-run. The panel scrolls and the next search clears it, so without this a failure
-worth reporting is gone as soon as it is retried, and the reason to stop a run
-is usually that it had gone quiet for four minutes. A finished run has two
-controls of its own: **Re-order these** -- whose choices say which end comes
-first, **Cheapest first** rather than *price*, in the words the CLI's report
-heading uses -- posts the products back to `POST /api/rank`, which calls the
-same `rank_products` a run ends with and nothing else, so the ordering is still
-Python's and only the minute is skipped;
-**Download results** saves the answer the server sent, which is the same
-document `--json` writes
-([ADR-0035](docs/adr/0035-re-sort-a-finished-run-without-running-it-again.md)).
-It is deliberately not called *Rank by*, which is what the settings call the
-criterion the **next** run is ranked by: the two are different questions, and
-one label over both read as a single setting perpetually out of step with
-itself.
+Under Settings, **Model server** picks Ollama, vLLM or LiteLLM, and **Model**
+lists what that server is serving, marking a configured model `not served` and
+one that cannot chat `embedding only`
+([ADR-0032](docs/adr/0032-say-which-models-can-answer-a-prompt.md)). A value the
+server would refuse is refused on the page first, on the server's own ranges
+([ADR-0033](docs/adr/0033-let-the-form-refuse-what-the-server-would.md)). A
+failed or stopped run offers **Download log**. A finished one offers **Re-order
+these**, which re-ranks without re-running
+([ADR-0035](docs/adr/0035-re-sort-a-finished-run-without-running-it-again.md)),
+and **Download results**, the same document `--json` writes.
 
 ### A picture of each page
 
-With [Playwright](https://playwright.dev/python/) installed -- step 4 of
-[Setup](#setup), the library and then the headless Chromium it drives, about a
-hundred megabytes -- every card in the results carries a picture of the page it
-links to, on its right, and clicking it opens that page the way the title does.
-The server takes them itself, in one headless browser it launches on the first
-picture and closes once nobody has asked for a minute, and nobody else sees what
-you looked at. A card asks only once it is on screen, so the ones under "more the
-agent found" cost nothing until they are opened, and a page that will not be
-photographed -- it timed out, or turned a headless browser away -- simply has no
-picture. What is photographed is what a browser is shown on first arrival, cookie
-banner and all.
-
-Only a server bound to this machine takes pictures. A browser that draws any
-address draws the router's page as readily as a shop's, and hands the picture
-back; bound to the network, the server would do that for anybody who can reach
-it, so it says so at startup and takes none -- which is also why the container
-does not carry the browser
+With [Playwright](https://playwright.dev/python/) installed (step 4 of
+[Setup](#setup)), each card shows a picture of the page it links to, taken by one
+headless browser the server launches on demand and closes after a minute idle.
+Only a server bound to this machine takes pictures, since a browser on the
+network would photograph a router's page for anyone who asked
 ([ADR-0065](docs/adr/0065-photograph-each-products-page-from-a-server-bound-to-this-machine.md)).
 
-A search takes tens of seconds, so the browser does not wait on one response.
-`GET /api/search/stream` runs the search and relays the agent's own log lines as
-Server-Sent Events, finishing on a `result` or a `failure`. `POST /api/search`
-does the same run in one JSON response, which is the shape a script wants:
+### The API
+
+`GET /api/search/stream` relays a run's log lines as Server-Sent Events, ending
+on `result` or `failure`. `POST /api/search` is the same run as one JSON reply:
 
 ```powershell
 curl -X POST http://127.0.0.1:8000/api/search `
@@ -807,9 +459,9 @@ curl -X POST http://127.0.0.1:8000/api/search `
 | --- | --- |
 | `GET /api/config` | The form's defaults -- the same ones `--help` prints |
 | `GET /api/models` | What a named server is serving, or why it could not be asked |
-| `GET /api/sources` | Whether a Trusted sources field names sites, and what is wrong if not |
-| `GET /api/bounds` | What the request itself asks for -- offered for the form to fill in, never applied |
-| `GET /api/screenshot` | A JPEG of the page at `url`, for the card that links to it -- where the server takes pictures |
+| `GET /api/sources` | Whether a Trusted sources field names sites |
+| `GET /api/bounds` | What the request itself asks for, offered and never applied |
+| `GET /api/screenshot` | A JPEG of the page at `url`, where the server takes pictures |
 | `POST /api/search` | One run, as JSON |
 | `POST /api/rank` | A finished run's products in another order |
 | `POST /api/pay` | One of those products bought, given the approval the page witnessed |
@@ -817,27 +469,15 @@ curl -X POST http://127.0.0.1:8000/api/search `
 
 ### The dev server
 
-Working on the UI itself is nicer through the Angular dev server, which rebuilds
-on save and proxies `/api` to the Python one:
-
 ```powershell
 python -m buy_agent.server         # in one terminal
 cd ui; npm start                   # in another -- http://localhost:4200
 ```
 
-See `ui/README.md` for how the app is put together, and [the web tier's
-components](docs/architecture.md#level-3----components-of-the-web-tier) for how
-it sits behind the API.
+It rebuilds on save and proxies `/api`. See `ui/README.md` and
+[the web tier's components](docs/architecture.md#level-3----components-of-the-web-tier).
 
 ## How it works
-
-The C4 diagrams in [docs/architecture.md](docs/architecture.md) draw the same
-thing a zoom level at a time -- Mermaid, so GitHub renders them in place:
-[system context](docs/architecture.md#level-1----system-context),
-[containers](docs/architecture.md#level-2----containers), [the pipeline's
-components](docs/architecture.md#level-3----components-of-the-agent-pipeline),
-[the web tier's](docs/architecture.md#level-3----components-of-the-web-tier),
-and [a streamed run end to end](docs/architecture.md#a-streamed-run-end-to-end).
 
 ```
 request ──▶ [LLM] refine into a search query
@@ -860,54 +500,22 @@ request ──▶ [LLM] refine into a search query
    hold to the bounds you set ▶ rank ▶ log top 3
 ```
 
-The control flow is fixed rather than left to the model to drive with tools. The
-LLM does the two things it is good at -- rewording a request and reading facts
-out of prose -- and ordinary Python does the rest. Small local models are
-unreliable at running a tool loop, but perfectly capable of these two steps.
+The control flow is fixed rather than a tool loop. The LLM does the two things
+small models are reliable at -- rewording a request and reading facts out of
+prose -- and Python does the rest (ADR-0002). What makes that work:
 
-Nine details make it work with a small model:
-
-- **Structured output.** Both LLM calls use `json_schema` mode -- Ollama's, or
-  vLLM's on the OpenAI-compatible side -- so decoding is constrained to the
-  schema and cannot drift into prose.
-- **Sentinels instead of nulls.** The extraction schema asks for `-1` rather
-  than `null` for an unknown price (`buy_agent/models.py`): a required `number`
-  makes it structurally impossible to answer `"N/A"` and fail validation for the
-  whole batch. `ExtractedProduct.to_product()` turns the sentinels back into
-  `None`.
-- **Reading the pages, not the snippets.** A DuckDuckGo snippet for "headphones
-  under $200" contains exactly one number: the $200 from the query. So each
-  result page is fetched and condensed (`buy_agent/fetch.py`), which keeps the
-  prompt small and gives the model something real to read. `--no-fetch` reverts
-  to snippets only.
-- **Reading the opinions too, not only the figures.** Each page is swept twice on
-  budgets of its own -- for the lines quoting a figure, and for the lines passing
-  judgement -- because a price says what a thing costs and only those say whether
-  to want it. [What the pages say](#what-the-pages-say) is the whole of it
-  (ADR-0024).
-- **Sources you can name.** `--source rtings.com --source @mkbhd` searches those
-  instead of the whole web, and since the pages a run reads are the pages every
-  fact is checked against, that makes provenance a property of the pipeline
-  rather than a promise (ADR-0027).
-- **Grounding.** Models fill gaps -- inventing a price, or lifting a product
-  straight out of the prompt's own example. `buy_agent/verification.py` drops
-  any product whose name is absent from the sources, and blanks any price,
-  rating or review count that does not appear in the text the model was shown. A
-  blanked figure scores neutral instead of winning.
-- **Quotes, checked as quotes, and cited.** Each one is the source page's own
-  words, looked for as running text on a page that names the product, dropped
-  where it is not there, and shown beside a link to the page that cleared it
-  (ADR-0025, ADR-0042).
-
-- **Bounds that are enforced, not searched for.** A budget in the request text
-  only shapes the query. `--max-price`, `--min-rating` and `--min-reviews` are
-  numbers checked in Python after the pages are read and the duplicates merged,
-  so the report answers the question that was asked -- and a product whose
-  figure no page printed is kept rather than dropped for the extractor's miss.
-- **A score that says what it is made of.** Every product carries the three
-  shares its score was blended from and the weight each went in at, with the
-  ones nothing was published for marked "assumed" -- because a missing rating
-  and a middling one both score 0.5, and only one of them is a measurement.
+- **Structured output.** Both calls use JSON-schema mode, so decoding cannot
+  drift into prose.
+- **Sentinels instead of nulls.** The schema asks for `-1` rather than `null`
+  for an unknown price, so `"N/A"` is impossible (`buy_agent/models.py`).
+- **Reading the pages, not the snippets.** A snippet for "headphones under $200"
+  holds one number: the $200. Each page is fetched and condensed
+  (`buy_agent/fetch.py`).
+- **Grounding.** `buy_agent/verification.py` drops products whose name no source
+  mentions and blanks any figure the text does not show. A blanked figure scores
+  neutral instead of winning.
+- **Quotes checked as quotes, and cited**, as above.
+- **Bounds enforced in Python**, as above.
 
 ### Ranking
 
@@ -919,36 +527,18 @@ Nine details make it work with a small model:
 | Popularity | 0.2 | `log10(reviews)`, saturating at 1,000 reviews |
 | Price | 0.3 | Relative to the other candidates: cheapest 1.0, dearest 0.0 |
 
-A missing criterion scores 0.5 rather than 0, so a listing that simply did not
-publish a rating is not buried beneath one that published a bad one. Adjust the
-mix through `AgentConfig(weights=RankingWeights(rating=0.7, price=0.3, ...))`.
-
-That rule has a catch, and the report answers it rather than hiding it: 0.5 is
-what a product with **no** rating scores and also what a thoroughly average one
-scores, so the total alone cannot tell a measurement from an assumption. Every
-score therefore comes with the shares it was blended from, and the assumed ones
-say so -- on the CLI:
+A missing criterion scores 0.5, not 0, so an unpublished rating is not buried
+under a bad one. Change the mix with
+`AgentConfig(weights=RankingWeights(rating=0.7, price=0.3, ...))`. Because 0.5 is
+also an average score, each score reports its shares, their weights, and which
+were assumed
+([ADR-0041](docs/adr/0041-report-what-a-score-is-made-of.md),
+[ADR-0045](docs/adr/0045-report-the-weights-a-score-was-blended-by.md)):
 
 ```
 #1  Anker Soundcore Q30
      score  : 0.650  (rating 0.50 x0.50 assumed, popularity 0.50 x0.20 assumed, price 1.00 x0.30)
 ```
-
-and under the bar on each card in the browser, with the same word. A report
-whose every product is assumed three times over is a run that read nothing
-useful, which is worth seeing next to the answer rather than only in the log
-above it ([ADR-0041](docs/adr/0041-report-what-a-score-is-made-of.md)). Which
-shares were assumed is decided where the scoring happens, never inferred from a
-share being 0.5 -- a product priced exactly mid-way through the set scores that
-having been read off a page.
-
-The `x0.50` beside each share is the weight it went in at, and it is there
-because the shares are each scored out of 1 on their own. Three of them under a
-total they do not add up to read as arithmetic that has gone wrong, and nothing
-else says whether a product placed first on its rating or on a price no page
-printed. A run reports what it ranked with, so the card draws the weights rather
-than working them out
-([ADR-0045](docs/adr/0045-report-the-weights-a-score-was-blended-by.md)).
 
 ## Tests
 
@@ -956,173 +546,52 @@ than working them out
 .\scripts\preflight.ps1       # everything CI checks, in its order -- or one at a time:
 
 python -m pytest              # the Python suite
-python -m pylint buy_agent    # ...and the linter over the package it covers
-python -m mypy buy_agent      # ...and the type checker, over that same package
+python -m pylint buy_agent    # the linter
+python -m mypy buy_agent      # the type checker
 cd ui; npm test               # the UI's own tests, in jsdom
-python -m pytest integration  # ...and against a real model, if one is pulled
+python -m pytest integration  # against a real model, if one is pulled
 
 python -m benchmark --scripted perfect   # score the pipeline, no model needed
 python -m benchmark                      # ...and score whatever is serving
 ```
 
-Neither of the first two touches the network or a model server, both run on
-Windows and on Linux, and both are measured against a coverage floor CI
-enforces. The third, in `integration/`, is the deliberate exception: it runs the
-pipeline against a real Ollama on a model small enough for a CPU, which is the
-only place the claims about JSON-schema decoding and Ollama's transport errors
-are actually put to Ollama. It lives outside `testpaths`, so `python -m pytest`
-cannot reach it, and a nightly job capped at five minutes is what runs it
-(ADR-0026). vLLM is not in that job -- it needs a GPU, and a CPU runner cannot
-host one honestly -- so its half is asserted in `tests/test_providers.py` and
-named as a gap in ADR-0028. A LiteLLM proxy is not in it either: in front of that
-same Ollama it would test the proxy's translation rather than this code (ADR-0068).
-
-Those tests ask whether the pipeline's promises held, which they do however
-badly the model read the pages -- so none of them can say whether a change made
-things better. `benchmark/` is the other half: ten fixed pages, an answer key
-recording what each prints for each product, and a scorer turning a run into
-eight shares in `[0, 1]` -- products found, products real, figures right,
-figures misattributed, links, quotes, quotes faithful, ranking order (ADR-0036).
-Only the model varies, so two scores a month apart are comparable; the nightly
-run is scored as well as checked, and `--scripted perfect` puts a hand-written
-answer through the whole real pipeline with no model at all and must come out at
-1.000.
-
-### The shape, read off the imports
-
-Which module may know about which is the thing this project says most often and
-the thing least able to break loudly: an import in the wrong direction runs
-perfectly. It passes that module's own tests, keeps the coverage floor, survives
-the mutation run, and shows up years later as the reason two things cannot be
-moved apart. `tests/test_architecture.py` is where those sentences are
-executable -- thirty-two rules over the import graph, parsed out of the package
-with [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython), costing
-no model, no network and no run
-([ADR-0047](docs/adr/0047-check-the-import-graph-with-archunit.md)).
-
-What they say, in a line each: the package is a line and the line runs one way,
-with no cycles and no import of the five trees that import it -- `tests/`,
-`integration/`, `benchmark/`, `demo/`, `scripts/`; every module sits in a layer
-that reaches only downward, so the pipeline never reads the config (which is what
-lets `rank_products`, `ground` and `Constraints` be tested with three arguments
-and no environment) and never pays (ADR-0046), paying never asks the model, and
-the model seam carries a prompt and an answer without knowing what an answer
-means (ADR-0038); one seam, one module, so exactly one file imports the AP2 SDK,
-one a model client, one the search library, one the HTML parser, one the
-browser the pictures are taken with (ADR-0065), and the four
-that speak HTTP are the four the suite patches; a setting is read where it is
-declared, and neither door is one of those places; the socket, the standard
-library's own network and every import from outside it are `server.py`'s alone
-(ADR-0010), while `api.py` reaches no socket, thread or queue; the package starts
-no process, installing Ollama and opening a browser being `scripts/start.ps1`'s
-(ADR-0023), but for the headless one that takes the pictures; and the steps take values and answer values, never reading a clock or
-a file, never chaining themselves -- the order of the pipeline is `BuyAgent.run`'s
-to know -- and never reaching the model, the fetcher or the search to decide an
-answer (ADR-0002).
-
-Each of those is written out beside the sentence it came from in
-[Tests](docs/testing.md), with the two things that make such a file worth having:
-an import under `if TYPE_CHECKING:` does not count, since it never runs, and a
-negated rule whose subject matches nothing *passes*, so every helper that names
-modules checks they exist and a thirty-third test counts the layer placings --
-a module renamed out of a rule, left out of the layer table or named in two of
-its rows fails a test instead of quietly becoming an exemption.
-
-What the counts are, what `tests/test_conventions.py` checks that coverage
-cannot, what pylint is configured to say and what it is deliberately not
-(ADR-0048), what mypy makes of annotations nothing used to read (ADR-0063),
-what the benchmark measures, the two mutation runs that grade the
-suites every Saturday, and the nightly audit that asks of both dependency lists
-the question Renovate does not -- not whether a pin has moved but whether what is
-pinned is known to be broken today (ADR-0062) -- are there too.
+Neither suite touches the network or a model server, and both have coverage
+floors. `integration/` runs against a real Ollama on a CPU-sized model, nightly
+with a five-minute cap (ADR-0026). `benchmark/` scores a run against a fixed
+answer key over ten pages (ADR-0036). `tests/test_architecture.py` holds the
+import graph ([ADR-0047](docs/adr/0047-check-the-import-graph-with-archunit.md)),
+and `tests/test_conventions.py` the rules between modules.
+[docs/testing.md](docs/testing.md) has the rest.
 
 ## Limitations
 
 - **A figure can be real but attached to the wrong product.** Grounding checks
-  that a number appears in the sources, not that it belongs to the product it
-  was filed under, and small models sometimes give two products the same review
-  count. Read the top 3 as candidates worth clicking rather than as a price
-  quote. This is the one limitation here that is measured rather than only
-  described: it is the benchmark's `attribution` metric.
-- **A quote is tied to a page, not to a product on it.** A quoted opinion has to
-  appear on a page that names the product (ADR-0025), so a verdict cannot move
-  between pages about unrelated things -- but a review page covering eight
-  headphones names all eight, and nothing stops a verdict moving between them.
-  The `source` link beside each quote is that page, which is what makes this one
-  checkable by eye rather than only describable (ADR-0042).
-- **A bound has to be typed, not implied -- but it is now offered.** "under $200"
-  in the request still shapes the search query and nothing else; `--max-price 200`
-  is what enforces it. What the run does do is *read* the request in ordinary
-  Python and say so: the CLI logs "your request says under $200 -- `--max-price
-  200` is what would enforce it", and the browser pre-fills that box for the
-  shopper to submit or clear (ADR-0059) -- before the search rather than after it:
-  Find products waits for that reading, and one that fills a box stops at the box
-  instead of running without it. Nothing is ever applied that was not
-  typed, because a model asked to read "200 hours of battery" as a budget drops
-  every product in the run and reports only that nothing was found. And a product
-  whose price no page printed is inside every budget, deliberately -- a blank is
-  the extractor having missed something more often than it is a $900 tag.
-- **A cached page is as current as its age, and so is a cached answer.** Both
-  are kept for a day by default, so a figure can be up to that stale while
-  reading as current, and the reading of it is a day old too. The two expire on
-  one clock and the pages are part of an answer's key, so an answer is never
-  reused for pages that have themselves gone stale; `--cache-ttl 0` is the run
-  that reads and asks everything fresh.
-- **A named source is a domain, not an author.** `--source @mkbhd` searches
-  YouTube for that handle and keeps the YouTube pages that come back; a video by
-  somebody else that mentions the handle can get through. The report links to
-  the page, so whose it is can be seen.
+  that a number is in the sources, not whose it is. The benchmark's
+  `attribution` metric measures this.
+- **A quote is tied to a page, not a product on it.** A review of eight
+  headphones names all eight. The quote's `source` link shows the page.
+- **A bound has to be typed.** It is noticed and offered, never applied.
+- **A cached page or answer is as current as its age**, up to a day by default.
+- **A named source is a domain, not an author.** `--source @mkbhd` keeps YouTube
+  pages, including other people's.
 - **Names are only as specific as the model makes them.** `lfm2.5` reported
   "Bose ANC" for a product the page named in full.
-- **A mixed-currency search scores most of itself on nothing.** Prices are
-  compared inside one currency and converted never (ADR-0043), so a search
-  returning five currencies gets a price criterion that is "assumed" for four of
-  them. That is the true state of what the run knows, and the cards say so --
-  but the ranking is then carried by rating and popularity alone. `--currency`
-  chooses *which* of the five is the one scored (ADR-0056); it cannot make the
-  other four comparable, because that would need a rate.
-- **Paying is only as good as the page it read.** The mandates are signed
-  correctly and bind to a price a merchant signed, but *which* merchant is the
-  site the product page came from, and the product is whatever the extraction
-  filed under that name -- both of which the limitation at the top of this list
-  applies to. It is at least the *right* page now: the cart is built from the
-  offer the headline price came off (ADR-0058), so a merge can no longer name the
-  shop that quoted a different figure. The approval prompt shows all three so the
-  mistake is visible before it is signed; nothing downstream can catch it.
-- **No real money has moved through the `http` rail.** It has been driven end to
-  end against a purpose-built local counterparty -- one that signs the checkout,
-  receives both mandates and checks that the Payment Mandate binds to the
-  checkout *it* signed -- and against no payment processor. That counterparty is
-  [`demo/merchant.py`](demo/README.md#a-merchant-for-the-http-rail), and
-  `python -m demo.merchant --once` drives the rail against it on any machine
-  with the AP2 SDK installed. AP2 deliberately
-  says nothing about the commerce protocol around it, so the two request shapes
-  (`{url}/checkout`, `{url}/payment`) are this project's choice and are the part
-  to expect to adjust for whatever you integrate with. The mandates inside them
-  are the standard's.
-- A shop or a search that says "come back later" is asked once more, and only
-  that: a 429 or a 503 waits the `Retry-After` it named, capped at five seconds,
-  and a search whose every engine failed waits two (ADR-0053). A 403, a 404 and a
-  timeout are answers, not invitations. The model is the other way about -- one
-  question, bounded by `--model-timeout`, never repeated (ADR-0051) -- so a model
-  server that went quiet holding the prompt now ends the run with the remedy
-  rather than hanging it.
-- Some shops answer with JavaScript-rendered pages or a 403; those results fall
-  back to their snippet rather than failing the run. Which is why the run says
-  how the fetching went, on the CLI and in the browser alike: "Got usable page
-  text from 0 of 10 result(s): 7 refused (403), 2 timed out". Grounding blanks
-  every figure the pages did not back, so a report of "price unknown" throughout
-  is either a bad model or nothing having been read, and that line is which.
-- DuckDuckGo rate-limits heavy use; the agent asks a second time and then reports
-  it as a `SearchError`. `--backend` is the way out of it: `searxng` is an
-  instance you run (`$SEARXNG_HOST`), `brave` a key you hold (`$BRAVE_API_KEY`),
-  and each is one row in one table
-  ([ADR-0057](docs/adr/0057-a-search-backend-is-a-row-in-a-table.md)). Only the
-  default is exercised against the real thing: the nightly run fakes the web on
-  purpose (ADR-0026), so the other two rows are asserted against a stubbed
-  transport and nothing more.
-- Only `lfm2.5` (1.2B) has been measured end to end for *speed*: it works, takes
-  ~75s, and most of that is extraction. The failure modes above are the ones a
-  small model shows, so a larger model should improve on them -- `python -m
-  benchmark --model <tag>` is how to find out rather than assume, but no model
-  larger than the nightly's `qwen3:0.6b` has been scored yet.
+- **A mixed-currency search scores most of itself on nothing**, since prices are
+  never converted (ADR-0043). `--currency` picks which one is scored.
+- **Paying is only as good as the page it read**: the merchant is the site the
+  product page came from. The prompt shows it before anything is signed.
+- **No real money has moved through the `http` rail.** It has been driven against
+  [`demo/merchant.py`](demo/README.md#a-merchant-for-the-http-rail) only. The
+  two request shapes are this project's choice; the mandates are the standard's.
+- A 429 or 503 is retried once after its `Retry-After` (capped at five seconds),
+  a failed search after two (ADR-0053). The model is asked once, bounded by
+  `--model-timeout` (ADR-0051).
+- Pages that refuse or need JavaScript fall back to their snippet, and the run
+  says how fetching went: "Got usable page text from 0 of 10 result(s): 7 refused
+  (403), 2 timed out".
+- DuckDuckGo rate-limits heavy use. `--backend searxng` (`$SEARXNG_HOST`) or
+  `brave` (`$BRAVE_API_KEY`) are the way out
+  ([ADR-0057](docs/adr/0057-a-search-backend-is-a-row-in-a-table.md)); only the
+  default is exercised against the real thing.
+- No model larger than the nightly's `qwen3:0.6b` has been scored; `python -m
+  benchmark --model <tag>` is how to find out.

@@ -3,20 +3,10 @@
     Runs the gate .github/workflows/ci.yml applies, on this machine.
 
 .DESCRIPTION
-    Both of ci.yml's jobs, step for step and in its order: the Python suite under
-    coverage, the floor, pylint and mypy; then the UI's tests under coverage, the
-    build, the linter and the formatting check. A job stops at its first failing
-    step, as it does on a runner -- `coverage report` after a red suite reports a
-    floor nobody can act on -- and the other job runs anyway, as the other runner
-    would, so one run says everything that is wrong.
-
-    The commands are written out rather than read off ci.yml, which is a YAML file
-    this script has no parser for. tests/test_conventions.py holds the two to the
-    same list instead, so a step added there and not here is a red test.
-
-    Run scripts/setup.ps1 first: the Python half is run with the .venv's own
-    interpreter, activated or not, and needs the AP2 SDK for the coverage floor to
-    be reachable at all.
+    Both of ci.yml's jobs, step for step and in its order. A job stops at its
+    first failing step and the other runs anyway, as on runners. The commands are
+    written out here and held to ci.yml by tests/test_conventions.py. Run
+    scripts/setup.ps1 first.
 
 .PARAMETER Only
     One job rather than both -- `python` or `ui` -- for a change that touched one.
@@ -58,11 +48,8 @@ function Interpreter {
 }
 
 function Job([string]$name, [string]$directory, [string]$exe, [string[][]]$steps) {
-    # Runs each step in $directory until one exits non-zero, and adds the command
-    # that did to $failed. Not `Run`, which throws: a failure here is a result to
-    # report beside the other job's, not a stop. Nor an answer handed back, which
-    # would mean capturing the pipeline -- and with it every line the tools print,
-    # which is the output this script exists to show.
+    # Runs each step until one fails and records it in $failed, without throwing
+    # or capturing the tools' output.
     Push-Location $directory
     try {
         foreach ($arguments in $steps) {
