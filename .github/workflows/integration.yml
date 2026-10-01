@@ -2,10 +2,7 @@ name: Integration tests
 
 on:
   schedule:
-    # 03:41 UTC, nightly. Off the hour for the reason mutation.yml is: scheduled
-    # runs queue behind everyone else's at :00 and can start an hour late. GitHub
-    # only schedules workflows that are on the default branch, so this fires once
-    # it is on main.
+    # 03:41 UTC nightly, off the hour.
     - cron: "41 3 * * *"
   workflow_dispatch:
 
@@ -18,29 +15,18 @@ permissions:
 
 jobs:
   integration:
-    # Linux only, unlike ci.yml. This job is not about platform differences --
-    # it is about whether a real model still answers with the schema it was
-    # given, which is the same question on either platform and twice the runner
-    # minutes to ask twice. What is platform-specific here is Ollama's own
-    # packaging, and that is Ollama's to test.
+    # Linux only: the question is whether a real model honours the schema.
     name: pytest integration (Python 3.14, qwen3:0.6b on CPU)
     runs-on: ubuntu-latest
-    # Everything: installing Ollama, pulling half a gigabyte of model, and the
-    # inference itself on four cores with no GPU. A nightly job that cannot say
-    # what it found inside five minutes has stopped being a smoke test, and the
-    # cap is what turns "the model got slower" into a red run rather than into
-    # runner minutes nobody is watching.
+    # Install, pull and inference on four CPU cores, inside five minutes (ADR-0026).
     timeout-minutes: 5
     defaults:
       run:
-        # Not the runner's default shell: `shell: bash` adds `pipefail`, which is
-        # what makes the piped install below fail when the download does.
+        # pipefail, so the piped install fails when the download does.
         shell: bash
 
     env:
-      # A missing Ollama is a skip on a developer's machine and a failure here:
-      # the one thing a nightly job is worst at reporting is having quietly run
-      # nothing. See integration/__init__.py.
+      # A missing Ollama fails here rather than skipping; see integration/__init__.py.
       BUY_AGENT_REQUIRE_OLLAMA: "1"
 
     steps:
@@ -50,7 +36,6 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
-          # As in ci.yml: the file this job installs, and the one it includes.
           cache-dependency-path: |
             requirements-dev.txt
             requirements.txt
@@ -58,18 +43,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
-      # Deliberately unpinned, and deliberately uncached, where the rest of this
-      # project pins everything. Half of what this job is for is noticing that a
-      # new Ollama or a re-tagged model has changed how `method="json_schema"`
-      # decodes -- which a pinned pair would hide until somebody upgraded.
+      # Deliberately unpinned and uncached: noticing a release that changes how
+      # json_schema decodes is half of what this job is for.
       - name: Install Ollama
         run: curl -fsSL https://ollama.com/install.sh | sh
 
       - name: Start Ollama
         run: |
-          # The install script starts a systemd service where there is one, so
-          # this only fills in for a runner where there is not -- starting a
-          # second server would just fail on the bound port.
+          # The install script may already have started a service.
           if ! curl -fsS http://localhost:11434/api/version >/dev/null 2>&1; then
             ollama serve > ollama.log 2>&1 &
           fi
@@ -82,8 +63,7 @@ jobs:
           echo "Ollama did not answer on :11434 within 30s" >&2
           exit 1
 
-      # The tag integration/__init__.py names, which
-      # tests/test_conventions.py checks this line still agrees with.
+      # The tag integration/__init__.py names, held by tests/test_conventions.py.
       - name: Pull the model
         run: ollama pull qwen3:0.6b
 

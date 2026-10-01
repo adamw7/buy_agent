@@ -1,22 +1,13 @@
 {
   $schema: 'https://docs.renovatebot.com/renovate-schema.json',
 
-  // Renovate was already running against this repository -- it keeps the
-  // Dependency Dashboard issue up to date -- but with no config file here it read
-  // whatever its runner handed it, and that only ever watched
-  // `.github/workflows/`. `requirements.txt`, `requirements-dev.txt`,
-  // `requirements-mutation.txt`, `ui/package.json` and the `Dockerfile` were
-  // invisible to it, so no pull request for any of them was ever possible. This
-  // file is that config, in the repository, reviewed like everything else in it.
+  // Without this file Renovate watched only `.github/workflows/`.
   extends: ['config:recommended'],
 
-  // The one issue that says what is pending and what was found, so a run that
-  // decides to raise nothing still leaves a record of why.
+  // The dashboard records what is pending, even when nothing is raised.
   dependencyDashboard: true,
 
-  // Every direct dependency is pinned exactly and `pytest.ini` makes a
-  // `DeprecationWarning` an error, so the run that goes red is the run where
-  // somebody moved a pin -- which is the whole point of letting these through.
+  // Every pin is exact and deprecations are errors, so moving a pin is tested.
   enabledManagers: [
     'github-actions',
     'dockerfile',
@@ -25,26 +16,17 @@
     'custom.regex',
   ],
 
-  // `requirements-ap2-deps.txt` is invisible to the pip manager's own default:
-  // it allows one `-word` after "requirements" and this name has two, so the
-  // file carrying `cryptography` was never read and no pull request for it was
-  // ever possible -- four majors of the library mandates are signed with went
-  // by unseen. The field is mergeable, so this adds the file rather than
-  // replacing the four the default already finds.
+  // The default pattern misses this name (two words after "requirements").
   pip_requirements: {
     managerFilePatterns: ['/(^|/)requirements-ap2-deps\\.txt$/'],
   },
 
   customManagers: [
     {
-      // Node and Python are quoted in prose as well as pinned in YAML. Renovate
-      // has no manager for a sentence, and `tests/test_conventions.py` reads both
-      // of these files against `ci.yml`, so they are matched by hand rather than
-      // left to drift a pull request at a time.
+      // Versions quoted in prose, which tests/test_conventions.py holds to ci.yml.
       customType: 'regex',
-      description: 'Node where the docs, the start script and the preflight skill name it',
+      description: 'Node where the start script and the preflight skill name it',
       managerFilePatterns: [
-        'docs/testing.md',
         'scripts/start.ps1',
         '.claude/skills/preflight/SKILL.md',
       ],
@@ -55,9 +37,8 @@
     },
     {
       customType: 'regex',
-      description: 'Python where the docs, the start script and the preflight skill name it',
+      description: 'Python where the start script and the preflight skill name it',
       managerFilePatterns: [
-        'docs/testing.md',
         'scripts/start.ps1',
         '.claude/skills/preflight/SKILL.md',
       ],
@@ -69,75 +50,30 @@
 
   packageRules: [
     {
-      // `@angular/build` peer-depends on vitest, and every stable 22.x asks for
-      // `^4.0.8` -- 22.1.5 through 22.1.8 -- so a vitest major is a pull request
-      // that cannot be made green: `npm ci` refuses the tree, and regenerating
-      // the lockfile refuses it for the same reason (#144). It is held for
-      // approval on the dependency dashboard rather than pinned away here, so
-      // what releases it is a tick there and not a version somebody has to
-      // remember to delete. That tick has a date now: 22.2.0-next.7 widened the
-      // peer to `^4.0.8 || ^5.0.0`, so the hold comes off once that line is
-      // stable. Only the metadata is in the way in the meantime -- vitest 5 runs
-      // this suite on the 22.1.8 builder as it stands -- but standing an npm
-      // override in for the peer range until then is exactly the leftover this
-      // rule exists to avoid. `@vitest/coverage-v8` peers vitest exactly, so the
-      // two only ever move together and the rule names both.
-      //
-      // A hold is two steps, and #199 is what the second one is for. Renovate
-      // reads `dependencyDashboardApproval` under `!branchExists` and nowhere
-      // else, so it gates a branch being *created* and says nothing about a
-      // branch already standing. This rule landed (#147) with
-      // `renovate/major-vitest-monorepo` still there from #144, which left that
-      // one branch outside the hold for good: vitest 5.0.1 was pushed onto it
-      // and raised as the pull request that failed `npm ci` exactly as its
-      // predecessor had. Nothing prunes it either -- an update Renovate still
-      // has is an update on the branch list, and only a branch off that list is
-      // stale -- so the branch is what keeps the hold off itself. Closing one of
-      // these is therefore closing the pull request *and* deleting its branch,
-      // and only then does the next release arrive on the dashboard rather than
-      // in a red run.
+      // @angular/build peer-depends on vitest ^4 until 22.2 is stable (#144).
+      // A hold gates only a branch's creation, so closing a held pull request
+      // means deleting its branch too (#199).
       matchManagers: ['npm'],
       matchPackageNames: ['vitest', '@vitest/**'],
       matchUpdateTypes: ['major'],
       dependencyDashboardApproval: true,
     },
     {
-      // Angular 22 peer-depends on TypeScript `>=6.0 <6.1` -- `@angular/build`
-      // and `@angular/compiler-cli` alike, in 22.1.7 and every 22.x published
-      // since, the 22.2 line included -- and 7.0 is the `typescript-go` rewrite
-      // rather than a range somebody forgot to widen. A major is another pull
-      // request that cannot be made green: `npm ci` refuses the lockfile the
-      // branch leaves untouched (#142), and regenerating it only moves the
-      // failure to `ng build`, where `@angular/compiler-cli` reads a TypeScript
-      // API 7.0 no longer has and the compilation dies before a source file is
-      // read. Held on the dashboard for the same reason as the rule above,
-      // released the same way -- a tick there once Angular's peer range moves --
-      // and bypassed the same way in the meantime: `renovate/typescript-7.x`
-      // outlived #142 as the vitest branch outlived #144, which is what raised
-      // #198.
+      // Angular 22 peer-depends on TypeScript <6.1; 7.0 is the Go rewrite (#142).
       matchManagers: ['npm'],
       matchPackageNames: ['typescript'],
       matchUpdateTypes: ['major'],
       dependencyDashboardApproval: true,
     },
     {
-      // Node is pinned in six places: the job in `ci.yml` that builds the UI, the
-      // one in `release.yml`, the build stage of the `Dockerfile`, and the three
-      // files above -- docs/testing.md, `scripts/start.ps1` and the preflight
-      // skill, which says which toolchain it is the gate for.
-      // `tests/test_conventions.py` asserts all of them agree, so a pull request
-      // moving one is a red run and every occurrence moves together. `CLAUDE.md`
-      // names both pins too and is deliberately not in the list above: the same
-      // pattern would take the `Node 22.22.3+` floor beside them, which is
-      // Angular's minimum and not a version anything here sets up.
+      // Every Node pin moves together; a convention test holds them to ci.yml.
+      // CLAUDE.md is left out: the pattern would catch Angular's 22.22.3+ floor.
       matchDepNames: ['node'],
       groupName: 'Node',
       commitMessageTopic: 'Node',
     },
     {
-      // The same, for the Python that `ci.yml`, `integration.yml`,
-      // `mutation.yml`, `release.yml` and the runtime stage of the image set up
-      // -- eight places with the three files above.
+      // The same, for Python.
       matchDepNames: ['python'],
       groupName: 'Python',
       commitMessageTopic: 'Python',

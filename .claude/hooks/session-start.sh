@@ -1,17 +1,7 @@
 #!/usr/bin/env bash
-# Put the Node the Angular CLI needs on PATH, install ui/'s dependencies, and
-# make the Python half of the project runnable in a .venv.
-#
-# The images Claude Code on the web runs in ship a Node older than the one
-# ci.yml pins, and the Angular CLI refuses to run under it -- so every session
-# used to start by hunting for another interpreter and finding none. This
-# fetches the pinned build once, into a directory the container keeps, and
-# leaves it on PATH for the rest of the session. They ship no Python
-# dependencies at all, so the other half installs what ci.yml installs.
-#
-# The versions are read out of ci.yml rather than written down again here: that
-# file is the one pin the Dockerfile, scripts/start.ps1 and docs/testing.md
-# already follow, and a fourth copy would be a fourth thing to bump.
+# Remote sessions only: put ci.yml's Node on PATH (the image's is too old for the
+# Angular CLI), run npm ci in ui/, and build .venv as ci.yml's Python job does.
+# Versions are read out of ci.yml, never written down again here.
 set -euo pipefail
 
 [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || exit 0
@@ -22,15 +12,12 @@ say() { printf '%s\n' "$*" >&2; }
 # Sort -V puts the lower version first, so this is "have is at least want".
 at_least() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ]; }
 
-# What ci.yml pins, and the whole of what either half below decides for itself.
 want=$(sed -n 's/.*node-version:[[:space:]]*"\([0-9][0-9.]*\)".*/\1/p' \
        "$root/.github/workflows/ci.yml" | head -1)
 want_py=$(sed -n 's/.*python-version:[[:space:]]*"\([0-9][0-9.]*\)".*/\1/p' \
           "$root/.github/workflows/ci.yml" | head -1)
 
-# Node's failures are Node's: a return rather than an exit, so an architecture
-# without a build or a download that would not come leaves the Python half
-# below still installed and the summary at the end still printed.
+# A return, not an exit, so the Python half still runs.
 node_bin=""
 install_node() {
   if [ -z "$want" ]; then
@@ -79,11 +66,8 @@ install_node() {
 }
 install_node || true
 
-# The Bash tool starts a fresh shell per call, so a directory this hook puts on
-# PATH is gone by the next one unless it is written down. Both halves below end
-# by asking for that, which is why it is a function rather than the same four
-# lines twice: an interpreter reachable one way and not the other is the failure
-# the whole hook exists to prevent.
+# The Bash tool starts a fresh shell per call, so PATH entries go to
+# $CLAUDE_ENV_FILE.
 keep_on_path() {
   local directory=$1
   if [ -n "$directory" ] && [ -n "${CLAUDE_ENV_FILE:-}" ] \
@@ -94,18 +78,8 @@ keep_on_path() {
 
 keep_on_path "$node_bin"
 
-# ui/ is an ordinary npm workspace; nothing on the Python side needs it.
-#
-# npm writes ui/node_modules/.package-lock.json as the last step of an install, so
-# a copy of it newer than the lockfile is a tree already installed from that
-# lockfile -- which is a resumed session, where a reinstall is half a minute spent
-# to change nothing. A missing marker is the cold container this hook is for.
-#
-# `npm ci` and not `npm install`, as in ci.yml and scripts/setup.ps1: it installs
-# the lockfile as written, where `npm install` under the pinned Node's npm rewrote
-# it -- every `libc` field gone -- leaving each session a diff in a file nobody
-# touched. And since restoring that file makes it newer than the marker, the next
-# resume reinstalled and rewrote it again.
+# A marker newer than the lockfile means a resumed session: skip. `npm ci`, as
+# in ci.yml, because `npm install` rewrites the lockfile.
 ui="ui/ has no package.json"
 installed="$root/ui/node_modules/.package-lock.json"
 if [ -f "$root/ui/package.json" ]; then
@@ -122,31 +96,15 @@ if [ -f "$root/ui/package.json" ]; then
   say "session-start: $ui."
 fi
 
-# The Python half is ci.yml's Python job and not a second opinion about it:
-# requirements-dev.txt, and then the AP2 SDK in an install of its own for the
-# reasons requirements-ap2.txt gives. Both, because the SDK is only optional to a
-# *run*: to the suite it is the payment tests, which skip without it, and the 99%
-# coverage floor, which cannot be reached with them sitting out -- so a session
-# without it reports a red gate for a checkout CI would pass.
-#
-# Into .venv, which is the environment CLAUDE.md documents and .gitignore already
-# covers, rather than the image's own site-packages, where `pip` and `python` are
-# not always the same installation.
+# ci.yml's Python job: requirements-dev.txt, then the AP2 SDK, without which the
+# coverage floor fails. Into .venv, as CLAUDE.md documents.
 venv="$root/.venv"
 stamp="$venv/.session-start-installed"
 venv_bin=""
 py="python is unavailable"
 
-# The interpreter the venv is built from, as its path and its version: the newest
-# one on PATH, and not whichever one `python3` names. The images this runs in point
-# python3 at 3.11 with a 3.12 and a 3.13 beside it, and 3.11 cannot so much as parse
-# the suite -- quotes nested in an f-string are 3.12's (PEP 701). A final release
-# beats a pre-release whatever the numbers say, the next Python's release candidate
-# being newer than any final and the pydantic ci.yml installs refusing to import on
-# one. Every directory on PATH is looked in, since the first match of a name is the
-# venv's own once a session has put it there -- and those are no candidates for
-# building it. Between two of one version the earlier on PATH stays. Prints nothing
-# where there is no Python at all.
+# The newest final Python on PATH (the image's python3 is too old to parse the
+# suite), skipping the venv's own directory; the earlier on PATH wins a tie.
 newest_python() {
   local directory path said version level final best="" best_version="" best_final=""
   local -a directories
@@ -181,16 +139,12 @@ install_python() {
   system_py=${chosen% *}
   have_py=${chosen##* }
 
-  # Unlike Node there is no portable build to fetch, so the newest interpreter under
-  # the pin is said once and used anyway: it is the platform difference ci.yml
-  # matrixes for, not a session that cannot run the suite.
+  # No portable Python to fetch, so one under the pin is used with a warning.
   if [ -n "$want_py" ] && ! at_least "$want_py" "$have_py"; then
     say "session-start: python $have_py is the newest on PATH and under ci.yml's $want_py pin; using it anyway."
   fi
 
-  # A venv built from an older interpreter -- by this hook before it looked past
-  # python3, or before a newer one arrived -- is rebuilt rather than kept. Its stamp
-  # goes with it, so the install below runs again.
+  # A venv older than the chosen interpreter is rebuilt, stamp and all.
   if [ -x "$venv/bin/python" ]; then
     built=$("$venv/bin/python" -c 'import platform; print(platform.python_version())' 2>/dev/null || true)
     if [ -z "$built" ] || ! at_least "$have_py" "$built"; then
@@ -210,10 +164,7 @@ install_python() {
   fi
   venv_bin="$venv/bin"
 
-  # The stamp is the npm marker's argument in the other language: written last, so
-  # a requirements file newer than it is one edited since the install it records.
-  # A resumed session then costs nothing, and a cold container, which has no
-  # .venv at all, installs.
+  # Written last, so a requirements file newer than the stamp means reinstall.
   up_to_date=""
   if [ -f "$stamp" ]; then
     up_to_date=yes
@@ -236,9 +187,7 @@ install_python() {
     return 1
   fi
 
-  # Two commands and not one: --no-deps is not a per-line option and the SDK is
-  # the only thing here that needs it, which is what requirements-ap2.txt is a
-  # second file for.
+  # --no-deps applies to a whole file, hence requirements-ap2.txt.
   if ! "$venv/bin/python" -m pip install --quiet --disable-pip-version-check -r "$root/requirements-ap2-deps.txt" >&2 \
      || ! "$venv/bin/python" -m pip install --quiet --disable-pip-version-check --no-deps -r "$root/requirements-ap2.txt" >&2; then
     py="the venv is installed WITHOUT the AP2 SDK -- the payment tests will skip and the coverage floor will fail"
@@ -251,11 +200,8 @@ install_python() {
 install_python || true
 say "session-start: $py."
 
-# Reached by PATH rather than by an activate nobody sourced.
 keep_on_path "$venv_bin"
 
-# Which interpreter the venv ended up with is worth a session knowing, the pin
-# being one thing the newest the image carries is free to be under.
 python_line="there is no .venv, so $py"
 if [ -n "$venv_bin" ] && [ -x "$venv_bin/python" ]; then
   python_line=$(printf '.venv runs Python %s (ci.yml pins %s), and %s' \
@@ -263,8 +209,7 @@ if [ -n "$venv_bin" ] && [ -x "$venv_bin/python" ]; then
        || echo 'an interpreter it cannot run')" "${want_py:-nothing}" "$py")
 fi
 
-# Stdout is what the session reads, so it says what actually happened rather
-# than what was meant to.
+# Stdout is what the session reads.
 printf 'Node %s is on PATH (ci.yml pins v%s), and %s. The %s.\n' \
        "$(node --version 2>/dev/null || echo 'is unavailable')" "$want" "$ui" \
        "$python_line"

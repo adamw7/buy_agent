@@ -2,9 +2,7 @@ name: Mutation testing
 
 on:
   schedule:
-    # 05:17 UTC on Saturdays. Off the hour on purpose: scheduled runs queue behind
-    # everyone else's at :00 and can start an hour late. GitHub only schedules
-    # workflows that are on the default branch, so this fires once it is on main.
+    # 05:17 UTC on Saturdays, off the hour.
     - cron: "17 5 * * 6"
   workflow_dispatch:
 
@@ -19,14 +17,11 @@ jobs:
   mutmut:
     name: mutmut (Python 3.14)
     runs-on: ubuntu-latest
-    # A full run is a couple of minutes on a four-core runner; an hour is the
-    # guard against a mutant that hangs the suite in a way mutmut's own timeout
-    # does not catch, not an expectation.
+    # A run is a couple of minutes; the hour guards a hung mutant.
     timeout-minutes: 60
     defaults:
       run:
-        # As in the other three workflows: `shell: bash` is `bash -eo pipefail`,
-        # so the pipe in the report step below fails when its left-hand side does.
+        # pipefail, so the report's pipe fails with its left-hand side.
         shell: bash
 
     steps:
@@ -36,7 +31,6 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
-          # As in ci.yml: every file the steps below hand pip, includes and all.
           cache-dependency-path: |
             requirements-mutation.txt
             requirements-dev.txt
@@ -47,16 +41,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-mutation.txt
 
-      # As in ci.yml, and for the same reasons requirements-ap2.txt gives: the
-      # payment tests need the SDK, and a mutation run tests what the suite tests.
+      # The payment tests need the SDK, as in ci.yml.
       - name: Install the AP2 SDK
         run: |
           pip install -r requirements-ap2-deps.txt
           pip install --no-deps -r requirements-ap2.txt
 
-      # Settings, including what to mutate, come from setup.cfg. mutmut exits 0
-      # whatever the mutants do; what fails this job is the floor in
-      # scripts/mutation_report.py.
+      # Settings are in setup.cfg; the floor in scripts/mutation_report.py fails the job.
       - name: Run mutation testing
         run: python -m mutmut run
 

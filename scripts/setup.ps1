@@ -4,31 +4,15 @@
     Takes no arguments.
 
 .DESCRIPTION
-    What .claude/hooks/session-start.sh does for a remote session, for a machine a
-    person sits at: a .venv holding requirements-dev.txt and the AP2 SDK, and ui\
-    installed the way ci.yml installs it. scripts/start.ps1 is the other script
-    here and answers a different question -- it installs what a *run* needs and
-    serves the page -- so a checkout it set up passes nothing: no pytest, no
-    linter, and no SDK unless the environment asked to pay.
+    What .claude/hooks/session-start.sh does for a remote session: a .venv with
+    requirements-dev.txt and the AP2 SDK (without which the coverage floor fails),
+    and ui\ installed as ci.yml installs it. scripts/start.ps1 sets up a *run*,
+    not the gate.
 
-    The SDK is the one install worth saying out loud. It is optional to a run and
-    not to the suite: without it the payment tests skip, and the coverage floor
-    cannot be reached with them sitting out -- so a checkout without it reports a
-    red gate that CI would pass. It is installed in two commands, for the reasons
-    requirements-ap2.txt gives, and then asked for, pip exiting 0 for an install
-    that cannot be imported being this dependency's documented failure.
-
-    Python and Node are what it will not install, and it checks both against the
-    versions ci.yml pins, read out of that file rather than written down again:
-    it is the one pin the Dockerfile, the start script and docs/testing.md
-    already chase. An older Node is refused -- the Angular CLI refuses it too, a
-    step later and less clearly -- while an older Python is named and used, the
-    difference being the platform difference ci.yml matrixes for and not a
-    checkout that cannot run the suite.
-
-    Each step is skipped where it is already done, so it is also what to run
-    after a pull that moved a requirements file or the lockfile. Ends by saying
-    what to run next: scripts/preflight.ps1, the gate CI applies.
+    Python and Node are checked against ci.yml's pins, never installed: an older
+    Node is refused, an older Python named and used. Each step is skipped where
+    done, so it is also what to run after a pull. Ends by naming
+    scripts/preflight.ps1.
 
 .EXAMPLE
     .\scripts\setup.ps1
@@ -62,17 +46,14 @@ function Run([string]$exe, [string[]]$arguments, [string]$failure) {
 }
 
 function Stale([string]$made, [System.IO.FileInfo[]]$from) {
-    # Whether $made is missing, or older than any of the files it is made from --
-    # start.ps1's helper, for the same two questions: is node_modules older than
-    # the lockfile, and is the venv older than a requirements file.
+    # Whether $made is missing, or older than any file it is made from.
     if (-not (Test-Path -LiteralPath $made)) { return $true }
     $since = (Get-Item -LiteralPath $made -Force).LastWriteTime
     [bool]($from | Where-Object { $_.LastWriteTime -gt $since } | Select-Object -First 1)
 }
 
 function Pinned([string]$key) {
-    # The version ci.yml sets up under $key -- read and never written here, so a
-    # pin Renovate bumps there is the pin this checks against the same day.
+    # The version ci.yml sets up under $key, read and never written here.
     $found = Select-String -LiteralPath $ci -Pattern "^\s+${key}:\s*`"([0-9.]+)`"" |
         Select-Object -First 1
     if (-not $found) { throw "ci.yml pins no $key; this script has outlived its rule" }
@@ -80,8 +61,7 @@ function Pinned([string]$key) {
 }
 
 function Interpreter {
-    # The venv's python, spelt the way whichever platform made it spells it: a
-    # pwsh on Linux finds bin/, the Windows this is mostly run on Scripts\.
+    # The venv's python: bin/ on Linux, Scripts\ on Windows.
     @('.venv\Scripts\python.exe', '.venv/bin/python') |
         ForEach-Object { Join-Path $root $_ } |
         Where-Object { Test-Path -LiteralPath $_ } |
@@ -119,8 +99,7 @@ try {
     }
 
     Step 'Python dependencies'
-    # The stamp is session-start.sh's, and its argument: written last, so a
-    # requirements file newer than it is one a pull has moved since.
+    # Session-start.sh's stamp: a requirements file newer than it means reinstall.
     $stamp = Join-Path $venv '.setup-installed'
     $requirements = @(Get-Item 'requirements.txt', 'requirements-dev.txt',
         'requirements-ap2-deps.txt', 'requirements-ap2.txt')
@@ -131,8 +110,7 @@ try {
             '-m', 'pip', 'install', '--quiet', '--disable-pip-version-check',
             '-r', 'requirements-dev.txt'
         ) 'could not install requirements-dev.txt'
-        # Two commands and not one: --no-deps is not a per-line option, and the
-        # SDK is the only thing here that needs it.
+        # --no-deps applies to a whole file, hence requirements-ap2.txt.
         Run $python @(
             '-m', 'pip', 'install', '--quiet', '--disable-pip-version-check',
             '-r', 'requirements-ap2-deps.txt'
@@ -163,10 +141,8 @@ try {
     Step 'UI dependencies'
     Push-Location (Join-Path $root 'ui')
     try {
-        # npm writes its own record of an install after the lockfile, so a lockfile
-        # newer than that record is one a pull changed since. `npm ci` rather than
-        # `npm install`: it is what ci.yml runs, and it installs the lockfile as
-        # written instead of rewriting it.
+        # A lockfile newer than npm's install record is one a pull changed. `npm ci`,
+        # as in ci.yml, installs it without rewriting it.
         if (Stale 'node_modules\.package-lock.json' @(Get-Item 'package-lock.json')) {
             Run 'npm' @('ci', '--no-audit', '--no-fund') 'npm ci failed'
         } else {
@@ -176,10 +152,8 @@ try {
         Pop-Location
     }
 
-    # .gitattributes checks every text file out with LF, but only from the next
-    # time git writes it: a clone made before that file existed keeps its CRLF
-    # copies, and `npm run format:check` fails on every one of them. Named and not
-    # fixed, the fix overwriting whatever in the tree is uncommitted.
+    # A clone made before .gitattributes keeps CRLF files, which fail
+    # format:check. Named, not fixed, since fixing would overwrite uncommitted work.
     Step 'Line endings'
     if (-not (Have 'git')) {
         Note 'git is not on PATH, so the checkout is not checked'
@@ -192,8 +166,8 @@ try {
             Note "$($crlf.Count) files are checked out with CRLF, from before .gitattributes said LF,"
             Note 'and the formatting check fails on them. With nothing uncommitted, rewrite them with:'
             Note '    git rm -r --cached -q . ; git reset --hard'
-            # Not `git checkout-index --force --all`, which reads a file whose size
-            # and time match the index as up to date and writes nothing at all.
+            # Not `git checkout-index --force --all`, which skips files the index thinks
+            # are current.
         }
     }
 

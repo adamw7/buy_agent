@@ -1,39 +1,19 @@
-# What working in this repository leaves behind. The UI's build, its cache and
-# node_modules are in ui/.gitignore, beside the workspace that makes them; this
-# file is the Python half -- the venv, the interpreter's own output, and the
-# artefacts of the three tools the commands in CLAUDE.md run.
-
-# Byte-compiled / optimized / DLL files
+# What working here leaves behind; the UI's is in ui/.gitignore.
 __pycache__/
 *.py[codz]
 *$py.class
-
-# Environments
-#   The README makes .venv with stdlib venv; the rest are the other spellings.
 .venv
 venv/
 env/
 ENV/
 .env
 .envrc
-
-# pytest and coverage
 .pytest_cache/
 .coverage
 .coverage.*
 coverage.xml
 htmlcov/
-
-# mypy
-#   Where the type checker keeps what it worked out last time, so a second run over an
-#   unchanged package is most of a second rather than most of a minute.
 .mypy_cache/
-
-# mutmut
-#   A run copies the tree to mutants/ and tests the copy; the results file is
-#   what .github/workflows/mutation.yml reports from and uploads.
 mutants/
 mutation-results.txt
-
-# Stray output
 *.log

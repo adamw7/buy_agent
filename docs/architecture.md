@@ -1,16 +1,9 @@
 # Architecture (C4)
 
-The [C4 model](https://c4model.com) at three zoom levels: who uses the system,
-what it is made of, and how the pieces inside each part fit together. The
-diagrams are Mermaid, so GitHub renders them in place.
-
-This is what the system *is*; why it is this way is the decision log in
-[adr/](adr/README.md), and a boundary that moves here usually means a new record
-there. The one idea worth carrying through all three levels: **the LLM is not in
-charge.** It refines the query and reads products out of pages; every decision
-that shapes the answer -- filtering, grounding, ranking, ordering -- is ordinary
-Python, which is why the component diagram has one small box for the model and
-several for the code around it.
+The [C4 model](https://c4model.com) at three zoom levels, in Mermaid so GitHub
+renders it. Why it is this way is in [adr/](adr/README.md). The idea through all
+three levels: **the LLM is not in charge.** It refines the query and reads
+products out of pages; filtering, grounding, ranking and ordering are Python.
 
 ## Level 1 -- System context
 
@@ -41,25 +34,16 @@ graph TB
     class ollama,ddg,shops,counterparty external
 ```
 
-Everything runs on the shopper's own machine, or on one they control: no
-accounts, no hosted models, and nothing about a search leaves except the search
-itself and the page fetches -- and, on a server that takes pictures of the pages it
-links to, a second visit to those same pages by a browser of its own
-([ADR-0065](adr/0065-photograph-each-products-page-from-a-server-bound-to-this-machine.md)).
-Buying is the one thing that reaches anywhere else,
-and it happens only where a run asked for it: `--pay` presents a signed AP2 mandate
-to whatever counterparty the operator named, and the rail it defaults to plays
-every role itself and charges nobody
-([ADR-0046](adr/0046-pay-on-the-shoppers-behalf-with-ap2.md)).
-
-Which model server that is -- Ollama by default, a vLLM already serving a model
-on a GPU box, or a LiteLLM proxy routing to either or to more
-([ADR-0068](adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md)) -- is
-`AgentConfig.provider`, and nothing downstream of
-`buy_agent/providers.py` knows the difference: one table row holds a server whole,
-and `AgentConfig.model_server` is the only place a provider name becomes behaviour
+Everything runs on machines the shopper controls. Only the search and the page
+fetches leave, plus a second visit by the camera where a loopback server takes
+pictures ([ADR-0065](adr/0065-photograph-each-products-page-from-a-server-bound-to-this-machine.md)),
+and a signed AP2 mandate where a run was asked to buy; the default rail charges
+nobody ([ADR-0046](adr/0046-pay-on-the-shoppers-behalf-with-ap2.md)). Which
+model server answers is `AgentConfig.provider`, and only `buy_agent/providers.py`
+knows the difference
 ([ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md),
-[ADR-0029](adr/0029-one-table-per-model-server.md)).
+[ADR-0029](adr/0029-one-table-per-model-server.md),
+[ADR-0068](adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md)).
 
 ## Level 2 -- Containers
 
@@ -108,37 +92,21 @@ graph TB
     class ollama,ddg,shops,counterparty external
 ```
 
-The CLI and the server are two front ends onto the same `BuyAgent.run()`. The
-server is stdlib-only on purpose -- a run that takes a minute and serves one
-person does not need a framework under it. It binds loopback, which keeps it off
-the network but not out of the browser: every request is admitted before it is
-routed, so the API answers its own page and not the other tabs
+The CLI and the server are two front ends onto one `BuyAgent.run()`. The server
+is stdlib-only and admits every request before routing it, so the API answers
+its own page and not other tabs
 ([ADR-0018](adr/0018-guard-the-loopback-server-against-other-pages.md)).
 
-Paying is a container of its own rather than a step of the pipeline, and the
-arrows say why: both front ends reach it directly, and it reaches nothing back.
-`BuyAgent.run()` ends at the report, and what may be bought is settled afterwards
-from a product the run already grounded -- so nothing about a search changes when
-`pay` is off, which is its default
-([ADR-0046](adr/0046-pay-on-the-shoppers-behalf-with-ap2.md)).
-
-The camera is a container for the same reason, and one step further out: the
-pipeline never knows it exists. A card's `<img>` asks the server for a picture of
-the page it already links to, the server hands the address to the one thread the
-browser belongs to, and nothing in a run, its payload or `--json` changes. It is
-also the only part that starts a process of its own, which is why it exists only
-on a server bound to this machine, where the one asking for a picture of an
-address is the one sitting at it
+Paying is its own container: both front ends reach it, it reaches nothing back,
+and it settles afterwards from a product the run already grounded
+([ADR-0046](adr/0046-pay-on-the-shoppers-behalf-with-ap2.md)). The camera is
+further out still: the pipeline never knows it exists, and it is the one part
+that starts a process, so only a loopback server has one
 ([ADR-0065](adr/0065-photograph-each-products-page-from-a-server-bound-to-this-machine.md)).
 
-The containers ship as one image when the `Dockerfile` is used: the UI is built in
-a Node stage and copied into the Python one, and the same image runs either front
-end. Paying ships with it and cannot run there: the image installs
-`requirements.txt` and not the optional AP2 SDK. Nor does it carry the camera,
-which a container binding every interface would never be given. The model server stays outside it
-too, on the host or on another machine, for the reasons in
-[ADR-0015](adr/0015-package-the-web-tier-as-a-container.md) -- the boundary drawn
-here is the one the image keeps.
+The `Dockerfile` ships the containers as one image, without the AP2 SDK or the
+camera. The model server stays outside it
+([ADR-0015](adr/0015-package-the-web-tier-as-a-container.md)).
 
 ## Level 3 -- Components of the agent pipeline
 
@@ -237,113 +205,45 @@ graph TB
     class ollama,ddg,shops,counterparty external
 ```
 
-Three joints in that order are load-bearing, and the first two are about not
-ranking a number nobody wrote down:
+Three joints in that order are load-bearing:
 
-- `clean_products` runs **before** `ground`, so a name still wearing its
-  publisher suffix ("... Review | AudioSite") is not failed by a coverage check
-  for tokens the page never had to contain.
-- `ground` runs **before** `deduplicate`, so merging only ever combines figures
-  -- and links -- the sources back.
-- The shopper's bounds run **after** `deduplicate` and **before** `rank_products`
-  (ADR-0039). After, because `_fill_gaps` may be what supplies the price they are
-  judged on; before, because price scores relative to the candidate set, and
-  scored against products the shopper cannot buy "the cheapest of these" names an
-  option that is not on offer.
+- `clean_products` runs **before** `ground`, so a name wearing its publisher
+  suffix ("... Review | AudioSite") does not fail the name check.
+- `ground` runs **before** `deduplicate`, so merging only combines figures and
+  links the sources back.
+- The bounds run **after** `deduplicate`, which may supply the price, and
+  **before** `rank_products`, since price scores relative to the set (ADR-0039).
 
-Step 10 is not part of that order at all, and deliberately. `BuyAgent.run` ends
-at the report; paying happens afterwards, to one product, on a decision a person
-or a pre-signed open mandate makes (ADR-0046). Nothing about a run changes when
-`pay` is off, which is its default, and the default rail signs a real AP2
-authorisation while charging nobody. What may be paid for is the grounding rule
-turned around: a product whose price no source printed, or whose currency this
-run cannot place, is not one to send money for -- the opposite of what the
-shopper's bounds do with the same blank, because a filter that cannot judge a
-candidate keeps it and money has no such luxury.
+Step 10 is outside that order: `BuyAgent.run` ends at the report, and paying
+happens afterwards to one product a person or an open mandate approved. A price
+no source printed, or in a currency the run cannot place, is never paid -- the
+opposite of the bounds, which keep what they cannot judge (ADR-0046).
 
-Order alone is not enough for the merge, because a merge also *pairs* figures.
-`models.QUALIFIERS` names what only qualifies another field -- price with
-currency, rating with review count -- and `_fill_gaps` moves whole groups, so a
-listing that quoted 129 and one that quoted "249 EUR" are never reported together
-as "129.00 EUR" (ADR-0022). Extraction and verification must be handed the *same*
-text, which is why `fetch.enrich()` puts the condensed page content on
-`SearchResult` rather than passing it alongside.
+A merge also *pairs* figures: `models.QUALIFIERS` ties currency to price and
+review count to rating, and `_fill_gaps` moves whole groups (ADR-0022).
+Extraction and verification must see the same text, which is why
+`fetch.enrich()` puts it on `SearchResult`.
 
-Step 2 is one search, unless the shopper named the sources the facts should come
-from -- `site:` takes one domain at a time, so each source is searched separately
-and the results pooled, deduplicated by URL and cut back to the width the run was
-configured for. `sources.py` decides only what a source *is*; the searching stays
-in `agent.py` and the backend call in `search.py` (ADR-0021, ADR-0057). Nothing further
-down knows the feature exists: the pool is what gets fetched, extracted from and
-grounded against either way, which makes "every fact came from a page you named"
-true by construction rather than by promise (ADR-0027).
+- **Step 2** is one search, or one per named source, pooled, deduplicated by URL
+  and cut back to width. `sources.py` decides what a source is; nothing
+  downstream knows the feature exists (ADR-0021, ADR-0027, ADR-0057).
+- **Step 3** tallies how fetching failed ("7 refused (403), 2 timed out") at
+  INFO, since a run that read nothing otherwise looks like a bad model.
+- **Step 5** holds quotes to a stricter bar than figures: most overlapping
+  five-word runs must be found, on one page that mentions the product
+  (ADR-0024, ADR-0025), and that page is kept on the quote (ADR-0042). It also
+  links each product to the first searched page mentioning it (ADR-0017).
+- **Step 7** enforces the shopper's bounds. Unknown figures pass, and so do
+  prices outside the run's one currency, which is never converted (ADR-0039,
+  ADR-0043, ADR-0056).
+- **Step 8** keeps the shares a score was blended from, so an assumed 0.5 is
+  told from a measured one (ADR-0041).
 
-Step 3 also says how it went, because grounding downstream blanks every figure the
-pages did not back: a run whose fetches all failed reports "price unknown" for
-everything, which reads as a bad model rather than as nothing having been read. So
-the tally names the *kinds* of failure and counts them -- "Got usable page text
-from 0 of 10 result(s): 7 refused (403), 2 timed out, 1 quoted no prices and no
-verdicts" -- one line at INFO, which is what the browser's progress panel relays,
-with the per-URL reasons left at DEBUG. Nothing read at all is a warning rather
-than another step of the narration.
-
-Grounding covers the quoted opinions too, and holds them to a stricter bar than a
-figure in two ways. A quote has to appear as running text -- overlapping runs of
-five consecutive words, most of which must be found -- rather than as words that
-each occur somewhere, since a model paraphrasing out of the vocabulary it has just
-read would clear any looser bar (ADR-0024). And it has to appear on a *single page
-that mentions the product* rather than anywhere in the ten pooled together, a real
-verdict on the electric kettle three results down being no evidence about these
-headphones (ADR-0025). The page that cleared that bar is kept on the quote rather
-than discarded -- `verify_opinions()` has it in hand at the moment it decides, and
-it is the only way a shopper can check a quote at all, a figure being checkable by
-following the product's own link (ADR-0042). The merge treats opinions as the
-exception they are: they come from *both* listings, two reviewers being no
-conflict, and the pair moves as one value so neither listing's link ends up under
-the other's words.
-
-Grounding also decides where a product *links*. The model is asked for a `url` but
-reliably leaves it empty, so `attribute_sources()` gives each product the first
-searched page whose own text mentions it, and keeps a model-supplied link only
-when it names one of those pages (ADR-0017).
-
-Step 7 is where the shopper's own terms are finally enforced rather than merely
-searched for. A budget in the request text only ever shaped the query -- a page is
-returned for matching words, not for obeying them -- so `--max-price`,
-`--min-rating` and `--min-reviews` are numbers checked here, and a run that set
-any of them says what it did with them ("1 of 10 product(s) are within the
-limits"). A product whose figure the run never learned is kept: grounding blanks
-what the pages did not back, and dropping blanks would reject products for the
-extractor's misses, which is the reasoning that already scores them neutral
-(ADR-0039). A price the run cannot *place* counts as one of those blanks: prices
-are compared inside a single currency -- the one the shopper named, or the
-commonest one the pages printed --
-and converted never, so a figure outside it passes the budget and scores neutral
-instead of being read as the number it happens to be (ADR-0043). Which currency
-that is, the shopper may name: `--currency PLN` and the form's "Count prices in"
-settle the scale outright, and the run warns where nothing found is on it, that
-being the one way to ask for a report whose price criterion is entirely assumed
-(ADR-0056).
-
-Step 8 keeps what it worked out. `rank_products` blends three shares into one
-score, and the shares travel beside it: without them a report says where a product
-placed and not what it placed on, and -- worse -- cannot distinguish a criterion
-that scored middling from one nothing was published for, both being the same 0.5
-(ADR-0041).
-
-Steps 5 through 7 are also where a run gets *short*, and each of them says what it
-took. Every one of the eight heuristics that thins the results already logs the
-count at INFO and the names at DEBUG; the five that take a whole candidate out --
-`clean_products`, `drop_ungrounded`, `merge_variants`, `deduplicate`'s nameless
-drop and `Constraints.apply` -- hand it over as data too, so the answer itself can
-say why it is short (ADR-0055). The shape is the one `checkpoint` and `wait`
-already have: `record`, a keyword the caller hands in and `BuyAgent.run` passes
-down, called with a `models.Removal` -- the name the candidate went under, the step
-that took it, and the reason as a finished sentence Python writes and nothing
-downstream rewords. It defaults to `models.nothing_recorded`, so a caller that does
-not want them is a run unchanged. The three steps that merely *blank* a figure, a
-quote or a link record nothing: that product is still in the report, and its own
-card says what is missing.
+The five heuristics that take a whole candidate out (`clean_products`,
+`drop_ungrounded`, `merge_variants`, `deduplicate`'s nameless drop and
+`Constraints.apply`) also call `record` with a `models.Removal`, whose sentence
+nothing downstream rewords. It defaults to `models.nothing_recorded`. Steps that
+only blank something record nothing (ADR-0055).
 
 ## Level 3 -- Components of the web tier
 
@@ -390,52 +290,23 @@ graph TB
     class app,form,log,card,agentsvc,handler,guard,relay,api component
 ```
 
-Eight details there are easy to get wrong and are deliberate:
+Deliberate details:
 
-- **A run is streamed, not requested.** A search takes tens of seconds, so the UI
-  uses `GET /api/search/stream` and watches the same progress the CLI prints.
-  `POST /api/search` is the same run in one response, for scripts.
-- **Re-ordering a finished run runs nothing.** `POST /api/rank` takes the products
-  the page is already holding, with the currency the run counted them in, and
-  answers the shape a run answers with, having called `rank_products` and nothing
-  else. The ordering stays in Python; only the searching is skipped (ADR-0035,
-  ADR-0056).
-- **Paying runs nothing either, and the page witnesses the consent rather than
-  asserting it.** `POST /api/pay` takes the products the page is holding and the
-  currency the run counted them in, which one to buy, and an echo of the title,
-  price and currency a person was shown.
-  The cart is built on the server from those products and the echo has to match
-  it, so a page showing a stale price cannot buy at that price and a page that
-  asked nobody cannot guess the right echo (ADR-0012, ADR-0046). Whether a
-  product may be bought at all is Python's, sent on each one as `cannot_pay`, so
-  the card never offers a button the server would refuse.
-- **Closing the stream stops the run, at its next step.** `BuyAgent.run` calls a
-  `checkpoint` before each step, and the first frame the handler cannot write sets
-  the flag that makes it raise. A chat call already in flight still finishes, so
-  the page's Stop line says as much rather than promising the run is over
-  (ADR-0034).
-- **The stream's failure event is called `failure`, not `error`.** A browser's
-  `EventSource` delivers transport errors under `error` and then reconnects; a
-  named `error` event would be indistinguishable from a dropped connection, and the
-  reconnect would silently start the whole search again.
-- **What a run took out travels with what it found.** The `dropped` list the run
-  payload carries is the page's answer to "why is the one I had in mind not in
-  there?", which used to be a progress panel the results had already replaced. It
-  is drawn under the results and under the "Nothing came back" banner alike, and it
-  survives a re-sort -- `POST /api/rank` ran no pipeline, so it removed nothing and
-  reports nothing, and the page carries the run's own list across rather than taking
-  the empty one (ADR-0055).
-- **The browser decides nothing.** Ranking, grounding, the wording of every
-  removal and even the wording of an unknown price stay in Python:
-  `product_payload` sends `price_label` and `rating_label` next to the raw figures,
-  and `sort_by` is a request parameter rather than a client-side re-sort -- for a
-  finished run too, which posts its products back rather than sorting the array it
-  holds (ADR-0035).
-- **Loopback is not a boundary the browser respects.** Any page the shopper has
-  open can reach `127.0.0.1`, so `_admits` runs before routing and refuses both a
-  request another site's page made -- which would start a run whose answer it could
-  never read -- and a `Host` that merely resolves here, which is how such a page
-  would arrange to read one (ADR-0018).
+- **A run is streamed.** The UI uses `GET /api/search/stream`; `POST
+  /api/search` is the same run in one response, for scripts.
+- **Re-ordering and paying run nothing.** `POST /api/rank` calls only
+  `rank_products` on the products and currency the page holds (ADR-0035,
+  ADR-0056). `POST /api/pay` builds the cart on the server, and the page's echo
+  of title, price and currency must match it (ADR-0012, ADR-0046).
+- **Closing the stream stops the run at its next `checkpoint`.** A chat call in
+  flight still finishes (ADR-0034).
+- **The failure event is `failure`, not `error`**, because `EventSource`
+  reconnects on `error` and would start the search again.
+- **`dropped` travels with the result** and survives a re-sort (ADR-0055).
+- **The browser decides nothing.** Labels such as `price_label` are Python's,
+  and `sort_by` is a request even for a finished run.
+- **Loopback is not a boundary the browser respects**, so `_admits` refuses
+  cross-site requests and foreign `Host`s before routing (ADR-0018).
 
 ## A streamed run, end to end
 
@@ -474,10 +345,7 @@ sequenceDiagram
     Note over H,UI: A quiet stretch sends a ping event every 15s.<br/>A failed run sends a failure event carrying its HTTP status.<br/>A frame that cannot be written stops the run at its next checkpoint.
 ```
 
-Only query refinement is recoverable: it falls back to the raw request, but lets
-`ModelUnavailableError` through rather than searching with a model that is not
-there. `BuyAgent.run()` raises exactly three things -- `ValueError`,
-`ModelUnavailableError`, `SearchError` -- which `__main__.main()` logs and
-`api._STATUS` maps onto 400, 503 and 502. Which sentence that middle one carries
--- `ollama pull` or `vllm serve` -- is the provider's to write, and is the whole
-value of the exception.
+Only query refinement is recoverable: it falls back to the raw request but lets
+`ModelUnavailableError` through. `BuyAgent.run()` raises exactly `ValueError`,
+`ModelUnavailableError` and `SearchError`, which `api._STATUS` maps to 400, 503
+and 502; the provider writes the remedy the middle one carries.

@@ -2,20 +2,14 @@
 [run]
 branch = true
 source = buy_agent
-# The two trees beside the package that the suite also tests, measured by the same
-# floor rather than by none (ADR-0064). They are deliberately not in `source`:
-# `setup.cfg` and `ci.yml` read that one to say what mutmut mutates and what pylint
-# and mypy read, and neither answer changes here -- mutating the answer key is a
-# different question from mutating the code it scores.
+# Measured but, unlike `source`, not mutated, linted or type-checked (ADR-0064).
 source_dirs =
     benchmark
     scripts
 
 [report]
 show_missing = true
-# The suite covers every line and branch; the floor leaves a little headroom.
 fail_under = 99
 exclude_also =
-    # The script guard runs only under `python -m buy_agent`, which
-    # tests/test_cli.py checks by spawning a real interpreter.
+    # Runs only under `python -m buy_agent`, which tests/test_cli.py spawns.
     if __name__ == .__main__.:

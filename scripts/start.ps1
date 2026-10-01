@@ -3,34 +3,20 @@
     Starts buy_agent's web UI on this machine, from cold. Takes no arguments.
 
 .DESCRIPTION
-    The three things README's "Starting it on localhost" walks through by hand:
-    a model server serving the default model, the Angular build, and the server
-    that serves that build alongside the API -- each one skipped if it is already
-    there, and the build only while it is newer than what it is built from, so a
-    second run costs the seconds pip needs to say it has nothing to do. Ends by opening the page and staying in the foreground with the server's
-    log lines; Ctrl+C stops the server, and the Ollama too if this script was
-    what started it.
+    Everything README's "Starting it on localhost" does by hand: Ollama serving the
+    default model, the Angular build, and the server -- each skipped where it is
+    already done, the build only while newer than its sources. Ends in the
+    foreground with the page open; Ctrl+C stops the server, and Ollama if this
+    started it.
 
-    Only Ollama is started for you. It installs nothing anyway (see Have), and a
-    vLLM needs a GPU, a served model and flags this script has no business
-    choosing, as a LiteLLM proxy needs the config.yaml saying what it routes to
-    -- so with $env:BUY_AGENT_PROVIDER set to either this waits for one to be
-    answering and says where, rather than trying to launch it.
+    Only Ollama is started; a vLLM or LiteLLM proxy named by
+    $env:BUY_AGENT_PROVIDER is waited for at its address. The AP2 SDK is installed
+    only when $env:BUY_AGENT_RAIL, $env:BUY_AGENT_MERCHANT_URL,
+    $env:BUY_AGENT_AP2_KEY or $env:BUY_AGENT_AP2_MANDATE says a payment is meant.
 
-    Paying is the one thing it sets up only when asked. The AP2 SDK is an
-    optional install and a git checkout of somebody else's repository, so it is
-    fetched where the environment already says a payment is meant -- any of
-    $env:BUY_AGENT_RAIL, $env:BUY_AGENT_MERCHANT_URL, $env:BUY_AGENT_AP2_KEY and
-    $env:BUY_AGENT_AP2_MANDATE -- and otherwise skipped out loud, since a page
-    that silently never offers to buy anything is the confusing half of optional.
-
-    Deliberately without parameters: everything it could ask is already a
-    setting somewhere the rest of the project reads it from. The provider, the
-    model and the server address come from buy_agent.config -- which is to say
-    from $env:BUY_AGENT_PROVIDER, $env:OLLAMA_MODEL and $env:OLLAMA_HOST,
-    $env:VLLM_MODEL and $env:VLLM_HOST, or $env:LITELLM_MODEL and
-    $env:LITELLM_HOST -- and anything past that is what
-    `python -m buy_agent.server --help` takes.
+    No parameters: the provider, model and address come from buy_agent.config
+    ($env:BUY_AGENT_PROVIDER, $env:OLLAMA_MODEL and $env:OLLAMA_HOST, or the VLLM_
+    and LITELLM_ pairs), and the rest is `python -m buy_agent.server --help`.
 
 .EXAMPLE
     .\scripts\start.ps1
@@ -65,32 +51,17 @@ function Run([string]$exe, [string[]]$arguments, [string]$failure) {
 }
 
 function Stale([string]$made, [System.IO.FileInfo[]]$from) {
-    # Whether $made is missing, or older than any of the files it is made from.
-    # A checkout stamps every file it writes with the moment it wrote it, so a
-    # pull that changed a source leaves it newer than anything made before the
-    # pull. Asking whether $made merely exists is what kept serving a build from
-    # a month earlier against an API that had since changed shape under it: the
-    # page put a whole model object where a name belonged, the browser remembered
-    # "[object Object]", and every run after that asked Ollama for it.
+    # Whether $made is missing, or older than any file it is made from: a pull
+    # leaves changed sources newer than a build made before it.
     if (-not (Test-Path -LiteralPath $made)) { return $true }
     $since = (Get-Item -LiteralPath $made -Force).LastWriteTime
     [bool]($from | Where-Object { $_.LastWriteTime -gt $since } | Select-Object -First 1)
 }
 
 function Answers([string]$probe, [int]$seconds) {
-    # Polled rather than assumed: both servers are started as processes, and a
-    # port that is not listening yet is indistinguishable from one that never will.
-    # The per-request timeout is loose on purpose. A request to localhost is not
-    # always quick: the name resolves to ::1 before 127.0.0.1, and a server bound
-    # to IPv4 alone -- which is what Ollama listens on by default -- is reached
-    # only once that first address has been given up on, which on Windows costs
-    # most of two seconds. A tighter timeout than that reads a server answering
-    # perfectly well as one that never came up, and no amount of waiting fixes it
-    # because every attempt is cut off at the same place. That wait is paid
-    # whether or not anything is listening, since it is the ::1 attempt that
-    # stalls rather than the server: a deadline of thirty seconds buys about a
-    # dozen attempts and not sixty, which is still far more than a server needs
-    # to come up.
+    # Polled: a port not listening yet looks like one that never will. The
+    # per-request timeout is loose because localhost tries ::1 first, which costs
+    # most of two seconds on Windows against an IPv4-only Ollama.
     $deadline = (Get-Date).AddSeconds($seconds)
     do {
         try {
@@ -122,13 +93,8 @@ try {
         '-r', 'requirements.txt'
     ) 'could not install requirements.txt'
 
-    # Paying needs an SDK the rest of this project does without, so it is
-    # installed here only where something in the environment says a payment is
-    # meant. `mandates.available()` is the same question both front doors ask
-    # before offering to pay at all, so what is reported here is what the page
-    # will do, and a pip that succeeded while nothing can still import is caught
-    # now rather than at the button. Two commands and a `--no-deps` on the
-    # second, for the reasons requirements-ap2.txt gives.
+    # Only where the environment asks to pay. `mandates.available()` is what both
+    # doors ask, so a pip that succeeded with nothing importable is caught here.
     Step 'Paying'
     $asked = @('-c', 'from buy_agent.mandates import available; print(available())')
     $paying = @(
@@ -158,10 +124,7 @@ try {
         Note 'and run this again; that rail signs a real authorisation and charges nobody'
     }
 
-    # The defaults live in one place and are read whole, off an AgentConfig, so
-    # that $BUY_AGENT_PROVIDER picks the pair it decides -- $OLLAMA_MODEL and
-    # $OLLAMA_HOST, $VLLM_MODEL and $VLLM_HOST, or $LITELLM_MODEL and $LITELLM_HOST.
-    # A tag repeated here would be a second default, silently disagreeing.
+    # Read whole off an AgentConfig, so the provider picks its own model and host.
     $provider = Run $python @(
         '-c', 'from buy_agent.config import AgentConfig; print(AgentConfig().provider)'
     ) 'could not read the provider out of buy_agent.config'
@@ -200,11 +163,7 @@ try {
             Run 'ollama' @('pull', $model) "could not pull $model"
         }
     } else {
-        # Waited for rather than started: a vLLM needs a GPU, a served model and
-        # flags this script has no business choosing, and a LiteLLM proxy the
-        # config.yaml saying what it routes to. The probe is /models, which
-        # is the OpenAI-compatible listing the form's model picker calls anyway --
-        # the API root itself answers 404 on a server that is working perfectly.
+        # Waited for, not started. /models, since the API root answers 404.
         Step "$provider at $llm"
         if (Answers "$llm/models" 1) {
             Note "already running -- this run will ask it for $model"
@@ -216,9 +175,7 @@ try {
 
     Step 'Angular build'
     $ui = Join-Path $root 'ui'
-    # What the build is made from: the app, and the workspace files at the top of
-    # ui\ that say how -- listed there rather than recursed into, node_modules
-    # being beside them.
+    # The app, and the workspace files at the top of ui\ (not node_modules).
     $sources = @(Get-ChildItem (Join-Path $ui 'src') -File -Recurse) +
         @(Get-ChildItem $ui -File -Filter '*.json')
     if (-not (Stale $built $sources)) {
@@ -234,8 +191,7 @@ try {
     } else {
         Push-Location $ui
         try {
-            # npm writes its own record of an install after the lockfile, so a
-            # lockfile newer than that record is one a pull changed since.
+            # npm's own install record is older than a lockfile a pull changed.
             if (Stale 'node_modules\.package-lock.json' @(Get-Item 'package-lock.json')) {
                 Run 'npm' @('install') 'npm install failed'
             }

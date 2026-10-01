@@ -5,37 +5,23 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    # 04:09 UTC on Saturdays: the Windows half of the matrix, which no push and no
-    # pull request runs any more (ADR-0037). Off the hour for the reason the other
-    # two schedules are -- runs queued at :00 can start an hour late -- and off
-    # mutation.yml's 05:17 so the two weekly jobs are not both waiting on runners.
-    # GitHub only schedules workflows that are on the default branch, so this fires
-    # once it is on main.
+    # Saturdays 04:09 UTC: the Windows half (ADR-0037), off the hour and off
+    # mutation.yml's 05:17.
     - cron: "9 4 * * 6"
   workflow_dispatch:
 
 concurrency:
-  # The event is part of the group so the weekly Windows run and a push to main are
-  # not each other's to cancel: both are on refs/heads/main, and cancel-in-progress
-  # would otherwise let a Saturday morning merge silently drop the run that is the
-  # only Windows check there is.
+  # The event is in the group so a push to main cannot cancel the weekly Windows run.
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Both jobs run the tests and read nothing else: no release to upload, no image
-# to push, no comment to post. The other three workflows say so already, and a
-# job that asks for nothing cannot be talked into using more than it asked for.
 permissions:
   contents: read
 
 jobs:
   test:
-    # Development happens on Windows and the runners are Linux, so both are run --
-    # a platform difference either one hides is one nobody sees until it is the
-    # only machine left -- but not on the same schedule (ADR-0037): Linux gates
-    # every push and pull request, Windows runs weekly and on a manual run, which
-    # is also how to ask for it on a branch. fail-fast is off so a failure on one
-    # platform still reports the other on the runs that have both.
+    # Linux gates every push and pull request; Windows joins weekly and on dispatch
+    # (ADR-0037).
     name: pytest (Python 3.14, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -44,10 +30,7 @@ jobs:
         os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
     defaults:
       run:
-        # One shell on both runners. PowerShell is the default on Windows, and a
-        # step of several commands there carries on past a failing one. It is not
-        # the Linux default either: `shell: bash` is `bash -eo pipefail`, where
-        # the default is `bash -e` and a failing command mid-pipeline is ignored.
+        # bash -eo pipefail on both runners, rather than PowerShell or plain bash -e.
         shell: bash
 
     steps:
@@ -57,10 +40,7 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
-          # Every file the two install steps below hand pip, the `-r requirements.txt`
-          # inside the first of them included. A key naming one file is a cache that
-          # goes on being restored when another has moved, which is quietly no cache at
-          # all for that step -- and Renovate bumps them one at a time.
+          # Every file the install steps hand pip, so no cache outlives a bump.
           cache-dependency-path: |
             requirements-dev.txt
             requirements.txt
@@ -70,11 +50,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
-      # Its own step, and two commands, for the reasons requirements-ap2.txt
-      # gives: the SDK's metadata pins versions this project does not use, so it
-      # alone is installed with `--no-deps` -- which is not a per-line option, so
-      # what it imports is a file of its own installed normally. The payment
-      # tests need it, and the coverage floor needs them.
+      # --no-deps is not per-line, so the SDK's own imports are a file of their own.
       - name: Install the AP2 SDK
         run: |
           pip install -r requirements-ap2-deps.txt
@@ -86,19 +62,11 @@ jobs:
       - name: Check coverage
         run: python -m coverage report
 
-      # Last, so a red lint never hides a red test: a job stops at its first
-      # failing step, and of the two the tests are what the change is about.
-      # `.pylintrc` says what it checks and what it deliberately does not
-      # (ADR-0048); the AP2 step above is why the deferred SDK imports resolve.
+      # Lint and type-check last: the tests are what a change is about (ADR-0048,
+      # ADR-0063).
       - name: Run pylint
         run: python -m pylint buy_agent
 
-      # Beside pylint and after it, for that same reason one step further along:
-      # the two read the package rather than running it, and neither is what a
-      # change is about. `setup.cfg` says what it checks and which five libraries
-      # it cannot read, which is `.pylintrc`'s own list said in the other tool's
-      # vocabulary (ADR-0063); the AP2 step above is what makes that list the
-      # answer to a missing stub rather than to a missing install.
       - name: Run mypy
         run: python -m mypy buy_agent
 
@@ -132,15 +100,9 @@ jobs:
       - name: Build
         run: npm run build
 
-      # After the tests and the build, for the reason pylint is after the tests in
-      # the job above: a job stops at its first failing step, and those two are
-      # what a change is about. `ui/eslint.config.mjs` says what it checks and what
-      # it deliberately does not, `.pylintrc`'s rule one language over -- the CSP's
-      # refusal of an inline handler among them (ADR-0066).
+      # Last for the same reason; includes the CSP's template rule (ADR-0066).
       - name: Run eslint
         run: npm run lint
 
-      # Last: Prettier decides the layout the linter above leaves alone, and
-      # `npm run format` is the same glob writing rather than reading.
       - name: Check formatting
         run: npm run format:check

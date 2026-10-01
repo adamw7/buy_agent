@@ -1,171 +1,70 @@
-# Settings for pylint, which `.github/workflows/ci.yml` runs over `buy_agent/`
-# beside the tests (ADR-0048). Like `setup.cfg` and `pytest.ini` this is not a
-# packaging file: the project is run from a checkout and never installed, which is
-# why the settings are here rather than in a `pyproject.toml` table.
-#
-# Nothing below is a default that looked noisy. A check turned off is one whose
-# question this project has already answered differently, with the answer written
-# out; a check that fires once is suppressed on the line it fires on, carrying its
-# reason, and stays on everywhere else. That is the whole of the arrangement: what
-# holds for the package is here, what holds for one line is there.
+# pylint over `buy_agent/`, run from the repository root by ci.yml (ADR-0048). A
+# check turned off is one this project answers differently, with the answer here;
+# a check firing once is suppressed on its line, with its reason there.
 
 [MAIN]
-# `lxml.etree.ParserError`, which `fetch.py` catches, lives in a C extension, and
-# a member of one can only be found by importing it. lxml is pinned in
-# `requirements.txt`, so a lint that imports it needs nothing a run does not.
+# `fetch.py` catches `lxml.etree.ParserError`, which lives in a C extension.
 extension-pkg-allow-list = lxml.etree
 
-# The optional AP2 SDK and the two libraries it signs with. `mandates.py` defers
-# every one of those imports because a checkout may not have them (ADR-0046), and
-# the suite answers an absent SDK by skipping the tests that need it rather than
-# failing them.
-# Left resolvable, this is the one check here that would be red on a checkout the
-# tests call fine -- and it would be red only where the SDK is missing, which is
-# the machine least able to do anything about it. Playwright is the same answer for
-# the same reason: `screenshots.py` defers its one import of it, the library being an
-# install of its own that most checkouts will never make (ADR-0065).
+# Optional installs whose imports are deferred: the AP2 SDK and the two libraries it
+# signs with (ADR-0046), and Playwright (ADR-0065). Unresolvable on most checkouts.
 ignored-modules = ap2, jwcrypto, cryptography, playwright
 
-# Pylint ships twenty-five checkers it does not load, and the default set was
-# where this started rather than where it stops. Each one below states a rule the
-# package already holds everywhere, which is the mirror of the `disable` block
-# further down: a checker is loaded here because the answer it wants is the answer
-# already written into every module, and left out where this project answers
-# differently. Each was run over `buy_agent/` before it was added, and the three
-# of the fifteen that had anything to say were answered by *fixing* the twelve
-# lines they named: an `except` clause in `payment.minor_units` naming a class
-# beside its own ancestor, a loop variable reassigned in its own body in
-# `verification.verify_numbers`, and ten `typing.Callable`s in the three modules
-# that had not caught up with the eight already spelling it `collections.abc`.
-# Fixing them is what makes a newly loaded checker a check; configuring around
-# them would have made it a preference (ADR-0049).
-#
-# The ten left out are left out by that same rule, and for the same kind of reason
-# the three checks below are off. `magic_value` fires on two dozen comparisons
-# whose numbers -- the 0.6 name-coverage bar, the five-word run a quote is checked
-# in, an HTTP status -- are each argued for in prose beside them, and a name
-# holding the value would move the argument away from the code. `broad_try_clause`
-# wants one statement per `try`, where `minor_units` has a comment saying exactly
-# why `int()` is inside the guard with the `quantize` before it. `code_style` would
-# rewrite twenty-eight `if` statements into walrus assignments, which is a house
-# style nobody chose. `mccabe` would put a ceiling on branching, and
-# `tests/test_architecture.py` has already declined that decision in as many
-# words: a ceiling on lines, methods or cohesion is a policy nobody has made.
-# `while_used` would ban the two polling loops that are the one thing `while` is
-# for, and `consider_refactoring_into_while_condition` has nothing to say about
-# either of them. `no_self_use` fires on `BuyAgentHandler._models`, which is one
-# of a family of route methods reached the same way and written the same shape:
-# making that one a function would say something about the routing that is not
-# true. And `bad_builtin`, `set_membership` and `consider_ternary_expression` find
-# nothing here and would be taste if they did.
+# Fifteen of the twenty-five optional checkers, each a rule the package already
+# holds; what they found was fixed, not configured around (ADR-0049). Left out:
+# `magic_value` (the numbers are argued for beside them), `broad_try_clause`
+# (`minor_units` explains its guard), `code_style` (walrus as house style),
+# `mccabe` (declined in `tests/test_architecture.py`), `while_used` and
+# `consider_refactoring_into_while_condition` (the two polling loops),
+# `no_self_use` (`BuyAgentHandler._models` is one of a family of routes), and
+# `bad_builtin`, `set_membership` and `consider_ternary_expression` (taste).
 load-plugins =
-    # What a docstring and a comment have to be. `docparams` runs at its defaults,
-    # so a docstring with no sections is left alone -- the docstrings here are prose
-    # about why, which is what `missing-function-docstring` is turned off for below
-    # -- but a section somebody did write has to be true of the code under it.
-    # `tests/test_conventions.py` already reads `BuyAgent.run`'s `Raises:` against
-    # `api._STATUS`; this is that rule for the other hundred-odd docstrings, where a
-    # renamed parameter or a newly raised exception otherwise leaves a section that
-    # still reads as current. `empty_comment` catches the bare `#`, which is the
-    # comment-shaped version of what the `# noqa` codes ADR-0048 deleted had become.
+    # A docstring section somebody wrote must be true of the code; no bare `#`.
     pylint.extensions.docparams,
     pylint.extensions.docstyle,
     pylint.extensions.empty_comment,
-
-    # What an exception, a name and a loop variable may do. The first is the one
-    # that found something: this project's failures are a hierarchy on purpose --
-    # `RailUnreachableError` under `PaymentError`, ordered subclass-first in
-    # `api.PAY_STATUS` -- so a tuple naming an ancestor beside its own child reads
-    # as two cases being handled where there is one, and hides which of them the
-    # sentence beside it is about.
+    # Exceptions, names and loop variables: no ancestor beside its own child.
     pylint.extensions.overlapping_exceptions,
     pylint.extensions.redefined_loop_name,
     pylint.extensions.redefined_variable_type,
     pylint.extensions.dunder,
     pylint.extensions.eq_without_hash,
-
-    # Control flow that reads as what it does. An `else` whose whole body is an
-    # `if`, an `elif` indented as a sibling of an outer branch it is nested inside,
-    # a constant on the left of a comparison, a dict built empty and then filled a
-    # line later, a loop that exists to compute `any()` -- each is a shape this
-    # package does not have, and each is one a later edit can leave behind while
-    # every test still passes, because every one of them runs.
+    # Control flow that reads as what it does.
     pylint.extensions.check_elif,
     pylint.extensions.confusing_elif,
     pylint.extensions.comparison_placement,
     pylint.extensions.dict_init_mutate,
     pylint.extensions.for_any_all,
-
-    # Imports and the types they carry. Which module may import which is most of
-    # what `CLAUDE.md` says and the whole of what `tests/test_architecture.py`
-    # asserts (ADR-0047) -- but that graph is over this package's own modules, and
-    # `import-private-name` is the same mistake one library further out: a `_name`
-    # imported from somebody else's package is a dependency on something they never
-    # promised. `deprecated-typing-alias` holds the spelling the package already
-    # uses: `collections.abc.Callable`, `list[Product]`, `str | None`, and nothing
-    # out of `typing` that 3.14 answers with a builtin.
+    # No `_name` from another package, and no `typing` alias 3.14 has a builtin for.
     pylint.extensions.private_import,
     pylint.extensions.typing
 
 [FORMAT]
-# What the package is written to already: the widest line in `buy_agent/` is 98.
-# Also pylint's own default, and written down here because it is a number somebody
-# chose rather than one to discover by tripping over it.
 max-line-length = 100
 
 [MESSAGES CONTROL]
 enable =
-    # A suppression that has stopped suppressing anything is a comment addressed to
-    # nobody -- which is exactly what the `# noqa` codes this file replaced had
-    # become, written for a linter no command ever ran. Off by pylint's default; on
-    # here, so a pragma outlived by the fix that made it unnecessary is a failure on
-    # the line it sits on rather than a line nobody rereads.
+    # A suppression that suppresses nothing fails, and names its check by name.
     useless-suppression,
-    # And a suppression names the check in the spelling the rest of the file uses:
-    # `broad-exception-caught`, never `W0718`. A code is a thing to go and look up,
-    # which is the one thing a comment beside the line is there to save.
     use-symbolic-message-instead,
-    # The rest of that family. Every one of these is a way for a check to stop
-    # running with nothing going red: a pragma pylint could not parse, the
-    # `disable-msg=` spelling it stopped reading years ago, a whole file turned off
-    # from its first line, and a raw checker that could not read the source at all.
-    # All four are informational and off by default, which leaves the default a
-    # linter that skips something and mentions it in a message nobody switched on.
-    # `locally-disabled` and `suppressed-message` are the two of the family that
-    # stay off: they fire on every pragma that is doing its job, which here is every
-    # pragma there is, and the prose above each of those already says what it is for.
+    # Every way a check can stop running quietly. `locally-disabled` and
+    # `suppressed-message` stay off: they fire on every pragma doing its job.
     bad-inline-option,
     deprecated-pragma,
     file-ignored,
     raw-checker-failed,
 
 disable =
-    # A docstring says what a name cannot. `price_label`, `total` and `do_GET` all
-    # say it, and the thirteen docstrings this asks for would each restate a
-    # method name in a package whose comments are its reasoning. Module and class
-    # docstrings are deliberately *not* exempted: every module here has one, and
-    # that is where the reasoning starts.
+    # Function docstrings would restate names; module and class ones are required.
     missing-function-docstring,
-    # `ChatModel` and `Closable` have one method apiece, on purpose: "a stand-in
-    # is a class with one method" is the seam `tests/conftest.py`,
-    # `benchmark/scripted.py` and `demo/server.py` each go through. Counting
-    # methods measures that seam rather than the design behind it.
+    # "A stand-in is a class with one method" is the seam (`ChatModel`, `Closable`).
     too-few-public-methods,
-    # Every class this fires on is a declaration. `AgentConfig` has 25 fields
-    # because every run setting is one and adding the next is what
-    # `.claude/skills/add-option` walks through; a row of `providers.PROVIDERS` or
-    # `rails.RAILS` has ten because a row carries everything that differs between
-    # one server or one counterparty and another (ADR-0029, ADR-0046). A ceiling
-    # would fire on the next option rather than on a design.
+    # Declarations: `AgentConfig` has a field per setting, a table row one per
+    # difference between servers or counterparties (ADR-0029, ADR-0046).
     too-many-instance-attributes,
 
 [DESIGN]
-# Set at the widest the package is today rather than at a round number -- the way
-# `benchmark/scoring.py`'s floors are set, and for the same reason: a tripwire
-# that is not where the thing already stands catches nothing until long after.
-# `fetch.enrich` is the widest on both counts, and it takes seven settings because
-# a pipeline step is handed them rather than reading the config (ADR-0047) -- the
-# seventh being the clock it waits by before asking a page again, which is a value
-# for that same reason (ADR-0053).
+# Where the package stands today: `fetch.enrich` is handed its settings and its
+# clock rather than reading them (ADR-0047, ADR-0053).
 max-args = 7
 max-locals = 17

@@ -2,18 +2,12 @@ name: Mutation testing (UI)
 
 on:
   schedule:
-    # 06:23 UTC on Saturdays: the other half of ADR-0016, an hour after the
-    # package's own run at 05:17 and off the hour for the reason every schedule
-    # here is -- runs queued at :00 can start an hour late. GitHub only schedules
-    # workflows that are on the default branch, so this fires once it is on main.
+    # 06:23 UTC on Saturdays, an hour after mutation.yml (ADR-0016, ADR-0061).
     - cron: "23 6 * * 6"
   workflow_dispatch:
 
 concurrency:
-  # Its own group, which is the other reason this is a workflow rather than a
-  # second job in mutation.yml: a run is an hour and a half of `ng test` where
-  # mutmut's whole run is two minutes, so one queueing behind the other would
-  # make the package's report wait on the front end's (ADR-0061).
+  # A workflow of its own so mutmut's report never waits on Stryker's 90 minutes.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -24,14 +18,11 @@ jobs:
   stryker:
     name: Stryker (Node 22)
     runs-on: ubuntu-latest
-    # A run is 1031 mutants and a whole `ng test` each -- about 100 minutes on a
-    # four-core runner, four of them at a time. Three hours is the guard against a
-    # mutant that hangs a run past Stryker's own timeout, not an expectation.
+    # About 1031 mutants and 100 minutes; three hours guards a hung mutant.
     timeout-minutes: 180
     defaults:
       run:
-        # As in the other four workflows: `shell: bash` is `bash -eo pipefail`, so
-        # the pipe in the report step below fails when its left-hand side does.
+        # pipefail, so the report's pipe fails with its left-hand side.
         shell: bash
         working-directory: ui
 
@@ -44,11 +35,7 @@ jobs:
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
-      # The report is Python's for the reason `scripts/mutation_report.py` is: it
-      # decides whether the run passed, and what decides an answer is written where
-      # this project tests it rather than in a workflow's shell. Nothing is
-      # installed with it -- the script is stdlib -- so there is no pip cache to
-      # key either.
+      # For the stdlib report script, which decides whether the run passed.
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
@@ -56,9 +43,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Settings, including what to mutate and what a run is tested with, come
-      # from ui/stryker.config.mjs. Stryker's own `thresholds.break` is off there:
-      # what fails this job is the floor in the report below, as on the other side.
+      # Settings are in ui/stryker.config.mjs; the report's floor fails the job.
       - name: Run mutation testing
         run: npx stryker run
 
@@ -69,8 +54,6 @@ jobs:
           python scripts/mutation_report.py ui/reports/mutation/mutation.json \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
-      # The HTML report is the run read one mutant at a time -- the survivor beside
-      # the line it was made from, which is the half a job summary cannot carry.
       - name: Upload the report
         if: always()
         uses: actions/upload-artifact@v7
