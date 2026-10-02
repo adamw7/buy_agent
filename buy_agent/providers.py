@@ -464,8 +464,9 @@ OLLAMA = Provider(
     chat_model=_ollama_chat_model,
     installed=_ollama_installed,
     # A refused connection arrives as ``ConnectionError``; timeouts and dropped streams
-    # as raw ``httpx`` errors.
-    transport_errors=(ResponseError, RequestError, OSError, httpx.HTTPError),
+    # as raw ``httpx`` errors; a host the socket cannot encode (``192.168.1..5``) as a
+    # ``UnicodeError`` from beneath every client.
+    transport_errors=(ResponseError, RequestError, OSError, httpx.HTTPError, UnicodeError),
     hint=_hint(_ollama_hint),
     more_room="give it more room with a larger context window, or turn thinking off",
 )
@@ -482,8 +483,9 @@ VLLM = Provider(
     takes_cpu_only=False,
     chat_model=_vllm_chat_model,
     installed=_openai_models,
-    # ``openai.OpenAIError`` is the client's root.
-    transport_errors=(openai.OpenAIError, OSError, httpx.HTTPError),
+    # ``openai.OpenAIError`` is the client's root, which leaves the socket's
+    # ``UnicodeError`` unwrapped, as Ollama's does.
+    transport_errors=(openai.OpenAIError, OSError, httpx.HTTPError, UnicodeError),
     hint=_hint(_vllm_hint),
     # vLLM's own flag, not ours, so fine to name at either door.
     more_room="ask for fewer products, or restart it with a larger --max-model-len",
@@ -501,7 +503,7 @@ LITELLM = Provider(
     takes_cpu_only=False,
     chat_model=_litellm_chat_model,
     installed=_litellm_installed,
-    transport_errors=(openai.OpenAIError, OSError, httpx.HTTPError),
+    transport_errors=(openai.OpenAIError, OSError, httpx.HTTPError, UnicodeError),
     hint=_hint(_litellm_hint),
     more_room=(
         "ask for fewer products, or give the model the proxy routes to a larger "

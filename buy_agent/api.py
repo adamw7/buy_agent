@@ -424,14 +424,22 @@ def screenshot(url: str, camera: Camera | None) -> bytes:
     """A JPEG of the page at ``url`` (ADR-0065); 502 if it cannot be taken."""
     if camera is None:
         raise ApiError("This server takes no screenshots.", 404)
-    parsed = urlparse(url)
-    # Web pages only: a ``file:`` URL would show this machine's disk.
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+    if not _web_page(url):
         raise ApiError(f"Not a web page to photograph: {url!r}")
     try:
         return camera.shoot(url)
     except ScreenshotError as exc:
         raise ApiError(str(exc), 502) from exc
+
+
+def _web_page(url: str) -> bool:
+    """Whether ``url`` is a web page: a ``file:`` URL would show this machine's disk, and
+    one that will not parse (an unclosed IPv6 bracket) is no address at all."""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    return parsed.scheme in ("http", "https") and bool(parsed.hostname)
 
 
 def installed_models(provider: str, base_url: str) -> dict[str, Any]:

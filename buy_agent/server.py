@@ -278,7 +278,12 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         if origin is None or origin == "null":
             return origin is None
 
-        netloc = urlparse(origin).netloc.strip().lower()
+        try:
+            netloc = urlparse(origin).netloc.strip().lower()
+        except ValueError:
+            # An unclosed IPv6 bracket, which no browser sends: refused, not dropped
+            # unanswered from outside ``do_GET``'s catch-all.
+            return False
         # Origin equal to Host is our own page: another page cannot forge both.
         if netloc and netloc == self.headers.get("Host", "").strip().lower():
             return True
@@ -713,11 +718,12 @@ def _clashing_provider(port: int, exc: OSError) -> str:
 def _reaches(address: str, host: str, port: int) -> bool:
     """Whether ``address`` lands on a server bound to ``host`` and ``port``: the same
     port, on the host itself or on a loopback name where the bind takes those."""
-    parsed = urlparse(address)
     try:
+        parsed = urlparse(address)
         named = parsed.port or _SCHEME_PORTS.get(parsed.scheme)
     except ValueError:
-        # A port out of range names nothing, least of all this server.
+        # An unclosed IPv6 bracket or a port out of range names nothing, least of all
+        # this server -- and is the model server's row to refuse, in its own words.
         return False
     if named != port:
         return False

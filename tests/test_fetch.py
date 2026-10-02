@@ -28,6 +28,7 @@ from buy_agent.fetch import (
     summarise_failures,
 )
 from buy_agent.search import SearchResult
+from tests.conftest import unencodable
 
 PAGE = """<html><body>
 <h1>Best headphones</h1><script>var tracking = 1;</script><style>p {color: red}</style>
@@ -224,6 +225,40 @@ def test_a_url_httpx_will_not_parse_yields_no_content(monkeypatch) -> None:
         page = fetch_page(client, "http://[::1/", max_chars=1000)
 
     assert page == PageText("", "had an address that cannot be fetched")
+
+
+@pytest.mark.parametrize(
+    "host", ["shop..example", "a" * 64 + ".example"], ids=["empty label", "long label"]
+)
+def test_a_host_the_socket_cannot_encode_yields_no_content(monkeypatch, host: str) -> None:
+    """httpx parses these, and the socket refuses them with a ``UnicodeError`` that is
+    no ``HTTPError``: one result's address, or one its page redirected to, ended the
+    whole fetch step -- and the run with it, as a 400 blaming the request."""
+
+    def explode(url: str):
+        raise unencodable(host)
+
+    stub_client(monkeypatch, explode)
+    with httpx.Client() as client:
+        page = fetch_page(client, f"http://{host}/", max_chars=1000)
+
+    assert page == PageText("", "had an address that cannot be fetched")
+
+
+def test_a_redirect_to_a_host_nobody_can_encode_does_not_lose_the_others(monkeypatch) -> None:
+    def handler(url: str):
+        if "moved" in url:
+            # Raised by ``stream``, where httpx follows the redirect.
+            raise unencodable("shop..example")
+        return make_response(url, PAGE)
+
+    stub_client(monkeypatch, handler)
+    results = [SearchResult(url="https://good.example"), SearchResult(url="https://moved.example")]
+
+    enriched = enrich(results, max_chars=1000)
+
+    assert "$129.99" in enriched[0].content
+    assert enriched[1].content == ""
 
 
 def test_a_malformed_href_does_not_bring_the_run_down() -> None:
@@ -470,6 +505,7 @@ def test_a_tally_with_nothing_going_wrong_ends_at_the_count(monkeypatch, caplog)
         (httpx.TooManyRedirects("round and round"), "redirected in a loop"),
         (httpx.InvalidURL("bad port"), "had an address that cannot be fetched"),
         (httpx.UnsupportedProtocol("gopher://"), "had an address that cannot be fetched"),
+        (unencodable("shop..example"), "had an address that cannot be fetched"),
         (httpx.ConnectError("refused"), "could not be reached"),
         (httpx.ReadError("reset"), "could not be reached"),
         (httpx.ProxyError("no proxy"), "could not be reached"),
@@ -952,6 +988,27 @@ def test_a_byte_no_encoding_can_read_does_not_cost_the_page(monkeypatch) -> None
         page = fetch_page(client, "https://odd.example", max_chars=1000)
 
     assert "$129.00" in page.text
+
+
+@pytest.mark.parametrize("charset", ["base64", "zlib", "idna", "undefined"])
+def test_a_charset_that_reads_no_text_is_read_as_utf8(monkeypatch, charset: str) -> None:
+    """httpx accepts any name ``codecs`` can find, and these refuse to decode text even
+    replacing: one page declaring one ended the run -- as a 500 where the refusal was a
+    ``LookupError``, none of the run's three failures."""
+    stub_client(
+        monkeypatch,
+        lambda url: httpx.Response(
+            200,
+            headers={"content-type": f"text/html; charset={charset}"},
+            content="<p>Café Noir espresso machine €129.00</p>".encode("utf-8"),
+            request=httpx.Request("GET", url),
+        ),
+    )
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://odd.example", max_chars=1000)
+
+    assert "Café Noir espresso machine €129.00" in page.text
 
 
 def test_a_page_served_as_something_else_is_dropped_before_its_body(monkeypatch) -> None:

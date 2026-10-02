@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 import httpx
 import pytest
@@ -23,6 +24,7 @@ from buy_agent.search import (
     backend_options,
     search_web,
 )
+from tests.conftest import unencodable
 
 
 def stub_ddgs(monkeypatch, *, results=None, error: Exception | None = None) -> dict:
@@ -488,6 +490,24 @@ def test_an_unreachable_instance_names_its_address_and_the_way_back(monkeypatch)
     assert "(refused)" in said, "with what the transport said"
     assert "$SEARXNG_HOST" in said
     assert DDG.label in said
+
+
+@pytest.mark.parametrize("which", ["unencodable host", "invalid URL"])
+@pytest.mark.parametrize("variable", ["$SEARXNG_HOST", "$BRAVE_HOST"])
+def test_a_mistyped_address_is_the_backend_unreachable(
+    monkeypatch, which: str, variable: str
+) -> None:
+    """Both fail outside httpx's root, so they left ``search_web`` as no ``SearchError``
+    at all: a 400 quoting a codec, or a 500, where the row's hint names the variable."""
+    failure = {
+        "unencodable host": unencodable("localhost.."),
+        "invalid URL": httpx.InvalidURL("Invalid non-printable ASCII character in URL"),
+    }[which]
+    stub_http(monkeypatch, error=failure)
+    backend = SEARXNG if variable == "$SEARXNG_HOST" else _with_key(BRAVE, "secret")
+
+    with pytest.raises(SearchError, match=re.escape(variable)):
+        search_web("headphones", backend=backend)
 
 
 @pytest.mark.parametrize("status", [401, 403])

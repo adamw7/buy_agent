@@ -485,6 +485,19 @@ def test_models_does_not_ask_this_server_for_a_model(server: str, monkeypatch) -
     assert not asked, "nothing was asked: what answers there is this page"
 
 
+def test_models_answers_an_address_that_will_not_parse(server: str) -> None:
+    """The listing refuses an address it cannot ask, with the row's hint, as for any
+    other: the own-address check raising first made it a 500, which the pill reads as
+    the agent server being down."""
+    query = urlencode({"provider": "ollama", "base_url": "http://[::1:11434"})
+
+    status, payload = get(f"{server}/api/models?{query}")
+
+    assert status == 200
+    assert payload["reachable"] is False
+    assert "http://[::1:11434" in payload["hint"]
+
+
 def test_a_head_request_answers_like_a_get_without_the_body(server: str) -> None:
     """Only the stream refuses HEAD; everything else answers headers and no body."""
     request = urllib.request.Request(f"{server}/api/config", method="HEAD")
@@ -635,6 +648,14 @@ def test_the_dev_servers_proxy_is_not_a_foreign_site(server: str) -> None:
 def test_an_opaque_origin_is_refused(server: str) -> None:
     """A sandboxed iframe posts as "null"; the app is served from a real origin."""
     assert "403" in ask(server, Origin="null").splitlines()[0]
+
+
+def test_an_origin_that_will_not_parse_is_refused_rather_than_dropped(server: str) -> None:
+    """``_refused`` runs before ``do_GET``'s catch-all, so a parse failing there closed
+    the connection with nothing said. No browser sends one, so it is refused."""
+    reply = ask(server, Origin="http://[::1")
+
+    assert reply.startswith("HTTP/1.1 403"), reply or "the connection closed unanswered"
 
 
 def test_a_client_that_is_not_a_browser_is_answered(server: str) -> None:
@@ -1039,6 +1060,25 @@ def test_a_run_at_this_server_s_own_address_is_refused_at_that_box(
     assert "request" not in StubAgent.captured, "nothing was run for a setting like this"
 
 
+@pytest.mark.parametrize("stream", [False, True], ids=["post", "stream"])
+def test_a_run_at_an_address_that_will_not_parse_is_not_a_500(
+    server: str, stream: bool
+) -> None:
+    """An IPv6 address typed without its closing bracket made the own-address check
+    raise, so the run answered "Unexpected failure". An address that will not parse is
+    not this server's, and the model server's row is left to refuse it in its own words."""
+    options = {"request": "headphones", "base_url": "http://[::1:11434"}
+
+    if stream:
+        name, _data = events(f"{server}/api/search/stream?{urlencode(options)}")[-1]
+        assert name == "result"
+    else:
+        status, _data = post(f"{server}/api/search", options)
+        assert status == 200
+
+    assert StubAgent.captured["config"].base_url == "http://[::1:11434"
+
+
 @pytest.mark.parametrize(
     ("address", "host", "port", "reaches"),
     [
@@ -1053,6 +1093,7 @@ def test_a_run_at_this_server_s_own_address_is_refused_at_that_box(
         ("http://localhost:8000/v1", "192.168.1.5", 8000, False),
         ("http://gpu-box:8000/v1", "127.0.0.1", 8000, False),
         ("http://localhost:99999/v1", "127.0.0.1", 8000, False),
+        ("http://[::1:8000/v1", "::1", 8000, False),
     ],
 )
 def test_an_address_reaches_this_server_on_its_port_and_a_host_bound_to_it(
@@ -1942,10 +1983,18 @@ def test_a_server_with_no_camera_answers_in_json(server: str) -> None:
     assert "no screenshots" in answer["error"]
 
 
-def test_a_picture_of_something_that_is_not_a_web_page_is_refused(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "address",
+    ["file:///etc/passwd", "http://[audiosite.example/xm5"],
+    ids=["file", "unclosed bracket"],
+)
+def test_a_picture_of_something_that_is_not_a_web_page_is_refused(
+    tmp_path: Path, address: str
+) -> None:
+    """An address that will not parse is no web page either, rather than a 500."""
     camera = Photographer()
     with serving(tmp_path, camera=camera) as base:
-        status, answer = get(screenshot_of(base, "file:///etc/passwd"))
+        status, answer = get(screenshot_of(base, address))
 
     assert status == 400
     assert "Not a web page" in answer["error"]
