@@ -1,0 +1,188 @@
+/**
+ * What the two recorders share: Playwright, Python, an ffmpeg that writes MPEG, the
+ * cues a soundtrack is built from, and the encoding itself.
+ *
+ * `record.mjs` films the shop's page and `benchmark.mjs` the benchmark's. Each one
+ * decides what happens on screen; everything after the last frame is here.
+ */
+import { spawnSync, execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { existsSync } from 'node:fs';
+import { join, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const require = createRequire(import.meta.url);
+
+/** The repository, which both Python modules are run from. */
+export const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+/** Playwright, from wherever it is installed -- locally, or globally as here. */
+export function playwright() {
+  try {
+    return require('playwright');
+  } catch {
+    const global = execFileSync('npm', ['root', '-g'], {
+      encoding: 'utf8',
+    }).trim();
+    return require(join(global, 'playwright'));
+  }
+}
+
+/** `--name value` pairs, and a bare `--name` as present with an empty value. */
+export function parseArgs(argv = process.argv.slice(2)) {
+  return Object.fromEntries(
+    argv.reduce((pairs, value, index, all) => {
+      if (value.startsWith('--')) {
+        const next = all[index + 1];
+        pairs.push([value.slice(2), next === undefined || next.startsWith('--') ? '' : next]);
+      }
+      return pairs;
+    }, []),
+  );
+}
+
+/**
+ * A Python module run from the repository, under whichever of `python` and
+ * `python3` answers: the result of the first that exits 0.
+ */
+export function python(args, { input } = {}) {
+  let failure;
+  for (const interpreter of ['python', 'python3']) {
+    const ran = spawnSync(interpreter, args, {
+      cwd: root,
+      input,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    if (ran.status === 0) return ran.stdout;
+    failure = ran.stderr || ran.error?.message;
+  }
+  throw new Error(`python ${args.join(' ')} failed:\n${failure ?? ''}`);
+}
+
+/**
+ * An ffmpeg that can write an MPEG program stream.
+ *
+ * Playwright ships one beside its browsers, but that build is stripped down to
+ * what recording needs and has neither the `mpeg` muxer nor the `mpeg1video`
+ * encoder, so a system ffmpeg is preferred and the bundled one is only a last
+ * resort. `--ffmpeg` names a third.
+ */
+export function ffmpegBinary(named) {
+  if (named) return named;
+  for (const candidate of ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg']) {
+    if (existsSync(candidate)) return candidate;
+  }
+  const browsers = process.env.PLAYWRIGHT_BROWSERS_PATH ?? '/opt/pw-browsers';
+  for (const candidate of ['ffmpeg-1011/ffmpeg-linux', 'ffmpeg/ffmpeg-linux']) {
+    const path = join(browsers, candidate);
+    if (existsSync(path)) return path;
+  }
+  return 'ffmpeg';
+}
+
+/**
+ * How the picture is written: MPEG-2 video in a program stream, still a `.mpg`.
+ *
+ * MPEG-1 is what the first two recordings used and it is the wrong format for
+ * this picture. 1280x720 is far outside MPEG-1's constrained parameters, so the
+ * encoder declares a video buffer smaller than a single one of its own
+ * keyframes and every pack the muxer writes violates the system target decoder.
+ * A lenient player ignores all of that and shows the film; a player that has to
+ * schedule an audio track against the same model gives up and opens nothing.
+ *
+ * So the rate and the buffer are stated rather than left to `-q:v`, and the
+ * codec is the one whose levels this frame size is inside. An MPEG-2 program
+ * stream is the DVD lineage -- the format with the widest player support there
+ * is -- and it is what `.mpg` means to everything that reads one.
+ */
+export const VIDEO = [
+  '-c:v',
+  'mpeg2video',
+  '-b:v',
+  '3000k',
+  '-maxrate',
+  '3500k',
+  '-bufsize',
+  '1835008',
+  '-r',
+  '25',
+  '-f',
+  'mpeg',
+];
+
+/**
+ * MP2 is the audio an MPEG program stream carries, so a recording with sound in it
+ * is still the one format that plays anywhere.
+ */
+export const AUDIO = ['-c:a', 'mp2', '-b:a', '192k', '-ar', '44100'];
+
+/**
+ * Every cue so far, in seconds from the first frame.
+ *
+ * `start()` is called when Playwright opens the page, which is when it starts
+ * the recording; a cue is whatever happened and when, plus anything its kind
+ * needs (a spoken line carries its clip).
+ */
+export class Cues {
+  constructor() {
+    this.list = [];
+    this.firstFrame = Date.now();
+  }
+
+  start() {
+    this.firstFrame = Date.now();
+  }
+
+  now() {
+    return (Date.now() - this.firstFrame) / 1000;
+  }
+
+  add(kind, extra = {}) {
+    this.list.push({ kind, at: this.now(), ...extra });
+  }
+}
+
+/**
+ * How long the takes run for, decoded rather than read off a header.
+ *
+ * A soundtrack has to be exactly as long as the picture it goes under, and a
+ * WebM that Playwright is still writing when the context closes carries a
+ * duration that is anywhere from wrong to absent. Decoding to nowhere costs a
+ * second and answers with the timestamp of the last frame, which is the clock
+ * the cues were taken against.
+ */
+export function videoSeconds(ffmpeg, paths) {
+  return paths.reduce((total, path) => {
+    const probe = spawnSync(ffmpeg, ['-i', path, '-f', 'null', '-'], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    const stamps = [...(probe.stderr?.toString() ?? '').matchAll(/time=(\d+):(\d+):([\d.]+)/g)];
+    const last = stamps.at(-1);
+    if (last === undefined) throw new Error(`could not measure ${path}`);
+    return total + Number(last[1]) * 3600 + Number(last[2]) * 60 + Number(last[3]);
+  }, 0);
+}
+
+/**
+ * The cues, as a WAV of that same length -- synthesised by `demo/sound.py`.
+ *
+ * Python again, for the reason the recorders already read the scripts with it:
+ * what the demo sounds like is the demo's to say, and there is one interpreter
+ * here that already has to be on PATH.
+ */
+export function soundtrack(cues, seconds, directory) {
+  const track = join(directory, 'track.wav');
+  python(['-m', 'demo.sound', '--duration', String(seconds), '--out', track], {
+    input: JSON.stringify(cues),
+  });
+  return track;
+}
+
+/** Run ffmpeg, throwing its own account of what went wrong. */
+export function encode(ffmpeg, args) {
+  const ran = spawnSync(ffmpeg, ['-y', ...args], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  if (ran.status !== 0) throw new Error(`ffmpeg failed:\n${ran.stderr?.toString() ?? ''}`);
+}

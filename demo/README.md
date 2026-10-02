@@ -37,8 +37,9 @@ are invented, on `*.example` hosts that cannot resolve.
 
 1280x720 is outside MPEG-1's constrained parameters, so its streams violate the
 system target decoder. Silent players cope; one scheduling an audio track opens
-nothing. `VIDEO` in `record.mjs` states the rate and buffer and uses MPEG-2. The
-two silent recordings predate it; a new take of either is MPEG-2 too.
+nothing. `VIDEO` in `recording.mjs`, which both recorders use, states the rate and
+buffer and uses MPEG-2. The two silent recordings predate it; a new take of either
+is MPEG-2 too.
 
 ## The soundtrack
 
@@ -48,6 +49,10 @@ the video's length from sine waves, muxed in as MP2. A log line that took
 something away gets a lower, longer note; `TOOK_SOMETHING_AWAY` matches the verb
 (`Discarded`, `Dropped`, `Merged`). `sound.spread` pushes simultaneous lines
 apart by `LINE_GAP`, and the mix is limited rather than normalised.
+
+A `say` cue is a spoken line, from `narration.py`. `sound.voice_over` lays it
+over the limited mix, which ducks to `DUCK` beneath it, so the voice is never
+squashed by the limiter.
 
 ## The link at the end
 
@@ -87,6 +92,44 @@ the recorder presses twice.
 `record.mjs` needs Playwright (local or global), Python on PATH, and an ffmpeg
 with the `mpeg` muxer and the `mpeg2video` and `mp2` encoders. Playwright's own
 ffmpeg has none of those, so a system one is preferred; `--ffmpeg` names another.
+
+## The benchmark, on a CPU
+
+`benchmark.mjs` films the benchmark's page (`python -m benchmark.server`,
+[ADR-0070](../docs/adr/0070-compare-local-models-and-give-the-comparison-a-page.md)) comparing
+real models served by Ollama with the two reference answers, and talks over it:
+what the page is, the server and its models, the references, the cases, the run
+as it goes, the standings, one model opened, and how a run is scored. Each line
+is captioned on screen as it is said.
+
+```powershell
+ollama pull qwen3:0.6b
+$env:CUDA_VISIBLE_DEVICES = "-1" ; ollama serve        # one terminal: no GPU
+$env:BUY_AGENT_CACHE_DIR = "$env:TEMP\benchmark-demo"   # another: an empty board
+python -m benchmark.server
+node demo/benchmark.mjs --models qwen3:0.6b --out demo/benchmark-on-cpu.mpg
+```
+
+It is a demo of the models running **on the CPU only**, and it checks rather
+than asserts it. The benchmark sends no `num_gpu`, so where the layers go is
+Ollama's choice; hiding the GPUs from it (`CUDA_VISIBLE_DEVICES=-1`, or
+`HIP_VISIBLE_DEVICES=-1` on AMD) is what keeps them off one. The recorder polls
+Ollama's `/api/ps` (what `ollama ps` prints) every second, shows it in a corner,
+and refuses to write a take in which any model had memory on a GPU. The last
+card states what it saw.
+
+- `--models` is a comma-separated list, each one pulled; `--cases` narrows the
+  three (`headphones,laptops,espresso`).
+- A model on a CPU takes minutes. Where it is only working, with nothing being
+  said, the video runs `--fast-forward` times faster (8 by default; 1 never),
+  with a badge saying so. The page's own clock keeps real time throughout, and
+  the soundtrack is moved with the picture.
+- The voice is `narration.py`'s: SVOX Pico (`pico2wave`, in Debian and Ubuntu's
+  `libttspico-utils`) if it is installed, else `espeak-ng`. The recorder waits
+  for each line to end before the next step, so they never drift apart.
+- It refuses a board that already holds runs, since the standings would not be
+  this run's; `--clear` forgets them instead. `--url` and `--ollama` move the two
+  addresses.
 
 ## The README's pictures
 

@@ -609,9 +609,12 @@ a fake `EventSource`.
 
 See `demo/README.md`. `demo/server.py` runs the real server with only
 `search_web`, `enrich` and the model faked. The scripts make the fake model wrong
-in six ways. Recordings are MPEG-2 program streams: `VIDEO` in `record.mjs` is
-fixed, so don't go back to MPEG-1. Sound is synthesised: `record.mjs` writes
-cues, and `sound.py` renders them. `demo/merchant.py` verifies with the AP2 SDK,
+in six ways. Recordings are MPEG-2 program streams: `VIDEO` in `recording.mjs`
+(shared by both recorders) is fixed, so don't go back to MPEG-1. Sound is
+synthesised: `record.mjs` writes cues, and `sound.py` renders them.
+`benchmark.mjs` films the benchmark's page on real Ollama models, narrated by
+`narration.py`, and refuses a take in which `/api/ps` shows GPU memory.
+`demo/merchant.py` verifies with the AP2 SDK,
 never `buy_agent.mandates`. Nothing in `demo/` is imported, covered, mutated or
 shipped.
 

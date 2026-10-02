@@ -1,4 +1,8 @@
-"""Turn a recording's cues into the WAV track that goes under it."""
+"""Turn a recording's cues into the WAV track that goes under it.
+
+A cue of kind ``say`` carries a ``clip``: a spoken line ``demo.narration`` wrote. It is
+laid over everything else, which is turned down while it plays.
+"""
 
 from __future__ import annotations
 
@@ -147,7 +151,7 @@ def spread(cues: Iterable[dict]) -> list[dict]:
         if str(cue["kind"]) in LINE_KINDS:
             at = max(at, last + LINE_GAP)
             last = at
-        spaced.append({"kind": cue["kind"], "at": at})
+        spaced.append({**cue, "at": at})
     return spaced
 
 
@@ -179,6 +183,72 @@ def finish(buffer: array.array) -> array.array:
     return buffer
 
 
+#: Peak each spoken line is brought to: over the ducked bed, still under full scale.
+SPEECH_PEAK = 0.74
+
+#: What the bed is turned down to while somebody is talking.
+DUCK = 0.3
+
+#: How long the bed takes to dip before a line and come back after it.
+DUCK_RAMP = 0.15
+
+
+def read_clip(path: Path) -> array.array:
+    """A 16-bit WAV as samples at :data:`SAMPLE_RATE`, brought to :data:`SPEECH_PEAK`."""
+    with wave.open(str(path), "rb") as clip:
+        if clip.getsampwidth() != 2:
+            raise ValueError(f"{path} is not 16-bit PCM")
+        channels = clip.getnchannels()
+        rate = clip.getframerate()
+        raw = array.array("h", clip.readframes(clip.getnframes()))
+    if sys.byteorder == "big":
+        raw.byteswap()
+    mono = [
+        sum(raw[index : index + channels]) / channels for index in range(0, len(raw), channels)
+    ]
+    peak = max((abs(sample) for sample in mono), default=0.0) or 1.0
+    # Linear interpolation is plenty for a voice going from 16 kHz to 44.1 kHz.
+    step = rate / SAMPLE_RATE
+    length = int(len(mono) / step)
+    samples = array.array("d", bytes(8 * length))
+    for index in range(length):
+        position = index * step
+        left = int(position)
+        right = min(left + 1, len(mono) - 1)
+        fraction = position - left
+        samples[index] = (
+            SPEECH_PEAK * (mono[left] * (1 - fraction) + mono[right] * fraction) / peak
+        )
+    return samples
+
+
+def voice_over(buffer: array.array, cues: Iterable[dict]) -> array.array:
+    """Lay every ``say`` cue's clip over ``buffer``, ducking the rest beneath it."""
+    lines = [
+        (int(float(cue["at"]) * SAMPLE_RATE), read_clip(Path(cue["clip"])))
+        for cue in cues
+        if str(cue["kind"]) == "say"
+    ]
+    ramp = int(DUCK_RAMP * SAMPLE_RATE)
+    gain = array.array("d", [1.0]) * len(buffer)
+    for start, clip in lines:
+        end = start + len(clip)
+        for index in range(max(0, start - ramp), min(len(buffer), end + ramp)):
+            if index < start:
+                level = 1 - (1 - DUCK) * (index - start + ramp) / ramp
+            elif index >= end:
+                level = DUCK + (1 - DUCK) * (index - end) / ramp
+            else:
+                level = DUCK
+            gain[index] = min(gain[index], level)
+    for index, level in enumerate(gain):
+        buffer[index] *= level
+    for start, clip in lines:
+        for offset, sample in enumerate(clip[: max(0, len(buffer) - start)]):
+            buffer[start + offset] += sample
+    return buffer
+
+
 def write(buffer: array.array, path: Path) -> None:
     """Write ``buffer`` out as 16-bit mono PCM."""
     samples = array.array(
@@ -207,7 +277,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     cues = json.load(sys.stdin)
-    write(finish(render(cues, args.duration)), args.out)
+    write(voice_over(finish(render(cues, args.duration)), cues), args.out)
     return 0
 
 
