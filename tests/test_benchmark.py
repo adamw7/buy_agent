@@ -329,13 +329,15 @@ def test_the_command_line_fails_when_a_floor_is_missed(
 
 def test_the_command_line_writes_the_scorecard_as_a_record(tmp_path, capsys) -> None:
     """``--json`` is how two runs a month apart are compared without either being
-    repeated, so it carries every metric and the overall score."""
+    repeated, so it carries every metric of every run and the overall score."""
     target = tmp_path / "scorecard.json"
-    benchmark_main.main(["--scripted", "sloppy", "--json", str(target)])
-    written = json.loads(target.read_text(encoding="utf-8"))
+    benchmark_main.main(["--scripted", "sloppy", "--case", "headphones", "--json", str(target)])
+    (row,) = json.loads(target.read_text(encoding="utf-8"))["standings"]
+    (run,) = row["runs"]
 
-    assert set(written) == set(METRICS) | {"score"}
-    assert written["score"] == pytest.approx(0.7008547008547008)
+    assert [metric["name"] for metric in run["metrics"]] == list(METRICS)
+    assert run["score"] == pytest.approx(0.7008547008547008, abs=1e-4)
+    assert row["score_label"] == "0.701"
     capsys.readouterr()
 
 
@@ -372,13 +374,14 @@ def test_the_command_line_reports_a_model_it_could_not_use(
     server is the only way in. It is a sentence on stderr and exit 1, not a
     traceback over the scorecard that was never computed."""
 
-    def unavailable(**_kwargs: object) -> None:
+    def unavailable(*_args: object, **_kwargs: object) -> None:
         raise ModelUnavailableError("Ollama is not answering on http://localhost:11434")
 
-    monkeypatch.setattr(benchmark_main, "run_benchmark", unavailable)
+    monkeypatch.setattr(benchmark_main, "run_case", unavailable)
     code = benchmark_main.main([])
     captured = capsys.readouterr()
 
     assert code == 1
     assert "Ollama is not answering" in captured.err
+    assert captured.err.count("Ollama is not answering") == 1, "its other cases are skipped"
     assert captured.out == ""

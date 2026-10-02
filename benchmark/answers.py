@@ -39,6 +39,8 @@ class Expected:
             for ADR-0022's reason.
         pages: The URLs that say something about it. What a link may point at,
             and the only pages a quote about it may come from (ADR-0025).
+        currency: What :attr:`price` is counted in, which the ideal ordering is
+            ranked in (ADR-0043).
     """
 
     name: str
@@ -48,6 +50,7 @@ class Expected:
     prices: frozenset[tuple[float, str]]
     ratings: frozenset[tuple[float, int]]
     pages: frozenset[str]
+    currency: str = "USD"
 
     def as_product(self) -> Product:
         """This entry as the :class:`~buy_agent.models.Product` a perfect run
@@ -55,13 +58,13 @@ class Expected:
         return Product(
             name=self.name,
             price=self.price,
-            currency="USD",
+            currency=self.currency,
             rating=self.rating,
             review_count=self.review_count,
         )
 
 
-def _entry(
+def entry(
     name: str,
     price: float,
     rating: float,
@@ -69,22 +72,26 @@ def _entry(
     *,
     prices: set[tuple[float, str]],
     pages: set[str],
+    ratings: tuple[tuple[float, int], ...] = (),
+    currency: str = "USD",
 ) -> Expected:
-    """One row of the key."""
+    """One row of a key: the canonical figures, and every other pair the pages print
+    for it besides."""
     return Expected(
         name=name,
         price=price,
         rating=rating,
         review_count=reviews,
         prices=frozenset(prices),
-        ratings=frozenset({(rating, reviews)}),
+        ratings=frozenset({(rating, reviews), *ratings}),
         pages=frozenset(pages),
+        currency=currency,
     )
 
 
 #: The seven products these ten pages are about, in the order they first appear.
 ANSWER_KEY: tuple[Expected, ...] = (
-    _entry(
+    entry(
         "Sony WH-1000XM5", 328.0, 4.7, 12_480,
         # $328 on six pages; the refurbished $269 and the sale $299 on two more,
         # with the "was" price, the lowest ever, and EuroTech's euro listing.
@@ -93,33 +100,33 @@ ANSWER_KEY: tuple[Expected, ...] = (
         pages={AUDIOSITE, ROUNDUP, EUROTECH, SOUNDCHECK, AUDIODEAL,
                CANSREVIEW, FLIGHTGEAR, DEALTRACKER},
     ),
-    _entry(
+    entry(
         "Bose QuietComfort Ultra", 349.0, 4.3, 5_600,
         prices={(349.0, "USD"), (329.0, "USD"), (359.0, "EUR")},
         pages={AUDIOSITE, ROUNDUP, EUROTECH, AUDIODEAL, CANSREVIEW, DEALTRACKER},
     ),
-    _entry(
+    entry(
         "Sennheiser Accentum", 179.0, 4.2, 3_400,
         prices={(179.0, "USD"), (149.0, "USD"), (169.0, "EUR")},
         pages={AUDIOSITE, BARN, ROUNDUP, EUROTECH, SOUNDCHECK,
                CANSREVIEW, FLIGHTGEAR, DEALTRACKER},
     ),
-    _entry(
+    entry(
         "Apple AirPods Max", 479.0, 4.6, 9_100,
         prices={(479.0, "USD")},
         pages={AUDIOSITE, AUDIODEAL},
     ),
-    _entry(
+    entry(
         "Anker Soundcore Space Q45", 99.0, 4.4, 31_200,
         prices={(99.0, "USD")},
         pages={BARN, SOUNDCHECK, FLIGHTGEAR, BUDGETAUDIO},
     ),
-    _entry(
+    entry(
         "Soundcore Life Q30", 59.0, 4.5, 74_000,
         prices={(59.0, "USD"), (49.0, "USD")},
         pages={BARN, ROUNDUP, DEALTRACKER, BUDGETAUDIO},
     ),
-    _entry(
+    entry(
         # BudgetAudio prints its rating and refuses to print a price it trusts:
         # the one product whose figures are incomplete on the page most about it.
         "JLab JBuds Lux ANC", 79.0, 4.1, 8_900,
@@ -128,4 +135,4 @@ ANSWER_KEY: tuple[Expected, ...] = (
     ),
 )
 
-__all__ = ["ANSWER_KEY", "Expected"]
+__all__ = ["ANSWER_KEY", "Expected", "entry"]

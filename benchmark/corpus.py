@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from buy_agent.config import AgentConfig
 from buy_agent.search import SearchResult
+from benchmark.query import QueryKey
 
 #: How many products the run keeps, and how many it reports.
 NUM_PRODUCTS = 5
@@ -297,3 +298,16 @@ PAGES: tuple[SearchResult, ...] = (
 
 #: What the shopper typed.
 REQUEST = "comfortable noise cancelling headphones for flights, under $350"
+
+#: What a refined query owes :data:`REQUEST` (ADR-0070): the category, the feature, the
+#: use and the budget. "Comfortable" is how the pages are read rather than a word a
+#: search needs.
+QUERY = QueryKey(
+    keeps=(
+        ("headphones", "headphone", "headset"),
+        ("noise cancelling", "noise canceling", "noise cancellation", "anc"),
+        ("flight", "flights", "flying", "plane", "airplane", "travel"),
+        ("350",),
+    ),
+    brands=("sony", "bose", "sennheiser", "apple", "airpods", "anker", "soundcore", "jlab"),
+)

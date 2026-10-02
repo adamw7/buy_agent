@@ -40,6 +40,22 @@ METRICS: dict[str, tuple[float, float]] = {
     "order": (1.0, 1.0),  # ranked pairs the answer key would order the same way
 }
 
+#: What each metric counts, in the words the page and ``docs/testing.md`` use.
+MEANINGS: dict[str, str] = {
+    "identified": "Slots filled with a product that is really there",
+    "genuine": "Reported entries that are a real product, not a shop and not a repeat",
+    "figures": "Price, rating and review count reported and printed for that product",
+    "attribution": "Figures reported that are not somebody else's",
+    "links": "Products pointed at a page that is about them",
+    "quotes": "Products carrying a verdict a page about them printed",
+    "faithful": "Quotes reported that are word for word on such a page",
+    "order": "Pairs ranked in the order the key's own figures give",
+}
+
+#: What a reported product is to the key: one it names, a second report of one, or
+#: something the pages are not about.
+REAL, REPEATED, INVENTED = "real", "repeated", "invented"
+
 #: What the nightly run refuses to go below (``integration/test_benchmark.py``).
 FLOORS: dict[str, float] = {
     "identified": 0.4,
@@ -74,6 +90,26 @@ def best_match(name: str, key: Sequence[Expected] = ANSWER_KEY) -> Expected | No
         (identifies(name, entry), -index, entry) for index, entry in enumerate(key)
     )
     return entry if strength else None
+
+
+def match_products(
+    products: Sequence[Product], key: Sequence[Expected] = ANSWER_KEY
+) -> list[tuple[Expected | None, str]]:
+    """Each reported product's entry in the key and what it is to it, in the order
+    reported: :data:`REAL` the first time an entry is named, :data:`REPEATED` after, and
+    :data:`INVENTED` where no entry is."""
+    seen: set[str] = set()
+    matched: list[tuple[Expected | None, str]] = []
+    for product in products:
+        entry = best_match(product.name, key)
+        if entry is None:
+            matched.append((None, INVENTED))
+        elif entry.name in seen:
+            matched.append((entry, REPEATED))
+        else:
+            seen.add(entry.name)
+            matched.append((entry, REAL))
+    return matched
 
 
 def figure_verdicts(product: Product, entry: Expected) -> list[bool | None]:
@@ -146,10 +182,28 @@ class Scorecard:
         weighted = sum(weights[name] * value for name, value in self.metrics.items())
         return weighted / sum(weights.values())
 
+    @property
+    def cleared(self) -> bool:
+        """Whether every metric and the score are at or above their floors."""
+        rows = {**self.metrics, "score": self.score}
+        return all(value >= FLOORS[name] for name, value in rows.items())
+
+    def summary(self) -> str:
+        """What the counts come to, in one sentence."""
+        matched, reported = self.counts["genuine"]
+        return (
+            f"{matched} of {self.counts['identified'][1]} slots hold a real product "
+            f"({self.invented} invented, {self.repeated} repeated, {reported} reported); "
+            f"{'/'.join(map(str, self.counts['figures']))} figures right, "
+            f"{self.counts['attribution'][1] - self.counts['attribution'][0]} "
+            f"misattributed; {self.counts['quotes'][0]} quoted, "
+            f"{self.counts['faithful'][1] - self.counts['faithful'][0]} "
+            "quotes not on the page."
+        )
+
     def table(self) -> str:
         """The scorecard as lines, for a job log and for ``python -m benchmark``."""
         rows = {**self.metrics, "score": self.score}
-        matched, reported = self.counts["genuine"]
         return "\n".join(
             [
                 *(
@@ -157,13 +211,7 @@ class Scorecard:
                     f"{'' if value >= FLOORS[name] else '   UNDER'}"
                     for name, value in rows.items()
                 ),
-                f"  {matched} of {self.counts['identified'][1]} slots hold a real product "
-                f"({self.invented} invented, {self.repeated} repeated, {reported} reported); "
-                f"{'/'.join(map(str, self.counts['figures']))} figures right, "
-                f"{self.counts['attribution'][1] - self.counts['attribution'][0]} "
-                f"misattributed; {self.counts['quotes'][0]} quoted, "
-                f"{self.counts['faithful'][1] - self.counts['faithful'][0]} "
-                "quotes not on the page.",
+                f"  {self.summary()}",
             ]
         )
 
@@ -191,24 +239,19 @@ def score_run(
         invented price a second time would charge twice for it.
     """
     pages = page_words(results)
-    matched: list[tuple[Product, Expected]] = []
-    seen: set[str] = set()
-    invented = repeated = 0
+    verdicts = match_products(products, key)
+    matched = [
+        (product, entry)
+        for product, (entry, verdict) in zip(products, verdicts, strict=True)
+        if entry is not None and verdict == REAL
+    ]
+    invented = sum(verdict == INVENTED for _, verdict in verdicts)
+    repeated = sum(verdict == REPEATED for _, verdict in verdicts)
 
-    for product in products:
-        entry = best_match(product.name, key)
-        if entry is None:
-            invented += 1
-        elif entry.name in seen:
-            repeated += 1
-        else:
-            seen.add(entry.name)
-            matched.append((product, entry))
-
-    verdicts = [
+    figures = [
         verdict for product, entry in matched for verdict in figure_verdicts(product, entry)
     ]
-    reported_figures = sum(verdict is not None for verdict in verdicts)
+    reported_figures = sum(verdict is not None for verdict in figures)
     faithful = [
         [
             quote
@@ -225,9 +268,9 @@ def score_run(
         counts={
             "identified": (len(matched), min(len(key), slots)),
             "genuine": (len(matched), len(products)),
-            "figures": (sum(verdict is True for verdict in verdicts), 3 * len(matched)),
+            "figures": (sum(verdict is True for verdict in figures), 3 * len(matched)),
             "attribution": (
-                reported_figures - sum(verdict is False for verdict in verdicts),
+                reported_figures - sum(verdict is False for verdict in figures),
                 reported_figures,
             ),
             "links": (sum(p.url in e.pages for p, e in matched), len(matched)),
@@ -242,12 +285,17 @@ def score_run(
 
 __all__ = [
     "FLOORS",
+    "INVENTED",
     "MATCH_COVERAGE",
+    "MEANINGS",
     "METRICS",
+    "REAL",
+    "REPEATED",
     "Scorecard",
     "best_match",
     "figure_verdicts",
     "identifies",
+    "match_products",
     "page_words",
     "score_run",
 ]

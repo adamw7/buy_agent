@@ -8,7 +8,7 @@ from buy_agent.models import ExtractedProduct, ProductList, SearchQuery
 from benchmark.answers import AUDIOSITE, BARN, CANSREVIEW, ROUNDUP, SOUNDCHECK
 
 #: What a scripted run refines :data:`benchmark.corpus.REQUEST` into.
-REFINED_QUERY = "noise cancelling headphones under $350 price review comfort"
+REFINED_QUERY = "comfortable noise cancelling headphones for flights under $350 price review"
 
 
 class ScriptedLLM:

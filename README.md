@@ -191,6 +191,24 @@ defaults too. The extraction prompt is about 4.3k tokens; inside Ollama's own
 python -m buy_agent "wireless headphones under $200" --model qwen3.5:9b --think
 ```
 
+### Which model to use
+
+The benchmark runs the models your server holds over three fixed shopping cases --
+headphones in dollars, a gaming laptop in the thousands, an espresso machine in
+euros -- and ranks them on what they read off the pages, the query they wrote and
+how long they took. It has a page of its own:
+
+```powershell
+python -m benchmark.server                       # then open http://127.0.0.1:8100
+python -m benchmark --all-models                 # or every model Ollama holds, here
+python -m benchmark --model qwen3:4b --model gemma4:12b --case espresso
+```
+
+Nothing touches the web, so every model reads the same pages. Each run is kept, so
+a model pulled next week stands beside this week's
+([ADR-0070](docs/adr/0070-compare-local-models-and-give-the-comparison-a-page.md));
+[docs/testing.md](docs/testing.md#the-benchmark) has the scoring.
+
 ### Sources you trust
 
 By default the facts come from whatever ten pages the search returned, usually
@@ -553,12 +571,13 @@ python -m pytest integration  # against a real model, if one is pulled
 
 python -m benchmark --scripted perfect   # score the pipeline, no model needed
 python -m benchmark                      # ...and score whatever is serving
+python -m benchmark.server               # ...or compare several models on a page
 ```
 
 Neither suite touches the network or a model server, and both have coverage
 floors. `integration/` runs against a real Ollama on a CPU-sized model, nightly
-with a five-minute cap (ADR-0026). `benchmark/` scores a run against a fixed
-answer key over ten pages (ADR-0036). `tests/test_architecture.py` holds the
+with a five-minute cap (ADR-0026). `benchmark/` scores runs against fixed answer
+keys over three cases (ADR-0036, ADR-0070). `tests/test_architecture.py` holds the
 import graph ([ADR-0047](docs/adr/0047-check-the-import-graph-with-archunit.md)),
 and `tests/test_conventions.py` the rules between modules.
 [docs/testing.md](docs/testing.md) has the rest.
@@ -593,5 +612,5 @@ and `tests/test_conventions.py` the rules between modules.
   `brave` (`$BRAVE_API_KEY`) are the way out
   ([ADR-0057](docs/adr/0057-a-search-backend-is-a-row-in-a-table.md)); only the
   default is exercised against the real thing.
-- No model larger than the nightly's `qwen3:0.6b` has been scored; `python -m
-  benchmark --model <tag>` is how to find out.
+- No model larger than the nightly's `qwen3:0.6b` is scored on a schedule;
+  `python -m benchmark --all-models`, or its page, is how to find out on yours.

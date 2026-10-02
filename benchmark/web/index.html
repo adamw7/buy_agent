@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Local model benchmark</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <header class="top">
+      <div class="wrap">
+        <p class="eyebrow">buy_agent</p>
+        <h1>Local model benchmark</h1>
+        <p class="lede">
+          Scores the models a server holds on the two things this agent asks of one: turning a
+          shopper's request into a search query, then reading the products, prices, ratings and
+          quotes off a fixed set of pages. Nothing touches the web, so every model reads the same
+          pages.
+        </p>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section class="card" aria-labelledby="plan-heading">
+        <h2 id="plan-heading">What to run</h2>
+        <form id="plan" novalidate>
+          <div class="row">
+            <label class="field">
+              <span>Model server</span>
+              <select id="provider" name="provider"></select>
+            </label>
+            <label class="field grow">
+              <span>Address</span>
+              <input
+                id="base-url"
+                name="base_url"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </label>
+            <button type="button" id="list-models" class="secondary">List models</button>
+          </div>
+
+          <fieldset>
+            <legend>Models</legend>
+            <p id="models-note" class="note" role="status"></p>
+            <div id="models" class="choices"></div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Reference answers</legend>
+            <p class="note">
+              Hand-written answers run through the same pipeline with no model: a ceiling and a
+              floor to read the models against.
+            </p>
+            <div id="scripts" class="choices"></div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Cases</legend>
+            <div id="cases" class="choices"></div>
+          </fieldset>
+
+          <p id="plan-error" class="error" role="alert"></p>
+          <div class="actions">
+            <button type="submit" id="run">Run</button>
+            <button type="button" id="stop" class="secondary" disabled>Stop</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="progress-card" class="card" aria-labelledby="progress-heading" hidden>
+        <h2 id="progress-heading">Progress</h2>
+        <progress id="progress" max="1" value="0"></progress>
+        <p id="status" role="status"></p>
+        <ul id="problems" class="problems"></ul>
+      </section>
+
+      <section class="card" aria-labelledby="standings-heading">
+        <div class="heading-row">
+          <h2 id="standings-heading">Standings</h2>
+          <button type="button" id="clear" class="secondary small">Clear the board</button>
+        </div>
+        <p class="note">
+          Each model's latest run of each case. A model that has run every case ranks above one that
+          has not; then the score, the query, and the time its model took.
+        </p>
+        <div class="table-wrap">
+          <table id="standings" hidden>
+            <caption class="visually-hidden">
+              Models ranked by their mean score over the cases
+            </caption>
+            <thead>
+              <tr id="standings-head"></tr>
+            </thead>
+            <tbody id="standings-body"></tbody>
+          </table>
+        </div>
+        <p id="empty" class="note">Nothing has been scored yet. Pick a model and run it.</p>
+        <p id="board" class="note small"></p>
+      </section>
+
+      <section id="details" class="card" aria-labelledby="details-heading" hidden>
+        <h2 id="details-heading" tabindex="-1"></h2>
+        <p id="details-where" class="note"></p>
+        <div id="details-runs"></div>
+      </section>
+
+      <section class="card">
+        <details>
+          <summary>How a run is scored</summary>
+          <p class="note">
+            Each metric is a share of something, higher is better, weighed into the score. The query
+            is scored apart: the constraints it kept, and nothing it added.
+          </p>
+          <table class="metrics">
+            <thead>
+              <tr>
+                <th scope="col">Metric</th>
+                <th scope="col">Weight</th>
+                <th scope="col">Floor</th>
+                <th scope="col">What it counts</th>
+              </tr>
+            </thead>
+            <tbody id="metrics"></tbody>
+          </table>
+        </details>
+      </section>
+    </main>
+  </body>
+</html>

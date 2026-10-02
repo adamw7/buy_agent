@@ -40,6 +40,8 @@ python -m pylint buy_agent                    # from the root (ADR-0048)
 python -m mypy buy_agent                      # from the root (ADR-0063)
 ollama pull qwen3:0.6b ; python -m pytest integration   # against a real model
 python -m benchmark --scripted perfect        # score the pipeline, no model needed
+python -m benchmark --model qwen3:0.6b --model gemma4:12b   # compare models, every case
+python -m benchmark.server                    # the same comparison as a page on :8100
 
 python -m buy_agent "gaming laptop under $1500"
 python -m buy_agent "gaming laptop" --provider vllm      # or litellm
@@ -98,8 +100,9 @@ for every top-level directory. Convention tests check all three. See
 
 ### Settings and their environment
 
-- `$BUY_AGENT_CACHE_DIR` sets where `pages/` (ADR-0040), `answers/` (ADR-0044)
-  and `runs/` live. It has no flag and no form field. `cache_ttl` covers both
+- `$BUY_AGENT_CACHE_DIR` sets where `pages/` (ADR-0040), `answers/` (ADR-0044),
+  `runs/` and the benchmark's `benchmark/board.json` (ADR-0070) live. It has no
+  flag and no form field. `cache_ttl` covers both
   cache kinds, and 0 means always fetch fresh and always ask the model. Sampled
   runs (`temperature > 0`) are never cached. `cache.MAX_BYTES` caps each kind,
   pruning oldest first (ADR-0052).
@@ -682,15 +685,26 @@ hold the import graph:
 one session-scoped `live_run`. It skips without Ollama unless
 `$BUY_AGENT_REQUIRE_OLLAMA` is set; `$BUY_AGENT_TEST_MODEL` moves the tag.
 
-**The benchmark** (`benchmark/`, ADR-0036):
+**The benchmark** (`benchmark/`, ADR-0036, ADR-0070):
 
+- A case is a module (`REQUEST`, `QUERY`, `REFINED_QUERY`, `PAGES`, `PAGE_TEXT`,
+  `ANSWER_KEY`, `PERFECT`, `SLOPPY`) and a row in `cases.CASES`. The nightly
+  scores `headphones` alone.
 - The key is per-product *sets* of `(price, currency)` and
   `(rating, review_count)`.
-- Metrics are declared once in `scoring.METRICS`, and the scorer reuses the
-  pipeline's own rules.
+- Metrics are declared once in `scoring.METRICS`, beside `MEANINGS`, and the
+  scorer reuses the pipeline's own rules. The query is scored apart in
+  `query.py` and never blended into the score.
 - The floors are a tripwire. Raise one only in its own commit, quoting runs.
-- After editing the corpus, `PERFECT` must score exactly 1.000 and `SLOPPY`
-  must hit its pinned counts.
+- After editing a case, its `PERFECT` must score exactly 1.000, its `SLOPPY`
+  must hit its pinned counts, and every page mentioning a product must be one
+  its entry lists.
+- A contender is reached only through its provider row. An unreadable answer is
+  the case's result; a model that cannot be asked is no result, kept nowhere, and
+  its other cases are skipped. The board drops runs whose case fingerprint moved.
+- `benchmark/server.py` subclasses `BuyAgentHandler`. The page in
+  `benchmark/web/` decides nothing, loads nothing inline and writes text only;
+  `tests/test_benchmark_server.py` holds its script to the payloads.
 
 **Scripts.** `scripts/mutation_report.py` (one `Tool` row per tester) and
 `scripts/update_ollama.py` (run as `python -m scripts.update_ollama`) are
