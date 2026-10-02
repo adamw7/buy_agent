@@ -109,15 +109,17 @@ _TRANSFER_FAILED = "failed mid-transfer"
 _NOT_HTML = "did not answer with HTML"
 _NOTHING_KEPT = "quoted no prices and no verdicts"
 
-#: What fetching a page can raise, caught on both attempts. ``InvalidURL`` is not under
-#: httpx's root.
-_CANNOT_FETCH = (httpx.HTTPError, httpx.InvalidURL)
+#: What fetching a page can raise, caught on both attempts. Two are not under httpx's
+#: root: ``InvalidURL``, and the ``UnicodeError`` the socket raises below httpx for a
+#: host it cannot IDNA-encode (``shop..example``, a label over 63 characters) -- a
+#: result's own address, or one its page redirects to.
+_CANNOT_FETCH = (httpx.HTTPError, httpx.InvalidURL, UnicodeError)
 
 #: The tally's phrase per transport failure, asked in order.
 _FAILURE_PHRASES: tuple[tuple[tuple[type[Exception], ...], str], ...] = (
     ((httpx.TimeoutException,), _TIMED_OUT),
     ((httpx.TooManyRedirects,), _LOOPED),
-    ((httpx.InvalidURL, httpx.UnsupportedProtocol), _UNFETCHABLE),
+    ((httpx.InvalidURL, httpx.UnsupportedProtocol, UnicodeError), _UNFETCHABLE),
     ((httpx.NetworkError, httpx.ProxyError), _UNREACHABLE),
 )
 
@@ -320,7 +322,15 @@ def _read_capped(response: httpx.Response, url: str) -> str:
             break
     markup = b"".join(chunks)
     chunks.clear()
-    return markup.decode(response.encoding or "utf-8", errors="replace")
+    encoding = response.encoding or "utf-8"
+    try:
+        return markup.decode(encoding, errors="replace")
+    # httpx takes any name ``codecs`` knows: ``charset=base64`` names a codec that is no
+    # text encoding (``LookupError``), ``charset=idna`` one that will not replace a byte
+    # (``UnicodeError``). Read as UTF-8, as httpx reads a name it does not know.
+    except (LookupError, UnicodeError):
+        logger.debug("%s declared %r, which reads no text; read it as UTF-8", url, encoding)
+        return markup.decode("utf-8", errors="replace")
 
 
 def describe_failure(exc: Exception) -> str:

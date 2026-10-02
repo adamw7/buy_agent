@@ -417,7 +417,9 @@ Only query refinement is recoverable: it falls back to the raw request but lets
 `ModelUnavailableError` through. `_invoke` catches
 `config.model_server.transport_errors`. Ollama's tuple includes
 `httpx.HTTPError` beside ollama's own `RequestError`, and OpenAI-style rows use
-`openai.OpenAIError`. `chat.UnreadableAnswerError` is a `ValueError`, so
+`openai.OpenAIError`. Every row that dials an address, and `fetch`, also counts
+`UnicodeError`, which the socket raises unwrapped for a host it cannot encode
+(`shop..example`). `chat.UnreadableAnswerError` is a `ValueError`, so
 `_extract_products` turns it into a `ModelUnavailableError` with the provider's
 hint about room (ADR-0019).
 

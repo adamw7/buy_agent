@@ -16,6 +16,7 @@ from buy_agent.chat import UnreadableAnswerError
 from buy_agent.config import AgentConfig
 from buy_agent.models import SearchQuery
 from buy_agent.providers import provider_for, provider_options
+from tests.conftest import unencodable
 
 # The table and its rows are read off the module rather than imported by name, because
 # ``reloaded_providers`` below re-imports it: a reload re-runs the module over its own
@@ -1328,6 +1329,19 @@ def test_an_unreachable_proxy_quotes_the_transport() -> None:
 
     assert "(connection refused)" in message
     assert "litellm --config config.yaml" in message
+
+
+@pytest.mark.parametrize(
+    "config", [OLLAMA_CONFIG, VLLM_CONFIG, LITELLM_CONFIG], ids=["ollama", "vllm", "litellm"]
+)
+def test_a_host_no_client_can_encode_is_one_the_agent_catches(config: AgentConfig) -> None:
+    """``192.168.1..5`` fails in the socket, beneath every client, as a ``UnicodeError``
+    none of them wraps. Missed, the query step swallowed it and the run searched and
+    fetched before failing as a 400 quoting the codec."""
+    failure = unencodable("192.168.1..5")
+
+    assert isinstance(failure, errors(config))
+    assert f"Could not reach {config.model_server.label} at" in hint(config, failure)
 
 
 def test_the_proxy_has_its_own_variables(reloaded_providers) -> None:

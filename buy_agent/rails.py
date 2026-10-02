@@ -159,8 +159,10 @@ HTTP = Rail(
     moves_money=True,
     checkout=_http_checkout,
     settle=_http_settle,
-    # httpx's root: refusals, timeouts and ``raise_for_status``.
-    transport_errors=(httpx.HTTPError, OSError),
+    # httpx's root: refusals, timeouts and ``raise_for_status``. Outside it, a mistyped
+    # address: ``InvalidURL``, and the socket's ``UnicodeError`` for a host it cannot
+    # encode (``pay..example``).
+    transport_errors=(httpx.HTTPError, httpx.InvalidURL, OSError, UnicodeError),
     hint=_http_hint,
 )
 

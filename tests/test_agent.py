@@ -19,7 +19,7 @@ from buy_agent.ranking import NEUTRAL, RankingWeights
 from buy_agent.search import SearchError, SearchResult
 from buy_agent.sources import parse_sources
 
-from tests.conftest import FakeLLM, said
+from tests.conftest import FakeLLM, said, unencodable
 
 
 @pytest.fixture
@@ -696,6 +696,8 @@ def test_an_unlistable_server_still_gives_the_pull_command(
         httpx.ConnectError("[Errno 111] Connection refused"),
         httpx.RemoteProtocolError("the server closed the stream"),
         httpx.ProxyError("no route to the proxy"),
+        # A mistyped address, refused by the socket beneath the client.
+        unencodable("192.168.1..5"),
     ],
 )
 def test_transport_failures_all_become_one_actionable_error(
@@ -723,11 +725,16 @@ def test_a_model_too_slow_to_answer_says_so_rather_than_ollama_serve(
     assert "qwen3.5:9b" in str(caught.value)
 
 
+@pytest.mark.parametrize(
+    "error",
+    [ConnectionError("refused"), unencodable("192.168.1..5")],
+    ids=["refused", "unencodable host"],
+)
 def test_a_missing_ollama_is_not_papered_over_by_the_query_fallback(
-    agent_factory, search_results
+    agent_factory, search_results, error
 ) -> None:
     """Refinement is recoverable; searching with a model that is not there is not."""
-    agent, calls = agent_factory(FakeLLM(raises=ConnectionError("refused")), search_results)
+    agent, calls = agent_factory(FakeLLM(raises=error), search_results)
 
     with pytest.raises(ModelUnavailableError):
         agent.run("headphones")

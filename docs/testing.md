@@ -52,7 +52,7 @@ without `cffi`). The HTTP rail's transport is patched in `buy_agent.rails`.
 
 Optional prerequisites skip, never fail:
 
-- **`needs_ap2`** (82 tests) asks `mandates.available()` once, and goes on the
+- **`needs_ap2`** (84 tests) asks `mandates.available()` once, and goes on the
   parametrised case that reaches signing rather than the whole function. Both
   workflows install the SDK, so nothing skips where it matters, and the coverage
   floor cannot be met without it.
@@ -61,8 +61,8 @@ Optional prerequisites skip, never fail:
 - `tests/test_session_hook.py` (6) skips on Windows, as do the 2 `needs_tzset`
   tests in `tests/test_journal.py`, which move `$TZ` and need `time.tzset`.
 
-So the SDK without PowerShell reads `2890 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `2808 passed, 102 skipped`.
+So the SDK without PowerShell reads `2930 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `2846 passed, 104 skipped`.
 
 ### `pytest.ini`
 

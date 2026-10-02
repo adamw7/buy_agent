@@ -24,7 +24,11 @@ else.
   (`os.getenv("OLLAMA_MODEL", ...)`). `api_key` has no flag or form field and is
   never in `provider_options()` or `rail_options()`.
 - `transport_errors` is what the client actually raises (ollama's lets `httpx`
-  errors out raw beside a builtin `ConnectionError`).
+  errors out raw beside a builtin `ConnectionError`). A row that dials an address
+  also lists `UnicodeError`: the socket raises it, beneath every client and
+  wrapped by none, for a host it cannot IDNA-encode (`192.168.1..5`). A row that
+  builds its URL per call with `httpx` (a search backend, a rail) lists
+  `httpx.InvalidURL` too, which is outside httpx's root.
 - `hint` covers only this backend's own failures. Shared sentences live in
   `_too_slow_hint`/`_unreachable_hint`, and `_hint` decides the failures every
   provider shares. A hint names the **setting**, never the flag

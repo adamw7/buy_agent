@@ -58,6 +58,12 @@ def digests(client: Any) -> dict[str, str]:
     return {model.model: model.digest or "" for model in client.list().models if model.model}
 
 
+def tagged(name: str) -> str:
+    """``name`` as Ollama lists it: one with no tag is its ``latest``. A tag follows the
+    last ``/``, so a registry's port (``localhost:5000/me/model``) is not one."""
+    return name if ":" in name.rpartition("/")[2] else f"{name}:latest"
+
+
 def stream(client: Any, model: str) -> Iterator[str]:
     """The distinct statuses of a streaming pull, as they arrive."""
     previous = ""
@@ -74,7 +80,9 @@ def update(
 ) -> list[Outcome]:
     """Pull each named model, or every installed one, and report what changed."""
     before = digests(client)
-    names = sorted(models) or sorted(before)
+    # As listed, or ``llama3.2`` -- as ``ollama pull`` takes it -- finds no digest either
+    # side, and an update reads as "installed (unknown)".
+    names = sorted({tagged(name) for name in models}) or sorted(before)
 
     errors: dict[str, str] = {}
     for name in names:

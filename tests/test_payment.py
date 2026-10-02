@@ -21,7 +21,13 @@ from buy_agent.payment import (
     pay_for,
     unattended,
 )
-from tests.conftest import enrolled_key, needs_ap2, open_mandate, payable_product
+from tests.conftest import (
+    enrolled_key,
+    needs_ap2,
+    open_mandate,
+    payable_product,
+    unencodable,
+)
 
 SONY = payable_product(rating=4.6, review_count=1200)
 
@@ -649,6 +655,29 @@ def test_an_unreachable_rail_carries_the_transports_own_words(
     config = AgentConfig(pay=True, rail="http", merchant_url="https://pay.example")
 
     with pytest.raises(RailUnreachableError, match="nowhere"):
+        pay_for(cart_for(SONY, [SONY], config), config)
+
+
+@needs_ap2
+@pytest.mark.parametrize("which", ["unencodable host", "invalid URL"])
+def test_an_endpoint_address_nothing_can_ask_is_an_unreachable_rail(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch, which: str
+) -> None:
+    """A mistyped endpoint fails outside httpx's root, so it left ``pay_for`` as neither
+    failure: a traceback rather than exit 4 at the CLI, a 500 at the API."""
+    import httpx
+
+    from buy_agent import rails
+
+    failure = {
+        "unencodable host": unencodable("pay..example"),
+        "invalid URL": httpx.InvalidURL("Invalid non-printable ASCII character in URL"),
+    }[which]
+    enrolled_key(tmp_path, monkeypatch)
+    monkeypatch.setattr(rails.httpx, "post", lambda *a, **k: (_ for _ in ()).throw(failure))
+    config = AgentConfig(pay=True, rail="http", merchant_url="https://pay..example")
+
+    with pytest.raises(RailUnreachableError, match=r"Could not reach .*pay\.\.example"):
         pay_for(cart_for(SONY, [SONY], config), config)
 
 

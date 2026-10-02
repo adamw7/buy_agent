@@ -257,8 +257,10 @@ SEARXNG = Backend(
     # No key and no account, like the local model (ADR-0003, ADR-0057).
     needs_key=False,
     find=_searxng_find,
-    # httpx's root: refusals, timeouts and ``raise_for_status``.
-    transport_errors=(httpx.HTTPError, OSError),
+    # httpx's root: refusals, timeouts and ``raise_for_status``. Outside it, a mistyped
+    # address: ``InvalidURL``, and the socket's ``UnicodeError`` for a host it cannot
+    # encode (``localhost..``).
+    transport_errors=(httpx.HTTPError, httpx.InvalidURL, OSError, UnicodeError),
     hint=_searxng_hint,
 )
 
@@ -269,7 +271,7 @@ BRAVE = Backend(
     api_key=os.getenv("BRAVE_API_KEY", ""),
     needs_key=True,
     find=_brave_find,
-    transport_errors=(httpx.HTTPError, OSError),
+    transport_errors=(httpx.HTTPError, httpx.InvalidURL, OSError, UnicodeError),
     hint=_brave_hint,
 )
 

@@ -161,6 +161,16 @@ def enrolled_key(
     return key
 
 
+def unencodable(host: str) -> UnicodeError:
+    """What ``socket.getaddrinfo`` raises, beneath every HTTP client here, for a host it
+    cannot IDNA-encode: an empty label (``shop..example``) or one over 63 characters."""
+    try:
+        host.encode("idna")
+    except UnicodeError as exc:
+        return exc
+    raise AssertionError(f"{host!r} encodes")
+
+
 class FakeLLM:
     """Stands in for a model server: a canned object per requested schema."""
 
