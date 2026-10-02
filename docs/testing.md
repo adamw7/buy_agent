@@ -22,11 +22,12 @@ python -m pytest integration  # against a real Ollama; see below
 
 python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
+python -m benchmark.server               # ...or as a page comparing several models
 ```
 
 ## The unit suites
 
-2910 Python tests and 318 UI tests. Neither touches the network or a model
+3114 Python tests and 318 UI tests. Neither touches the network or a model
 server:
 
 - the model is faked through `BuyAgent(llm=...)`, a class with one `answer`
@@ -60,9 +61,11 @@ Optional prerequisites skip, never fail:
   and all 4 in `tests/test_setup_scripts.py` without `pwsh` or `powershell`.
 - `tests/test_session_hook.py` (6) skips on Windows, as do the 2 `needs_tzset`
   tests in `tests/test_journal.py`, which move `$TZ` and need `time.tzset`.
+- One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
+  and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `2930 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `2846 passed, 104 skipped`.
+So the SDK without PowerShell reads `3094 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `3010 passed, 104 skipped`.
 
 ### `pytest.ini`
 
@@ -215,16 +218,34 @@ half of what the job is for.
 ## The benchmark
 
 The live tests ask whether the promises held; `benchmark/` asks whether a change
-made things *better*, by scoring a run against a key (ADR-0036):
+made things *better*, and which local model does best, by scoring runs against a
+key (ADR-0036, ADR-0070):
 
 ```powershell
-python -m benchmark --scripted perfect   # no model, no network: scores 1.000
-python -m benchmark --scripted sloppy    # the same, wrong in eight ways
-python -m benchmark -v --json score.json # against a real model, keeping the numbers
+python -m benchmark --scripted perfect          # no model, no network: 1.000 on every case
+python -m benchmark --scripted sloppy           # the same, wrong in the ways small models are
+python -m benchmark --model qwen3:0.6b --model llama3.2:3b   # two models, every case
+python -m benchmark --all-models --case espresso             # all Ollama holds, one case
+python -m benchmark -v --json standings.json    # the provider's own model, keeping the numbers
+python -m benchmark.server                      # the same comparison, as a page
 ```
 
-`benchmark/answers.py` records, per product, the **sets** of `(price, currency)`
-and `(rating, review_count)` the pages print, so any printed figure counts and a
+### The cases
+
+A case is one use of the agent: a request, the pages its search returns, the key
+to what they print, what a query refined from the request owes it, and a perfect
+and a sloppy script (`benchmark/cases.py`). Nothing touches the web: every
+contender reads the same pages, through the real `fetch.condense`.
+
+| Case | Request | What it asks of a model |
+| --- | --- | --- |
+| `headphones` | comfortable noise cancelling headphones for flights, under $350 | Ten pages pricing several products each, a euro listing, a headline and a shop's name, one product under two names. The nightly's corpus. |
+| `laptops` | a gaming laptop light enough to carry to lectures, under $1,500 | Prices in the thousands beside spec sheets, a monthly payment, a student price, "$150 cheaper", a Canadian listing |
+| `espresso` | espresso machine for a small kitchen, under 400 euros | Decimal commas and dotted thousands, an American review in dollars, cashback and accessories |
+
+Each key (`benchmark/answers.py` for the first, the case's own module for the
+others) records, per product, the **sets** of `(price, currency)` and
+`(rating, review_count)` the pages print, so any printed figure counts and a
 mispairing does not (ADR-0022). `benchmark/scoring.py` scores eight shares in
 `[0, 1]`:
 
@@ -241,12 +262,45 @@ mispairing does not (ADR-0022). `benchmark/scoring.py` scores eight shares in
 
 Pairs are split so that reporting nothing and reporting nonsense do not score
 alike. `integration/test_benchmark.py` fails a metric under
-`benchmark.scoring.FLOORS`. The floors are a **tripwire, not a target**; raise one
-only in its own commit, quoting runs.
+`benchmark.scoring.FLOORS`, on the headphones case alone. The floors are a
+**tripwire, not a target**; raise one only in its own commit, quoting runs.
 
-`tests/test_benchmark.py` keeps the key honest without a model: every figure in it
-must survive condensing, `PERFECT` must score exactly 1.000, and `SLOPPY` must hit
-its pinned counts. **Editing the corpus means re-running both.**
+The query step is scored apart, by `benchmark/query.py`: each constraint the
+request states kept (a case lists the spellings that keep it), no brand and no
+figure the shopper did not give, and twenty words or fewer. A query the model
+garbled is one failed check, since the agent then searches with the request.
+
+### Comparing models
+
+A contender is a model on a server, reached through its provider row exactly as a
+run reaches one, or a scripted answer. Each runs over each case in turn, timed per
+question. An answer the server cannot read is that case's result and scores 0; a
+model that cannot be asked at all (not running, not pulled, too slow) is reported
+in the server's own words and its other cases are skipped. The standings rank by
+cases run, then the mean score, the query, and the time taken.
+
+Every run is kept on a board, `$BUY_AGENT_CACHE_DIR/benchmark/board.json`, that both
+doors read afresh, so a model scored last week stands beside one scored today.
+`--no-save` keeps a run off it. A run scored against a case whose pages or key have
+changed since is left out. `--json` writes the standings as the page reads them.
+
+`python -m benchmark.server` serves the page on `http://127.0.0.1:8100`: pick a
+server, tick the models it lists (an embedding model is shown and cannot be
+ticked) and the cases, and read the standings as each run finishes. One
+comparison runs at a time and outlives the tab; **Stop** ends it at the next step.
+The page is static files in `benchmark/web/`, with no build, behind the shop's own
+handler, so it is admitted and answered as the shop is (ADR-0018).
+
+### Keeping the keys honest
+
+`tests/test_benchmark_cases.py` reads every key back off its condensed pages
+without a model: every figure printed, every page an entry lists mentioning it and
+every page mentioning it listed, each `PERFECT` scoring exactly 1.000, each
+`SLOPPY` hitting its pinned counts. **Editing a case's pages means re-running
+it.** `tests/test_benchmark.py` keeps the scorer's own rules,
+`tests/test_benchmark_compare.py` the comparison, the board and the command line,
+and `tests/test_benchmark_server.py` the page: its routes, and its script, which
+may load nothing inline, write no markup, and read only fields a payload carries.
 
 ## Mutation testing
 

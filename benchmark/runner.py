@@ -7,18 +7,21 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from buy_agent import agent as agent_module
-from buy_agent.agent import BuyAgent
+from buy_agent.agent import BuyAgent, every_step_passes
 from buy_agent.fetch import condense
-from benchmark.corpus import PAGE_TEXT, PAGES, REQUEST, settings
+from benchmark.cases import HEADPHONES
+from benchmark.corpus import PAGE_TEXT, PAGES
 from benchmark.scoring import Scorecard, score_run
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping, Sequence
 
+    from buy_agent.agent import Checkpoint
     from buy_agent.chat import ChatModel
     from buy_agent.config import AgentConfig
     from buy_agent.models import RankedProduct
     from buy_agent.search import SearchResult
+    from benchmark.cases import Case
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,22 +78,36 @@ def serving_the_corpus(
 
 
 def run_benchmark(
-    *, llm: ChatModel | None = None, config: AgentConfig | None = None
+    *,
+    llm: ChatModel | None = None,
+    config: AgentConfig | None = None,
+    case: Case = HEADPHONES,
+    checkpoint: Checkpoint = every_step_passes,
 ) -> Report:
-    """Run the agent over the corpus and score it.
+    """Run the agent over one case's pages and score it against that case's key.
 
     Args:
         llm: The model to score. None builds the provider's own, which is the
             only thing in here that touches a network.
-        config: Settings to run with; :func:`benchmark.corpus.settings` by
-            default. Widen ``num_products`` and the scorer widens its slots too.
+        config: Settings to run with; the case's own by default. Widen
+            ``num_products`` and the scorer widens its slots too.
+        case: Which use of the agent to run (ADR-0070); the headphones by default.
+        checkpoint: Handed to ``BuyAgent.run``, which calls it before each step.
     """
-    config = config or settings()
-    with serving_the_corpus() as served:
-        ranked = BuyAgent(config, llm=llm).run(REQUEST)
+    config = config or case.settings()
+    agent = BuyAgent(config, llm=llm)
+    try:
+        with serving_the_corpus(case.pages, case.page_text) as served:
+            ranked = agent.run(case.request, checkpoint=checkpoint)
+    finally:
+        # Releases only a model the agent opened itself, never one handed in.
+        agent.close()
     return Report(
         scorecard=score_run(
-            [entry.product for entry in ranked], served, slots=config.num_products
+            [entry.product for entry in ranked],
+            served,
+            key=case.key,
+            slots=config.num_products,
         ),
         ranked=ranked,
         pages=tuple(served),
