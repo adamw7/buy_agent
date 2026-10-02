@@ -18,6 +18,7 @@ from scripts.update_ollama import (
     status,
     stream,
     summary,
+    tagged,
     update,
 )
 
@@ -122,6 +123,41 @@ def test_a_tag_that_was_not_there_is_installed_rather_than_updated() -> None:
     client = FakeClient()
     (outcome,) = update(client, ["llama3.2:latest"], echo=lambda line: None)
     assert status(outcome) == "installed"
+
+
+def test_a_model_named_without_its_tag_is_reported_as_its_latest() -> None:
+    """Ollama lists ``ollama pull llama3.2`` as ``llama3.2:latest``, so the name typed
+    the way ``ollama`` takes it found no digest on either side: a model that moved was
+    reported as "installed (unknown)"."""
+    client = FakeClient({"llama3.2:latest": "sha256:aaa"}, {"llama3.2:latest": "sha256:ccc"})
+
+    (outcome,) = update(client, ["llama3.2"], echo=lambda line: None)
+
+    assert outcome == Outcome("llama3.2:latest", "sha256:aaa", "sha256:ccc")
+    assert describe(outcome) == "updated (aaa -> ccc)"
+
+
+def test_one_model_named_two_ways_is_pulled_once() -> None:
+    client = FakeClient({"llama3.2:latest": "sha256:aaa"})
+
+    outcomes = update(client, ["llama3.2", "llama3.2:latest"], echo=lambda line: None)
+
+    assert [outcome.model for outcome in outcomes] == ["llama3.2:latest"]
+    assert client.pulled == ["llama3.2:latest"]
+
+
+@pytest.mark.parametrize(
+    ("name", "listed"),
+    [
+        ("qwen3", "qwen3:latest"),
+        ("qwen3:0.6b", "qwen3:0.6b"),
+        ("me/model", "me/model:latest"),
+        ("localhost:5000/me/model", "localhost:5000/me/model:latest"),
+        ("localhost:5000/me/model:7b", "localhost:5000/me/model:7b"),
+    ],
+)
+def test_a_name_is_looked_up_as_the_tag_ollama_lists(name: str, listed: str) -> None:
+    assert tagged(name) == listed
 
 
 def test_a_refused_pull_is_recorded_and_the_rest_still_run() -> None:
