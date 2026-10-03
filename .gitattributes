@@ -10,8 +10,9 @@
 # machine configured like the runners.
 * text=auto eol=lf
 
-# The four kinds of file here that are not text, said so rather than guessed at.
+# The kinds of file here that are not text, said so rather than guessed at.
 *.png binary
 *.ico binary
 *.mpg binary
+*.mp4 binary
 *.wav binary
