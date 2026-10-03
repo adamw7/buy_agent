@@ -1,7 +1,8 @@
 # The recorded UI demos
 
 Three runs of the UI, recorded in Chromium at 1280x720 and 25fps as MPEG program
-streams, plus a local counterparty for the `http` payment rail (see the end).
+streams, and one of the benchmark's page as an MP4, plus a local counterparty for
+the `http` payment rail (see the end).
 
 | Video | The shopper asks for | Ends on | Sound |
 | --- | --- | --- | --- |
@@ -9,9 +10,17 @@ streams, plus a local counterparty for the `http` payment rail (see the end).
 | `wwii-books-1944-45-with-sound.mpg` | the same | the same | yes |
 | `laptops-under-1000.mpg` | *"new laptop below 1000 USD, not too heavy or loud. windows 11 installed"* | the shop page behind the top product's link | no |
 
-Each demo has a script, `books.py` or `laptops.py`, holding the ten pages it
+Each of the three has a script, `books.py` or `laptops.py`, holding the ten pages it
 searches and the fake model's answer. `--script` picks one; a third demo is a
 module offering the same five names plus a row in `server.SCRIPTS`.
+
+`benchmark-on-cpu.mp4` (4 min 23 s, narrated) is the other kind: the benchmark's
+page scoring a real `qwen3:0.6b` in Ollama, on four CPU cores and no GPU,
+against the two reference answers over all three cases. It ends on what
+`ollama ps` reported throughout. See [The benchmark, on a CPU](#the-benchmark-on-a-cpu).
+It was taken with Ollama 0.35.1, and its `qwen3:0.6b` is unsloth's Qwen3-0.6B
+Q4_K_M GGUF (397 MB) from Docker Hub's `ai/qwen3`, imported with `ollama create`:
+the same model as Ollama's own tag, quantised by unsloth rather than by Ollama.
 
 ## What is real in it
 
@@ -33,12 +42,34 @@ model is scripted, and `GET /api/models` answers from a list. The book titles,
 authors and laptop models are real; shops, prices, ratings, reviews and quotes
 are invented, on `*.example` hosts that cannot resolve.
 
-## Why MPEG-2 and not MPEG-1
+## Why MPEG-2 and not MPEG-1, and why the benchmark is an MP4
 
 1280x720 is outside MPEG-1's constrained parameters, so its streams violate the
 system target decoder. Silent players cope; one scheduling an audio track opens
-nothing. `VIDEO` in `record.mjs` states the rate and buffer and uses MPEG-2. The
-two silent recordings predate it; a new take of either is MPEG-2 too.
+nothing. `VIDEO` in `recording.mjs`, which the shop's recorder uses, states the
+rate and buffer and uses MPEG-2.
+
+The program stream around it is MPEG-2 as well: `-f vob`, not `-f mpeg`, whose
+system layer is MPEG-1 whatever it carries. A player that goes by the pack
+headers, as Windows' own does, reads such a file as MPEG-1, finds MPEG-2 video,
+and plays nothing; VLC never noticed. The sound is MP2 at 48 kHz in stereo, as on
+a DVD. The peak rate is 6 Mbit/s over Main Level's 224 KB buffer: at 3.5 Mbit/s a
+scroll through a page of text drained it. `encode` refuses to write a file when
+ffmpeg reports a buffer underflow or overflow, because a lenient player would
+show it anyway and the warning is the only notice.
+
+The three shop recordings predate all of this and are still MPEG-1 system
+streams around MPEG-2 video (pack byte `0x21`, where an MPEG-2 one has `0x44`).
+A new take of any of them is a proper MPEG-2 program stream.
+
+None of that makes an MPEG-2 file play on a stock Windows 10 or 11, which decodes
+the MP2 sound and ships no MPEG-2 video decoder: the narration plays over a black
+screen until Microsoft's MPEG-2 Video Extension is installed from the Store, or
+the file is opened in VLC or mpv. No browser decodes MPEG-2 either, so GitHub's
+file view and any in-page preview offer a download at best. That is why the
+benchmark's recording, the one meant to be watched, is H.264 and AAC in an MP4
+(`MP4_VIDEO` and `MP4_AUDIO`), which Windows, browsers and phones all play.
+Re-recording the shop's three the same way is a change to `record.mjs` alone.
 
 ## The soundtrack
 
@@ -48,6 +79,10 @@ the video's length from sine waves, muxed in as MP2. A log line that took
 something away gets a lower, longer note; `TOOK_SOMETHING_AWAY` matches the verb
 (`Discarded`, `Dropped`, `Merged`). `sound.spread` pushes simultaneous lines
 apart by `LINE_GAP`, and the mix is limited rather than normalised.
+
+A `say` cue is a spoken line, from `narration.py`. `sound.voice_over` lays it
+over the limited mix, which ducks to `DUCK` beneath it, so the voice is never
+squashed by the limiter.
 
 ## The link at the end
 
@@ -87,6 +122,54 @@ the recorder presses twice.
 `record.mjs` needs Playwright (local or global), Python on PATH, and an ffmpeg
 with the `mpeg` muxer and the `mpeg2video` and `mp2` encoders. Playwright's own
 ffmpeg has none of those, so a system one is preferred; `--ffmpeg` names another.
+
+## The benchmark, on a CPU
+
+`benchmark.mjs` films the benchmark's page (`python -m benchmark.server`,
+[ADR-0070](../docs/adr/0070-compare-local-models-and-give-the-comparison-a-page.md)) comparing
+real models served by Ollama with the two reference answers, and talks over it:
+what the page is, the server and its models, the references, the cases, the run
+as it goes, the standings, one model opened, and how a run is scored. Each line
+is captioned on screen as it is said.
+
+```powershell
+ollama pull qwen3:0.6b
+$env:CUDA_VISIBLE_DEVICES = "-1" ; $env:LLAMA_ARG_NO_REPACK = "1"
+ollama serve                                           # one terminal: no GPU
+$env:BUY_AGENT_CACHE_DIR = "$env:TEMP\benchmark-demo"   # another: an empty board
+python -m benchmark.server
+node demo/benchmark.mjs --models qwen3:0.6b --out demo/benchmark-on-cpu.mp4
+```
+
+It is a demo of the models running **on the CPU only**, and it checks rather
+than asserts it. The benchmark sends no `num_gpu`, so where the layers go is
+Ollama's choice; hiding the GPUs from it (`CUDA_VISIBLE_DEVICES=-1`, or
+`HIP_VISIBLE_DEVICES=-1` on AMD) is what keeps them off one. On a Xeon with AMX,
+llama.cpp also repacks the weights into a buffer for the CPU's matrix units, and
+Ollama (0.35) counts every buffer but the host's as GPU memory: `ollama ps`
+reads `84%/16% CPU/GPU` on a machine with no GPU at all. `LLAMA_ARG_NO_REPACK=1`
+(llama.cpp's `--no-repack`) keeps them in RAM, and cost nothing measurable on
+`qwen3:0.6b`. The recorder polls Ollama's `/api/ps` (what `ollama ps` prints)
+every second, shows it in a corner, and refuses to write a take in which any
+model had memory on a GPU. The last card states what it saw.
+
+- `--models` is a comma-separated list, each one pulled; `--cases` narrows the
+  three (`headphones,laptops,espresso`).
+- A model on a CPU takes minutes. Where it is only working, with nothing being
+  said, the video runs `--fast-forward` times faster (8 by default; 1 never),
+  with a badge saying so. The page's own clock keeps real time throughout, and
+  the soundtrack is moved with the picture.
+- The voice is `narration.py`'s: SVOX Pico (`pico2wave`, in Debian and Ubuntu's
+  `libttspico-utils`) if it is installed, else `espeak-ng`. The recorder waits
+  for each line to end before the next step, so they never drift apart.
+- It writes H.264 at CRF 22 with AAC sound (`MP4_VIDEO`, `MP4_AUDIO` in
+  `recording.mjs`), which needs an ffmpeg with `libx264`. Minutes of a page that
+  mostly sits still came to 103 MB as the shop's MPEG-2, over GitHub's limit for
+  a file, to 48 MB as MPEG-2 cut down to 1.2 Mbit/s, and to 13 MB this way,
+  sharper than either.
+- It refuses a board that already holds runs, since the standings would not be
+  this run's; `--clear` forgets them instead. `--url` and `--ollama` move the two
+  addresses.
 
 ## The README's pictures
 

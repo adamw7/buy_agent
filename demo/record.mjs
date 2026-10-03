@@ -21,35 +21,25 @@
  * is the run's own timing rather than a clip laid over it, and a log line that
  * took something away is the one cue given a note of its own.
  */
-import { spawnSync, execFileSync } from 'node:child_process';
-import { createRequire } from 'node:module';
 import { mkdtemp, rm, mkdir } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const require = createRequire(import.meta.url);
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-
-/** Playwright, from wherever it is installed -- locally, or globally as here. */
-function playwright() {
-  try {
-    return require('playwright');
-  } catch {
-    const global = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
-    return require(join(global, 'playwright'));
-  }
-}
+import {
+  AUDIO,
+  Cues,
+  VIDEO,
+  encode,
+  ffmpegBinary,
+  parseArgs,
+  playwright,
+  python,
+  soundtrack,
+  videoSeconds,
+} from './recording.mjs';
 
 const { chromium } = playwright();
 
-const args = Object.fromEntries(
-  process.argv.slice(2).reduce((pairs, value, index, all) => {
-    if (value.startsWith('--')) pairs.push([value.slice(2), all[index + 1] ?? '']);
-    return pairs;
-  }, []),
-);
+const args = parseArgs();
 
 const url = args.url ?? 'http://127.0.0.1:8000';
 const out = resolve(args.out ?? 'demo/buy-agent-demo.mpg');
@@ -67,10 +57,8 @@ const size = { width: 1280, height: 720 };
  */
 const TOOK_SOMETHING_AWAY = /^(Discarded|Dropped|Merged) /;
 
-/** Every cue so far, in seconds from the first frame. */
-const cues = [];
-let firstFrame = 0;
-const cue = (kind) => cues.push({ kind, at: (Date.now() - firstFrame) / 1000 });
+const cues = new Cues();
+const cue = (kind) => cues.add(kind);
 
 /**
  * The demo script's own request and pages, read out of Python.
@@ -86,42 +74,11 @@ function fixture(name) {
     'print(json.dumps({"request": module.REQUEST, "pages": {' +
     'result.url: {"title": result.title, "text": module.PAGE_TEXT[result.url]} ' +
     'for result in module.PAGES}}))';
-  let failure;
-  for (const python of ['python', 'python3']) {
-    try {
-      return JSON.parse(
-        execFileSync(python, ['-c', code, `demo.${name}`], { encoding: 'utf8', cwd: root }),
-      );
-    } catch (error) {
-      failure = error;
-    }
-  }
-  throw new Error(`could not read demo.${name} with python: ${failure?.message ?? ''}`);
+  return JSON.parse(python(['-c', code, `demo.${name}`]));
 }
 
 const script = fixture(args.script ?? 'books');
 const request = args.request ?? script.request;
-
-/**
- * An ffmpeg that can write an MPEG program stream.
- *
- * Playwright ships one beside its browsers, but that build is stripped down to
- * what recording needs and has neither the `mpeg` muxer nor the `mpeg1video`
- * encoder, so a system ffmpeg is preferred and the bundled one is only a last
- * resort. `--ffmpeg` names a third.
- */
-function ffmpegBinary() {
-  if (args.ffmpeg) return args.ffmpeg;
-  for (const candidate of ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg']) {
-    if (existsSync(candidate)) return candidate;
-  }
-  const browsers = process.env.PLAYWRIGHT_BROWSERS_PATH ?? '/opt/pw-browsers';
-  for (const candidate of ['ffmpeg-1011/ffmpeg-linux', 'ffmpeg/ffmpeg-linux']) {
-    const path = join(browsers, candidate);
-    if (existsSync(path)) return path;
-  }
-  return 'ffmpeg';
-}
 
 const escapeHtml = (text) =>
   text.replace(
@@ -163,36 +120,6 @@ ${lines.map((line) => `<p>${escapeHtml(line)}</p>`).join('\n')}
 </main></body></html>`;
 }
 
-/**
- * How the picture is written: MPEG-2 video in a program stream, still a `.mpg`.
- *
- * MPEG-1 is what the first two recordings used and it is the wrong format for
- * this picture. 1280x720 is far outside MPEG-1's constrained parameters, so the
- * encoder declares a video buffer smaller than a single one of its own
- * keyframes and every pack the muxer writes violates the system target decoder.
- * A lenient player ignores all of that and shows the film; a player that has to
- * schedule an audio track against the same model gives up and opens nothing.
- *
- * So the rate and the buffer are stated rather than left to `-q:v`, and the
- * codec is the one whose levels this frame size is inside. An MPEG-2 program
- * stream is the DVD lineage -- the format with the widest player support there
- * is -- and it is what `.mpg` means to everything that reads one.
- */
-const VIDEO = [
-  '-c:v',
-  'mpeg2video',
-  '-b:v',
-  '3000k',
-  '-maxrate',
-  '3500k',
-  '-bufsize',
-  '1835008',
-  '-r',
-  '25',
-  '-f',
-  'mpeg',
-];
-
 /** Scroll smoothly to an element, so the recording pans rather than jumps. */
 async function reveal(page, selector, settle = 750) {
   cue('scroll');
@@ -215,12 +142,15 @@ const context = await browser.newContext({
 await context.route(/^https?:\/\/[^/]+\.example\//, (route) => {
   const page = script.pages[route.request().url()];
   if (page === undefined) return route.abort();
-  return route.fulfill({ contentType: 'text/html; charset=utf-8', body: shopPage(page) });
+  return route.fulfill({
+    contentType: 'text/html; charset=utf-8',
+    body: shopPage(page),
+  });
 });
 
 const page = await context.newPage();
 // Playwright starts the recording with the page, so this is frame one.
-firstFrame = Date.now();
+cues.start();
 
 await page.goto(url, { waitUntil: 'networkidle' });
 await page.waitForTimeout(450);
@@ -284,7 +214,7 @@ await reveal(page, 'app-product-card:nth-of-type(3)');
 
 // The rest of what the agent found, which the page keeps folded away.
 cue('click');
-await page.locator('details.also summary').click();
+await page.locator('details.also summary').first().click();
 await page.waitForTimeout(1000);
 await reveal(page, 'details.also');
 cue('scroll');
@@ -312,54 +242,11 @@ const takes = await Promise.all(pages.map((recorded) => recorded.video().path())
 await context.close();
 await browser.close();
 
-const ffmpeg = ffmpegBinary();
-
-/**
- * How long the takes run for, decoded rather than read off a header.
- *
- * A soundtrack has to be exactly as long as the picture it goes under, and a
- * WebM that Playwright is still writing when the context closes carries a
- * duration that is anywhere from wrong to absent. Decoding to nowhere costs a
- * second and answers with the timestamp of the last frame, which is the clock
- * the cues were taken against.
- */
-function videoSeconds(paths) {
-  return paths.reduce((total, path) => {
-    const probe = spawnSync(ffmpeg, ['-i', path, '-f', 'null', '-'], {
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
-    const stamps = [...(probe.stderr?.toString() ?? '').matchAll(/time=(\d+):(\d+):([\d.]+)/g)];
-    const last = stamps.at(-1);
-    if (last === undefined) throw new Error(`could not measure ${path}`);
-    return total + Number(last[1]) * 3600 + Number(last[2]) * 60 + Number(last[3]);
-  }, 0);
-}
-
-/**
- * The cues, as a WAV of that same length -- synthesised by `demo/sound.py`.
- *
- * Python again, for the reason this file already reads the script with it: what
- * the demo sounds like is the demo's to say, and there is one interpreter here
- * that already has to be on PATH.
- */
-function soundtrack(seconds) {
-  const track = join(videoDir, 'track.wav');
-  let failure;
-  for (const python of ['python', 'python3']) {
-    const made = spawnSync(
-      python,
-      ['-m', 'demo.sound', '--duration', String(seconds), '--out', track],
-      { cwd: root, input: JSON.stringify(cues), stdio: ['pipe', 'ignore', 'pipe'] },
-    );
-    if (made.status === 0) return track;
-    failure = made.stderr?.toString() || made.error?.message;
-  }
-  throw new Error(`demo.sound failed:\n${failure ?? ''}`);
-}
+const ffmpeg = ffmpegBinary(args.ffmpeg);
 
 await mkdir(dirname(out), { recursive: true });
-const seconds = videoSeconds(takes);
-const track = sound ? soundtrack(seconds) : null;
+const seconds = videoSeconds(ffmpeg, takes);
+const track = sound ? soundtrack(cues.list, seconds, videoDir) : null;
 const inputs = [...takes, ...(track ? [track] : [])].flatMap((input) => ['-i', input]);
 const stitch =
   takes.length > 1
@@ -370,16 +257,9 @@ const stitch =
         '[v]',
       ]
     : ['-map', '0:v'];
-// MP2 is the audio an MPEG program stream carries, so a recording with sound in
-// it is still the one format that plays anywhere.
-const audio = track
-  ? ['-map', `${takes.length}:a`, '-c:a', 'mp2', '-b:a', '192k', '-ar', '44100', '-shortest']
-  : ['-an'];
-const encode = spawnSync(ffmpeg, ['-y', ...inputs, ...stitch, ...audio, ...VIDEO, out], {
-  stdio: ['ignore', 'ignore', 'pipe'],
-});
-if (encode.status !== 0) {
-  throw new Error(`ffmpeg failed:\n${encode.stderr?.toString() ?? ''}`);
-}
+const audio = track ? ['-map', `${takes.length}:a`, ...AUDIO, '-shortest'] : ['-an'];
+encode(ffmpeg, [...inputs, ...stitch, ...audio, ...VIDEO, out]);
 await rm(videoDir, { recursive: true, force: true });
-console.log(`wrote ${out} -- ${seconds.toFixed(1)}s, ${sound ? `${cues.length} cues` : 'silent'}`);
+console.log(
+  `wrote ${out} -- ${seconds.toFixed(1)}s, ${sound ? `${cues.list.length} cues` : 'silent'}`,
+);
