@@ -610,7 +610,9 @@ a fake `EventSource`.
 See `demo/README.md`. `demo/server.py` runs the real server with only
 `search_web`, `enrich` and the model faked. The scripts make the fake model wrong
 in six ways. Recordings are MPEG-2 program streams: `VIDEO` in `recording.mjs`
-(shared by both recorders) is fixed, so don't go back to MPEG-1. Sound is
+(shared by both recorders) is fixed, so don't go back to MPEG-1, and its `-f vob`
+is the MPEG-2 system layer, which `-f mpeg` is not. `encode` refuses a stream
+ffmpeg reports a buffer underflow or overflow in. Sound is
 synthesised: `record.mjs` writes cues, and `sound.py` renders them.
 `benchmark.mjs` films the benchmark's page on real Ollama models, narrated by
 `narration.py`, and refuses a take in which `/api/ps` shows GPU memory.

@@ -662,8 +662,8 @@ encode(ffmpeg, [
   '1:a',
   ...AUDIO,
   '-shortest',
-  // A still page for minutes: a keyframe every ten seconds, and 1.2 Mbit/s on average.
-  ...video({ rate: '1200k', keyframes: 250 }),
+  // A still page for minutes: a keyframe every two seconds, and 1.2 Mbit/s on average.
+  ...video({ rate: '1200k', keyframes: 50 }),
   out,
 ]);
 await rm(videoDir, { recursive: true, force: true });

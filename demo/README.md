@@ -14,7 +14,7 @@ Each of the three has a script, `books.py` or `laptops.py`, holding the ten page
 searches and the fake model's answer. `--script` picks one; a third demo is a
 module offering the same five names plus a row in `server.SCRIPTS`.
 
-`benchmark-on-cpu.mpg` (4 min 23 s, narrated) is the other kind: the benchmark's
+`benchmark-on-cpu.mpg` (4 min 35 s, narrated) is the other kind: the benchmark's
 page scoring a real `qwen3:0.6b` in Ollama, on four CPU cores and no GPU,
 against the two reference answers over all three cases. It ends on what
 `ollama ps` reported throughout. See [The benchmark, on a CPU](#the-benchmark-on-a-cpu).
@@ -47,8 +47,24 @@ are invented, on `*.example` hosts that cannot resolve.
 1280x720 is outside MPEG-1's constrained parameters, so its streams violate the
 system target decoder. Silent players cope; one scheduling an audio track opens
 nothing. `VIDEO` in `recording.mjs`, which both recorders use, states the rate and
-buffer and uses MPEG-2. The two silent recordings predate it; a new take of either
-is MPEG-2 too.
+buffer and uses MPEG-2.
+
+The program stream around it is MPEG-2 as well: `-f vob`, not `-f mpeg`, whose
+system layer is MPEG-1 whatever it carries. A player that goes by the pack
+headers, as Windows' own does, reads such a file as MPEG-1, finds MPEG-2 video,
+and plays nothing; VLC never noticed. The sound is MP2 at 48 kHz in stereo, as on
+a DVD. The peak rate is 6 Mbit/s over Main Level's 224 KB buffer: at 3.5 Mbit/s a
+scroll through a page of text drained it. `encode` refuses to write a file when
+ffmpeg reports a buffer underflow or overflow, because a lenient player would
+show it anyway and the warning is the only notice.
+
+The three shop recordings predate all of this and are still MPEG-1 system
+streams around MPEG-2 video (pack byte `0x21`, where an MPEG-2 one has `0x44`).
+A new take of any of them is a proper MPEG-2 program stream.
+
+A browser plays none of these: no browser decodes MPEG-2 video or MP2 sound, so
+GitHub's file view and any in-page preview offer a download at best. Open the file
+in a video player (Windows' Media Player, VLC, mpv).
 
 ## The soundtrack
 
@@ -141,10 +157,10 @@ model had memory on a GPU. The last card states what it saw.
 - The voice is `narration.py`'s: SVOX Pico (`pico2wave`, in Debian and Ubuntu's
   `libttspico-utils`) if it is installed, else `espeak-ng`. The recorder waits
   for each line to end before the next step, so they never drift apart.
-- It is encoded at 1.2 Mbit/s with a keyframe every ten seconds (`video()` in
+- It is encoded at 1.2 Mbit/s with a keyframe every two seconds (`video()` in
   `recording.mjs`), not `VIDEO`'s 3 Mbit/s and twelve frames: minutes of a page
   that mostly sits still came to 103 MB that way, over GitHub's limit for a
-  file, and to 42 MB this way.
+  file, and to 48 MB this way.
 - It refuses a board that already holds runs, since the standings would not be
   this run's; `--clear` forgets them instead. `--url` and `--ollama` move the two
   addresses.

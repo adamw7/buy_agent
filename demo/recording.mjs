@@ -95,6 +95,12 @@ export function ffmpegBinary(named) {
  * codec is the one whose levels this frame size is inside. An MPEG-2 program
  * stream is the DVD lineage -- the format with the widest player support there
  * is -- and it is what `.mpg` means to everything that reads one.
+ *
+ * The program stream has to be MPEG-2 too. ffmpeg's `mpeg` muxer writes the
+ * MPEG-1 system layer whatever video it is handed, and a player that goes by the
+ * pack headers -- Windows' own does -- takes the file for MPEG-1, finds MPEG-2
+ * video in it, and plays nothing; a lenient one never noticed. `vob` writes MPEG-2
+ * packs, the same stream DVDs carry, without asking for anything else of DVD.
  */
 export const VIDEO = video();
 
@@ -105,7 +111,7 @@ export const VIDEO = video();
  * benchmark's runs for minutes over a page that mostly sits still, where 3 Mbit/s
  * and a keyframe every twelfth frame buy nothing but size: about 100 MB, which is
  * more than GitHub takes in one file. A keyframe of a page of text is the dear
- * part, so it is spaced out; the ceiling and the buffer stay as they are.
+ * part, so it is spaced out, as far as a player seeking in it will bear.
  */
 export function video({ rate = '3000k', keyframes = 12 } = {}) {
   return [
@@ -115,22 +121,27 @@ export function video({ rate = '3000k', keyframes = 12 } = {}) {
     rate,
     '-g',
     String(keyframes),
+    // The buffer is Main Level's, which every MPEG-2 decoder has. At a 3.5 Mbit/s
+    // ceiling a scroll through a page of text still drained it ("rc buffer
+    // underflow"); 6 Mbit/s refills it in time and is far inside the level's limit.
     '-maxrate',
-    '3500k',
+    '6000k',
     '-bufsize',
     '1835008',
     '-r',
     '25',
     '-f',
-    'mpeg',
+    'vob',
   ];
 }
 
 /**
  * MP2 is the audio an MPEG program stream carries, so a recording with sound in it
- * is still the one format that plays anywhere.
+ * is still the one format that plays anywhere: at 48 kHz in stereo, as on a DVD,
+ * since 44.1 kHz mono is legal in the stream and still not what every decoder
+ * of one expects. `demo/sound.py` writes 44.1 kHz mono; ffmpeg converts it.
  */
-export const AUDIO = ['-c:a', 'mp2', '-b:a', '192k', '-ar', '44100'];
+export const AUDIO = ['-c:a', 'mp2', '-b:a', '192k', '-ar', '48000', '-ac', '2'];
 
 /**
  * Every cue so far, in seconds from the first frame.
@@ -194,10 +205,22 @@ export function soundtrack(cues, seconds, directory) {
   return track;
 }
 
-/** Run ffmpeg, throwing its own account of what went wrong. */
+/**
+ * What ffmpeg says when the stream it wrote breaks the buffer model a player
+ * schedules by: the encoder's rate control, or the muxer's system target decoder.
+ * A lenient player shows such a file anyway, so the warning is the only notice.
+ */
+const BROKEN_STREAM = /underflow|overflow|non[- ]monoton/i;
+
+/** Run ffmpeg, throwing its own account of what went wrong, warnings included. */
 export function encode(ffmpeg, args) {
-  const ran = spawnSync(ffmpeg, ['-y', ...args], {
+  const ran = spawnSync(ffmpeg, ['-y', '-hide_banner', '-loglevel', 'warning', ...args], {
     stdio: ['ignore', 'ignore', 'pipe'],
   });
-  if (ran.status !== 0) throw new Error(`ffmpeg failed:\n${ran.stderr?.toString() ?? ''}`);
+  const said = ran.stderr?.toString() ?? '';
+  if (ran.status !== 0) throw new Error(`ffmpeg failed:\n${said}`);
+  const broken = said.split('\n').filter((line) => BROKEN_STREAM.test(line));
+  if (broken.length) {
+    throw new Error(`ffmpeg wrote a stream players may refuse:\n${broken.slice(0, 10).join('\n')}`);
+  }
 }
