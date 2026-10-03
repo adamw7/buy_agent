@@ -64,8 +64,8 @@ Optional prerequisites skip, never fail:
 - One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
   and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `3094 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `3010 passed, 104 skipped`.
+So the SDK without PowerShell reads `3095 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `3011 passed, 104 skipped`.
 
 ### `pytest.ini`
 
@@ -139,8 +139,9 @@ Coverage cannot see rules that hold *between* files, so
 - everything a release publishes is scanned before it is pushed and attested,
   and only a job that attests can mint a token naming the run (ADR-0069);
 - ADRs are indexed, skills name real paths, and every Markdown link resolves;
-- the tsconfig strictness stays on, and every CSS token read is declared, with a
-  dark value and no fallback;
+- the tsconfig strictness stays on, every `computed` a template iterates declares
+  its type (Stryker's instrumentation widens an inferred one, ADR-0061), and every
+  CSS token read is declared, with a dark value and no fallback;
 - requirements match imports; pylint and mypy read the package the other tools
   measure, and no suppression lacks a reason;
 - every `*Error` is raisable, and only the `__main__` guard calls `sys.exit`;

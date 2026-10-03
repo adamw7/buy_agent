@@ -98,14 +98,14 @@ export class App {
   });
 
   /** The best few: the same ones the CLI logs at the end of a run. */
-  protected readonly highlighted = computed(() => {
+  protected readonly highlighted = computed<RankedProduct[]>(() => {
     const result = this.result();
     return result ? result.products.slice(0, result.top_n) : [];
   });
 
   /** The criteria a finished run may be re-sorted by, from the server, each named by the
    *  order it puts the products in: "price" alone cannot say cheapest from dearest. */
-  protected readonly sortOptions = computed(() => {
+  protected readonly sortOptions = computed<{ name: SortBy; label: string }[]>(() => {
     const defaults = this.defaults();
     return (defaults?.sort_options ?? []).map((name) => ({
       name,
@@ -115,7 +115,7 @@ export class App {
   });
 
   /** Everything the agent found beyond those, kept because it was still ranked. */
-  protected readonly rest = computed(() => {
+  protected readonly rest = computed<RankedProduct[]>(() => {
     const result = this.result();
     return result ? result.products.slice(result.top_n) : [];
   });

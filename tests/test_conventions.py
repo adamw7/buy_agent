@@ -2080,6 +2080,34 @@ def test_the_mutation_run_compiles_the_front_end_with_the_checks_the_build_uses(
     )
 
 
+#: A list a template iterates by calling it, and a `computed` a component declares,
+#: with the `<` of a type argument when it is given one.
+_ITERATED = re.compile(r"@for \(\w+ of (\w+)\(\);")
+_COMPUTED = re.compile(r"readonly (\w+) = computed(<?)")
+
+
+def test_every_list_a_template_iterates_declares_its_type() -> None:
+    """The relaxed templates above are not relaxed everywhere: a `@for`'s `track` is
+    checked all the same. A `computed` whose type is inferred is inferred off the
+    instrumented body, where Stryker has swapped a `map` callback for `() => undefined`,
+    so `track option.name` read a list of `... | undefined` and the Saturday run died
+    compiling before its first test. A declared type is read off the declaration, which
+    `@ts-nocheck` leaves alone -- and this is checked on every push, where the run
+    itself is weekly."""
+    iterated = 0
+    for template in sorted((_ROOT / "ui" / "src" / "app").rglob("*.html")):
+        component = template.with_suffix(".ts").read_text(encoding="utf-8")
+        declared = dict(_COMPUTED.findall(component))
+        for name in _ITERATED.findall(template.read_text(encoding="utf-8")):
+            if name in declared:
+                iterated += 1
+                assert declared[name], (
+                    f"{template.name} iterates {name}(), a computed with no declared type"
+                )
+
+    assert iterated, "no template iterates a computed; this test has outlived its rule"
+
+
 @pytest.mark.parametrize(
     ("workflow", "tool"),
     [(_MUTATION, MUTMUT), (_MUTATION_UI, STRYKER)],

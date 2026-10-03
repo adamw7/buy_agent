@@ -288,7 +288,7 @@ export class SearchForm {
 
   /** Each criterion named by the order it puts a run in: "price" alone cannot say
    *  cheapest from dearest. By name only until the defaults have said. */
-  protected readonly sortOptions = computed(() => {
+  protected readonly sortOptions = computed<{ name: SortBy; label: string }[]>(() => {
     const defaults = this.defaults();
     const names: SortBy[] = defaults?.sort_options ?? ['score', 'price', 'rating'];
     // A server older than the page -- a build under one still running -- sends none.
