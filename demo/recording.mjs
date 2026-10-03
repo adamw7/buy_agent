@@ -82,7 +82,7 @@ export function ffmpegBinary(named) {
 }
 
 /**
- * How the picture is written: MPEG-2 video in a program stream, still a `.mpg`.
+ * How the shop's recordings are written: MPEG-2 video in a program stream, a `.mpg`.
  *
  * MPEG-1 is what the first two recordings used and it is the wrong format for
  * this picture. 1280x720 is far outside MPEG-1's constrained parameters, so the
@@ -102,38 +102,23 @@ export function ffmpegBinary(named) {
  * video in it, and plays nothing; a lenient one never noticed. `vob` writes MPEG-2
  * packs, the same stream DVDs carry, without asking for anything else of DVD.
  */
-export const VIDEO = video();
-
-/**
- * The same, at another average rate and keyframe spacing.
- *
- * The shop's recordings run for seconds and change on most of them. The
- * benchmark's runs for minutes over a page that mostly sits still, where 3 Mbit/s
- * and a keyframe every twelfth frame buy nothing but size: about 100 MB, which is
- * more than GitHub takes in one file. A keyframe of a page of text is the dear
- * part, so it is spaced out, as far as a player seeking in it will bear.
- */
-export function video({ rate = '3000k', keyframes = 12 } = {}) {
-  return [
-    '-c:v',
-    'mpeg2video',
-    '-b:v',
-    rate,
-    '-g',
-    String(keyframes),
-    // The buffer is Main Level's, which every MPEG-2 decoder has. At a 3.5 Mbit/s
-    // ceiling a scroll through a page of text still drained it ("rc buffer
-    // underflow"); 6 Mbit/s refills it in time and is far inside the level's limit.
-    '-maxrate',
-    '6000k',
-    '-bufsize',
-    '1835008',
-    '-r',
-    '25',
-    '-f',
-    'vob',
-  ];
-}
+export const VIDEO = [
+  '-c:v',
+  'mpeg2video',
+  '-b:v',
+  '3000k',
+  // The buffer is Main Level's, which every MPEG-2 decoder has. At a 3.5 Mbit/s
+  // ceiling a scroll through a page of text still drained it ("rc buffer
+  // underflow"); 6 Mbit/s refills it in time and is far inside the level's limit.
+  '-maxrate',
+  '6000k',
+  '-bufsize',
+  '1835008',
+  '-r',
+  '25',
+  '-f',
+  'vob',
+];
 
 /**
  * MP2 is the audio an MPEG program stream carries, so a recording with sound in it
@@ -142,6 +127,41 @@ export function video({ rate = '3000k', keyframes = 12 } = {}) {
  * of one expects. `demo/sound.py` writes 44.1 kHz mono; ffmpeg converts it.
  */
 export const AUDIO = ['-c:a', 'mp2', '-b:a', '192k', '-ar', '48000', '-ac', '2'];
+
+/**
+ * How the benchmark's recording is written instead: H.264 and AAC in an MP4.
+ *
+ * "Plays anywhere" turned out not to include the machine it was made for. Windows
+ * 10 and 11 decode MP2 sound but ship no MPEG-2 video decoder (it is a separate
+ * Store extension), so the narration played over a black screen. Every browser,
+ * phone and stock Windows player decodes H.264. It is also the better codec for
+ * minutes of a page that mostly sits still: on a sample of this page, CRF 22 came
+ * to a third of MPEG-2 at 1.2 Mbit/s and 47.7 dB against its 39.6. `faststart`
+ * puts the index first, so a browser plays it while it downloads.
+ */
+export const MP4_VIDEO = [
+  '-c:v',
+  'libx264',
+  '-preset',
+  'slow',
+  '-crf',
+  '22',
+  '-pix_fmt',
+  'yuv420p',
+  '-profile:v',
+  'high',
+  '-level',
+  '4.0',
+  '-r',
+  '25',
+  '-movflags',
+  '+faststart',
+  '-f',
+  'mp4',
+];
+
+/** AAC, which is what an MP4's sound is expected to be. */
+export const MP4_AUDIO = ['-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-ac', '2'];
 
 /**
  * Every cue so far, in seconds from the first frame.

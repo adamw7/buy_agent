@@ -1,8 +1,8 @@
 # The recorded UI demos
 
-Three runs of the UI and one of the benchmark's page, recorded in Chromium at
-1280x720 and 25fps as MPEG program streams, plus a local counterparty for the
-`http` payment rail (see the end).
+Three runs of the UI, recorded in Chromium at 1280x720 and 25fps as MPEG program
+streams, and one of the benchmark's page as an MP4, plus a local counterparty for
+the `http` payment rail (see the end).
 
 | Video | The shopper asks for | Ends on | Sound |
 | --- | --- | --- | --- |
@@ -14,7 +14,7 @@ Each of the three has a script, `books.py` or `laptops.py`, holding the ten page
 searches and the fake model's answer. `--script` picks one; a third demo is a
 module offering the same five names plus a row in `server.SCRIPTS`.
 
-`benchmark-on-cpu.mpg` (4 min 35 s, narrated) is the other kind: the benchmark's
+`benchmark-on-cpu.mp4` (4 min 23 s, narrated) is the other kind: the benchmark's
 page scoring a real `qwen3:0.6b` in Ollama, on four CPU cores and no GPU,
 against the two reference answers over all three cases. It ends on what
 `ollama ps` reported throughout. See [The benchmark, on a CPU](#the-benchmark-on-a-cpu).
@@ -42,12 +42,12 @@ model is scripted, and `GET /api/models` answers from a list. The book titles,
 authors and laptop models are real; shops, prices, ratings, reviews and quotes
 are invented, on `*.example` hosts that cannot resolve.
 
-## Why MPEG-2 and not MPEG-1
+## Why MPEG-2 and not MPEG-1, and why the benchmark is an MP4
 
 1280x720 is outside MPEG-1's constrained parameters, so its streams violate the
 system target decoder. Silent players cope; one scheduling an audio track opens
-nothing. `VIDEO` in `recording.mjs`, which both recorders use, states the rate and
-buffer and uses MPEG-2.
+nothing. `VIDEO` in `recording.mjs`, which the shop's recorder uses, states the
+rate and buffer and uses MPEG-2.
 
 The program stream around it is MPEG-2 as well: `-f vob`, not `-f mpeg`, whose
 system layer is MPEG-1 whatever it carries. A player that goes by the pack
@@ -62,9 +62,14 @@ The three shop recordings predate all of this and are still MPEG-1 system
 streams around MPEG-2 video (pack byte `0x21`, where an MPEG-2 one has `0x44`).
 A new take of any of them is a proper MPEG-2 program stream.
 
-A browser plays none of these: no browser decodes MPEG-2 video or MP2 sound, so
-GitHub's file view and any in-page preview offer a download at best. Open the file
-in a video player (Windows' Media Player, VLC, mpv).
+None of that makes an MPEG-2 file play on a stock Windows 10 or 11, which decodes
+the MP2 sound and ships no MPEG-2 video decoder: the narration plays over a black
+screen until Microsoft's MPEG-2 Video Extension is installed from the Store, or
+the file is opened in VLC or mpv. No browser decodes MPEG-2 either, so GitHub's
+file view and any in-page preview offer a download at best. That is why the
+benchmark's recording, the one meant to be watched, is H.264 and AAC in an MP4
+(`MP4_VIDEO` and `MP4_AUDIO`), which Windows, browsers and phones all play.
+Re-recording the shop's three the same way is a change to `record.mjs` alone.
 
 ## The soundtrack
 
@@ -133,7 +138,7 @@ $env:CUDA_VISIBLE_DEVICES = "-1" ; $env:LLAMA_ARG_NO_REPACK = "1"
 ollama serve                                           # one terminal: no GPU
 $env:BUY_AGENT_CACHE_DIR = "$env:TEMP\benchmark-demo"   # another: an empty board
 python -m benchmark.server
-node demo/benchmark.mjs --models qwen3:0.6b --out demo/benchmark-on-cpu.mpg
+node demo/benchmark.mjs --models qwen3:0.6b --out demo/benchmark-on-cpu.mp4
 ```
 
 It is a demo of the models running **on the CPU only**, and it checks rather
@@ -157,10 +162,11 @@ model had memory on a GPU. The last card states what it saw.
 - The voice is `narration.py`'s: SVOX Pico (`pico2wave`, in Debian and Ubuntu's
   `libttspico-utils`) if it is installed, else `espeak-ng`. The recorder waits
   for each line to end before the next step, so they never drift apart.
-- It is encoded at 1.2 Mbit/s with a keyframe every two seconds (`video()` in
-  `recording.mjs`), not `VIDEO`'s 3 Mbit/s and twelve frames: minutes of a page
-  that mostly sits still came to 103 MB that way, over GitHub's limit for a
-  file, and to 48 MB this way.
+- It writes H.264 at CRF 22 with AAC sound (`MP4_VIDEO`, `MP4_AUDIO` in
+  `recording.mjs`), which needs an ffmpeg with `libx264`. Minutes of a page that
+  mostly sits still came to 103 MB as the shop's MPEG-2, over GitHub's limit for
+  a file, to 48 MB as MPEG-2 cut down to 1.2 Mbit/s, and to 13 MB this way,
+  sharper than either.
 - It refuses a board that already holds runs, since the standings would not be
   this run's; `--clear` forgets them instead. `--url` and `--ollama` move the two
   addresses.

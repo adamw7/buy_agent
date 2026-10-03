@@ -1,8 +1,8 @@
 /**
- * Film the benchmark's page comparing models on a CPU, narrated, as MPEG.
+ * Film the benchmark's page comparing models on a CPU, narrated, as an MP4.
  *
  *   python -m benchmark.server                                   # in one terminal
- *   node demo/benchmark.mjs --models qwen3:0.6b --out demo/benchmark-on-cpu.mpg
+ *   node demo/benchmark.mjs --models qwen3:0.6b --out demo/benchmark-on-cpu.mp4
  *
  * The models are real and served by Ollama; nothing is scripted but the two
  * reference answers the page offers anyway. What the recording claims about the
@@ -21,15 +21,15 @@ import { mkdtemp, rm, mkdir } from 'node:fs/promises';
 import { cpus, loadavg, tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import {
-  AUDIO,
   Cues,
+  MP4_AUDIO,
+  MP4_VIDEO,
   encode,
   ffmpegBinary,
   parseArgs,
   playwright,
   python,
   soundtrack,
-  video,
   videoSeconds,
 } from './recording.mjs';
 
@@ -38,7 +38,7 @@ const { chromium } = playwright();
 const args = parseArgs();
 const url = (args.url || 'http://127.0.0.1:8100').replace(/\/$/, '');
 const ollama = (args.ollama || 'http://localhost:11434').replace(/\/$/, '');
-const out = resolve(args.out || 'demo/benchmark-on-cpu.mpg');
+const out = resolve(args.out || 'demo/benchmark-on-cpu.mp4');
 const models = (args.models || 'qwen3:0.6b')
   .split(',')
   .map((name) => name.trim())
@@ -660,10 +660,9 @@ encode(ffmpeg, [
   '[v]',
   '-map',
   '1:a',
-  ...AUDIO,
+  ...MP4_AUDIO,
   '-shortest',
-  // A still page for minutes: a keyframe every two seconds, and 1.2 Mbit/s on average.
-  ...video({ rate: '1200k', keyframes: 50 }),
+  ...MP4_VIDEO,
   out,
 ]);
 await rm(videoDir, { recursive: true, force: true });
