@@ -23,13 +23,13 @@ import { join, dirname, resolve } from 'node:path';
 import {
   AUDIO,
   Cues,
-  VIDEO,
   encode,
   ffmpegBinary,
   parseArgs,
   playwright,
   python,
   soundtrack,
+  video,
   videoSeconds,
 } from './recording.mjs';
 
@@ -94,10 +94,13 @@ function spoken(model) {
 
 /** A duration as the page writes it ("52.3 s", "3 min 07 s"), as it is said. */
 function spokenSeconds(label) {
+  const counted = (count, unit) => `${count} ${unit}${count === 1 ? '' : 's'}`;
   const minutes = label.match(/^(\d+) min (\d+) s$/);
-  if (minutes) return `${Number(minutes[1])} minutes ${Number(minutes[2])} seconds`;
+  if (minutes) {
+    return `${counted(Number(minutes[1]), 'minute')} ${counted(Number(minutes[2]), 'second')}`;
+  }
   const seconds = Number.parseFloat(label);
-  return Number.isNaN(seconds) ? label : `${Math.round(seconds)} seconds`;
+  return Number.isNaN(seconds) ? label : counted(Math.round(seconds), 'second');
 }
 
 /** A score as it is said: two places are as many as anybody hears. */
@@ -592,7 +595,9 @@ const report = [...loaded.entries()];
 const onGpu = report.filter(([, seenModel]) => seenModel.vram > 0);
 if (onGpu.length) {
   throw new Error(
-    `not a CPU-only take: Ollama put ${onGpu.map(([name, seenModel]) => `${megabytes(seenModel.vram)} of ${name}`).join(', ')} on a GPU`,
+    `not a CPU-only take: Ollama counted ${onGpu.map(([name, seenModel]) => `${megabytes(seenModel.vram)} of ${name}`).join(', ')} as GPU memory. ` +
+      'Hide the GPUs from it (CUDA_VISIBLE_DEVICES=-1); on a CPU with AMX, that memory is ' +
+      "llama.cpp's weights repacked for AMX, which LLAMA_ARG_NO_REPACK=1 keeps in RAM",
   );
 }
 await page.setContent(
@@ -657,7 +662,8 @@ encode(ffmpeg, [
   '1:a',
   ...AUDIO,
   '-shortest',
-  ...VIDEO,
+  // A still page for minutes: a keyframe every ten seconds, and 1.2 Mbit/s on average.
+  ...video({ rate: '1200k', keyframes: 250 }),
   out,
 ]);
 await rm(videoDir, { recursive: true, force: true });

@@ -96,20 +96,35 @@ export function ffmpegBinary(named) {
  * stream is the DVD lineage -- the format with the widest player support there
  * is -- and it is what `.mpg` means to everything that reads one.
  */
-export const VIDEO = [
-  '-c:v',
-  'mpeg2video',
-  '-b:v',
-  '3000k',
-  '-maxrate',
-  '3500k',
-  '-bufsize',
-  '1835008',
-  '-r',
-  '25',
-  '-f',
-  'mpeg',
-];
+export const VIDEO = video();
+
+/**
+ * The same, at another average rate and keyframe spacing.
+ *
+ * The shop's recordings run for seconds and change on most of them. The
+ * benchmark's runs for minutes over a page that mostly sits still, where 3 Mbit/s
+ * and a keyframe every twelfth frame buy nothing but size: about 100 MB, which is
+ * more than GitHub takes in one file. A keyframe of a page of text is the dear
+ * part, so it is spaced out; the ceiling and the buffer stay as they are.
+ */
+export function video({ rate = '3000k', keyframes = 12 } = {}) {
+  return [
+    '-c:v',
+    'mpeg2video',
+    '-b:v',
+    rate,
+    '-g',
+    String(keyframes),
+    '-maxrate',
+    '3500k',
+    '-bufsize',
+    '1835008',
+    '-r',
+    '25',
+    '-f',
+    'mpeg',
+  ];
+}
 
 /**
  * MP2 is the audio an MPEG program stream carries, so a recording with sound in it

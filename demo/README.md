@@ -1,7 +1,8 @@
 # The recorded UI demos
 
-Three runs of the UI, recorded in Chromium at 1280x720 and 25fps as MPEG program
-streams, plus a local counterparty for the `http` payment rail (see the end).
+Three runs of the UI and one of the benchmark's page, recorded in Chromium at
+1280x720 and 25fps as MPEG program streams, plus a local counterparty for the
+`http` payment rail (see the end).
 
 | Video | The shopper asks for | Ends on | Sound |
 | --- | --- | --- | --- |
@@ -9,9 +10,17 @@ streams, plus a local counterparty for the `http` payment rail (see the end).
 | `wwii-books-1944-45-with-sound.mpg` | the same | the same | yes |
 | `laptops-under-1000.mpg` | *"new laptop below 1000 USD, not too heavy or loud. windows 11 installed"* | the shop page behind the top product's link | no |
 
-Each demo has a script, `books.py` or `laptops.py`, holding the ten pages it
+Each of the three has a script, `books.py` or `laptops.py`, holding the ten pages it
 searches and the fake model's answer. `--script` picks one; a third demo is a
 module offering the same five names plus a row in `server.SCRIPTS`.
+
+`benchmark-on-cpu.mpg` (4 min 23 s, narrated) is the other kind: the benchmark's
+page scoring a real `qwen3:0.6b` in Ollama, on four CPU cores and no GPU,
+against the two reference answers over all three cases. It ends on what
+`ollama ps` reported throughout. See [The benchmark, on a CPU](#the-benchmark-on-a-cpu).
+It was taken with Ollama 0.35.1, and its `qwen3:0.6b` is unsloth's Qwen3-0.6B
+Q4_K_M GGUF (397 MB) from Docker Hub's `ai/qwen3`, imported with `ollama create`:
+the same model as Ollama's own tag, quantised by unsloth rather than by Ollama.
 
 ## What is real in it
 
@@ -104,7 +113,8 @@ is captioned on screen as it is said.
 
 ```powershell
 ollama pull qwen3:0.6b
-$env:CUDA_VISIBLE_DEVICES = "-1" ; ollama serve        # one terminal: no GPU
+$env:CUDA_VISIBLE_DEVICES = "-1" ; $env:LLAMA_ARG_NO_REPACK = "1"
+ollama serve                                           # one terminal: no GPU
 $env:BUY_AGENT_CACHE_DIR = "$env:TEMP\benchmark-demo"   # another: an empty board
 python -m benchmark.server
 node demo/benchmark.mjs --models qwen3:0.6b --out demo/benchmark-on-cpu.mpg
@@ -113,10 +123,14 @@ node demo/benchmark.mjs --models qwen3:0.6b --out demo/benchmark-on-cpu.mpg
 It is a demo of the models running **on the CPU only**, and it checks rather
 than asserts it. The benchmark sends no `num_gpu`, so where the layers go is
 Ollama's choice; hiding the GPUs from it (`CUDA_VISIBLE_DEVICES=-1`, or
-`HIP_VISIBLE_DEVICES=-1` on AMD) is what keeps them off one. The recorder polls
-Ollama's `/api/ps` (what `ollama ps` prints) every second, shows it in a corner,
-and refuses to write a take in which any model had memory on a GPU. The last
-card states what it saw.
+`HIP_VISIBLE_DEVICES=-1` on AMD) is what keeps them off one. On a Xeon with AMX,
+llama.cpp also repacks the weights into a buffer for the CPU's matrix units, and
+Ollama (0.35) counts every buffer but the host's as GPU memory: `ollama ps`
+reads `84%/16% CPU/GPU` on a machine with no GPU at all. `LLAMA_ARG_NO_REPACK=1`
+(llama.cpp's `--no-repack`) keeps them in RAM, and cost nothing measurable on
+`qwen3:0.6b`. The recorder polls Ollama's `/api/ps` (what `ollama ps` prints)
+every second, shows it in a corner, and refuses to write a take in which any
+model had memory on a GPU. The last card states what it saw.
 
 - `--models` is a comma-separated list, each one pulled; `--cases` narrows the
   three (`headphones,laptops,espresso`).
@@ -127,6 +141,10 @@ card states what it saw.
 - The voice is `narration.py`'s: SVOX Pico (`pico2wave`, in Debian and Ubuntu's
   `libttspico-utils`) if it is installed, else `espeak-ng`. The recorder waits
   for each line to end before the next step, so they never drift apart.
+- It is encoded at 1.2 Mbit/s with a keyframe every ten seconds (`video()` in
+  `recording.mjs`), not `VIDEO`'s 3 Mbit/s and twelve frames: minutes of a page
+  that mostly sits still came to 103 MB that way, over GitHub's limit for a
+  file, and to 42 MB this way.
 - It refuses a board that already holds runs, since the standings would not be
   this run's; `--clear` forgets them instead. `--url` and `--ollama` move the two
   addresses.
