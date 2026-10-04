@@ -27,7 +27,7 @@ python -m benchmark.server               # ...or as a page comparing several mod
 
 ## The unit suites
 
-3114 Python tests and 318 UI tests. Neither touches the network or a model
+3112 Python tests and 318 UI tests. Neither touches the network or a model
 server:
 
 - the model is faked through `BuyAgent(llm=...)`, a class with one `answer`
@@ -132,8 +132,9 @@ Coverage cannot see rules that hold *between* files, so
 
 - the three failure modes are handled in all three places, and a sort criterion,
   provider, rail and backend is offered everywhere;
-- both front ends hold numbers to the same ranges, the form takes them off the
-  server, and `ui/src/app/agent.types.ts` mirrors every payload (ADR-0033);
+- both front ends refuse a number in the same words, the form takes its ranges
+  off the server, and `ui/src/app/agent.types.ts` mirrors every payload
+  (ADR-0033, ADR-0071);
 - the `Dockerfile`, `.dockerignore`, workflows, release, nightly, mutation and
   audit settings agree with each other and with CI's pins;
 - everything a release publishes is scanned before it is pushed and attested,
@@ -158,7 +159,29 @@ remove a whole product call `record` while the three that blank do not (ADR-0055
 
 `tests/test_architecture.py` asserts the import graph with
 [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython) (ADR-0047):
-thirty-two rules, each listed in `CLAUDE.md`. Every rule uses
+thirty-two rules:
+
+- no cycles, and no imports from `tests/`, `integration/`, `benchmark/`, `demo/`
+  or `scripts/`;
+- no subprocesses except Playwright's Chromium;
+- no async, with threading only in `fetch`, `providers`, `server` and
+  `screenshots`;
+- downward-only layers (entry points, web, orchestration, pipeline, paying,
+  seams, settings, domain);
+- one module per seam (`ap2`, model clients, search libraries, the HTML parser,
+  Playwright, `argparse`), and HTTP only in `fetch`, `providers`, `rails` and
+  `search`;
+- `tempfile`/`hashlib` only in `cache`;
+- env reads only in `config`, the three tables, `cache` and `mandates`;
+- stdlib network modules only in `server`, which imports nothing third-party;
+- the two doors don't import each other;
+- `chat.py` knows nothing of products, and `money.py` is a leaf;
+- `bounds.py` reaches only `money`;
+- pipeline steps don't chain each other and read no env, files, clocks or
+  randomness;
+- decision modules never reach the model, fetch or search.
+
+Every rule uses
 `ignore_type_checking_imports=True`, since an import under `if TYPE_CHECKING:`
 never runs. A negated rule over nothing passes, so the helpers naming modules
 check each exists, and a thirty-third test checks every module sits in exactly
@@ -174,13 +197,17 @@ raisable, only the guard exits, no disabled test, no sleeping, `monkeypatch` onl
 
 `ci.yml` runs both jobs on Linux for pushes and pull requests, and adds Windows
 on the Saturday 04:09 UTC schedule and on `workflow_dispatch`, with `fail-fast`
-off (ADR-0020, ADR-0037). Dispatch a branch that touches paths, encodings,
-sockets, MIME types or `start.ps1`.
+off (ADR-0020, ADR-0037), and a concurrency group that names the event. Dispatch
+a branch that touches paths, encodings, sockets, MIME types or `start.ps1`.
 
 ### The PowerShell scripts
 
-`tests/test_start_script.py` parses `scripts/start.ps1`, dot-sources its
-functions, runs them against a stubbed clock and web request, and reads back JSON.
+`scripts/start.ps1` reads its provider, model and address from one
+`AgentConfig()`, starts only Ollama, and installs the AP2 SDK only when the
+paying variables are set, using `mandates.INSTALL`.
+`tests/test_start_script.py` parses it through `tests/start_script_probe.ps1`,
+dot-sources its functions, runs every program through `Run` against a stubbed
+clock and web request, and reads back JSON.
 `tests/test_setup_scripts.py` does the same for `scripts/setup.ps1` and
 `scripts/preflight.ps1`; what they install and check is held against `ci.yml` in
 `tests/test_conventions.py` (ADR-0067).

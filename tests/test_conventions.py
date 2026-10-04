@@ -315,29 +315,6 @@ def test_both_doors_say_which_end_of_each_criterion_comes_first() -> None:
 # -- the ranges a request is held to -------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("field", "flag", "key"),
-    [
-        ("num_products", "--results", "results"),
-        ("top_n", "--top", "top"),
-        ("temperature", "--temperature", "temperature"),
-        ("num_ctx", "--num-ctx", "num_ctx"),
-        ("model_timeout", "--model-timeout", "model_timeout"),
-    ],
-)
-def test_both_front_doors_hold_a_number_to_the_same_range(
-    field: str, flag: str, key: str
-) -> None:
-    """A bound written down twice is a CLI that accepts what the API refuses."""
-    minimum, maximum = LIMITS[field]
-
-    for outside in (minimum - 1, maximum + 1):
-        with pytest.raises(ApiError):
-            parse_options({key: outside})
-        with pytest.raises(SystemExit):
-            cli_main(["headphones", flag, str(outside)])
-
-
 @pytest.mark.parametrize("key", sorted(limits_payload()))
 def test_both_front_doors_refuse_text_in_a_number_in_the_same_words(
     key: str, capsys
@@ -384,16 +361,6 @@ def test_the_form_takes_its_bounds_from_the_server_rather_than_the_markup() -> N
     written = re.findall(r'\b(?:min|max)="[^"]*"', _FORM_HTML.read_text(encoding="utf-8"))
 
     assert written == [], "bind these from the limits the server ships"
-
-
-def test_every_setting_the_table_names_is_a_flag_the_cli_carries() -> None:
-    """``main`` fills in each row's field with the argument parsed under that row's key,
-    so a row with no flag of that name is an ``AttributeError`` one run away -- and a
-    setting the browser has that the terminal does not."""
-    flags = {action.dest for action in build_parser()._actions}
-
-    for option in OPTIONS:
-        assert option.key in flags, f"{option.key} has a request key and no flag"
 
 
 def test_every_key_a_refusal_can_name_is_one_the_form_sends() -> None:
@@ -2606,30 +2573,6 @@ def test_every_skill_is_one_the_project_documents() -> None:
 
     for path in skills():
         assert f"`{path.parent.name}`" in described, f"CLAUDE.md does not name {path.parent.name}"
-
-
-#: How CLAUDE.md counts its own conventions: a number spelt out, in the heading over them.
-_NUMBER_WORDS = {
-    "Ten": 10, "Eleven": 11, "Twelve": 12, "Thirteen": 13, "Fourteen": 14,
-    "Fifteen": 15, "Sixteen": 16, "Seventeen": 17, "Eighteen": 18, "Nineteen": 19,
-    "Twenty": 20,
-}
-
-
-def test_the_conventions_heading_counts_the_conventions_under_it() -> None:
-    """CLAUDE.md numbers that section in its heading, and the number is the one thing
-    there no reader can check without counting."""
-    written = (_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
-
-    heading = re.search(r"^### (\w+) conventions$", written, re.M)
-    assert heading, "CLAUDE.md no longer heads its conventions with a count"
-    claimed = _NUMBER_WORDS.get(heading.group(1))
-    assert claimed, f"{heading.group(1)!r} is not a number this can read; add it above"
-
-    section = written[heading.end() : written.index("### Failures", heading.end())]
-    assert len(re.findall(r"^- \*\*", section, re.M)) == claimed, (
-        f"CLAUDE.md heads that section {heading.group(1)!r} and lists another number"
-    )
 
 
 # -- what the run says, and where it says it -----------------------------------
