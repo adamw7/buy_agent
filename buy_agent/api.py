@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from functools import partial
 from typing import TYPE_CHECKING, Any, TypeVar, cast, get_args
 from urllib.parse import urlparse
 
@@ -187,12 +186,12 @@ def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
     defaults = AgentConfig()
     request = _read(data, "request", "", _as_text)
     sort_by = _read(data, "sort_by", "score", _among(SORT_OPTIONS))
-    top_n = _read(data, "top", defaults.top_n, _bounded(int))
+    top_n = _read(data, "top", defaults.top_n, _bounded(int, "top_n"))
     # Explicit, so the answer reports the weights it ranked by.
     weights = RankingWeights()
     # The run's own scale, so the set does not vote again (ADR-0056): the currency the
     # shopper named, else the one the run was counted in.
-    currency = _read(data, "currency", "", _checked(parse_currency))
+    currency = _read(data, "currency", "", parse_currency)
     scale = currency or _read(data, "scale", "", _as_code)
     ranked = rank_products(
         _read_products(data),
@@ -244,7 +243,7 @@ def receipt_payload(receipt: Receipt) -> dict[str, Any]:
 
 def _rank(data: Mapping[str, Any], count: int) -> int:
     """The index of the product to buy."""
-    return _read(data, "rank", 1, partial(_as_number, int, 1, count)) - 1
+    return _read(data, "rank", 1, _as_number(int, 1, count)) - 1
 
 
 def _witnessed(data: Mapping[str, Any], cart: Cart) -> None:
@@ -384,8 +383,9 @@ def defaults_payload(*, screenshots: bool = False) -> dict[str, Any]:
 def limits_payload() -> dict[str, dict[str, int]]:
     """Each number's range, by request key (ADR-0033)."""
     return {
-        key: dict(zip(("min", "max"), LIMITS[field], strict=True))
-        for key, field in _BOUNDED.items()
+        option.key: dict(zip(("min", "max"), LIMITS[option.field], strict=True))
+        for option in OPTIONS
+        if option.field in LIMITS
     }
 
 
@@ -442,11 +442,15 @@ def _web_page(url: str) -> bool:
     return parsed.scheme in ("http", "https") and bool(parsed.hostname)
 
 
-def installed_models(provider: str, base_url: str) -> dict[str, Any]:
+def installed_models(
+    provider: str, base_url: str, *, unaskable: Callable[[str], str] | None = None
+) -> dict[str, Any]:
     """Ask a model server what it is serving, for the UI's model picker (ADR-0032,
-    ADR-0012)."""
+    ADR-0012). ``unaskable``, given the server's label, says why it is not asked."""
     label = PROVIDERS[provider].label if provider in PROVIDERS else provider
     status = {"provider": provider, "label": label, "base_url": base_url}
+    if unaskable is not None:
+        return {**status, "reachable": False, "models": [], "hint": unaskable(label)}
     config: AgentConfig | None = None
     try:
         config = AgentConfig(provider=provider, base_url=base_url)
@@ -499,12 +503,17 @@ def _read(
     data: Mapping[str, Any],
     key: str,
     default: _T,
-    parse: Callable[[str, str], _T],
+    parse: Callable[[str], _T],
 ) -> _T:
-    """``key``'s value parsed, or ``default`` if unset."""
+    """``key``'s value parsed, or ``default`` if unset; a refusal marks ``key``'s box."""
     if not _present(data, key):
         return default
-    return parse(key, str(data[key]).strip())
+    try:
+        return parse(str(data[key]).strip())
+    except _Unnamed as exc:
+        raise ApiError(f"{key} {exc}.", field=key) from exc
+    except ValueError as exc:
+        raise ApiError(str(exc), field=key) from exc
 
 
 def _read_products(data: Mapping[str, Any]) -> list[Product]:
@@ -528,61 +537,41 @@ def _read_products(data: Mapping[str, Any]) -> list[Product]:
     return products
 
 
-def _as_text(_key: str, text: str) -> str:
+def _as_text(text: str) -> str:
     """Text as is (already stripped)."""
     return text
 
 
-def _as_code(_key: str, text: str) -> str:
+def _as_code(text: str) -> str:
     """A currency folded the way a page's is (ADR-0054), whatever it is: a set may be
     counted in one nothing can place, and a re-sort is counted in it all the same."""
     return code_for(text) or ""
 
 
-def _among(options: tuple[str, ...]) -> Callable[[str, str], str]:
+class _Unnamed(ValueError):
+    """A refusal worded to follow the setting's name -- "must be a number; got 'x'" --
+    which each door puts its own name for the setting in front of (ADR-0033)."""
+
+
+def _among(options: tuple[str, ...]) -> Callable[[str], str]:
     """A parser for a setting naming a table row (ADR-0033)."""
 
-    def parse(key: str, text: str) -> str:
+    def parse(text: str) -> str:
         if text not in options:
-            raise ApiError(
-                f"{key} must be one of {', '.join(options)}; got {text!r}.", field=key
-            )
+            raise _Unnamed(f"must be one of {', '.join(options)}; got {text!r}")
         return text
 
     return parse
 
 
-def _checked(check: Callable[[str], str]) -> Callable[[str, str], str]:
-    """A parser wrapping a :mod:`buy_agent.config` check, adding the box to mark
-    (ADR-0031, ADR-0056, ADR-0033)."""
-
-    def parse(key: str, text: str) -> str:
-        try:
-            return check(text)
-        except ValueError as exc:
-            raise ApiError(str(exc), field=key) from exc
-
-    return parse
-
-
-def _as_bool(key: str, text: str) -> bool:
+def _as_bool(text: str) -> bool:
     """A checkbox, query parameter or JSON boolean."""
     lowered = text.lower()
     if lowered in _TRUE:
         return True
     if lowered in _FALSE:
         return False
-    raise ApiError(f"{key} must be true or false; got {text!r}.", field=key)
-
-
-def _bounded(kind: Callable[[str], _Number]) -> Callable[[str, str], _Number]:
-    """A parser for a number within its key's ``LIMITS`` range."""
-
-    def parse(key: str, text: str) -> _Number:
-        minimum, maximum = LIMITS[_BOUNDED[key]]
-        return _as_number(kind, minimum, maximum, key, text)
-
-    return parse
+    raise _Unnamed(f"must be true or false; got {text!r}")
 
 
 def number_kind(kind: Callable[[str], object]) -> str:
@@ -595,74 +584,97 @@ def _as_number(
     # Not ``_Number``: the int bounds of a float setting would force ints.
     minimum: float,
     maximum: float,
-    key: str,
-    text: str,
-) -> _Number:
+) -> Callable[[str], _Number]:
     """One number parser for both kinds: convert, then check the bounds."""
-    try:
-        number = kind(text)
-    except ValueError as exc:
-        raise ApiError(
-            f"{key} must be {number_kind(kind)}; got {text!r}.", field=key
-        ) from exc
-    if not minimum <= number <= maximum:
-        raise ApiError(
-            f"{key} must be between {minimum} and {maximum}; got {number}.", field=key
-        )
-    return number
+
+    def parse(text: str) -> _Number:
+        try:
+            number = kind(text)
+        except ValueError as exc:
+            raise _Unnamed(f"must be {number_kind(kind)}; got {text!r}") from exc
+        if not minimum <= number <= maximum:
+            raise _Unnamed(f"must be between {minimum} and {maximum}; got {number}")
+        return number
+
+    return parse
+
+
+def _bounded(kind: Callable[[str], _Number], field: str) -> Callable[[str], _Number]:
+    """A parser for a number within its field's ``LIMITS`` range."""
+    return _as_number(kind, *LIMITS[field])
 
 
 # -- the settings a request carries --------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
-class _Option:
-    """One setting: its request key, the :class:`AgentConfig` field it fills, and its
-    parser (ADR-0012, ADR-0033). Read by both doors, the form's seed and the ranges."""
+class Option:
+    """One setting: its request key, its parser, and the :class:`AgentConfig` field it
+    fills when that is not the key (ADR-0012, ADR-0033). Read by both doors -- the CLI
+    builds its flags off these rows -- the form's seed and the ranges.
+
+    A parser takes stripped text and raises ``ValueError`` saying why not."""
 
     key: str
-    field: str
-    parse: Callable[[str, str], Any]
+    parse: Callable[[str], Any]
+    field: str = ""
     #: Unset means blank, for settings resolved per provider or rail (ADR-0012).
     blank: bool = False
+    #: The table rows it names, for the CLI's ``choices``.
+    choices: tuple[str, ...] | None = None
+
+    def __post_init__(self) -> None:
+        if not self.field:
+            object.__setattr__(self, "field", self.key)
+
+    @property
+    def switch(self) -> bool:
+        """Whether this is on or off: ``--x``/``--no-x`` on the command line."""
+        return self.parse is _as_bool
 
     def unset(self, defaults: AgentConfig) -> Any:
         """What this key means when a request does not carry it."""
         return "" if self.blank else getattr(defaults, self.field)
 
 
-#: Every setting both doors fill in. ``sources``, a list, is handled apart (ADR-0027).
-OPTIONS: tuple[_Option, ...] = (
-    _Option("provider", "provider", _among(PROVIDER_OPTIONS)),
-    _Option("model", "model", _as_text, blank=True),
-    _Option("base_url", "base_url", _as_text, blank=True),
-    _Option("temperature", "temperature", _bounded(float)),
-    _Option("num_ctx", "num_ctx", _bounded(int)),
-    _Option("model_timeout", "model_timeout", _bounded(float)),
-    _Option("think", "reasoning", _as_bool),
-    _Option("cpu_only", "cpu_only", _as_bool),
-    _Option("results", "num_products", _bounded(int)),
-    _Option("top", "top_n", _bounded(int)),
-    # Blank is "no bound" (ADR-0012, ADR-0039).
-    _Option("max_price", "max_price", _bounded(float)),
-    _Option("min_rating", "min_rating", _bounded(float)),
-    _Option("min_reviews", "min_reviews", _bounded(int)),
-    _Option("cache_ttl", "cache_ttl", _bounded(float)),
-    # ADR-0060.
-    _Option("journal", "journal", _as_bool),
-    _Option("region", "region", _checked(parse_region)),
-    # Blank is the default and means "whatever the pages quote" (ADR-0056).
-    _Option("currency", "currency", _checked(parse_currency)),
-    _Option("backend", "backend", _among(BACKEND_OPTIONS)),
-    _Option("fetch", "fetch_pages", _as_bool),
-    # Off unless asked for; the default rail charges nobody.
-    _Option("pay", "pay", _as_bool),
-    _Option("rail", "rail", _among(RAIL_OPTIONS)),
-    _Option("merchant_url", "merchant_url", _as_text, blank=True),
-    _Option("spend_limit", "spend_limit", _bounded(float)),
-)
+def _number(key: str, kind: Callable[[str], Any], field: str = "") -> Option:
+    """A number setting, held to its field's ``LIMITS`` range."""
+    return Option(key, _bounded(kind, field or key), field)
 
-#: The ``LIMITS`` field bounding each numeric request key (ADR-0033).
-_BOUNDED: dict[str, str] = {
-    option.key: option.field for option in OPTIONS if option.field in LIMITS
-}
+
+def _row(key: str, options: tuple[str, ...]) -> Option:
+    """A setting naming a row of one of the tables."""
+    return Option(key, _among(options), choices=options)
+
+
+#: Every setting both doors fill in, in ``--help``'s order. ``sources``, a list, is
+#: handled apart (ADR-0027).
+OPTIONS: tuple[Option, ...] = (
+    _row("provider", PROVIDER_OPTIONS),
+    Option("model", _as_text, blank=True),
+    Option("base_url", _as_text, blank=True),
+    _number("results", int, "num_products"),
+    _number("top", int, "top_n"),
+    Option("region", parse_region),
+    _row("backend", BACKEND_OPTIONS),
+    # Blank is the default and means "whatever the pages quote" (ADR-0056).
+    Option("currency", parse_currency),
+    # Blank is "no bound" (ADR-0012, ADR-0039).
+    _number("max_price", float),
+    _number("min_rating", float),
+    _number("min_reviews", int),
+    _number("cache_ttl", float),
+    # ADR-0060.
+    Option("journal", _as_bool),
+    # Off unless asked for; the default rail charges nobody.
+    Option("pay", _as_bool),
+    _row("rail", RAIL_OPTIONS),
+    Option("merchant_url", _as_text, blank=True),
+    _number("spend_limit", float),
+    _number("temperature", float),
+    _number("num_ctx", int),
+    _number("model_timeout", float),
+    Option("think", _as_bool, "reasoning"),
+    Option("cpu_only", _as_bool),
+    Option("fetch", _as_bool, "fetch_pages"),
+)

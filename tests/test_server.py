@@ -25,6 +25,7 @@ from urllib.parse import urlencode, urlparse
 
 import pytest
 
+import buy_agent.providers as providers_module
 import buy_agent.server as server_module
 from buy_agent.agent import ModelUnavailableError, every_step_passes
 from buy_agent.models import Product, nothing_recorded
@@ -471,7 +472,7 @@ def test_models_does_not_ask_this_server_for_a_model(server: str, monkeypatch) -
     that was not running -- "Start it with: vllm serve", a command that then cannot bind
     the port this server holds. The address is what is wrong, and the hint says so."""
     asked: list[str] = []
-    monkeypatch.setattr(server_module, "installed_models", lambda *args: asked.append(args))
+    monkeypatch.setattr(providers_module.httpx, "get", lambda url, **_: asked.append(url))
     own = f"{server.replace('127.0.0.1', 'localhost')}/v1"
     query = urlencode({"provider": "vllm", "base_url": own})
 
@@ -1475,7 +1476,7 @@ def test_a_bind_that_failed_for_another_reason_is_not_told_to_change_port(
     ],
 )
 def test_a_port_no_socket_could_take_is_a_usage_error(given: str, says: str, capsys) -> None:
-    """The rule ``__main__._bounded`` holds for every number the agent takes. Left
+    """The rule ``api._bounded`` holds every number the agent takes to. Left
     unbounded, the number went as far as ``socket.bind``, whose ``OverflowError`` is
     not the ``OSError`` main() reports a refused bind with -- so a mistyped port was
     the one thing this file's catch-alls exist to prevent: a traceback."""

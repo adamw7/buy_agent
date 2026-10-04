@@ -79,6 +79,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0068](0068-reach-a-litellm-proxy-as-a-third-model-server.md) | Reach a LiteLLM proxy as a third model server, and never its SDK | Accepted |
 | [0069](0069-scan-and-attest-what-a-release-publishes.md) | Scan and attest what a release publishes | Accepted |
 | [0070](0070-compare-local-models-and-give-the-comparison-a-page.md) | Compare local models over several cases, and give the comparison a page of its own | Accepted |
+| [0071](0071-build-the-cli-flags-off-the-options-table.md) | Build the CLI's flags off the options table | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

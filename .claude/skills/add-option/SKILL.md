@@ -27,28 +27,29 @@ Work down this list in order.
   Whether a server takes it is a provider-row field (`takes_num_ctx`), never a
   branch on the provider's name.
 
-## 2. `buy_agent/__main__.py` -- the CLI
+## 2. `buy_agent/api.py` -- one row for both doors
 
-- `build_parser`: `add_argument` with `default=_DEFAULTS.<field>`.
-- Numeric -> `type=_bounded(int, "<field>")`. Shaped -> `type=_checked(parse_region)`,
-  which keeps the rule's own message; write no second wrapper.
-- The help names the default
-  (`test_every_flag_that_takes_a_value_names_the_default_it_has`).
-- Boolean -> `BooleanOptionalAction` if it needs an off switch.
-- `main` needs nothing: the config is built off `api.OPTIONS`.
-- A flag named unlike its field (`--think` for `reasoning`) is noted in
-  `CLAUDE.md`.
-
-## 3. `buy_agent/api.py` -- the JSON door
-
-- One row in `OPTIONS`: request key, field, and reader. `parse_options`,
-  `defaults_payload` and `limits_payload` all read it. Missing or empty means
-  the default, never zero.
-- Numeric -> `_bounded(int|float)`; `_BOUNDED` follows from the `LIMITS` row.
+- One row in `OPTIONS`, in the order `--help` lists it. `parse_options`,
+  `defaults_payload`, `limits_payload` and the CLI's flags all read it. Missing
+  or empty means the default, never zero.
+- Numeric -> `_number("<key>", int|float)`, adding the field when it is not the
+  key; the range follows from the `LIMITS` row.
+- A table row -> `_row("<key>", <TABLE>_OPTIONS)`. Shaped -> `Option("<key>",
+  parse_<field>)`, which keeps the rule's own message. Boolean -> `Option("<key>",
+  _as_bool)`, which the CLI makes a `--x` and `--no-x` pair.
+- A parser raises `ValueError`; `_Unnamed` for one worded to follow the key
+  ("must be ..."). `_read` marks the box, and the CLI prints it as a usage error.
 - Provider- or rail-dependent -> `blank=True`, settled in `__post_init__`.
 - A list has no row: follow `_read_sources` and `sources` in `parse_options` and
-  `defaults_payload`.
-- Raise `ApiError(..., field="<key>")` so the box is marked.
+  `defaults_payload`, and add its flag by hand in `build_parser`.
+
+## 3. `buy_agent/__main__.py` -- the flag's help
+
+- An entry in `_written()` under the row's key: the help, which names the
+  default (`test_every_flag_that_takes_a_value_names_the_default_it_has`), plus
+  a `metavar` or `default` where the row's own would read wrong.
+- `build_parser` and `main` need nothing else.
+- A key named unlike its field (`think` for `reasoning`) is noted in `CLAUDE.md`.
 
 ## 4. `ui/src/app/agent.types.ts`
 
@@ -72,14 +73,11 @@ Work down this list in order.
 - The page applies Python's rules and never invents one: ship a range or ask for
   a verdict (`GET /api/sources`) (ADR-0031, ADR-0033).
 
-## 6. `tests/test_conventions.py`
+## 6. Tests and docs
 
-- Add the `(field, flag, key)` row to
-  `test_both_front_doors_hold_a_number_to_the_same_range` for a numeric setting.
-  The rest (ranges against `numberFields`, `OPTIONS` against `SearchOptions`,
-  `AgentDefaults` against `defaults_payload`) fails by itself.
-
-## 7. Tests and docs
+- Nothing to add to `tests/test_conventions.py`: ranges against `numberFields`,
+  `OPTIONS` against `SearchOptions` and `AgentDefaults` against
+  `defaults_payload` fail by themselves.
 
 - Unit tests in `tests/test_config.py`, `test_cli.py`, `test_api.py` and the
   form's spec; both suites cover every line.

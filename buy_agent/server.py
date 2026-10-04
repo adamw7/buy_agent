@@ -144,9 +144,6 @@ _UNBUILT_PAGE = """<!doctype html>
 body {{ margin: 0; padding: 48px 20px; font: 15px/1.55 system-ui, sans-serif; }}
 main {{ max-width: 620px; margin: 0 auto; }}
 h1 {{ font-size: 20px; font-family: ui-monospace, monospace; }}
-code, pre {{ font-family: ui-monospace, monospace; }}
-pre {{ padding: 12px 14px; border-radius: 9px; background: rgb(128 128 128 / 14%);
-      overflow-x: auto; }}
 p {{ color: #5c6470; }}
 @media (prefers-color-scheme: dark) {{ p {{ color: #99a3b0; }} }}
 </style>
@@ -155,7 +152,7 @@ p {{ color: #5c6470; }}
 <main>
 <h1>buy_agent</h1>
 <p>The API is answering, but the page has not been built yet.</p>
-{remedy}
+<p>{remedy}</p>
 </main>
 </body>
 </html>
@@ -342,12 +339,10 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
                 self._send_json(404, _no_such_endpoint(url.path))
             else:
                 self._serve_static(url.path)
-        # A 500 beats socketserver closing the socket unanswered, which reads as a
-        # server that is down.
+        # Anything at all: see ``_send_failure``.
         # pylint: disable-next=broad-exception-caught
         except Exception as exc:
-            logger.exception("Unexpected failure answering %s", url.path)
-            self._send_json(500, _unexpected(exc))
+            self._send_failure(url.path, exc)
 
     # The base class dispatches on the verb's name.
     # pylint: disable-next=invalid-name
@@ -371,13 +366,20 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         try:
             payload = self._read_json()
             self._send_json(200, run(payload))
-        except ApiError as exc:
-            self._send_json(exc.status, exc.payload())
         # As in ``do_GET``.
         # pylint: disable-next=broad-exception-caught
         except Exception as exc:
-            logger.exception("Unexpected failure answering %s", url.path)
-            self._send_json(500, _unexpected(exc))
+            self._send_failure(url.path, exc)
+
+    def _send_failure(self, path: str, exc: Exception) -> None:
+        """A refusal with its own status, and anything else as a 500: that beats
+        socketserver closing the socket unanswered, which reads as a server that is
+        down."""
+        if isinstance(exc, ApiError):
+            self._send_json(exc.status, exc.payload())
+            return
+        logger.exception("Unexpected failure answering %s", path)
+        self._send_json(500, _unexpected(exc))
 
     # The base class dispatches on the verb's name.
     # pylint: disable-next=invalid-name
@@ -397,20 +399,13 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         provider = params.get("provider") or DEFAULT_PROVIDER
         server = PROVIDERS.get(provider)
         base_url = params.get("base_url") or (server.base_url if server else "")
-        if self._answered_here(base_url):
-            label = server.label if server else provider
-            # Not asked: what answers there is this page, and its reply reads as a
-            # model server that is not running -- "Start it with: vllm serve", which
-            # then cannot bind the port this server holds.
-            return {
-                "provider": provider,
-                "label": label,
-                "base_url": base_url,
-                "reachable": False,
-                "models": [],
-                "hint": _own_address(label, base_url),
-            }
-        return installed_models(provider, base_url)
+        # Not asked: what answers there is this page, and its reply reads as a model
+        # server that is not running -- "Start it with: vllm serve", which then cannot
+        # bind the port this server holds.
+        unaskable = (
+            partial(_own_address, address=base_url) if self._answered_here(base_url) else None
+        )
+        return installed_models(provider, base_url, unaskable=unaskable)
 
     def _answered_here(self, address: str) -> bool:
         """Whether ``address`` is this server's own, which a model server's default is
@@ -509,12 +504,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             yield "failure", {**payload, "status": status}
 
     def _send_screenshot(self, address: str) -> None:
-        """A JPEG of a card's page, or JSON saying why not."""
-        try:
-            picture = screenshot(address, self.camera)
-        except ApiError as exc:
-            self._send_json(exc.status, exc.payload())
-            return
+        """A JPEG of a card's page; a refusal is ``do_GET``'s to answer."""
+        picture = screenshot(address, self.camera)
         self._send_bytes(
             200, picture, "image/jpeg", headers=(("Cache-Control", _SCREENSHOT_CACHE),)
         )
@@ -544,7 +535,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             return
         self._send_bytes(
             503,
-            _UNBUILT_PAGE.format(remedy=_unbuilt_remedy_html(self.ui_dir)).encode("utf-8"),
+            _UNBUILT_PAGE.format(remedy=escape(_unbuilt_remedy(self.ui_dir))).encode("utf-8"),
             "text/html; charset=utf-8",
         )
 
@@ -671,23 +662,6 @@ def _unbuilt_remedy(ui_dir: Path) -> str:
     return (
         f"Run '{_UNBUILT_COMMAND}' in {workspace}, or point --ui-dir at a build "
         f"elsewhere."
-    )
-
-
-def _unbuilt_remedy_html(ui_dir: Path) -> str:
-    """The same remedy as HTML."""
-    workspace = _workspace_for(ui_dir)
-    if workspace is None:
-        return (
-            f"<p>There is no Angular workspace above <code>{escape(str(ui_dir))}</code>,"
-            " so there is nothing here to build. Point <code>--ui-dir</code> at a"
-            " build that exists -- <code>ui/dist/ui/browser</code> in a checkout.</p>"
-        )
-    return (
-        f"<p>Run this in <code>{escape(str(workspace))}</code>:</p>"
-        f"<pre>{escape(_UNBUILT_COMMAND)}</pre>"
-        "<p>Then reload. A build that lives somewhere else is named with"
-        " <code>--ui-dir</code>.</p>"
     )
 
 

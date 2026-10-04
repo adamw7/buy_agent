@@ -13,27 +13,19 @@ from typing import Any, get_args
 
 from buy_agent import mandates, payment
 from buy_agent.agent import BuyAgent, ModelUnavailableError, journal_for
-from buy_agent.api import OPTIONS, number_kind, results_payload, takeable
+from buy_agent.api import OPTIONS, Option, results_payload, takeable
 from buy_agent.bounds import notice
 from buy_agent.chat import release
-from buy_agent.config import (
-    DEFAULT_BACKEND,
-    DEFAULT_PROVIDER,
-    DEFAULT_RAIL,
-    LIMITS,
-    AgentConfig,
-    parse_currency,
-    parse_region,
-)
+from buy_agent.config import DEFAULT_BACKEND, DEFAULT_PROVIDER, DEFAULT_RAIL, AgentConfig
 from buy_agent.journal import MAX_RUNS, RUNS
 from buy_agent.logging_setup import configure_logging, log_changes
 from buy_agent.models import RankedProduct
 from buy_agent.money import CODES
 from buy_agent.payment import PaymentError
-from buy_agent.providers import PROVIDERS, provider_for
-from buy_agent.rails import RAILS, rail_for
+from buy_agent.providers import PROVIDERS
+from buy_agent.rails import RAILS
 from buy_agent.ranking import ORDERINGS, SortBy, scale_of
-from buy_agent.search import BACKENDS, SearchError, backend_for
+from buy_agent.search import BACKENDS, SearchError
 from buy_agent.sources import parse_named_sources, parse_sources
 
 logger = logging.getLogger("buy_agent")
@@ -100,28 +92,6 @@ def _provider_defaults(setting: str) -> str:
     )
 
 
-def _bounded(kind: Callable[[str], Any], field: str) -> Callable[[str], Any]:
-    """A number type held to its ``LIMITS`` range, and refused in the words the API
-    refuses it with."""
-    minimum, maximum = LIMITS[field]
-
-    def parse(text: str) -> Any:
-        try:
-            value = kind(text)
-        except ValueError as exc:
-            # argparse's own names the converter: "invalid float value".
-            raise argparse.ArgumentTypeError(
-                f"must be {number_kind(kind)}; got {text!r}"
-            ) from exc
-        if not minimum <= value <= maximum:
-            raise argparse.ArgumentTypeError(
-                f"must be between {minimum} and {maximum}; got {value}"
-            )
-        return value
-
-    return parse
-
-
 def _json_file(text: str) -> Path:
     """A ``--json`` file whose directory is there, checked before the run: written at the
     end, a typo in the path otherwise costs the whole run first."""
@@ -135,17 +105,37 @@ def _json_file(text: str) -> Path:
     return path
 
 
-def _checked(check: Callable[[str], object]) -> Callable[[str], str]:
-    """A flag type that validates with ``check`` but keeps the text (ADR-0027, ADR-0031)."""
+def _flag(parse: Callable[[str], Any]) -> Callable[[str], Any]:
+    """A flag ``type`` off a door-neutral parser, whose refusal argparse then prints
+    as written: a ``ValueError`` it would report as "invalid float value", the name of
+    the converter rather than what was wrong (ADR-0033)."""
 
-    def parse(text: str) -> str:
+    def typed(text: str) -> Any:
         try:
-            check(text)
+            return parse(text)
         except ValueError as exc:
             raise argparse.ArgumentTypeError(str(exc)) from exc
-        return text
 
-    return parse
+    return typed
+
+
+def _source(text: str) -> str:
+    """One ``--source``, checked here and parsed with the rest in ``main`` (ADR-0027)."""
+    parse_named_sources(text)
+    return text
+
+
+def _flag_for(option: Option, written: dict[str, Any]) -> dict[str, Any]:
+    """``add_argument``'s keywords for one ``api.OPTIONS`` row: what the row says, then
+    what only the terminal writes (``written``), which wins."""
+    derived: dict[str, Any] = {"dest": option.key, "default": option.unset(_DEFAULTS)}
+    if option.switch:
+        derived["action"] = argparse.BooleanOptionalAction
+    else:
+        derived["type"] = _flag(option.parse)
+    if option.choices is not None:
+        derived["choices"] = option.choices
+    return {**derived, **written}
 
 
 class _Help(argparse.RawDescriptionHelpFormatter):
@@ -156,6 +146,165 @@ class _Help(argparse.RawDescriptionHelpFormatter):
 
     def _split_lines(self, text: str, width: int) -> list[str]:
         return textwrap.wrap(" ".join(text.split()), width, break_on_hyphens=False)
+
+
+def _written() -> dict[str, dict[str, Any]]:
+    """What only the terminal says about each ``api.OPTIONS`` row: its help -- the
+    CLI's only documentation -- and where the flag is not what the row makes it."""
+    return {
+        "provider": {
+            # The variable as written, so a misspelt one is refused by name.
+            "default": DEFAULT_PROVIDER,
+            "help": f"Which model server to talk to (default: {DEFAULT_PROVIDER}, "
+            "override with $BUY_AGENT_PROVIDER). It decides what --model and --base-url "
+            "mean.",
+        },
+        # "" because the right default depends on --provider (ADR-0012).
+        "model": {
+            "help": "Model to use, empty for the provider's own default "
+            f"({_provider_defaults('model')}). Override with $OLLAMA_MODEL, $VLLM_MODEL "
+            "or $LITELLM_MODEL.",
+        },
+        "base_url": {
+            "help": "Model server URL, empty for the provider's own default "
+            f"({_provider_defaults('base_url')}). Override with $OLLAMA_HOST, "
+            "$VLLM_HOST or $LITELLM_HOST.",
+        },
+        "results": {
+            "help": f"How many products to find (default: {_DEFAULTS.num_products}).",
+        },
+        "top": {"help": f"How many products to log (default: {_DEFAULTS.top_n})."},
+        "region": {
+            "help": "Search region: a country and then a language, hyphenated (default: "
+            f"{_DEFAULTS.region}; also uk-en, pl-pl). Anything else is a usage error, "
+            "since a region no search engine knows returns nothing at all.",
+        },
+        "backend": {
+            "default": DEFAULT_BACKEND,
+            "help": f"Which search backend to ask (default: {DEFAULT_BACKEND}, override "
+            "with $BUY_AGENT_BACKEND). The default needs no key and no account and "
+            "rate-limits heavy use; the others are an instance you run ($SEARXNG_HOST) "
+            "and a key you hold ($BRAVE_API_KEY), each read off the environment and "
+            "neither a flag.",
+        },
+        "currency": {
+            "metavar": "CODE",
+            # Spellings fold, so the row has no ``choices``; the help lists the codes.
+            "help": "Count this run's prices in this currency, empty for whatever the "
+            f"pages quote (the default). One of: {', '.join(sorted(CODES))} -- or any "
+            "spelling a page uses for one of them ($, usd, euros). Nothing is converted, "
+            "so a price in any other currency is one this run cannot place: it scores "
+            "neutral, sinks in a price sort and passes every limit. Naming one your "
+            "pages never quote is the way to ask for a report whose price criterion is "
+            "entirely assumed, and the run says so.",
+        },
+        "max_price": {
+            "help": "Report nothing dearer than this (default: no limit). Read in the "
+            "currency the run's prices are counted in -- the commonest one the pages "
+            "quote -- and nothing is converted, so a price in another currency is one "
+            "this cannot judge and does not. A product whose price no page printed is "
+            "kept too: a blank is the extractor's miss, not a $900 tag.",
+        },
+        "min_rating": {
+            "help": "Report nothing rated below this, out of 5 (default: no limit). "
+            "Unrated products are kept, for the reason unpriced ones are.",
+        },
+        "min_reviews": {
+            "help": "Report nothing whose rating was averaged over fewer reviews than "
+            "this (default: no limit). A 5.0 from two people is not a rating. A rating "
+            "with no count beside it is kept, for the reason unpriced products are.",
+        },
+        "cache_ttl": {
+            "metavar": "SECONDS",
+            "help": "How long a fetched page, and the model's answer about it, stay "
+            f"usable on disk (default: {_DEFAULTS.cache_ttl:g}, a day; 0 reads every "
+            "page off the web and asks the model every question). Most of a repeated "
+            "run is opening the same pages again and asking the same thing about "
+            "them. A run at a temperature above 0 is never remembered. "
+            "$BUY_AGENT_CACHE_DIR says where it is all kept.",
+        },
+        "journal": {
+            "help": "Write down what this run reported, so the next run of the same "
+            "search can say what moved (default: "
+            f"{'--journal' if _DEFAULTS.journal else '--no-journal'}). It keeps a name, "
+            f"a price and a currency per product and nothing else, at most {MAX_RUNS} "
+            f"runs per search, in {RUNS}/ beside the cached pages under "
+            "$BUY_AGENT_CACHE_DIR -- deleting that directory throws the whole history "
+            "away. Unlike the cache it does not expire: a record that did is no use for "
+            "the one question it answers.",
+        },
+        "pay": {
+            "help": "Buy the top-ranked product once you have approved it (default: "
+            "--no-pay). The purchase is authorised with signed AP2 mandates rather "
+            "than a stored card, and only a product whose price a source actually "
+            "printed can be paid for. With $BUY_AGENT_AP2_MANDATE naming a pre-signed "
+            "open mandate this runs unattended, within that mandate's constraints; "
+            "without one you are asked, and a run with nothing to type into is "
+            "refused rather than assumed.",
+        },
+        "rail": {
+            "default": DEFAULT_RAIL,
+            "help": f"Who to pay through (default: {DEFAULT_RAIL}, override with "
+            "$BUY_AGENT_RAIL). The default signs a real authorisation and charges "
+            "nobody, so --pay on its own never spends anything.",
+        },
+        "merchant_url": {
+            # "Payment endpoint" is the setting's name everywhere else.
+            "help": "Payment endpoint: the AP2-speaking address a paying rail talks to, "
+            "empty for the rail's own default ($BUY_AGENT_MERCHANT_URL). It is asked "
+            "for a signed checkout at {url}/checkout and presented the mandates at "
+            "{url}/payment.",
+        },
+        "spend_limit": {
+            "metavar": "AMOUNT",
+            "help": "Refuse to pay more than this for one product (default: no limit), "
+            "in the currency the run's prices are counted in. Unlike --max-price, a "
+            "price this run cannot place fails it: a bound that cannot judge a "
+            "candidate keeps it, but an amount nobody can place is not one to send.",
+        },
+        "temperature": {
+            "help": f"Model temperature (default: {_DEFAULTS.temperature}). Extraction "
+            "copies what the pages say, and 0 copies it the same way every time, which "
+            "makes it the only temperature whose answers --cache-ttl keeps. Above 0 the "
+            "model samples: every run asks it again, and two runs over the same pages "
+            "can report different products.",
+        },
+        "num_ctx": {
+            # None, so only a typed number earns the warning in ``main``.
+            "default": None,
+            "help": f"Context window in tokens (default: {_DEFAULTS.num_ctx}). The "
+            "extraction prompt runs to ~4.3k tokens, so a larger window leaves room for "
+            "more products; a model that need not think is fine on Ollama's own 4096. "
+            "Ollama only -- vLLM fixes its window with --max-model-len when it starts, "
+            "and a LiteLLM proxy leaves it to the server it routes to.",
+        },
+        "model_timeout": {
+            "metavar": "SECONDS",
+            "help": "How long to wait for one answer from the model server (default: "
+            f"{_DEFAULTS.model_timeout:g}). Asked once and not retried, so this is the "
+            "whole wait: a server that took the prompt and went quiet ends the run with "
+            "something to act on rather than hanging it. A slow model on a long prompt "
+            "is what the wait is for -- try a smaller model or a smaller --num-ctx "
+            "before a bigger number here.",
+        },
+        "think": {
+            "help": "Force the model's thinking mode on or off (default: --no-think). "
+            "Thinking models need --no-think: they reason until the context runs out "
+            "and never answer; a model that cannot think ignores either.",
+        },
+        "cpu_only": {
+            "help": "Keep the model off the GPU entirely (default: --no-cpu-only, which "
+            "leaves the offload to the model server). Slower, but it leaves the card "
+            "free and runs a model too large to fit on it. Ollama only -- vLLM picks "
+            "its device when it starts, and a LiteLLM proxy leaves it to the server it "
+            "routes to.",
+        },
+        "fetch": {
+            "help": "Open the result pages and extract from them (default: --fetch). "
+            "--no-fetch extracts from search snippets only: much faster, but snippets "
+            "rarely quote a price.",
+        },
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -180,41 +329,10 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=_Help,
     )
     parser.add_argument("request", help="What you want to buy, in plain words.")
-    parser.add_argument(
-        "--provider",
-        type=_checked(provider_for),
-        choices=tuple(PROVIDERS),
-        default=DEFAULT_PROVIDER,
-        help=f"Which model server to talk to (default: {DEFAULT_PROVIDER}, override "
-        "with $BUY_AGENT_PROVIDER). It decides what --model and --base-url mean.",
-    )
-    # "" because the right default depends on --provider (ADR-0012).
-    parser.add_argument(
-        "--model",
-        default="",
-        help="Model to use, empty for the provider's own default "
-        f"({_provider_defaults('model')}). Override with $OLLAMA_MODEL, $VLLM_MODEL or "
-        "$LITELLM_MODEL.",
-    )
-    parser.add_argument(
-        "--base-url",
-        default="",
-        help="Model server URL, empty for the provider's own default "
-        f"({_provider_defaults('base_url')}). Override with $OLLAMA_HOST, $VLLM_HOST or "
-        "$LITELLM_HOST.",
-    )
-    parser.add_argument(
-        "--results",
-        type=_bounded(int, "num_products"),
-        default=_DEFAULTS.num_products,
-        help=f"How many products to find (default: {_DEFAULTS.num_products}).",
-    )
-    parser.add_argument(
-        "--top",
-        type=_bounded(int, "top_n"),
-        default=_DEFAULTS.top_n,
-        help=f"How many products to log (default: {_DEFAULTS.top_n}).",
-    )
+    for option in OPTIONS:
+        parser.add_argument(
+            f"--{option.key.replace('_', '-')}", **_flag_for(option, _written()[option.key])
+        )
     parser.add_argument(
         "--sort-by",
         # Read off the type, so it matches rank_products.
@@ -226,95 +344,14 @@ def build_parser() -> argparse.ArgumentParser:
         + " (default: score, a blend of rating, reviews and price).",
     )
     parser.add_argument(
-        "--region",
-        type=_checked(parse_region),
-        default=_DEFAULTS.region,
-        help="Search region: a country and then a language, hyphenated (default: "
-        f"{_DEFAULTS.region}; also uk-en, pl-pl). Anything else is a usage error, "
-        "since a region no search engine knows returns nothing at all.",
-    )
-    parser.add_argument(
-        "--backend",
-        type=_checked(backend_for),
-        choices=tuple(BACKENDS),
-        default=DEFAULT_BACKEND,
-        help=f"Which search backend to ask (default: {DEFAULT_BACKEND}, override with "
-        "$BUY_AGENT_BACKEND). The default needs no key and no account and rate-limits "
-        "heavy use; the others are an instance you run ($SEARXNG_HOST) and a key you "
-        "hold ($BRAVE_API_KEY), each read off the environment and neither a flag.",
-    )
-    parser.add_argument(
-        "--currency",
-        type=_checked(parse_currency),
-        default=_DEFAULTS.currency,
-        metavar="CODE",
-        # Spellings fold, so ``choices`` cannot be used; the help lists the codes.
-        help="Count this run's prices in this currency, empty for whatever the pages "
-        f"quote (the default). One of: {', '.join(sorted(CODES))} -- or any spelling "
-        "a page uses for one of them ($, usd, euros). Nothing is converted, so a price "
-        "in any other currency is one this run cannot place: it scores neutral, sinks "
-        "in a price sort and passes every limit. Naming one your pages never quote is "
-        "the way to ask for a report whose price criterion is entirely assumed, and "
-        "the run says so.",
-    )
-    parser.add_argument(
         "--source",
         action="append",
         metavar="SITE",
         # On a command line, ``--source ""`` is a mistake, not "unset".
-        type=_checked(parse_named_sources),
+        type=_flag(_source),
         help="Take the facts from this source only; repeat for several. A site "
         "(rtings.com), a section of one (rtings.com/headphones) or a YouTube "
         "handle (@mkbhd). Without it the whole web is searched.",
-    )
-    parser.add_argument(
-        "--max-price",
-        type=_bounded(float, "max_price"),
-        default=_DEFAULTS.max_price,
-        help="Report nothing dearer than this (default: no limit). Read in the "
-        "currency the run's prices are counted in -- the commonest one the pages "
-        "quote -- and nothing is converted, so a price in another currency is one "
-        "this cannot judge and does not. A product whose price no page printed is "
-        "kept too: a blank is the extractor's miss, not a $900 tag.",
-    )
-    parser.add_argument(
-        "--min-rating",
-        type=_bounded(float, "min_rating"),
-        default=_DEFAULTS.min_rating,
-        help="Report nothing rated below this, out of 5 (default: no limit). "
-        "Unrated products are kept, for the reason unpriced ones are.",
-    )
-    parser.add_argument(
-        "--min-reviews",
-        type=_bounded(int, "min_reviews"),
-        default=_DEFAULTS.min_reviews,
-        help="Report nothing whose rating was averaged over fewer reviews than "
-        "this (default: no limit). A 5.0 from two people is not a rating. A rating "
-        "with no count beside it is kept, for the reason unpriced products are.",
-    )
-    parser.add_argument(
-        "--cache-ttl",
-        type=_bounded(float, "cache_ttl"),
-        default=_DEFAULTS.cache_ttl,
-        metavar="SECONDS",
-        help=f"How long a fetched page, and the model's answer about it, stay "
-        f"usable on disk (default: {_DEFAULTS.cache_ttl:g}, a day; 0 reads every "
-        "page off the web and asks the model every question). Most of a repeated "
-        "run is opening the same pages again and asking the same thing about "
-        "them. A run at a temperature above 0 is never remembered. "
-        "$BUY_AGENT_CACHE_DIR says where it is all kept.",
-    )
-    parser.add_argument(
-        "--journal",
-        action=argparse.BooleanOptionalAction,
-        default=_DEFAULTS.journal,
-        help="Write down what this run reported, so the next run of the same search "
-        f"can say what moved (default: {'--journal' if _DEFAULTS.journal else '--no-journal'}). "
-        "It keeps a name, a price and a currency per product and nothing else, at "
-        f"most {MAX_RUNS} runs per search, in {RUNS}/ beside the cached pages under "
-        "$BUY_AGENT_CACHE_DIR -- deleting that directory throws the whole history "
-        "away. Unlike the cache it does not expire: a record that did is no use for "
-        "the one question it answers.",
     )
     parser.add_argument(
         "--compare",
@@ -323,107 +360,6 @@ def build_parser() -> argparse.ArgumentParser:
         "cheaper, what is dearer, what is new and what has gone. Reads what --journal "
         "wrote, and a search whose settings differ -- another region, another budget "
         "-- is a different question and has a history of its own.",
-    )
-    parser.add_argument(
-        "--pay",
-        action=argparse.BooleanOptionalAction,
-        default=_DEFAULTS.pay,
-        help="Buy the top-ranked product once you have approved it (default: "
-        "--no-pay). The purchase is authorised with signed AP2 mandates rather "
-        "than a stored card, and only a product whose price a source actually "
-        "printed can be paid for. With $BUY_AGENT_AP2_MANDATE naming a pre-signed "
-        "open mandate this runs unattended, within that mandate's constraints; "
-        "without one you are asked, and a run with nothing to type into is "
-        "refused rather than assumed.",
-    )
-    parser.add_argument(
-        "--rail",
-        type=_checked(rail_for),
-        choices=tuple(RAILS),
-        default=DEFAULT_RAIL,
-        help=f"Who to pay through (default: {DEFAULT_RAIL}, override with "
-        "$BUY_AGENT_RAIL). The default signs a real authorisation and charges "
-        "nobody, so --pay on its own never spends anything.",
-    )
-    parser.add_argument(
-        "--merchant-url",
-        default="",
-        # "Payment endpoint" is the setting's name everywhere else.
-        help="Payment endpoint: the AP2-speaking address a paying rail talks to, "
-        "empty for the rail's own default ($BUY_AGENT_MERCHANT_URL). "
-        "It is asked for a signed "
-        "checkout at {url}/checkout and presented the mandates at {url}/payment.",
-    )
-    parser.add_argument(
-        "--spend-limit",
-        type=_bounded(float, "spend_limit"),
-        default=_DEFAULTS.spend_limit,
-        metavar="AMOUNT",
-        help="Refuse to pay more than this for one product (default: no limit), "
-        "in the currency the run's prices are counted in. Unlike --max-price, a "
-        "price this run cannot place fails it: a bound that cannot judge a "
-        "candidate keeps it, but an amount nobody can place is not one to send.",
-    )
-    parser.add_argument(
-        "--temperature",
-        type=_bounded(float, "temperature"),
-        default=_DEFAULTS.temperature,
-        help=f"Model temperature (default: {_DEFAULTS.temperature}). Extraction "
-        "copies what the pages say, and 0 copies it the same way every time, which "
-        "makes it the only temperature whose answers --cache-ttl keeps. Above 0 the "
-        "model samples: every run asks it again, and two runs over the same pages "
-        "can report different products.",
-    )
-    parser.add_argument(
-        "--num-ctx",
-        type=_bounded(int, "num_ctx"),
-        # None, so only a typed number earns the warning in ``main``.
-        default=None,
-        help=f"Context window in tokens (default: {_DEFAULTS.num_ctx}). The "
-        "extraction prompt runs to ~4.3k tokens, so a larger window leaves room for "
-        "more products; a model that need not think is fine on Ollama's own 4096. "
-        "Ollama only -- vLLM fixes its window with --max-model-len when it starts, "
-        "and a LiteLLM proxy leaves it to the server it routes to.",
-    )
-    parser.add_argument(
-        "--model-timeout",
-        type=_bounded(float, "model_timeout"),
-        default=_DEFAULTS.model_timeout,
-        metavar="SECONDS",
-        help=f"How long to wait for one answer from the model server (default: "
-        f"{_DEFAULTS.model_timeout:g}). Asked once and not retried, so this is the "
-        "whole wait: a server that took the prompt and went quiet ends the run with "
-        "something to act on rather than hanging it. A slow model on a long prompt "
-        "is what the wait is for -- try a smaller model or a smaller --num-ctx "
-        "before a bigger number here.",
-    )
-    parser.add_argument(
-        "--think",
-        action=argparse.BooleanOptionalAction,
-        default=_DEFAULTS.reasoning,
-        help="Force the model's thinking mode on or off (default: --no-think). "
-        "Thinking models need --no-think: they reason until the context runs out and "
-        "never answer; a model that cannot think ignores either.",
-    )
-    parser.add_argument(
-        "--cpu-only",
-        action=argparse.BooleanOptionalAction,
-        default=_DEFAULTS.cpu_only,
-        help="Keep the model off the GPU entirely (default: --no-cpu-only, which "
-        "leaves the offload to the model server). Slower, but it leaves the card "
-        "free and runs a model too large to fit on it. Ollama only -- vLLM picks "
-        "its device when it starts, and a LiteLLM proxy leaves it to the server it "
-        "routes to.",
-    )
-    parser.add_argument(
-        "--no-fetch",
-        dest="fetch",
-        action="store_false",
-        # Off the config, like every other default.
-        default=_DEFAULTS.fetch_pages,
-        help="Extract from search snippets only, without opening the result pages "
-        "(default: they are read). Much faster without them, but snippets rarely "
-        "quote a price.",
     )
     parser.add_argument(
         "--json",
