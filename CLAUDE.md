@@ -42,6 +42,7 @@ python -m mypy buy_agent                      # from the root (ADR-0063)
 ollama pull qwen3:0.6b ; python -m pytest integration   # against a real model
 python -m benchmark --scripted perfect        # score the pipeline, no model needed
 python -m benchmark --model qwen3:0.6b --model gemma4:12b   # compare models, every case
+python -m benchmark --baseline before.json    # what moved since an earlier --json
 python -m benchmark.server                    # the same comparison as a page on :8100
 
 python -m buy_agent "gaming laptop under $1500"
@@ -213,7 +214,7 @@ listed in `docs/testing.md`.
   `AgentConfig.model_server` is the *only* place a provider name becomes
   behaviour: no `if provider == ...` above the table, no module-level wrappers.
   Listings answer `InstalledModel`s, so embedding-only models are marked, not
-  hidden (ADR-0032). Shared hints go in `_too_slow_hint`/`_unreachable_hint`, and
+  hidden (ADR-0032), and carry the server's digest where it lists one (ADR-0075). Shared hints go in `_too_slow_hint`/`_unreachable_hint`, and
   shared failures are decided once in `_hint`. A hint naming a *model* requires
   the row's own client to have raised it (`_answered_by`); otherwise the address
   is what's wrong. `chat.release` calls a chat model's `close`, `BuyAgent.close`
@@ -565,9 +566,17 @@ rules a change must obey:
   (`tests/test_architecture.py`) hold the import graph. Both are listed in
   `docs/testing.md`. Convention tests hold every path they name.
 - **`integration/`** holds the real-model tests, outside `testpaths` (ADR-0026).
+  Its shared run is scored as the benchmark scores one and printed and kept pass
+  or fail (`$BUY_AGENT_SCORECARD`, ADR-0072).
 - **The benchmark** (`benchmark/`, ADR-0036, ADR-0070): after editing a case,
   its `PERFECT` must score exactly 1.000, its `SLOPPY` must hit its pinned
-  counts, and every page mentioning a product must be one its entry lists. The
+  counts, every page mentioning a product must be one its entry lists, and every
+  judgement its pages pass must be one of an entry's verdicts or listed as about
+  nobody (ADR-0073). A share with nothing to count is shown and floored, never
+  scored: a new metric joins a pair in `scoring.PAIRS` or stands alone, with any
+  level luck reaches in `scoring.CHANCE` (ADR-0074). A module that comes to decide
+  what a run reports or how it is scored joins `pipeline.MODULES`, and a setting
+  that comes to change what a model answers joins `pipeline.settings` (ADR-0075). The
   floors are a tripwire: raise one only in its own commit, quoting runs. A
   contender is reached only through its provider row. See `docs/testing.md`.
 - **Scripts.** `scripts/start.ps1`, `setup.ps1` and `preflight.ps1` must match

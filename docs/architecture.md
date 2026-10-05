@@ -561,13 +561,15 @@ graph TB
 
     subgraph benchmark["Benchmark [Container: Python, not shipped]"]
         commandline("<b>Command line</b><br/><i>[Component: __main__.py]</i><br/>python -m benchmark: every<br/>contender over every case<br/>named, the standings printed,<br/>--json the page's payload")
+        baseline("<b>Baseline</b><br/><i>[Component: baseline.py]</i><br/>--baseline: each run beside<br/>the same contender's run of<br/>the case in an earlier --json,<br/>metric by metric")
         handler("<b>BenchmarkHandler</b><br/><i>[Component: server.py]</i><br/>The shop's handler,<br/>subclassed: it refuses what<br/>the shop's does, then routes<br/>to the benchmark's endpoints<br/>in place of the shop's")
         bench("<b>Bench</b><br/><i>[Component: server.py]</i><br/>One comparison at a time,<br/>on a thread of its own:<br/>closing the page does not<br/>stop it, and Stop ends it<br/>at the next step")
         compare("<b>Comparison</b><br/><i>[Component: compare.py]</i><br/>A contender is a model on<br/>a server or a script. Times<br/>each question, keeps an<br/>unreadable answer as a 0,<br/>raises for a model that<br/>cannot be asked, and ranks<br/>the standings")
         cases("<b>Cases</b><br/><i>[Component: cases.py and<br/>a module per case]</i><br/>headphones, laptops,<br/>espresso: a request, its<br/>pages, the key to what they<br/>print, and a perfect and<br/>a sloppy script")
         runner("<b>Runner</b><br/><i>[Component: runner.py]</i><br/>Runs BuyAgent over a case's<br/>own pages: search_web and<br/>enrich swapped out on agent,<br/>the text condensed by the<br/>real fetch.condense")
-        scoring("<b>Scoring</b><br/><i>[Component: scoring.py,<br/>query.py]</i><br/>Eight shares in [0, 1]<br/>against the case's key, and<br/>the query judged apart, as<br/>checks with sentences")
-        board("<b>Board</b><br/><i>[Component: board.py]</i><br/>Each contender's latest run<br/>of each case, in board.json<br/>beside the cache, read afresh<br/>on every look; a run scored<br/>against pages since changed<br/>is left out")
+        scoring("<b>Scoring</b><br/><i>[Component: scoring.py,<br/>query.py]</i><br/>Eight shares in [0, 1]<br/>against the case's key --<br/>figures and verdicts, product<br/>by product -- weighed pair by<br/>pair; the query judged apart,<br/>as checks with sentences")
+        scoredunder("<b>Scored under</b><br/><i>[Component: pipeline.py]</i><br/>A fingerprint of the code<br/>between the pages and the<br/>scorecard, and the settings<br/>that reach the model")
+        board("<b>Board</b><br/><i>[Component: board.py]</i><br/>Each contender's latest run<br/>of each case, in board.json<br/>beside the cache, read afresh<br/>on every look; a run scored<br/>against pages since changed<br/>is left out, one scored under<br/>other code is kept and marked")
     end
 
     pipeline("<b>Agent pipeline</b><br/><i>[Container]</i>")
@@ -581,11 +583,13 @@ graph TB
     commandline -->|"run_case, contender<br/>by contender"| compare
     compare -.->|"the request, the key,<br/>the scripts"| cases
     compare -->|"run_benchmark, the<br/>contender's model behind<br/>a stopwatch"| runner
-    compare -.->|"builds a served<br/>contender's model off<br/>its provider row"| pipeline
+    compare -.->|"builds a served<br/>contender's model off<br/>its provider row, and<br/>asks its listing which<br/>build answered"| pipeline
+    compare -->|"records with each<br/>run, and marks a kept<br/>one made under<br/>another"| scoredunder
+    commandline -->|"--baseline FILE"| baseline
     runner -->|"BuyAgent.run(),<br/>over the case"| pipeline
     runner -->|"score_run"| scoring
     compare -->|"judge_query"| scoring
-    scoring -.->|"matches names by<br/>grounding's own rule,<br/>orders by rank_products"| pipeline
+    scoring -.->|"matches names by<br/>grounding's own words,<br/>model numbers apart;<br/>orders by rank_products"| pipeline
     bench -->|"adds each run,<br/>reads them all"| board
     commandline -->|"the same, unless<br/>--no-save"| board
     pipeline -->|"[HTTP]"| ollama
@@ -596,7 +600,7 @@ graph TB
     classDef external fill:#6b6b6b,stroke:#4d4d4d,color:#fff
     class operator person
     class benchpage,pipeline container
-    class commandline,handler,bench,compare,runner,cases,scoring,board component
+    class commandline,baseline,handler,bench,compare,runner,cases,scoring,scoredunder,board component
     class ollama external
     style benchmark fill:none,stroke:#8c8c8c,stroke-width:1px,stroke-dasharray:6 4
 ```
@@ -626,6 +630,17 @@ What it keeps of the shop, and what it changes
 - **The board is not a cache.** Nothing expires it. A run whose case's
   fingerprint -- request, pages, key, metrics -- no longer matches is left out,
   since it scored another case.
+- **A kept run says what it was scored under**
+  ([ADR-0075](adr/0075-say-what-a-kept-run-was-scored-under-and-compare-it-with-a-baseline.md)):
+  the code it went through, its settings and its model's build. One made under
+  other code or settings is kept and marked, since its counts are true of what
+  made them; `--baseline` sets a run beside an earlier `--json` of it, which the
+  board, keeping only the latest, cannot.
+- **The scorer is stricter than grounding where the key can say so**
+  ([ADR-0073](adr/0073-hold-the-scorer-to-the-model-number-and-the-verdicts-on-each-product.md),
+  [ADR-0074](adr/0074-pay-the-score-nothing-for-silence-or-for-luck.md)): a model
+  number tells two products apart, a quote counts only as a verdict on its own
+  product, and the score pays nothing for silence or a shuffle's luck.
 
 ## A streamed run, end to end
 

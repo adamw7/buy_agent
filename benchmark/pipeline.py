@@ -1,0 +1,118 @@
+"""What a kept run was scored under besides its case and its model: the code between the
+pages and the scorecard, and the settings that reach the model (ADR-0075).
+
+A case's fingerprint (ADR-0070) says whether a kept run was scored against the same
+pages and key, and a run that was not is left out. This says whether it went through
+the same pipeline, and a run that did not is kept and marked: its counts are true of
+the code that made them, and not comparable with a run made today.
+"""
+
+from __future__ import annotations
+
+import ast
+import functools
+import hashlib
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from buy_agent import (
+    agent,
+    chat,
+    constraints,
+    extraction,
+    fetch,
+    models,
+    money,
+    providers,
+    ranking,
+    verification,
+)
+from benchmark import query, runner, scoring
+
+if TYPE_CHECKING:
+    from types import ModuleType
+
+    from buy_agent.config import AgentConfig
+
+#: The modules a run goes through between the pages and its scorecard: the steps, the
+#: prompts and schemas, how the model is asked, how the corpus is served and how the
+#: answer is scored. The cases are not among them; each has a fingerprint of its own.
+MODULES: tuple[ModuleType, ...] = (
+    agent,
+    chat,
+    constraints,
+    extraction,
+    fetch,
+    models,
+    money,
+    providers,
+    ranking,
+    verification,
+    runner,
+    scoring,
+    query,
+)
+
+#: The node types whose first statement may be a docstring.
+_DOCUMENTED = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+
+
+def _without_docstrings(source: str) -> str:
+    """``source`` as its syntax tree, docstrings out: what it does, not how it reads.
+    Comments, blank lines and line breaks never reach the tree."""
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, _DOCUMENTED)
+            and node.body
+            and isinstance(first := node.body[0], ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+        ):
+            node.body = node.body[1:] or [ast.Pass()]
+    return ast.dump(tree, annotate_fields=False, include_attributes=False)
+
+
+@functools.cache
+def code(modules: tuple[ModuleType, ...] = MODULES) -> str:
+    """A fingerprint of the code a run goes through: every module of ``modules``, without
+    its comments or docstrings. A prompt, a threshold or a step that changes moves it;
+    a reworded docstring does not."""
+    digest = hashlib.sha256()
+    for module in modules:
+        digest.update(module.__name__.encode("utf-8"))
+        source = Path(str(module.__file__)).read_text(encoding="utf-8")
+        digest.update(_without_docstrings(source).encode("utf-8"))
+    return digest.hexdigest()[:16]
+
+
+def settings(config: AgentConfig) -> dict[str, Any]:
+    """The settings a run went through that are neither its case's nor its contender's:
+    what reaches the model, and how much of each page the model is shown. Named as the
+    doors name them where they do (``think``, not ``reasoning``)."""
+    shown: dict[str, Any] = {
+        "temperature": config.temperature,
+        "think": config.reasoning,
+    }
+    if config.model_server.takes_num_ctx:
+        shown["num_ctx"] = config.num_ctx
+    shown["page_chars"] = config.page_chars
+    shown["opinion_chars"] = config.opinion_chars
+    return shown
+
+
+def setting_label(name: str, value: Any) -> str:
+    """One setting as a reader takes it in: "think off", "num_ctx 16384"."""
+    if value is None:
+        return f"{name} unset"
+    if isinstance(value, bool):
+        return f"{name} {'on' if value else 'off'}"
+    return f"{name} {value:g}" if isinstance(value, float) else f"{name} {value}"
+
+
+def settings_label(shown: dict[str, Any]) -> str:
+    """Every setting of ``shown``, in a line."""
+    return ", ".join(setting_label(name, value) for name, value in shown.items())
+
+
+__all__ = ["MODULES", "code", "setting_label", "settings", "settings_label"]

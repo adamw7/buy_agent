@@ -3,6 +3,7 @@ best, and how long it takes (ADR-0070)."""
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -16,6 +17,7 @@ from buy_agent.chat import UnreadableAnswerError, release
 from buy_agent.config import AgentConfig
 from buy_agent.models import ProductList, SearchQuery
 from buy_agent.providers import PROVIDERS
+from benchmark import pipeline
 from benchmark.cases import CASES, SCRIPTS
 from benchmark.query import QueryVerdict, judge_query
 from benchmark.runner import run_benchmark
@@ -23,11 +25,13 @@ from benchmark.scoring import FLOORS, MEANINGS, METRICS, Scorecard, match_produc
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
+    from pathlib import Path
 
     from buy_agent.agent import Checkpoint
     from buy_agent.chat import ChatModel, Message, SchemaT
     from buy_agent.models import RankedProduct
     from benchmark.cases import Case
+    from benchmark.runner import Report
 
 #: What each of the two questions is called in a run's timings.
 STEPS: dict[type, str] = {SearchQuery: "query", ProductList: "extract"}
@@ -100,6 +104,21 @@ class Contender(BaseModel):
             return case.scripted(self.script)
         return config.model_server.chat_model(config)
 
+    def build_on(self, config: AgentConfig) -> str:
+        """Which build of its model answered: the digest its server lists for it, asked
+        through the provider row as a run asks (ADR-0075). "" for a script, a server
+        that lists none, or one that cannot say."""
+        if self.script:
+            return ""
+        try:
+            installed = config.model_server.installed(config)
+        # Whatever the listing raises says nothing about the build, which the run has.
+        except Exception:  # pylint: disable=broad-exception-caught
+            return ""
+        # Ollama lists a tag asked for bare ("llama3.2") as ":latest".
+        named = {config.model, f"{config.model}:latest"}
+        return next((model.digest for model in installed if model.name in named), "")
+
 
 class Stopwatch:
     """A chat model, timed: how long each question took, and the query it was given."""
@@ -165,6 +184,13 @@ class CaseRun(BaseModel):
     #: Why there is no scorecard: the model answered with something unreadable.
     failure: str | None = None
     products: list[Reported] = []
+    #: The code it went through (:func:`benchmark.pipeline.code`); "" for a run kept before
+    #: that was recorded (ADR-0075).
+    pipeline: str = ""
+    #: The settings it ran with (:func:`benchmark.pipeline.settings`).
+    settings: dict[str, Any] = {}
+    #: The digest of the model that answered, where its server lists one.
+    build: str = ""
 
     @property
     def scorecard(self) -> Scorecard | None:
@@ -214,15 +240,24 @@ def run_case(
     except ModelUnavailableError as exc:
         if not isinstance(exc.__cause__, UnreadableAnswerError):
             raise
-        return _kept(contender, case, watched, failure=str(exc))
+        return _kept(contender, case, config, watched, failure=str(exc))
     finally:
         # The agent releases only a model it opened, and this one was handed in.
         release(watched.model)
+    return scored_run(contender, case, config, watched, report)
 
+
+def scored_run(
+    contender: Contender, case: Case, config: AgentConfig, watched: Stopwatch, report: Report
+) -> CaseRun:
+    """A finished run as it is kept: what ``report`` scored, with the query and the time
+    ``watched`` saw, run on ``config``. The nightly builds its own this way, off the one
+    run its live tests share (ADR-0072)."""
     card = report.scorecard
     return _kept(
         contender,
         case,
+        config,
         watched,
         counts=card.counts,
         invented=card.invented,
@@ -231,8 +266,10 @@ def run_case(
     )
 
 
-def _kept(contender: Contender, case: Case, watched: Stopwatch, **outcome: Any) -> CaseRun:
-    """A finished run, as it is kept."""
+def _kept(
+    contender: Contender, case: Case, config: AgentConfig, watched: Stopwatch, **outcome: Any
+) -> CaseRun:
+    """A finished run, as it is kept: with what it was scored under (ADR-0075)."""
     return CaseRun(
         contender=contender,
         case=case.name,
@@ -240,8 +277,46 @@ def _kept(contender: Contender, case: Case, watched: Stopwatch, **outcome: Any) 
         finished=_now(),
         query=judge_query(watched.query, case.request, case.query),
         seconds=dict(watched.seconds),
+        pipeline=pipeline.code(),
+        settings=pipeline.settings(config),
+        build=contender.build_on(config),
         **outcome,
     )
+
+
+def settings_now(run: CaseRun) -> dict[str, Any] | None:
+    """The settings this checkout would run ``run``'s contender on its case with, or None
+    where it no longer can: a case or a server since removed."""
+    case = CASES.get(run.case)
+    if case is None:
+        return None
+    try:
+        return pipeline.settings(case.settings(**run.contender.settings()))
+    except ValueError:
+        return None
+
+
+def scored_under(run: CaseRun) -> list[str]:
+    """Why ``run`` is no comparison with one this checkout would make, a sentence each;
+    none where it is (ADR-0075)."""
+    reasons = []
+    if run.pipeline != pipeline.code():
+        reasons.append(
+            "Scored under another version of the pipeline: its code, prompts or scoring "
+            "have changed since."
+        )
+    now = settings_now(run)
+    if now is not None and run.settings != now:
+        changed = [name for name in now if run.settings.get(name) != now[name]]
+        changed += [name for name in run.settings if name not in now]
+        reasons.append(
+            "Scored with "
+            + ", ".join(pipeline.setting_label(name, run.settings.get(name)) for name in changed)
+            + "; this checkout runs "
+            + ", ".join(pipeline.setting_label(name, now.get(name)) for name in changed)
+            + "."
+        )
+    return reasons
 
 
 def reported(ranked: Sequence[RankedProduct], case: Case) -> list[Reported]:
@@ -291,6 +366,25 @@ class Standing:
     def failed(self) -> int:
         """How many of its runs failed."""
         return sum(run.failure is not None for run in self.runs)
+
+    @property
+    def stale(self) -> int:
+        """How many of its runs were scored under another pipeline or other settings than
+        this checkout's (ADR-0075)."""
+        return sum(bool(scored_under(run)) for run in self.runs)
+
+    @property
+    def notes(self) -> list[str]:
+        """What somebody comparing this row with the others should know first."""
+        notes = []
+        if stale := self.stale:
+            notes.append(
+                f"{stale} of its {len(self.runs)} run(s) scored under another version of "
+                "the pipeline or with other settings: run them again to compare."
+            )
+        if len(builds := {run.build for run in self.runs if run.build}) > 1:
+            notes.append(f"Its runs were scored on {len(builds)} builds of this model.")
+        return notes
 
 
 def standings(runs: Iterable[CaseRun], cases: Sequence[Case]) -> list[Standing]:
@@ -373,11 +467,13 @@ def run_payload(run: CaseRun) -> dict[str, Any]:
         "score_label": "failed" if card is None else f"{card.score:.3f}",
         "cleared": card is not None and card.cleared,
         "summary": None if card is None else card.summary(),
+        "parts_label": None if card is None else card.parts_label(),
         "metrics": []
         if card is None
         else [
             {
                 "name": name,
+                "value": round(value, 4),
                 "label": f"{value:.3f}",
                 "counts": f"{right} of {out_of}",
                 "floor": f"{FLOORS[name]:.2f}",
@@ -389,9 +485,11 @@ def run_payload(run: CaseRun) -> dict[str, Any]:
         ],
         "query": {
             "text": run.query.query,
+            "score": round(run.query.score, 4),
             "label": f"{run.query.score:.2f}",
             "checks": [check.model_dump() for check in run.query.checks],
         },
+        "seconds": round(run.model_seconds, 2),
         "seconds_label": seconds_label(run.model_seconds),
         "steps_label": ", ".join(
             f"{step} {seconds_label(seconds)}" for step, seconds in run.seconds.items()
@@ -401,7 +499,28 @@ def run_payload(run: CaseRun) -> dict[str, Any]:
         ],
         "finished": run.finished,
         "finished_label": finished_label(run.finished),
+        "scored_with_label": scored_with(run),
+        "fingerprint": run.fingerprint,
+        "pipeline": run.pipeline,
+        "pipeline_note": " ".join(scored_under(run)) or None,
+        "build": run.build,
     }
+
+
+def build_label(build: str) -> str:
+    """A digest as ``ollama list`` shortens one: "1a2b3c4d5e6f"."""
+    return build.removeprefix("sha256:")[:12]
+
+
+def scored_with(run: CaseRun) -> str:
+    """When a run finished, with what and on which build: "Ran 2026-10-02 09:05 UTC with
+    temperature 0, think off, ... on build 1a2b3c4d5e6f"."""
+    label = f"Ran {finished_label(run.finished)}"
+    if run.settings:
+        label += f" with {pipeline.settings_label(run.settings)}"
+    if run.build:
+        label += f", on build {build_label(run.build)}"
+    return label
 
 
 def _cell(run: CaseRun | None) -> dict[str, str]:
@@ -429,6 +548,8 @@ def standing_payload(standing: Standing, cases: Sequence[Case]) -> dict[str, Any
         "ran_label": f"{len(standing.runs)} of {len(cases)}",
         "complete": len(standing.runs) == len(cases),
         "failed": standing.failed,
+        "current": not standing.stale,
+        "notes": standing.notes,
         "cells": [{"case": case.name, **_cell(by_case.get(case.name))} for case in cases],
         "runs": [run_payload(run) for run in standing.runs],
     }
@@ -444,6 +565,57 @@ def standings_payload(runs: Iterable[CaseRun], cases: Sequence[Case]) -> dict[st
     }
 
 
+def write_standings(path: Path, runs: Iterable[CaseRun], cases: Sequence[Case]) -> None:
+    """:func:`standings_payload`, to a file: ``--json``, and what the nightly keeps.
+
+    Raises:
+        OSError: if the file cannot be written.
+    """
+    path.write_text(json.dumps(standings_payload(runs, cases), indent=2), encoding="utf-8")
+
+
+# -- what a log is given -------------------------------------------------------
+
+
+def describe(run: CaseRun, case: Case) -> str:
+    """One run: its scorecard, the query it searched with, and the products it reported."""
+    heading = f"{run.contender.label} on {case.name} -- {case.title}"
+    timing = ", ".join(f"{step} {seconds_label(took)}" for step, took in run.seconds.items())
+    query = run.query.query
+    lines = [heading, "-" * len(heading)]
+    card = run.scorecard
+    if card is None:
+        lines.append(f"  failed: {run.failure}")
+    else:
+        lines.append(card.table())
+    lines += [
+        f"  query        {run.query.score:>6.3f}   "
+        + (f"searched {query!r}" if query else "no query: searched with the request"),
+        *(f"    - {check.check}" for check in run.query.checks if not check.passed),
+        f"  model time   {seconds_label(run.model_seconds)}" + (f" ({timing})" if timing else ""),
+    ]
+    if run.build:
+        lines.append(f"  build        {build_label(run.build)}")
+    if run.products:
+        lines.append("")
+        lines += [
+            f"  {product.rank}. {product.line}"
+            + ("" if product.verdict == "real" else f"   [{product.verdict}]")
+            for product in run.products
+        ]
+    return "\n".join(lines)
+
+
+def summary_markdown(run: CaseRun, case: Case) -> str:
+    """One run as a job's summary page renders it (ADR-0072): a heading with its score,
+    then :func:`describe` word for word."""
+    score = "failed" if run.scorecard is None else f"{run.score:.3f}"
+    return (
+        f"### {run.contender.label} on {case.name}: {score}\n\n"
+        f"```text\n{describe(run, case)}\n```\n"
+    )
+
+
 __all__ = [
     "STEPS",
     "CaseRun",
@@ -451,14 +623,22 @@ __all__ = [
     "Reported",
     "Standing",
     "Stopwatch",
+    "build_label",
     "case_payload",
+    "describe",
     "finished_label",
     "metrics_payload",
     "reported",
     "run_case",
     "run_payload",
+    "scored_run",
+    "scored_under",
+    "scored_with",
     "seconds_label",
+    "settings_now",
     "standing_payload",
     "standings",
     "standings_payload",
+    "summary_markdown",
+    "write_standings",
 ]

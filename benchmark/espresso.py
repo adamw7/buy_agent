@@ -227,12 +227,25 @@ ANSWER_KEY: tuple[Expected, ...] = (
         ratings=((4.4, 870),),
         pages={KAFFEEHAUS, ESPRESSOREVIEW, ROUNDUP, BREWLAB, SMALLKITCHEN, PRICETRACKER},
         currency="EUR",
+        verdicts=(
+            "Owners report it fits beside the kettle with room to spare at 15 cm wide.",
+            "Buyers found the steam wand weak for more than one milk drink at a time.",
+            "2. De'Longhi Dedica Arte EC885 - best for small kitchens",
+            "We found the shots sour until we bought a better grinder.",
+            "It is worth the money if your counter is narrow.",
+            "The Dedica is the one we recommend where every centimetre counts.",
+        ),
     ),
     entry(
         "Krups Virtuoso XP442", 199.99, 4.0, 1_885,
         prices={(199.99, "EUR")},
         pages={KAFFEEHAUS, ROUNDUP, SMALLKITCHEN},
         currency="EUR",
+        verdicts=(
+            "4. Krups Virtuoso XP442 - the cheapest pick here",
+            "Users complained the Krups pump is loud enough to wake a flatmate.",
+            "Testers found the Krups Virtuoso XP442 disappointing on milk drinks.",
+        ),
     ),
     entry(
         # Five cents under the budget; the autumn sale and the lowest ever below it.
@@ -240,6 +253,14 @@ ANSWER_KEY: tuple[Expected, ...] = (
         prices={(399.95, "EUR"), (349.95, "EUR"), (329.95, "EUR")},
         pages={ESPRESSOREVIEW, ROUNDUP, PRICETRACKER},
         currency="EUR",
+        verdicts=(
+            "In our tests it was ready to pull a shot in three seconds from cold.",
+            "Testers found the automatic milk texturing outstanding for a machine this "
+            "size.",
+            "The drawback is a drip tray that fills after a handful of shots.",
+            "1. Sage Bambino Plus - best overall",
+            "The Sage Bambino Plus is our pick at €399.95, or €349.95 in the autumn sale.",
+        ),
     ),
     entry(
         # €50 is cashback, and 350 ml, 58 mm and the accessories' prices are not it.
@@ -247,12 +268,21 @@ ANSWER_KEY: tuple[Expected, ...] = (
         prices={(449.0, "EUR"), (419.0, "EUR")},
         pages={ESPRESSOREVIEW, BARISTASHOP, PRICETRACKER},
         currency="EUR",
+        verdicts=(
+            "Owners praised the commercial portafilter as built to last for decades.",
+            "Buyers felt it was too big for a small kitchen at 23 cm wide.",
+        ),
     ),
     entry(
         "Lelit Anna PL41TEM", 389.0, 4.4, 312,
         prices={(389.0, "EUR"), (359.0, "EUR")},
         pages={ROUNDUP, SMALLKITCHEN, PRICETRACKER},
         currency="EUR",
+        verdicts=(
+            "3. Lelit Anna PL41TEM - best for enthusiasts",
+            "Reviewers praised its temperature control as the most precise under €400.",
+            "Reviewers found the Lelit Anna PL41TEM compact enough for a studio flat.",
+        ),
     ),
     entry(
         # Its rating where its price is not, and the other way about.
@@ -260,13 +290,23 @@ ANSWER_KEY: tuple[Expected, ...] = (
         prices={(329.0, "EUR"), (299.0, "EUR")},
         pages={ROUNDUP, PRICETRACKER, BEANTOCUP},
         currency="EUR",
+        verdicts=("5. Melitta Solo E950 - best bean-to-cup on a budget",),
     ),
     entry(
         "Philips 3200 LatteGo", 429.0, 4.5, 9_400,
         prices={(429.0, "EUR")},
         pages={BEANTOCUP},
         currency="EUR",
+        verdicts=(
+            "Owners report the milk system rinses clean in under ten seconds.",
+            "Testers found the coffee weaker than anything from a portafilter.",
+        ),
     ),
+)
+
+#: The judgement these pages pass on no machine: a sale.
+ABOUT_NOBODY: frozenset[str] = frozenset(
+    {"Buyers found the January sales the best value of the year."}
 )
 
 #: The first five products of the key, copied exactly as the pages print them.

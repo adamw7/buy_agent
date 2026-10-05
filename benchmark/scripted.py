@@ -48,9 +48,11 @@ PERFECT = ProductList(
             ],
         ),
         ExtractedProduct(
+            # No page judges it. This reference once quoted AudioDeal's "Reviewers found
+            # the fit comfortable over a full working day." here: a verdict on the Sony
+            # that page is about, two lines above the AirPods it lists (ADR-0073).
             name="Apple AirPods Max", price=479.0, currency="USD",
             rating=4.6, review_count=9_100, url=AUDIOSITE,
-            opinions=["Reviewers found the fit comfortable over a full working day."],
         ),
         ExtractedProduct(
             name="Anker Soundcore Space Q45", price=99.0, currency="USD",
@@ -63,7 +65,9 @@ PERFECT = ProductList(
     ]
 )
 
-#: The same run, wrong in the eight ways this module's docstring lists.
+#: The same run, wrong in the ways small models are: a price off another product's line,
+#: a currency the page never paired with it, a headline and a shop reported as products,
+#: a page nobody searched, a quote nobody wrote, a quote paraphrased, and one product twice.
 SLOPPY = ProductList(
     products=[
         ExtractedProduct(

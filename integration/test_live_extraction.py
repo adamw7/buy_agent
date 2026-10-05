@@ -6,8 +6,7 @@ from typing import TYPE_CHECKING
 
 from buy_agent.agent import BuyAgent
 from buy_agent.models import ExtractedProduct, ProductList, SearchQuery
-
-from integration.conftest import REQUEST
+from benchmark.cases import HEADPHONES
 
 if TYPE_CHECKING:
     from buy_agent.config import AgentConfig
@@ -22,7 +21,7 @@ def test_query_refinement_answers_with_a_query_and_not_with_prose(
     live_config: AgentConfig,
 ) -> None:
     """One line of search terms is what ``search_web`` is handed verbatim."""
-    answer = BuyAgent(live_config).query_chain.invoke({"request": REQUEST})
+    answer = BuyAgent(live_config).query_chain.invoke({"request": HEADPHONES.request})
 
     assert isinstance(answer, SearchQuery)
     query = answer.query.strip()

@@ -9,7 +9,7 @@ import pytest
 
 from buy_agent import agent as agent_module
 from buy_agent.agent import ModelUnavailableError
-from buy_agent.models import Product
+from buy_agent.models import Opinion, Product, ProductList
 from buy_agent.search import SearchResult
 from buy_agent.verification import (
     build_haystack,
@@ -20,7 +20,8 @@ from buy_agent.verification import (
 )
 from benchmark import __main__ as benchmark_main
 from benchmark.answers import ANSWER_KEY, Expected
-from benchmark.corpus import NUM_PRODUCTS, PAGES, PAGE_TEXT, REQUEST, TOP_N, settings
+from benchmark.cases import ESPRESSO, HEADPHONES, LAPTOPS
+from benchmark.corpus import NUM_PRODUCTS, PAGES, PAGE_TEXT, REQUEST, TOP_N
 from benchmark.runner import run_benchmark, serving_the_corpus
 from benchmark.scoring import (
     FLOORS,
@@ -45,7 +46,7 @@ def perfect() -> Scorecard:
 
 @pytest.fixture(scope="module")
 def sloppy() -> Scorecard:
-    """The same run, wrong in the eight ways :mod:`benchmark.scripted` lists."""
+    """The same run, wrong in the ways :data:`benchmark.scripted.SLOPPY` lists."""
     return run_benchmark(llm=ScriptedLLM(SLOPPY)).scorecard
 
 
@@ -120,6 +121,44 @@ def test_two_products_sharing_a_word_are_told_apart() -> None:
     assert best_match("Soundcore Life Q30") is LIFE
 
 
+def test_a_name_with_another_model_number_is_another_product() -> None:
+    """The mistake a 0.6 bar cannot see: "Sony WH-1000XM4" shares two of its three words
+    with the XM5, and grounding keeps it off pages about the XM5 (ADR-0073)."""
+    assert best_match("Sony WH-1000XM4") is None
+    assert best_match("Sony WH-1000XM6") is None
+    assert best_match("Soundcore Life Q35") is None
+    assert best_match("Razer Blade 16", LAPTOPS.key) is None
+    assert best_match("Lenovo Legion Slim 7", LAPTOPS.key) is None
+    assert best_match("Philips 2200 LatteGo", ESPRESSO.key) is None
+
+
+def test_a_model_number_on_one_side_only_is_a_spec_or_a_shortening() -> None:
+    """What the rule above must not catch: a name carrying more numbers than the key's,
+    or fewer, is the same product told more or less of."""
+    by_name = {entry.name: entry for entry in (*LAPTOPS.key, *ESPRESSO.key)}
+
+    assert best_match("Sony WH-1000XM5 (2022)") is SONY
+    assert best_match("Lenovo Legion Slim 5 16GB", LAPTOPS.key) is by_name["Lenovo Legion Slim 5"]
+    assert (
+        best_match("ASUS ROG Zephyrus G14 RTX 4070", LAPTOPS.key)
+        is by_name["ASUS ROG Zephyrus G14"]
+    )
+    assert best_match("De'Longhi Dedica", ESPRESSO.key) is by_name["De'Longhi Dedica Arte EC885"]
+
+
+def test_a_run_reporting_the_wrong_generation_has_invented_a_product() -> None:
+    """Through the whole pipeline: grounding lets the XM4 through, and the scorer is what
+    says it is not what the pages are about."""
+    renamed = PERFECT.products[0].model_copy(update={"name": "Sony WH-1000XM4"})
+    answer = ProductList(products=[renamed, *PERFECT.products[1:]])
+
+    card = run_benchmark(llm=ScriptedLLM(answer)).scorecard
+
+    assert card.invented == 1
+    assert card.counts["identified"] == (4, 5)
+    assert card.counts["genuine"] == (4, 5)
+
+
 def test_the_publishers_name_is_not_a_product() -> None:
     """The mistake ``clean_products`` cannot catch: a shop is not a headline, and
     every word of its name is in the sources."""
@@ -184,6 +223,74 @@ def test_a_blank_figure_is_a_miss_and_not_an_error() -> None:
     assert (card.metrics["figures"], card.metrics["attribution"]) == (0.0, 1.0)
 
 
+# -- the quotes ----------------------------------------------------------------
+
+
+def quoted(product: str, *quotes: str) -> Product:
+    """A product as the run reported it, carrying ``quotes``."""
+    return Product(name=product, opinions=[Opinion(text=quote) for quote in quotes])
+
+
+def test_a_verdict_on_another_product_on_the_same_page_is_not_faithful(
+    served: tuple[SearchResult, ...],
+) -> None:
+    """The mistake the prompt forbids and the pipeline cannot see: AudioSite names the
+    Bose, so ``verify_opinions`` keeps the Sony's verdict on it, and a key of pages
+    would have too (ADR-0073)."""
+    sonys = "In our tests the noise cancelling was still the best of anything at this price."
+
+    card = score_run([quoted("Bose QuietComfort Ultra", sonys)], served)
+
+    assert card.counts["faithful"] == (0, 1)
+    assert card.counts["quotes"] == (0, 1)
+
+
+def test_a_line_that_judges_nothing_is_not_a_verdict(served: tuple[SearchResult, ...]) -> None:
+    """Word for word on the Sony's own page, and a price, not a verdict."""
+    price = "The Sony WH-1000XM5 costs $328 at most shops."
+
+    card = score_run([quoted("Sony WH-1000XM5", price)], served)
+
+    assert card.counts["faithful"] == (0, 1)
+
+
+def test_a_quote_may_be_a_run_of_words_out_of_a_verdict(served: tuple[SearchResult, ...]) -> None:
+    """Models trim, and what they keep is still one verdict's words in its order. Two
+    verdicts run together are on the page -- the lines are consecutive -- and are no
+    verdict anybody passed."""
+    trimmed = quoted("Sony WH-1000XM5", "the earcups roomy enough for an eight-hour flight")
+    stitched = quoted(
+        "Sony WH-1000XM5",
+        "roomy enough for an eight-hour flight. The downside is that the case no longer folds",
+    )
+
+    assert score_run([trimmed], served).counts["faithful"] == (1, 1)
+    assert score_run([stitched], served).counts["faithful"] == (0, 1)
+    assert score_run([quoted("Sony WH-1000XM5", "--")], served).counts["faithful"] == (0, 1)
+
+
+def test_a_verdict_counts_only_on_a_page_the_run_was_shown(
+    served: tuple[SearchResult, ...],
+) -> None:
+    """The key's verdicts are the condensed pages' lines; a run shown fewer pages could
+    not have copied one off a page it never saw (ADR-0036)."""
+    sonys = "Owners recommend buying while the sale lasts."
+    shown = [page for page in served if page.url != "https://audiodeal.example/sony-wh-1000xm5"]
+
+    assert score_run([quoted("Sony WH-1000XM5", sonys)], served).counts["faithful"] == (1, 1)
+    assert score_run([quoted("Sony WH-1000XM5", sonys)], shown).counts["faithful"] == (0, 1)
+
+
+def test_a_product_no_page_judges_is_not_asked_for_a_quote(
+    served: tuple[SearchResult, ...],
+) -> None:
+    """The AirPods Max is priced on two pages and judged on none, so finding it costs a
+    run no quote it could not have given."""
+    card = score_run([SONY.as_product(), AIRPODS.as_product()], served)
+
+    assert card.counts["quotes"] == (0, 1)
+
+
 # -- the scorecard ------------------------------------------------------------
 
 
@@ -218,7 +325,7 @@ def test_the_sloppy_run_scores_exactly_what_its_mistakes_cost(sloppy: Scorecard)
         "order": (2, 3),
     }
     assert (sloppy.invented, sloppy.repeated) == (1, 1)
-    assert sloppy.score == pytest.approx(0.7008547008547008)
+    assert sloppy.score == pytest.approx(0.6752136752136753)
 
 
 def test_the_scorer_catches_the_three_the_pipeline_cannot(sloppy: Scorecard) -> None:
@@ -251,6 +358,99 @@ def test_a_run_that_reported_nothing_falls_under_every_floor() -> None:
     assert card.metrics["attribution"] == 1.0
     assert card.score < FLOORS["score"]
     assert "UNDER" in card.table(), "the nightly logs this pass or fail"
+
+
+# -- how the score is weighed --------------------------------------------------
+
+
+def card_of(**counts: tuple[int, int]) -> Scorecard:
+    """A scorecard with every metric full but the ones named."""
+    return Scorecard(counts={name: (5, 5) for name in METRICS} | counts, invented=0, repeated=0)
+
+
+def test_reporting_nothing_scores_nothing() -> None:
+    """``attribution``, ``faithful`` and ``order`` read 1.0 with nothing to count, and are
+    floored that way; the score is paid for none of them (ADR-0074). It used to pay 0.308
+    for an empty answer."""
+    assert score_run([], []).score == 0.0
+
+
+def test_a_pair_counts_only_as_far_as_both_halves_do() -> None:
+    """Five products found and not a figure copied: the error half has nothing to be
+    wrong about, and the pair counts nothing for it."""
+    card = card_of(figures=(0, 15), attribution=(0, 0))
+
+    assert card.metrics["attribution"] == 1.0, "shown as nothing wrong"
+    assert card.parts["figures/attribution"] == (4.0, 0.0)
+    assert card.parts["identified/genuine"] == (5.0, 1.0)
+
+
+def test_a_pair_is_its_halves_weighed_harmonically() -> None:
+    """``identified`` weighs 3 to ``genuine``'s 2, so finding three of five slots costs
+    more than reporting a shop beside them; and one right figure out of fifteen is worth
+    little however right it is."""
+    found = card_of(identified=(3, 5), genuine=(3, 3)).parts["identified/genuine"]
+    sparse = card_of(figures=(1, 15), attribution=(1, 1)).parts["figures/attribution"]
+
+    assert found == (5.0, pytest.approx(5 / (3 / 0.6 + 2 / 1.0)))
+    assert sparse == (4.0, pytest.approx(2 / (1 / (1 / 15) + 1 / 1.0)))
+
+
+def test_order_is_paid_only_above_a_shuffle() -> None:
+    """A shuffled ranking puts half its pairs in order on average; the metric shows that
+    half, and the score pays for what is above it (ADR-0074)."""
+    assert card_of(order=(5, 10)).parts["order"] == (1.0, 0.0)
+    assert card_of(order=(3, 10)).parts["order"] == (1.0, 0.0)
+    assert card_of(order=(8, 10)).parts["order"] == (1.0, pytest.approx(0.6))
+    assert card_of(order=(0, 0)).parts["order"] == (1.0, 0.0), "no pair to put in order"
+    assert card_of(order=(0, 0)).metrics["order"] == 1.0
+
+
+def test_a_run_that_copies_no_figure_scores_under_one_that_copies_most(sloppy) -> None:
+    """Five products named and linked, and not a price, rating or quote among them, gave
+    a shopper nothing to rank on. It used to outscore ``SLOPPY``, which copied seven
+    figures of nine: 0.731 to 0.701."""
+    names = ProductList(
+        products=[
+            product.model_copy(
+                update={"price": -1, "currency": "", "rating": -1, "review_count": 0,
+                        "opinions": []}
+            )
+            for product in PERFECT.products
+        ]
+    )
+
+    card = run_benchmark(llm=ScriptedLLM(names)).scorecard
+
+    assert card.counts["identified"] == (5, 5)
+    assert card.counts["figures"] == (0, 15)
+    assert card.score < sloppy.score
+
+
+def test_a_figure_the_key_accepts_never_costs_the_order() -> None:
+    """The Sennheiser's euro listing is a price the pages print for it, so a run that
+    reports it is right, and is ranked against a key that says so (ADR-0074). Against the
+    key's own dollar price it used to cost a tenth of ``order``."""
+    euro = PERFECT.products[2].model_copy(update={"price": 169.0, "currency": "EUR"})
+    answer = ProductList(products=[*PERFECT.products[:2], euro, *PERFECT.products[3:]])
+
+    card = run_benchmark(llm=ScriptedLLM(answer)).scorecard
+
+    assert card.counts["figures"] == (15, 15)
+    assert card.counts["order"] == (10, 10)
+    assert card.score == pytest.approx(1.0)
+
+
+def test_the_score_says_what_it_is_made_of(sloppy: Scorecard) -> None:
+    """The score is no longer a weighted mean of the rows above it, so the table says
+    what it is a mean of."""
+    expected = (
+        "identified/genuine 0.600 x5, figures/attribution 0.778 x4, links 1.000 x1, "
+        "quotes/faithful 0.667 x2, order 0.333 x1"
+    )
+
+    assert sloppy.parts_label() == expected
+    assert f"  weighed as   {expected}" in sloppy.table()
 
 
 # -- the plumbing --------------------------------------------------------------
@@ -296,7 +496,7 @@ def test_the_run_is_scored_on_the_pages_it_was_given() -> None:
 def test_widening_the_run_widens_the_slots() -> None:
     """Recall is measured against the cap, so a run allowed more products is
     scored against more of the key rather than against a ceiling it has left."""
-    report = run_benchmark(llm=ScriptedLLM(PERFECT), config=settings(num_products=7))
+    report = run_benchmark(llm=ScriptedLLM(PERFECT), config=HEADPHONES.settings(num_products=7))
 
     assert report.scorecard.counts["identified"] == (5, len(ANSWER_KEY))
 
@@ -336,8 +536,8 @@ def test_the_command_line_writes_the_scorecard_as_a_record(tmp_path, capsys) -> 
     (run,) = row["runs"]
 
     assert [metric["name"] for metric in run["metrics"]] == list(METRICS)
-    assert run["score"] == pytest.approx(0.7008547008547008, abs=1e-4)
-    assert row["score_label"] == "0.701"
+    assert run["score"] == pytest.approx(0.6752136752136753, abs=1e-4)
+    assert row["score_label"] == "0.675"
     capsys.readouterr()
 
 

@@ -6,7 +6,7 @@ import itertools
 import json
 import logging
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
@@ -17,6 +17,8 @@ from buy_agent.chat import UnreadableAnswerError
 from buy_agent.models import Product, ProductList, RankedProduct, ScoreParts, SearchQuery
 from benchmark import __main__ as benchmark_main
 from benchmark import compare as compare_module
+from benchmark import pipeline
+from benchmark.baseline import against, read_baseline
 from benchmark.board import BOARD, FILENAME, VERSION, Board
 from benchmark.cases import CASES, ESPRESSO, HEADPHONES, LAPTOPS
 from benchmark.compare import (
@@ -25,17 +27,25 @@ from benchmark.compare import (
     Standing,
     Stopwatch,
     case_payload,
+    describe,
     finished_label,
     metrics_payload,
+    build_label,
     reported,
     run_case,
     run_payload,
+    scored_run,
+    scored_under,
     seconds_label,
+    settings_now,
     standing_payload,
     standings,
     standings_payload,
+    summary_markdown,
+    write_standings,
 )
 from benchmark.query import QueryCheck, QueryVerdict
+from benchmark.runner import run_benchmark
 from benchmark.scoring import FLOORS, MEANINGS, METRICS
 from benchmark.scripted import ScriptedLLM
 
@@ -59,7 +69,7 @@ def kept(
     passed: bool = True,
     failure: str | None = None,
 ) -> CaseRun:
-    """A run as the board keeps one, made to order."""
+    """A run as the board keeps one, made to order, and made by this checkout."""
     return CaseRun(
         contender=contender,
         case=case,
@@ -69,6 +79,8 @@ def kept(
         seconds={"query": 0.0, "extract": seconds},
         counts=None if failure else counts,
         failure=failure,
+        pipeline=pipeline.code(),
+        settings=pipeline.settings(CASES[case].settings(**contender.settings())),
     )
 
 
@@ -83,6 +95,7 @@ def ollama(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "closed": 0,
         "behaves": {},
         "tags": [],
+        "digests": {},
         "unlisted": None,
     }
 
@@ -93,7 +106,12 @@ def ollama(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
         @staticmethod
         def json() -> dict:
-            return {"models": [{"model": name} for name in asked["tags"]]}
+            return {
+                "models": [
+                    {"model": name, "digest": asked["digests"].get(name, "")}
+                    for name in asked["tags"]
+                ]
+            }
 
     def get(_url: str, **_kwargs: Any) -> Any:
         if asked["unlisted"] is not None:
@@ -103,9 +121,10 @@ def ollama(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     class FakeClient:
         def __init__(self, base_url: str, **_kwargs: Any) -> None:
             asked["base_url"] = base_url
+            self.chatted = False
 
-        @staticmethod
-        def chat(*, model: str, messages: list, format: dict, **options: Any) -> Any:
+        def chat(self, *, model: str, messages: list, format: dict, **options: Any) -> Any:
+            self.chatted = True
             asked["chats"].append({"model": model, "schema": format["title"], **options})
             behaviour = asked["behaves"].get(model, "perfect")
             if isinstance(behaviour, Exception):
@@ -124,9 +143,9 @@ def ollama(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         def show(name: str) -> Any:
             return SimpleNamespace(capabilities=["embedding" if "embed" in name else "completion"])
 
-        @staticmethod
-        def close() -> None:
-            asked["closed"] += 1
+        def close(self) -> None:
+            # A run's model, not the client a listing opens and closes for itself.
+            asked["closed"] += self.chatted
 
     monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
     monkeypatch.setattr("buy_agent.providers.httpx.get", get)
@@ -301,6 +320,43 @@ def test_a_query_the_model_garbled_is_scored_as_no_query(ollama: dict[str, Any])
     assert run.query.score == 0.0
 
 
+def test_a_run_scored_elsewhere_is_kept_as_one_scored_here() -> None:
+    """The nightly shares one run between its live tests and builds its kept run off it
+    (ADR-0072): the same scorecard, query and products a comparison would have kept."""
+    watched = Stopwatch(LAPTOPS.scripted("sloppy"), ticking(0.25))
+    report = run_benchmark(llm=watched, case=LAPTOPS)
+
+    elsewhere = scored_run(SLOPPY, LAPTOPS, LAPTOPS.settings(), watched, report)
+    here = run_case(SLOPPY, LAPTOPS, clock=ticking(0.25))
+
+    assert elsewhere.model_dump(exclude={"finished"}) == here.model_dump(exclude={"finished"})
+
+
+def test_a_job_summary_is_the_run_described_under_its_score() -> None:
+    """What ``$GITHUB_STEP_SUMMARY`` is given: a heading a reader scans for, then the very
+    lines the job's log carries."""
+    run = run_case(SLOPPY, HEADPHONES)
+
+    shown = summary_markdown(run, HEADPHONES)
+
+    assert shown.startswith(f"### sloppy (scripted) on headphones: {run.score:.3f}\n\n")
+    assert f"```text\n{describe(run, HEADPHONES)}\n```\n" in shown
+    failed = summary_markdown(kept(TINY, failure="answered with something unreadable"), HEADPHONES)
+    assert failed.startswith("### tiny:1b on headphones: failed\n")
+    assert "  failed: answered with something unreadable" in failed
+
+
+def test_the_standings_are_written_as_the_page_reads_them(tmp_path: Path) -> None:
+    runs = [kept(PERFECT), kept(TINY, counts=HALF)]
+    target = tmp_path / "standings.json"
+
+    write_standings(target, runs, [HEADPHONES])
+
+    assert json.loads(target.read_text(encoding="utf-8")) == json.loads(
+        json.dumps(standings_payload(runs, [HEADPHONES]))
+    )
+
+
 def test_a_run_is_stopped_at_the_step_its_checkpoint_refuses() -> None:
     class Halt(Exception):
         pass
@@ -446,12 +502,13 @@ def test_a_scored_run_is_shown_with_its_scorecard_query_and_products() -> None:
     shown = run_payload(run_case(SLOPPY, ESPRESSO, clock=ticking(0.25)))
 
     assert shown["case"] == "espresso"
-    assert shown["score_label"] == "0.543"
+    assert shown["score_label"] == "0.540"
     assert not shown["cleared"]
     assert shown["summary"].startswith("3 of 5 slots hold a real product")
     order = next(metric for metric in shown["metrics"] if metric["name"] == "order")
     assert order == {
         "name": "order",
+        "value": 0.0,
         "label": "0.000",
         "counts": "0 of 3",
         "floor": "0.25",
@@ -480,13 +537,13 @@ def test_a_row_carries_a_cell_per_case_whatever_became_of_it() -> None:
     shown = standing_payload(row, CASE_LIST)
 
     assert shown["cells"] == [
-        {"case": "headphones", "state": "scored", "label": "0.500"},
+        {"case": "headphones", "state": "scored", "label": "0.462"},
         {"case": "laptops", "state": "failed", "label": "failed"},
         {"case": "espresso", "state": "missing", "label": "not run"},
     ]
     assert (shown["ran_label"], shown["complete"], shown["failed"]) == ("2 of 3", False, 1)
     assert (shown["rank"], shown["key"], shown["label"]) == (1, TINY.key, "tiny:1b")
-    assert (shown["score_label"], shown["query_label"]) == ("0.250", "1.00")
+    assert (shown["score_label"], shown["query_label"]) == ("0.231", "1.00")
     assert shown["reference"] is False
     assert [run["case"] for run in shown["runs"]] == ["headphones", "laptops"]
 
@@ -497,6 +554,178 @@ def test_the_standings_payload_is_the_cases_and_the_rows() -> None:
     assert [case["name"] for case in shown["cases"]] == ["headphones"]
     assert [row["label"] for row in shown["standings"]] == ["perfect (scripted)", "tiny:1b"]
     assert shown["standings"][0]["reference"] is True
+
+
+# -- what a run was scored under -----------------------------------------------
+
+
+def module_of(tmp_path: Path, file: str, source: str) -> ModuleType:
+    """A module named ``step`` whose code is ``source``, as the fingerprint reads one."""
+    path = tmp_path / file
+    path.write_text(source, encoding="utf-8")
+    module = ModuleType("step")
+    module.__file__ = str(path)
+    return module
+
+
+#: A step with a prompt in it.
+STEP = 'PROMPT = "Answer with the query only."\n\n\ndef step(x):\n    return x + 1\n'
+
+
+def test_a_comment_a_docstring_or_a_reflowed_line_moves_no_fingerprint(tmp_path: Path) -> None:
+    """Docs are edited here more often than code; a reworded one is the same pipeline."""
+    reworded = (
+        '"""A step."""\n# Asked once.\nPROMPT = (\n    "Answer with the query only."\n)\n\n\n'
+        'def step(x):\n    """One more."""\n    return x + 1  # and no more\n'
+    )
+
+    assert pipeline.code((module_of(tmp_path, "a.py", STEP),)) == pipeline.code(
+        (module_of(tmp_path, "b.py", reworded),)
+    )
+
+
+def test_a_prompt_or_a_step_that_changes_moves_the_fingerprint(tmp_path: Path) -> None:
+    """What a run could notice: the words a model is asked with, or what a step does."""
+    prompt = STEP.replace("query only", "query alone")
+    step = STEP.replace("x + 1", "x + 2")
+
+    codes = {
+        pipeline.code((module_of(tmp_path, f"{index}.py", source),))
+        for index, source in enumerate([STEP, prompt, step])
+    }
+
+    assert len(codes) == 3
+
+
+def test_the_pipeline_is_the_code_between_the_pages_and_the_scorecard() -> None:
+    """The steps, the prompts, the serving and the scoring; never a case, which has a
+    fingerprint of its own and leaves the board when it changes (ADR-0070)."""
+    names = {module.__name__ for module in pipeline.MODULES}
+
+    assert {"buy_agent.extraction", "buy_agent.verification", "benchmark.scoring"} <= names
+    assert not names & {"benchmark.cases", "benchmark.corpus", "benchmark.answers"}
+    assert pipeline.code() == pipeline.code()
+    assert len(pipeline.code()) == 16
+
+
+def test_the_settings_are_what_reaches_the_model_and_what_it_is_shown() -> None:
+    """Named as the doors name them; ``num_ctx`` only where the server takes it."""
+    assert pipeline.settings(HEADPHONES.settings()) == {
+        "temperature": 0.0,
+        "think": False,
+        "num_ctx": 16384,
+        "page_chars": 1200,
+        "opinion_chars": 400,
+    }
+    assert "num_ctx" not in pipeline.settings(HEADPHONES.settings(provider="vllm", model="m"))
+    assert pipeline.settings_label({"temperature": 0.7, "think": None, "num_ctx": 8192}) == (
+        "temperature 0.7, think unset, num_ctx 8192"
+    )
+
+
+def test_a_run_says_what_it_was_scored_under() -> None:
+    run = run_case(PERFECT, HEADPHONES)
+
+    assert run.pipeline == pipeline.code()
+    assert run.settings == pipeline.settings(HEADPHONES.settings())
+    assert run.build == "", "a script has no build"
+    assert scored_under(run) == []
+
+
+def test_a_served_run_says_which_build_of_its_model_answered(ollama: dict[str, Any]) -> None:
+    """Asked of the server's own listing, through its provider row (ADR-0075)."""
+    build = "sha256:" + "ab" * 32
+    ollama["tags"] = ["large:12b", "tiny:1b"]
+    ollama["digests"] = {"tiny:1b": build, "large:12b": "sha256:" + "cd" * 32}
+
+    run = run_case(Contender.served("ollama", "tiny:1b"), HEADPHONES)
+
+    assert run.build == build
+    assert ollama["closed"] == 1, "the listing closed its own client, and the run its model"
+    assert "  build        abababababab" in describe(run, HEADPHONES)
+    assert build_label(build) == "abababababab"
+
+
+def test_a_tag_asked_for_bare_is_found_as_ollama_lists_it(ollama: dict[str, Any]) -> None:
+    ollama["tags"] = ["tiny:latest"]
+    ollama["digests"] = {"tiny:latest": "sha256:" + "ef" * 32}
+
+    assert run_case(Contender.served("ollama", "tiny"), HEADPHONES).build == "sha256:" + "ef" * 32
+
+
+def test_a_build_nothing_will_list_is_left_blank(ollama: dict[str, Any]) -> None:
+    """The run answered, so the model is there; a listing that fails says nothing more."""
+    ollama["unlisted"] = ConnectionRefusedError("[Errno 111] Connection refused")
+
+    run = run_case(Contender.served("ollama", "tiny:1b"), HEADPHONES)
+
+    assert (run.build, run.score) == ("", pytest.approx(1.0))
+
+
+def test_a_run_kept_under_another_pipeline_is_marked_and_still_ranked() -> None:
+    """Its counts are true of the code that made them: kept and marked, not dropped."""
+    old = kept(LARGE).model_copy(update={"pipeline": "0" * 16})
+    rows = standings([kept(TINY, counts=HALF), old], [HEADPHONES])
+
+    marked, current = (standing_payload(row, [HEADPHONES]) for row in rows)
+
+    assert [row.contender for row in rows] == [LARGE, TINY]
+    assert marked["current"] is False
+    assert marked["notes"] == [
+        "1 of its 1 run(s) scored under another version of the pipeline or with other "
+        "settings: run them again to compare."
+    ]
+    assert marked["runs"][0]["pipeline_note"] == (
+        "Scored under another version of the pipeline: its code, prompts or scoring have "
+        "changed since."
+    )
+    assert (current["current"], current["notes"], current["runs"][0]["pipeline_note"]) == (
+        True,
+        [],
+        None,
+    )
+
+
+def test_a_run_kept_with_other_settings_says_which() -> None:
+    now = kept(TINY)
+    old = now.model_copy(update={"settings": {**now.settings, "num_ctx": 8192, "think": True}})
+
+    assert scored_under(old) == [
+        "Scored with think on, num_ctx 8192; this checkout runs think off, num_ctx 16384."
+    ]
+
+
+def test_a_run_whose_case_or_server_is_gone_is_judged_on_its_code_alone() -> None:
+    """Nothing here can say what settings it would run them on now."""
+    gone = Contender(provider="lmstudio", model="m", base_url="http://127.0.0.1:1234")
+    unserved = kept(TINY).model_copy(update={"contender": gone, "settings": {"num_ctx": 1}})
+    retired = kept(TINY).model_copy(update={"case": "kettles", "settings": {"num_ctx": 1}})
+
+    assert (settings_now(unserved), settings_now(retired)) == (None, None)
+    assert scored_under(unserved) == scored_under(retired) == []
+
+
+def test_runs_on_two_builds_of_one_tag_are_said_to_be() -> None:
+    """A tag pulled again between two cases: comparable code, other weights."""
+    runs = [
+        kept(TINY, "headphones").model_copy(update={"build": "sha256:aa"}),
+        kept(TINY, "laptops").model_copy(update={"build": "sha256:bb"}),
+    ]
+    (row,) = standings(runs, CASE_LIST)
+
+    assert row.notes == ["Its runs were scored on 2 builds of this model."]
+    assert row.stale == 0
+
+
+def test_a_run_says_when_with_what_and_on_which_build_it_ran() -> None:
+    run = kept(TINY).model_copy(update={"build": "sha256:" + "ab" * 32})
+    bare = kept(TINY).model_copy(update={"settings": {}})
+
+    assert run_payload(run)["scored_with_label"] == (
+        "Ran 2026-10-02 09:05 UTC with temperature 0, think off, num_ctx 16384, "
+        "page_chars 1200, opinion_chars 400, on build abababababab"
+    )
+    assert run_payload(bare)["scored_with_label"] == "Ran 2026-10-02 09:05 UTC"
 
 
 # -- the board -----------------------------------------------------------------
@@ -777,4 +1006,125 @@ def test_the_command_line_writes_the_standings_as_the_page_reads_them(
         "perfect (scripted)",
         "sloppy (scripted)",
     ]
-    assert written_out["standings"][1]["score_label"] == "0.624"
+    assert written_out["standings"][1]["score_label"] == "0.605"
+
+
+# -- --baseline ----------------------------------------------------------------
+
+
+def test_a_baseline_is_the_standings_json_wrote(tmp_path: Path) -> None:
+    """Including the nightly's kept scorecard, which is written the same way (ADR-0072)."""
+    target = tmp_path / "before.json"
+    write_standings(target, [run_case(SLOPPY, LAPTOPS)], [LAPTOPS])
+
+    baseline = read_baseline(str(target))
+
+    assert set(baseline.runs) == {(SLOPPY.key, "laptops")}
+    assert baseline.path == str(target)
+
+
+@pytest.mark.parametrize(
+    ("document", "said"),
+    [
+        (None, "cannot read"),
+        ("{not json", "is not JSON"),
+        ({"cases": []}, "holds no standings"),
+        ([], "holds no standings"),
+    ],
+    ids=["missing", "not json", "no standings", "not an object"],
+)
+def test_a_file_that_holds_no_standings_is_refused_in_a_sentence(
+    tmp_path: Path, document: Any, said: str
+) -> None:
+    target = tmp_path / "before.json"
+    if document is not None:
+        written_out = document if isinstance(document, str) else json.dumps(document)
+        target.write_text(written_out, encoding="utf-8")
+
+    with pytest.raises(ValueError, match=said):
+        read_baseline(str(target))
+
+
+def test_what_a_file_cannot_have_meant_is_passed_over(tmp_path: Path) -> None:
+    target = tmp_path / "before.json"
+    kept_run = {"case": "laptops", "score": 0.5}
+    rows = ["junk", {"key": "k", "runs": "none"}, {"key": "k", "runs": [1, {"case": 3}, kept_run]}]
+    target.write_text(json.dumps({"standings": rows}), encoding="utf-8")
+
+    assert read_baseline(str(target)).runs == {("k", "laptops"): kept_run}
+
+
+def test_a_run_is_compared_with_its_baseline_metric_by_metric() -> None:
+    """Only what moved, then the query and the time, and a word where the baseline was
+    scored against another version of the case."""
+    now = run_case(SLOPPY, LAPTOPS, clock=ticking(0.25))
+    earlier = json.loads(json.dumps(run_payload(now)))
+    earlier.update(score=0.55, seconds=3.0, fingerprint="0" * 16)
+    earlier["query"]["score"] = 0.5
+    next(metric for metric in earlier["metrics"] if metric["name"] == "figures")["value"] = 0.5
+
+    assert against(now, earlier) == [
+        "    score 0.550 -> 0.600 (+0.050)",
+        "    figures 0.500 -> 0.667 (+0.167)",
+        "    query 0.50 -> 1.00 (+0.50), model time 3.0 s -> 0.5 s",
+        "    (the baseline was scored against another version of this case)",
+    ]
+
+
+def test_a_run_nothing_moved_in_says_so() -> None:
+    now = run_case(PERFECT, LAPTOPS)
+
+    assert against(now, run_payload(now))[1] == "    no metric moved"
+
+
+def test_a_baseline_written_before_values_were_kept_compares_its_score() -> None:
+    """Its metrics carry labels only, and no line claims nothing moved."""
+    earlier = {"case": "laptops", "score": 0.5, "metrics": [{"name": "figures", "label": "x"}]}
+
+    assert against(run_case(PERFECT, LAPTOPS), earlier) == ["    score 0.500 -> 1.000 (+0.500)"]
+
+
+def test_a_baseline_run_without_a_score_compares_what_it_has() -> None:
+    earlier = {"case": "laptops", "metrics": [{"name": "figures", "value": 0.5}]}
+
+    assert against(run_case(PERFECT, LAPTOPS), earlier) == ["    figures 0.500 -> 1.000 (+0.500)"]
+
+
+def test_a_failed_run_is_compared_as_failed() -> None:
+    failed = kept(TINY, failure="answered with something unreadable")
+
+    assert against(failed, {"case": "headphones", "score": 0.5}) == ["    score 0.500 -> failed"]
+    assert against(run_case(PERFECT, HEADPHONES), {"failure": "unreadable", "score": 0}) == [
+        "    score failed -> 1.000"
+    ]
+
+
+def test_the_command_line_compares_its_runs_with_a_baseline(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    """The maintainer's question -- did that change make it better? -- with the run from
+    before kept somewhere the board's latest-run-only rule cannot reach (ADR-0075)."""
+    target = tmp_path / "before.json"
+    benchmark_main.main(["--scripted", "sloppy", "--case", "laptops", "--json", str(target)])
+    capsys.readouterr()
+
+    code = benchmark_main.main(
+        ["--scripted", "sloppy", "--scripted", "perfect", "--case", "laptops",
+         "--baseline", str(target)]
+    )
+    printed = capsys.readouterr().out
+
+    assert code == 0
+    assert f"\nAgainst {target}:\n  sloppy (scripted) on laptops:\n" in printed
+    assert "    score 0.600 -> 0.600 (+0.000)\n    no metric moved\n" in printed
+    assert "  perfect (scripted) on laptops: not in the baseline" in printed
+
+
+def test_the_command_line_refuses_a_baseline_it_cannot_read(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    with pytest.raises(SystemExit) as stopped:
+        benchmark_main.main(["--baseline", str(tmp_path / "nope.json")])
+
+    assert stopped.value.code == 2
+    assert "argument --baseline: cannot read" in capsys.readouterr().err

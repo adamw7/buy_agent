@@ -64,8 +64,8 @@ Optional prerequisites skip, never fail:
 - One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
   and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `3107 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `3023 passed, 104 skipped`.
+So the SDK without PowerShell reads `3179 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `3095 passed, 104 skipped`.
 
 ### `pytest.ini`
 
@@ -242,21 +242,28 @@ python -m pytest integration
 
 The model is real and the web is `benchmark/corpus.py`'s ten pages, condensed by
 the real `fetch.condense` on the real budgets so the prompt is production-shaped
-and production-sized. One session-scoped run is shared by all 31 tests, which
+and production-sized. One session-scoped run is shared by all 32 tests, which
 assert what holds whatever the model said: every name, figure, quote and link is
 in the sources, currencies travel with prices, nothing is listed twice, the
 ranking is ordered. Two smoke tests check that something was extracted and
 quoted, so the rest are not vacuous.
 
+The same run is scored as the benchmark scores one -- the scorecard, the query and
+the time each question took -- and the session ends by printing it, pass or fail,
+in `python -m benchmark`'s own words (ADR-0072).
+
 | Variable | Effect |
 | --- | --- |
 | `BUY_AGENT_TEST_MODEL` | Test against another tag instead of `qwen3:0.6b` |
 | `BUY_AGENT_REQUIRE_OLLAMA` | Fail where Ollama is absent, instead of skipping |
+| `BUY_AGENT_SCORECARD` | Also write the scorecard to this file, as `python -m benchmark --json` writes one |
 
-`.github/workflows/integration.yml` sets the second, runs at `41 3 * * *` and on
-demand, never on a pull request, and caps itself at **five minutes**. Ollama and
-the model are deliberately unpinned: noticing a release that changes decoding is
-half of what the job is for.
+`.github/workflows/integration.yml` sets the second and the third, runs at
+`41 3 * * *` and on demand, never on a pull request, and caps itself at **five
+minutes**. It uploads the scorecard as the `scorecard` artifact on a green night as
+on a red one, and the summary page of every run shows it. Ollama and the model are
+deliberately unpinned: noticing a release that changes decoding is half of what the
+job is for.
 
 ## The benchmark
 
@@ -270,6 +277,7 @@ python -m benchmark --scripted sloppy           # the same, wrong in the ways sm
 python -m benchmark --model qwen3:0.6b --model llama3.2:3b   # two models, every case
 python -m benchmark --all-models --case espresso             # all Ollama holds, one case
 python -m benchmark -v --json standings.json    # the provider's own model, keeping the numbers
+python -m benchmark --baseline standings.json   # ...and later, what moved since
 python -m benchmark.server                      # the same comparison, as a page
 ```
 
@@ -289,8 +297,11 @@ contender reads the same pages, through the real `fetch.condense`.
 Each key (`benchmark/answers.py` for the first, the case's own module for the
 others) records, per product, the **sets** of `(price, currency)` and
 `(rating, review_count)` the pages print, so any printed figure counts and a
-mispairing does not (ADR-0022). `benchmark/scoring.py` scores eight shares in
-`[0, 1]`:
+mispairing does not (ADR-0022), and the **verdicts** the pages pass on it, line by
+line, so a quote counts only when it is one of them (ADR-0073). A reported name
+matches an entry by its words, as grounding matches one, except that two names each
+carrying a model number the other lacks are two products: "WH-1000XM4" is not the
+XM5. `benchmark/scoring.py` scores eight shares in `[0, 1]`:
 
 | Metric | What it counts |
 | --- | --- |
@@ -299,14 +310,22 @@ mispairing does not (ADR-0022). `benchmark/scoring.py` scores eight shares in
 | `figures` | Price, rating and review count reported *and* printed for that product |
 | `attribution` | The other half: figures printed for somebody else |
 | `links` | Products pointed at a page that is about them (ADR-0017) |
-| `quotes` | Products carrying a verdict a page about them printed (ADR-0024) |
-| `faithful` | The other half: quotes that are not verbatim on such a page |
-| `order` | Whether the ranking came out in the order the key's own figures give |
+| `quotes` | Products a page judges, carrying one of the verdicts it passed on them (ADR-0024) |
+| `faithful` | The other half: quotes that are not, word for word, a verdict on that product |
+| `order` | Pairs ranked in the order the key's figures give -- the figures the run reported, where the key accepts them |
 
-Pairs are split so that reporting nothing and reporting nonsense do not score
-alike. `integration/test_benchmark.py` fails a metric under
-`benchmark.scoring.FLOORS`, on the headphones case alone. The floors are a
-**tripwire, not a target**; raise one only in its own commit, quoting runs.
+Each pair is shown half by half, so a scorecard tells reporting nothing from
+reporting nonsense. The score weighs each pair by the weighted harmonic mean of its
+halves (`scoring.PAIRS`), counts a share with nothing to count as 0 whatever it
+shows, and pays `order` only above the half of its pairs a shuffle gets
+(`scoring.CHANCE`), so silence and luck earn nothing (ADR-0074). The scorecard's
+`weighed as` line says what each part came to.
+
+`integration/test_benchmark.py` fails a metric under `benchmark.scoring.FLOORS`, on
+the headphones case alone. The floors are a **tripwire, not a target**; raise one
+only in its own commit, quoting runs. `order`'s 0.25 is still below the half a
+shuffle gets, and the nightly's kept scorecards (ADR-0072) are the runs to quote
+when it is raised.
 
 The query step is scored apart, by `benchmark/query.py`: each constraint the
 request states kept (a case lists the spellings that keep it), no brand and no
@@ -325,7 +344,15 @@ cases run, then the mean score, the query, and the time taken.
 Every run is kept on a board, `$BUY_AGENT_CACHE_DIR/benchmark/board.json`, that both
 doors read afresh, so a model scored last week stands beside one scored today.
 `--no-save` keeps a run off it. A run scored against a case whose pages or key have
-changed since is left out. `--json` writes the standings as the page reads them.
+changed since is left out. A run also records what it was scored under
+(`benchmark/pipeline.py`): a fingerprint of the code between the pages and the
+scorecard, read without its docstrings and comments; the settings that reach the
+model; and the digest its server lists for the tag. A kept run made under other code
+or settings is kept, ranked and marked **stale**, and a row whose runs span two builds
+says so (ADR-0075). `--json` writes the standings as the page reads them, values
+included, and `--baseline FILE` sets each run beside the same contender's run of the
+case in such a file, metric by metric -- which the board, keeping only the latest run,
+cannot.
 
 `python -m benchmark.server` serves the page on `http://127.0.0.1:8100`: pick a
 server, tick the models it lists (an embedding model is shown and cannot be
@@ -338,8 +365,10 @@ handler, so it is admitted and answered as the shop is (ADR-0018).
 
 `tests/test_benchmark_cases.py` reads every key back off its condensed pages
 without a model: every figure printed, every page an entry lists mentioning it and
-every page mentioning it listed, each `PERFECT` scoring exactly 1.000, each
-`SLOPPY` hitting its pinned counts. **Editing a case's pages means re-running
+every page mentioning it listed, every verdict a line of a page about its product,
+every line the opinion sweep would take given to a product or listed as about
+nobody, each `PERFECT` scoring exactly 1.000, each `SLOPPY` hitting its pinned
+counts. **Editing a case's pages means re-running
 it.** `tests/test_benchmark.py` keeps the scorer's own rules,
 `tests/test_benchmark_compare.py` the comparison, the board and the command line,
 and `tests/test_benchmark_server.py` the page: its routes, and its script, which

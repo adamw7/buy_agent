@@ -581,14 +581,18 @@ small model up: a headline or a shop posing as a product, one product under two
 names, a monthly payment or a student price posing as the price, a listing in
 Canadian dollars, decimal commas, cashback.
 
-A case's score weighs eight shares, each in `[0, 1]`. Six come in pairs -- how
-much was found, and how much of what was reported is right -- so that reporting
-nothing and reporting nonsense do not score alike: the five slots filled with
-products really on the pages (weighed 3) and entries that are real products, not
-shops or repeats (2); prices, ratings and review counts printed for that product
-(2) and figures that are not another's (2); products carrying a quote their pages
-printed, and quotes found there word for word (1 each). The other two are a link
-to a page about the product and a ranking in the key's own order (1 each).
+A case's score is made of eight shares, each in `[0, 1]`. Six come in pairs -- how
+much was found, and how much of what was reported is right: the five slots filled
+with products really on the pages (weighed 3) and entries that are real products,
+not shops or repeats (2); prices, ratings and review counts printed for that product
+(2) and figures that are not another's (2); products carrying a verdict their pages
+passed on them, and quotes that are such a verdict word for word (1 each). A pair
+counts by the weighted harmonic mean of its halves, so it is worth only as much as
+the weaker one allows: reporting nothing earns nothing, and neither does reporting
+nonsense. The other two are a link to a page about the product (1) and a ranking in
+the key's own order (1), which counts only what it got right above the half of its
+pairs a shuffle would. A share with nothing to count still shows on the scorecard,
+where its floor reads it, and counts 0 in the score (ADR-0074).
 **Query** is scored apart, as the share of checks the search query passed: each
 constraint the request states kept, no brand and no figure the shopper did not
 give, and twenty words or fewer.
@@ -605,16 +609,18 @@ nobody wrote, one product twice.
 
 `qwen3:0.6b` (Q4_K_M, 397 MB, in Ollama 0.35.1, on 3 October 2026) scored 0.815,
 between `sloppy`'s 0.624 and `perfect`'s 1.000, and the whole comparison took
-1 min 49 s. Every query it wrote passed every check, and nothing in its reports was
+1 min 49 s. Those are the scores of the day; ADR-0074 has since stopped paying for
+quotes not given and for a shuffle's share of the order, and the same counts now
+come to 0.725, between `sloppy`'s 0.605 and `perfect`'s 1.000. Every query it wrote passed every check, and nothing in its reports was
 invented or repeated. It lost points by reporting too little -- four or three
 products for five slots, and not one quote -- and, on the euro case, by
 misattributing two of nine figures and linking one product to a page not about it:
 
-| Case | Score | Real products, of 5 | Figures right | Model time |
-| --- | --- | --- | --- | --- |
-| `headphones` | 0.877 | 4 | 12 of 12 | 46.9 s, loading the model included |
-| `laptops` | 0.831 | 3 | 9 of 9 | 33.5 s |
-| `espresso` | 0.737 | 3 | 7 of 9 | 28.1 s |
+| Case | Score | Scored now | Real products, of 5 | Figures right | Model time |
+| --- | --- | --- | --- | --- | --- |
+| `headphones` | 0.877 | 0.796 | 4 | 12 of 12 | 46.9 s, loading the model included |
+| `laptops` | 0.831 | 0.736 | 3 | 9 of 9 | 33.5 s |
+| `espresso` | 0.737 | 0.642 | 3 | 7 of 9 | 28.1 s |
 
 That is one model, once, on one machine; [Running it](#running-it) scores yours.
 
@@ -625,6 +631,7 @@ python -m benchmark.server                       # the page, on http://127.0.0.1
 python -m benchmark --all-models                 # every model the server holds, here
 python -m benchmark --model qwen3:4b --model gemma4:12b --case espresso
 python -m benchmark --scripted perfect           # no model at all: 1.000 by construction
+python -m benchmark --baseline before.json       # what moved since an earlier --json
 ```
 
 On the page, pick a model server and tick the models it lists (an embedding model
@@ -649,6 +656,7 @@ exits 0 only when every run finished and cleared every floor:
 | `--provider` | `ollama` (or `$BUY_AGENT_PROVIDER`) | `ollama`, `vllm` or `litellm` |
 | `--base-url` | the provider's own | Where that server listens |
 | `--json` | -- | Also write the standings, every run included, to this file |
+| `--baseline` | -- | Compare each run, metric by metric, with its run in an earlier `--json` file |
 | `--no-save` | off | Keep these runs off the board |
 | `-v` | off | Each run's own progress log |
 
@@ -659,9 +667,15 @@ answers with something unreadable has failed that case, which counts 0.
 Every run is kept on a board, `$BUY_AGENT_CACHE_DIR/benchmark/board.json`, which
 the page and the command line both read, so a model pulled next week stands beside
 this week's. A run scored against a case whose pages or key have changed since is
-left out, and **Clear the board** forgets them all. The nightly integration run
-scores `qwen3:0.6b` on the headphones case alone and fails under
-`benchmark.scoring.FLOORS`, a tripwire rather than a target (ADR-0026).
+left out, and **Clear the board** forgets them all. Each run also records the code it
+went through, its settings and its model's build: a row made under code or settings
+this checkout no longer has is tagged **stale** and says which of its runs to make
+again, and one whose runs span two builds of a tag says so (ADR-0075). The board keeps
+only the latest run, so to ask whether a change helped, keep `--json` from before it
+and give it to `--baseline` after. The nightly integration run
+scores `qwen3:0.6b` on the headphones case alone, prints the scorecard on its summary
+page and keeps it as the `scorecard` artifact, pass or fail (ADR-0072), and fails
+under `benchmark.scoring.FLOORS`, a tripwire rather than a target (ADR-0026).
 [docs/testing.md](docs/testing.md#the-benchmark) has the metrics one by one and
 how the keys are kept honest.
 
@@ -696,7 +710,11 @@ holds the import graph
   that a number is in the sources, not whose it is. The benchmark's
   `attribution` metric measures this.
 - **A quote is tied to a page, not a product on it.** A review of eight
-  headphones names all eight. The quote's `source` link shows the page.
+  headphones names all eight. The quote's `source` link shows the page. The
+  benchmark's `faithful` metric measures this.
+- **A model number can be one off.** Grounding reads a name's words against a 0.6
+  bar, so a model's "WH-1000XM4" survives pages about the XM5. The benchmark
+  counts it as a product nobody wrote about.
 - **A bound has to be typed.** It is noticed and offered, never applied.
 - **A cached page or answer is as current as its age**, up to a day by default.
 - **A named source is a domain, not an author.** `--source @mkbhd` keeps YouTube

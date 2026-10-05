@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import sys
 from pathlib import Path
@@ -13,16 +12,18 @@ from buy_agent.agent import ModelUnavailableError
 from buy_agent.config import DEFAULT_PROVIDER, AgentConfig
 from buy_agent.logging_setup import configure_logging
 from buy_agent.providers import PROVIDERS
+from benchmark.baseline import Baseline, compared, read_baseline
 from benchmark.board import Board
 from benchmark.cases import CASES, SCRIPTS
 from benchmark.compare import (
     CaseRun,
     Contender,
     Standing,
+    describe,
     run_case,
     seconds_label,
     standings,
-    standings_payload,
+    write_standings,
 )
 
 if TYPE_CHECKING:
@@ -55,11 +56,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Which model server to score (default: %(default)s).")
     add("--base-url", default="", help="Where it listens, empty for its own default.")
     add("--json", type=Path, help="Also write the standings, every run included, to this file.")
+    add("--baseline", type=_baseline, metavar="FILE",
+        help="Compare each run, metric by metric, with the same model's run of the same "
+             "case in standings --json wrote earlier -- the nightly's kept scorecard is "
+             "one.")
     add("--no-save", action="store_true",
         help="Keep nothing (default: keep every run on the board that python -m "
              "benchmark.server shows).")
     add("-v", "--verbose", action="store_true", help="Show each run's progress log.")
     return parser
+
+
+def _baseline(path: str) -> Baseline:
+    """``--baseline`` as argparse takes it: a file it cannot read is a usage error."""
+    try:
+        return read_baseline(path)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def _contenders(args: argparse.Namespace) -> list[Contender]:
@@ -88,33 +101,6 @@ def _contenders(args: argparse.Namespace) -> list[Contender]:
         # The provider's own default, as every run without a model is.
         models = [""]
     return scripted + [Contender.served(args.provider, model, args.base_url) for model in models]
-
-
-def describe(run: CaseRun, case: Case) -> str:
-    """One run: its scorecard, the query it searched with, and the products it reported."""
-    heading = f"{run.contender.label} on {case.name} -- {case.title}"
-    timing = ", ".join(f"{step} {seconds_label(took)}" for step, took in run.seconds.items())
-    query = run.query.query
-    lines = [heading, "-" * len(heading)]
-    card = run.scorecard
-    if card is None:
-        lines.append(f"  failed: {run.failure}")
-    else:
-        lines.append(card.table())
-    lines += [
-        f"  query        {run.query.score:>6.3f}   "
-        + (f"searched {query!r}" if query else "no query: searched with the request"),
-        *(f"    - {check.check}" for check in run.query.checks if not check.passed),
-        f"  model time   {seconds_label(run.model_seconds)}" + (f" ({timing})" if timing else ""),
-    ]
-    if run.products:
-        lines.append("")
-        lines += [
-            f"  {product.rank}. {product.line}"
-            + ("" if product.verdict == "real" else f"   [{product.verdict}]")
-            for product in run.products
-        ]
-    return "\n".join(lines)
 
 
 def standings_table(rows: list[Standing], cases: list[Case]) -> str:
@@ -183,12 +169,12 @@ def main(argv: list[str] | None = None) -> int:
     if not runs:
         return 1
     print(standings_table(standings(runs, cases), cases))
+    if args.baseline is not None:
+        print(f"\n{compared(runs, args.baseline)}")
     if board is not None:
         print(f"\nKept on the board at {board.path}; python -m benchmark.server shows it.")
     if args.json:
-        args.json.write_text(
-            json.dumps(standings_payload(runs, cases), indent=2), encoding="utf-8"
-        )
+        write_standings(args.json, runs, cases)
     cleared = all(run.scorecard is not None and run.scorecard.cleared for run in runs)
     return 0 if cleared and not unasked else 1
 

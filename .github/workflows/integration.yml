@@ -28,6 +28,9 @@ jobs:
     env:
       # A missing Ollama fails here rather than skipping; see integration/__init__.py.
       BUY_AGENT_REQUIRE_OLLAMA: "1"
+      # Where the run's scorecard is written, as `python -m benchmark --json` writes
+      # one; uploaded below pass or fail (ADR-0072).
+      BUY_AGENT_SCORECARD: scorecard.json
 
     steps:
       - uses: actions/checkout@v7
@@ -69,6 +72,16 @@ jobs:
 
       - name: Run the integration tests
         run: python -m pytest integration
+
+      # The one scheduled measurement of a real model, and the baseline the next
+      # change is compared against: kept on a green night as on a red one.
+      - name: Upload the scorecard
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: scorecard
+          path: scorecard.json
+          if-no-files-found: ignore
 
       - name: Upload the Ollama log
         if: failure()

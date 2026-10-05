@@ -4,10 +4,12 @@ and is a query held to what its request asked? (ADR-0036, ADR-0070)"""
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Iterable
 
 import pytest
 
 from buy_agent import agent as agent_module
+from buy_agent.fetch import _MIN_OPINION, reads_like_an_opinion
 from buy_agent.models import ProductList, SearchQuery
 from buy_agent.search import SearchResult
 from buy_agent.verification import (
@@ -16,6 +18,7 @@ from buy_agent.verification import (
     mentions_number,
     mentions_rating,
     mentions_review_count,
+    running_words,
 )
 from benchmark import corpus
 from benchmark.cases import CASES, ESPRESSO, HEADPHONES, LAPTOPS, SCRIPTS, Case, case_for
@@ -56,10 +59,10 @@ def test_a_case_is_found_by_its_name_and_an_unknown_one_is_named_back() -> None:
 
 
 def test_the_headphones_case_is_the_corpus_the_nightly_scores() -> None:
-    """One corpus, read by the nightly run and the comparison alike (ADR-0036)."""
+    """One corpus, read by the nightly run and the comparison alike (ADR-0036); the
+    nightly takes its settings off the case, as a comparison does."""
     assert HEADPHONES.request == corpus.REQUEST
     assert HEADPHONES.pages is corpus.PAGES
-    assert HEADPHONES.settings() == corpus.settings()
 
 
 @EVERY_CASE
@@ -165,6 +168,57 @@ def test_every_page_about_a_product_is_one_its_entry_lists(case: Case) -> None:
         assert mentioning == entry.pages, entry.name
 
 
+def shown_lines(pages: tuple[SearchResult, ...], urls: Iterable[str] | None = None) -> set[str]:
+    """Every line of ``pages`` the model is shown, as running words -- of the pages at
+    ``urls`` only, where given."""
+    wanted = None if urls is None else set(urls)
+    return {
+        running_words(line)
+        for page in pages
+        if wanted is None or page.url in wanted
+        for line in page.content.split("\n")
+    }
+
+
+def given(case: Case) -> set[str]:
+    """Every verdict a case's key gives a product, as running words."""
+    return {running_words(verdict) for entry in case.key for verdict in entry.verdicts}
+
+
+@EVERY_CASE
+def test_every_verdict_is_a_line_of_a_page_about_its_product(case: Case) -> None:
+    """A verdict no page about the product shows is one no model could have copied: a
+    silent ceiling under ``quotes`` (ADR-0073)."""
+    pages = served(case)
+
+    for entry in case.key:
+        shown = shown_lines(pages, entry.pages)
+        for verdict in entry.verdicts:
+            assert running_words(verdict) in shown, f"{entry.name}: {verdict}"
+
+
+@EVERY_CASE
+def test_every_judgement_the_pages_pass_is_given_to_a_product_or_to_nobody(case: Case) -> None:
+    """The other half: a verdict left out of the key is a faithful quote scored as one
+    nobody printed. Every line the pipeline's own opinion sweep would take -- the
+    snippets' too -- is a verdict on a product, or listed as about nobody."""
+    assigned = given(case) | {running_words(line) for line in case.about_nobody}
+
+    for page in served(case):
+        for line in [page.snippet, *page.content.split("\n")]:
+            if len(line) >= _MIN_OPINION and reads_like_an_opinion(line):
+                assert running_words(line) in assigned, f"{page.url}: {line!r}"
+
+
+@EVERY_CASE
+def test_a_line_about_nobody_is_on_the_pages_and_given_to_nobody(case: Case) -> None:
+    shown = shown_lines(served(case))
+
+    for line in case.about_nobody:
+        assert running_words(line) in shown, line
+        assert running_words(line) not in given(case), line
+
+
 @EVERY_CASE
 def test_the_perfect_answer_scores_full_marks_on_every_case(case: Case) -> None:
     """The reference, through the whole real pipeline."""
@@ -193,7 +247,7 @@ def test_the_sloppy_laptops_score_exactly_what_their_mistakes_cost() -> None:
         "order": (2, 3),
     }
     assert (card.invented, card.repeated) == (1, 1)
-    assert card.score == pytest.approx(0.6282051282051282)
+    assert card.score == pytest.approx(0.6)
 
 
 def test_the_sloppy_espresso_scores_exactly_what_its_mistakes_cost() -> None:
@@ -214,7 +268,7 @@ def test_the_sloppy_espresso_scores_exactly_what_its_mistakes_cost() -> None:
         "order": (0, 3),
     }
     assert (card.invented, card.repeated) == (1, 1)
-    assert card.score == pytest.approx(0.5427350427350427)
+    assert card.score == pytest.approx(0.5401709401709401)
     assert not card.cleared, "the cashback ranks the dearest machine first"
 
 
