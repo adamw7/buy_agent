@@ -1357,6 +1357,18 @@ def test_a_bound_the_request_asks_for_is_offered_and_not_applied(
     assert fake_agent["config"].max_price is None
 
 
+def test_a_bound_in_the_millions_is_offered_as_a_flag_that_takes_it(
+    fake_agent, caplog
+) -> None:
+    """Offered as ``--min-reviews 1.5e+06``, the figure was one its own flag refused."""
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        main(["headphones with at least 1,500,000 reviews"])
+
+    assert "--min-reviews 1500000 is what would enforce it" in caplog.text
+    main(["headphones", "--min-reviews", "1500000"])
+    assert fake_agent["config"].min_reviews == 1_500_000
+
+
 def test_a_bound_the_flag_would_refuse_is_not_offered(fake_agent, caplog) -> None:
     """The form drops a figure outside the setting's range (``api.bounds_payload``), and
     so does this door: offered, "under $0.50" named a ``--max-price 0.5`` that the flag

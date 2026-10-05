@@ -559,6 +559,17 @@ def test_a_failure_nobody_planned_for_is_a_500_not_a_dropped_connection(
     assert (got, posted) == (expected, expected)
 
 
+def test_a_target_that_will_not_parse_is_refused_not_dropped(page: tuple[str, Bench]) -> None:
+    """The shipped handler's refusal, inherited: each ``do_*`` here parses the target
+    before its catch-all too."""
+    parsed = urlparse(page[0])
+    with socket.create_connection((parsed.hostname, parsed.port), timeout=10) as sock:
+        sock.sendall(b"GET http://[x/ HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+        reply = sock.recv(4096).decode("utf-8", "replace")
+
+    assert reply.startswith("HTTP/1.1 400"), reply or "the connection closed unanswered"
+
+
 def ipv6_loopback() -> bool:
     """Whether this machine can bind ``::1``: built in is not the same as configured."""
     if not socket.has_ipv6:

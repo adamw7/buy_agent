@@ -112,8 +112,9 @@ class Noticed(BaseModel):
 
     @property
     def figure(self) -> str:
-        """The number as typed: 200, not 200.0."""
-        return f"{self.value:g}"
+        """The number as typed: 200, not 200.0 -- and 1234567, where ``:g`` wrote
+        1.23457e+06, another budget, and a count ``--min-reviews`` refuses."""
+        return f"{self.value:.0f}" if self.value.is_integer() else str(self.value)
 
     @property
     def note(self) -> str:

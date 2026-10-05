@@ -306,6 +306,25 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
     # -- routing ---------------------------------------------------------------
 
+    def parse_request(self) -> bool:
+        """Read the request line and headers, and refuse a target nothing can route.
+
+        Every ``do_*`` parses the target before its catch-all, so an absolute-form one
+        with an unclosed bracket (``GET http://[x/``) raised there and the connection
+        closed with nothing said. Refused here once, for every verb and for the
+        benchmark's handler too.
+        """
+        if not super().parse_request():
+            return False
+        try:
+            urlparse(self.path)
+        except ValueError:
+            # Any body is unread, so the connection closes (as in ``_read_json``).
+            self.close_connection = True
+            self._send_json(400, {"error": f"Not a path this server can route: {self.path!r}"})
+            return False
+        return True
+
     # The base class dispatches on the verb's name.
     # pylint: disable-next=invalid-name
     def do_GET(self) -> None:
