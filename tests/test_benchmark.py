@@ -9,7 +9,7 @@ import pytest
 
 from buy_agent import agent as agent_module
 from buy_agent.agent import ModelUnavailableError
-from buy_agent.models import Product
+from buy_agent.models import Opinion, Product, ProductList
 from buy_agent.search import SearchResult
 from buy_agent.verification import (
     build_haystack,
@@ -20,7 +20,7 @@ from buy_agent.verification import (
 )
 from benchmark import __main__ as benchmark_main
 from benchmark.answers import ANSWER_KEY, Expected
-from benchmark.cases import HEADPHONES
+from benchmark.cases import ESPRESSO, HEADPHONES, LAPTOPS
 from benchmark.corpus import NUM_PRODUCTS, PAGES, PAGE_TEXT, REQUEST, TOP_N
 from benchmark.runner import run_benchmark, serving_the_corpus
 from benchmark.scoring import (
@@ -46,7 +46,7 @@ def perfect() -> Scorecard:
 
 @pytest.fixture(scope="module")
 def sloppy() -> Scorecard:
-    """The same run, wrong in the eight ways :mod:`benchmark.scripted` lists."""
+    """The same run, wrong in the ways :data:`benchmark.scripted.SLOPPY` lists."""
     return run_benchmark(llm=ScriptedLLM(SLOPPY)).scorecard
 
 
@@ -121,6 +121,44 @@ def test_two_products_sharing_a_word_are_told_apart() -> None:
     assert best_match("Soundcore Life Q30") is LIFE
 
 
+def test_a_name_with_another_model_number_is_another_product() -> None:
+    """The mistake a 0.6 bar cannot see: "Sony WH-1000XM4" shares two of its three words
+    with the XM5, and grounding keeps it off pages about the XM5 (ADR-0073)."""
+    assert best_match("Sony WH-1000XM4") is None
+    assert best_match("Sony WH-1000XM6") is None
+    assert best_match("Soundcore Life Q35") is None
+    assert best_match("Razer Blade 16", LAPTOPS.key) is None
+    assert best_match("Lenovo Legion Slim 7", LAPTOPS.key) is None
+    assert best_match("Philips 2200 LatteGo", ESPRESSO.key) is None
+
+
+def test_a_model_number_on_one_side_only_is_a_spec_or_a_shortening() -> None:
+    """What the rule above must not catch: a name carrying more numbers than the key's,
+    or fewer, is the same product told more or less of."""
+    by_name = {entry.name: entry for entry in (*LAPTOPS.key, *ESPRESSO.key)}
+
+    assert best_match("Sony WH-1000XM5 (2022)") is SONY
+    assert best_match("Lenovo Legion Slim 5 16GB", LAPTOPS.key) is by_name["Lenovo Legion Slim 5"]
+    assert (
+        best_match("ASUS ROG Zephyrus G14 RTX 4070", LAPTOPS.key)
+        is by_name["ASUS ROG Zephyrus G14"]
+    )
+    assert best_match("De'Longhi Dedica", ESPRESSO.key) is by_name["De'Longhi Dedica Arte EC885"]
+
+
+def test_a_run_reporting_the_wrong_generation_has_invented_a_product() -> None:
+    """Through the whole pipeline: grounding lets the XM4 through, and the scorer is what
+    says it is not what the pages are about."""
+    renamed = PERFECT.products[0].model_copy(update={"name": "Sony WH-1000XM4"})
+    answer = ProductList(products=[renamed, *PERFECT.products[1:]])
+
+    card = run_benchmark(llm=ScriptedLLM(answer)).scorecard
+
+    assert card.invented == 1
+    assert card.counts["identified"] == (4, 5)
+    assert card.counts["genuine"] == (4, 5)
+
+
 def test_the_publishers_name_is_not_a_product() -> None:
     """The mistake ``clean_products`` cannot catch: a shop is not a headline, and
     every word of its name is in the sources."""
@@ -183,6 +221,74 @@ def test_a_blank_figure_is_a_miss_and_not_an_error() -> None:
     card = score_run([Product(name="Sony WH-1000XM5")], [])
 
     assert (card.metrics["figures"], card.metrics["attribution"]) == (0.0, 1.0)
+
+
+# -- the quotes ----------------------------------------------------------------
+
+
+def quoted(product: str, *quotes: str) -> Product:
+    """A product as the run reported it, carrying ``quotes``."""
+    return Product(name=product, opinions=[Opinion(text=quote) for quote in quotes])
+
+
+def test_a_verdict_on_another_product_on_the_same_page_is_not_faithful(
+    served: tuple[SearchResult, ...],
+) -> None:
+    """The mistake the prompt forbids and the pipeline cannot see: AudioSite names the
+    Bose, so ``verify_opinions`` keeps the Sony's verdict on it, and a key of pages
+    would have too (ADR-0073)."""
+    sonys = "In our tests the noise cancelling was still the best of anything at this price."
+
+    card = score_run([quoted("Bose QuietComfort Ultra", sonys)], served)
+
+    assert card.counts["faithful"] == (0, 1)
+    assert card.counts["quotes"] == (0, 1)
+
+
+def test_a_line_that_judges_nothing_is_not_a_verdict(served: tuple[SearchResult, ...]) -> None:
+    """Word for word on the Sony's own page, and a price, not a verdict."""
+    price = "The Sony WH-1000XM5 costs $328 at most shops."
+
+    card = score_run([quoted("Sony WH-1000XM5", price)], served)
+
+    assert card.counts["faithful"] == (0, 1)
+
+
+def test_a_quote_may_be_a_run_of_words_out_of_a_verdict(served: tuple[SearchResult, ...]) -> None:
+    """Models trim, and what they keep is still one verdict's words in its order. Two
+    verdicts run together are on the page -- the lines are consecutive -- and are no
+    verdict anybody passed."""
+    trimmed = quoted("Sony WH-1000XM5", "the earcups roomy enough for an eight-hour flight")
+    stitched = quoted(
+        "Sony WH-1000XM5",
+        "roomy enough for an eight-hour flight. The downside is that the case no longer folds",
+    )
+
+    assert score_run([trimmed], served).counts["faithful"] == (1, 1)
+    assert score_run([stitched], served).counts["faithful"] == (0, 1)
+    assert score_run([quoted("Sony WH-1000XM5", "--")], served).counts["faithful"] == (0, 1)
+
+
+def test_a_verdict_counts_only_on_a_page_the_run_was_shown(
+    served: tuple[SearchResult, ...],
+) -> None:
+    """The key's verdicts are the condensed pages' lines; a run shown fewer pages could
+    not have copied one off a page it never saw (ADR-0036)."""
+    sonys = "Owners recommend buying while the sale lasts."
+    shown = [page for page in served if page.url != "https://audiodeal.example/sony-wh-1000xm5"]
+
+    assert score_run([quoted("Sony WH-1000XM5", sonys)], served).counts["faithful"] == (1, 1)
+    assert score_run([quoted("Sony WH-1000XM5", sonys)], shown).counts["faithful"] == (0, 1)
+
+
+def test_a_product_no_page_judges_is_not_asked_for_a_quote(
+    served: tuple[SearchResult, ...],
+) -> None:
+    """The AirPods Max is priced on two pages and judged on none, so finding it costs a
+    run no quote it could not have given."""
+    card = score_run([SONY.as_product(), AIRPODS.as_product()], served)
+
+    assert card.counts["quotes"] == (0, 1)
 
 
 # -- the scorecard ------------------------------------------------------------

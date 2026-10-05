@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from buy_agent.config import AgentConfig
 from benchmark import corpus, espresso, laptops
-from benchmark.answers import ANSWER_KEY
+from benchmark.answers import ABOUT_NOBODY, ANSWER_KEY
 from benchmark.scoring import METRICS
 from benchmark.scripted import PERFECT, REFINED_QUERY, SLOPPY, ScriptedLLM
 
@@ -39,6 +39,9 @@ class Case:
         asks: What it asks of a model that the other cases do not.
         refined: The query the scripted answers search with.
         scripts: :data:`SCRIPTS`' answers for this case, by name.
+        about_nobody: The judgements its pages pass on no product the key names -- a
+            sale, a headline -- so the honesty test can tell a line left out of the key
+            from one that belongs to nobody (ADR-0073).
     """
 
     name: str
@@ -51,6 +54,7 @@ class Case:
     query: QueryKey
     refined: str
     scripts: Mapping[str, ProductList]
+    about_nobody: frozenset[str] = frozenset()
     num_products: int = corpus.NUM_PRODUCTS
     top_n: int = corpus.TOP_N
 
@@ -92,6 +96,7 @@ class Case:
                     sorted(entry.prices),
                     sorted(entry.ratings),
                     sorted(entry.pages),
+                    sorted(entry.verdicts),
                 ]
                 for entry in self.key
             ],
@@ -116,6 +121,7 @@ HEADPHONES = Case(
     query=corpus.QUERY,
     refined=REFINED_QUERY,
     scripts={"perfect": PERFECT, "sloppy": SLOPPY},
+    about_nobody=ABOUT_NOBODY,
 )
 
 LAPTOPS = Case(
@@ -132,6 +138,7 @@ LAPTOPS = Case(
     query=laptops.QUERY,
     refined=laptops.REFINED_QUERY,
     scripts={"perfect": laptops.PERFECT, "sloppy": laptops.SLOPPY},
+    about_nobody=laptops.ABOUT_NOBODY,
 )
 
 ESPRESSO = Case(
@@ -148,6 +155,7 @@ ESPRESSO = Case(
     query=espresso.QUERY,
     refined=espresso.REFINED_QUERY,
     scripts={"perfect": espresso.PERFECT, "sloppy": espresso.SLOPPY},
+    about_nobody=espresso.ABOUT_NOBODY,
 )
 
 #: Every case, by name, in the order a comparison runs them.

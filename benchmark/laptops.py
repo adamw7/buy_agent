@@ -243,6 +243,19 @@ ANSWER_KEY: tuple[Expected, ...] = (
         # same page is a care plan, not the laptop.
         prices={(1399.99, "USD"), (1299.99, "USD"), (1899.99, "CAD")},
         pages={LAPTOPLAB, ROUNDUP, NORTHBYTE, STUDENTGEAR, BLADEREVIEW, DEALWATCH},
+        verdicts=(
+            "In our tests the fans stayed quiet through an hour of Cyberpunk.",
+            "Reviewers praised the 1.5 kg chassis as the easiest gaming machine to carry "
+            "to class.",
+            "The downside is a glossy screen that reflects every light in a lecture hall.",
+            "1. ASUS ROG Zephyrus G14 - best overall",
+            "The ASUS ROG Zephyrus G14 remains our overall pick at $1,399.99.",
+            "Buyers noticed the charger is heavier than you would expect to carry.",
+            "Owners recommend the two-year care plan sold separately at C$149.99.",
+            "Reviewers found the ASUS ROG Zephyrus G14 light enough to forget it is in "
+            "your bag.",
+            "The Zephyrus is worth the money if it goes to every lecture.",
+        ),
     ),
     entry(
         "Lenovo Legion Slim 5", 1249.0, 4.5, 1_875,
@@ -250,35 +263,75 @@ ANSWER_KEY: tuple[Expected, ...] = (
         # is the gap to the Zephyrus.
         prices={(1249.0, "USD"), (1099.0, "USD"), (1149.0, "USD"), (1679.99, "CAD")},
         pages={LAPTOPLAB, LAPTOPLANE, ROUNDUP, NORTHBYTE, DEALWATCH},
+        verdicts=(
+            "Owners report the keyboard is the best on any laptop at this price.",
+            "Buyers found the 1.6 kg weight easy to live with on a daily commute.",
+            "The webcam is mediocre, which several buyers complained of.",
+            "2. Lenovo Legion Slim 5 - best value",
+            "The Legion Slim 5 is $150 cheaper than the Zephyrus G14 and nearly as fast.",
+        ),
     ),
     entry(
         # Its lowest ever is the Zephyrus's current price.
         "HP Omen Transcend 14", 1499.99, 4.3, 640,
         prices={(1499.99, "USD"), (1399.99, "USD")},
         pages={LAPTOPLAB, ROUNDUP, DEALWATCH},
+        verdicts=(
+            "4. HP Omen Transcend 14 - best screen",
+            "Testers found the OLED screen outstanding but the speakers tinny.",
+        ),
     ),
     entry(
         # Over the budget, and on the pages all the same.
         "Razer Blade 14", 2199.99, 4.4, 980,
         prices={(2199.99, "USD")},
         pages={LAPTOPLAB, BLADEREVIEW},
+        verdicts=(
+            "Critics praised the aluminium build as the best in any gaming laptop.",
+            "Testers found it not worth the money on a student budget.",
+        ),
     ),
     entry(
         "MSI Katana 15", 949.0, 4.0, 3_108,
         prices={(949.0, "USD")},
         pages={LAPTOPLANE, STUDENTGEAR, BUDGETGAMER},
+        verdicts=(
+            "Users complained the MSI Katana 15 battery barely lasts two hours away from "
+            "a socket.",
+        ),
     ),
     entry(
         "Acer Nitro V 15", 799.99, 4.2, 5_420,
         prices={(799.99, "USD"), (749.99, "USD")},
         pages={LAPTOPLANE, ROUNDUP, STUDENTGEAR, DEALWATCH, BUDGETGAMER},
+        verdicts=(
+            "3. Acer Nitro V 15 - the cheapest pick here",
+            "Buyers found it heavy at 2.1 kg but excellent value for money.",
+            "The Acer Nitro V 15 is $799.99, but owners report it is too heavy to carry "
+            "every day.",
+            # BudgetGamer's "it" is the line above: the Nitro.
+            "Buyers recommend it as the best value in the category by some distance.",
+        ),
     ),
     entry(
         # BudgetGamer prints its rating and will not print a price; DealWatch does.
         "Gigabyte G6X", 1099.0, 4.1, 720,
         prices={(1099.0, "USD"), (999.0, "USD")},
         pages={ROUNDUP, DEALWATCH, BUDGETGAMER},
+        verdicts=(
+            "5. Gigabyte G6X - best for upgrades",
+            "In our tests the G6X was loud under load but excellent for the money.",
+            "Owners found the trackpad flimsy next to the rest of the machine.",
+        ),
     ),
+)
+
+#: The judgements these pages pass on no laptop: a sale, a headline.
+ABOUT_NOBODY: frozenset[str] = frozenset(
+    {
+        "Buyers found the back-to-school sales the best value of the year.",
+        "Cheap gaming laptops that are actually worth it",
+    }
 )
 
 #: The first five products of the key, copied exactly as the pages print them.

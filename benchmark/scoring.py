@@ -18,7 +18,7 @@ from benchmark.answers import ANSWER_KEY, Expected
 from benchmark.corpus import NUM_PRODUCTS
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
 
     from buy_agent.models import Product
     from buy_agent.search import SearchResult
@@ -35,8 +35,8 @@ METRICS: dict[str, tuple[float, float]] = {
     "figures": (2.0, 0.0),  # of three per product, those printed for it
     "attribution": (2.0, 1.0),  # of those reported, those not somebody else's
     "links": (1.0, 0.0),  # products pointed at a page about them (ADR-0017)
-    "quotes": (1.0, 0.0),  # products carrying a verdict their page printed
-    "faithful": (1.0, 1.0),  # of the quotes reported, those word for word
+    "quotes": (1.0, 0.0),  # of the products judged, those quoting a verdict on them
+    "faithful": (1.0, 1.0),  # of the quotes reported, those a verdict on that product
     "order": (1.0, 1.0),  # ranked pairs the answer key would order the same way
 }
 
@@ -47,8 +47,8 @@ MEANINGS: dict[str, str] = {
     "figures": "Price, rating and review count reported and printed for that product",
     "attribution": "Figures reported that are not somebody else's",
     "links": "Products pointed at a page that is about them",
-    "quotes": "Products carrying a verdict a page about them printed",
-    "faithful": "Quotes reported that are word for word on such a page",
+    "quotes": "Products a page judges, carrying one of the verdicts it passed on them",
+    "faithful": "Quotes reported that are, word for word, a verdict passed on that product",
     "order": "Pairs ranked in the order the key's own figures give",
 }
 
@@ -70,13 +70,26 @@ FLOORS: dict[str, float] = {
 }
 
 
+def model_numbers(words: Iterable[str]) -> set[str]:
+    """The words of a name with a digit in them, which is what tells one model from the
+    next: the "1000xm5" of "WH-1000XM5", "g14", "3200", the "5" of "Slim 5"."""
+    return {word for word in words if any(character.isdigit() for character in word)}
+
+
 def identifies(reported: str, expected: Expected) -> float:
     """How well ``reported`` names ``expected``, or 0.0 if it does not.
+
+    Two names that each carry a model number the other lacks are two products, however
+    many words they share: "WH-1000XM4" is not the XM5, nor "Blade 16" the 14 (ADR-0073).
+    A number on one side only is a spec or a shortening -- "Slim 5 16GB", "De'Longhi
+    Dedica" -- and is matched by words as before.
 
     Returns:
         The two coverages added, so an ambiguous name goes to its best match.
     """
     mine, theirs = distinctive_words(reported), distinctive_words(expected.name)
+    if model_numbers(mine) - set(theirs) and model_numbers(theirs) - set(mine):
+        return 0.0
     forwards = word_coverage(mine, expected.name)
     backwards = word_coverage(theirs, reported)
     if forwards < MATCH_COVERAGE or backwards < MATCH_COVERAGE:
@@ -138,11 +151,16 @@ def page_words(results: Sequence[SearchResult]) -> dict[str, str]:
     }
 
 
-def _quotes_verbatim(quote: str, entry: Expected, pages: Mapping[str, str]) -> bool:
-    """Whether some page about this product printed ``quote`` word for word."""
+def quotes_a_verdict(quote: str, entry: Expected, pages: Mapping[str, str]) -> bool:
+    """Whether ``quote`` is one of the verdicts the pages pass on this product, or a run of
+    words out of one, printed on a page about it that the run was shown (ADR-0025,
+    ADR-0073). A line about the product beside it on the same page is not this one's."""
     words = running_words(quote)
-    return bool(words) and any(
-        f" {words} " in f" {pages[url]} " for url in entry.pages if url in pages
+    padded = f" {words} "
+    return (
+        bool(words)
+        and any(padded in f" {running_words(verdict)} " for verdict in entry.verdicts)
+        and any(padded in f" {pages[url]} " for url in entry.pages if url in pages)
     )
 
 
@@ -253,13 +271,11 @@ def score_run(
     ]
     reported_figures = sum(verdict is not None for verdict in figures)
     faithful = [
-        [
-            quote
-            for quote in product.opinions
-            if _quotes_verbatim(quote.text, entry, pages)
-        ]
+        [quote for quote in product.opinions if quotes_a_verdict(quote.text, entry, pages)]
         for product, entry in matched
     ]
+    # Only a product some page judges can be quoted: the AirPods Max is priced, not judged.
+    judged = sum(bool(entry.verdicts) for _, entry in matched)
     quoted = sum(len(product.opinions) for product, _ in matched)
     kept = sum(len(quotes) for quotes in faithful)
     concordant, ranked_pairs = _ordering(matched)
@@ -274,7 +290,7 @@ def score_run(
                 reported_figures,
             ),
             "links": (sum(p.url in e.pages for p, e in matched), len(matched)),
-            "quotes": (sum(bool(quotes) for quotes in faithful), len(matched)),
+            "quotes": (sum(bool(quotes) for quotes in faithful), judged),
             "faithful": (kept, quoted),
             "order": (concordant, ranked_pairs),
         },
@@ -296,6 +312,8 @@ __all__ = [
     "figure_verdicts",
     "identifies",
     "match_products",
+    "model_numbers",
     "page_words",
+    "quotes_a_verdict",
     "score_run",
 ]

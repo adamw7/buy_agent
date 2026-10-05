@@ -586,9 +586,10 @@ much was found, and how much of what was reported is right -- so that reporting
 nothing and reporting nonsense do not score alike: the five slots filled with
 products really on the pages (weighed 3) and entries that are real products, not
 shops or repeats (2); prices, ratings and review counts printed for that product
-(2) and figures that are not another's (2); products carrying a quote their pages
-printed, and quotes found there word for word (1 each). The other two are a link
-to a page about the product and a ranking in the key's own order (1 each).
+(2) and figures that are not another's (2); products carrying a verdict their
+pages passed on them, and quotes that are such a verdict word for word (1 each). The
+other two are a link to a page about the product and a ranking in the key's own
+order (1 each).
 **Query** is scored apart, as the share of checks the search query passed: each
 constraint the request states kept, no brand and no figure the shopper did not
 give, and twenty words or fewer.
@@ -697,7 +698,11 @@ holds the import graph
   that a number is in the sources, not whose it is. The benchmark's
   `attribution` metric measures this.
 - **A quote is tied to a page, not a product on it.** A review of eight
-  headphones names all eight. The quote's `source` link shows the page.
+  headphones names all eight. The quote's `source` link shows the page. The
+  benchmark's `faithful` metric measures this.
+- **A model number can be one off.** Grounding reads a name's words against a 0.6
+  bar, so a model's "WH-1000XM4" survives pages about the XM5. The benchmark
+  counts it as a product nobody wrote about.
 - **A bound has to be typed.** It is noticed and offered, never applied.
 - **A cached page or answer is as current as its age**, up to a day by default.
 - **A named source is a domain, not an author.** `--source @mkbhd` keeps YouTube

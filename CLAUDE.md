@@ -569,7 +569,9 @@ rules a change must obey:
   or fail (`$BUY_AGENT_SCORECARD`, ADR-0072).
 - **The benchmark** (`benchmark/`, ADR-0036, ADR-0070): after editing a case,
   its `PERFECT` must score exactly 1.000, its `SLOPPY` must hit its pinned
-  counts, and every page mentioning a product must be one its entry lists. The
+  counts, every page mentioning a product must be one its entry lists, and every
+  judgement its pages pass must be one of an entry's verdicts or listed as about
+  nobody (ADR-0073). The
   floors are a tripwire: raise one only in its own commit, quoting runs. A
   contender is reached only through its provider row. See `docs/testing.md`.
 - **Scripts.** `scripts/start.ps1`, `setup.ps1` and `preflight.ps1` must match

@@ -64,8 +64,8 @@ Optional prerequisites skip, never fail:
 - One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
   and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `3111 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `3027 passed, 104 skipped`.
+So the SDK without PowerShell reads `3136 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `3052 passed, 104 skipped`.
 
 ### `pytest.ini`
 
@@ -296,8 +296,11 @@ contender reads the same pages, through the real `fetch.condense`.
 Each key (`benchmark/answers.py` for the first, the case's own module for the
 others) records, per product, the **sets** of `(price, currency)` and
 `(rating, review_count)` the pages print, so any printed figure counts and a
-mispairing does not (ADR-0022). `benchmark/scoring.py` scores eight shares in
-`[0, 1]`:
+mispairing does not (ADR-0022), and the **verdicts** the pages pass on it, line by
+line, so a quote counts only when it is one of them (ADR-0073). A reported name
+matches an entry by its words, as grounding matches one, except that two names each
+carrying a model number the other lacks are two products: "WH-1000XM4" is not the
+XM5. `benchmark/scoring.py` scores eight shares in `[0, 1]`:
 
 | Metric | What it counts |
 | --- | --- |
@@ -306,8 +309,8 @@ mispairing does not (ADR-0022). `benchmark/scoring.py` scores eight shares in
 | `figures` | Price, rating and review count reported *and* printed for that product |
 | `attribution` | The other half: figures printed for somebody else |
 | `links` | Products pointed at a page that is about them (ADR-0017) |
-| `quotes` | Products carrying a verdict a page about them printed (ADR-0024) |
-| `faithful` | The other half: quotes that are not verbatim on such a page |
+| `quotes` | Products a page judges, carrying one of the verdicts it passed on them (ADR-0024) |
+| `faithful` | The other half: quotes that are not, word for word, a verdict on that product |
 | `order` | Whether the ranking came out in the order the key's own figures give |
 
 Pairs are split so that reporting nothing and reporting nonsense do not score
@@ -345,8 +348,10 @@ handler, so it is admitted and answered as the shop is (ADR-0018).
 
 `tests/test_benchmark_cases.py` reads every key back off its condensed pages
 without a model: every figure printed, every page an entry lists mentioning it and
-every page mentioning it listed, each `PERFECT` scoring exactly 1.000, each
-`SLOPPY` hitting its pinned counts. **Editing a case's pages means re-running
+every page mentioning it listed, every verdict a line of a page about its product,
+every line the opinion sweep would take given to a product or listed as about
+nobody, each `PERFECT` scoring exactly 1.000, each `SLOPPY` hitting its pinned
+counts. **Editing a case's pages means re-running
 it.** `tests/test_benchmark.py` keeps the scorer's own rules,
 `tests/test_benchmark_compare.py` the comparison, the board and the command line,
 and `tests/test_benchmark_server.py` the page: its routes, and its script, which

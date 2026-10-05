@@ -4,10 +4,12 @@ and is a query held to what its request asked? (ADR-0036, ADR-0070)"""
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Iterable
 
 import pytest
 
 from buy_agent import agent as agent_module
+from buy_agent.fetch import _MIN_OPINION, reads_like_an_opinion
 from buy_agent.models import ProductList, SearchQuery
 from buy_agent.search import SearchResult
 from buy_agent.verification import (
@@ -16,6 +18,7 @@ from buy_agent.verification import (
     mentions_number,
     mentions_rating,
     mentions_review_count,
+    running_words,
 )
 from benchmark import corpus
 from benchmark.cases import CASES, ESPRESSO, HEADPHONES, LAPTOPS, SCRIPTS, Case, case_for
@@ -163,6 +166,57 @@ def test_every_page_about_a_product_is_one_its_entry_lists(case: Case) -> None:
             page.url for page in pages if mentions_name(build_haystack([page]), entry.name)
         }
         assert mentioning == entry.pages, entry.name
+
+
+def shown_lines(pages: tuple[SearchResult, ...], urls: Iterable[str] | None = None) -> set[str]:
+    """Every line of ``pages`` the model is shown, as running words -- of the pages at
+    ``urls`` only, where given."""
+    wanted = None if urls is None else set(urls)
+    return {
+        running_words(line)
+        for page in pages
+        if wanted is None or page.url in wanted
+        for line in page.content.split("\n")
+    }
+
+
+def given(case: Case) -> set[str]:
+    """Every verdict a case's key gives a product, as running words."""
+    return {running_words(verdict) for entry in case.key for verdict in entry.verdicts}
+
+
+@EVERY_CASE
+def test_every_verdict_is_a_line_of_a_page_about_its_product(case: Case) -> None:
+    """A verdict no page about the product shows is one no model could have copied: a
+    silent ceiling under ``quotes`` (ADR-0073)."""
+    pages = served(case)
+
+    for entry in case.key:
+        shown = shown_lines(pages, entry.pages)
+        for verdict in entry.verdicts:
+            assert running_words(verdict) in shown, f"{entry.name}: {verdict}"
+
+
+@EVERY_CASE
+def test_every_judgement_the_pages_pass_is_given_to_a_product_or_to_nobody(case: Case) -> None:
+    """The other half: a verdict left out of the key is a faithful quote scored as one
+    nobody printed. Every line the pipeline's own opinion sweep would take -- the
+    snippets' too -- is a verdict on a product, or listed as about nobody."""
+    assigned = given(case) | {running_words(line) for line in case.about_nobody}
+
+    for page in served(case):
+        for line in [page.snippet, *page.content.split("\n")]:
+            if len(line) >= _MIN_OPINION and reads_like_an_opinion(line):
+                assert running_words(line) in assigned, f"{page.url}: {line!r}"
+
+
+@EVERY_CASE
+def test_a_line_about_nobody_is_on_the_pages_and_given_to_nobody(case: Case) -> None:
+    shown = shown_lines(served(case))
+
+    for line in case.about_nobody:
+        assert running_words(line) in shown, line
+        assert running_words(line) not in given(case), line
 
 
 @EVERY_CASE
