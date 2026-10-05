@@ -231,9 +231,6 @@ def _install_relay() -> None:
 class BuyAgentHandler(BaseHTTPRequestHandler):
     """Routes ``/api`` to the agent and everything else to the built UI."""
 
-    # ``close_connection`` belongs to the base class, which sets it outside ``__init__``.
-    # pylint: disable=attribute-defined-outside-init
-
     server_version = "buy_agent"
     protocol_version = "HTTP/1.1"
     #: Read by ``socketserver`` at connection setup (see :data:`_REQUEST_TIMEOUT`).

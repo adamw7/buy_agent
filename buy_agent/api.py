@@ -164,9 +164,11 @@ def run_search(
             request, sort_by=sort_by, checkpoint=checkpoint, record=removals.append
         )
     # Built from ``_STATUS`` at run time, which pylint cannot read exceptions out of.
-    # pylint: disable=catching-non-exception, bad-exception-cause
-    except tuple(_STATUS) as exc:
-        raise ApiError(str(exc), _status_for(exc, _STATUS)) from exc
+    except tuple(_STATUS) as exc:  # pylint: disable=catching-non-exception
+        # The same tuple, so the same blind spot.
+        raise ApiError(  # pylint: disable=bad-exception-cause
+            str(exc), _status_for(exc, _STATUS)
+        ) from exc
     finally:
         # One agent per request, released here.
         release(agent)
