@@ -3,7 +3,7 @@
 # (ADR-0038); one client per model server (ADR-0028). The optional AP2 SDK is
 # in requirements-ap2.txt.
 ollama==0.6.3
-openai==3.19.2
+openai==3.24.0
 ddgs==9.16.0
 pydantic==2.13.5
 httpx==0.28.1
