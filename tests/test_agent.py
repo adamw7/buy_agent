@@ -30,9 +30,16 @@ def agent_factory(monkeypatch):
         calls: list[dict] = []
 
         def fake_search(
-            query: str, *, max_results: int = 10, region: str = "us-en", **_: object
+            query: str,
+            *,
+            max_results: int = 10,
+            region: str = "us-en",
+            wait: object = None,
+            **_: object,
         ) -> list:
-            calls.append({"query": query, "max_results": max_results, "region": region})
+            calls.append(
+                {"query": query, "max_results": max_results, "region": region, "wait": wait}
+            )
             return results
 
         def fake_enrich(found: list, **kwargs) -> list:
@@ -98,6 +105,9 @@ def test_the_refined_query_is_what_gets_searched(
         "query": "cheap ANC headphones price",
         "max_results": 7,
         "region": "uk-en",
+        # The clock a refused search waits by before asking again, as the fetching
+        # is handed one (ADR-0053).
+        "wait": sleep,
     }
 
 
@@ -189,7 +199,7 @@ def test_a_search_that_found_nothing_names_the_sources_it_was_confined_to(
         assert agent.run("espresso machine") == []
 
     said = caplog.text
-    assert "rtings.com" in said
+    assert "Only rtings.com was searched" in said
     assert "no falling back" in said, "and that there is no wider web to fall back on"
 
 
@@ -265,7 +275,9 @@ def test_no_extractable_products_yields_no_products(
 def test_empty_request_is_rejected(agent_factory, search_results) -> None:
     agent, _ = agent_factory(FakeLLM(), search_results)
 
-    with pytest.raises(ValueError, match="empty"):
+    # The whole sentence: the CLI prints it as the run's last line and the page as its
+    # failure, so it is the shopper's to read.
+    with pytest.raises(ValueError, match=r"^Nothing to shop for: the request is empty\.$"):
         agent.run("   ")
 
 
@@ -1393,12 +1405,21 @@ def test_what_a_run_took_out_is_handed_to_whoever_is_recording(
 ) -> None:
     """``run`` passes its recorder down to every step that removes a product, the page
     taken for one and the product outside the limits included -- which is what the
-    browser's "left out" panel is built from (ADR-0055)."""
+    browser's "left out" panel is built from (ADR-0055).
+
+    One of each step a run can reach, in the order the pipeline runs them. The nameless
+    drop in ``deduplicate`` is not one: a name with nothing to identify it by is
+    mentioned by no page either, so ``ground`` takes it first; the merge is what
+    ``deduplicate`` is handed the recorder for."""
     found = ProductList(
         products=[
             ExtractedProduct(name="The 5 best headphones of 2026"),
+            ExtractedProduct(name="Bonavita Gooseneck Kettle", price=80.0, currency="USD"),
             ExtractedProduct(name="Sony WH-1000XM5", price=328.0, currency="USD"),
             ExtractedProduct(name="Anker Soundcore Q30", price=79.0, currency="USD"),
+            ExtractedProduct(
+                name="Anker Soundcore Q30 Wireless Headphones", price=79.0, currency="USD"
+            ),
         ]
     )
     agent, _ = agent_factory(FakeLLM(products=found), search_results, max_price=200.0)
@@ -1408,6 +1429,8 @@ def test_what_a_run_took_out_is_handed_to_whoever_is_recording(
 
     assert [(removal.name, removal.step) for removal in removed] == [
         ("The 5 best headphones of 2026", "clean"),
+        ("Bonavita Gooseneck Kettle", "ground"),
+        ("Anker Soundcore Q30 Wireless Headphones", "merge"),
         ("Sony WH-1000XM5", "limits"),
     ]
 

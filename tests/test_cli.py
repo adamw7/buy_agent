@@ -594,7 +594,7 @@ def test_a_json_path_naming_a_directory_is_a_usage_error_too(
         main(["headphones", "--json", str(tmp_path)])
 
     assert exit_info.value.code == 2
-    assert "is a directory" in capsys.readouterr().err
+    assert f"{str(tmp_path)!r} is a directory" in capsys.readouterr().err
 
 
 def test_an_unwritable_json_path_is_an_exit_code_not_a_traceback(
@@ -612,7 +612,9 @@ def test_an_unwritable_json_path_is_an_exit_code_not_a_traceback(
     with caplog.at_level(logging.ERROR, logger="buy_agent"):
         assert main(["headphones", "--json", str(destination)]) == 1
 
-    assert str(destination) in caplog.text
+    # Named by the line itself: the error's own words repeat the path, and not every
+    # ``OSError`` carries one.
+    assert f"Could not write {destination} (" in caplog.text
     assert not destination.exists()
 
 
@@ -994,7 +996,8 @@ def test_the_prompt_restates_the_cart_and_whether_anybody_is_charged(
     assert "329.99 USD" in shown
     assert "Sony WH-1000XM5" in shown
     assert "AudioSite" in shown
-    assert "will NOT be charged" in shown
+    # The end of the rail's line, word for word: the sentence a keypress follows.
+    assert "-- you will NOT be charged\n" in shown
 
 
 def test_the_prompt_on_a_rail_that_moves_money_says_somebody_will_be_charged(
@@ -1019,7 +1022,7 @@ def test_anything_but_yes_buys_nothing(fake_agent, monkeypatch, caplog) -> None:
     with caplog.at_level(logging.WARNING):
         assert main(["headphones", "--pay"]) == main_module.PAYMENT_FAILED
 
-    assert "was not approved" in caplog.text
+    assert "Not paid: Sony WH-1000XM5 was not approved." in caplog.text
 
 
 def test_ctrl_c_at_the_approval_prompt_is_interrupted_and_not_a_traceback(

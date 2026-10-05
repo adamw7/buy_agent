@@ -23,7 +23,7 @@ from buy_agent.journal import (
     compare,
     open_journal,
 )
-from buy_agent.models import Product
+from buy_agent.models import Product, price_label
 from buy_agent.sources import parse_sources
 
 
@@ -130,6 +130,16 @@ def test_the_least_recently_run_search_is_the_one_forgotten(tmp_path: Path) -> N
     assert len(list(tmp_path.glob("*.json"))) == 2
 
 
+def test_forgetting_says_how_many_searches_went(tmp_path: Path) -> None:
+    for name in ("kettle", "laptop", "headphones"):
+        open_journal(name, asked={}, keeping=True, directory=tmp_path).against(
+            [priced(name, 10.0)]
+        )
+
+    assert _forget_the_least_recent(tmp_path, 1) == 2
+    assert len(list(tmp_path.glob("*.json"))) == 1
+
+
 # -- what it says moved --------------------------------------------------------
 
 
@@ -165,6 +175,7 @@ def test_a_product_the_last_run_did_not_have_is_new(tmp_path: Path) -> None:
 
     assert [change.movement for change in changes] == ["steady", "new"]
     assert "not in the run of" in changes[1].detail
+    assert (changes[1].price_label, changes[1].was_label) == ("449.00 USD", None)
 
 
 def test_a_product_that_has_left_the_report_is_listed_last(tmp_path: Path) -> None:
@@ -201,12 +212,63 @@ def test_two_prices_that_cannot_be_held_against_each_other_report_no_movement(
     converted: bool,
 ) -> None:
     journal(tmp_path).against([priced("Sage Bambino", *before)])
+    again = journal(tmp_path)
 
-    change = journal(tmp_path).against([priced("Sage Bambino", *now)])[0]
+    change = again.against([priced("Sage Bambino", *now)])[0]
+
+    label, was = price_label(*now), price_label(*before)
+    why = "; nothing is converted" if converted else ""
+    assert change.movement == "unplaced"
+    assert (change.price_label, change.was_label, change.delta) == (label, was, None)
+    assert change.detail == (
+        f"{label} now and {was} on {again.compared_with()}{why}, "
+        "so there is no movement to report."
+    )
+
+
+@pytest.mark.parametrize(
+    ("before", "now"),
+    [
+        pytest.param(329.0, None, id="gone from this run"),
+        pytest.param(None, 329.0, id="absent from the last"),
+    ],
+)
+def test_a_price_missing_on_either_side_is_no_movement_even_in_one_currency(
+    before: float | None, now: float | None
+) -> None:
+    """Grounding blanks a price with its currency, but a file written otherwise can name
+    a currency for a price it does not have: one missing figure is still nothing to
+    subtract."""
+    was = Entry(at=time.time(), products=[Recorded(name="Thing", price=before, currency="USD")])
+
+    change = compare(was, [Recorded(name="Thing", price=now, currency="USD")])[0]
 
     assert change.movement == "unplaced"
-    assert change.detail.endswith("so there is no movement to report.")
-    assert ("nothing is converted" in change.detail) is converted
+    assert "nothing is converted" not in change.detail
+
+
+@pytest.mark.parametrize(
+    ("before", "now", "movement", "delta", "said"),
+    [
+        # The cents are kept: rounded to the unit, this read "20.00 USD cheaper".
+        pytest.param(349.99, 329.49, "cheaper", -20.5, "20.50 USD cheaper", id="cents"),
+        # Under one whole unit is still a rise, not a fall.
+        pytest.param(329.49, 329.99, "dearer", 0.5, "0.50 USD dearer", id="under one unit"),
+        # Under a cent is no movement at all -- written out, it read "0.00 USD
+        # cheaper" -- and its sign does not reach the payload as -0.0.
+        pytest.param(349.0, 348.996, "steady", 0.0, "unchanged since", id="under a cent"),
+    ],
+)
+def test_a_movement_is_measured_to_the_cent(
+    before: float, now: float, movement: str, delta: float, said: str
+) -> None:
+    was = Entry(at=time.time(), products=[Recorded(name="Thing", price=before, currency="USD")])
+
+    change = compare(was, [Recorded(name="Thing", price=now, currency="USD")])[0]
+
+    assert (change.movement, change.delta) == (movement, delta)
+    assert str(change.delta) == str(delta), "no negative zero"
+    assert said in change.detail
 
 
 def test_two_runs_match_a_product_by_the_identity_a_run_already_uses(
@@ -247,6 +309,14 @@ def test_a_search_asked_differently_has_a_history_of_its_own(
     kept = journal(tmp_path, **{"region": "us-en", "max_price": None, "sources": [], **asked})
 
     assert kept.compared_with() is None
+
+
+def test_the_order_the_settings_arrive_in_is_not_part_of_what_was_asked(
+    tmp_path: Path,
+) -> None:
+    journal(tmp_path, region="uk-en", max_price=500.0).against([priced("Sage Bambino", 349.0)])
+
+    assert journal(tmp_path, max_price=500.0, region="uk-en").compared_with() is not None
 
 
 def test_the_same_request_typed_differently_is_the_same_search(tmp_path: Path) -> None:
@@ -307,6 +377,9 @@ def test_a_file_that_is_not_an_entry_is_read_as_no_history(tmp_path: Path) -> No
     assert journal(tmp_path).compared_with() is None
 
     written.write_text(json.dumps({"key": "another search", "runs": []}), encoding="utf-8")
+    assert journal(tmp_path).compared_with() is None
+
+    written.write_text(json.dumps({"key": kept.key}), encoding="utf-8")
     assert journal(tmp_path).compared_with() is None
 
 
@@ -406,6 +479,30 @@ def test_a_search_another_run_is_replacing_right_now_is_stepped_over(
 
     assert _forget_the_least_recent(tmp_path, 1) == 0
     assert len(list(tmp_path.glob("*.json"))) == 3
+
+
+def test_one_search_being_replaced_does_not_stop_the_rest_being_forgotten(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first file asked about, whichever the filesystem lists first, so this holds
+    in any order: one stepped over, the other two are still weighed."""
+    for name in ("kettle", "laptop", "headphones"):
+        open_journal(name, asked={}, keeping=True, directory=tmp_path).against(
+            [priced(name, 10.0)]
+        )
+    told = Path.stat
+    stepped_over: list[Path] = []
+
+    def stat(self: Path, *args: object, **kwargs: object):
+        if self.suffix == ".json" and not stepped_over:
+            stepped_over.append(self)
+            _raise_gone()
+        return told(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stat)
+
+    assert _forget_the_least_recent(tmp_path, 1) == 1
+    assert stepped_over[0].exists()
 
 
 def test_a_directory_that_cannot_be_listed_is_an_empty_history(tmp_path: Path) -> None:

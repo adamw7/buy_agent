@@ -162,6 +162,16 @@ def test_sort_by_price_puts_unpriced_products_last() -> None:
     assert [entry.product.name for entry in ranked] == ["cheap", "dear", "unpriced"]
 
 
+def test_sort_by_price_puts_a_free_product_first() -> None:
+    """Nothing is a price, and the lowest there is: a price of 0 is not read as the
+    absence of one, which the first half of the key already sorts."""
+    ranked = rank_products(
+        [product("cheap", price=0.5), product("free", price=0.0), product("unpriced")],
+        sort_by="price",
+    )
+    assert [entry.product.name for entry in ranked] == ["free", "cheap", "unpriced"]
+
+
 def test_sort_by_rating_puts_unrated_products_last() -> None:
     ranked = rank_products(
         [

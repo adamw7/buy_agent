@@ -264,6 +264,19 @@ def test_closing_a_camera_lets_its_browser_go_now(cameras) -> None:
     assert launch.launched[0].closed.is_set()
 
 
+def test_a_camera_asked_again_after_closing_opens_a_browser_again(cameras) -> None:
+    """Closing ends the browser, not the camera: the worker that let it go is forgotten
+    as it leaves, so the next picture starts a worker rather than queueing for one that
+    has gone -- and waiting out the whole of ``wait`` for nothing."""
+    launch = Launcher()
+    camera = cameras(launch, wait=2.0)
+    camera.shoot(SHOP)
+    camera.close()
+
+    assert camera.shoot(ROUNDUP) == f"jpeg of {ROUNDUP}".encode()
+    assert len(launch.launched) == 2
+
+
 def test_closing_a_camera_that_took_nothing_does_nothing(cameras) -> None:
     launch = Launcher()
     cameras(launch).close()

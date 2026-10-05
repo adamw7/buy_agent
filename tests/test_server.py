@@ -480,8 +480,9 @@ def test_models_does_not_ask_this_server_for_a_model(server: str, monkeypatch) -
 
     assert status == 200
     assert payload["reachable"] is False
+    assert payload["models"] == [], "the picker reads a list, empty or not"
     assert (payload["label"], payload["base_url"]) == ("vLLM", own)
-    assert "this page's own address" in payload["hint"]
+    assert payload["hint"].startswith(f"{own} is this page's own address, not vLLM's")
     assert "vLLM address" in payload["hint"], "the form's name for the box"
     assert not asked, "nothing was asked: what answers there is this page"
 
@@ -505,9 +506,24 @@ def test_a_head_request_answers_like_a_get_without_the_body(server: str) -> None
 
     with urllib.request.urlopen(request, timeout=10) as response:
         assert response.status == 200
-        assert "json" in response.headers["Content-Type"]
+        assert response.headers["Content-Type"] == "application/json; charset=utf-8"
         assert int(response.headers["Content-Length"]) > 0
-        assert response.read() == b""
+
+
+def test_nothing_follows_the_headers_of_an_answer_to_head(server: str) -> None:
+    """Read off the socket: ``http.client`` drops whatever follows a HEAD's headers, so
+    the test above could not see a body sent anyway -- which a client keeping the
+    connection open would read as the start of its next answer."""
+    parsed = urlparse(server)
+    with socket.create_connection((parsed.hostname, parsed.port), timeout=10) as sock:
+        sock.sendall(
+            b"HEAD /api/config HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+        )
+        reply = read_all(sock)
+
+    head, _, after = reply.partition(b"\r\n\r\n")
+    assert head.startswith(b"HTTP/1.1 200")
+    assert after == b""
 
 
 def test_a_body_over_the_cap_is_refused_without_being_read(server: str) -> None:
@@ -1081,7 +1097,9 @@ def test_a_run_at_this_server_s_own_address_is_refused_at_that_box(
 
     assert status == 400
     assert data["field"] == "base_url"
-    assert "this page's own address" in data["error"]
+    assert data["error"].startswith(
+        f"{options['base_url']} is this page's own address, not vLLM's"
+    ), "which address, and whose it was meant to be"
     assert "request" not in StubAgent.captured, "nothing was run for a setting like this"
 
 
@@ -1111,6 +1129,8 @@ def test_a_run_at_an_address_that_will_not_parse_is_not_a_500(
         ("http://127.0.0.1:8000/v1", "127.0.0.1", 8000, True),
         ("http://[::1]:8000/v1", "::1", 8000, True),
         ("http://localhost:8000/v1", "0.0.0.0", 8000, True),
+        # A host is a name in any case: --host LocalHost binds what localhost names.
+        ("http://localhost:8000/v1", "LocalHost", 8000, True),
         ("http://192.168.1.5:8000/v1", "192.168.1.5", 8000, True),
         ("http://localhost", "127.0.0.1", 80, True),
         ("https://localhost/v1", "127.0.0.1", 443, True),
@@ -1511,6 +1531,24 @@ def test_a_port_no_socket_could_take_is_a_usage_error(given: str, says: str, cap
     assert says in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("given", [0, 65535])
+def test_both_ends_of_the_port_range_are_ports(
+    given: int, monkeypatch, tmp_path: Path
+) -> None:
+    """The range is inclusive: 0 asks the system for any free port, and 65535 is the
+    last there is."""
+    bound: list[int] = []
+
+    def create(host: str, port: int, **_: object) -> FakeHttpd:
+        bound.append(port)
+        return FakeHttpd()
+
+    monkeypatch.setattr("buy_agent.server.create_server", create)
+
+    assert main(["--port", str(given), "--ui-dir", str(tmp_path)]) == 0
+    assert bound == [given]
+
+
 class FakeHttpd:
     """Stands in for the socket server, so main() can be driven without binding one."""
 
@@ -1643,17 +1681,22 @@ def test_the_server_is_built_where_the_command_line_says(
     assert cameras_asked == ["127.0.0.2"]
 
 
-@pytest.mark.parametrize("verbose", [False, True], ids=["quiet", "verbose"])
+@pytest.mark.parametrize(
+    ("flags", "verbose"),
+    [([], False), (["--verbose"], True), (["-v"], True)],
+    ids=["quiet", "verbose", "short"],
+)
 def test_the_server_is_as_talkative_as_it_was_asked_to_be(
-    monkeypatch, tmp_path: Path, verbose: bool
+    monkeypatch, tmp_path: Path, flags: list[str], verbose: bool
 ) -> None:
+    """``-v`` too, as the CLI spells it."""
     configured: list[bool] = []
     monkeypatch.setattr(server_module, "create_server", lambda *a, **k: FakeHttpd())
     monkeypatch.setattr(
         server_module, "configure_logging", lambda *, verbose: configured.append(verbose)
     )
 
-    main(["--ui-dir", str(tmp_path), *(["--verbose"] if verbose else [])])
+    main(["--ui-dir", str(tmp_path), *flags])
 
     assert configured == [verbose]
 

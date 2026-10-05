@@ -108,6 +108,22 @@ def test_an_entry_inside_its_time_to_live_is_a_hit(tmp_path: Path) -> None:
     assert cache.get(URL) == "fresh"
 
 
+def test_an_entry_exactly_its_time_to_live_old_is_fresh_to_reader_and_pruner_alike(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The two sides of one line: were they to disagree there, a prune would delete an
+    entry a read in the same second would have answered with."""
+    cache = DiskCache(tmp_path, ttl=3600)
+    cache.put(URL, "on the line")
+    written = 1_800_000_000  # whole seconds, so the subtraction is exact
+    os.utime(_entry(cache, URL), (written, written))
+    monkeypatch.setattr("buy_agent.cache.time.time", lambda: written + 3600.0)
+
+    assert cache.get(URL) == "on the line"
+    assert cache.prune() == 0
+    assert cache._path(URL).exists()
+
+
 @pytest.mark.parametrize(
     "written",
     [
@@ -290,23 +306,27 @@ def test_pruning_steps_over_an_entry_it_cannot_remove(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Another run replacing the same page at the same moment, or a file somebody
-    else owns. Neither is this run's to fail over, and the rest still go."""
+    else owns. Neither is this run's to fail over, and the rest still go.
+
+    The stubborn one is whichever the sweep reaches first: chosen by name, the rest
+    went only where the filesystem happened to list it last."""
     cache = DiskCache(tmp_path, ttl=3600)
-    cache.put(URL, "stubborn")
-    cache.put("https://example.com/other", "also stale")
-    _age(cache, URL, seconds=7200)
-    _age(cache, "https://example.com/other", seconds=7200)
-    stubborn = cache._path(URL)
+    for url in (URL, "https://example.com/other", "https://example.com/third"):
+        cache.put(url, "stale")
+        _age(cache, url, seconds=7200)
     real_unlink = Path.unlink
+    stubborn: list[Path] = []
 
     def unlink(self: Path, **kwargs: object):
-        if self == stubborn:
+        if not stubborn:
+            stubborn.append(self)
             raise OSError("held open")
         return real_unlink(self, **kwargs)
 
     monkeypatch.setattr(Path, "unlink", unlink)
 
-    assert cache.prune() == 1
+    assert cache.prune() == 2
+    assert [path.name for path in tmp_path.glob("*.json")] == [stubborn[0].name]
 
 
 # -- opening one for a run -----------------------------------------------------
@@ -432,6 +452,23 @@ def test_the_same_question_is_answered_off_disk(tmp_path: Path) -> None:
 
     assert len(model.calls) == 1
     assert first == second == SearchQuery(query="wireless headphones")
+
+
+def test_the_order_a_fingerprint_is_written_in_is_not_part_of_the_question(
+    tmp_path: Path,
+) -> None:
+    """A key is read back by a later process, which owes this one no dict order."""
+    model = FakeLLM(query=SearchQuery(query="wireless headphones"))
+    cache = DiskCache(tmp_path / ANSWERS, ttl=DEFAULT_TTL)
+    RememberedAnswers(model, cache, {"model": "gemma4:12b", "provider": "ollama"}).answer(
+        ASKED, SearchQuery
+    )
+
+    RememberedAnswers(model, cache, {"provider": "ollama", "model": "gemma4:12b"}).answer(
+        ASKED, SearchQuery
+    )
+
+    assert len(model.calls) == 1
 
 
 class Reworded(SearchQuery):
