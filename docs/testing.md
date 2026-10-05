@@ -64,8 +64,8 @@ Optional prerequisites skip, never fail:
 - One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
   and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `3095 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `3011 passed, 104 skipped`.
+So the SDK without PowerShell reads `3107 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `3023 passed, 104 skipped`.
 
 ### `pytest.ini`
 
@@ -159,7 +159,7 @@ remove a whole product call `record` while the three that blank do not (ADR-0055
 
 `tests/test_architecture.py` asserts the import graph with
 [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython) (ADR-0047):
-thirty-two rules:
+forty-three rules:
 
 - no cycles, and no imports from `tests/`, `integration/`, `benchmark/`, `demo/`
   or `scripts/`;
@@ -171,22 +171,37 @@ thirty-two rules:
 - one module per seam (`ap2`, model clients, search libraries, the HTML parser,
   Playwright, `argparse`), and HTTP only in `fetch`, `providers`, `rails` and
   `search`;
-- `tempfile`/`hashlib` only in `cache`;
+- `tempfile`/`hashlib` only in `cache`, and `decimal` only in `money`;
 - env reads only in `config`, the three tables, `cache` and `mandates`;
+- no clock in `search` or `fetch`, which are handed a `wait` (ADR-0053);
 - stdlib network modules only in `server`, which imports nothing third-party;
 - the two doors don't import each other;
-- `chat.py` knows nothing of products, and `money.py` is a leaf;
+- `providers` and `rails` are read only by `config` and the doors, and
+  `search_web` and `enrich` are imported only by `agent`, where the suite
+  patches them;
+- `server` names no step, product, cart or history, since every payload is
+  `api`'s;
+- `screenshots` is known only to `server` and `api`, and `bounds` only to the
+  doors;
+- `chat.py` knows nothing of products, of the seams only `journal` names the
+  domain, and `money.py` is a leaf;
 - `bounds.py` reaches only `money`;
-- pipeline steps don't chain each other and read no env, files, clocks or
-  randomness;
-- decision modules never reach the model, fetch or search.
+- pipeline steps don't chain each other, read no env, files, clocks or
+  randomness, never read the journal, and with `agent` declare no pydantic
+  schema;
+- decision modules never reach the model, fetch or search, and neither
+  `extraction` nor `providers` knows the answer cache is there.
 
 Every rule uses
 `ignore_type_checking_imports=True`, since an import under `if TYPE_CHECKING:`
 never runs. A negated rule over nothing passes, so the helpers naming modules
-check each exists, and a thirty-third test checks every module sits in exactly
+check each exists, and a forty-fourth test checks every module sits in exactly
 one layer. Edges inside a layer are skipped, which is why the two doors, the
 seams under the journal and the domain under `money.py` have rules of their own.
+An edge onto `__init__.py` is skipped by every rule, and `from buy_agent import
+mandates` is drawn as one, so a forty-fifth test reads those imports with `ast`
+and holds them to `_THROUGH_THE_PACKAGE`, each an edge the layer table names
+outright.
 
 Two of those rules and five convention tests are
 [ArchUnit](https://www.archunit.org) rules from
