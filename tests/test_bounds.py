@@ -60,6 +60,26 @@ def test_a_figure_is_read_in_either_convention(request_: str, bound: str, figure
     assert (seen.bound, seen.figure) == (bound, figure)
 
 
+@pytest.mark.parametrize(
+    ("request_", "bound", "figure"),
+    [
+        ("a laptop under ₩1,234,567", "max_price", "1234567"),
+        ("a car under $1,000,001", "max_price", "1000001"),
+        ("a car under $1,234,567.89", "max_price", "1234567.89"),
+        ("headphones with at least 1,500,000 reviews", "min_reviews", "1500000"),
+    ],
+)
+def test_a_figure_in_the_millions_is_written_out_whole(
+    request_: str, bound: str, figure: str
+) -> None:
+    """``:g`` keeps six significant digits and then turns to an exponent: a budget in won
+    of 1,234,567 was offered as ``--max-price 1.23457e+06``, which is another budget, and
+    a count of 1,500,000 as ``--min-reviews 1.5e+06``, which that flag refuses."""
+    seen = only(request_)
+
+    assert (seen.bound, seen.figure) == (bound, figure)
+
+
 def test_a_count_that_is_not_whole_is_not_offered() -> None:
     """No box takes 4.5 reviews, so nothing is offered for one."""
     assert notice("headphones with at least 4.5 reviews") == []
