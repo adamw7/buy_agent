@@ -1585,6 +1585,17 @@ def test_a_normal_run_cannot_collect_the_tests_that_need_ollama() -> None:
         assert not _LIVE_TESTS.is_relative_to(_ROOT / path), path
 
 
+def test_only_the_gate_asks_for_workers() -> None:
+    """`-n 3 --cov` is written on the gate's command line (ADR-0076) and not in
+    `pytest.ini`, which every run reads: the live tests share one run of a real model
+    per session, which three workers would make three, and a single test or a mutant
+    would pay for three workers starting up to run one."""
+    addopts = ini_values(_PYTEST_INI, "pytest", "addopts")
+    asked = [option for option in addopts if re.match(r"-n|--numprocesses|--dist|--cov", option)]
+
+    assert not asked, f"pytest.ini asks every run for {asked}; the gate's command line may"
+
+
 def test_the_nightly_run_runs_the_tests_a_normal_run_leaves_out() -> None:
     """...which is the other half of it: outside ``testpaths``, they are collected
     only by being named, so a workflow that ran a bare ``pytest`` would go green
@@ -2956,6 +2967,31 @@ def test_mypy_and_pylint_name_the_same_unreadable_libraries() -> None:
     other -- a library added to one file only is a check that is red on the machines
     that have the library and a check that is silent on the ones that do not."""
     assert unreadable_to_mypy() == unreadable_to_pylint()
+
+
+def mypy_cache_key_files() -> set[str]:
+    """Every file the key of ci.yml's ``.mypy_cache`` step hashes."""
+    step = re.search(
+        r"^\s+path: \.mypy_cache\n\s+key: (.+)$", _CI.read_text(encoding="utf-8"), re.M
+    )
+    assert step, "ci.yml keeps no mypy cache; this rule has outlived it (ADR-0076)"
+    hashed = re.search(r"hashFiles\(([^)]*)\)", step.group(1))
+    assert hashed, "the mypy cache's key hashes no file, so it is never replaced"
+    return set(re.findall(r"'([^']+)'", hashed.group(1)))
+
+
+def test_mypys_cache_is_keyed_on_everything_that_moves_its_answers() -> None:
+    """mypy checks each cached entry against the file it was made from, so a key naming
+    too little never changes an answer -- it keeps a cache restored after a pin or a
+    setting has moved, and every run then re-analyses whatever moved, which is the nine
+    seconds the cache is there to save (ADR-0076). Renovate moves one pin at a time."""
+    keyed = mypy_cache_key_files()
+    installed = requirements_installed_by(_CI)
+
+    assert not installed - keyed, (
+        f"ci.yml installs {sorted(installed - keyed)} and keys mypy's cache on {sorted(keyed)}"
+    )
+    assert _MUTMUT.name in keyed, f"mypy's settings live in {_MUTMUT.name}, which the key omits"
 
 
 #: Flags this project's own messages may name whatever door they arrive at, because they

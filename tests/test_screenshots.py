@@ -207,7 +207,8 @@ def test_a_browser_that_fails_unexpectedly_is_replaced(cameras, caplog) -> None:
         with pytest.raises(ScreenshotError, match=rf"Could not photograph {SHOP}: Target crashed$"):
             camera.shoot(SHOP)
 
-    assert broken.closed.is_set()
+    # The job is answered before its browser is let go, on the camera's own thread.
+    assert broken.closed.wait(5)
     assert "Target crashed" in caplog.text
 
     camera.shoot(ROUNDUP)
@@ -232,6 +233,8 @@ def test_a_browser_that_will_not_even_close_is_let_go_anyway(cameras, caplog) ->
     with caplog.at_level(logging.DEBUG, logger="buy_agent.screenshots"):
         with pytest.raises(ScreenshotError):
             camera.shoot(SHOP)
+        # The job is answered before its browser is let go: wait for the camera's thread.
+        camera.close()
 
     assert "Closing the screenshot browser failed" in caplog.text
 

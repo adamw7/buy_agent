@@ -20,15 +20,17 @@ installs everything it needs, the AP2 SDK included (ADR-0067).
 ## Python (Python 3.14)
 
 ```powershell
-python -m coverage run -m pytest
-python -m coverage report
+python -m pytest -n 3 --cov
 python -m pylint buy_agent
 python -m mypy buy_agent
 ```
 
-- The floor is `fail_under = 99` over branches and lines; a drop is a new branch
-  with no test.
-- Expect a few seconds. Much longer means something reaches the network.
+- The tests run in three workers, and pytest-cov prints the table and holds the
+  floor, `fail_under = 99` over branches and lines; a drop is a new branch with
+  no test (ADR-0076).
+- Expect a few seconds. Much longer means something reaches the network. A
+  failure only under `-n 3` is a test leaning on another's state or on a thread
+  it never waited for.
 - Without `pwsh`, `tests/test_start_script.py` skips on `needs_powershell`.
   Without the AP2 SDK the paying tests skip on `needs_ap2`, and the coverage
   floor fails. Add it with `pip install -r requirements-ap2-deps.txt`, then `pip

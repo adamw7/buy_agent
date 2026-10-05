@@ -1,4 +1,5 @@
-# Coverage settings for `coverage run --branch -m pytest`; see docs/testing.md.
+# Coverage settings, read by the gate's `pytest -n 3 --cov` (ADR-0076) and by
+# `coverage run -m pytest` alike; see docs/testing.md.
 [run]
 branch = true
 source = buy_agent
