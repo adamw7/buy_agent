@@ -659,6 +659,30 @@ def test_an_origin_that_will_not_parse_is_refused_rather_than_dropped(server: st
     assert reply.startswith("HTTP/1.1 403"), reply or "the connection closed unanswered"
 
 
+@pytest.mark.parametrize("method", ["GET", "HEAD", "POST"])
+def test_a_target_that_will_not_parse_is_refused_rather_than_dropped(
+    server: str, method: str
+) -> None:
+    """Each ``do_*`` parsed its target before its catch-all, so an absolute-form one with
+    an unclosed bracket raised there and the connection closed with nothing said."""
+    reply = raw(
+        server,
+        f"{method} http://[x/ HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\n\r\n".encode(),
+    )
+
+    assert reply.startswith("HTTP/1.1 400"), reply or "the connection closed unanswered"
+    assert "Connection: close" in reply
+
+
+def test_a_request_line_the_base_class_refuses_keeps_its_refusal(server: str) -> None:
+    """Only a request line ``BaseHTTPRequestHandler`` read is checked further; one it
+    could not read is answered as it answers one: with no version to answer in, a bare
+    error page."""
+    reply = raw(server, b"GET / HTTP/one\r\n\r\n")
+
+    assert "Error code: 400" in reply, reply or "the connection closed unanswered"
+
+
 def test_a_client_that_is_not_a_browser_is_answered(server: str) -> None:
     """curl and the scripts POST /api/search was shaped for send none of this."""
     reply = ask(server)
