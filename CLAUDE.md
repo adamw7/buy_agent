@@ -36,7 +36,7 @@ pip install -r requirements-dev.txt          # runtime deps: requirements.txt
 
 python -m pytest                              # whole suite (~8s)
 python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
-python -m coverage run -m pytest ; python -m coverage report
+python -m pytest -n 3 --cov                   # three workers, with the floor (ADR-0076)
 python -m pylint buy_agent                    # from the root (ADR-0048)
 python -m mypy buy_agent                      # from the root (ADR-0063)
 ollama pull qwen3:0.6b ; python -m pytest integration   # against a real model
@@ -84,7 +84,7 @@ If `ui/dist/ui/browser` is missing, the API still works and the page returns a
 503 saying how to build it (`_unbuilt_remedy`, as HTML for browsers and JSON
 otherwise), naming `--ui-dir` when `_workspace_for` finds no workspace.
 
-**CI.** `ci.yml` runs Python 3.14 (coverage + pytest, pylint, mypy) and Node
+**CI.** `ci.yml` runs Python 3.14 (pytest with coverage, pylint, mypy) and Node
 22.23.3 (`test:coverage`, `build`, `lint`, `format:check`) under `bash`, on Linux
 for pushes and PRs. Windows joins on the Saturday schedule and on
 `workflow_dispatch` (ADR-0037): dispatch it for a branch that touches paths,
@@ -558,6 +558,9 @@ rules a change must obey:
   until the declared body has arrived.
 - **Nothing sleeps** but `tests/test_server.py` (`StubAgent.delay`). Change the
   environment through `monkeypatch` only.
+- **The gate runs the suite in three workers** (`-n 3`, ADR-0076). A test leans
+  on no other test's state or order, and one whose code answers before its own
+  thread finishes waits for that thread, not for the answer.
 - **Optional prerequisites skip, never fail:** `needs_powershell` and
   `needs_ap2` (in `tests/conftest.py`, `skipif` only). `needs_ap2` goes on the
   parametrised case that reaches signing.

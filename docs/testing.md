@@ -10,7 +10,7 @@ Two suites, one per language, and the checks around them. Everything the
 python -m pytest              # whole suite
 python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
 
-python -m coverage run -m pytest ; python -m coverage report   # with coverage
+python -m pytest -n 3 --cov      # three workers, with coverage and its floor
 python -m pylint buy_agent    # the linter, from the repository root
 python -m mypy buy_agent      # the type checker, from the same place
 
@@ -27,7 +27,7 @@ python -m benchmark.server               # ...or as a page comparing several mod
 
 ## The unit suites
 
-3112 Python tests and 318 UI tests. Neither touches the network or a model
+3212 Python tests and 318 UI tests. Neither touches the network or a model
 server:
 
 - the model is faked through `BuyAgent(llm=...)`, a class with one `answer`
@@ -64,8 +64,31 @@ Optional prerequisites skip, never fail:
 - One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
   and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `3179 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `3095 passed, 104 skipped`.
+So the SDK without PowerShell reads `3192 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `3108 passed, 104 skipped`.
+
+### Across processes
+
+The gate runs the suite as `python -m pytest -n 3 --cov` (ADR-0076):
+[pytest-xdist](https://pypi.org/project/pytest-xdist/) starts three workers and
+hands each a share of the tests, and
+[pytest-cov](https://pypi.org/project/pytest-cov/) measures every worker, combines
+them into `.coverage`, prints `.coveragerc`'s table and fails the run under its
+`fail_under`. `python -m coverage report` reads the same file afterwards.
+
+Three is measured, not guessed. A Linux runner's four CPUs are two cores of two
+threads each, and every worker collects the whole suite for itself before running
+any of it, so a fourth costs more than it brings: timed side by side on twelve
+runners, three workers beat two and four on every one, and took the step from
+15-32 seconds serially to 11-21. A machine with more cores still runs three,
+because `preflight.ps1` runs what `ci.yml` runs.
+
+Nothing in `pytest.ini` asks for workers, so `python -m pytest`, a single test,
+`integration/` and mutmut all run in one process as before. A test that passes
+alone and fails under `-n 3` leans on state another test left behind, or
+checks something its code does on a thread of its own after answering: the
+camera answers a picture's caller before it lets a crashed browser go, so the
+tests of that wait for the camera's thread rather than for the answer.
 
 ### `pytest.ini`
 
@@ -83,7 +106,11 @@ So the SDK without PowerShell reads `3179 passed, 20 skipped`, and
 ### Pylint and mypy
 
 Both run after the tests in the Python job, over the package `.coveragerc` names
-in `source` and `setup.cfg` mutates, and both must report nothing at all.
+in `source` and `setup.cfg` mutates, and both must report nothing at all. `ci.yml`
+restores `.mypy_cache` before mypy runs, keyed on the requirements files the job
+installs and on `setup.cfg`: mypy checks every entry against the file it was made
+from, so a stale entry is re-analysed rather than believed, and a warm cache turns
+nine seconds into one (ADR-0076).
 
 **Pylint** (ADR-0048). The tests are not linted: fixtures shadow their own names
 by design. `.pylintrc` turns off three checks (docstrings on every function, too

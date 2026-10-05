@@ -74,8 +74,7 @@ if ($Only -contains 'python') {
         $failed += 'python: there is no .venv -- run .\scripts\setup.ps1'
     } else {
         Job 'python' $root $python @(
-            , @('-m', 'coverage', 'run', '-m', 'pytest')
-            , @('-m', 'coverage', 'report')
+            , @('-m', 'pytest', '-n', '3', '--cov')
             , @('-m', 'pylint', 'buy_agent')
             , @('-m', 'mypy', 'buy_agent')
         )

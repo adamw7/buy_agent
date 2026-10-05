@@ -56,16 +56,25 @@ jobs:
           pip install -r requirements-ap2-deps.txt
           pip install --no-deps -r requirements-ap2.txt
 
+      # Three workers, each measured: the runner is two cores of two threads, and three
+      # beat two and four on every one timed. pytest-cov combines them, prints the table
+      # and fails the step under .coveragerc's floor (ADR-0076).
       - name: Run tests
-        run: python -m coverage run -m pytest
-
-      - name: Check coverage
-        run: python -m coverage report
+        run: python -m pytest -n 3 --cov
 
       # Lint and type-check last: the tests are what a change is about (ADR-0048,
       # ADR-0063).
       - name: Run pylint
         run: python -m pylint buy_agent
+
+      # mypy checks its cache against the files themselves, so a stale one costs time
+      # and never an answer; it is keyed on what moves the third-party half of it, the
+      # files the install steps hand pip, and on the settings in setup.cfg (ADR-0076).
+      - name: Restore mypy's cache
+        uses: actions/cache@v6
+        with:
+          path: .mypy_cache
+          key: mypy-${{ runner.os }}-${{ hashFiles('requirements-dev.txt', 'requirements.txt', 'requirements-ap2-deps.txt', 'requirements-ap2.txt', 'setup.cfg') }}
 
       - name: Run mypy
         run: python -m mypy buy_agent
