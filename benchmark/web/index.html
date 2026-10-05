@@ -113,8 +113,11 @@
         <details>
           <summary>How a run is scored</summary>
           <p class="note">
-            Each metric is a share of something, higher is better, weighed into the score. The query
-            is scored apart: the constraints it kept, and nothing it added.
+            Each metric is a share of something, higher is better. Three come in pairs, what was
+            found and how much of it is right, and each pair is weighed into the score by its
+            harmonic mean, so it counts only as far as both halves do. A metric with nothing to
+            count counts nothing, and the order counts only above what a shuffle gets. The query is
+            scored apart: the constraints it kept, and nothing it added.
           </p>
           <table class="metrics">
             <thead>

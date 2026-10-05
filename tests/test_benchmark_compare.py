@@ -488,7 +488,7 @@ def test_a_scored_run_is_shown_with_its_scorecard_query_and_products() -> None:
     shown = run_payload(run_case(SLOPPY, ESPRESSO, clock=ticking(0.25)))
 
     assert shown["case"] == "espresso"
-    assert shown["score_label"] == "0.543"
+    assert shown["score_label"] == "0.540"
     assert not shown["cleared"]
     assert shown["summary"].startswith("3 of 5 slots hold a real product")
     order = next(metric for metric in shown["metrics"] if metric["name"] == "order")
@@ -522,13 +522,13 @@ def test_a_row_carries_a_cell_per_case_whatever_became_of_it() -> None:
     shown = standing_payload(row, CASE_LIST)
 
     assert shown["cells"] == [
-        {"case": "headphones", "state": "scored", "label": "0.500"},
+        {"case": "headphones", "state": "scored", "label": "0.462"},
         {"case": "laptops", "state": "failed", "label": "failed"},
         {"case": "espresso", "state": "missing", "label": "not run"},
     ]
     assert (shown["ran_label"], shown["complete"], shown["failed"]) == ("2 of 3", False, 1)
     assert (shown["rank"], shown["key"], shown["label"]) == (1, TINY.key, "tiny:1b")
-    assert (shown["score_label"], shown["query_label"]) == ("0.250", "1.00")
+    assert (shown["score_label"], shown["query_label"]) == ("0.231", "1.00")
     assert shown["reference"] is False
     assert [run["case"] for run in shown["runs"]] == ["headphones", "laptops"]
 
@@ -819,4 +819,4 @@ def test_the_command_line_writes_the_standings_as_the_page_reads_them(
         "perfect (scripted)",
         "sloppy (scripted)",
     ]
-    assert written_out["standings"][1]["score_label"] == "0.624"
+    assert written_out["standings"][1]["score_label"] == "0.605"

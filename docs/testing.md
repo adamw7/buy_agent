@@ -64,8 +64,8 @@ Optional prerequisites skip, never fail:
 - One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
   and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `3136 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `3052 passed, 104 skipped`.
+So the SDK without PowerShell reads `3147 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `3063 passed, 104 skipped`.
 
 ### `pytest.ini`
 
@@ -311,12 +311,20 @@ XM5. `benchmark/scoring.py` scores eight shares in `[0, 1]`:
 | `links` | Products pointed at a page that is about them (ADR-0017) |
 | `quotes` | Products a page judges, carrying one of the verdicts it passed on them (ADR-0024) |
 | `faithful` | The other half: quotes that are not, word for word, a verdict on that product |
-| `order` | Whether the ranking came out in the order the key's own figures give |
+| `order` | Pairs ranked in the order the key's figures give -- the figures the run reported, where the key accepts them |
 
-Pairs are split so that reporting nothing and reporting nonsense do not score
-alike. `integration/test_benchmark.py` fails a metric under
-`benchmark.scoring.FLOORS`, on the headphones case alone. The floors are a
-**tripwire, not a target**; raise one only in its own commit, quoting runs.
+Each pair is shown half by half, so a scorecard tells reporting nothing from
+reporting nonsense. The score weighs each pair by the weighted harmonic mean of its
+halves (`scoring.PAIRS`), counts a share with nothing to count as 0 whatever it
+shows, and pays `order` only above the half of its pairs a shuffle gets
+(`scoring.CHANCE`), so silence and luck earn nothing (ADR-0074). The scorecard's
+`weighed as` line says what each part came to.
+
+`integration/test_benchmark.py` fails a metric under `benchmark.scoring.FLOORS`, on
+the headphones case alone. The floors are a **tripwire, not a target**; raise one
+only in its own commit, quoting runs. `order`'s 0.25 is still below the half a
+shuffle gets, and the nightly's kept scorecards (ADR-0072) are the runs to quote
+when it is raised.
 
 The query step is scored apart, by `benchmark/query.py`: each constraint the
 request states kept (a case lists the spellings that keep it), no brand and no

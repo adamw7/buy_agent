@@ -382,6 +382,7 @@ def run_payload(run: CaseRun) -> dict[str, Any]:
         "score_label": "failed" if card is None else f"{card.score:.3f}",
         "cleared": card is not None and card.cleared,
         "summary": None if card is None else card.summary(),
+        "parts_label": None if card is None else card.parts_label(),
         "metrics": []
         if card is None
         else [

@@ -581,15 +581,18 @@ small model up: a headline or a shop posing as a product, one product under two
 names, a monthly payment or a student price posing as the price, a listing in
 Canadian dollars, decimal commas, cashback.
 
-A case's score weighs eight shares, each in `[0, 1]`. Six come in pairs -- how
-much was found, and how much of what was reported is right -- so that reporting
-nothing and reporting nonsense do not score alike: the five slots filled with
-products really on the pages (weighed 3) and entries that are real products, not
-shops or repeats (2); prices, ratings and review counts printed for that product
-(2) and figures that are not another's (2); products carrying a verdict their
-pages passed on them, and quotes that are such a verdict word for word (1 each). The
-other two are a link to a page about the product and a ranking in the key's own
-order (1 each).
+A case's score is made of eight shares, each in `[0, 1]`. Six come in pairs -- how
+much was found, and how much of what was reported is right: the five slots filled
+with products really on the pages (weighed 3) and entries that are real products,
+not shops or repeats (2); prices, ratings and review counts printed for that product
+(2) and figures that are not another's (2); products carrying a verdict their pages
+passed on them, and quotes that are such a verdict word for word (1 each). A pair
+counts by the weighted harmonic mean of its halves, so it is worth only as much as
+the weaker one allows: reporting nothing earns nothing, and neither does reporting
+nonsense. The other two are a link to a page about the product (1) and a ranking in
+the key's own order (1), which counts only what it got right above the half of its
+pairs a shuffle would. A share with nothing to count still shows on the scorecard,
+where its floor reads it, and counts 0 in the score (ADR-0074).
 **Query** is scored apart, as the share of checks the search query passed: each
 constraint the request states kept, no brand and no figure the shopper did not
 give, and twenty words or fewer.
@@ -606,16 +609,18 @@ nobody wrote, one product twice.
 
 `qwen3:0.6b` (Q4_K_M, 397 MB, in Ollama 0.35.1, on 3 October 2026) scored 0.815,
 between `sloppy`'s 0.624 and `perfect`'s 1.000, and the whole comparison took
-1 min 49 s. Every query it wrote passed every check, and nothing in its reports was
+1 min 49 s. Those are the scores of the day; ADR-0074 has since stopped paying for
+quotes not given and for a shuffle's share of the order, and the same counts now
+come to 0.725, between `sloppy`'s 0.605 and `perfect`'s 1.000. Every query it wrote passed every check, and nothing in its reports was
 invented or repeated. It lost points by reporting too little -- four or three
 products for five slots, and not one quote -- and, on the euro case, by
 misattributing two of nine figures and linking one product to a page not about it:
 
-| Case | Score | Real products, of 5 | Figures right | Model time |
-| --- | --- | --- | --- | --- |
-| `headphones` | 0.877 | 4 | 12 of 12 | 46.9 s, loading the model included |
-| `laptops` | 0.831 | 3 | 9 of 9 | 33.5 s |
-| `espresso` | 0.737 | 3 | 7 of 9 | 28.1 s |
+| Case | Score | Scored now | Real products, of 5 | Figures right | Model time |
+| --- | --- | --- | --- | --- | --- |
+| `headphones` | 0.877 | 0.796 | 4 | 12 of 12 | 46.9 s, loading the model included |
+| `laptops` | 0.831 | 0.736 | 3 | 9 of 9 | 33.5 s |
+| `espresso` | 0.737 | 0.642 | 3 | 7 of 9 | 28.1 s |
 
 That is one model, once, on one machine; [Running it](#running-it) scores yours.
 

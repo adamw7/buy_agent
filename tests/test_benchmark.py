@@ -325,7 +325,7 @@ def test_the_sloppy_run_scores_exactly_what_its_mistakes_cost(sloppy: Scorecard)
         "order": (2, 3),
     }
     assert (sloppy.invented, sloppy.repeated) == (1, 1)
-    assert sloppy.score == pytest.approx(0.7008547008547008)
+    assert sloppy.score == pytest.approx(0.6752136752136753)
 
 
 def test_the_scorer_catches_the_three_the_pipeline_cannot(sloppy: Scorecard) -> None:
@@ -358,6 +358,99 @@ def test_a_run_that_reported_nothing_falls_under_every_floor() -> None:
     assert card.metrics["attribution"] == 1.0
     assert card.score < FLOORS["score"]
     assert "UNDER" in card.table(), "the nightly logs this pass or fail"
+
+
+# -- how the score is weighed --------------------------------------------------
+
+
+def card_of(**counts: tuple[int, int]) -> Scorecard:
+    """A scorecard with every metric full but the ones named."""
+    return Scorecard(counts={name: (5, 5) for name in METRICS} | counts, invented=0, repeated=0)
+
+
+def test_reporting_nothing_scores_nothing() -> None:
+    """``attribution``, ``faithful`` and ``order`` read 1.0 with nothing to count, and are
+    floored that way; the score is paid for none of them (ADR-0074). It used to pay 0.308
+    for an empty answer."""
+    assert score_run([], []).score == 0.0
+
+
+def test_a_pair_counts_only_as_far_as_both_halves_do() -> None:
+    """Five products found and not a figure copied: the error half has nothing to be
+    wrong about, and the pair counts nothing for it."""
+    card = card_of(figures=(0, 15), attribution=(0, 0))
+
+    assert card.metrics["attribution"] == 1.0, "shown as nothing wrong"
+    assert card.parts["figures/attribution"] == (4.0, 0.0)
+    assert card.parts["identified/genuine"] == (5.0, 1.0)
+
+
+def test_a_pair_is_its_halves_weighed_harmonically() -> None:
+    """``identified`` weighs 3 to ``genuine``'s 2, so finding three of five slots costs
+    more than reporting a shop beside them; and one right figure out of fifteen is worth
+    little however right it is."""
+    found = card_of(identified=(3, 5), genuine=(3, 3)).parts["identified/genuine"]
+    sparse = card_of(figures=(1, 15), attribution=(1, 1)).parts["figures/attribution"]
+
+    assert found == (5.0, pytest.approx(5 / (3 / 0.6 + 2 / 1.0)))
+    assert sparse == (4.0, pytest.approx(2 / (1 / (1 / 15) + 1 / 1.0)))
+
+
+def test_order_is_paid_only_above_a_shuffle() -> None:
+    """A shuffled ranking puts half its pairs in order on average; the metric shows that
+    half, and the score pays for what is above it (ADR-0074)."""
+    assert card_of(order=(5, 10)).parts["order"] == (1.0, 0.0)
+    assert card_of(order=(3, 10)).parts["order"] == (1.0, 0.0)
+    assert card_of(order=(8, 10)).parts["order"] == (1.0, pytest.approx(0.6))
+    assert card_of(order=(0, 0)).parts["order"] == (1.0, 0.0), "no pair to put in order"
+    assert card_of(order=(0, 0)).metrics["order"] == 1.0
+
+
+def test_a_run_that_copies_no_figure_scores_under_one_that_copies_most(sloppy) -> None:
+    """Five products named and linked, and not a price, rating or quote among them, gave
+    a shopper nothing to rank on. It used to outscore ``SLOPPY``, which copied seven
+    figures of nine: 0.731 to 0.701."""
+    names = ProductList(
+        products=[
+            product.model_copy(
+                update={"price": -1, "currency": "", "rating": -1, "review_count": 0,
+                        "opinions": []}
+            )
+            for product in PERFECT.products
+        ]
+    )
+
+    card = run_benchmark(llm=ScriptedLLM(names)).scorecard
+
+    assert card.counts["identified"] == (5, 5)
+    assert card.counts["figures"] == (0, 15)
+    assert card.score < sloppy.score
+
+
+def test_a_figure_the_key_accepts_never_costs_the_order() -> None:
+    """The Sennheiser's euro listing is a price the pages print for it, so a run that
+    reports it is right, and is ranked against a key that says so (ADR-0074). Against the
+    key's own dollar price it used to cost a tenth of ``order``."""
+    euro = PERFECT.products[2].model_copy(update={"price": 169.0, "currency": "EUR"})
+    answer = ProductList(products=[*PERFECT.products[:2], euro, *PERFECT.products[3:]])
+
+    card = run_benchmark(llm=ScriptedLLM(answer)).scorecard
+
+    assert card.counts["figures"] == (15, 15)
+    assert card.counts["order"] == (10, 10)
+    assert card.score == pytest.approx(1.0)
+
+
+def test_the_score_says_what_it_is_made_of(sloppy: Scorecard) -> None:
+    """The score is no longer a weighted mean of the rows above it, so the table says
+    what it is a mean of."""
+    expected = (
+        "identified/genuine 0.600 x5, figures/attribution 0.778 x4, links 1.000 x1, "
+        "quotes/faithful 0.667 x2, order 0.333 x1"
+    )
+
+    assert sloppy.parts_label() == expected
+    assert f"  weighed as   {expected}" in sloppy.table()
 
 
 # -- the plumbing --------------------------------------------------------------
@@ -443,8 +536,8 @@ def test_the_command_line_writes_the_scorecard_as_a_record(tmp_path, capsys) -> 
     (run,) = row["runs"]
 
     assert [metric["name"] for metric in run["metrics"]] == list(METRICS)
-    assert run["score"] == pytest.approx(0.7008547008547008, abs=1e-4)
-    assert row["score_label"] == "0.701"
+    assert run["score"] == pytest.approx(0.6752136752136753, abs=1e-4)
+    assert row["score_label"] == "0.675"
     capsys.readouterr()
 
 

@@ -350,6 +350,7 @@ function metricsBlock(run) {
         ),
       ),
     ]),
+    element('p', { className: 'note small', text: `Weighed as ${run.parts_label}` }),
   ]);
 }
 

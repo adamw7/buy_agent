@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from itertools import combinations
 from typing import TYPE_CHECKING
 
+from buy_agent.models import Product
 from buy_agent.ranking import rank_products
 from buy_agent.verification import (
     NAME_COVERAGE,
@@ -20,7 +21,6 @@ from benchmark.corpus import NUM_PRODUCTS
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
 
-    from buy_agent.models import Product
     from buy_agent.search import SearchResult
 
 #: Fraction of a name's distinctive words that has to be found on the other side for two
@@ -28,7 +28,8 @@ if TYPE_CHECKING:
 #: sets, applied both ways.
 MATCH_COVERAGE = NAME_COVERAGE
 
-#: Each metric: what it weighs, and what it scores on an empty denominator.
+#: Each metric: what it weighs, and what it shows on an empty denominator. The empty
+#: value is what the metric reads and is floored at; the score never counts it (ADR-0074).
 METRICS: dict[str, tuple[float, float]] = {
     "identified": (3.0, 0.0),  # slots filled with a product that is really there
     "genuine": (2.0, 0.0),  # reported entries that are a real product, once each
@@ -49,8 +50,21 @@ MEANINGS: dict[str, str] = {
     "links": "Products pointed at a page that is about them",
     "quotes": "Products a page judges, carrying one of the verdicts it passed on them",
     "faithful": "Quotes reported that are, word for word, a verdict passed on that product",
-    "order": "Pairs ranked in the order the key's own figures give",
+    "order": "Pairs ranked in the order the key's figures give; a shuffle gets half",
 }
+
+#: Each completeness half and the error half it is weighed with into the score, by their
+#: weighted harmonic mean: a pair counts only as far as both halves do, so reporting
+#: nothing earns nothing, and neither does reporting nonsense (ADR-0074).
+PAIRS: tuple[tuple[str, str], ...] = (
+    ("identified", "genuine"),
+    ("figures", "attribution"),
+    ("quotes", "faithful"),
+)
+
+#: What a metric scores by luck alone, which the score does not pay for: a shuffled
+#: ranking puts half its pairs in order (ADR-0074).
+CHANCE: dict[str, float] = {"order": 0.5}
 
 #: What a reported product is to the key: one it names, a second report of one, or
 #: something the pages are not about.
@@ -164,9 +178,24 @@ def quotes_a_verdict(quote: str, entry: Expected, pages: Mapping[str, str]) -> b
     )
 
 
+def _as_it_should_be(product: Product, entry: Expected) -> Product:
+    """``entry`` as this run should have reported it: each pair of figures the run
+    reported where the key accepts it, the entry's own where it does not (ADR-0074). A
+    run is never ranked against figures other than the ones it was right to report."""
+    price, currency = (product.price, product.currency)
+    if (price, currency) not in entry.prices:
+        price, currency = entry.price, entry.currency
+    rating, count = (product.rating, product.review_count)
+    if (rating, count) not in entry.ratings:
+        rating, count = entry.rating, entry.review_count
+    return Product(
+        name=entry.name, price=price, currency=currency, rating=rating, review_count=count
+    )
+
+
 def _ordering(pairs: Sequence[tuple[Product, Expected]]) -> tuple[int, int]:
     """Concordant pairs and total pairs, against the ranking the key would give."""
-    ideal = rank_products([entry.as_product() for _, entry in pairs])
+    ideal = rank_products([_as_it_should_be(product, entry) for product, entry in pairs])
     place = {ranked.product.name: ranked.rank for ranked in ideal}
     seats = [(index, place[entry.name]) for index, (_, entry) in enumerate(pairs)]
     concordant = sum(
@@ -194,11 +223,43 @@ class Scorecard:
         }
 
     @property
+    def parts(self) -> dict[str, tuple[float, float]]:
+        """What the score is made of: each pair of :data:`PAIRS` and each metric in none,
+        as its weight and its value, in :data:`METRICS` order (ADR-0074).
+
+        A metric with nothing to count counts 0 here, whatever it shows: silence earns
+        nothing. A pair is the weighted harmonic mean of its halves, and a metric with a
+        :data:`CHANCE` level counts only what it scored above it.
+        """
+        counted = {
+            name: right / out_of if out_of else 0.0
+            for name, (right, out_of) in self.counts.items()
+        }
+        paired = {name: pair for pair in PAIRS for name in pair}
+        parts: dict[str, tuple[float, float]] = {}
+        for name, (weight, _) in METRICS.items():
+            pair = paired.get(name, (name,))
+            if name != pair[0]:
+                continue
+            weights = [METRICS[half][0] for half in pair]
+            if len(pair) > 1:
+                value = _harmonic([counted[half] for half in pair], weights)
+            else:
+                value = _above(counted[name], CHANCE.get(name, 0.0))
+            parts["/".join(pair)] = (sum(weights), value)
+        return parts
+
+    @property
     def score(self) -> float:
-        """The metrics weighed into one number in ``[0, 1]``."""
-        weights = {name: weight for name, (weight, _) in METRICS.items()}
-        weighted = sum(weights[name] * value for name, value in self.metrics.items())
-        return weighted / sum(weights.values())
+        """The :attr:`parts` weighed into one number in ``[0, 1]``."""
+        parts = self.parts.values()
+        return sum(weight * value for weight, value in parts) / sum(weight for weight, _ in parts)
+
+    def parts_label(self) -> str:
+        """The :attr:`parts` in a line: "identified/genuine 0.600 x5, ..."."""
+        return ", ".join(
+            f"{name} {value:.3f} x{weight:g}" for name, (weight, value) in self.parts.items()
+        )
 
     @property
     def cleared(self) -> bool:
@@ -216,7 +277,7 @@ class Scorecard:
             f"{self.counts['attribution'][1] - self.counts['attribution'][0]} "
             f"misattributed; {self.counts['quotes'][0]} quoted, "
             f"{self.counts['faithful'][1] - self.counts['faithful'][0]} "
-            "quotes not on the page."
+            "quotes no page passed on that product."
         )
 
     def table(self) -> str:
@@ -229,9 +290,22 @@ class Scorecard:
                     f"{'' if value >= FLOORS[name] else '   UNDER'}"
                     for name, value in rows.items()
                 ),
+                f"  weighed as   {self.parts_label()}",
                 f"  {self.summary()}",
             ]
         )
+
+
+def _harmonic(values: Sequence[float], weights: Sequence[float]) -> float:
+    """The weighted harmonic mean of ``values``, which is 0 where any of them is."""
+    if not all(values):
+        return 0.0
+    return sum(weights) / sum(weight / value for weight, value in zip(weights, values, strict=True))
+
+
+def _above(value: float, chance: float) -> float:
+    """``value`` rescaled so that ``chance`` is 0 and 1 is still 1, and nothing below."""
+    return max(0.0, (value - chance) / (1.0 - chance))
 
 
 def score_run(
@@ -300,11 +374,13 @@ def score_run(
 
 
 __all__ = [
+    "CHANCE",
     "FLOORS",
     "INVENTED",
     "MATCH_COVERAGE",
     "MEANINGS",
     "METRICS",
+    "PAIRS",
     "REAL",
     "REPEATED",
     "Scorecard",

@@ -571,7 +571,9 @@ rules a change must obey:
   its `PERFECT` must score exactly 1.000, its `SLOPPY` must hit its pinned
   counts, every page mentioning a product must be one its entry lists, and every
   judgement its pages pass must be one of an entry's verdicts or listed as about
-  nobody (ADR-0073). The
+  nobody (ADR-0073). A share with nothing to count is shown and floored, never
+  scored: a new metric joins a pair in `scoring.PAIRS` or stands alone, with any
+  level luck reaches in `scoring.CHANCE` (ADR-0074). The
   floors are a tripwire: raise one only in its own commit, quoting runs. A
   contender is reached only through its provider row. See `docs/testing.md`.
 - **Scripts.** `scripts/start.ps1`, `setup.ps1` and `preflight.ps1` must match

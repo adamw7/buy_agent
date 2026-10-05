@@ -247,7 +247,7 @@ def test_the_sloppy_laptops_score_exactly_what_their_mistakes_cost() -> None:
         "order": (2, 3),
     }
     assert (card.invented, card.repeated) == (1, 1)
-    assert card.score == pytest.approx(0.6282051282051282)
+    assert card.score == pytest.approx(0.6)
 
 
 def test_the_sloppy_espresso_scores_exactly_what_its_mistakes_cost() -> None:
@@ -268,7 +268,7 @@ def test_the_sloppy_espresso_scores_exactly_what_its_mistakes_cost() -> None:
         "order": (0, 3),
     }
     assert (card.invented, card.repeated) == (1, 1)
-    assert card.score == pytest.approx(0.5427350427350427)
+    assert card.score == pytest.approx(0.5401709401709401)
     assert not card.cleared, "the cashback ranks the dearest machine first"
 
 

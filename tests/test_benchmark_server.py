@@ -475,7 +475,7 @@ def test_a_comparison_is_started_watched_and_read_over_http(page: tuple[str, Ben
     assert status == 200
     assert started["total"] == 2
     assert state["running"] is False
-    assert [row["score_label"] for row in state["standings"]] == ["1.000", "0.628"]
+    assert [row["score_label"] for row in state["standings"]] == ["1.000", "0.600"]
     assert [case["name"] for case in state["cases"]] == list(CASES), "every case is a column"
     assert state["board"] == str(bench.board.path)
 
