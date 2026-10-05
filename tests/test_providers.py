@@ -532,6 +532,26 @@ def test_an_entry_that_names_nothing_is_left_out(pulled) -> None:
     assert names(OLLAMA_CONFIG) == ["qwen3:8b"]
 
 
+def test_each_tag_is_listed_with_the_build_ollama_holds_for_it(pulled) -> None:
+    """A tag pulled again is the same name on other weights, and the digest is what says
+    which build a benchmark run scored (ADR-0075). An entry carrying none says nothing."""
+    build = "sha256:" + "ab" * 32
+    pulled([], entries=[{"model": "qwen3:0.6b", "digest": build}, {"model": "gemma4:12b"}])
+
+    assert [(model.name, model.digest) for model in listed(OLLAMA_CONFIG)] == [
+        ("qwen3:0.6b", build),
+        ("gemma4:12b", ""),
+    ]
+
+
+def test_a_server_that_names_no_build_lists_none(serving) -> None:
+    """``/v1/models`` carries no digest, so a vLLM's or a proxy's model has no build to
+    tell apart."""
+    serving(["Qwen/Qwen3-8B"])
+
+    assert [model.digest for model in listed(VLLM_CONFIG)] == [""]
+
+
 def test_the_tags_are_read_off_ollamas_own_endpoint(pulled) -> None:
     """Where the answer comes from, since it is no longer the client's listing:
     the address the run itself would chat to, and Ollama's own path on it."""

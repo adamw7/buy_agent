@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, TypeAlias, cast
 from urllib.parse import urlsplit
 
@@ -49,10 +49,14 @@ _OLLAMA_PORT = 11434
 
 @dataclass(frozen=True, slots=True)
 class InstalledModel:
-    """One model a server is holding, and whether it can answer a chat prompt (ADR-0032)."""
+    """One model a server is holding, whether it can answer a chat prompt (ADR-0032), and
+    which build of it, where the server says (ADR-0075)."""
 
     name: str
     completion: bool
+    #: The server's digest of the weights behind ``name`` -- Ollama's ``sha256:...`` -- or
+    #: "" where it reports none. A tag re-pulled is the same name on another build.
+    digest: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,30 +128,32 @@ def _ollama_chat_model(config: AgentConfig) -> ChatModel:
 
 
 def _ollama_installed(config: AgentConfig) -> list[InstalledModel]:
-    """Every model tag Ollama has pulled, and whether each one can be run (ADR-0032)."""
+    """Every model tag Ollama has pulled, whether each one can be run (ADR-0032), and its
+    digest (ADR-0075)."""
     deadline = time.monotonic() + _LIST_TIMEOUT
-    names = _ollama_tags(config)
-    if not names:
+    tags = _ollama_tags(config)
+    if not tags:
         return []
     client = Client(config.base_url, timeout=_LIST_TIMEOUT)
     try:
-        return _probe(client, names, deadline)
+        probed = _probe(client, list(tags), deadline)
     finally:
         # This function opened the pool, so it closes it.
         client.close()
+    return [replace(model, digest=tags[model.name]) for model in probed]
 
 
-def _ollama_tags(config: AgentConfig) -> list[str]:
-    """The tags Ollama holds."""
+def _ollama_tags(config: AgentConfig) -> dict[str, str]:
+    """The tags Ollama holds, each with its digest ("" where an entry carries none)."""
     response = httpx.get(
         _ollama_url(config.base_url, "/api/tags"), timeout=_LIST_TIMEOUT
     )
     response.raise_for_status()
-    return [
-        name
+    return {
+        name: str(entry.get("digest") or "")
         for entry in response.json().get("models", [])
         if (name := entry.get("model") or entry.get("name"))
-    ]
+    }
 
 
 def _ollama_url(base_url: str, path: str) -> str:

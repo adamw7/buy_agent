@@ -12,8 +12,8 @@ MODEL_ENV_VAR = "BUY_AGENT_TEST_MODEL"
 REQUIRE_ENV_VAR = "BUY_AGENT_REQUIRE_OLLAMA"
 
 #: Where the run's scorecard is written, in the shape ``python -m benchmark --json``
-#: writes. Set by the nightly workflow, which keeps the file pass or fail (ADR-0072);
-#: unset, nothing is written.
+#: writes, so it is a ``--baseline`` too (ADR-0075). Set by the nightly workflow, which
+#: keeps the file pass or fail (ADR-0072); unset, nothing is written.
 SCORECARD_ENV_VAR = "BUY_AGENT_SCORECARD"
 
 #: What one of these tests may take before it is a stopped one, in seconds.

@@ -179,7 +179,7 @@ def benchmarked(
         pages=live_run.pages,
     )
     contender = Contender.served(live_config.provider, live_config.model, live_config.base_url)
-    run = scored_run(contender, HEADPHONES, live_run.watched, report)
+    run = scored_run(contender, HEADPHONES, live_config, live_run.watched, report)
     request.config.stash[SCORED] = run
     return run
 

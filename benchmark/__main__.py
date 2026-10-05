@@ -12,6 +12,7 @@ from buy_agent.agent import ModelUnavailableError
 from buy_agent.config import DEFAULT_PROVIDER, AgentConfig
 from buy_agent.logging_setup import configure_logging
 from buy_agent.providers import PROVIDERS
+from benchmark.baseline import Baseline, compared, read_baseline
 from benchmark.board import Board
 from benchmark.cases import CASES, SCRIPTS
 from benchmark.compare import (
@@ -55,11 +56,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Which model server to score (default: %(default)s).")
     add("--base-url", default="", help="Where it listens, empty for its own default.")
     add("--json", type=Path, help="Also write the standings, every run included, to this file.")
+    add("--baseline", type=_baseline, metavar="FILE",
+        help="Compare each run, metric by metric, with the same model's run of the same "
+             "case in standings --json wrote earlier -- the nightly's kept scorecard is "
+             "one.")
     add("--no-save", action="store_true",
         help="Keep nothing (default: keep every run on the board that python -m "
              "benchmark.server shows).")
     add("-v", "--verbose", action="store_true", help="Show each run's progress log.")
     return parser
+
+
+def _baseline(path: str) -> Baseline:
+    """``--baseline`` as argparse takes it: a file it cannot read is a usage error."""
+    try:
+        return read_baseline(path)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def _contenders(args: argparse.Namespace) -> list[Contender]:
@@ -156,6 +169,8 @@ def main(argv: list[str] | None = None) -> int:
     if not runs:
         return 1
     print(standings_table(standings(runs, cases), cases))
+    if args.baseline is not None:
+        print(f"\n{compared(runs, args.baseline)}")
     if board is not None:
         print(f"\nKept on the board at {board.path}; python -m benchmark.server shows it.")
     if args.json:

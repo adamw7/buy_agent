@@ -64,8 +64,8 @@ Optional prerequisites skip, never fail:
 - One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
   and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `3147 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `3063 passed, 104 skipped`.
+So the SDK without PowerShell reads `3179 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `3095 passed, 104 skipped`.
 
 ### `pytest.ini`
 
@@ -277,6 +277,7 @@ python -m benchmark --scripted sloppy           # the same, wrong in the ways sm
 python -m benchmark --model qwen3:0.6b --model llama3.2:3b   # two models, every case
 python -m benchmark --all-models --case espresso             # all Ollama holds, one case
 python -m benchmark -v --json standings.json    # the provider's own model, keeping the numbers
+python -m benchmark --baseline standings.json   # ...and later, what moved since
 python -m benchmark.server                      # the same comparison, as a page
 ```
 
@@ -343,7 +344,15 @@ cases run, then the mean score, the query, and the time taken.
 Every run is kept on a board, `$BUY_AGENT_CACHE_DIR/benchmark/board.json`, that both
 doors read afresh, so a model scored last week stands beside one scored today.
 `--no-save` keeps a run off it. A run scored against a case whose pages or key have
-changed since is left out. `--json` writes the standings as the page reads them.
+changed since is left out. A run also records what it was scored under
+(`benchmark/pipeline.py`): a fingerprint of the code between the pages and the
+scorecard, read without its docstrings and comments; the settings that reach the
+model; and the digest its server lists for the tag. A kept run made under other code
+or settings is kept, ranked and marked **stale**, and a row whose runs span two builds
+says so (ADR-0075). `--json` writes the standings as the page reads them, values
+included, and `--baseline FILE` sets each run beside the same contender's run of the
+case in such a file, metric by metric -- which the board, keeping only the latest run,
+cannot.
 
 `python -m benchmark.server` serves the page on `http://127.0.0.1:8100`: pick a
 server, tick the models it lists (an embedding model is shown and cannot be

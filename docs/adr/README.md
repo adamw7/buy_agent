@@ -83,6 +83,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0072](0072-print-and-keep-the-nightlys-scorecard-pass-or-fail.md) | Print and keep the nightly's scorecard, pass or fail | Accepted |
 | [0073](0073-hold-the-scorer-to-the-model-number-and-the-verdicts-on-each-product.md) | Hold the scorer to a product's model number and to the verdicts passed on it | Accepted |
 | [0074](0074-pay-the-score-nothing-for-silence-or-for-luck.md) | Pay the score nothing for silence or for luck | Accepted |
+| [0075](0075-say-what-a-kept-run-was-scored-under-and-compare-it-with-a-baseline.md) | Say what a kept run was scored under, and compare it with a baseline | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

@@ -285,7 +285,9 @@ function standingRow(row) {
     element('td', { className: 'model' }, [
       name,
       row.reference ? element('span', { className: 'tag', text: 'reference' }) : null,
+      row.current ? null : element('span', { className: 'tag stale', text: 'stale' }),
       element('span', { className: 'where', text: row.where }),
+      ...row.notes.map((note) => element('span', { className: 'where stale', text: note })),
     ]),
     element('td', { className: 'number score', text: row.score_label }),
     ...row.cells.map((cell) =>
@@ -316,6 +318,9 @@ function runBlock(run) {
     element('p', { className: 'note', text: `“${run.request}”` }),
   ];
   if (run.failure) parts.push(element('p', { className: 'failed', text: run.failure }));
+  if (run.pipeline_note) {
+    parts.push(element('p', { className: 'note stale', text: run.pipeline_note }));
+  }
   if (run.summary) parts.push(element('p', { text: run.summary }));
   parts.push(element('div', { className: 'run-grid' }, [metricsBlock(run), answersBlock(run)]));
   return element('article', { className: 'run' }, parts);
@@ -394,7 +399,7 @@ function answersBlock(run) {
           ),
         )
       : null,
-    element('p', { className: 'note small', text: `Ran ${run.finished_label}` }),
+    element('p', { className: 'note small', text: run.scored_with_label }),
   ]);
 }
 

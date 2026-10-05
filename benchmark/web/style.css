@@ -387,6 +387,12 @@ tr.chosen td {
   font-weight: 600;
 }
 
+/* A run kept from another version of the pipeline: said in words, coloured besides. */
+.stale,
+.tag.stale {
+  color: var(--warn);
+}
+
 .missing {
   color: var(--text-dim);
 }

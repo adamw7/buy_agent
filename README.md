@@ -631,6 +631,7 @@ python -m benchmark.server                       # the page, on http://127.0.0.1
 python -m benchmark --all-models                 # every model the server holds, here
 python -m benchmark --model qwen3:4b --model gemma4:12b --case espresso
 python -m benchmark --scripted perfect           # no model at all: 1.000 by construction
+python -m benchmark --baseline before.json       # what moved since an earlier --json
 ```
 
 On the page, pick a model server and tick the models it lists (an embedding model
@@ -655,6 +656,7 @@ exits 0 only when every run finished and cleared every floor:
 | `--provider` | `ollama` (or `$BUY_AGENT_PROVIDER`) | `ollama`, `vllm` or `litellm` |
 | `--base-url` | the provider's own | Where that server listens |
 | `--json` | -- | Also write the standings, every run included, to this file |
+| `--baseline` | -- | Compare each run, metric by metric, with its run in an earlier `--json` file |
 | `--no-save` | off | Keep these runs off the board |
 | `-v` | off | Each run's own progress log |
 
@@ -665,7 +667,12 @@ answers with something unreadable has failed that case, which counts 0.
 Every run is kept on a board, `$BUY_AGENT_CACHE_DIR/benchmark/board.json`, which
 the page and the command line both read, so a model pulled next week stands beside
 this week's. A run scored against a case whose pages or key have changed since is
-left out, and **Clear the board** forgets them all. The nightly integration run
+left out, and **Clear the board** forgets them all. Each run also records the code it
+went through, its settings and its model's build: a row made under code or settings
+this checkout no longer has is tagged **stale** and says which of its runs to make
+again, and one whose runs span two builds of a tag says so (ADR-0075). The board keeps
+only the latest run, so to ask whether a change helped, keep `--json` from before it
+and give it to `--baseline` after. The nightly integration run
 scores `qwen3:0.6b` on the headphones case alone, prints the scorecard on its summary
 page and keeps it as the `scorecard` artifact, pass or fail (ADR-0072), and fails
 under `benchmark.scoring.FLOORS`, a tripwire rather than a target (ADR-0026).
