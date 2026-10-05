@@ -3,7 +3,7 @@
 -r requirements.txt
 pytest==9.1.1
 coverage==7.16.2
-archunitpython==1.7.0
+archunitpython==1.8.0
 pytest-timeout==2.4.0
 pylint==4.0.9
 mypy==2.3.1
