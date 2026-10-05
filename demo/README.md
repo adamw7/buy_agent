@@ -189,6 +189,20 @@ It needs `demo.server` for the model dropdown and pill. It clips to the card, so
 the picture grows with the form, and renders at twice the CSS width. `--url`,
 `--width`, `--scale` and `--request` move the rest.
 
+`docs/benchmark.png` is not taken that way: it is a frame of
+`benchmark-on-cpu.mp4`, so its numbers are that real run's rather than a script's.
+The frame is the keyframe at 3:04.04, between two spoken lines, cropped to the
+Standings card down to the bottom of its table, which leaves out the recorder's
+`ollama ps` box and the board's path beneath the table:
+
+```powershell
+ffmpeg -ss 184.04 -i demo/benchmark-on-cpu.mp4 -frames:v 1 `
+    -vf "format=rgb24,crop=1098:344:91:245" -pred mixed docs/benchmark.png
+```
+
+`format=rgb24` comes first because a 4:2:0 frame crops on even offsets only. A
+new take moves the frame and the crop.
+
 ## A merchant for the `http` rail
 
 `merchant.py` answers the two requests `--rail http` makes. It needs the AP2 SDK
