@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import ast
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from archunitpython import (
     CheckOptions,
@@ -16,6 +17,9 @@ from archunitpython import (
 )
 
 from tests.conftest import SOURCE_ROOT
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 #: The package under analysis, as an absolute path: these tests run from wherever pytest
 #: was started, and the Saturday mutation run starts them from a copy of the tree under
@@ -92,6 +96,21 @@ _MAY_DEPEND_ON: dict[str, tuple[str, ...]] = {
 _RE_EXPORTED: tuple[str, ...] = ("agent.py", "config.py", "models.py", "ranking.py")
 
 
+#: Every ``from buy_agent import <module>`` in the package, as importer and module. The
+#: graph draws each onto ``__init__.py`` rather than onto the module it names (ADR-0047),
+#: and ``__init__.py`` is in no layer, so every rule in this file skips it: one of these in
+#: a step could name any module at all and pass. Listed, each is one somebody placed.
+_THROUGH_THE_PACKAGE: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("__main__.py", "mandates.py"),
+        ("__main__.py", "payment.py"),
+        ("api.py", "mandates.py"),
+        ("payment.py", "mandates.py"),
+        ("rails.py", "mandates.py"),
+    }
+)
+
+
 #: Every module of the package, off the directory rather than out of a list here.
 _MODULES = frozenset(path.name for path in Path(_PACKAGE).glob("*.py"))
 
@@ -115,6 +134,38 @@ def every_module_but(*names: str) -> re.Pattern[str]:
     """A filename pattern matching every module of the package except ``names``."""
     excluded = "|".join(re.escape(name) for name in _known(names))
     return re.compile(rf"^(?!(?:{excluded})$).+\.py$")
+
+
+def layer_of(module: str) -> str:
+    """The layer ``_LAYERS`` puts ``module`` in."""
+    layers = [layer for layer, modules in _LAYERS.items() if module in modules]
+    assert layers, f"{module} is in no layer"
+    return layers[0]
+
+
+def _imports_that_run(node: ast.AST) -> Iterator[ast.ImportFrom]:
+    """Every ``from ... import`` in ``node`` but those under ``if TYPE_CHECKING:``, which
+    never run and which every rule here skips too (``_OPTIONS``)."""
+    if isinstance(node, ast.ImportFrom):
+        yield node
+    elif isinstance(node, ast.If) and ast.unparse(node.test) == "TYPE_CHECKING":
+        for statement in node.orelse:
+            yield from _imports_that_run(statement)
+    else:
+        for child in ast.iter_child_nodes(node):
+            yield from _imports_that_run(child)
+
+
+def reached_through_the_package() -> set[tuple[str, str]]:
+    """Every ``(importer, module)`` that a ``from buy_agent import module`` -- or a
+    ``from . import module`` -- names, deferred imports included."""
+    return {
+        (path.name, f"{alias.name}.py")
+        for path in Path(_PACKAGE).glob("*.py")
+        for node in _imports_that_run(ast.parse(path.read_text(encoding="utf-8")))
+        if (node.level, node.module) in {(0, "buy_agent"), (1, None)}
+        for alias in node.names
+    }
 
 
 def third_party_imports() -> list[str]:
@@ -184,6 +235,33 @@ def test_every_module_of_the_package_is_in_a_layer() -> None:
     assert set(placed) | {"__init__.py"} == _MODULES
     assert set(_MAY_DEPEND_ON) == set(_LAYERS), "a layer with no row is a layer with no rule"
     assert named <= set(_LAYERS), "a row may only allow layers that exist"
+
+
+def test_every_import_through_the_package_is_placed_and_reaches_only_downward() -> None:
+    """The other way an edge goes unchecked. ADR-0047 leaves ``__init__.py`` out of the
+    layers because ``from buy_agent import mandates`` "reads as an edge onto the package
+    rather than onto the module" -- and an edge onto a file in no layer is skipped by every
+    rule in this file, not by the layer rule alone. ``from buy_agent import screenshots``
+    in a step would pass all of them. So each such import is a row of
+    ``_THROUGH_THE_PACKAGE``, held against the source in both directions, and a row is only
+    an edge ``_MAY_DEPEND_ON`` names outright -- not one it lets pass for being inside a
+    layer, which is where the rules of their own live. Even that is not all a row answers
+    to: ``mandates.py`` may know nothing of the package, though ``paying`` may reach
+    ``paying``. Adding one is a decision, and this is where it is made."""
+    found = reached_through_the_package()
+    unplaced = sorted(found - _THROUGH_THE_PACKAGE)
+    gone = sorted(_THROUGH_THE_PACKAGE - found)
+
+    assert not unplaced, (
+        "an import through the package is an edge no rule here sees: import from the "
+        f"module itself, or place it in _THROUGH_THE_PACKAGE: {unplaced}"
+    )
+    assert not gone, f"no longer imported that way: {gone}"
+    for importer, module in sorted(_THROUGH_THE_PACKAGE):
+        source, target = layer_of(importer), layer_of(module)
+        assert target in _MAY_DEPEND_ON[source], (
+            f"{importer} ({source}) may not reach {module} ({target})"
+        )
 
 
 def test_the_re_export_surface_imports_only_what_it_re_exports() -> None:
@@ -405,6 +483,53 @@ def test_the_environment_is_read_where_a_setting_is_declared() -> None:
     )
 
 
+def test_the_two_modules_that_ask_the_web_twice_are_handed_their_clock() -> None:
+    """ADR-0053: "The waiting is a value the step is handed, not a module it imports."
+    ``search_web`` and ``enrich`` each take a ``wait``, ``BuyAgent`` passes ``time.sleep``,
+    and every test passes ``None`` to ask once -- which holds only while neither module can
+    reach a clock of its own, and is why a ``Retry-After`` written as a date counts as
+    unreadable. ``fetch.py`` is held to this by the rule about the steps as well;
+    ``search.py`` is a seam, and this is the rule that holds it."""
+    imports_none_of(
+        only("fetch.py", "search.py"),
+        "time*",
+        "datetime*",
+        because="a retry that keeps its own clock is a test that waits",
+    )
+
+
+def test_only_money_turns_a_price_into_what_is_charged() -> None:
+    """ADR-0054: ``money.py`` holds every currency table, down to "how many of the
+    currency's smallest units it comes to (``minor_units``)" -- a ``Decimal`` rounded half
+    up, and the whole number a ``Cart`` carries as ``amount`` and a mandate signs.
+    ``payment.cart_for`` asks it and translates its ``ValueError``; a ``decimal`` anywhere
+    else is a second way of counting the same price's cents, and the one place two
+    roundings disagreeing would cost somebody money."""
+    imports_none_of(
+        every_module_but("money.py"),
+        "decimal*",
+        "fractions*",
+        because="an amount is counted out in one place, the place a currency is added",
+    )
+
+
+def test_the_steps_and_the_orchestrator_declare_no_schema() -> None:
+    """``models.py`` is "``ExtractedProduct`` (LLM-facing) vs ``Product`` (domain)", and
+    both schemas the model is asked for, ``SearchQuery`` and ``ProductList``, are declared
+    there beside the sentinels ADR-0004 asks of them and the ``to_product()`` that turns
+    those into ``None``. ``extraction.py`` holds "both prompts, both chains" and binds them
+    to those schemas by name. And reading an answer back as its schema is ``chat.py``'s,
+    whose ``read_answer`` turns pydantic's ``ValidationError`` into
+    ``UnreadableAnswerError`` (ADR-0038). A step that imported pydantic would be declaring
+    a schema outside the module whose tests say what one may hold, or catching a failure
+    the seam had already translated."""
+    imports_none_of(
+        only("agent.py", *_LAYERS["pipeline"]),
+        "pydantic*",
+        because="what the model is asked for is the domain's, and reading it back chat's",
+    )
+
+
 # -- what each module is allowed to know ---------------------------------------
 
 
@@ -416,6 +541,44 @@ def test_the_tables_know_nothing_about_the_config_they_are_read_from() -> None:
         only("providers.py", "rails.py", "search.py"),
         only("config.py"),
         because="config resolves its defaults off the rows, not the other way about",
+    )
+
+
+def test_a_model_server_and_a_rail_are_reached_through_the_config() -> None:
+    """The other side of the rule above. ``AgentConfig.model_server`` "is the *only* place
+    a provider name becomes behaviour: no ``if provider == ...`` above the table, no
+    module-level wrappers", and ``AgentConfig.rail_used`` is the same for a rail. Below
+    the doors -- which list the rows for a picker and refuse a bad ``$BUY_AGENT_PROVIDER``
+    or ``$BUY_AGENT_RAIL`` before binding -- the config is the one module that reads
+    either table. The orchestrator is handed a chat model and never learns which row built
+    it; the layer table lets it reach any seam, and this is the seam it may not."""
+    for table in ("providers.py", "rails.py"):
+        knows_nothing_of(
+            every_module_but(table, "config.py", "__main__.py", "api.py", "server.py"),
+            only(table),
+            because="a row becomes behaviour in one place, and that place is the config",
+        )
+
+
+def test_the_web_is_asked_from_the_orchestrator_alone() -> None:
+    """The suite's network patch points are ``buy_agent.agent.search_web`` and
+    ``buy_agent.agent.enrich``, and "``search_web`` is patched only on ``agent``, which is
+    why the source fan-out lives there". A step that imported either for itself would be a
+    call site no stand-in reaches, and a test that quietly asks the real web. The doors
+    and the config read the search table as well: for its picker, for a bad
+    ``$BUY_AGENT_BACKEND`` refused before binding, and for the row
+    ``AgentConfig.search_backend`` hands the run (ADR-0057)."""
+    knows_nothing_of(
+        every_module_but(
+            "search.py", "agent.py", "config.py", "__main__.py", "api.py", "server.py"
+        ),
+        only("search.py"),
+        because="one call site, on the module the suite patches",
+    )
+    knows_nothing_of(
+        every_module_but("fetch.py", "agent.py"),
+        only("fetch.py"),
+        because="one call site, on the module the suite patches",
     )
 
 
@@ -465,6 +628,19 @@ def test_the_browser_seam_knows_nothing_about_this_package() -> None:
     )
 
 
+def test_only_the_web_tier_knows_about_pictures() -> None:
+    """ADR-0065, from the other side: "The picture is asked for by the card, not taken by
+    the run", "so nothing in the pipeline, the run payload, the journal or ``--json``
+    changes, the CLI pays nothing". The server owns the camera and ``api.py`` names its
+    one failure; nothing else knows a browser exists. The layer table cannot say this --
+    the browser is a seam, and the orchestrator and every step may reach a seam."""
+    knows_nothing_of(
+        every_module_but("screenshots.py", "server.py", "api.py"),
+        only("screenshots.py"),
+        because="a picture is asked for by the card, not taken by the run",
+    )
+
+
 def test_the_web_tier_is_split_at_the_payload_and_the_api_speaks_no_http() -> None:
     """The module table: ``api.py`` is "request options in, ranked products out -- the
     web-facing half worth testing", and ``server.py`` is "a stdlib HTTP server"."""
@@ -480,6 +656,27 @@ def test_the_web_tier_is_split_at_the_payload_and_the_api_speaks_no_http() -> No
         "queue*",
         "urllib.request*",
         because="options in and payloads out is what makes the web tier testable",
+    )
+
+
+def test_the_server_sends_what_the_api_shaped() -> None:
+    """The other half of the split above. ``api.results_payload`` "is the one shaping of a
+    run's products (API, ``--json``, Download)", and "the browser decides nothing"
+    (ADR-0012) -- nor does the module in front of it. ``server.py`` hands options to
+    ``api.py`` and writes back what it is given: it names no step, no product, no price,
+    no cart and no run's history. It does read the three tables, to refuse a bad
+    ``$BUY_AGENT_PROVIDER``, ``RAIL`` or ``BACKEND`` before binding, which is why
+    ``rails.py`` is the one module of the paying layer left off the list."""
+    knows_nothing_of(
+        only("server.py"),
+        only(
+            *_LAYERS["pipeline"],
+            *_LAYERS["domain"],
+            "payment.py",
+            "mandates.py",
+            "journal.py",
+        ),
+        because="a payload is shaped where it can be tested without a socket",
     )
 
 
@@ -536,6 +733,44 @@ def test_the_model_seam_knows_nothing_about_products() -> None:
     knows_nothing_of(
         only("chat.py"),
         because="a prompt and a schema it was handed, and no idea what either is about",
+    )
+
+
+def test_of_the_seams_only_the_journal_names_the_domain() -> None:
+    """The layer table opens the seams' row onto the domain for one module: "``journal.py``
+    is the first module in the seams layer that names the domain types, because what it
+    writes down is products" (ADR-0060). A row cannot say *one*, so this does. Every other
+    seam carries what its caller hands it -- messages and a schema, a page's text, a query,
+    an address -- and a ``Product`` reaching one is shopping leaking into the plumbing."""
+    knows_nothing_of(
+        only(*(seam for seam in _LAYERS["seams"] if seam != "journal.py")),
+        only(*_LAYERS["domain"]),
+        because="a seam carries its caller's values, and only the journal writes products",
+    )
+
+
+def test_nothing_in_the_journal_reaches_the_pipeline() -> None:
+    """ADR-0060's first obligation: "Nothing in the journal may reach the pipeline. It is
+    opened before a run and asked after it, by the two doors" -- "which is what keeps the
+    answer to a run the ranked products and nothing else". The seams' row lets a step
+    import ``journal.py``, and this is the edge that row was never meant to open."""
+    knows_nothing_of(
+        only(*_LAYERS["pipeline"]),
+        only("journal.py"),
+        because="what moved since the last run is reported, never ranked on",
+    )
+
+
+def test_the_answer_cache_is_invisible_to_who_asks_and_who_answers() -> None:
+    """ADR-0044: ``RememberedAnswers`` "is a ``ChatModel`` wrapping a ``ChatModel``, so
+    everything above it asks its one question and cannot tell ... That is the only way
+    this is allowed to work", and "the wrapping happens in ``agent.py``, not in
+    ``providers.py``" -- neither row has to declare it. So the module that asks, through
+    its chains, and the table that answers know nothing of the cache between them."""
+    knows_nothing_of(
+        only("extraction.py", "providers.py"),
+        only("cache.py"),
+        because="a remembered answer is one neither side of it can tell from a fresh one",
     )
 
 
@@ -609,4 +844,18 @@ def test_a_bound_in_the_request_is_read_beside_the_money_and_applied_by_nobody()
         only("bounds.py"),
         every_module_but("bounds.py", "money.py"),
         because="what the request asks for is read beside the money and applied by nobody",
+    )
+
+
+def test_a_bound_in_the_request_is_offered_at_the_doors_alone() -> None:
+    """The other half of the rule above: ``bounds.py`` is "read in Python and offered at
+    both doors (ADR-0059) -- never applied". "Nothing in the pipeline reads it.
+    ``Constraints`` is untouched." The CLI logs a line naming the flag and ``GET
+    /api/bounds`` pre-fills an empty box, once, and a bound read anywhere below them is
+    one applied without being seen -- "the failure this ADR exists to avoid is back, and
+    it is silent"."""
+    knows_nothing_of(
+        every_module_but("bounds.py", "__main__.py", "api.py"),
+        only("bounds.py"),
+        because="what the request asks for is offered to the shopper, and set only by them",
     )
