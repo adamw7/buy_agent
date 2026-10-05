@@ -15,7 +15,10 @@ Three runs of that page are recorded in `demo/`:
 [`wwii-books-1944-45-with-sound.mpg`](demo/wwii-books-1944-45-with-sound.mpg)
 (each log line where the pipeline catches the model out gets a note) and
 [`laptops-under-1000.mpg`](demo/laptops-under-1000.mpg). They are MPEG program
-streams, which browsers download rather than play.
+streams, which browsers download rather than play. A fourth,
+[`benchmark-on-cpu.mp4`](demo/benchmark-on-cpu.mp4), records
+[the benchmark](#the-benchmark)'s page scoring a real model on a CPU, and is an
+MP4, which browsers do play.
 
 ```
 $ python -m buy_agent "wireless noise cancelling headphones under $200"
@@ -193,21 +196,14 @@ python -m buy_agent "wireless headphones under $200" --model qwen3.5:9b --think
 
 ### Which model to use
 
-The benchmark runs the models your server holds over three fixed shopping cases --
-headphones in dollars, a gaming laptop in the thousands, an espresso machine in
-euros -- and ranks them on what they read off the pages, the query they wrote and
-how long they took. It has a page of its own:
+[The benchmark](#the-benchmark) runs the models your server holds over three fixed
+shopping cases -- headphones in dollars, a gaming laptop in the thousands, an
+espresso machine in euros -- and ranks them on what they read off the pages, the
+query they wrote and how long they took. It has a page of its own:
 
 ```powershell
 python -m benchmark.server                       # then open http://127.0.0.1:8100
-python -m benchmark --all-models                 # or every model Ollama holds, here
-python -m benchmark --model qwen3:4b --model gemma4:12b --case espresso
 ```
-
-Nothing touches the web, so every model reads the same pages. Each run is kept, so
-a model pulled next week stands beside this week's
-([ADR-0070](docs/adr/0070-compare-local-models-and-give-the-comparison-a-page.md));
-[docs/testing.md](docs/testing.md#the-benchmark) has the scoring.
 
 ### Sources you trust
 
@@ -558,6 +554,117 @@ were assumed
      score  : 0.650  (rating 0.50 x0.50 assumed, popularity 0.50 x0.20 assumed, price 1.00 x0.30)
 ```
 
+## The benchmark
+
+Which local model should the agent use, and did a change to a prompt or a
+threshold make it better? `benchmark/` answers both by scoring runs against
+answer keys. It asks a model the two things a run asks of one -- turn the request
+into a search query, then read the products, figures and quotes off the pages --
+over three fixed shopping cases, through the real pipeline. Nothing touches the
+web, so every model reads the same pages
+([ADR-0036](docs/adr/0036-score-the-agent-against-a-fixed-answer-key.md),
+[ADR-0070](docs/adr/0070-compare-local-models-and-give-the-comparison-a-page.md)).
+
+![The benchmark's standings: qwen3:0.6b, run on a CPU, between the two reference answers](docs/benchmark.png)
+
+That is a frame of [`demo/benchmark-on-cpu.mp4`](demo/benchmark-on-cpu.mp4): 4 min
+23 s of the benchmark's page scoring a real `qwen3:0.6b` in Ollama on four Xeon
+cores and no GPU, narrated and captioned. The recorder polls `ollama ps`
+throughout and refuses to write a take in which any model had memory on a GPU
+([demo/README.md](demo/README.md#the-benchmark-on-a-cpu)).
+
+### Reading the standings
+
+The cases are headphones priced in dollars, a gaming laptop priced in the
+thousands and an espresso machine priced in euros, each set with what trips a
+small model up: a headline or a shop posing as a product, one product under two
+names, a monthly payment or a student price posing as the price, a listing in
+Canadian dollars, decimal commas, cashback.
+
+A case's score weighs eight shares, each in `[0, 1]`. Six come in pairs -- how
+much was found, and how much of what was reported is right -- so that reporting
+nothing and reporting nonsense do not score alike: the five slots filled with
+products really on the pages (weighed 3) and entries that are real products, not
+shops or repeats (2); prices, ratings and review counts printed for that product
+(2) and figures that are not another's (2); products carrying a quote their pages
+printed, and quotes found there word for word (1 each). The other two are a link
+to a page about the product and a ranking in the key's own order (1 each).
+**Query** is scored apart, as the share of checks the search query passed: each
+constraint the request states kept, no brand and no figure the shopper did not
+give, and twenty words or fewer.
+
+A row's **Score** is the mean over its cases, a failed run counting 0, and
+**Query** and **Time per case** are means too. Rows rank by how many cases they
+ran, then the score, the query, and the time, quickest first. The two references
+need no model, and bracket the ones that do: `perfect` is the answer key copied
+out and scores 1.000, and `sloppy` makes the mistakes small models make -- a price
+off another product's line, a headline and a shop reported as products, a quote
+nobody wrote, one product twice.
+
+### What the recorded run found
+
+`qwen3:0.6b` (Q4_K_M, 397 MB, in Ollama 0.35.1, on 3 October 2026) scored 0.815,
+between `sloppy`'s 0.624 and `perfect`'s 1.000, and the whole comparison took
+1 min 49 s. Every query it wrote passed every check, and nothing in its reports was
+invented or repeated. It lost points by reporting too little -- four or three
+products for five slots, and not one quote -- and, on the euro case, by
+misattributing two of nine figures and linking one product to a page not about it:
+
+| Case | Score | Real products, of 5 | Figures right | Model time |
+| --- | --- | --- | --- | --- |
+| `headphones` | 0.877 | 4 | 12 of 12 | 46.9 s, loading the model included |
+| `laptops` | 0.831 | 3 | 9 of 9 | 33.5 s |
+| `espresso` | 0.737 | 3 | 7 of 9 | 28.1 s |
+
+That is one model, once, on one machine; [Running it](#running-it) scores yours.
+
+### Running it
+
+```powershell
+python -m benchmark.server                       # the page, on http://127.0.0.1:8100
+python -m benchmark --all-models                 # every model the server holds, here
+python -m benchmark --model qwen3:4b --model gemma4:12b --case espresso
+python -m benchmark --scripted perfect           # no model at all: 1.000 by construction
+```
+
+On the page, pick a model server and tick the models it lists (an embedding model
+is shown but cannot be ticked), the references and the cases, then press **Run**.
+Rows fill in as each run finishes, and a model's name opens what it did on each
+case: the scorecard against its floors, the query and the checks it passed, how
+long each question took, and every product it reported, tagged where it was
+invented or repeated. One comparison runs at a time and outlives the tab; **Stop**
+ends it at the next step. `python -m benchmark.server` binds this machine only,
+and takes `--host`, `--port` and `--allowed-host` as the shop's server does
+(ADR-0018).
+
+`python -m benchmark` prints each run's scorecard and then the standings, and
+exits 0 only when every run finished and cleared every floor:
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--model` | the provider's own, if nothing else is named | A model to score; repeatable |
+| `--all-models` | off | Every model the server holds that can answer a prompt |
+| `--scripted` | -- | `perfect` or `sloppy`, beside the models or instead of them |
+| `--case` | all three | `headphones`, `laptops` or `espresso`; repeatable |
+| `--provider` | `ollama` (or `$BUY_AGENT_PROVIDER`) | `ollama`, `vllm` or `litellm` |
+| `--base-url` | the provider's own | Where that server listens |
+| `--json` | -- | Also write the standings, every run included, to this file |
+| `--no-save` | off | Keep these runs off the board |
+| `-v` | off | Each run's own progress log |
+
+A model that cannot be asked at all -- not running, not pulled, too slow -- is
+reported in its server's own words, and its other cases are skipped. One that
+answers with something unreadable has failed that case, which counts 0.
+
+Every run is kept on a board, `$BUY_AGENT_CACHE_DIR/benchmark/board.json`, which
+the page and the command line both read, so a model pulled next week stands beside
+this week's. A run scored against a case whose pages or key have changed since is
+left out, and **Clear the board** forgets them all. The nightly integration run
+scores `qwen3:0.6b` on the headphones case alone and fails under
+`benchmark.scoring.FLOORS`, a tripwire rather than a target (ADR-0026).
+[docs/testing.md](docs/testing.md#the-benchmark) has the metrics one by one and
+how the keys are kept honest.
+
 ## Tests
 
 ```powershell
@@ -577,9 +684,10 @@ python -m benchmark.server               # ...or compare several models on a pag
 Neither suite touches the network or a model server, and both have coverage
 floors. `integration/` runs against a real Ollama on a CPU-sized model, nightly
 with a five-minute cap (ADR-0026). `benchmark/` scores runs against fixed answer
-keys over three cases (ADR-0036, ADR-0070). `tests/test_architecture.py` holds the
-import graph ([ADR-0047](docs/adr/0047-check-the-import-graph-with-archunit.md)),
-and `tests/test_conventions.py` the rules between modules.
+keys over three cases ([above](#the-benchmark)). `tests/test_architecture.py`
+holds the import graph
+([ADR-0047](docs/adr/0047-check-the-import-graph-with-archunit.md)), and
+`tests/test_conventions.py` the rules between modules.
 [docs/testing.md](docs/testing.md) has the rest.
 
 ## Limitations
@@ -613,4 +721,5 @@ and `tests/test_conventions.py` the rules between modules.
   ([ADR-0057](docs/adr/0057-a-search-backend-is-a-row-in-a-table.md)); only the
   default is exercised against the real thing.
 - No model larger than the nightly's `qwen3:0.6b` is scored on a schedule;
-  `python -m benchmark --all-models`, or its page, is how to find out on yours.
+  `python -m benchmark --all-models`, or [its page](#the-benchmark), is how to
+  find out on yours.

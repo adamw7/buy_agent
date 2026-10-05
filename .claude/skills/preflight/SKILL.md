@@ -64,7 +64,7 @@ npm run format:check
   Stryker's `mutate` to the file in hand.
 - CSP and critical-CSS breakage needs a browser. Load the page after touching
   `_SECURITY_HEADERS`, `ui/angular.json` or adding an off-origin request.
-- `docs/ui.png` and the recordings in `demo/` are not regenerated.
+- The pictures in `docs/` and the recordings in `demo/` are not regenerated.
 
 ## If it fails
 
