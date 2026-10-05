@@ -3,6 +3,7 @@ best, and how long it takes (ADR-0070)."""
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -23,11 +24,13 @@ from benchmark.scoring import FLOORS, MEANINGS, METRICS, Scorecard, match_produc
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
+    from pathlib import Path
 
     from buy_agent.agent import Checkpoint
     from buy_agent.chat import ChatModel, Message, SchemaT
     from buy_agent.models import RankedProduct
     from benchmark.cases import Case
+    from benchmark.runner import Report
 
 #: What each of the two questions is called in a run's timings.
 STEPS: dict[type, str] = {SearchQuery: "query", ProductList: "extract"}
@@ -218,7 +221,13 @@ def run_case(
     finally:
         # The agent releases only a model it opened, and this one was handed in.
         release(watched.model)
+    return scored_run(contender, case, watched, report)
 
+
+def scored_run(contender: Contender, case: Case, watched: Stopwatch, report: Report) -> CaseRun:
+    """A finished run as it is kept: what ``report`` scored, with the query and the time
+    ``watched`` saw. The nightly builds its own this way, off the one run its live tests
+    share (ADR-0072)."""
     card = report.scorecard
     return _kept(
         contender,
@@ -444,6 +453,55 @@ def standings_payload(runs: Iterable[CaseRun], cases: Sequence[Case]) -> dict[st
     }
 
 
+def write_standings(path: Path, runs: Iterable[CaseRun], cases: Sequence[Case]) -> None:
+    """:func:`standings_payload`, to a file: ``--json``, and what the nightly keeps.
+
+    Raises:
+        OSError: if the file cannot be written.
+    """
+    path.write_text(json.dumps(standings_payload(runs, cases), indent=2), encoding="utf-8")
+
+
+# -- what a log is given -------------------------------------------------------
+
+
+def describe(run: CaseRun, case: Case) -> str:
+    """One run: its scorecard, the query it searched with, and the products it reported."""
+    heading = f"{run.contender.label} on {case.name} -- {case.title}"
+    timing = ", ".join(f"{step} {seconds_label(took)}" for step, took in run.seconds.items())
+    query = run.query.query
+    lines = [heading, "-" * len(heading)]
+    card = run.scorecard
+    if card is None:
+        lines.append(f"  failed: {run.failure}")
+    else:
+        lines.append(card.table())
+    lines += [
+        f"  query        {run.query.score:>6.3f}   "
+        + (f"searched {query!r}" if query else "no query: searched with the request"),
+        *(f"    - {check.check}" for check in run.query.checks if not check.passed),
+        f"  model time   {seconds_label(run.model_seconds)}" + (f" ({timing})" if timing else ""),
+    ]
+    if run.products:
+        lines.append("")
+        lines += [
+            f"  {product.rank}. {product.line}"
+            + ("" if product.verdict == "real" else f"   [{product.verdict}]")
+            for product in run.products
+        ]
+    return "\n".join(lines)
+
+
+def summary_markdown(run: CaseRun, case: Case) -> str:
+    """One run as a job's summary page renders it (ADR-0072): a heading with its score,
+    then :func:`describe` word for word."""
+    score = "failed" if run.scorecard is None else f"{run.score:.3f}"
+    return (
+        f"### {run.contender.label} on {case.name}: {score}\n\n"
+        f"```text\n{describe(run, case)}\n```\n"
+    )
+
+
 __all__ = [
     "STEPS",
     "CaseRun",
@@ -452,13 +510,17 @@ __all__ = [
     "Standing",
     "Stopwatch",
     "case_payload",
+    "describe",
     "finished_label",
     "metrics_payload",
     "reported",
     "run_case",
     "run_payload",
+    "scored_run",
     "seconds_label",
     "standing_payload",
     "standings",
     "standings_payload",
+    "summary_markdown",
+    "write_standings",
 ]

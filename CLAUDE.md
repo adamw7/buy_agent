@@ -565,6 +565,8 @@ rules a change must obey:
   (`tests/test_architecture.py`) hold the import graph. Both are listed in
   `docs/testing.md`. Convention tests hold every path they name.
 - **`integration/`** holds the real-model tests, outside `testpaths` (ADR-0026).
+  Its shared run is scored as the benchmark scores one and printed and kept pass
+  or fail (`$BUY_AGENT_SCORECARD`, ADR-0072).
 - **The benchmark** (`benchmark/`, ADR-0036, ADR-0070): after editing a case,
   its `PERFECT` must score exactly 1.000, its `SLOPPY` must hit its pinned
   counts, and every page mentioning a product must be one its entry lists. The

@@ -60,7 +60,7 @@ from buy_agent.ranking import ORDERINGS, SortBy
 from buy_agent.server import DEFAULT_UI_DIR
 from buy_agent.server import build_parser as build_server_parser
 import integration
-from integration import LIVE_TIMEOUT_SECONDS, REQUIRE_ENV_VAR, TINY_MODEL
+from integration import LIVE_TIMEOUT_SECONDS, REQUIRE_ENV_VAR, SCORECARD_ENV_VAR, TINY_MODEL
 from scripts.mutation_report import MUTMUT, STRYKER, Tool, tool_for
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -1607,6 +1607,22 @@ def test_the_nightly_run_refuses_to_pass_by_skipping() -> None:
     and worthless on a schedule: an Ollama that failed to install would give a green
     nightly job that checked nothing at all."""
     assert re.search(rf'^\s+{REQUIRE_ENV_VAR}: "1"$', integration_workflow(), re.M)
+
+
+def test_the_nightly_run_keeps_its_scorecard_pass_or_fail() -> None:
+    """The one scheduled score of a real model is the evidence a change to a prompt is
+    argued from (ADR-0036), and it used to be printed only by a floor it missed and kept
+    nowhere at all (ADR-0072). The file the live tests write is the file uploaded, and
+    a green night uploads it as a red one does."""
+    named = re.search(rf"^\s+{SCORECARD_ENV_VAR}: (\S+)$", integration_workflow(), re.M)
+    assert named, "the nightly names no file for its scorecard"
+    steps = re.split(r"^\s+- name: ", integration_workflow(), flags=re.M)
+    uploads = [step for step in steps if "uses: actions/upload-artifact@" in step]
+
+    path = re.compile(rf"^\s+path: {re.escape(named.group(1))}$", re.M)
+    kept = [step for step in uploads if path.search(step)]
+    assert kept, f"nothing uploads {named.group(1)}"
+    assert all(re.search(r"^\s+if: always\(\)$", step, re.M) for step in kept)
 
 
 def test_the_nightly_run_is_nightly_and_capped() -> None:

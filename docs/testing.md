@@ -64,8 +64,8 @@ Optional prerequisites skip, never fail:
 - One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
   and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `3107 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `3023 passed, 104 skipped`.
+So the SDK without PowerShell reads `3111 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `3027 passed, 104 skipped`.
 
 ### `pytest.ini`
 
@@ -242,21 +242,28 @@ python -m pytest integration
 
 The model is real and the web is `benchmark/corpus.py`'s ten pages, condensed by
 the real `fetch.condense` on the real budgets so the prompt is production-shaped
-and production-sized. One session-scoped run is shared by all 31 tests, which
+and production-sized. One session-scoped run is shared by all 32 tests, which
 assert what holds whatever the model said: every name, figure, quote and link is
 in the sources, currencies travel with prices, nothing is listed twice, the
 ranking is ordered. Two smoke tests check that something was extracted and
 quoted, so the rest are not vacuous.
 
+The same run is scored as the benchmark scores one -- the scorecard, the query and
+the time each question took -- and the session ends by printing it, pass or fail,
+in `python -m benchmark`'s own words (ADR-0072).
+
 | Variable | Effect |
 | --- | --- |
 | `BUY_AGENT_TEST_MODEL` | Test against another tag instead of `qwen3:0.6b` |
 | `BUY_AGENT_REQUIRE_OLLAMA` | Fail where Ollama is absent, instead of skipping |
+| `BUY_AGENT_SCORECARD` | Also write the scorecard to this file, as `python -m benchmark --json` writes one |
 
-`.github/workflows/integration.yml` sets the second, runs at `41 3 * * *` and on
-demand, never on a pull request, and caps itself at **five minutes**. Ollama and
-the model are deliberately unpinned: noticing a release that changes decoding is
-half of what the job is for.
+`.github/workflows/integration.yml` sets the second and the third, runs at
+`41 3 * * *` and on demand, never on a pull request, and caps itself at **five
+minutes**. It uploads the scorecard as the `scorecard` artifact on a green night as
+on a red one, and the summary page of every run shows it. Ollama and the model are
+deliberately unpinned: noticing a release that changes decoding is half of what the
+job is for.
 
 ## The benchmark
 

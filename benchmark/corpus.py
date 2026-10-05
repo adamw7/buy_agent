@@ -1,32 +1,13 @@
-"""The fixed web this benchmark searches, and the run settings it searches with."""
+"""The headphones case's fixed web, and the widths every case runs at."""
 
 from __future__ import annotations
 
-from buy_agent.config import AgentConfig
 from buy_agent.search import SearchResult
 from benchmark.query import QueryKey
 
 #: How many products the run keeps, and how many it reports.
 NUM_PRODUCTS = 5
 TOP_N = 3
-
-
-def settings(**overrides: object) -> AgentConfig:
-    """The config a benchmark run uses: the shipped defaults, on this corpus.
-
-    Args:
-        **overrides: Fields to set instead -- the model and the server, which
-        belong to whoever is being scored rather than to the corpus, and
-        ``num_products`` where a run is given more room.
-    """
-    fields: dict[str, object] = {
-        "search_results": len(PAGES),
-        "num_products": NUM_PRODUCTS,
-        "top_n": TOP_N,
-        # Nothing here is remembered between runs (ADR-0044).
-        "cache_ttl": 0,
-    }
-    return AgentConfig(**(fields | overrides))  # type: ignore[arg-type]
 
 
 #: The pages behind the results, as :func:`buy_agent.fetch.fetch_page` would have found

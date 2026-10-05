@@ -56,10 +56,10 @@ def test_a_case_is_found_by_its_name_and_an_unknown_one_is_named_back() -> None:
 
 
 def test_the_headphones_case_is_the_corpus_the_nightly_scores() -> None:
-    """One corpus, read by the nightly run and the comparison alike (ADR-0036)."""
+    """One corpus, read by the nightly run and the comparison alike (ADR-0036); the
+    nightly takes its settings off the case, as a comparison does."""
     assert HEADPHONES.request == corpus.REQUEST
     assert HEADPHONES.pages is corpus.PAGES
-    assert HEADPHONES.settings() == corpus.settings()
 
 
 @EVERY_CASE

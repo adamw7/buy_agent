@@ -25,17 +25,22 @@ from benchmark.compare import (
     Standing,
     Stopwatch,
     case_payload,
+    describe,
     finished_label,
     metrics_payload,
     reported,
     run_case,
     run_payload,
+    scored_run,
     seconds_label,
     standing_payload,
     standings,
     standings_payload,
+    summary_markdown,
+    write_standings,
 )
 from benchmark.query import QueryCheck, QueryVerdict
+from benchmark.runner import run_benchmark
 from benchmark.scoring import FLOORS, MEANINGS, METRICS
 from benchmark.scripted import ScriptedLLM
 
@@ -299,6 +304,43 @@ def test_a_query_the_model_garbled_is_scored_as_no_query(ollama: dict[str, Any])
     assert run.score == pytest.approx(1.0)
     assert run.query.query is None
     assert run.query.score == 0.0
+
+
+def test_a_run_scored_elsewhere_is_kept_as_one_scored_here() -> None:
+    """The nightly shares one run between its live tests and builds its kept run off it
+    (ADR-0072): the same scorecard, query and products a comparison would have kept."""
+    watched = Stopwatch(LAPTOPS.scripted("sloppy"), ticking(0.25))
+    report = run_benchmark(llm=watched, case=LAPTOPS)
+
+    elsewhere = scored_run(SLOPPY, LAPTOPS, watched, report)
+    here = run_case(SLOPPY, LAPTOPS, clock=ticking(0.25))
+
+    assert elsewhere.model_dump(exclude={"finished"}) == here.model_dump(exclude={"finished"})
+
+
+def test_a_job_summary_is_the_run_described_under_its_score() -> None:
+    """What ``$GITHUB_STEP_SUMMARY`` is given: a heading a reader scans for, then the very
+    lines the job's log carries."""
+    run = run_case(SLOPPY, HEADPHONES)
+
+    shown = summary_markdown(run, HEADPHONES)
+
+    assert shown.startswith(f"### sloppy (scripted) on headphones: {run.score:.3f}\n\n")
+    assert f"```text\n{describe(run, HEADPHONES)}\n```\n" in shown
+    failed = summary_markdown(kept(TINY, failure="answered with something unreadable"), HEADPHONES)
+    assert failed.startswith("### tiny:1b on headphones: failed\n")
+    assert "  failed: answered with something unreadable" in failed
+
+
+def test_the_standings_are_written_as_the_page_reads_them(tmp_path: Path) -> None:
+    runs = [kept(PERFECT), kept(TINY, counts=HALF)]
+    target = tmp_path / "standings.json"
+
+    write_standings(target, runs, [HEADPHONES])
+
+    assert json.loads(target.read_text(encoding="utf-8")) == json.loads(
+        json.dumps(standings_payload(runs, [HEADPHONES]))
+    )
 
 
 def test_a_run_is_stopped_at_the_step_its_checkpoint_refuses() -> None:

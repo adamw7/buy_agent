@@ -1,32 +1,28 @@
-"""The benchmark, scored on the nightly run: how *well* did the model do?"""
+"""The benchmark, scored on the nightly run: how *well* did the model do?
+
+The scorecard is printed and kept pass or fail by ``conftest.pytest_terminal_summary``
+(ADR-0072); these tests are the tripwire under it (ADR-0036).
+"""
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 import pytest
 
-from benchmark.scoring import FLOORS, METRICS, score_run
+from benchmark.scoring import FLOORS, METRICS
 
 if TYPE_CHECKING:
-    from buy_agent.config import AgentConfig
-
+    from benchmark.compare import CaseRun
     from benchmark.scoring import Scorecard
-    from integration.conftest import LiveRun
-
-logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(scope="session")
-def scorecard(live_run: LiveRun, live_config: AgentConfig) -> Scorecard:
-    """The live run, scored, and written to the log before anything asserts."""
-    card = score_run(
-        [entry.product for entry in live_run.ranked],
-        live_run.pages,
-        slots=live_config.num_products,
-    )
-    logger.info("Benchmark scorecard for %s:\n%s", live_config.model, card.table())
+def scorecard(benchmarked: CaseRun) -> Scorecard:
+    """The live run's scorecard. A run whose extraction could not be read has none, and
+    the session's fixtures fail before it gets here."""
+    card = benchmarked.scorecard
+    assert card is not None, benchmarked.failure
     return card
 
 
@@ -48,3 +44,12 @@ def test_every_metric_is_a_share(scorecard: Scorecard) -> None:
     something."""
     assert all(right <= out_of for right, out_of in scorecard.counts.values())
     assert 0.0 <= scorecard.score <= 1.0
+
+
+def test_the_query_the_run_searched_with_was_scored(benchmarked: CaseRun) -> None:
+    """The first of the two questions, judged off the same run rather than a second
+    inference (ADR-0070): reported, not floored -- no run has yet said where a floor
+    belongs."""
+    assert benchmarked.query.checks
+    assert 0.0 <= benchmarked.query.score <= 1.0
+    assert set(benchmarked.seconds) == {"query", "extract"}

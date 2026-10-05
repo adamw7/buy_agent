@@ -660,8 +660,9 @@ Every run is kept on a board, `$BUY_AGENT_CACHE_DIR/benchmark/board.json`, which
 the page and the command line both read, so a model pulled next week stands beside
 this week's. A run scored against a case whose pages or key have changed since is
 left out, and **Clear the board** forgets them all. The nightly integration run
-scores `qwen3:0.6b` on the headphones case alone and fails under
-`benchmark.scoring.FLOORS`, a tripwire rather than a target (ADR-0026).
+scores `qwen3:0.6b` on the headphones case alone, prints the scorecard on its summary
+page and keeps it as the `scorecard` artifact, pass or fail (ADR-0072), and fails
+under `benchmark.scoring.FLOORS`, a tripwire rather than a target (ADR-0026).
 [docs/testing.md](docs/testing.md#the-benchmark) has the metrics one by one and
 how the keys are kept honest.
 

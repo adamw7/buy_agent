@@ -20,7 +20,8 @@ from buy_agent.verification import (
 )
 from benchmark import __main__ as benchmark_main
 from benchmark.answers import ANSWER_KEY, Expected
-from benchmark.corpus import NUM_PRODUCTS, PAGES, PAGE_TEXT, REQUEST, TOP_N, settings
+from benchmark.cases import HEADPHONES
+from benchmark.corpus import NUM_PRODUCTS, PAGES, PAGE_TEXT, REQUEST, TOP_N
 from benchmark.runner import run_benchmark, serving_the_corpus
 from benchmark.scoring import (
     FLOORS,
@@ -296,7 +297,7 @@ def test_the_run_is_scored_on_the_pages_it_was_given() -> None:
 def test_widening_the_run_widens_the_slots() -> None:
     """Recall is measured against the cap, so a run allowed more products is
     scored against more of the key rather than against a ceiling it has left."""
-    report = run_benchmark(llm=ScriptedLLM(PERFECT), config=settings(num_products=7))
+    report = run_benchmark(llm=ScriptedLLM(PERFECT), config=HEADPHONES.settings(num_products=7))
 
     assert report.scorecard.counts["identified"] == (5, len(ANSWER_KEY))
 
