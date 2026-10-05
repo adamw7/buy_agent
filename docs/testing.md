@@ -27,7 +27,7 @@ python -m benchmark.server               # ...or as a page comparing several mod
 
 ## The unit suites
 
-3212 Python tests and 318 UI tests. Neither touches the network or a model
+3238 Python tests and 318 UI tests. Neither touches the network or a model
 server:
 
 - the model is faked through `BuyAgent(llm=...)`, a class with one `answer`
@@ -53,7 +53,7 @@ without `cffi`). The HTTP rail's transport is patched in `buy_agent.rails`.
 
 Optional prerequisites skip, never fail:
 
-- **`needs_ap2`** (84 tests) asks `mandates.available()` once, and goes on the
+- **`needs_ap2`** (85 tests) asks `mandates.available()` once, and goes on the
   parametrised case that reaches signing rather than the whole function. Both
   workflows install the SDK, so nothing skips where it matters, and the coverage
   floor cannot be met without it.
@@ -64,8 +64,8 @@ Optional prerequisites skip, never fail:
 - One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
   and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `3192 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `3108 passed, 104 skipped`.
+So the SDK without PowerShell reads `3218 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `3133 passed, 105 skipped`.
 
 ### Across processes
 

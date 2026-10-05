@@ -977,6 +977,8 @@ def test_defaults_payload_matches_the_config() -> None:
     assert payload["top"] == defaults.top_n
     assert payload["cpu_only"] == defaults.cpu_only
     assert payload["sort_options"] == ["score", "price", "rating"]
+    # The order the form starts in is the one a run ranks by when asked for none.
+    assert payload["sort_by"] == "score"
     # One text field holding all of them, which is what the form sends back.
     assert payload["sources"] == ""
 

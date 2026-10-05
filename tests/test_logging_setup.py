@@ -42,6 +42,11 @@ def report(caplog):
     return caplog
 
 
+def lines(report: pytest.LogCaptureFixture) -> list[str]:
+    """The report as written, one entry per line."""
+    return [record.getMessage() for record in report.records]
+
+
 def test_nothing_to_report_is_a_warning(caplog) -> None:
     with caplog.at_level(logging.WARNING, logger="buy_agent"):
         log_top_products([], 3)
@@ -84,15 +89,18 @@ def test_every_known_field_reaches_the_report(report) -> None:
         1,
     )
 
-    text = report.text
-    assert "#1  Sony WH-1000XM5" in text
-    assert "score  : 1.000" in text
-    assert "price  : 328.00 USD" in text
-    assert "rating : 4.7/5 (12,000 reviews)" in text
-    assert "seller : Amazon" in text
-    assert "url    : https://shop.example/sony" in text
-    assert "note   : Best noise cancelling." in text
-    assert "says   : the noise cancelling is uncanny" in text
+    # Whole lines, in order, between the heading's rules and the closing one: a label
+    # is a column a reader's eye runs down, so what sits either side of it counts.
+    assert lines(report)[3:-1] == [
+        "#1  Sony WH-1000XM5",
+        "     score  : 1.000  (rating 1.00 x0.50, popularity 1.00 x0.20, price 1.00 x0.30)",
+        "     price  : 328.00 USD",
+        "     rating : 4.7/5 (12,000 reviews)",
+        "     seller : Amazon",
+        "     url    : https://shop.example/sony",
+        "     note   : Best noise cancelling.",
+        "     says   : the noise cancelling is uncanny",
+    ]
 
 
 def test_unknown_fields_are_left_out_rather_than_shown_blank(report) -> None:
@@ -419,15 +427,15 @@ def test_the_report_is_a_block_with_a_rule_at_each_end(report) -> None:
     [
         # The ordinary case: the URL is two lines up already, and repeating it
         # under each of three quotes says nothing.
-        pytest.param("https://shop.example/sony", "says   : the fit is snug",
+        pytest.param("https://shop.example/sony", "     says   : the fit is snug",
                      id="the product's own page"),
         # The case the link is worth printing: words off a page the report would
         # otherwise never name.
         pytest.param("https://audiosite.example/xm5",
-                     "says   : the fit is snug  -- https://audiosite.example/xm5",
+                     "     says   : the fit is snug  -- https://audiosite.example/xm5",
                      id="another page"),
         # A result the search returned without a URL still printed the words.
-        pytest.param(None, "says   : the fit is snug", id="no page behind it"),
+        pytest.param(None, "     says   : the fit is snug", id="no page behind it"),
     ],
 )
 def test_a_quote_names_its_page_only_where_that_is_news(
@@ -445,7 +453,7 @@ def test_a_quote_names_its_page_only_where_that_is_news(
         1,
     )
 
-    assert expected in report.text
+    assert lines(report)[-2] == expected, "the last line of the block, and all of it"
     assert report.text.count("https://shop.example/sony") == 1
 
 
@@ -554,7 +562,10 @@ def test_the_listings_a_product_was_priced_at_are_reported_under_the_price(
 
     log_top_products(ranked(priced), 1)
 
-    assert "     offers : 2 listings, 329.00-349.00 USD" in report.text
+    assert lines(report)[5:7] == [
+        "     price  : 349.00 USD",
+        "     offers : 2 listings, 329.00-349.00 USD",
+    ]
 
 
 def test_one_listing_earns_no_line_of_its_own(report) -> None:

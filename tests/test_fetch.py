@@ -64,8 +64,13 @@ def test_a_page_that_opens_with_an_xml_declaration_is_still_read() -> None:
         "<h2>Sony WH-CH720N</h2><span>$129.99</span></body></html>"
     )
 
-    assert "Sony WH-CH720N" in text
-    assert "$129.99" in text
+    assert text.split() == ["Sony", "WH-CH720N", "$129.99"], "nothing of the declaration"
+
+
+def test_a_line_as_short_as_the_floor_is_still_a_line() -> None:
+    """The floor is the shortest line kept, not the longest dropped: "$129" is a whole
+    price."""
+    assert condense("$129", max_chars=1000) == "$129"
 
 
 def test_only_lines_with_figures_are_kept() -> None:
@@ -954,6 +959,25 @@ def test_the_ceiling_is_counted_across_every_piece_that_arrived(
     assert ("$99.00" in page.text) is third_read
 
 
+def test_the_pieces_of_a_page_are_joined_with_nothing_between_them(monkeypatch) -> None:
+    """A network hands a page over wherever its packets fall, the middle of a price
+    included."""
+    stub_client(
+        monkeypatch,
+        lambda url: httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            content=iter((b"<p>Sony WH-CH720N $12", b"9.00</p>")),
+            request=httpx.Request("GET", url),
+        ),
+    )
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://split.example", max_chars=1000)
+
+    assert "Sony WH-CH720N $129.00" in page.text
+
+
 def test_a_page_is_read_in_the_encoding_it_declares(monkeypatch) -> None:
     """A shop still serving Latin-1 prints its accents in bytes UTF-8 cannot read."""
     stub_client(
@@ -970,6 +994,27 @@ def test_a_page_is_read_in_the_encoding_it_declares(monkeypatch) -> None:
         page = fetch_page(client, "https://cafe.example", max_chars=1000)
 
     assert "Café Noir" in page.text
+
+
+def test_a_byte_the_declared_encoding_lacks_does_not_cost_it_the_page(monkeypatch) -> None:
+    """Windows-1252 leaves five bytes unassigned. One of them in a footer is replaced
+    where it stands, rather than throwing the whole page over to UTF-8, which cannot
+    read its accents either."""
+    stub_client(
+        monkeypatch,
+        lambda url: httpx.Response(
+            200,
+            headers={"content-type": "text/html; charset=windows-1252"},
+            content="<p>Café Noir espresso machine £129.00</p>".encode("windows-1252")
+            + b"<p>\x81</p>",
+            request=httpx.Request("GET", url),
+        ),
+    )
+
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://cafe.example", max_chars=1000)
+
+    assert "Café Noir espresso machine £129.00" in page.text
 
 
 def test_a_byte_no_encoding_can_read_does_not_cost_the_page(monkeypatch) -> None:
@@ -994,13 +1039,15 @@ def test_a_byte_no_encoding_can_read_does_not_cost_the_page(monkeypatch) -> None
 def test_a_charset_that_reads_no_text_is_read_as_utf8(monkeypatch, charset: str) -> None:
     """httpx accepts any name ``codecs`` can find, and these refuse to decode text even
     replacing: one page declaring one ended the run -- as a 500 where the refusal was a
-    ``LookupError``, none of the run's three failures."""
+    ``LookupError``, none of the run's three failures. Read as UTF-8, a stray byte is
+    replaced there too, rather than raised past every handler."""
     stub_client(
         monkeypatch,
         lambda url: httpx.Response(
             200,
             headers={"content-type": f"text/html; charset={charset}"},
-            content="<p>Café Noir espresso machine €129.00</p>".encode("utf-8"),
+            content="<p>Café Noir espresso machine €129.00</p>".encode("utf-8")
+            + b"<p>\xff</p>",
             request=httpx.Request("GET", url),
         ),
     )

@@ -835,6 +835,14 @@ def test_an_unreadable_answer_quotes_one_line_of_it() -> None:
     assert "Invalid json output: {" in message
 
 
+def test_an_unreadable_answer_that_says_nothing_is_named_by_its_kind() -> None:
+    """There is no first line of nothing to quote: indexed, the hint about a broken
+    answer would itself have broken."""
+    message = hint(OLLAMA_CONFIG, UnreadableAnswerError("  "))
+
+    assert "not the JSON this asks for (UnreadableAnswerError)." in message
+
+
 def test_a_refused_key_says_which_variable_sets_one() -> None:
     """The one failure that is neither "not running" nor "not serving that", and
     the only one whose fix is an environment variable rather than a command."""
@@ -853,6 +861,19 @@ def test_a_model_vllm_is_not_serving_names_what_it_is(serving) -> None:
     assert "vllm serve Qwen/Qwen3-8B" in message
 
 
+def test_a_model_vllm_reports_as_not_found_is_one_it_is_not_serving(serving) -> None:
+    """The other way a vLLM words a model it does not have; this one as plain as Ollama's
+    for a tag it has not pulled."""
+    serving(["Qwen/Qwen3-0.6B"])
+    response = httpx.Response(404, request=_REQUEST)
+    refused = openai.NotFoundError("Model Qwen/Qwen3-8B not found", response=response, body=None)
+
+    message = hint(VLLM_CONFIG, refused)
+
+    assert "is not serving 'Qwen/Qwen3-8B'" in message
+    assert "serving: Qwen/Qwen3-0.6B" in message
+
+
 def test_a_vllm_that_cannot_be_listed_still_says_how_to_restart_it(serving) -> None:
     """Whatever else is broken, the command is still the thing to try -- and the
     second failure must not replace the message being written about the first."""
@@ -861,6 +882,28 @@ def test_a_vllm_that_cannot_be_listed_still_says_how_to_restart_it(serving) -> N
 
     assert "serving: unknown" in message
     assert "vllm serve Qwen/Qwen3-8B" in message
+
+
+@pytest.mark.parametrize("provider", ["ollama", "vllm", "litellm"])
+def test_a_listing_with_no_list_in_it_is_a_server_serving_nothing(
+    monkeypatch, provider: str
+) -> None:
+    """An object without its ``models`` or ``data`` -- a proxy in front, a build that
+    leaves an empty list out -- is nothing served. Read as a failed listing, the picker
+    would say a server that had just answered could not be reached."""
+
+    class Answered:
+        @staticmethod
+        def raise_for_status() -> None:
+            return None
+
+        @staticmethod
+        def json() -> dict:
+            return {}
+
+    monkeypatch.setattr("buy_agent.providers.httpx.get", lambda url, **_: Answered())
+
+    assert listed(AgentConfig(provider=provider)) == []
 
 
 def test_a_vllm_serving_nothing_reports_none(serving) -> None:

@@ -300,6 +300,37 @@ def test_an_open_mandate_refuses_a_merchant_it_does_not_allow(
 
 
 @needs_ap2
+def test_a_closed_open_mandate_is_checked_against_this_very_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The check before a chain is handed on. Handed ``None`` for any of these, the SDK
+    checks nothing of the kind, so a chain closed for another purchase, nonce or
+    audience would pass: what is asked is the point of asking."""
+    agent, issuer = open_mandate(tmp_path, monkeypatch)
+    checkout = signed_checkout()
+    real = mandates.verify
+    asked: list[dict[str, Any]] = []
+
+    def verify(chain: str, **expected: Any) -> list[str]:
+        asked.append(expected)
+        return real(chain, **expected)
+
+    monkeypatch.setattr(mandates, "verify", verify)
+
+    mandates.authorise(CART, checkout, key=agent, nonce="n")
+
+    assert asked == [
+        {
+            "issuer": asked[0]["issuer"],
+            "audience": mandates.CREDENTIAL_PROVIDER_AUDIENCE,
+            "nonce": "n",
+            "transaction_id": checkout.hash,
+        }
+    ]
+    assert asked[0]["issuer"].thumbprint() == issuer.thumbprint()
+
+
+@needs_ap2
 def test_an_open_mandate_cannot_be_closed_with_the_wrong_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -348,10 +379,13 @@ def test_the_mandate_file_is_read_before_the_signing_stack_is_asked_for(
 def test_a_mandate_file_that_is_missing_is_refused_by_its_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "gone.json"))
+    gone = tmp_path / "gone.json"
+    monkeypatch.setenv(mandates.MANDATE_PATH, str(gone))
 
-    with pytest.raises(MandateError, match="Could not read the open mandate"):
+    with pytest.raises(MandateError) as refused:
         mandates.open_mandate()
+
+    _names_the_file_and_why(refused.value, gone)
 
 
 @needs_ap2
@@ -365,8 +399,19 @@ def test_an_issuer_key_the_signing_stack_cannot_use_is_refused_by_its_path(
     document = json.loads(path.read_text(encoding="utf-8"))
     path.write_text(json.dumps({**document, "issuer_jwk": {"kty": "EC"}}), encoding="utf-8")
 
-    with pytest.raises(MandateError, match="Could not read the open mandate"):
+    with pytest.raises(MandateError) as refused:
         mandates.open_mandate()
+
+    _names_the_file_and_why(refused.value, path)
+
+
+def _names_the_file_and_why(refusal: MandateError, path: Path) -> None:
+    """The sentence a shopper fixes the file by: which file, and what was wrong with it
+    in the reader's own words. The path is asked for where the sentence puts it, since
+    a missing file's own error repeats it."""
+    said = str(refusal)
+    assert said.startswith(f"Could not read the open mandate at {path} (")
+    assert f"({refusal.__cause__})" in said
 
 
 @needs_ap2
