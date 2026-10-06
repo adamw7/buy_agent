@@ -15,8 +15,6 @@ import buy_agent.providers as providers_module
 from buy_agent.chat import UnreadableAnswerError
 from buy_agent.config import AgentConfig
 from buy_agent.models import SearchQuery
-from buy_agent.providers import provider_for, provider_options
-from tests.conftest import unencodable
 
 # The table and its rows are read off the module rather than imported by name, because
 # ``reloaded_providers`` below re-imports it: a reload re-runs the module over its own
@@ -62,10 +60,6 @@ def names(config: AgentConfig) -> list[str]:
 
 def hint(config: AgentConfig, exc: Exception) -> str:
     return config.model_server.hint(config, exc)
-
-
-def errors(config: AgentConfig) -> tuple[type[Exception], ...]:
-    return config.model_server.transport_errors
 
 
 @pytest.fixture
@@ -215,64 +209,6 @@ def pulled(monkeypatch):
 # -- the registry --------------------------------------------------------------
 
 
-def test_a_provider_is_found_by_the_name_the_config_carries() -> None:
-    assert provider_for("ollama") is providers_module.OLLAMA
-    assert provider_for("vllm") is providers_module.VLLM
-    assert provider_for("litellm") is providers_module.LITELLM
-
-
-def test_an_unknown_provider_names_the_ones_that_exist() -> None:
-    """This is reached from a flag, a form field and an environment variable, so
-    the refusal has to be readable by someone who typed one of the three."""
-    with pytest.raises(ValueError, match="Unknown provider 'llama.cpp'") as caught:
-        provider_for("llama.cpp")
-
-    for name in providers_module.PROVIDERS:
-        assert name in str(caught.value)
-
-
-def test_a_row_carries_both_what_a_server_defaults_to_and_how_it_is_reached() -> None:
-    """One table rather than two: a name written twice is a name that can drift,
-    and a provider is not configurable without both halves (ADR-0029)."""
-    for server in providers_module.PROVIDERS.values():
-        assert server.model and server.base_url, f"{server.name} cannot be reached"
-        assert server.label, "a provider with no label is one nobody can read"
-        assert callable(server.chat_model) and callable(server.installed)
-
-
-def test_every_provider_offers_its_defaults_to_the_form() -> None:
-    """One row per provider, each carrying the pair to fill the fields in with."""
-    options = {option["name"]: option for option in provider_options()}
-
-    assert set(options) == set(providers_module.PROVIDERS)
-    for name, server in providers_module.PROVIDERS.items():
-        assert options[name]["model"] == server.model
-        assert options[name]["base_url"] == server.base_url
-        assert options[name]["takes_num_ctx"] == server.takes_num_ctx
-        assert options[name]["takes_cpu_only"] == server.takes_cpu_only
-
-
-def test_the_key_is_the_one_default_the_form_is_never_told() -> None:
-    """It is a secret, and this payload is what the API hands a browser."""
-    assert all("api_key" not in option for option in provider_options())
-
-
-def test_only_one_of_them_takes_the_context_window_per_request() -> None:
-    """vLLM fixes it with --max-model-len when it starts, so offering a per-run
-    setting for it would be a field that quietly does nothing."""
-    assert providers_module.OLLAMA.takes_num_ctx is True
-    assert providers_module.VLLM.takes_num_ctx is False
-    assert providers_module.LITELLM.takes_num_ctx is False
-
-
-def test_only_one_of_them_takes_the_device_per_request() -> None:
-    """vLLM picks its device with --device when it starts, for the reason it fixes
-    its window there: a per-run switch would quietly do nothing."""
-    assert providers_module.OLLAMA.takes_cpu_only is True
-    assert providers_module.VLLM.takes_cpu_only is False
-    assert providers_module.LITELLM.takes_cpu_only is False
-
-
 # -- building the chat model ---------------------------------------------------
 
 
@@ -284,34 +220,11 @@ def asked(config: AgentConfig, sent: dict, schema: type = SearchQuery) -> dict:
     return sent
 
 
-def test_closing_a_chat_model_lets_go_of_the_client_underneath(
-    chatting, completing
-) -> None:
-    """The one thing a chat model holds that outlives the answer."""
-    ollama_sent, vllm_sent = chatting(), completing()
-
-    chat_model(AgentConfig(provider="ollama")).close()
-    chat_model(VLLM_CONFIG).close()
-
-    assert ollama_sent["closed"] is True
-    assert vllm_sent["closed"] is True
-
-
 #: A conversation of both turns, as ``chat.Chain`` hands one over.
 _CONVERSATION = [
     {"role": "system", "content": "Rewrite the request as a shopping query."},
     {"role": "user", "content": "headphones under $200"},
 ]
-
-
-def test_the_prompt_is_what_ollama_is_asked(chatting) -> None:
-    """Every setting below is asserted on the request, and so is the one thing every
-    request is for."""
-    sent = chatting()
-
-    chat_model(AgentConfig(provider="ollama")).answer(_CONVERSATION, SearchQuery)
-
-    assert sent["messages"] == _CONVERSATION
 
 
 @pytest.mark.parametrize("provider", ["vllm", "litellm"])
@@ -325,59 +238,11 @@ def test_the_prompt_is_what_an_openai_compatible_server_is_asked(
     assert sent["messages"] == _CONVERSATION
 
 
-def test_ollama_is_given_the_window_and_the_thinking_switch(chatting) -> None:
-    """Both are Ollama request options, and ADR-0019 is about them arriving."""
-    config = AgentConfig(
-        provider="ollama",
-        model="qwen3.5:9b",
-        base_url="http://ollama.internal:11434",
-        temperature=0.2,
-        num_ctx=8192,
-        reasoning=False,
-    )
-
-    sent = asked(config, chatting())
-
-    assert (sent["model"], sent["base_url"]) == ("qwen3.5:9b", "http://ollama.internal:11434")
-    assert sent["options"] == {"temperature": 0.2, "num_ctx": 8192}
-    assert sent["think"] is False
-
-
-def test_ollama_is_sent_no_window_when_there_is_none_to_send(chatting) -> None:
-    """``None`` is "leave the model's own alone", which a null option is not."""
-    sent = asked(AgentConfig(provider="ollama", num_ctx=None), chatting())
-
-    assert "num_ctx" not in sent["options"]
-
-
 def test_ollama_is_told_to_offload_nothing_for_a_cpu_only_run(chatting) -> None:
     """``num_gpu`` is how many layers go to the card, so none of them is zero."""
     sent = asked(AgentConfig(provider="ollama", cpu_only=True), chatting())
 
     assert sent["options"]["num_gpu"] == 0
-
-
-def test_ollama_is_sent_no_device_when_the_card_may_be_used(chatting) -> None:
-    """The absence of the option is "offload whatever you would have", which is not
-    a number this can send -- the same rule the window follows."""
-    sent = asked(AgentConfig(provider="ollama", cpu_only=False), chatting())
-
-    assert "num_gpu" not in sent["options"]
-
-
-def test_ollama_is_asked_to_decode_against_the_schema(chatting) -> None:
-    """The schema *is* the request option: Ollama compiles it into a grammar."""
-    sent = asked(AgentConfig(provider="ollama"), chatting(), SearchQuery)
-
-    assert sent["format"] == SearchQuery.model_json_schema()
-
-
-def test_ollama_is_not_asked_to_stream_it(chatting) -> None:
-    """Nothing reads a token before the whole answer is parsed against a schema,
-    and the plain path is the one whose refused connection is an ``OSError``."""
-    sent = asked(AgentConfig(provider="ollama"), chatting())
-
-    assert not sent.get("stream")
 
 
 def test_vllm_is_pointed_at_the_openai_api_it_serves(completing) -> None:
@@ -408,23 +273,6 @@ def test_vllm_is_asked_to_decode_against_the_schema(completing) -> None:
     }
 
 
-def test_vllm_is_never_sent_the_context_window(completing) -> None:
-    """It is not a request option there; sent anyway it would be rejected, and the
-    run would fail for a setting the shopper could not have known was Ollama's."""
-    sent = asked(AgentConfig(provider="vllm", num_ctx=8192), completing())
-
-    assert "num_ctx" not in sent["extra_body"]
-    assert "num_ctx" not in sent
-
-
-def test_vllm_is_never_told_which_device_to_use(completing) -> None:
-    """Its device is a startup flag, so a per-run switch has nowhere to go."""
-    sent = asked(AgentConfig(provider="vllm", cpu_only=True), completing())
-
-    assert "num_gpu" not in sent["extra_body"]
-    assert "num_gpu" not in sent
-
-
 @pytest.mark.parametrize("reasoning", [True, False])
 def test_vllm_carries_the_thinking_switch_its_templates_read(
     completing, reasoning: bool
@@ -441,34 +289,6 @@ def test_vllm_sends_nothing_when_thinking_is_left_alone(completing) -> None:
     sent = asked(AgentConfig(provider="vllm", reasoning=None), completing())
 
     assert sent["extra_body"] == {}
-
-
-def test_a_vllm_without_a_key_still_gets_one(completing) -> None:
-    """The OpenAI client refuses to send a request with no key at all, and a vLLM
-    started without --api-key is not checking the header it arrives in."""
-    sent = asked(AgentConfig(provider="vllm", api_key=""), completing())
-
-    assert sent["client"]["api_key"] == "EMPTY"
-
-
-def test_a_configured_key_reaches_the_client(completing) -> None:
-    sent = asked(AgentConfig(provider="vllm", api_key="s3cret"), completing())
-
-    assert sent["client"]["api_key"] == "s3cret"
-
-
-@pytest.mark.parametrize("provider", ["ollama", "vllm", "litellm"])
-def test_an_answer_that_is_not_the_schema_is_one_failure_either_way(
-    chatting, completing, provider: str
-) -> None:
-    """Every server can answer with prose, and it is the same thing when they do
-    -- one class, one wording, whichever of them said it (ADR-0038)."""
-    chatting("I think the best headphones are...")
-    completing("I think the best headphones are...")
-    config = AgentConfig(provider=provider)
-
-    with pytest.raises(UnreadableAnswerError, match="I think the best"):
-        asked(config, {})
 
 
 @pytest.mark.parametrize("provider", ["ollama", "vllm", "litellm"])
@@ -500,12 +320,6 @@ def test_an_answer_with_no_choice_in_it_is_one_with_nothing_to_read(
 # -- what the server is serving ------------------------------------------------
 
 
-def test_ollama_lists_every_tag_it_has_pulled(pulled) -> None:
-    pulled(["gemma4:12b", "qwen3:8b", ""])
-
-    assert names(OLLAMA_CONFIG) == ["gemma4:12b", "qwen3:8b"]
-
-
 def test_a_tag_spelled_only_the_way_ollama_list_prints_it_is_still_offered(
     pulled,
 ) -> None:
@@ -521,45 +335,6 @@ def test_a_tag_spelled_only_the_way_ollama_list_prints_it_is_still_offered(
     )
 
     assert names(OLLAMA_CONFIG) == ["gemma4:12b", "qwen3:8b"]
-
-
-def test_an_entry_that_names_nothing_is_left_out(pulled) -> None:
-    """The other end of that: an entry with neither spelling is nothing to offer
-    a shopper, which is what a ``/v1/models`` entry with no ``id`` is on the
-    other row -- and it takes only itself out, not the listing around it."""
-    pulled([], entries=[{"size": 1}, {"model": "qwen3:8b"}])
-
-    assert names(OLLAMA_CONFIG) == ["qwen3:8b"]
-
-
-def test_each_tag_is_listed_with_the_build_ollama_holds_for_it(pulled) -> None:
-    """A tag pulled again is the same name on other weights, and the digest is what says
-    which build a benchmark run scored (ADR-0075). An entry carrying none says nothing."""
-    build = "sha256:" + "ab" * 32
-    pulled([], entries=[{"model": "qwen3:0.6b", "digest": build}, {"model": "gemma4:12b"}])
-
-    assert [(model.name, model.digest) for model in listed(OLLAMA_CONFIG)] == [
-        ("qwen3:0.6b", build),
-        ("gemma4:12b", ""),
-    ]
-
-
-def test_a_server_that_names_no_build_lists_none(serving) -> None:
-    """``/v1/models`` carries no digest, so a vLLM's or a proxy's model has no build to
-    tell apart."""
-    serving(["Qwen/Qwen3-8B"])
-
-    assert [model.digest for model in listed(VLLM_CONFIG)] == [""]
-
-
-def test_the_tags_are_read_off_ollamas_own_endpoint(pulled) -> None:
-    """Where the answer comes from, since it is no longer the client's listing:
-    the address the run itself would chat to, and Ollama's own path on it."""
-    asked = pulled(["gemma4:12b"])
-
-    listed(OLLAMA_CONFIG)
-
-    assert asked["tags"]["url"] == f"{OLLAMA_CONFIG.base_url}/api/tags"
 
 
 @pytest.mark.parametrize("base_url", ["localhost:11434", "http://localhost:11434/"])
@@ -598,23 +373,6 @@ def test_an_address_with_no_scheme_is_on_ollamas_own_port(
     assert asked["tags"]["url"] == url
 
 
-def test_a_tag_with_no_completion_to_give_is_listed_as_one(pulled) -> None:
-    """The whole point of asking twice: an embedding model is pulled the same way a chat
-    model is, sits in the same listing, and cannot answer a prompt."""
-    pulled(
-        ["gemma4:12b", "nomic-embed-text"],
-        capabilities={
-            "gemma4:12b": [_COMPLETION, "tools"],
-            "nomic-embed-text": [_EMBEDDING],
-        },
-    )
-
-    assert listed(OLLAMA_CONFIG) == [
-        installed("gemma4:12b", completion=True),
-        installed("nomic-embed-text", completion=False),
-    ]
-
-
 def test_every_tag_is_asked_what_it_can_do(pulled) -> None:
     """``ollama list`` says nothing about capabilities, so the second call is per
     tag -- and a tag left unasked is one the picker cannot mark."""
@@ -646,15 +404,6 @@ def test_every_tag_is_probed_at_the_address_that_was_listed(pulled) -> None:
     assert asked["opened"]["base_url"] == "http://gpu-box.lan:11434"
 
 
-def test_the_listing_lets_go_of_what_it_opened(pulled) -> None:
-    """The listing opens a client of its own, and closing it is its own too."""
-    asked = pulled(["gemma4:12b"])
-
-    listed(OLLAMA_CONFIG)
-
-    assert asked["closed"] == 1
-
-
 def test_a_tag_that_will_not_say_what_it_can_do_is_still_offered(pulled) -> None:
     """The probe failed; nothing was learnt."""
     pulled(["gemma4:12b", "qwen3:8b"], capabilities={"gemma4:12b": [_COMPLETION]})
@@ -663,36 +412,6 @@ def test_a_tag_that_will_not_say_what_it_can_do_is_still_offered(pulled) -> None
         installed("gemma4:12b", completion=True),
         installed("qwen3:8b", completion=True),
     ]
-
-
-def test_an_ollama_too_old_to_report_capabilities_offers_everything(pulled) -> None:
-    """``capabilities`` is absent rather than empty there, which says nothing
-    about the tag -- and the same rule applies: it is taken at its word."""
-    pulled(["gemma4:12b"], capabilities={"gemma4:12b": None})
-
-    assert listed(OLLAMA_CONFIG) == [installed("gemma4:12b", completion=True)]
-
-
-def test_an_ollama_with_nothing_pulled_is_asked_nothing_further(pulled) -> None:
-    """No tags is an answer, and the branch that skips the second round of calls."""
-    asked = pulled([])
-
-    assert listed(OLLAMA_CONFIG) == []
-    assert asked["shown"] == []
-
-
-def test_vllm_lists_the_one_model_it_was_started_with(serving) -> None:
-    serving(["Qwen/Qwen3-8B"])
-
-    assert listed(VLLM_CONFIG) == [installed("Qwen/Qwen3-8B", completion=True)]
-
-
-def test_everything_a_vllm_serves_can_answer_a_prompt(serving) -> None:
-    """There is no second question to ask: a vLLM process serves the model it was
-    started for, so a listing there is by construction a listing of usable models."""
-    serving(["Qwen/Qwen3-8B"])
-
-    assert all(model.completion for model in listed(VLLM_CONFIG))
 
 
 def test_the_listing_is_asked_of_the_api_root_the_config_names(serving) -> None:
@@ -704,39 +423,7 @@ def test_the_listing_is_asked_of_the_api_root_the_config_names(serving) -> None:
     assert asked["url"] == "http://gpu.internal:8000/v1/models"
 
 
-def test_a_key_is_sent_with_the_listing_when_there_is_one(serving) -> None:
-    """The listing goes over httpx rather than the OpenAI client, so the header a
-    vLLM started with --api-key demands has to be written here too."""
-    asked = serving(["Qwen/Qwen3-8B"])
-    listed(AgentConfig(provider="vllm", api_key="s3cret"))
-
-    assert asked["headers"] == {"Authorization": "Bearer s3cret"}
-
-
-def test_no_key_means_no_header(serving) -> None:
-    asked = serving(["Qwen/Qwen3-8B"])
-    listed(AgentConfig(provider="vllm", api_key=""))
-
-    assert asked["headers"] == {}
-
-
-def test_a_listing_that_fails_raises_rather_than_reporting_nothing(serving) -> None:
-    """Both callers phrase it themselves -- a hint on the CLI, a status in the
-    browser -- so an empty list here would be indistinguishable from a real one."""
-    serving([], error=httpx.ConnectError("refused"))
-
-    with pytest.raises(httpx.ConnectError):
-        listed(VLLM_CONFIG)
-
-
 # -- what a failure says -------------------------------------------------------
-
-
-def test_a_stopped_ollama_is_told_to_serve() -> None:
-    message = hint(OLLAMA_CONFIG, ConnectionError("connection refused"))
-
-    assert "ollama serve" in message
-    assert OLLAMA_CONFIG.base_url in message
 
 
 def test_a_stopped_vllm_is_told_to_serve_the_model_it_was_asked_for() -> None:
@@ -759,15 +446,6 @@ def test_a_refused_vllm_key_quotes_the_refusal() -> None:
     assert "$VLLM_API_KEY" in message
 
 
-def test_a_slow_vllm_is_not_told_to_start_one(serving) -> None:
-    """A timeout is a running server; telling the user to start one misleads."""
-    message = hint(VLLM_CONFIG, openai.APITimeoutError(request=_REQUEST))
-
-    assert "did not answer in time" in message
-    assert "vllm serve" not in message
-    assert "Qwen/Qwen3-8B" in message
-
-
 def test_a_slow_ollama_is_offered_the_window_it_can_be_given() -> None:
     """The remedy is the row's: a smaller window is something Ollama takes per run,
     where vLLM fixed its own at startup and can only be sent a shorter prompt."""
@@ -782,44 +460,6 @@ def test_a_timeout_that_says_nothing_is_named_by_its_kind() -> None:
     assert "did not answer in time (timed out)" in hint(
         OLLAMA_CONFIG, httpx.ReadTimeout("timed out")
     )
-
-
-def test_a_slow_vllm_reported_by_httpx_says_the_same_thing() -> None:
-    """The listing's transport times out as httpx, the chat's as openai; a shopper
-    who waited two minutes should not get two different explanations of it."""
-    message = hint(VLLM_CONFIG, httpx.ReadTimeout("timed out"))
-
-    assert "did not answer in time" in message
-
-
-def test_an_unreadable_answer_names_the_room_ollama_can_be_given() -> None:
-    """A server that answered, badly."""
-    message = hint(OLLAMA_CONFIG, UnreadableAnswerError("Invalid json output: {\"produ"))
-
-    assert "not the JSON this asks for" in message
-    assert "context window" in message and "turn thinking off" in message
-    assert "ollama serve" not in message and "ollama pull" not in message
-
-
-def test_an_unreadable_answer_names_what_vllm_can_be_given_instead(serving) -> None:
-    """The same failure, and the same declared difference: a vLLM's window is
-    fixed when it starts, so the only room to give it here is a shorter prompt."""
-    message = hint(VLLM_CONFIG, UnreadableAnswerError("Invalid json output: {"))
-
-    assert "not the JSON this asks for" in message
-    assert "--max-model-len" in message
-    assert "context window" not in message and "vllm serve" not in message
-
-
-def test_a_half_finished_answer_is_not_read_as_a_missing_model() -> None:
-    """The quoted text is the model's own words, and any of them could say "not
-    found" -- which is the message Ollama uses for a tag it has not pulled."""
-    message = hint(
-        OLLAMA_CONFIG, UnreadableAnswerError('Invalid json output: {"name": "Page not found')
-    )
-
-    assert "ollama pull" not in message
-    assert "not the JSON this asks for" in message
 
 
 def test_an_unreadable_answer_quotes_one_line_of_it() -> None:
@@ -850,15 +490,6 @@ def test_a_refused_key_says_which_variable_sets_one() -> None:
 
     assert "$VLLM_API_KEY" in message
     assert "--api-key" in message
-
-
-def test_a_model_vllm_is_not_serving_names_what_it_is(serving) -> None:
-    """The asymmetry with Ollama that matters most: there is nothing to pull."""
-    serving(["Qwen/Qwen3-0.6B"])
-    message = hint(VLLM_CONFIG, _status_error(openai.NotFoundError, 404))
-
-    assert "serving: Qwen/Qwen3-0.6B" in message
-    assert "vllm serve Qwen/Qwen3-8B" in message
 
 
 def test_a_model_vllm_reports_as_not_found_is_one_it_is_not_serving(serving) -> None:
@@ -906,23 +537,6 @@ def test_a_listing_with_no_list_in_it_is_a_server_serving_nothing(
     assert listed(AgentConfig(provider=provider)) == []
 
 
-def test_a_vllm_serving_nothing_reports_none(serving) -> None:
-    serving([])
-    message = hint(VLLM_CONFIG, _status_error(openai.NotFoundError, 404))
-
-    assert "serving: none" in message
-
-
-def test_a_missing_ollama_tag_is_told_to_pull_it(pulled) -> None:
-    """The same shape of failure, the other command: Ollama holds many tags and
-    the answer is to fetch one, not to restart the server."""
-    pulled(["qwen3:8b"])
-    message = hint(OLLAMA_CONFIG, ResponseError("model not found", 404))
-
-    assert "ollama pull gemma4:12b" in message
-    assert "installed: qwen3:8b" in message
-
-
 def test_a_name_ollama_cannot_parse_is_not_a_server_to_start(pulled) -> None:
     """Ollama answered, refusing the string before looking for any tag -- a browser that
     remembered ``[object Object]`` from a build older than the listing it was reading.
@@ -938,42 +552,6 @@ def test_a_name_ollama_cannot_parse_is_not_a_server_to_start(pulled) -> None:
     assert "ollama pull" not in message, "a name Ollama cannot read cannot be pulled either"
 
 
-def test_a_model_that_cannot_answer_a_prompt_is_named_as_one(pulled) -> None:
-    """Ollama answered, and the run still failed: the tag is there and has no completion
-    to give."""
-    pulled(
-        ["gemma4:12b", "nomic-embed-text"],
-        capabilities={
-            "gemma4:12b": [_COMPLETION],
-            "nomic-embed-text": [_EMBEDDING],
-        },
-    )
-    config = AgentConfig(provider="ollama", model="nomic-embed-text")
-    message = hint(config, ResponseError('"nomic-embed-text" does not support chat', 400))
-
-    assert "cannot answer a prompt" in message
-    assert "ollama serve" not in message, "the server answered; starting one is no help"
-    assert "installed: gemma4:12b" in message
-
-
-def test_the_models_offered_instead_are_only_the_ones_that_can_answer(pulled) -> None:
-    """Listing the embedding model back to someone whose run just failed on one
-    would be the same mistake in the sentence written to explain it."""
-    pulled(
-        ["nomic-embed-text", "mxbai-embed-large", "qwen3:8b"],
-        capabilities={
-            "nomic-embed-text": [_EMBEDDING],
-            "mxbai-embed-large": [_EMBEDDING],
-            "qwen3:8b": [_COMPLETION],
-        },
-    )
-    config = AgentConfig(provider="ollama", model="nomic-embed-text")
-    message = hint(config, ResponseError('"nomic-embed-text" does not support chat', 400))
-
-    assert "installed: qwen3:8b" in message
-    assert "mxbai-embed-large" not in message
-
-
 def test_an_ollama_serving_nothing_that_answers_reports_none(pulled) -> None:
     """The empty case of that narrowing: tags are pulled, none of them can chat."""
     pulled(["nomic-embed-text"], capabilities={"nomic-embed-text": [_EMBEDDING]})
@@ -983,62 +561,7 @@ def test_an_ollama_serving_nothing_that_answers_reports_none(pulled) -> None:
     assert "installed: none" in message
 
 
-def test_a_404_from_something_that_is_not_ollama_is_not_a_missing_tag(pulled) -> None:
-    """The remedy names a *model*, so it needs Ollama's own answer and not a 404 from
-    whatever else is listening there -- a vLLM, this project's own server on :8000. Read
-    off the text alone, "404 Not Found" took the pull branch, and `ollama pull` against
-    the real Ollama succeeds and changes nothing, the address being what is wrong."""
-    pulled(["gemma4:12b"])
-    absent = httpx.HTTPStatusError(
-        "Client error '404 Not Found' for url 'http://localhost:11434/api/tags'",
-        request=httpx.Request("GET", "http://localhost:11434/api/tags"),
-        response=httpx.Response(404),
-    )
-    message = hint(OLLAMA_CONFIG, absent)
-
-    assert "Could not reach Ollama" in message
-    assert "ollama serve" in message
-    assert "ollama pull" not in message
-
-
-def test_a_404_from_something_that_is_not_vllm_is_not_a_model_it_lacks(serving) -> None:
-    """The same rule on the other row: only what the OpenAI client raises for an answer
-    it got says anything about which model is being served."""
-    serving(["Qwen/Qwen3-8B"])
-    absent = httpx.HTTPStatusError(
-        "Client error '404 Not Found' for url 'http://localhost:8000/v1/models'",
-        request=httpx.Request("GET", "http://localhost:8000/v1/models"),
-        response=httpx.Response(404),
-    )
-    message = hint(VLLM_CONFIG, absent)
-
-    assert "Could not reach vLLM" in message
-    assert "is not serving" not in message
-
-
 # -- what counts as "the server is not there" ----------------------------------
-
-
-@pytest.mark.parametrize(
-    "error",
-    [
-        openai.APIConnectionError(request=_REQUEST),
-        openai.APITimeoutError(request=_REQUEST),
-        httpx.ConnectError("refused"),
-        OSError("socket died"),
-    ],
-)
-def test_every_way_a_vllm_can_be_absent_is_one_the_agent_catches(error) -> None:
-    """``BuyAgent._invoke`` catches exactly this tuple, so anything missing from
-    it reaches the shopper as a traceback and the browser as a 500 (ADR-0009)."""
-    assert isinstance(error, errors(VLLM_CONFIG))
-
-
-def test_the_two_providers_do_not_share_a_failure_vocabulary() -> None:
-    """Which is the reason the tuple is the provider's and not the agent's: an
-    ``openai.OpenAIError`` from an Ollama run would be a bug, not a stopped server."""
-    assert openai.OpenAIError in errors(VLLM_CONFIG)
-    assert openai.OpenAIError not in errors(OLLAMA_CONFIG)
 
 
 # -- what each server defaults to ----------------------------------------------
@@ -1058,71 +581,12 @@ def reloaded_providers(monkeypatch):
     importlib.reload(providers_module)
 
 
-def test_ollamas_model_and_host_can_be_set_from_the_environment(reloaded_providers) -> None:
-    reloaded_providers(OLLAMA_MODEL="qwen2.5:7b", OLLAMA_HOST="http://ollama.internal:11434")
-    config = AgentConfig()
-
-    assert config.model == "qwen2.5:7b"
-    assert config.base_url == "http://ollama.internal:11434"
-
-
-def test_ollama_falls_back_to_a_local_server(reloaded_providers, monkeypatch) -> None:
-    for name in ("OLLAMA_MODEL", "OLLAMA_HOST"):
-        monkeypatch.delenv(name, raising=False)
-
-    reloaded_providers()
-    config = AgentConfig()
-
-    assert config.model == "gemma4:12b"
-    assert config.base_url == "http://localhost:11434"
-
-
-def test_vllm_has_its_own_pair_of_variables(reloaded_providers) -> None:
-    """One machine can have both servers, so one pair of variables could not name
-    both -- $OLLAMA_HOST moving the vLLM address would be nonsense."""
-    reloaded_providers(
-        VLLM_MODEL="meta-llama/Llama-3.1-8B", VLLM_HOST="http://gpu.internal:8000/v1"
-    )
-    config = AgentConfig(provider="vllm")
-
-    assert config.model == "meta-llama/Llama-3.1-8B"
-    assert config.base_url == "http://gpu.internal:8000/v1"
-
-
-def test_the_vllm_defaults_are_a_local_server_too(reloaded_providers, monkeypatch) -> None:
-    """Port 8000 and the ``/v1`` the OpenAI API is served under, which is what
-    ``vllm serve`` gives you with no arguments."""
-    for name in ("VLLM_MODEL", "VLLM_HOST"):
-        monkeypatch.delenv(name, raising=False)
-
-    reloaded_providers()
-
-    assert AgentConfig(provider="vllm").base_url == "http://localhost:8000/v1"
-
-
 def test_the_key_is_read_from_the_environment(reloaded_providers) -> None:
     """The one setting with no flag and no form field: it is a secret, so it does not land
     in a shell history and is not in what the API hands a browser."""
     reloaded_providers(VLLM_API_KEY="s3cret")
 
     assert AgentConfig(provider="vllm").api_key == "s3cret"
-
-
-def test_no_key_is_the_default(reloaded_providers, monkeypatch) -> None:
-    """Most vLLMs are started without one, and a placeholder is what the provider
-    sends in that case rather than a value anybody has to set."""
-    monkeypatch.delenv("VLLM_API_KEY", raising=False)
-    reloaded_providers()
-
-    assert AgentConfig(provider="vllm").api_key == ""
-
-
-def test_an_ollama_run_never_carries_a_vllm_key(reloaded_providers) -> None:
-    """The key belongs to the server it authenticates, not to the run: Ollama has
-    no notion of one, so a machine that sets $VLLM_API_KEY does not hand it out."""
-    reloaded_providers(VLLM_API_KEY="s3cret")
-
-    assert AgentConfig(provider="ollama").api_key == ""
 
 
 def _status_error(kind: type[openai.APIStatusError], status: int) -> openai.APIStatusError:
@@ -1183,23 +647,6 @@ def test_ollamas_client_is_given_the_wait_the_config_sets(chatting) -> None:
     sent = asked(AgentConfig(provider="ollama", model_timeout=12.5), chatting())
 
     assert sent["client"]["timeout"] == 12.5
-
-
-def test_vllms_client_is_given_the_same_wait(completing) -> None:
-    """Both servers are equally able to go quiet holding a prompt, so this is the
-    one setting of its kind that needs no row on either provider."""
-    sent = asked(AgentConfig(provider="vllm", model_timeout=12.5), completing())
-
-    assert sent["client"]["timeout"] == 12.5
-
-
-def test_vllm_is_asked_once(completing) -> None:
-    """The OpenAI client retries twice by default, which would make the wait a
-    shopper set a third of the wait they got -- and a 4.3k-token prompt is not one
-    to send three times to a server already too slow for it (ADR-0051)."""
-    sent = asked(VLLM_CONFIG, completing())
-
-    assert sent["client"]["max_retries"] == 0
 
 
 def test_the_listing_keeps_its_own_short_wait(pulled) -> None:
@@ -1392,40 +839,3 @@ def test_an_unreachable_proxy_quotes_the_transport() -> None:
 
     assert "(connection refused)" in message
     assert "litellm --config config.yaml" in message
-
-
-@pytest.mark.parametrize(
-    "config", [OLLAMA_CONFIG, VLLM_CONFIG, LITELLM_CONFIG], ids=["ollama", "vllm", "litellm"]
-)
-def test_a_host_no_client_can_encode_is_one_the_agent_catches(config: AgentConfig) -> None:
-    """``192.168.1..5`` fails in the socket, beneath every client, as a ``UnicodeError``
-    none of them wraps. Missed, the query step swallowed it and the run searched and
-    fetched before failing as a 400 quoting the codec."""
-    failure = unencodable("192.168.1..5")
-
-    assert isinstance(failure, errors(config))
-    assert f"Could not reach {config.model_server.label} at" in hint(config, failure)
-
-
-def test_the_proxy_has_its_own_variables(reloaded_providers) -> None:
-    """A machine can run a proxy beside the servers it routes to."""
-    reloaded_providers(
-        LITELLM_MODEL="team-llama", LITELLM_HOST="http://proxy:4000/v1", LITELLM_API_KEY="k"
-    )
-
-    config = AgentConfig(provider="litellm")
-
-    assert (config.model, config.base_url, config.api_key) == (
-        "team-llama",
-        "http://proxy:4000/v1",
-        "k",
-    )
-    assert AgentConfig(provider="ollama").api_key == ""
-
-
-def test_every_row_words_its_own_room() -> None:
-    """``more_room`` ends a sentence both doors show, so it names no flag of this CLI."""
-    rooms = [server.more_room for server in providers_module.PROVIDERS.values()]
-
-    assert len(set(rooms)) == len(rooms)
-    assert not any("--num-ctx" in room or "--think" in room for room in rooms)

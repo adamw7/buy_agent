@@ -16,7 +16,6 @@ from buy_agent.agent import ModelUnavailableError
 from buy_agent.chat import UnreadableAnswerError
 from buy_agent.models import Product, ProductList, RankedProduct, ScoreParts, SearchQuery
 from benchmark import __main__ as benchmark_main
-from benchmark import compare as compare_module
 from benchmark import pipeline
 from benchmark.baseline import against, read_baseline
 from benchmark.board import BOARD, FILENAME, VERSION, Board
@@ -24,7 +23,6 @@ from benchmark.cases import CASES, ESPRESSO, HEADPHONES, LAPTOPS
 from benchmark.compare import (
     CaseRun,
     Contender,
-    Standing,
     Stopwatch,
     case_payload,
     describe,

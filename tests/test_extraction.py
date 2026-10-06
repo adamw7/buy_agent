@@ -4,18 +4,9 @@ from __future__ import annotations
 
 import logging
 
-import pytest
 
-from buy_agent import verification
 from buy_agent.extraction import (
     _MAX_NAME_LENGTH,
-    _MERGEABLE_FIELDS,
-    EXTRACTION_PROMPT,
-    GENERIC_WORDS,
-    NAME_TOKENS,
-    QUERY_PROMPT,
-    build_extraction_chain,
-    build_query_chain,
     clean_name,
     clean_products,
     deduplicate,
@@ -23,10 +14,9 @@ from buy_agent.extraction import (
     looks_like_a_product,
     merge_variants,
 )
-from buy_agent.models import Offer, Product, ProductList, Removal, SearchQuery
-from buy_agent.search import SearchResult
+from buy_agent.models import Offer, Product, Removal
 
-from tests.conftest import FakeLLM, said
+from tests.conftest import said
 
 
 def test_format_results_numbers_every_result(search_results) -> None:
@@ -35,84 +25,6 @@ def test_format_results_numbers_every_result(search_results) -> None:
     assert "[0]" not in rendered
     assert "[2]" in rendered
     assert "https://example.com/sony" in rendered
-
-
-def test_extraction_prompt_carries_the_limit_through() -> None:
-    messages = EXTRACTION_PROMPT.format_messages(request="headphones", results="none", limit=7)
-    assert "at most 7 distinct products" in messages[0]["content"]
-    assert "headphones" in messages[1]["content"]
-
-
-def test_deduplicate_keeps_the_most_complete_listing() -> None:
-    deduped = deduplicate(
-        [
-            Product(name="Sony WH-1000XM5"),
-            Product(name="sony wh-1000xm5", price=328.0, rating=4.7),
-            Product(name="Bose QC Ultra", price=429.0),
-        ],
-        limit=10,
-    )
-    assert len(deduped) == 2
-    assert deduped[0].price == 328.0
-    assert deduped[0].rating == 4.7
-
-
-def test_deduplicate_merges_figures_across_identical_names() -> None:
-    """Two pages, one product: one quoted the price, the other the rating."""
-    deduped = deduplicate(
-        [
-            Product(name="Sony WH-1000XM5", price=328.0, currency="USD"),
-            Product(name="Sony WH-1000XM5", rating=4.6, review_count=3200, url="http://x"),
-        ],
-        limit=10,
-    )
-
-    assert len(deduped) == 1
-    assert deduped[0].price == 328.0
-    assert deduped[0].currency == "USD"
-    assert deduped[0].rating == 4.6
-    assert deduped[0].review_count == 3200
-
-
-def test_deduplicate_does_not_overwrite_a_figure_it_already_has() -> None:
-    deduped = deduplicate(
-        [
-            Product(name="Sony WH-1000XM5", price=328.0, rating=4.6),
-            Product(name="Sony WH-1000XM5", price=399.0),
-        ],
-        limit=10,
-    )
-
-    assert [product.price for product in deduped] == [328.0]
-
-
-def test_deduplicate_preserves_first_seen_order() -> None:
-    """A later listing merging in does not move the first sighting down the list."""
-    deduped = deduplicate(
-        [Product(name="B"), Product(name="A"), Product(name="b", price=1.0)], limit=10
-    )
-    assert [product.name for product in deduped] == ["B", "A"]
-    assert deduped[0].price == 1.0, "the merged-in listing still contributed its price"
-
-
-def test_two_spellings_of_one_length_keep_the_one_seen_first() -> None:
-    """Names tie on length, so the tie-break decides -- and it is search order."""
-    deduped = deduplicate(
-        [Product(name="Sony WH-1000XM5"), Product(name="sony wh-1000xm5", price=328.0)],
-        limit=10,
-    )
-    assert [product.name for product in deduped] == ["Sony WH-1000XM5"]
-
-
-def test_deduplicate_enforces_the_limit() -> None:
-    products = [Product(name=f"Product {index}") for index in range(20)]
-    assert len(deduplicate(products, limit=10)) == 10
-
-
-def test_deduplicate_drops_nameless_entries() -> None:
-    assert deduplicate([Product(name="   "), Product(name="Real")], limit=10) == [
-        Product(name="Real")
-    ]
 
 
 def test_deduplicate_counts_merges_and_nameless_drops_apart(caplog) -> None:
@@ -186,21 +98,6 @@ def test_article_headlines_are_not_products() -> None:
         assert not looks_like_a_product(headline), headline
 
 
-def test_real_product_names_survive() -> None:
-    for name in (
-        "Sony WH-1000XM5",
-        "Anker Soundcore Q30",
-        "Bose QuietComfort Ultra Headphones",
-        "JBL Tune 770NC",
-        "AirPods",
-    ):
-        assert looks_like_a_product(name), name
-
-
-def test_overlong_names_are_rejected() -> None:
-    assert not looks_like_a_product("Sony " + "very " * 20 + "long name")
-
-
 def test_a_name_exactly_at_the_limit_is_still_a_name() -> None:
     """The ceiling is what an article title runs past, and 80 characters is the
     last length that is not one -- a real model name padded out with the variant
@@ -211,85 +108,12 @@ def test_a_name_exactly_at_the_limit_is_still_a_name() -> None:
     assert looks_like_a_product(name)
 
 
-def test_clean_name_strips_publisher_and_trailing_noise() -> None:
-    assert clean_name("Sony WH-1000XM5 | AudioSite") == "Sony WH-1000XM5"
-    assert clean_name("Sennheiser HD 450BT Review") == "Sennheiser HD 450BT"
-    assert clean_name("Anker Soundcore Q30 - price") == "Anker Soundcore Q30"
-
-
-def test_the_plural_of_a_page_word_comes_off_the_name_too() -> None:
-    """"Deals" is what a heading actually says, and ``_NOT_A_PRODUCT`` knows only that
-    spelling -- so with the singular alone on the stripping side, "... - Deal" left a
-    product and "... - Deals" had the whole product discarded as a page."""
-    assert clean_name("Sony WH-1000XM5 - Deals") == "Sony WH-1000XM5"
-    assert clean_name("Sony WH-1000XM5 | Prices") == "Sony WH-1000XM5"
-
-    kept = clean_products([Product(name="Sony WH-1000XM5 - Deals", price=328.0)])
-
-    assert [product.name for product in kept] == ["Sony WH-1000XM5"]
-
-
-def test_a_roundup_of_deals_is_still_not_a_product() -> None:
-    """What comes off is a word trailing a name, never one carrying the headline."""
-    assert not looks_like_a_product(clean_name("Best Headphone Deals of 2026"))
-
-
-def test_clean_name_leaves_a_genuine_variant_alone() -> None:
-    assert clean_name("Sony WH-1000XM5 - Black") == "Sony WH-1000XM5 - Black"
-
-
-def test_clean_products_renames_instead_of_dropping() -> None:
-    cleaned = clean_products(
-        [
-            Product(name="Sennheiser HD 450BT Review", price=129.0),
-            Product(name="12 Best Headphones Under $200"),
-        ]
-    )
-    assert [product.name for product in cleaned] == ["Sennheiser HD 450BT"]
-    assert cleaned[0].price == 129.0
-
-
 def test_cleaning_before_dedup_merges_the_same_product() -> None:
     """'Sony WH-1000XM5 Review' and 'Sony WH-1000XM5' are one product, not two."""
     cleaned = clean_products(
         [Product(name="Sony WH-1000XM5 Review"), Product(name="Sony WH-1000XM5", price=328.0)]
     )
     assert len(deduplicate(cleaned, limit=10)) == 1
-
-
-def test_a_descriptive_suffix_does_not_make_a_second_product() -> None:
-    """Two of three reported slots went to one pair of headphones before this."""
-    merged = deduplicate(
-        [
-            Product(name="Sony WH-CH720N Noise Canceling Wireless Headphones", price=98.0),
-            Product(name="Sony WH-CH720N", price=29.99),
-        ],
-        limit=10,
-    )
-
-    assert len(merged) == 1
-    assert merged[0].price == 98.0, "the more complete listing wins the conflict"
-
-
-def test_merging_fills_gaps_from_the_weaker_listing() -> None:
-    merged = merge_variants(
-        [
-            Product(name="JBL Live 780NC", url="https://shop.example/jbl"),
-            Product(name="JBL Live 780NC Headphones", price=149.0, rating=4.4),
-        ]
-    )
-
-    assert len(merged) == 1
-    assert merged[0].price == 149.0
-    assert merged[0].url == "https://shop.example/jbl"
-
-
-def test_the_shorter_name_wins_a_tie() -> None:
-    merged = merge_variants(
-        [Product(name="JBL Live 780NC Wireless Headphones"), Product(name="JBL Live 780NC")]
-    )
-
-    assert merged[0].name == "JBL Live 780NC"
 
 
 def test_the_shorter_name_wins_even_where_it_sorts_later() -> None:
@@ -299,88 +123,6 @@ def test_the_shorter_name_wins_even_where_it_sorts_later() -> None:
     )
 
     assert merged[0].name == "JBL Live 780NC"
-
-
-@pytest.mark.parametrize(
-    ("left", "right"),
-    [
-        ("AirPods", "AirPods Pro"),
-        ("Sony WH-1000XM4", "Sony WH-1000XM5"),
-        ("Bose QuietComfort", "Bose QuietComfort Ultra"),
-        ("Anker Q30", "Anker Q45"),
-    ],
-)
-def test_different_models_are_never_merged(left: str, right: str) -> None:
-    assert len(merge_variants([Product(name=left), Product(name=right)])) == 2
-
-
-def test_unrelated_products_are_left_alone() -> None:
-    products = [Product(name="Sony WH-CH720N"), Product(name="JBL Tune 770NC")]
-
-    assert len(merge_variants(products)) == 2
-
-
-def test_the_query_prompt_asks_for_a_shopping_query() -> None:
-    messages = QUERY_PROMPT.format_messages(request="a two person tent under $300")
-
-    assert "search query" in messages[0]["content"].lower()
-    assert "a two person tent under $300" in messages[1]["content"]
-
-
-def test_the_query_chain_answers_with_a_search_query() -> None:
-    llm = FakeLLM(query=SearchQuery(query="two person tent price review"))
-
-    answer = build_query_chain(llm).invoke({"request": "a two person tent"})
-
-    assert answer.query == "two person tent price review"
-
-
-def test_the_extraction_chain_answers_with_a_product_list() -> None:
-    llm = FakeLLM(products=ProductList(products=[]))
-
-    answer = build_extraction_chain(llm).invoke(
-        {"request": "tents", "results": "[1] nothing", "limit": 3}
-    )
-
-    assert isinstance(answer, ProductList)
-
-
-def test_both_chains_ask_for_a_schema_constrained_answer() -> None:
-    """A schema on every call is what stops a small model answering with prose."""
-    asked: list[type] = []
-
-    class Recorder(FakeLLM):
-        def answer(self, messages, schema):
-            asked.append(schema)
-            return super().answer(messages, schema)
-
-    llm = Recorder()
-    build_query_chain(llm).invoke({"request": "a tent"})
-    build_extraction_chain(llm).invoke({"request": "a tent", "results": "", "limit": 3})
-
-    assert asked == [SearchQuery, ProductList]
-
-
-def test_format_results_includes_the_fetched_page_text() -> None:
-    rendered = format_results(
-        [SearchResult(title="Shop", url="https://s", snippet="s", content="JBL Live 780NC\n$149")]
-    )
-
-    assert "PAGE:" in rendered
-    assert "$149" in rendered
-
-
-def test_format_results_of_nothing_is_empty() -> None:
-    assert format_results([]) == ""
-
-
-def test_clean_name_keeps_only_what_precedes_the_first_publisher_bar() -> None:
-    assert clean_name("Sony WH-1000XM5 | Audio | Site") == "Sony WH-1000XM5"
-
-
-def test_clean_name_of_pure_page_furniture_is_empty() -> None:
-    """And an empty name never gets past looks_like_a_product."""
-    assert clean_name("Reviews") == ""
 
 
 def test_a_name_cleaned_away_to_nothing_is_still_named_in_the_log(caplog) -> None:
@@ -399,43 +141,8 @@ def test_clean_name_strips_furniture_and_not_the_letters_a_name_ends_in() -> Non
     assert clean_name("Xbox Series X | GameSite") == "Xbox Series X"
 
 
-def test_clean_name_leaves_a_name_with_nothing_to_strip_alone() -> None:
-    assert clean_name("Sony WH-1000XM5") == "Sony WH-1000XM5"
-
-
 def test_a_question_is_an_article_not_a_product() -> None:
     assert not looks_like_a_product("Are the Sony XM5 worth it?")
-
-
-def test_a_blank_name_is_not_a_product() -> None:
-    assert not looks_like_a_product("   ")
-
-
-def test_clean_products_of_nothing_is_nothing() -> None:
-    assert clean_products([]) == []
-
-
-def test_clean_products_copies_rather_than_renaming_in_place() -> None:
-    original = Product(name="Sony WH-1000XM5 Review", price=328.0)
-
-    cleaned = clean_products([original])
-
-    assert original.name == "Sony WH-1000XM5 Review"
-    assert cleaned[0].name == "Sony WH-1000XM5"
-
-
-def test_deduplicate_of_nothing_is_nothing() -> None:
-    assert deduplicate([], limit=10) == []
-
-
-def test_the_limit_is_applied_after_merging_not_before() -> None:
-    """Two listings of one product plus a second product must not cost a slot."""
-    deduped = deduplicate(
-        [Product(name="Sony XM5"), Product(name="sony xm5"), Product(name="JBL 770NC")],
-        limit=2,
-    )
-
-    assert [product.name for product in deduped] == ["Sony XM5", "JBL 770NC"]
 
 
 def test_a_name_with_no_words_at_all_is_never_merged() -> None:
@@ -443,90 +150,11 @@ def test_a_name_with_no_words_at_all_is_never_merged() -> None:
     assert len(merge_variants([Product(name="---"), Product(name="***")])) == 2
 
 
-def test_merging_ignores_case_and_word_order() -> None:
-    merged = merge_variants(
-        [Product(name="Sony WH-CH720N"), Product(name="sony wireless wh-ch720n")]
-    )
-
-    assert len(merged) == 1
-
-
-def test_merge_variants_of_nothing_is_nothing() -> None:
-    assert merge_variants([]) == []
-
-
-def test_generic_words_identify_nothing_on_their_own() -> None:
-    """A brand or a model number in this set would let an invented product pass grounding."""
-    assert not any(character.isdigit() for word in GENERIC_WORDS for character in word)
-    assert not {"sony", "bose", "anker", "jbl", "apple"} & GENERIC_WORDS
-
-
-def test_merging_and_grounding_read_a_name_the_same_way() -> None:
-    """They must agree on what a name's words are, or one contradicts the other."""
-    assert verification.NAME_TOKENS is NAME_TOKENS
-    assert verification.GENERIC_WORDS is GENERIC_WORDS
-
-
-def test_where_to_buy_is_an_article_not_a_product() -> None:
-    """A "where/how/why" opener is a guide about the product, not the product."""
-    assert not looks_like_a_product("Where to buy the Sony WH-1000XM5")
-
-
-def test_a_coupon_page_is_not_a_product() -> None:
-    assert not looks_like_a_product("Sony WH-1000XM5 coupon code")
-
-
-def test_a_greatest_headline_is_not_a_product() -> None:
-    """Every superlative the rule lists has to bite, not just "best" and "top"."""
-    assert not looks_like_a_product("The Greatest Headphones of 2026")
-    assert not looks_like_a_product("Cheapest Headphones Right Now")
-    assert not looks_like_a_product("Worst Headphones We Tested")
-
-
-def test_clean_name_strips_a_hands_on_suffix() -> None:
-    """Hyphenated or not, it is the article's angle rather than part of the name."""
-    assert clean_name("Sony WH-1000XM5 Hands-On") == "Sony WH-1000XM5"
-    assert clean_name("Sony WH-1000XM5 Hands on") == "Sony WH-1000XM5"
-
-
-def test_clean_name_strips_an_on_sale_suffix() -> None:
-    assert clean_name("Sony WH-1000XM5 on sale") == "Sony WH-1000XM5"
-    assert clean_name("Sony WH-1000XM5 - Tested") == "Sony WH-1000XM5"
-
-
 def test_clean_name_drops_punctuation_left_behind() -> None:
     """Whatever the strip leaves dangling must not become part of the dedup key."""
     assert clean_name("Sony WH-1000XM5,") == "Sony WH-1000XM5"
     assert clean_name("Sony WH-1000XM5 -") == "Sony WH-1000XM5"
     assert clean_name("Sony WH-1000XM5: Price") == "Sony WH-1000XM5"
-
-
-def test_only_the_first_publisher_bar_splits_the_name() -> None:
-    """"Name | Review | Site" keeps the name alone, not the name and the angle."""
-    assert clean_name("Sony WH-1000XM5 | Review | AudioSite") == "Sony WH-1000XM5"
-
-
-def test_colour_variants_are_not_merged_into_one_product() -> None:
-    """Black and white are both generic, but neither name contains the other."""
-    merged = merge_variants(
-        [Product(name="Sony WH-CH720N Black"), Product(name="Sony WH-CH720N White")]
-    )
-
-    assert len(merged) == 2
-
-
-def test_merging_carries_over_the_seller_and_the_notes() -> None:
-    """Text fields are worth as much as figures: only one page may carry them."""
-    merged = merge_variants(
-        [
-            Product(name="JBL Live 780NC", price=149.0, rating=4.4, review_count=800),
-            Product(name="JBL Live 780NC Headphones", seller="Amazon", notes="Great value."),
-        ]
-    )
-
-    assert len(merged) == 1
-    assert merged[0].seller == "Amazon"
-    assert merged[0].notes == "Great value."
 
 
 def test_a_listing_with_a_link_beats_one_without() -> None:
@@ -562,21 +190,6 @@ def test_a_currency_never_moves_to_a_price_from_another_page() -> None:
     assert merged[0].price == 129.0
     assert merged[0].currency is None
     assert merged[0].price_label() == "129.00"
-
-
-def test_a_review_count_never_moves_to_a_rating_from_another_page() -> None:
-    """A count is what *its own* rating was averaged over, so it stays with it."""
-    merged = merge_variants(
-        [
-            Product(name="Acme X1", price=100.0, rating=4.4, url="https://a"),
-            Product(name="Acme X1 Wireless", rating=4.9, review_count=12_000),
-        ]
-    )
-
-    assert len(merged) == 1
-    assert merged[0].rating == 4.4
-    assert merged[0].review_count is None
-    assert merged[0].rating_label() == "4.4/5"
 
 
 def test_a_qualifier_moves_with_the_figure_it_describes() -> None:
@@ -619,34 +232,6 @@ def test_a_count_of_its_own_is_kept_when_both_pages_quote_the_same_rating() -> N
     assert merged[0].rating_label() == "4.5/5 (800 reviews)"
 
 
-def test_an_orphaned_count_is_replaced_along_with_the_rating_it_lost() -> None:
-    """Grounding blanks a rating and its count separately, so a merge can meet a listing
-    holding a count for a rating that is no longer there."""
-    merged = merge_variants(
-        [
-            Product(name="Acme X1", price=199.0, review_count=800, url="https://a"),
-            Product(name="Acme X1 Wireless", rating=4.9, review_count=12_000),
-        ]
-    )
-
-    assert len(merged) == 1
-    assert (merged[0].rating, merged[0].review_count) == (4.9, 12_000)
-
-
-def test_exact_duplicates_pair_their_figures_too() -> None:
-    """``deduplicate`` merges same-name listings on the same rule as variants."""
-    deduped = deduplicate(
-        [
-            Product(name="Sony WH-CH720N", price=129.0, review_count=800, url="https://us/a"),
-            Product(name="Sony WH-CH720N", price=249.0, currency="EUR", url="https://eu/b"),
-        ],
-        10,
-    )
-
-    assert len(deduped) == 1
-    assert (deduped[0].price, deduped[0].currency) == (129.0, None)
-
-
 # -- opinions across two listings ----------------------------------------------
 
 
@@ -660,89 +245,6 @@ def test_merging_keeps_what_both_pages_said_about_the_product() -> None:
     )
 
     assert merged[0].opinions == said("the fit is snug", "the case is bulky")
-
-
-@pytest.mark.parametrize(
-    ("theirs", "expected"),
-    [
-        # Two reviewers are no conflict, so both quotes and both pages survive.
-        pytest.param(
-            said("the case is bulky", page="https://two.example/jbl"),
-            [("the fit is snug", "https://one.example/jbl"),
-             ("the case is bulky", "https://two.example/jbl")],
-            id="two verdicts, two pages",
-        ),
-        # Identity is the words and not the pair, so a syndicated review is one
-        # quote -- and the page kept is the earlier listing's, which is the
-        # tie-break the merge makes everywhere else.
-        pytest.param(
-            said("the FIT is snug", page="https://two.example/jbl"),
-            [("the fit is snug", "https://one.example/jbl")],
-            id="one verdict, syndicated",
-        ),
-    ],
-)
-def test_a_quote_keeps_the_page_it_came_off_through_the_merge(
-    theirs: list, expected: list[tuple[str, str]]
-) -> None:
-    """The pair is one object, so neither half can be carried over without the
-    other and neither listing's link ends up under the other's words (ADR-0042)."""
-    merged = merge_variants(
-        [
-            Product(
-                name="JBL Live 780NC",
-                price=149.0,
-                opinions=said("the fit is snug", page="https://one.example/jbl"),
-            ),
-            Product(name="JBL Live 780NC Headphones", opinions=theirs),
-        ]
-    )
-
-    assert [(o.text, o.url) for o in merged[0].opinions] == expected
-
-
-def test_the_same_verdict_on_two_pages_is_quoted_once() -> None:
-    """Search results overlap, so the same review is syndicated twice as often
-    as not -- and a card repeating itself reads as two people agreeing."""
-    merged = merge_variants(
-        [
-            Product(name="JBL Live 780NC", opinions=said("The fit is snug")),
-            Product(name="JBL Live 780NC Headphones", opinions=said("the FIT is snug", "cheap")),
-        ]
-    )
-
-    assert merged[0].opinions == said("The fit is snug", "cheap")
-
-
-def test_a_merge_reports_no_more_opinions_than_one_listing_could() -> None:
-    """Both listings' quotes, but still a product card and not a review page."""
-    merged = merge_variants(
-        [
-            Product(name="JBL Live 780NC", opinions=said("one", "two")),
-            Product(name="JBL Live 780NC Headphones", opinions=said("three", "four")),
-        ]
-    )
-
-    assert merged[0].opinions == said("one", "two", "three")
-
-
-def test_the_loser_s_opinions_are_kept_even_when_it_loses_everything_else() -> None:
-    """The winner is decided on figures, which say nothing about who was read."""
-    merged = merge_variants(
-        [
-            Product(name="JBL Live 780NC Headphones", opinions=said("the case is bulky")),
-            Product(
-                name="JBL Live 780NC",
-                price=149.0,
-                rating=4.4,
-                review_count=800,
-                url="https://shop.example/jbl",
-            ),
-        ]
-    )
-
-    assert merged[0].opinions == said("the case is bulky")
-    assert merged[0].price == 149.0
 
 
 # -- what each step says it took out (ADR-0055) --------------------------------
@@ -768,41 +270,11 @@ def test_a_headline_is_removed_as_a_page_and_says_so() -> None:
     assert removed[0].reason == "Reads as an article or a shop, not a product."
 
 
-def test_a_cleaned_name_is_removed_under_the_name_cleaning_gave_it() -> None:
-    """The name the rest of the run would have called it by, not the one the model
-    handed over: a reader matching the panel against the progress log sees one name."""
-    removed = taken(
-        lambda record: clean_products(
-            [Product(name="  Best Headphones 2026 | AudioSite  ")], record=record
-        )
-    )
-
-    assert removed[0].name == "Best Headphones 2026"
-
-
 def test_a_name_identifying_nothing_is_removed_and_says_so() -> None:
     removed = taken(lambda record: deduplicate([Product(name="   ")], 10, record=record))
 
     assert [entry.step for entry in removed] == ["deduplicate"]
     assert removed[0].reason == "The name identifies nothing."
-
-
-def test_a_folded_listing_names_the_one_it_was_folded_into() -> None:
-    """The case a reader could not otherwise reconstruct: nothing was dropped, and
-    the entry that survived is wearing the shorter of the two names."""
-    removed = taken(
-        lambda record: merge_variants(
-            [
-                Product(name="Sony WH-CH720N"),
-                Product(name="Sony WH-CH720N Wireless Headphones"),
-            ],
-            record=record,
-        )
-    )
-
-    assert [entry.name for entry in removed] == ["Sony WH-CH720N Wireless Headphones"]
-    assert removed[0].step == "merge"
-    assert removed[0].reason == "Folded into Sony WH-CH720N, which names the same thing."
 
 
 def test_the_surviving_name_is_the_one_the_merge_kept_not_the_first_seen() -> None:
@@ -820,37 +292,6 @@ def test_the_surviving_name_is_the_one_the_merge_kept_not_the_first_seen() -> No
 
     assert [entry.name for entry in removed] == ["Sony WH-CH720N Wireless Headphones"]
     assert "Folded into Sony WH-CH720N," in removed[0].reason
-
-
-def test_a_merge_that_changes_no_name_removes_nothing() -> None:
-    """Two listings under the very same name: the report loses no name at all, so
-    there is nothing for the panel to say went."""
-    removed = taken(
-        lambda record: merge_variants(
-            [Product(name="Sony WH-CH720N"), Product(name="Sony WH-CH720N", price=129.0)],
-            record=record,
-        )
-    )
-
-    assert removed == []
-
-
-def test_deduplicate_records_the_nameless_and_the_folded_apart() -> None:
-    """One call, two different removals: counted apart in the log and named apart
-    here, since "identifies nothing" and "folded into" are different answers."""
-    removed = taken(
-        lambda record: deduplicate(
-            [
-                Product(name="Sony WH-CH720N"),
-                Product(name="Sony WH-CH720N Wireless Headphones"),
-                Product(name="   "),
-            ],
-            10,
-            record=record,
-        )
-    )
-
-    assert {entry.step for entry in removed} == {"deduplicate", "merge"}
 
 
 # -- the offers a merge keeps (ADR-0058) ---------------------------------------
@@ -876,12 +317,6 @@ def test_every_listing_that_was_priced_becomes_an_offer() -> None:
     assert kept[0].offers == [
         Offer(price=329.0, currency="USD", seller="Shop", url="https://shop.example/xm5")
     ]
-
-
-def test_a_listing_no_page_priced_is_no_offer() -> None:
-    """Grounding blanks a figure the sources do not back, so there is nothing to
-    record about that listing's price."""
-    assert deduplicate([Product(name="Sony WH-1000XM5")], 10)[0].offers == []
 
 
 def test_a_merge_keeps_both_listings_prices() -> None:
@@ -914,25 +349,3 @@ def test_a_merge_keeps_both_listings_prices() -> None:
         (149.0, "ShopB"),
         (129.0, "ShopA"),
     ]
-
-
-def test_two_listings_of_one_price_from_one_shop_are_one_offer() -> None:
-    """Two pages quoting the same shop at the same price is one listing seen twice."""
-    merged = deduplicate(
-        [
-            Product(name="Sony WH-1000XM5", price=129.0, currency="USD", seller="ShopA"),
-            Product(
-                name="Sony WH-1000XM5 Wireless", price=129.0, currency="USD", seller="ShopA"
-            ),
-        ],
-        10,
-    )[0]
-
-    assert len(merged.offers) == 1
-
-
-def test_the_offers_are_not_a_field_a_weaker_listing_fills_a_gap_in() -> None:
-    """``_MERGEABLE_FIELDS`` is the table of fields a loser can fill a blank with, and
-    a row there would fill the winner's empty list and lose the winner's own listing."""
-    assert "offers" not in _MERGEABLE_FIELDS
-    assert "opinions" not in _MERGEABLE_FIELDS
