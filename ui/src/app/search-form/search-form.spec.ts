@@ -437,13 +437,17 @@ describe('SearchForm', () => {
        lays nothing out, so a scroll is recorded by what it was asked of and how. */
     const proto = HTMLElement.prototype as HTMLElement & { scrollIntoView?: unknown };
     const original = proto.scrollIntoView;
-    let scrolled: { field: string; block?: ScrollLogicalPosition }[];
+    let scrolled: { field: string; block?: ScrollLogicalPosition; behavior?: ScrollBehavior }[];
 
     beforeEach(() => {
       scrolled = [];
       proto.scrollIntoView = function (this: HTMLElement, how?: ScrollIntoViewOptions) {
         const box = this.querySelector('input');
-        scrolled.push({ field: box?.name ?? this.className, block: how?.block });
+        scrolled.push({
+          field: box?.name ?? this.className,
+          block: how?.block,
+          behavior: how?.behavior,
+        });
       };
     });
 
@@ -464,13 +468,20 @@ describe('SearchForm', () => {
     const unsearched = (name: string): string =>
       element<HTMLInputElement>(`input[name="${name}"]`)
         .closest('.field')!
-        .querySelector('[role="status"]')
+        .querySelector('.unsearched')
         ?.textContent?.trim() ?? '';
 
     it('brings the whole field into view, as little as shows it', async () => {
+      /* The focus is told not to scroll: left to, it puts the box at the window's edge
+         first, which is the jump this replaces. jsdom ignores the option, so it is read
+         off the call. Read before the spy is restored, which forgets its calls. */
+      const focused = vi.spyOn(HTMLElement.prototype, 'focus');
       await stopAtTheBudget();
+      const how = focused.mock.calls.map((call) => call[0]);
+      focused.mockRestore();
 
-      expect(scrolled).toEqual([{ field: 'max_price', block: 'nearest' }]);
+      expect(how).toEqual([{ preventScroll: true }]);
+      expect(scrolled).toEqual([{ field: 'max_price', block: 'nearest', behavior: 'smooth' }]);
       expect(document.activeElement).toBe(element('input[name="max_price"]'));
     });
 
@@ -486,6 +497,13 @@ describe('SearchForm', () => {
       expect(box.closest('.field')!.querySelector('.noticed')!.textContent).toContain(
         'From your request',
       );
+      /* Part of the box's name, read out when the focus lands on it, as every note
+         in its label is. A `role="status"` took it out of the name -- a status is not
+         named by its contents -- and, inserted already holding its text, was no
+         reliable announcement either: a screen reader heard nothing of it. */
+      const line = box.closest('label')!.querySelector('.unsearched')!;
+      expect(line.getAttribute('role')).toBeNull();
+      expect(line.closest('[aria-hidden]')).toBeNull();
     });
 
     it('stops saying so once the search is sent', async () => {
@@ -497,10 +515,18 @@ describe('SearchForm', () => {
     });
 
     it('stops saying so once the request is a new question', async () => {
+      /* Its reading offers the same figure, so Python's note is back over the box the
+         form still owns -- and no press stopped at it this time. */
       await stopAtTheBudget();
       await type('input[name="request"]', 'laptop under $700, in silver');
       await leave('input[name="request"]');
+      await noticed('laptop under $700, in silver', [
+        { bound: 'max_price', value: 700, note: 'From your request: "under $700".' },
+      ]);
 
+      expect(
+        element('input[name="max_price"]').closest('.field')!.querySelector('.noticed'),
+      ).not.toBeNull();
       expect(unsearched('max_price')).toBe('');
     });
 

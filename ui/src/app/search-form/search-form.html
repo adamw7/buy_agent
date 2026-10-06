@@ -47,9 +47,11 @@
         <small class="noticed">{{ noticed }}</small>
         <!-- Under Python's note, while a press of Find products is what stopped here:
              that press filled this box and searched nothing, and from the button it
-             looked like a press that had not registered. -->
+             looked like a press that had not registered. No `role="status"`: a status
+             is not named by its contents, so it left the box's name, which is what a
+             screen reader reads when the focus is moved here. In the label, it is. -->
         @if (stoppedAt() === number.key) {
-          <small class="noticed" role="status"
+          <small class="noticed unsearched"
             >Nothing was searched yet: press Enter, or Find products, to search with it.</small
           >
         }
