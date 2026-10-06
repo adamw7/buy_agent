@@ -14,7 +14,7 @@ Each of the three has a script, `books.py` or `laptops.py`, holding the ten page
 searches and the fake model's answer. `--script` picks one; a third demo is a
 module offering the same five names plus a row in `server.SCRIPTS`.
 
-`benchmark-on-cpu.mp4` (4 min 23 s, narrated) is the other kind: the benchmark's
+`benchmark-on-cpu.mp4` (4 min 7 s, narrated in Kokoro's neural voice) is the other kind: the benchmark's
 page scoring a real `qwen3:0.6b` in Ollama, on four CPU cores and no GPU,
 against the two reference answers over all three cases. It ends on what
 `ollama ps` reported throughout. See [The benchmark, on a CPU](#the-benchmark-on-a-cpu).
@@ -159,9 +159,17 @@ model had memory on a GPU. The last card states what it saw.
   said, the video runs `--fast-forward` times faster (8 by default; 1 never),
   with a badge saying so. The page's own clock keeps real time throughout, and
   the soundtrack is moved with the picture.
-- The voice is `narration.py`'s: SVOX Pico (`pico2wave`, in Debian and Ubuntu's
-  `libttspico-utils`) if it is installed, else `espeak-ng`. The recorder waits
-  for each line to end before the next step, so they never drift apart.
+- The voice is `narration.py`'s: [Kokoro](https://github.com/thewh1teagle/kokoro-onnx),
+  a neural voice that reads like a person (`af_heart`, slightly slowed), if it
+  is installed, else SVOX Pico (`pico2wave`, in Debian and Ubuntu's
+  `libttspico-utils`), else `espeak-ng`. Kokoro is `pip install kokoro-onnx
+  soundfile` into the Python the recorder runs, plus `kokoro-v1.0.onnx` and
+  `voices-v1.0.bin` from that project's `model-files-v1.0` release in
+  `~/.cache/kokoro-onnx` (`$KOKORO_DIR` moves it, `$KOKORO_VOICE` picks another
+  voice). It runs on the CPU, seconds a line while the model competes for it, so
+  the recorder cuts the stretch spent synthesising each line out of the video;
+  the page's clock jumps by that much. The recorder waits for each line to end
+  before the next step, so they never drift apart.
 - It writes H.264 at CRF 22 with AAC sound (`MP4_VIDEO`, `MP4_AUDIO` in
   `recording.mjs`), which needs an ffmpeg with `libx264`. Minutes of a page that
   mostly sits still came to 103 MB as the shop's MPEG-2, over GitHub's limit for
@@ -191,13 +199,13 @@ the picture grows with the form, and renders at twice the CSS width. `--url`,
 
 `docs/benchmark.png` is not taken that way: it is a frame of
 `benchmark-on-cpu.mp4`, so its numbers are that real run's rather than a script's.
-The frame is the keyframe at 3:04.04, between two spoken lines, cropped to the
+The frame is the one at 2:51.6, between two spoken lines, cropped to the
 Standings card down to the bottom of its table, which leaves out the recorder's
 `ollama ps` box and the board's path beneath the table:
 
 ```powershell
-ffmpeg -ss 184.04 -i demo/benchmark-on-cpu.mp4 -frames:v 1 `
-    -vf "format=rgb24,crop=1098:344:91:245" -pred mixed docs/benchmark.png
+ffmpeg -ss 171.6 -i demo/benchmark-on-cpu.mp4 -frames:v 1 `
+    -vf "format=rgb24,crop=1098:322:91:267" -pred mixed docs/benchmark.png
 ```
 
 `format=rgb24` comes first because a 4:2:0 frame crops on even offsets only. A

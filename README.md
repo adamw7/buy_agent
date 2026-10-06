@@ -568,7 +568,7 @@ web, so every model reads the same pages
 ![The benchmark's standings: qwen3:0.6b, run on a CPU, between the two reference answers](docs/benchmark.png)
 
 That is a frame of [`demo/benchmark-on-cpu.mp4`](demo/benchmark-on-cpu.mp4): 4 min
-23 s of the benchmark's page scoring a real `qwen3:0.6b` in Ollama on four Xeon
+7 s of the benchmark's page scoring a real `qwen3:0.6b` in Ollama on four Xeon
 cores and no GPU, narrated and captioned. The recorder polls `ollama ps`
 throughout and refuses to write a take in which any model had memory on a GPU
 ([demo/README.md](demo/README.md#the-benchmark-on-a-cpu)).
@@ -607,20 +607,19 @@ nobody wrote, one product twice.
 
 ### What the recorded run found
 
-`qwen3:0.6b` (Q4_K_M, 397 MB, in Ollama 0.35.1, on 3 October 2026) scored 0.815,
-between `sloppy`'s 0.624 and `perfect`'s 1.000, and the whole comparison took
-1 min 49 s. Those are the scores of the day; ADR-0074 has since stopped paying for
-quotes not given and for a shuffle's share of the order, and the same counts now
-come to 0.725, between `sloppy`'s 0.605 and `perfect`'s 1.000. Every query it wrote passed every check, and nothing in its reports was
+`qwen3:0.6b` (Q4_K_M, 397 MB, in Ollama 0.35.1, on 6 October 2026) scored 0.725,
+between `sloppy`'s 0.605 and `perfect`'s 1.000, and the whole comparison took
+2 min 29 s. An earlier take, on 3 October and scored before ADR-0074, gave the
+same counts. Every query it wrote passed every check, and nothing in its reports was
 invented or repeated. It lost points by reporting too little -- four or three
 products for five slots, and not one quote -- and, on the euro case, by
 misattributing two of nine figures and linking one product to a page not about it:
 
-| Case | Score | Scored now | Real products, of 5 | Figures right | Model time |
-| --- | --- | --- | --- | --- | --- |
-| `headphones` | 0.877 | 0.796 | 4 | 12 of 12 | 46.9 s, loading the model included |
-| `laptops` | 0.831 | 0.736 | 3 | 9 of 9 | 33.5 s |
-| `espresso` | 0.737 | 0.642 | 3 | 7 of 9 | 28.1 s |
+| Case | Score | Real products, of 5 | Figures right | Model time |
+| --- | --- | --- | --- | --- |
+| `headphones` | 0.796 | 4 | 12 of 12 | 1 min 02 s, loading the model included |
+| `laptops` | 0.736 | 3 | 9 of 9 | 45.0 s |
+| `espresso` | 0.642 | 3 | 7 of 9 | 40.8 s |
 
 That is one model, once, on one machine; [Running it](#running-it) scores yours.
 
