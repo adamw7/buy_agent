@@ -5,11 +5,7 @@
       <p>Say what you want to buy. It searches, reads the pages, and ranks what it finds.</p>
     </div>
 
-    <!-- Asking takes as long as the model server takes to answer -- up to five
-         seconds for one that never will. Left showing the last answer, the pill
-         reported a server nobody had asked about yet and Check again looked like
-         a button that did nothing; and on the first load there was no pill at
-         all until it landed. -->
+    <!-- Says what is being asked while waiting: up to five seconds. -->
     @if (checking()) {
       <span class="pill server checking" role="status">
         <span class="dot blinking"></span>
@@ -39,14 +35,11 @@
     }
   </div>
 
-  <!-- Under the pill rather than inside its title: a hover is no help on a
-       touch screen, and this is the one failure whose fix is one command. -->
+  <!-- Under the pill, not in a title a touch screen cannot hover. -->
   @if (unreachable(); as reason) {
     <div class="server-reason" role="status">
       <p>{{ reason }}</p>
-      <!-- Clicking the pill re-asks, but nothing about a status pill says so,
-           and this is the moment somebody has just run that command and wants to
-           say they have. Without it the only way back is reloading the page. -->
+      <!-- Clicking the pill re-asks, which nothing about a pill says. -->
       <button type="button" class="secondary small recheck" (click)="refreshModels()">
         Check again
       </button>
@@ -93,27 +86,16 @@
           <h2 class="caps">Top {{ highlighted().length }} of {{ found.count }}</h2>
 
           <div class="results-actions">
-            <!-- Changing this used to re-run the whole pipeline for products
-                 already on the screen. It now posts them back to be ranked, so
-                 the ordering is still Python's and only the search is skipped
-                 (ADR-0035). -->
+            <!-- Posts the products back to be ranked again; no pipeline runs (ADR-0035). -->
             <label class="resort caps">
-              <!-- "Re-order these" and not "Rank by", which is what the settings
-                   call the criterion the *next* run is ranked by. Two controls
-                   with one label, one about products already on the screen and
-                   one about a run that has not happened, read as the same
-                   setting shown twice and out of step with itself. -->
+              <!-- Not "Rank by", which the settings call the *next* run's criterion. -->
               <span>Re-order these</span>
               <select
                 name="resort"
                 [disabled]="reordering() || running()"
                 (change)="resort($event)"
               >
-                <!-- `selected` on the option rather than `value` on the select:
-                     the options are written by a loop, and the select's value
-                     would be set before any of them exists. It is also why a
-                     re-sort that failed puts the control back by hand rather
-                     than through a binding -- see `App.resort`. -->
+                <!-- On the option: the select's value would be set before its options exist. -->
                 @for (option of sortOptions(); track option.name) {
                   <option [value]="option.name" [selected]="option.name === found.sort_by">
                     {{ option.label }}
@@ -137,18 +119,12 @@
           <p class="card banner" role="alert">{{ problem }}</p>
         }
 
-        <!-- Beside the products rather than in the banner at the top: that one
-             means the *run* failed, and this run did not -- it found these. -->
+        <!-- Here, not in the banner: the run did not fail. -->
         @if (payFailed(); as problem) {
           <p class="card banner" role="alert">{{ problem }}</p>
         }
 
-        <!-- Tracked by name and not by rank: a re-sort ranks the same products
-             again from 1 (ADR-0035), so tracking the slot kept one card's
-             component and swapped the product underneath it -- a confirmation
-             opened on the top product stayed open over whatever came top next.
-             The name is what a run identifies a product by; `deduplicate` has
-             already folded the variants, so the ones left are distinct. -->
+        <!-- By name, not rank: a re-sort ranks the same products from 1 (ADR-0035). -->
         @for (product of highlighted(); track product.name) {
           <app-product-card
             [product]="product"
@@ -167,9 +143,7 @@
         @if (rest().length) {
           <details class="also">
             <summary>{{ rest().length }} more the agent found</summary>
-            <!-- A column of their own: the `gap` on a `details` spaces its summary from
-                 its content and never reaches inside it, so these cards sat edge to edge
-                 under three spaced apart above them. -->
+            <!-- A column of their own: a `details`' gap never reaches inside it. -->
             <div class="stack">
               @for (product of rest(); track product.name) {
                 <app-product-card
@@ -189,13 +163,7 @@
         }
       </section>
     } @else {
-      <!-- Three things end a run with nothing, and this used to name two of
-           them: the third is the shopper's own limits, which is the one a
-           reader can do something about and the one the sentence sent them
-           looking elsewhere for. Which of the three it was is not guessed at
-           here -- the run logs a line for whichever it was (an empty search, an
-           empty extraction, or "0 of 7 product(s) are within the limits"), and
-           that line is in the panel directly above this. -->
+      <!-- Which of the three it was is the log line just above this. -->
       <p class="card banner quiet">
         Nothing came back for “{{ found.request }}”. The search may have found no pages worth
         reading; nothing on them may have survived grounding — every figure shown here has to appear
@@ -204,14 +172,10 @@
       </p>
     }
 
-    <!-- Above the removals and below the results: the reason to run the same search
-         twice is that a price moved, and until now the agent had no memory of having
-         run it at all. Every sentence here is Python's, off the journal (ADR-0060). -->
+    <!-- Python's sentences, off the journal (ADR-0060). -->
     @if (found.changes.length && found.compared_with) {
       <details class="also changes">
-        <!-- What moved, and not how many were compared: every product is listed, the
-             unchanged ones too, and they are what the list answers and not what the
-             summary counts. -->
+        <!-- What moved: the unchanged are listed, not counted. -->
         <summary>
           @if (moved(); as count) {
             {{ count }} change{{ count === 1 ? '' : 's' }} since {{ found.compared_with }}
@@ -230,11 +194,7 @@
       </details>
     }
 
-    <!-- Under both of those: a run that reported three products and a run that
-         reported none are the same question -- "why is the one I had in mind not
-         in there?" -- and until now the only answer was a log line that had
-         scrolled past, or a `-v` nobody had run. Every sentence here is Python's,
-         from the step that did the removing. -->
+    <!-- Python's sentences, from the step that removed each (ADR-0055). -->
     @if (found.dropped.length) {
       <details class="also dropped">
         <summary>

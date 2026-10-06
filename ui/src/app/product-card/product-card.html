@@ -1,9 +1,5 @@
 <article class="card product">
-  <!-- The word rather than an `aria-label`: a `<div>` has the generic role, which
-       is prohibited from carrying a name, so "Rank 1" was an announcement no
-       reader was obliged to make -- and "#1" without it is a number with nothing
-       saying what of. So the word is in the document and hidden from the page,
-       and the `#` standing in for it visually is hidden from the reading. -->
+  <!-- The word in the document, hidden; a `div` cannot carry a name. -->
   <div class="rank">
     <span class="only-read">Rank </span><span aria-hidden="true">#</span>{{ product().rank }}
   </div>
@@ -32,10 +28,7 @@
       }
     </div>
 
-    <!-- Under the figures, because it is about the one on the left of them: the
-         headline price is one of these, and until now the other listings the run
-         read were merged away with nothing saying they had existed. The summary is
-         Python's sentence and so is every amount inside (ADR-0058). -->
+    <!-- Every listing the run read, in Python's sentence (ADR-0058). -->
     @if (product().offers_label; as spread) {
       <details class="offers">
         <summary>{{ spread }}</summary>
@@ -107,17 +100,12 @@
         <li [class.assumed]="part.assumed">
           <span class="part">{{ part.name }}</span>
           <span class="share">{{ part.percent }}%</span>
-          <!-- Beside every share, because without it three percentages under a
-               total read as parts of it: they are each out of 100 on their own
-               and never add up to the score. It is also the only thing that says
-               which criterion a placing turned on. -->
+          <!-- Each share is out of 100 on its own, and never adds up to the score. -->
           @if (part.weight !== null) {
             <span class="weight">{{ part.weight }}% of the score</span>
           }
           @if (part.assumed) {
-            <!-- Said in words rather than by a colour alone: this is the
-                 difference between a figure read off a page and one nobody
-                 published, and it decides how much the total is worth. -->
+            <!-- In words, never by colour alone. -->
             <span class="assumed">assumed</span>
           }
         </li>
@@ -126,13 +114,8 @@
 
     <p class="parts-note">Each criterion is scored on its own, then blended by weight.</p>
 
-    <!-- Paying, and only ever in two steps. The confirmation restates the cart
-         rather than the request that found it, because the cart is what the
-         mandates will carry and what a person is actually agreeing to.
-
-         The area follows the keyboard through it: each press here replaces the block
-         it was pressed in, and the focus goes to what replaced it rather than to
-         nowhere. The three blocks that are not buttons take it from a script only. -->
+    <!-- Two steps; the confirmation restates the cart the mandates carry, and the
+         focus follows each press to what replaced its block. -->
     <div #payment class="payment" (focusin)="entered()" (focusout)="left($event)">
       @if (receipt(); as paid) {
         <p class="receipt" role="status" tabindex="-1">
@@ -141,13 +124,7 @@
           <span class="reference">Reference {{ paid.reference }}</span>
         </p>
       } @else if (authorising()) {
-        <!-- The one wait on this page that moves money, and the longest: two calls
-             to a counterparty on a 30-second budget each. Said here, on the card
-             that is paying, the way the header pill says "Asking Ollama…" -- the
-             other wait on this page with nothing else to report it. Without it a
-             reader who clicked had three greyed-out buttons and no way to tell a
-             payment under way from one that had not registered, which is the
-             moment somebody clicks again. -->
+        <!-- The wait that moves money, said on the card that is paying. -->
         <p class="authorising" role="status" tabindex="-1">
           <span class="dot blinking"></span>
           Authorising {{ product().pay_label }}
@@ -159,14 +136,8 @@
       } @else if (confirming()) {
         <div class="confirm" role="group" aria-label="Confirm this purchase">
           <p tabindex="-1">
-            <!-- `pay_label` and not `price_label`: this is the cart's amount, in
-                 the currency the payment will actually be made in, which for a
-                 page that printed a bare figure is the run's rather than none at
-                 all (ADR-0043). A Trusted Surface that names no unit is not one. -->
-            <!-- `pay_merchant` and not `seller`: this names who the cart will be
-                 paid to, which is the site the page is on wherever no page printed
-                 a seller -- and no page usually does, so the one thing a person
-                 most needs before authorising was the one thing left out. -->
+            <!-- The cart's amount, in the currency it is paid in (ADR-0043). -->
+            <!-- Who the cart pays: the page's site where no seller was printed. -->
             Pay <strong>{{ product().pay_label }}</strong> for {{ product().name }}
             @if (product().pay_merchant; as merchant) {
               to {{ merchant }}
@@ -192,18 +163,13 @@
       } @else if (refusal(); as why) {
         <p class="cannot-pay">{{ why }}</p>
       } @else if (heldBack(); as why) {
-        <!-- In the Pay button's place, where the shopper is looking: the box it names is
-             in the Settings panel, a screen or more above the card. -->
+        <!-- In the Pay button's place, where the shopper is looking. -->
         <p class="cannot-pay held" tabindex="-1">{{ why }}</p>
       }
     </div>
   </div>
 
-  <!-- On the right, beside what the run read off the page: what the page looks like,
-       which is the first thing a shopper checks and the one thing the run could not
-       tell them. It links where the title does. Asked for only where the server has a
-       camera, lazily so the cards nobody has scrolled to ask for nothing yet, and
-       dropped rather than drawn broken when the page would not be photographed
+  <!-- What the page looks like, lazily, only with a camera; dropped if it fails
        (ADR-0065). -->
   @if (shot(); as src) {
     <a class="shot" [href]="product().url" target="_blank" rel="noreferrer noopener">

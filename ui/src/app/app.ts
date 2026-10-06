@@ -52,7 +52,6 @@ export class App {
   protected readonly failure = signal<string | null>(null);
   /** The failure again, where it was about one setting: the form marks that box. */
   protected readonly rejected = signal<Rejection | null>(null);
-  /** What the server made of the sources field, for the form to show. */
   protected readonly sourcesCheck = signal<SourcesCheck | null>(null);
   /** Bounds the request states in words, for the form to offer (ADR-0059). */
   protected readonly boundsCheck = signal<BoundsCheck | null>(null);
@@ -60,111 +59,91 @@ export class App {
   protected readonly started = signal(false);
   /** A run the reader ended themselves. */
   protected readonly stopped = signal(false);
-  /** The model server currently being asked what it serves, or null for none in flight. */
+  /** The model server being asked what it serves, while in flight. */
   private readonly asking = signal<ModelSource | null>(null);
-  /** Whether a listing is in flight. */
   protected readonly checking = computed(() => this.asking() !== null);
-  /** A re-sort in flight. */
   protected readonly reordering = signal(false);
-  /** A re-sort that did not happen, said beside the results it did not change. */
   protected readonly reorderFailed = signal<string | null>(null);
 
   /** The settings the run on screen was started with. */
   private readonly ranWith = signal<SearchOptions | null>(null);
 
-  /** The form's paying settings as they stand, which a Pay button pays with: paying
-   *  runs no pipeline, so they are the form's now rather than the run's (ADR-0046). */
+  /** The form's paying settings as they stand: paying runs no pipeline (ADR-0046). */
   protected readonly paySettings = signal<PaySettings>(NOT_PAYING);
 
-  /** The product being paid for, by name -- one payment at a time, page-wide. */
+  /** The product being paid for, by name: one payment at a time. */
   protected readonly paying = signal<string | null>(null);
 
-  /** Receipts by product name. Typed with `undefined` itself: the specs compile
-   *  without `noUncheckedIndexedAccess`, and the template's `?? null` needs it. */
+  /** By product name; `undefined` for the template's `?? null`. */
   protected readonly receipts = signal<Record<string, Receipt | undefined>>({});
 
-  /** A payment that did not happen. */
   protected readonly payFailed = signal<string | null>(null);
 
-  /** Whether this page may pay at all: the server can, and the form's switch says to.
-   *  The switch as it stands and not as the run was started: ticked once the results
-   *  were in, it did nothing at all until the same search was run again. */
+  /** The server can pay, and the form's switch, as it stands now, says to. */
   protected readonly canPay = computed(
     () => (this.defaults()?.pay_available ?? false) && this.paySettings().pay,
   );
 
-  /** Whether cards may ask for a screenshot (the server's answer). */
   protected readonly screenshots = computed(() => this.defaults()?.screenshots ?? false);
 
-  /** The rail a payment would go through, so the confirmation can say whether anyone is
-   *  charged. */
+  /** So the confirmation can say whether anyone is charged. */
   protected readonly payRail = computed<RailOption | null>(() => {
     const name = this.paySettings().rail;
     const rows = this.defaults()?.rail_options ?? [];
     return rows.find((row) => row.name === name) ?? null;
   });
 
-  /** The best few: the same ones the CLI logs at the end of a run. */
+  /** The ones the CLI logs at the end of a run. */
   protected readonly highlighted = computed<RankedProduct[]>(() => {
     const result = this.result();
     return result ? result.products.slice(0, result.top_n) : [];
   });
 
-  /** The criteria a finished run may be re-sorted by, from the server, each named by the
-   *  order it puts the products in: "price" alone cannot say cheapest from dearest. */
+  /** Each criterion named by the order it gives ("cheapest first"). */
   protected readonly sortOptions = computed<{ name: SortBy; label: string }[]>(() => {
     const defaults = this.defaults();
     return (defaults?.sort_options ?? []).map((name) => ({
       name,
-      // A server older than the page -- a build under one still running -- sends none.
+      // A server older than the page sends no labels.
       label: defaults?.sort_labels?.[name] ?? name,
     }));
   });
 
-  /** Everything the agent found beyond those, kept because it was still ranked. */
   protected readonly rest = computed<RankedProduct[]>(() => {
     const result = this.result();
     return result ? result.products.slice(result.top_n) : [];
   });
 
-  /** How many products moved since the run compared against, for the panel to count.
-   *  Every product is listed, the unchanged ones with the rest, and counting those as
-   *  changes headed a run where no price had moved "7 changes since 27 Sep". */
+  /** How many products moved: the unchanged are listed too, and are not changes. */
   protected readonly moved = computed(
     () =>
       (this.result()?.changes ?? []).filter((change) => !UNMOVED.includes(change.movement)).length,
   );
 
-  /** What to do about a model server that did not answer, shown under the pill. */
+  /** Python's remedy for a model server that did not answer, hidden while asking. */
   protected readonly unreachable = computed(() => {
     const server = this.status();
-    // Hidden while asking: it is about the previous answer.
     if (this.checking() || !server || server.reachable) {
       return null;
     }
     return server.hint ?? null;
   });
 
-  /** What to call the server being asked about, for the pill to say while it is being asked. */
   protected readonly serverLabel = computed(() =>
     this.labelFor(
       this.asking()?.provider ?? this.status()?.provider ?? this.defaults()?.provider ?? '',
     ),
   );
 
+  /** Held so a newer ask can cancel them. */
   private run: Subscription | null = null;
-  /** Requests a newer ask supersedes; held so it can cancel them. */
   private reorder: Subscription | null = null;
   private listing: Subscription | null = null;
   private sources: Subscription | null = null;
-  /** Likewise, for the request field's bounds reading. */
   private bounds: Subscription | null = null;
-  /** A payment in flight. */
   private pay: Subscription | null = null;
 
-  /** What the browser tab says about the run on the page, if anything. A run takes
-   *  minutes, most of them in two model calls that log nothing, and a tab left in the
-   *  background said "buy_agent" from the click to the results. */
+  /** The run's state in the browser tab, which may sit in the background for minutes. */
   private readonly tabTitle = computed(() => {
     const state = this.tabState();
     return state ? `${state} — ${NAME}` : NAME;
@@ -192,12 +171,11 @@ export class App {
     });
   }
 
-  /** Where the run on the page stands, in a word or two, or null before one has. */
   private tabState(): string | null {
     if (this.running()) {
       return 'Searching…';
     }
-    // Not the agent server failing to answer on load: that is no run.
+    // The agent server failing to answer on load is no run.
     if (!this.started()) {
       return null;
     }
@@ -217,16 +195,14 @@ export class App {
     if (!target) {
       return;
     }
-    // Cancel an older listing, whose late answer would describe the wrong server.
+    // A late answer would describe the wrong server.
     this.listing?.unsubscribe();
-    // Set before asking; a superseded listing leaves it for the newer one to clear.
     this.asking.set(target);
     this.listing = this.agent.models(target).subscribe({
       next: (status) => {
         this.status.set(status);
         this.asking.set(null);
       },
-      // The agent server did not answer; name the provider from the defaults.
       error: () => {
         this.status.set({
           ...target,
@@ -239,19 +215,16 @@ export class App {
     });
   }
 
-  /** The server the pill is currently reporting on, for a re-ask with no argument. */
   private current(): ModelSource | null {
     const shown = this.status() ?? this.defaults();
     return shown ? { provider: shown.provider, base_url: shown.base_url } : null;
   }
 
-  /** What to call a provider, out of the rows the server sent with the defaults. */
   private labelFor(provider: string): string {
     const option = this.defaults()?.provider_options.find((row) => row.name === provider);
     return option?.label ?? provider;
   }
 
-  /** Ask what the sources field holds, before a run is worth starting. */
   protected checkSources(sources: string): void {
     this.sources?.unsubscribe();
     if (!sources) {
@@ -264,7 +237,6 @@ export class App {
     });
   }
 
-  /** Ask what the request itself says about the bounds, before a run is started. */
   protected checkBounds(request: string): void {
     this.bounds?.unsubscribe();
     if (!request) {
@@ -273,19 +245,15 @@ export class App {
     }
     this.bounds = this.agent.checkBounds(request).subscribe({
       next: (check) => this.boundsCheck.set(check),
-      // Read as a request that asks for nothing, rather than as no answer: a submit
-      // waiting on the reading goes on, where waiting for one would never end, and a
-      // box filled for an earlier request is cleared rather than applied to this one.
+      // As a request asking for nothing, so a submit waiting on it goes on.
       error: () => this.boundsCheck.set({ request, noticed: [] }),
     });
   }
 
-  /** The refused box holds something else now: drop the banner too, returning the page
-   *  to how it was before the refused run. */
+  /** The refused box holds something else now: drop the banner too. */
   protected dropRefusal(): void {
     this.failure.set(null);
     this.rejected.set(null);
-    // A payment's refusal, which a run would not have left: its box has moved on too.
     this.payFailed.set(null);
     if (!this.logs().length && !this.result()) {
       this.started.set(false);
@@ -294,7 +262,6 @@ export class App {
 
   protected start(options: SearchOptions): void {
     this.run?.unsubscribe();
-    // Cancel a re-sort of the run being replaced.
     this.reorder?.unsubscribe();
     this.reorder = null;
     this.reordering.set(false);
@@ -306,7 +273,6 @@ export class App {
     this.stopped.set(false);
     this.running.set(true);
     this.started.set(true);
-    // Receipts belong to the previous run's products.
     this.ranWith.set(options);
     this.receipts.set({});
     this.paying.set(null);
@@ -315,8 +281,7 @@ export class App {
     this.run = this.agent.search(options).subscribe({
       next: (event) => {
         if (event.kind === 'log') {
-          // The first line, not the click: a run refused before it opens logs none,
-          // and the box it marks is in the form this would scroll away from.
+          // On the first line: a run refused before it opens logs none, and stays put.
           if (!this.logs().length) {
             this.reveal('app-progress-log');
           }
@@ -327,9 +292,8 @@ export class App {
           this.recheckAfter(true);
         } else {
           this.failure.set(event.message);
-          // So the form can mark that box (ADR-0033).
+          // The form marks that box and opens its panel (ADR-0033).
           this.rejected.set(event.field ? { field: event.field, message: event.message } : null);
-          // A refusal is said on its box, and the form opens the panel it is in.
           if (!event.field) {
             this.reveal('.banner.failed');
           }
@@ -348,11 +312,7 @@ export class App {
     });
   }
 
-  /** Ask the model server again where a run just contradicted the pill: results came
-   *  back while it said unreachable, or the run failed for want of it while it said
-   *  up. The pill is asked once, on load; the obvious next step after its remedy is
-   *  to start the server and press Find products, and the header went on saying
-   *  "Start it with: ollama serve" over the results that run brought back. */
+  /** Ask the model server again where a run just contradicted the pill. */
   private recheckAfter(answered: boolean): void {
     const server = this.status();
     if (server && !this.checking() && server.reachable !== answered) {
@@ -373,11 +333,8 @@ export class App {
     );
   }
 
-  /** Scroll a panel the run just drew as little as shows it whole, which is not at all
-   *  where it already is. With Settings open -- and a budget in the request opens them
-   *  by itself -- the form alone is taller than a laptop's window, so the progress and
-   *  the failure both landed below the fold, and a click that started a run looked like
-   *  one that did nothing. */
+  /** Scroll a panel the run just drew as little as shows it whole: with Settings open,
+   *  the form alone is taller than a laptop's window. */
   private reveal(selector: string): void {
     afterNextRender(
       () =>
@@ -404,16 +361,13 @@ export class App {
         products: found.products,
         sort_by: sortBy,
         top: found.top_n,
-        // The run's own scale, so the set does not vote again (ADR-0056): the currency
-        // named, and the one the run was counted in where the set voted -- voting again
-        // over products in another order can break a tie the other way.
+        // The run's own scale, so the set does not vote again (ADR-0056).
         currency: this.ranWith()?.currency,
         scale: found.scale ?? undefined,
       })
       .subscribe({
         next: (result) => {
-          // A re-sort answers these empty; keep the run's own (ADR-0035, ADR-0055,
-          // ADR-0060).
+          // A re-sort answers these empty; keep the run's own (ADR-0035).
           this.result.set({
             ...result,
             dropped: found.dropped,
@@ -427,23 +381,18 @@ export class App {
             `Could not re-order these: they are still ${this.ordering(found.sort_by)}, ` +
               `not ${this.ordering(sortBy)}. ${refusal(failure)}`,
           );
-          // Put the control back to the order these products are actually in.
           control.value = found.sort_by;
           this.reordering.set(false);
         },
       });
   }
 
-  /** A criterion as the order it puts products in, for a sentence -- "cheapest first",
-   *  the control's own words, where "price" beside a control reading "Cheapest first"
-   *  named something the reader could not find. By name for a server older than the
-   *  page, which sends no labels. */
+  /** A criterion in the control's own words, for a sentence: "cheapest first". */
   private ordering(name: SortBy): string {
     const label = this.defaults()?.sort_labels?.[name];
     return label ? label.charAt(0).toLowerCase() + label.slice(1) : `by ${name}`;
   }
 
-  /** Buy one of these products, having been shown that somebody approved it. */
   protected payFor(
     product: RankedProduct,
     approved: { title: string; price: number; currency: string },
@@ -451,8 +400,7 @@ export class App {
     const found = this.result();
     const settings = this.ranWith();
     const paying = this.paySettings();
-    // Paying off, or held on a box the form marks: the cards offer nothing then, and a
-    // late approval is not one to send either.
+    // Paying off, or held on a marked box: a late approval is not one to send.
     if (!found || !settings || !paying.pay || paying.held !== null || this.paying() !== null) {
       return;
     }
@@ -468,7 +416,7 @@ export class App {
         rail: paying.rail,
         merchant_url: paying.merchant_url,
         spend_limit: paying.spend_limit,
-        // The run's own, as a re-sort sends them: the products were counted in it.
+        // The run's own, as a re-sort sends them.
         currency: settings.currency,
         scale: found.scale ?? undefined,
       })
@@ -485,12 +433,8 @@ export class App {
             return;
           }
           this.payFailed.set(`Nothing was bought. ${refusal(failure)}`);
-          // On its box, as a run's refusal is (ADR-0033): a payment endpoint the rail
-          // needs was refused at the start of a run, and is now refused when the payment
-          // is, so the box is marked the same way -- held against what the payment sent
-          // and through which rail -- and holds paying back until either moves. Only the
-          // endpoint: a spend limit refused is one cart over it, which says nothing about
-          // the box or about the cards under it, and stays a sentence beside them.
+          // A refused endpoint is marked on its box, held against what was sent and the
+          // rail (ADR-0033); a refused spend limit is one cart over it, said beside them.
           this.rejected.set(
             refusedField(failure) === 'merchant_url'
               ? {
@@ -505,13 +449,12 @@ export class App {
       });
   }
 
-  /** Whether this answer's run is still on screen. A payment is never cancelled (it
-   *  may have moved money), so a late answer is dropped here instead (ADR-0035). */
+  /** A payment is never cancelled (it may have moved money), so a late answer for a
+   *  replaced run is dropped instead. */
   private stillThisRun(settings: SearchOptions): boolean {
     return this.ranWith() === settings;
   }
 
-  /** Hand the finished run over as a file. */
   protected downloadResults(): void {
     saveText(
       filename('results', 'json', new Date()),
@@ -520,16 +463,15 @@ export class App {
     );
   }
 
-  /** Stop the run: close the stream, and say what that does and does not reach. */
+  /** Close the stream, and say what that does and does not reach. */
   protected stop(): void {
     this.run?.unsubscribe();
     this.run = null;
     this.running.set(false);
-    // What the log panel offers its transcript on.
     this.stopped.set(true);
     this.logs.update((lines) => [
       ...lines,
-      // The one browser-written line, timed in Python's format.
+      // The one browser-written line.
       {
         time: now(),
         level: 'WARNING',
@@ -543,7 +485,6 @@ export class App {
   }
 }
 
-/** The paying settings before the form has said, which pay for nothing. */
 const NOT_PAYING: PaySettings = {
   pay: false,
   rail: '',
@@ -552,25 +493,22 @@ const NOT_PAYING: PaySettings = {
   held: null,
 };
 
-/** The page's name, which the tab carries after what the run is doing. */
 const NAME = 'buy_agent';
 
-/** The two movements that are not one: a price that held, and one there is nothing to
- *  compare with (ADR-0043). Counted by, never composed from (ADR-0060). */
+/** The two movements that are not one (ADR-0060). */
 const UNMOVED = ['steady', 'unplaced'];
 
-/** The wall clock as Python's `%H:%M:%S` writes it, for the one line above. */
+/** As Python's `%H:%M:%S` writes it. */
 function now(): string {
   return new Date().toTimeString().slice(0, 8);
 }
 
-/** The setting a refusal named, if it named one (ADR-0033). */
 function refusedField(failure: unknown): string | null {
   const field = (failure as { error?: { field?: unknown } } | null)?.error?.field;
   return typeof field === 'string' ? field : null;
 }
 
-/** Why a request failed: the server's own sentence, or a guess where it sent none. */
+/** The server's own sentence, or a guess where it sent none. */
 function refusal(failure: unknown): string {
   const answered = (failure as { error?: { error?: unknown } } | null)?.error?.error;
   const said = typeof answered === 'string' ? answered.trim() : '';

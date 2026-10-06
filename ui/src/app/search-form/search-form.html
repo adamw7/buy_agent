@@ -1,25 +1,12 @@
-<!-- One number box, wherever it is drawn: the settings grid below, or the paying
-     block further down, where the switch that turns it on is. -->
+<!-- One number box: the settings grid, or the paying block beside its switch. -->
 <ng-template #numberBox let-number>
   <label class="field">
     <span>{{ number.label }}</span>
-    <!-- `[name]` and `[attr.name]` are not the same binding: the first is an
-         input on `NgModel`, which swallows it, leaving the element itself
-         without the attribute a label, an autofill or a test selector goes
-         looking for. Both, so both get one.
-
-         `(input)` sits beside `(ngModelChange)` rather than instead of it: a box
-         holding `12abc` reports the empty string, so the model sees the `null` a
-         *cleared* box means, and only the element itself still knows the
-         difference.
-
-         A switched-off box shows nothing, so its placeholder -- the sentence saying
-         where the setting lives instead -- is what is read there. Showing the number
-         it would send elsewhere, a disabled context window read 16384 on a vLLM that
-         ignores it. What it holds comes back when the box is switched on again. -->
+    <!-- `[name]` feeds `NgModel` and `[attr.name]` puts the attribute on the element.
+         `(input)` tells a box holding `12abc` from a cleared one, which both read null.
+         A switched-off box shows nothing, so its placeholder is read. -->
     <!-- eslint-disable @angular-eslint/template/no-duplicate-attributes --
-         the linter reads `[name]` and `[attr.name]` as one attribute written
-         twice; they are two bindings, and both are wanted (above). -->
+         `[name]` and `[attr.name]` are two bindings (above). -->
     <input
       type="number"
       [name]="number.key"
@@ -37,24 +24,14 @@
       [attr.aria-describedby]="problemId(number.key)"
     />
     <!-- eslint-enable @angular-eslint/template/no-duplicate-attributes -->
-    <!-- Three things a box can have to say, in order of who is owed an answer: what
-         is wrong with it, why it is holding a number nobody typed, and what it is
-         for. The middle one is a hint and never a mark -- an offer read out of the
-         request is not something to correct (ADR-0059) -- and it goes above the last
-         rather than instead of it: "below 1000 EUR" puts a bare 1000 in Max price,
-         read in whatever currency the run counts in, and the hint is the one sentence
-         on the page saying so. In its place the box said "From your request" and
-         nothing about which currency the request was taken in. -->
+    <!-- What is wrong, then why it holds a number nobody typed (a hint, never a mark,
+         above the box's own hint, which names the currency; ADR-0059). -->
     @if (notes()[number.key]; as problem) {
       <small class="problem" role="alert" [attr.id]="problemId(number.key)">{{ problem }}</small>
     } @else {
       @if (noticedNote(number.key); as noticed) {
         <small class="noticed">{{ noticed }}</small>
-        <!-- Under Python's note, while a press of Find products is what stopped here:
-             that press filled this box and searched nothing, and from the button it
-             looked like a press that had not registered. No `role="status"`: a status
-             is not named by its contents, so it left the box's name, which is what a
-             screen reader reads when the focus is moved here. In the label, it is. -->
+        <!-- In the label, so a screen reader reads it when the focus is moved here. -->
         @if (stoppedAt() === number.key) {
           <small class="noticed unsearched"
             >Nothing was searched yet: press Enter, or Find products, to search with it.</small
@@ -104,8 +81,7 @@
   </div>
 
   <details class="advanced" [open]="advanced()" (toggle)="toggled($event)">
-    <!-- The count rather than a bare word: shut, this panel is the only place
-         a marked field could be, so the summary is what says there is one. -->
+    <!-- Shut, this panel is the only place a marked field could be. -->
     <summary>
       Settings
       @if (flagged(); as count) {
@@ -133,8 +109,7 @@
       }
 
       <!-- eslint-disable-next-line @angular-eslint/template/label-has-associated-control --
-           the control is inside the `@if` below, a select or an input, and the rule
-           does not look into a control-flow block for either. -->
+           the control is in the `@if` below, which the rule does not look into. -->
       <label class="field">
         <span>Model</span>
         @if (modelOptions().length) {
@@ -145,10 +120,6 @@
           </select>
         } @else {
           <input name="model" [(ngModel)]="model" [disabled]="running() || checking()" />
-          <!-- Which of the two it was: a server that could not be reached listed
-               nothing because nobody could ask it, and saying it "listed nothing"
-               under a header saying it was unreachable sent the reader to pull a
-               model into a server that was not running. -->
           @if (!checking()) {
             @if (status()?.reachable === false) {
               <small>{{ providerLabel() }} could not be reached, so type a name.</small>
@@ -157,18 +128,13 @@
             }
           }
         }
-        <!-- The list belongs to one server and the answer takes as long as that
-             server takes. Until it lands, what is on screen is the last server's
-             models -- so the field says what it is waiting for rather than
-             letting one of them be picked as if it were this server's. -->
+        <!-- Until the answer lands, the models on screen are the last server's. -->
         @if (checking()) {
           <small>Asking {{ providerLabel() }} what it is serving…</small>
         }
       </label>
 
-      <!-- Marked like the boxes below it: the server refuses an address that is this
-           page's own, which is where vLLM's default lands when the page is served on
-           its port. -->
+      <!-- The server refuses this page's own address, where vLLM's default lands. -->
       <label class="field">
         <span>{{ providerLabel() }} address</span>
         <input
@@ -212,17 +178,14 @@
             <option [value]="option.name">{{ option.label }}</option>
           }
         </select>
-        <!-- Whether this server holds what a backend needs is Python's answer, on
-             the backend's own row: a fourth added there says so here without a
-             second list of names in TypeScript. -->
+        <!-- Python's answer, off the backend's own row. -->
         <small>{{ backendHint() }}</small>
       </label>
 
       <label class="field">
         <span>Count prices in</span>
         <select name="currency" [(ngModel)]="currency" [disabled]="running()">
-          <!-- The blank is a value and not a missing one: it is how a shopper asks
-               for the scale the pages themselves quote, which is the default. -->
+          <!-- Blank is a value: the pages' own scale, the default. -->
           <option value="">Whatever the pages quote</option>
           @for (option of currencyOptions(); track option) {
             <option [value]="option">{{ option }}</option>
@@ -250,10 +213,6 @@
           [attr.aria-describedby]="problemId('sources')"
           (change)="sourcesChanged()"
         />
-        <!-- What naming a source does, under the box it is about. It was a paragraph
-             at the foot of the panel: below every other setting on a desktop, and on a
-             phone two screens down, directly under the paying switch -- which it then
-             read as the explanation of. -->
         @if (notes()['sources']; as problem) {
           <small class="problem" role="alert" [attr.id]="problemId('sources')">{{ problem }}</small>
         } @else {
@@ -264,12 +223,7 @@
         }
       </label>
 
-      <!-- Every number box this panel draws, one row of `numberFields` each: the
-           same markup, the same range off the server, the same mark under the same
-           rules. The paying one is the same row drawn in the paying block below,
-           beside the switch it depends on. The two `select`s below are what none of
-           them are -- a criterion and a mode are chosen from a list, not held to a
-           range. -->
+      <!-- One row of `numberFields` each; the paying one is drawn in the paying block. -->
       @for (number of settingFields; track number.key) {
         <ng-container
           [ngTemplateOutlet]="numberBox"
@@ -284,9 +238,6 @@
             <option [value]="option.name">{{ option.label }}</option>
           }
         </select>
-        <!-- Which run this one is about. A finished run has a control of its own
-             beside its results, and the two said the same two words over two
-             different questions. -->
         <small>How the next run's results come back ordered.</small>
       </label>
 
@@ -296,20 +247,12 @@
           <option value="off">Off</option>
           <option value="on">On</option>
         </select>
-        <!-- Under the box, not inside the option. A select is as wide as its
-             grid column and clips whatever will not fit, so "Off — needed by
-             thinking models" came down as "Off — needed by thinking m": the one
-             option carrying the warning was the one that could not be read, and
-             the reader could not widen it. Every other field says its piece in a
-             `small` for the same reason. -->
+        <!-- Under the box: a select clips an option's text. -->
         <small>Thinking models are cut off before they answer; leave this off for them.</small>
       </label>
 
-      <!-- Disabled rather than hidden where the server picked its own device, the
-           way the context window is: a switch that disappears with the provider
-           leaves nobody anywhere to read why. The `small` sits outside the
-           checkbox label, which is a flex row and would put the sentence beside
-           the box rather than under it. -->
+      <!-- Disabled rather than hidden, so the reason can be read; the `small` sits outside
+           the label's flex row, under the box. -->
       <div class="field">
         <label class="checkbox">
           <input
@@ -323,9 +266,6 @@
         <small>{{ cpuOnlyHint() }}</small>
       </div>
 
-      <!-- Its sentence under it, outside the flex row, as the two boxes either side
-           of it have theirs. It was a paragraph at the foot of the panel: below every
-           other setting on a desktop, and a screen away on a phone. -->
       <div class="field">
         <label class="checkbox">
           <input name="fetch" type="checkbox" [(ngModel)]="fetchPages" [disabled]="running()" />
@@ -336,9 +276,6 @@
         </small>
       </div>
 
-      <!-- The `small` sits outside the checkbox label, which is a flex row and would
-           put the sentence beside the box rather than under it -- as the CPU-only one
-           does, and for the same reason. -->
       <div class="field">
         <label class="checkbox">
           <input name="journal" type="checkbox" [(ngModel)]="journal" [disabled]="running()" />
@@ -350,18 +287,9 @@
         </small>
       </div>
 
-      <!-- Paying, and only where the server can. The SDK that signs an AP2
-           mandate is an optional install, so a build without it says so once
-           here rather than offering a switch whose only outcome is a message
-           about pip -- the same choice the model field makes when a server
-           listed nothing. -->
+      <!-- Only where the server has the optional AP2 SDK. -->
       @if (payAvailable()) {
-        <!-- What it does on this page, which is not what `--pay` does: the CLI buys the
-             top product, and here every product a page priced grows a Pay button of its
-             own that asks again. "Pay for the top product" said the CLI's half -- a
-             switch promising to spend money on something nobody had seen yet, which is
-             the one label here that must not overstate. Its sentence sits outside the
-             flex row, as the three boxes before it have theirs. -->
+        <!-- Unlike `--pay`, each priced product gets a Pay button that asks again. -->
         <div class="field">
           <label class="checkbox">
             <input name="pay" type="checkbox" [(ngModel)]="pay" [disabled]="running()" />
@@ -381,9 +309,7 @@
                 <option [value]="option.name">{{ option.label }}</option>
               }
             </select>
-            <!-- Whether this rail can charge anybody is Python's answer, on the
-                 rail's own row: a third rail added there warns here without a
-                 second list of names in TypeScript. -->
+            <!-- Python's answer, off the rail's own row. -->
             <small>
               @if (railSpends()) {
                 You will be asked to approve the exact cart, and then charged.

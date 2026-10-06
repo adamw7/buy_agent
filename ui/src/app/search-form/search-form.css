@@ -30,10 +30,7 @@
   border: 1px solid var(--border);
   cursor: pointer;
   font-weight: 500;
-  /**
-   * `.pill` holds a status on one line; an example is a sentence, and the longest of them is wider
-   * than a phone.
-   */
+  /** An example is a sentence, wider than a phone. */
   white-space: normal;
   text-align: start;
 }
@@ -57,10 +54,7 @@ summary {
   width: fit-content;
 }
 
-/* Beside the word rather than under it: the panel is shut when this matters,
-   and the summary is the whole of what is on screen to say so. Its own class
-   and not `.problem`, which is the note *under* a field -- one is read with the
-   box it belongs to and the other stands in for a panel full of them. */
+/* Beside the word: with the panel shut, the summary is all there is to say so. */
 summary .flagged {
   color: var(--bad);
   font-weight: 500;
@@ -73,16 +67,12 @@ summary .flagged {
   padding-top: 16px;
 }
 
-/* A list of sites needs the room a one-word setting does not, so it takes the
-   whole row -- two columns where the grid has them, and one where it has one. */
+/* A list of sites takes the whole row. */
 .wide {
   grid-column: 1 / -1;
 }
 
-/* What is wrong with the field above it: a range the server shipped, or the
-   sentence it refused a run with. The box is marked too -- a colour on the text
-   alone says nothing to a reader who cannot see it, and nothing at all to one
-   who has scrolled the message off. */
+/* The box is marked too: colour alone says nothing. */
 .problem {
   color: var(--bad);
 }
@@ -111,9 +101,7 @@ summary .flagged {
   }
 }
 
-/* A box holding a number the request asked for in words. Marked apart from an
-   ordinary hint and deliberately not like a problem: nothing here is wrong, and the
-   whole of the offer is that it can be cleared. */
+/* An offer, not a problem: it can be cleared. */
 .field small.noticed {
   color: var(--accent);
 }
