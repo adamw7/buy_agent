@@ -23,13 +23,11 @@ if TYPE_CHECKING:
 
     from buy_agent.search import SearchResult
 
-#: Fraction of a name's distinctive words that has to be found on the other side for two
-#: names to be the same product -- the bar :func:`buy_agent.verification.mentions_name`
-#: sets, applied both ways.
+#: The bar :func:`buy_agent.verification.mentions_name` sets, applied both ways.
 MATCH_COVERAGE = NAME_COVERAGE
 
-#: Each metric: what it weighs, and what it shows on an empty denominator. The empty
-#: value is what the metric reads and is floored at; the score never counts it (ADR-0074).
+#: Each metric's weight, and what it shows (never what it scores) on an empty
+#: denominator (ADR-0074).
 METRICS: dict[str, tuple[float, float]] = {
     "identified": (3.0, 0.0),  # slots filled with a product that is really there
     "genuine": (2.0, 0.0),  # reported entries that are a real product, once each
@@ -41,7 +39,6 @@ METRICS: dict[str, tuple[float, float]] = {
     "order": (1.0, 1.0),  # ranked pairs the answer key would order the same way
 }
 
-#: What each metric counts, in the words the page and ``docs/testing.md`` use.
 MEANINGS: dict[str, str] = {
     "identified": "Slots filled with a product that is really there",
     "genuine": "Reported entries that are a real product, not a shop and not a repeat",
@@ -53,24 +50,20 @@ MEANINGS: dict[str, str] = {
     "order": "Pairs ranked in the order the key's figures give; a shuffle gets half",
 }
 
-#: Each completeness half and the error half it is weighed with into the score, by their
-#: weighted harmonic mean: a pair counts only as far as both halves do, so reporting
-#: nothing earns nothing, and neither does reporting nonsense (ADR-0074).
+#: Completeness and error halves, weighed by their harmonic mean: reporting nothing earns
+#: nothing, and neither does reporting nonsense (ADR-0074).
 PAIRS: tuple[tuple[str, str], ...] = (
     ("identified", "genuine"),
     ("figures", "attribution"),
     ("quotes", "faithful"),
 )
 
-#: What a metric scores by luck alone, which the score does not pay for: a shuffled
-#: ranking puts half its pairs in order (ADR-0074).
+#: What luck alone scores, which the score does not pay for (ADR-0074).
 CHANCE: dict[str, float] = {"order": 0.5}
 
-#: What a reported product is to the key: one it names, a second report of one, or
-#: something the pages are not about.
 REAL, REPEATED, INVENTED = "real", "repeated", "invented"
 
-#: What the nightly run refuses to go below (``integration/test_benchmark.py``).
+#: What the nightly run refuses to go below.
 FLOORS: dict[str, float] = {
     "identified": 0.4,
     "genuine": 0.6,
@@ -85,22 +78,14 @@ FLOORS: dict[str, float] = {
 
 
 def model_numbers(words: Iterable[str]) -> set[str]:
-    """The words of a name with a digit in them, which is what tells one model from the
-    next: the "1000xm5" of "WH-1000XM5", "g14", "3200", the "5" of "Slim 5"."""
+    """The words of a name with a digit in them: what tells one model from the next."""
     return {word for word in words if any(character.isdigit() for character in word)}
 
 
 def identifies(reported: str, expected: Expected) -> float:
-    """How well ``reported`` names ``expected``, or 0.0 if it does not.
-
-    Two names that each carry a model number the other lacks are two products, however
-    many words they share: "WH-1000XM4" is not the XM5, nor "Blade 16" the 14 (ADR-0073).
-    A number on one side only is a spec or a shortening -- "Slim 5 16GB", "De'Longhi
-    Dedica" -- and is matched by words as before.
-
-    Returns:
-        The two coverages added, so an ambiguous name goes to its best match.
-    """
+    """Both coverages added, so an ambiguous name goes to its best match; 0.0 where
+    each name carries a model number the other lacks ("WH-1000XM4" is not the XM5)
+    (ADR-0073)."""
     mine, theirs = distinctive_words(reported), distinctive_words(expected.name)
     if model_numbers(mine) - set(theirs) and model_numbers(theirs) - set(mine):
         return 0.0
@@ -112,7 +97,6 @@ def identifies(reported: str, expected: Expected) -> float:
 
 
 def best_match(name: str, key: Sequence[Expected] = ANSWER_KEY) -> Expected | None:
-    """The answer-key entry ``name`` identifies, or None."""
     strength, _, entry = max(
         (identifies(name, entry), -index, entry) for index, entry in enumerate(key)
     )
@@ -122,9 +106,8 @@ def best_match(name: str, key: Sequence[Expected] = ANSWER_KEY) -> Expected | No
 def match_products(
     products: Sequence[Product], key: Sequence[Expected] = ANSWER_KEY
 ) -> list[tuple[Expected | None, str]]:
-    """Each reported product's entry in the key and what it is to it, in the order
-    reported: :data:`REAL` the first time an entry is named, :data:`REPEATED` after, and
-    :data:`INVENTED` where no entry is."""
+    """Each reported product's entry in the key, and whether it is :data:`REAL` (named
+    first), :data:`REPEATED` or :data:`INVENTED`."""
     seen: set[str] = set()
     matched: list[tuple[Expected | None, str]] = []
     for product in products:
@@ -159,16 +142,12 @@ def figure_verdicts(product: Product, entry: Expected) -> list[bool | None]:
 
 
 def page_words(results: Sequence[SearchResult]) -> dict[str, str]:
-    """Each searched page as its running words, by URL."""
-    return {
-        result.url: running_words(build_haystack([result])) for result in results if result.url
-    }
+    return {result.url: running_words(build_haystack([result])) for result in results if result.url}
 
 
 def quotes_a_verdict(quote: str, entry: Expected, pages: Mapping[str, str]) -> bool:
-    """Whether ``quote`` is one of the verdicts the pages pass on this product, or a run of
-    words out of one, printed on a page about it that the run was shown (ADR-0025,
-    ADR-0073). A line about the product beside it on the same page is not this one's."""
+    """Whether ``quote`` is (part of) a verdict the pages pass on this product, printed
+    on a page about it that the run was shown (ADR-0073)."""
     words = running_words(quote)
     padded = f" {words} "
     return (
@@ -179,9 +158,8 @@ def quotes_a_verdict(quote: str, entry: Expected, pages: Mapping[str, str]) -> b
 
 
 def _as_it_should_be(product: Product, entry: Expected) -> Product:
-    """``entry`` as this run should have reported it: each pair of figures the run
-    reported where the key accepts it, the entry's own where it does not (ADR-0074). A
-    run is never ranked against figures other than the ones it was right to report."""
+    """``entry`` as this run should have reported it: its figures where the key accepts
+    them, the entry's own where not (ADR-0074)."""
     price, currency = (product.price, product.currency)
     if (price, currency) not in entry.prices:
         price, currency = entry.price, entry.currency
@@ -215,7 +193,6 @@ class Scorecard:
 
     @property
     def metrics(self) -> dict[str, float]:
-        """Every metric by name, in :data:`METRICS` order."""
         return {
             name: right / out_of if out_of else empty
             for name, (_, empty) in METRICS.items()
@@ -224,13 +201,8 @@ class Scorecard:
 
     @property
     def parts(self) -> dict[str, tuple[float, float]]:
-        """What the score is made of: each pair of :data:`PAIRS` and each metric in none,
-        as its weight and its value, in :data:`METRICS` order (ADR-0074).
-
-        A metric with nothing to count counts 0 here, whatever it shows: silence earns
-        nothing. A pair is the weighted harmonic mean of its halves, and a metric with a
-        :data:`CHANCE` level counts only what it scored above it.
-        """
+        """Each pair and unpaired metric, as weight and value (ADR-0074): nothing to
+        count counts 0, and a :data:`CHANCE` level is paid nothing."""
         counted = {
             name: right / out_of if out_of else 0.0
             for name, (right, out_of) in self.counts.items()
@@ -256,7 +228,6 @@ class Scorecard:
         return sum(weight * value for weight, value in parts) / sum(weight for weight, _ in parts)
 
     def parts_label(self) -> str:
-        """The :attr:`parts` in a line: "identified/genuine 0.600 x5, ..."."""
         return ", ".join(
             f"{name} {value:.3f} x{weight:g}" for name, (weight, value) in self.parts.items()
         )
@@ -268,7 +239,6 @@ class Scorecard:
         return all(value >= FLOORS[name] for name, value in rows.items())
 
     def summary(self) -> str:
-        """What the counts come to, in one sentence."""
         matched, reported = self.counts["genuine"]
         return (
             f"{matched} of {self.counts['identified'][1]} slots hold a real product "
@@ -281,7 +251,6 @@ class Scorecard:
         )
 
     def table(self) -> str:
-        """The scorecard as lines, for a job log and for ``python -m benchmark``."""
         rows = {**self.metrics, "score": self.score}
         return "\n".join(
             [
@@ -297,7 +266,7 @@ class Scorecard:
 
 
 def _harmonic(values: Sequence[float], weights: Sequence[float]) -> float:
-    """The weighted harmonic mean of ``values``, which is 0 where any of them is."""
+    """0 where any value is."""
     if not all(values):
         return 0.0
     return sum(weights) / sum(weight / value for weight, value in zip(weights, values, strict=True))
@@ -315,21 +284,9 @@ def score_run(
     key: Sequence[Expected] = ANSWER_KEY,
     slots: int = NUM_PRODUCTS,
 ) -> Scorecard:
-    """Score one run's products against the answer key.
-
-    Args:
-        products: What the run reported, **in the order it ranked them**.
-        results: The pages it was given, enriched -- the corpus as the model saw
-        it, which is what a quote is checked against.
-        key: The answer key; :data:`~benchmark.answers.ANSWER_KEY` by default.
-        slots: How many products the run was allowed to report. Recall is
-        measured against this rather than against the whole key, the cap
-        being part of the run rather than a failure of it.
-    Returns:
-        A :class:`Scorecard`. Every count but ``genuine``'s is over the products
-        that matched: a hallucinated product is one mistake, and grading its
-        invented price a second time would charge twice for it.
-    """
+    """Score one run's products, in ranked order, against the key. Recall is measured
+    against ``slots``, the cap being part of the run; every count but ``genuine``'s is
+    over matched products, so an invented product is charged once."""
     pages = page_words(results)
     verdicts = match_products(products, key)
     matched = [

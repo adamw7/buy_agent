@@ -1,5 +1,5 @@
-"""A local HTTP server for the Angular UI in ``ui/`` (ADR-0010, ADR-0011, ADR-0034,
-ADR-0035, ADR-0033, ADR-0018, ADR-0065)."""
+"""A local HTTP server for the UI in ``ui/`` and its JSON API (ADR-0010, ADR-0011,
+ADR-0018, ADR-0033, ADR-0034, ADR-0035, ADR-0065)."""
 
 from __future__ import annotations
 
@@ -50,24 +50,20 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: Where ``ng build`` leaves the app, relative to the repository root.
+#: Where ``ng build`` leaves the app.
 DEFAULT_UI_DIR = Path(__file__).resolve().parent.parent / "ui" / "dist" / "ui" / "browser"
 
-#: The default bind: loopback, on the port the ``Dockerfile`` and ``scripts/start.ps1``
-#: are held to by a convention test.
+#: Loopback, on the port the ``Dockerfile`` and ``scripts/start.ps1`` are held to.
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
 
-#: Seconds of silence before an SSE ``ping``, so proxies keep a quiet stream open.
+#: Silence before an SSE ``ping``, so proxies keep a quiet stream open.
 _KEEPALIVE_SECONDS = 15.0
-
 _MAX_BODY_BYTES = 64 * 1024
-
-#: How long a browser may cache a screenshot.
 _SCREENSHOT_CACHE = "private, max-age=3600"
 
-#: A content-hashed build file (``main-AC2JNJ6W.js``), cacheable for good; anything
-#: else, ``index.html`` above all, is revalidated on every load.
+#: A content-hashed build file (``main-AC2JNJ6W.js``) is cached for good; the rest,
+#: ``index.html`` above all, is revalidated.
 _HASHED_ASSET = re.compile(r"-[A-Z0-9]{8}\.[a-z0-9]+$")
 _IMMUTABLE = "public, max-age=31536000, immutable"
 _REVALIDATE = "no-cache"
@@ -75,27 +71,18 @@ _REVALIDATE = "no-cache"
 #: How long one blocking read or write on a connection may take (ADR-0034).
 _REQUEST_TIMEOUT = 30.0
 
-#: Bindable ports. Checked at the door: out of range, ``bind`` raises ``OverflowError``,
-#: which ``main``'s ``OSError`` handler misses.
+#: Checked at the door: ``bind`` raises ``OverflowError``, which ``main`` would miss.
 _PORTS = (0, 65535)
 
-#: Host names that mean "this machine".
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
-
 #: A bind on every interface, which a loopback name reaches too.
 _EVERYWHERE = frozenset({"0.0.0.0", "::", ""})
-
-#: The port an address with none means.
 _SCHEME_PORTS = {"http": 80, "https": 443}
-
-#: The ``Sec-Fetch-Site`` value meaning a page on another site made the request.
 _CROSS_SITE = "cross-site"
 
-#: Headers on every response.
 _SECURITY_HEADERS = (
     ("X-Content-Type-Options", "nosniff"),
     ("Referrer-Policy", "no-referrer"),
-    # No opener access, and no powerful features: the page uses none.
     ("Cross-Origin-Opener-Policy", "same-origin"),
     ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()"),
     (
@@ -107,7 +94,7 @@ _SECURITY_HEADERS = (
     ),
 )
 
-#: Content types for what ``ng build`` emits.
+#: Spelt out: Windows' registry can serve ``.js`` as ``text/plain``.
 _CONTENT_TYPES = {
     ".css": "text/css; charset=utf-8",
     ".html": "text/html; charset=utf-8",
@@ -125,14 +112,8 @@ _CONTENT_TYPES = {
     ".woff2": "font/woff2",
 }
 
-
-#: What to run to get a page.
 _UNBUILT_COMMAND = "npm install && npm run build"
-
-#: The sentence a client that did not ask for HTML gets.
 _UNBUILT = "The UI is not built. {remedy}"
-
-#: The same answer for a browser.
 _UNBUILT_PAGE = """<!doctype html>
 <html lang="en">
 <head>
@@ -160,22 +141,18 @@ p {{ color: #5c6470; }}
 
 
 def _unexpected(exc: Exception) -> dict[str, Any]:
-    """The body of an unplanned 500."""
     return {"error": f"Unexpected failure: {exc}"}
 
 
 def _no_such_endpoint(path: str) -> dict[str, Any]:
-    """The body of an unknown ``/api`` path."""
     return {"error": f"No such endpoint: {path}"}
 
 
 class _Stopped(Exception):
-    """Ends a run whose reader has gone, at a step boundary (ADR-0009, ADR-0034)."""
+    """Ends a run whose reader has gone, at a step boundary (ADR-0034)."""
 
 
 def _stop_when(stopped: threading.Event) -> Checkpoint:
-    """A checkpoint that ends a run at the first step boundary after ``stopped``."""
-
     def checkpoint(step: str) -> None:
         if stopped.is_set():
             raise _Stopped(step)
@@ -197,14 +174,13 @@ class _LogRelay(logging.Handler):
         try:
             sink.put(
                 {
-                    # The CLI's clock: gaps between lines show slow steps.
                     "time": time.strftime("%H:%M:%S", time.localtime(record.created)),
                     "level": record.levelname,
                     "logger": record.name,
                     "message": record.getMessage(),
                 }
             )
-        # A broken relay must not break the run it is only reporting on.
+        # A broken relay must not break the run it reports on.
         # pylint: disable-next=broad-exception-caught
         except Exception:
             self.handleError(record)
@@ -220,7 +196,7 @@ _relay = _LogRelay()
 
 
 def _install_relay() -> None:
-    """Put the relay on the package logger. Idempotent -- ``addHandler`` dedupes."""
+    """Put the relay on the package logger (``addHandler`` dedupes)."""
     package_logger = logging.getLogger("buy_agent")
     package_logger.addHandler(_relay)
     # Progress is at INFO, which the default level drops.
@@ -233,7 +209,6 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
     server_version = "buy_agent"
     protocol_version = "HTTP/1.1"
-    #: Read by ``socketserver`` at connection setup (see :data:`_REQUEST_TIMEOUT`).
     timeout = _REQUEST_TIMEOUT
 
     def __init__(
@@ -253,30 +228,26 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         self.camera = camera
         super().__init__(*args, **kwargs)
 
-    # -- who is allowed to ask --------------------------------------------------
+    # -- who is allowed to ask (ADR-0018) ----------------------------------------
 
     def _refused(self) -> bool:
-        """Refuse a request not from this server's own page; say whether it was
-        (ADR-0018)."""
+        """Refuse a request not from this server's own page; say whether it was."""
         if self._origin_admits() and self._host_admits():
             return False
         self._refuse()
         return True
 
     def _origin_admits(self) -> bool:
-        """Reject a request a page on another site made."""
         if self.headers.get("Sec-Fetch-Site", "").strip().lower() == _CROSS_SITE:
             return False
         origin = self.headers.get("Origin")
         # "null" (a sandboxed iframe, a data: document) is never this app.
         if origin is None or origin == "null":
             return origin is None
-
         try:
             netloc = urlparse(origin).netloc.strip().lower()
         except ValueError:
-            # An unclosed IPv6 bracket, which no browser sends: refused, not dropped
-            # unanswered from outside ``do_GET``'s catch-all.
+            # An unclosed IPv6 bracket: refused rather than dropped unanswered.
             return False
         # Origin equal to Host is our own page: another page cannot forge both.
         if netloc and netloc == self.headers.get("Host", "").strip().lower():
@@ -284,16 +255,12 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         return _hostname(netloc) in _LOOPBACK_HOSTS
 
     def _host_admits(self) -> bool:
-        """Reject a name that resolved here without being one of ours."""
         if self.allowed_hosts is None:
             return True
         return _hostname(self.headers.get("Host", "")) in self.allowed_hosts
 
     def _refuse(self) -> None:
-        """Answer a request from somewhere else, without doing any of its work."""
-        # Terse and not CORS-negotiable: nothing here is for other sites.
         self.close_connection = True
-        # All three headers the checks read, as they arrived.
         logger.warning(
             "Refused a %s %s from origin %r with host %r and fetch site %r",
             self.command,
@@ -304,33 +271,27 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         )
         self._send_json(403, {"error": "This API only answers its own page."})
 
-    # -- routing ---------------------------------------------------------------
+    # -- routing -------------------------------------------------------------------
 
     def parse_request(self) -> bool:
-        """Read the request line and headers, and refuse a target nothing can route.
-
-        Every ``do_*`` parses the target before its catch-all, so an absolute-form one
-        with an unclosed bracket (``GET http://[x/``) raised there and the connection
-        closed with nothing said. Refused here once, for every verb and for the
-        benchmark's handler too.
-        """
+        """Refuse, for every verb, a target that will not parse (``GET http://[x/``),
+        which would otherwise raise before any catch-all and close unanswered."""
         if not super().parse_request():
             return False
         try:
             urlparse(self.path)
         except ValueError:
-            # Any body is unread, so the connection closes (as in ``_read_json``).
+            # Any body is unread, so the connection closes.
             self.close_connection = True
             self._send_json(400, {"error": f"Not a path this server can route: {self.path!r}"})
             return False
         return True
 
-    #: Where a search is streamed (ADR-0011); a handler with nothing to stream has None.
+    #: Where a search is streamed (ADR-0011); None for a handler with nothing to stream.
     stream_path: str | None = "/api/search/stream"
 
     def get_routes(self) -> dict[str, Callable[[dict[str, str]], dict[str, Any] | bytes]]:
-        """Each ``GET`` endpoint by path, answering JSON -- or a screenshot's JPEG, for an
-        ``<img>`` (ADR-0065)."""
+        """Each ``GET`` endpoint: JSON, or a screenshot's JPEG (ADR-0065)."""
         return {
             "/api/config": lambda _: defaults_payload(screenshots=self.camera is not None),
             "/api/models": self._models,
@@ -342,8 +303,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         }
 
     def post_routes(self) -> dict[str, Callable[[dict[str, Any]], dict[str, Any]]]:
-        """Each ``POST`` endpoint by path; only a search runs anything (ADR-0035). A POST
-        because a query string cannot carry the products or the approval."""
+        """Each ``POST`` endpoint; only a search runs anything (ADR-0035)."""
         return {"/api/search": self._search, "/api/rank": rank_again, "/api/pay": pay_now}
 
     # The base class dispatches on the verb's name.
@@ -353,8 +313,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             return
         url = urlparse(self.path)
         params = {key: values[-1] for key, values in parse_qs(url.query).items()}
-        # Outside the guard: the stream spends its status line early and reports
-        # failures as ``failure`` events.
+        # Outside the guard: the stream spends its status line early.
         if url.path == self.stream_path:
             self._stream_search(params)
             return
@@ -379,22 +338,21 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         run = self.post_routes().get(url.path)
         if run is None:
-            # The body is unread, so the connection must close (as in ``_read_json``).
+            # The body is unread, so the connection must close.
             self.close_connection = True
             self._send_json(404, _no_such_endpoint(url.path))
             return
         try:
             payload = self._read_json()
             self._send_json(200, run(payload))
-        # As in ``do_GET``.
+        # Anything at all: see ``_send_failure``.
         # pylint: disable-next=broad-exception-caught
         except Exception as exc:
             self._send_failure(url.path, exc)
 
     def _send_failure(self, path: str, exc: Exception) -> None:
-        """A refusal with its own status, and anything else as a 500: that beats
-        socketserver closing the socket unanswered, which reads as a server that is
-        down."""
+        """An ``ApiError`` with its status, anything else a 500: never a socket closed
+        unanswered, which reads as a server that is down."""
         if isinstance(exc, ApiError):
             self._send_json(exc.status, exc.payload())
             return
@@ -404,7 +362,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     # The base class dispatches on the verb's name.
     # pylint: disable-next=invalid-name
     def do_HEAD(self) -> None:
-        """Answer HEAD like GET, minus the body -- but never by running a search."""
+        """Like GET minus the body, but never by running a search."""
         if self._refused():
             return
         if urlparse(self.path).path == self.stream_path:
@@ -412,31 +370,25 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             return
         self.do_GET()
 
-    # -- the agent -------------------------------------------------------------
+    # -- the agent -----------------------------------------------------------------
 
     def _models(self, params: dict[str, str]) -> dict[str, Any]:
-        """The named server's models, for the form's picker."""
         provider = params.get("provider") or DEFAULT_PROVIDER
         server = PROVIDERS.get(provider)
         base_url = params.get("base_url") or (server.base_url if server else "")
-        # Not asked: what answers there is this page, and its reply reads as a model
-        # server that is not running -- "Start it with: vllm serve", which then cannot
-        # bind the port this server holds.
+        # Never asked: this page would answer, as a model server that is not running.
         unaskable = (
             partial(_own_address, address=base_url) if self._answered_here(base_url) else None
         )
         return installed_models(provider, base_url, unaskable=unaskable)
 
     def _answered_here(self, address: str) -> bool:
-        """Whether ``address`` is this server's own, which a model server's default is
-        when the page is served on that server's port (vLLM's 8000 is this one's)."""
-        # A 2-tuple, or 4 on IPv6: ``_HTTPServer`` binds a family that has a port.
+        """Whether ``address`` is this server's own (vLLM's default 8000 is)."""
         host, port = cast("tuple[Any, ...]", self.server.server_address)[:2]
         return _reaches(address, str(host), int(port))
 
     def refuse_own_address(self, label: str, address: str) -> None:
-        """Refuse a model server at this page's own address before a run opens, on the
-        box that holds it (ADR-0033)."""
+        """Refuse a model server at this page's own address, on its box (ADR-0033)."""
         if self._answered_here(address):
             raise ApiError(_own_address(label, address), field="base_url")
 
@@ -447,16 +399,12 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         self.refuse_own_address(config.model_server.label, config.base_url)
         request = str(data.get("request") or "")
         return run_search(
-            request,
-            config,
-            sort_by=sort_by,
-            agent_factory=self.agent_factory,
+            request, config, sort_by=sort_by, agent_factory=self.agent_factory,
             checkpoint=checkpoint,
         )
 
     def _stream_search(self, params: dict[str, str]) -> None:
-        """Run a search in a worker thread, relaying its log lines as they arrive
-        (ADR-0034)."""
+        """Run a search on a worker thread, relaying its log lines (ADR-0034)."""
         try:
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -466,10 +414,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             self.end_headers()
         except OSError:
             return
-
-        # No keep-alive on a stream whose length nobody knows in advance.
         self.close_connection = True
-
         stopped = threading.Event()
         for event, data in self._search_events(params, stopped):
             if not self._send_event(event, data):
@@ -481,8 +426,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     def _search_events(
         self, params: dict[str, str], stopped: threading.Event
     ) -> Iterator[tuple[str, Any]]:
-        """Yield ``log`` events for the run's progress, then ``result`` or ``failure``
-        (ADR-0011)."""
+        """``log`` events for the run's progress, then ``result`` or ``failure``."""
         _install_relay()
         sink: queue.Queue[Any] = queue.Queue()
         done = object()
@@ -496,7 +440,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
                 logger.info("Run stopped before %s: nobody is reading it", where)
             except ApiError as exc:
                 outcome["error"] = (exc.status, exc.payload())
-            # The status line is spent, so report as a ``failure`` event.
+            # The status line is spent, so this is a ``failure`` event.
             # pylint: disable-next=broad-exception-caught
             except Exception as exc:
                 logger.exception("Unexpected failure during a streamed search")
@@ -507,7 +451,6 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
         worker = threading.Thread(target=work, name="buy_agent-search", daemon=True)
         worker.start()
-
         while True:
             try:
                 item = sink.get(timeout=_KEEPALIVE_SECONDS)
@@ -526,21 +469,19 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             yield "failure", {**payload, "status": status}
 
     def _send_answer(self, answer: dict[str, Any] | bytes) -> None:
-        """A route's answer: JSON, or a JPEG of a card's page."""
         if isinstance(answer, bytes):
             cache = (("Cache-Control", _SCREENSHOT_CACHE),)
             self._send_bytes(200, answer, "image/jpeg", headers=cache)
         else:
             self._send_json(200, answer)
 
-    # -- static files ----------------------------------------------------------
+    # -- static files --------------------------------------------------------------
 
     def _serve_static(self, path: str) -> None:
         target = self._resolve(path)
         if target is None:
             self._send_unbuilt()
             return
-
         body = target.read_bytes()
         content_type = (
             _CONTENT_TYPES.get(target.suffix.lower())
@@ -563,11 +504,10 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         )
 
     def _resolve(self, path: str) -> Path | None:
-        """Map a URL path to a file inside the UI directory, or to ``index.html``."""
+        """A file inside the UI directory, else ``index.html``; None if unbuilt."""
         index = self.ui_dir / "index.html"
         if not index.is_file():
             return None
-
         root = self.ui_dir.resolve()
         relative = unquote(urlparse(path).path).lstrip("/")
         try:
@@ -575,23 +515,21 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         except (OSError, ValueError):
             # A percent-encoded NUL makes resolve() raise.
             return index
-        # Outside the UI directory (a '..' walk): serve the app instead.
+        # A '..' walk out of the directory gets the app instead.
         if relative and candidate.is_relative_to(root) and candidate.is_file():
             return candidate
         return index
 
-    # -- plumbing --------------------------------------------------------------
+    # -- plumbing ------------------------------------------------------------------
 
     def _read_json(self) -> dict[str, Any]:
-        # An unread body would be parsed as the next request, so every such path closes
-        # the connection.
+        # An unread body would be parsed as the next request, so each such path closes.
         if self.headers.get("Transfer-Encoding"):
             self.close_connection = True
             raise ApiError("Send a body with a Content-Length; chunked is not read here.", 411)
         try:
             length = int(self.headers.get("Content-Length") or 0)
             if length < 0:
-                # The same desync through a number that is technically an integer.
                 raise ValueError(length)
         except ValueError as exc:
             self.close_connection = True
@@ -604,7 +542,6 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         try:
             raw = self.rfile.read(length)
         except TimeoutError as exc:
-            # A body announced and never sent: what :data:`_REQUEST_TIMEOUT` ends.
             self.close_connection = True
             raise ApiError("The request body did not arrive in time.", 408) from exc
         try:
@@ -620,16 +557,11 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         self._send_bytes(status, body, "application/json; charset=utf-8")
 
     def _send_security_headers(self) -> None:
-        """Say what the page is allowed to do, on every response."""
         for name, value in _SECURITY_HEADERS:
             self.send_header(name, value)
 
     def _send_bytes(
-        self,
-        status: int,
-        body: bytes,
-        content_type: str,
-        *,
+        self, status: int, body: bytes, content_type: str, *,
         headers: Sequence[tuple[str, str]] = (),
     ) -> None:
         try:
@@ -640,14 +572,12 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
                 self.send_header(name, value)
             self._send_security_headers()
             if self.close_connection:
-                # Tell the client rather than let its next request meet a reset.
                 self.send_header("Connection", "close")
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(body)
         except OSError:
-            # A timed-out socket refuses reads too; left open, socketserver would close it
-            # silently.
+            # Left open, socketserver would close a timed-out socket silently.
             self.close_connection = True
             logger.debug("Client went away before the response was written")
 
@@ -664,28 +594,23 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     # ``format`` is the base class's parameter name.
     # pylint: disable-next=redefined-builtin
     def log_message(self, format: str, *args: Any) -> None:
-        """Send request logging through logging, not straight to stderr."""
         logger.debug("%s - %s", self.address_string(), format % args)
 
 
 def _workspace_for(ui_dir: Path) -> Path | None:
-    """The Angular workspace whose build lands in ``ui_dir`` -- where npm is run."""
+    """The Angular workspace whose build lands in ``ui_dir``."""
     workspace = ui_dir.parent.parent.parent
     return workspace if (workspace / "package.json").is_file() else None
 
 
 def _unbuilt_remedy(ui_dir: Path) -> str:
-    """The remedy for a missing build at this ``--ui-dir``."""
     workspace = _workspace_for(ui_dir)
     if workspace is None:
         return (
             f"There is no Angular workspace above {ui_dir} to build, so point "
             f"--ui-dir at a build that exists -- ui/dist/ui/browser in a checkout."
         )
-    return (
-        f"Run '{_UNBUILT_COMMAND}' in {workspace}, or point --ui-dir at a build "
-        f"elsewhere."
-    )
+    return f"Run '{_UNBUILT_COMMAND}' in {workspace}, or point --ui-dir at a build elsewhere."
 
 
 def browsable_url(host: str, port: int) -> str:
@@ -697,8 +622,7 @@ def browsable_url(host: str, port: int) -> str:
 
 
 def _clashing_provider(port: int, exc: OSError) -> str:
-    """The sentence naming the model server whose default address is ``port`` -- only
-    for ``EADDRINUSE``, not a bad host."""
+    """Names the model server whose default address is ``port``, on ``EADDRINUSE``."""
     if exc.errno != errno.EADDRINUSE:
         return ""
     for server in PROVIDERS.values():
@@ -706,21 +630,18 @@ def _clashing_provider(port: int, exc: OSError) -> str:
         if listens.port == port and _hostname(listens.netloc) in _LOOPBACK_HOSTS:
             return (
                 f" That is also {server.label}'s own default address "
-                f"({server.base_url}), so serve the UI somewhere else: "
-                f"--port {port + 1}"
+                f"({server.base_url}), so serve the UI somewhere else: --port {port + 1}"
             )
     return ""
 
 
 def _reaches(address: str, host: str, port: int) -> bool:
-    """Whether ``address`` lands on a server bound to ``host`` and ``port``: the same
-    port, on the host itself or on a loopback name where the bind takes those."""
+    """Whether ``address`` lands on a server bound to ``host`` and ``port``."""
     try:
         parsed = urlparse(address)
         named = parsed.port or _SCHEME_PORTS.get(parsed.scheme)
     except ValueError:
-        # An unclosed IPv6 bracket or a port out of range names nothing, least of all
-        # this server -- and is the model server's row to refuse, in its own words.
+        # Names nothing, least of all this server; the provider row refuses it.
         return False
     if named != port:
         return False
@@ -730,8 +651,6 @@ def _reaches(address: str, host: str, port: int) -> bool:
 
 
 def _own_address(label: str, address: str) -> str:
-    """Why a model server cannot be asked at this page's own address. Names the form's
-    field, as every sentence read at both doors does."""
     return (
         f"{address} is this page's own address, not {label}'s: nothing else can listen "
         f"on that port while this server does. Set the {label} address to wherever "
@@ -748,21 +667,17 @@ def _hostname(netloc: str) -> str:
 
 
 def _bound_host(address: str) -> str:
-    """The host of a typed address, lowercased.
-
-    Unlike :func:`_hostname`, a bare IPv6 literal (``::1``) is not split at its colons
-    (ADR-0018).
-    """
+    """The host of a typed address; unlike :func:`_hostname`, a bare IPv6 literal is
+    not split at its colons (ADR-0018)."""
     host = address.strip().lower()
     if host.startswith("["):
         return _hostname(host)
-    # One colon is ``host:port``; more is a bare IPv6 literal, with no port.
     return host if host.count(":") > 1 else host.partition(":")[0]
 
 
 def allowed_hosts_for(host: str, extra: Sequence[str] = ()) -> frozenset[str] | None:
     """Which ``Host`` headers a server bound to ``host`` should answer."""
-    # Drop blanks: a request with no ``Host`` arrives as one.
+    # A request with no ``Host`` arrives as a blank, so blanks are dropped.
     named = frozenset(filter(None, map(_bound_host, extra)))
     if _bound_host(host) not in _LOOPBACK_HOSTS:
         return named or None
@@ -770,23 +685,20 @@ def allowed_hosts_for(host: str, extra: Sequence[str] = ()) -> frozenset[str] | 
 
 
 def _family_for(host: str) -> int:
-    """The socket family for a bind address: a colon means IPv6 (the base class is
-    ``AF_INET`` only)."""
     return socket.AF_INET6 if ":" in host else socket.AF_INET
 
 
 class _HTTPServer(ThreadingHTTPServer):
-    """``ThreadingHTTPServer`` over whichever family the address it is given needs."""
+    """``ThreadingHTTPServer`` over whichever family its address needs."""
 
     def __init__(self, server_address: tuple[str, int], handler: Any) -> None:
-        # Set before the base class, which reads it to open the socket.
+        # Read by the base class to open the socket.
         self.address_family = _family_for(server_address[0])
         super().__init__(server_address, handler)
 
 
 def bind(host: str, port: int, handler: Any) -> ThreadingHTTPServer:
-    """A threading server for ``handler``, bound to ``host`` in whichever family it needs;
-    shared with the benchmark's page."""
+    """A threading server for ``handler`` on ``host``; shared with the benchmark."""
     return _HTTPServer((host, port), handler)
 
 
@@ -801,24 +713,18 @@ def create_server(
 ) -> ThreadingHTTPServer:
     """Build the HTTP server without starting it."""
     handler = partial(
-        BuyAgentHandler,
-        ui_dir=ui_dir or DEFAULT_UI_DIR,
-        agent_factory=agent_factory,
-        allowed_hosts=allowed_hosts,
-        camera=camera,
+        BuyAgentHandler, ui_dir=ui_dir or DEFAULT_UI_DIR, agent_factory=agent_factory,
+        allowed_hosts=allowed_hosts, camera=camera,
     )
     return bind(host, port, handler)
 
 
 def camera_for(host: str) -> Camera | None:
-    """A camera for a loopback bind with Playwright installed, else ``None`` (ADR-0065).
-
-    Bound publicly, it would photograph internal pages for anyone on the network.
-    """
+    """A camera for a loopback bind with Playwright installed, else None (ADR-0065):
+    bound publicly, it would photograph internal pages for anyone."""
     if not available():
         logger.info(
-            "Cards will have no screenshot of their page: that needs Playwright. %s",
-            INSTALL,
+            "Cards will have no screenshot of their page: that needs Playwright. %s", INSTALL
         )
         return None
     if _bound_host(host) not in _LOOPBACK_HOSTS:
@@ -836,20 +742,15 @@ def port_number(text: str) -> int:
     minimum, maximum = _PORTS
     try:
         port = int(text)
-    # argparse would say "invalid _port value".
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"must be a whole number; got {text!r}") from exc
     if not minimum <= port <= maximum:
-        raise argparse.ArgumentTypeError(
-            f"must be between {minimum} and {maximum}; got {port}"
-        )
+        raise argparse.ArgumentTypeError(f"must be between {minimum} and {maximum}; got {port}")
     return port
 
 
 class _Help(argparse.HelpFormatter):
-    """Wraps a flag's help between words and never inside one, as ``__main__``'s does:
-    textwrap breaks at a hyphen, and ``--allowed-`` ending a line is a flag nobody can
-    copy."""
+    """Wraps help between words: textwrap breaks at hyphens, splitting flags."""
 
     def _split_lines(self, text: str, width: int) -> list[str]:
         return textwrap.wrap(" ".join(text.split()), width, break_on_hyphens=False)
@@ -861,7 +762,6 @@ def build_parser() -> argparse.ArgumentParser:
         description="Serve the buy_agent UI and its JSON API on localhost.",
         formatter_class=_Help,
     )
-    # Both name their default, like every flag here (ADR-0018).
     parser.add_argument(
         "--host",
         default=DEFAULT_HOST,
@@ -900,17 +800,13 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     configure_logging(verbose=args.verbose)
-
-    # Installed on the package logger so every module's output reaches a stream.
     _install_relay()
-
     try:
         provider_for(DEFAULT_PROVIDER)
         rail_for(DEFAULT_RAIL)
         backend_for(DEFAULT_BACKEND)
     except ValueError as exc:
-        # Refuse a misspelt ``$BUY_AGENT_PROVIDER``, ``$BUY_AGENT_RAIL`` or
-        # ``$BUY_AGENT_BACKEND`` now, not as a 500 per page load.
+        # A misspelt ``$BUY_AGENT_*`` now, not as a 500 per page load.
         logger.error("%s", exc)
         return 1
 
@@ -922,7 +818,6 @@ def main(argv: list[str] | None = None) -> int:
             "you reach it by to close that.",
             args.host,
         )
-
     camera = camera_for(args.host)
     try:
         httpd = create_server(
@@ -931,21 +826,16 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         logger.error(
             "Could not listen on %s:%s (%s).%s",
-            args.host,
-            args.port,
-            exc,
-            _clashing_provider(args.port, exc),
+            args.host, args.port, exc, _clashing_provider(args.port, exc),
         )
         return 1
 
     host, port = httpd.server_address[:2]
     logger.info("buy_agent UI on %s", browsable_url(str(host), port))
     if not (args.ui_dir / "index.html").is_file():
-        # The remedy the 503 page quotes.
         logger.warning(
             "No built UI at %s -- the API works, but the page will not. %s",
-            args.ui_dir,
-            _unbuilt_remedy(args.ui_dir),
+            args.ui_dir, _unbuilt_remedy(args.ui_dir),
         )
     try:
         return serve_until_interrupted(httpd)

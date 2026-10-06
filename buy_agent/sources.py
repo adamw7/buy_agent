@@ -10,29 +10,20 @@ from urllib.parse import urlsplit
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-#: A hostname: dot-separated labels of letters, digits and hyphens.
 _HOSTNAME = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+")
 
-#: A URL scheme, or the ``//`` of a scheme-relative one.
+#: A scheme, or the ``//`` of a scheme-relative URL.
 _SCHEME = re.compile(r"^(?:[a-z][a-z0-9+.-]*:)?//", re.IGNORECASE)
 
-#: What separates sources given as one string (the web form).
 _SEPARATORS = re.compile(r"[,\s]+")
 
-#: Path segments that route rather than name (``/c/mkbhd``, ``/r/headphones``): the
-#: identifying segment is the next one.
+#: Segments that route rather than name (``/c/mkbhd``): the next one names.
 _ROUTING = frozenset({"c", "user", "channel", "r", "u"})
 
 #: Where a bare ``@handle`` lives.
 _HANDLE_HOST = "youtube.com"
-
-#: What has to follow that ``@``.
 _HANDLE = re.compile(r"@[a-z0-9][a-z0-9._-]*", re.IGNORECASE)
-
-#: Stripped off a host before comparing: ``www.rtings.com`` is ``rtings.com``.
 _WWW = "www."
-
-#: The shapes that work, written once.
 _SHAPES = (
     "Give a site (rtings.com), a section of one (rtings.com/headphones) or a "
     "YouTube handle (@mkbhd)."
@@ -48,16 +39,16 @@ class Source:
     term: str = ""
 
     def site_query(self, query: str) -> str:
-        """``query``, narrowed to this source."""
         narrowed = f"{query} site:{self.domain}"
         return f'{narrowed} "{self.term}"' if self.term else narrowed
 
     def covers(self, url: str) -> bool:
-        """Whether ``url`` is a page on this source's domain, subdomains included."""
+        """Whether ``url`` is on this source's domain, subdomains included; the domain is
+        what is enforced (ADR-0027)."""
         try:
             host = urlsplit(url).hostname
         except ValueError:
-            # E.g. an unbracketed IPv6 literal: an unreadable address is nobody's.
+            # An unreadable address is nobody's.
             return False
         if not host:
             return False
@@ -66,7 +57,6 @@ class Source:
 
 
 def parse_source(spec: str) -> Source:
-    """Read one source out of what the shopper wrote."""
     spec = spec.strip()
     if not spec:
         raise _not_a_source_at_all()
@@ -87,12 +77,10 @@ def parse_source(spec: str) -> Source:
 
 
 def _not_a_source(spec: str) -> ValueError:
-    """The refusal both shapes carry, naming the ones that work."""
     return ValueError(f"{spec!r} does not name a source. {_SHAPES}")
 
 
 def _not_a_source_at_all() -> ValueError:
-    """The refusal for a blank spec."""
     return ValueError(f"A source cannot be blank. {_SHAPES}")
 
 
@@ -109,8 +97,7 @@ def parse_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:
 
 
 def parse_named_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:
-    """The sources in ``specs``, where naming none of them is the mistake (ADR-0012,
-    ADR-0027)."""
+    """The sources in ``specs``, where naming none is the mistake (ADR-0012)."""
     sources = parse_sources(specs)
     if not sources:
         raise _not_a_source_at_all()
@@ -118,7 +105,7 @@ def parse_named_sources(specs: str | Iterable[str]) -> tuple[Source, ...]:
 
 
 def format_sources(sources: Iterable[Source]) -> str:
-    """Sources written back the way they were given, as one field's worth of text."""
+    """Sources written back as they were given, as one field's text."""
     return " ".join(source.spec for source in sources)
 
 

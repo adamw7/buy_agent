@@ -19,11 +19,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: Fraction of a name's distinctive words that must appear in the sources.
+#: Share of a name's distinctive words that must appear in the sources.
 NAME_COVERAGE = 0.6
 
-#: A quote is matched as overlapping runs of this many words, of which
-#: :data:`_QUOTE_COVERAGE` must be found.
+#: A quote is matched as overlapping runs of this many words, most of which must be found.
 _QUOTE_WINDOW = 5
 _QUOTE_COVERAGE = 0.6
 
@@ -33,8 +32,7 @@ _RATING_AFTER = r"(?:\s*(?:/\s*5\b|(?:out\s+of|of)\s+5\b)|[\s-]*stars?\b)"
 _RATING_BEFORE = rf"(?:rated|rating|score[ds]?)\b(?![^\d]{{0,12}}{SUPERLATIVES}\b)[^\d]{{0,12}}"
 _RATING_OUT_OF_TEN = r"\s*(?:/\s*10\b|(?:out\s+of|of)\s+10\b)"
 
-#: A review count counts only beside who is counted; bare, "720" would match
-#: "WH-CH720N".
+#: A review count counts only beside who is counted: bare, "720" matches "WH-CH720N".
 _COUNTED = (
     r"(?:reviews?|ratings?|reviewers?|shoppers?|customers?|buyers?|owners?|users?|votes?)"
 )
@@ -45,12 +43,11 @@ _COUNT_BEFORE = rf"{_COUNTED}\b[^\d]{{0,12}}"
 
 
 def normalise_numbers(text: str) -> str:
-    """Write every number one way (:func:`~buy_agent.money.plain_figures`)."""
     return plain_figures(text)
 
 
 def build_haystack(results: Sequence[SearchResult]) -> str:
-    """All the text the model was shown, with its numbers normalised."""
+    """All the text the model was shown, numbers normalised."""
     return normalise_numbers(
         " ".join(f"{result.title} {result.snippet} {result.content}" for result in results)
     )
@@ -65,7 +62,7 @@ def mentions_number(haystack: str, value: float) -> bool:
 
 
 def _as_literal(value: float) -> str:
-    """Render a number the way a page would write it: 129.0 -> "129"."""
+    """As a page writes it: 129.0 -> "129"."""
     return f"{value:.0f}" if float(value).is_integer() else f"{value:.10g}"
 
 
@@ -118,7 +115,7 @@ def mentions_name(haystack: str, name: str) -> bool:
 def drop_ungrounded(
     products: Sequence[Product], haystack: str, *, record: Recorder = nothing_recorded
 ) -> list[Product]:
-    """Remove products ``haystack`` never mentions (ADR-0055)."""
+    """Remove products ``haystack`` never mentions."""
     kept: list[Product] = []
     dropped: list[str] = []
     for product in products:
@@ -130,7 +127,6 @@ def drop_ungrounded(
             record(Removal(name=product.name, step="ground", reason=reason))
 
     if dropped:
-        # Count at INFO, names at DEBUG, as everywhere a product is removed.
         logger.info("Dropped %d product(s) absent from the search results", len(dropped))
         logger.debug(
             "Absent from the search results: %s", ", ".join(repr(name) for name in dropped)
@@ -144,29 +140,26 @@ def ground(
     *,
     record: Recorder = nothing_recorded,
 ) -> list[Product]:
-    """Keep only what the sources support: products, figures, quotes and links.
-
-    Only dropping a product is recorded; blanked fields show on the card (ADR-0055).
-    """
+    """Keep only the products, figures, quotes and links the sources support. Only a
+    dropped product is recorded; blanked fields show on the card (ADR-0055)."""
     haystack = build_haystack(results)
     kept = verify_numbers(drop_ungrounded(products, haystack, record=record), haystack)
     return attribute_sources(verify_opinions(kept, results), results)
 
 
 def source_urls(results: Sequence[SearchResult]) -> set[str]:
-    """Every page the model was actually shown, by URL."""
     return {result.url for result in results if result.url}
 
 
 def _page_haystacks(results: Sequence[SearchResult]) -> list[tuple[str | None, str]]:
-    """Each result on its own, as its URL and the text that page printed (ADR-0042)."""
+    """Each result as its URL and the text that page printed (ADR-0042)."""
     return [(result.url or None, build_haystack([result])) for result in results]
 
 
 def attribute_sources(
     products: Sequence[Product], results: Sequence[SearchResult]
 ) -> list[Product]:
-    """Point each product at the searched page that mentions it (ADR-0017)."""
+    """Point each product at a searched page that mentions it (ADR-0017)."""
     known = source_urls(results)
     pages = [(url, text) for url, text in _page_haystacks(results) if url]
 
@@ -177,7 +170,6 @@ def attribute_sources(
         if url is None:
             if product.url:
                 invented += 1
-                # The field the model is worst at and the shopper clicks (ADR-0017).
                 logger.debug("Never searched: %r for %r", product.url, product.name)
             url = next(
                 (page for page, text in pages if mentions_name(text, product.name)), None
@@ -191,7 +183,6 @@ def attribute_sources(
     return attributed
 
 
-#: Each grounded figure and how it must appear in the sources (ADR-0022).
 _GROUNDED_FIGURES: tuple[tuple[str, Callable[[str, float], bool]], ...] = (
     ("price", mentions_number),
     ("rating", mentions_rating),
@@ -223,7 +214,6 @@ def verify_numbers(products: Sequence[Product], haystack: str) -> list[Product]:
 
 
 def running_words(text: str) -> str:
-    """``text`` as its words alone, lowercased, normalised and single-spaced."""
     return " ".join(NAME_TOKENS.findall(normalise_numbers(text).lower()))
 
 
@@ -243,16 +233,14 @@ def quotes_sources(haystack_words: str, quote: str) -> bool:
 def verify_opinions(
     products: Sequence[Product], results: Sequence[SearchResult]
 ) -> list[Product]:
-    """Keep the quotes a page about this product printed, and say which page (ADR-0024,
-    ADR-0025, ADR-0042)."""
+    """Keep the quotes a page about this product printed, with that page (ADR-0024,
+    ADR-0042)."""
     pages = [(url, text, running_words(text)) for url, text in _page_haystacks(results)]
     verified: list[Product] = []
     dropped = 0
 
     for product in products:
-        mine = [
-            (url, words) for url, text, words in pages if mentions_name(text, product.name)
-        ]
+        mine = [(url, words) for url, text, words in pages if mentions_name(text, product.name)]
         kept: list[Opinion] = []
         for opinion in product.opinions:
             # The first page printing it; its URL may be ``None``.

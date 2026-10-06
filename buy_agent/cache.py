@@ -22,22 +22,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: How long a stored entry stays usable, in seconds.
 DEFAULT_TTL = 86_400.0
-
-#: Disk cap per kind of entry, oldest out first (ADR-0052).
+#: Per kind of entry, oldest out first (ADR-0052).
 MAX_BYTES = 256 * 1024 * 1024
-
-#: Under the platform's cache directory: deleting it costs one slow run.
 _DIRECTORY = "buy-agent"
-
-#: The two kinds of entry, each in its own directory.
 PAGES = "pages"
 ANSWERS = "answers"
 
 
 def default_dir(kind: str) -> Path:
-    """Where entries of one kind live."""
     named = os.getenv("BUY_AGENT_CACHE_DIR")
     if named:
         return Path(named) / kind
@@ -48,16 +41,12 @@ def default_dir(kind: str) -> Path:
 
 
 def file_for(directory: Path, key: str) -> Path:
-    """The file in ``directory`` for ``key``, hashed (shared with :mod:`buy_agent.journal`)."""
     return directory / f"{hashlib.sha256(key.encode('utf-8')).hexdigest()}.json"
 
 
 def write_atomically(directory: Path, destination: Path, text: str) -> OSError | None:
-    """Write ``text`` via a temporary file and a rename; return the failure, if any.
-
-    Never raises: shared with :mod:`buy_agent.journal` (ADR-0060), and each caller words
-    the failure its own way.
-    """
+    """Write ``text`` via a temporary file and a rename; return the failure, never
+    raise it: each caller words it its own way."""
     temporary = ""
     try:
         directory.mkdir(parents=True, exist_ok=True)
@@ -67,7 +56,6 @@ def write_atomically(directory: Path, destination: Path, text: str) -> OSError |
         os.replace(temporary, destination)
     except OSError as exc:
         with suppress(OSError):
-            # Empty only if ``mkstemp`` failed, leaving nothing to remove.
             if temporary:
                 Path(temporary).unlink(missing_ok=True)
         return exc
@@ -82,7 +70,6 @@ class DiskCache:
     ) -> None:
         self.directory = directory
         self.ttl = ttl
-        #: The size cap :meth:`prune` enforces, oldest first (ADR-0052).
         self.max_bytes = max_bytes
 
     def get(self, key: str) -> str | None:
@@ -93,7 +80,6 @@ class DiskCache:
                 return None
             entry = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            # ValueError covers both bad UTF-8 and bad JSON.
             return None
         if not isinstance(entry, dict) or entry.get("key") != key:
             return None
@@ -101,23 +87,18 @@ class DiskCache:
         return text if isinstance(text, str) else None
 
     def put(self, key: str, value: str) -> None:
-        """Store ``value`` under ``key``, replacing whatever was there."""
         failed = write_atomically(
             self.directory, self._path(key), json.dumps({"key": key, "value": value})
         )
         if failed is not None:
-            logger.debug(
-                "Could not cache an entry in %s", self.directory, exc_info=failed
-            )
+            logger.debug("Could not cache an entry in %s", self.directory, exc_info=failed)
 
     def prune(self) -> int:
-        """Delete what has expired and what no longer fits, and say how many went
-        (ADR-0052)."""
+        """Delete what has expired and what no longer fits; how many went (ADR-0052)."""
         cutoff = time.time() - self.ttl
         gone: Counter[str] = Counter()
         live: list[tuple[float, int, Path]] = []
-        # Cannot raise (``glob`` of an unreadable directory is empty), so callers need
-        # no guard.
+        # ``glob`` of an unreadable directory is empty, so this cannot raise.
         for path in (*self.directory.glob("*.json"), *self.directory.glob("*.tmp")):
             try:
                 stat = path.stat()
@@ -136,7 +117,7 @@ class DiskCache:
         return gone[".json"] + self._evict(live)
 
     def _evict(self, live: list[tuple[float, int, Path]]) -> int:
-        """Delete the oldest of ``live`` until the rest fits, and say how many went."""
+        """Delete the oldest of ``live`` until the rest fits."""
         total = sum(size for _, size, _ in live)
         if total <= self.max_bytes:
             return 0
@@ -144,13 +125,12 @@ class DiskCache:
         for _, size, path in sorted(live):
             try:
                 path.unlink()
-            except OSError:  # as above: another run got there first
+            except OSError:  # another run got there first
                 continue
             evicted += 1
             total -= size
             if total <= self.max_bytes:
                 break
-        # DEBUG: a cache tidying itself is nobody's news.
         logger.debug(
             "Dropped %d cached entr%s from %s to stay under %d bytes",
             evicted,
@@ -165,7 +145,7 @@ class DiskCache:
 
 
 def open_cache(kind: str, ttl: float) -> DiskCache | None:
-    """The cache of one kind a run should use, or None for a run using none."""
+    """The cache of one kind a run should use, or None for none."""
     if ttl <= 0:
         return None
     cache = DiskCache(default_dir(kind), ttl=ttl)
@@ -176,15 +156,12 @@ def open_cache(kind: str, ttl: float) -> DiskCache | None:
 class RememberedAnswers:
     """A model server, with the answers it has already given handed back (ADR-0044)."""
 
-    def __init__(
-        self, model: ChatModel, cache: DiskCache, fingerprint: Mapping[str, Any]
-    ) -> None:
+    def __init__(self, model: ChatModel, cache: DiskCache, fingerprint: Mapping[str, Any]) -> None:
         self.model = model
         self.cache = cache
         self.fingerprint = dict(fingerprint)
 
     def answer(self, messages: Sequence[Message], schema: type[SchemaT]) -> SchemaT:
-        """This chain's answer, off disk where the same question was asked before."""
         key = self._key(messages, schema)
         stored = self.cache.get(key)
         if stored is not None:
@@ -202,11 +179,9 @@ class RememberedAnswers:
         return answer
 
     def close(self) -> None:
-        """Release the underlying model."""
         release(self.model)
 
     def _key(self, messages: Sequence[Message], schema: type[SchemaT]) -> str:
-        """The request, the schema and the run's fingerprint (ADR-0004)."""
         return json.dumps(
             {
                 **self.fingerprint,

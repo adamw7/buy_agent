@@ -1,12 +1,7 @@
-"""A picture of the page a product card links to (ADR-0065).
-
-The only module importing Playwright, and the only process the package starts: a
-headless Chromium, launched on first use and closed when idle. Optional: a separate
-install, used only by a loopback server.
-
-Playwright's sync objects belong to their thread, so one worker owns the browser and
-request threads queue jobs for it, one page at a time.
-"""
+"""A picture of the page a product card links to (ADR-0065): the only module
+importing Playwright. Its sync objects belong to their thread, so one worker owns a
+headless Chromium, launched on first use and closed when idle, and request threads
+queue jobs for it."""
 
 from __future__ import annotations
 
@@ -20,35 +15,23 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: How to install the library and the browser it downloads.
 INSTALL = (
     "pip install -r requirements-screenshots.txt && "
     "python -m playwright install --only-shell chromium"
 )
 
-#: A laptop's window, for the desktop layout.
 VIEWPORT = {"width": 1280, "height": 800}
-
 #: A 640 x 400 picture: twice the card's size, for high-density screens.
 SCALE = 0.5
-
-#: JPEG quality; the text is not meant to be read.
 QUALITY = 70
-
-#: How long a page may take to produce a document.
 LOAD_SECONDS = 15.0
-
 #: Further time to finish loading before shooting whatever is drawn.
 SETTLE_SECONDS = 3.0
-
-#: How long an idle browser stays up.
 IDLE_SECONDS = 60.0
-
-#: How long a request waits, queued jobs included: ten pages with room to spare.
+#: Queued jobs included: ten pages with room to spare.
 WAIT_SECONDS = 240.0
 
-#: A desktop agent, since shops refuse "HeadlessChrome". Duplicated from ``fetch``: this
-#: seam imports nothing from the package.
+#: Shops refuse "HeadlessChrome"; duplicated from ``fetch``, as this seam imports nothing.
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
@@ -60,7 +43,7 @@ class ScreenshotError(Exception):
 
 
 class Browser(Protocol):
-    """What the camera needs of a browser."""
+    """What the camera needs."""
 
     def shoot(self, url: str) -> bytes: ...
 
@@ -68,7 +51,6 @@ class Browser(Protocol):
 
 
 def _sync_api() -> Any:
-    """Playwright's synchronous API, imported now rather than at module import."""
     try:
         # Deferred: the library is optional, and importing it is the check.
         # pylint: disable-next=import-outside-toplevel
@@ -90,7 +72,7 @@ def available() -> bool:
 
 
 def _first_line(exc: Exception) -> str:
-    """A Playwright error's first line, without its call log."""
+    """A Playwright error without its call log."""
     return (str(exc).strip().splitlines() or [type(exc).__name__])[0]
 
 
@@ -117,9 +99,7 @@ class Chromium:
     def shoot(self, url: str) -> bytes:
         page = self._context.new_page()
         try:
-            response = page.goto(
-                url, wait_until="domcontentloaded", timeout=LOAD_SECONDS * 1000
-            )
+            response = page.goto(url, wait_until="domcontentloaded", timeout=LOAD_SECONDS * 1000)
             # An error page would misrepresent a link that works in a real browser.
             if response is not None and response.status >= 400:
                 raise ScreenshotError(f"{url} answered {response.status}")
@@ -142,7 +122,7 @@ class Chromium:
 
 
 class _Job:
-    """One picture asked for, and the request thread waiting on it."""
+    """One picture asked for, and the thread waiting on it."""
 
     def __init__(self, url: str) -> None:
         self.url = url
@@ -167,10 +147,7 @@ class _Job:
 
 
 class Camera:
-    """Takes pictures of pages, one at a time, in a browser of its own.
-
-    ``launch`` is the test seam: no test starts a real browser.
-    """
+    """Takes pictures of pages, one at a time; ``launch`` is the test seam."""
 
     def __init__(
         self,
@@ -199,7 +176,6 @@ class Camera:
         return job.wait(self._wait)
 
     def close(self) -> None:
-        """Close the browser now, on server shutdown."""
         with self._lock:
             worker = self._worker
             if worker is None:
@@ -221,10 +197,8 @@ class Camera:
                 _let_go(browser)
 
     def _next(self) -> _Job | None:
-        """The next job, or ``None`` once idle.
-
-        Decided under :meth:`shoot`'s lock, so no job lands on a queue nobody reads.
-        """
+        """The next job, or ``None`` once idle: decided under :meth:`shoot`'s lock, so
+        no job lands on a queue nobody reads."""
         try:
             return self._jobs.get(timeout=self._idle)
         except queue.Empty:
@@ -236,7 +210,7 @@ class Camera:
                     return None
 
     def _take(self, job: _Job, browser: Browser | None) -> Browser | None:
-        """Take one picture, answering the job; return the browser to keep using."""
+        """Answer one job; return the browser to keep using."""
         try:
             if browser is None:
                 browser = self._launch()
@@ -256,7 +230,6 @@ class Camera:
 
 
 def _let_go(browser: Browser) -> None:
-    """Close a browser, whatever state it is in."""
     try:
         browser.close()
     # A crashed browser has nothing to close; log and move on.

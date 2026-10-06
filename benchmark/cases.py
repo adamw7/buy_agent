@@ -31,18 +31,8 @@ SCRIPTS: dict[str, str] = {
 @dataclass(frozen=True, slots=True, eq=False)
 class Case:
     """One use of the agent: a request, the web it searches, what that web says, and the
-    hand-written answers that check the scorer.
-
-    Attributes:
-        name: What the command line and the page call it.
-        title: What it is, in a few words.
-        asks: What it asks of a model that the other cases do not.
-        refined: The query the scripted answers search with.
-        scripts: :data:`SCRIPTS`' answers for this case, by name.
-        about_nobody: The judgements its pages pass on no product the key names -- a
-            sale, a headline -- so the honesty test can tell a line left out of the key
-            from one that belongs to nobody (ADR-0073).
-    """
+    hand-written answers that check the scorer. ``about_nobody`` holds the judgements
+    its pages pass on no product the key names (ADR-0073)."""
 
     name: str
     title: str
@@ -59,12 +49,7 @@ class Case:
     top_n: int = corpus.TOP_N
 
     def settings(self, **overrides: object) -> AgentConfig:
-        """The config a run of this case uses: the shipped defaults, on its pages.
-
-        Args:
-            **overrides: Fields to set instead -- the model and its server, which belong
-            to whoever is being scored rather than to the case.
-        """
+        """The shipped defaults on this case's pages; ``overrides`` name the contender."""
         fields: dict[str, object] = {
             "search_results": len(self.pages),
             "num_products": self.num_products,
@@ -75,13 +60,11 @@ class Case:
         return AgentConfig(**(fields | overrides))  # type: ignore[arg-type]
 
     def scripted(self, script: str) -> ScriptedLLM:
-        """The model that answers this case with one of its scripts."""
         return ScriptedLLM(self.scripts[script], self.refined)
 
     @property
     def fingerprint(self) -> str:
-        """What a result was scored against: the request, the pages, the key and the
-        metrics. A kept result with another fingerprint scored a different case."""
+        """What a result was scored against: request, pages, key and metrics."""
         document = {
             "request": self.request,
             "pages": [[page.title, page.url, page.snippet] for page in self.pages],
@@ -158,12 +141,10 @@ ESPRESSO = Case(
     about_nobody=espresso.ABOUT_NOBODY,
 )
 
-#: Every case, by name, in the order a comparison runs them.
 CASES: dict[str, Case] = {case.name: case for case in (HEADPHONES, LAPTOPS, ESPRESSO)}
 
 
 def case_for(name: str) -> Case:
-    """The case called ``name``."""
     try:
         return CASES[name]
     except KeyError:

@@ -1,9 +1,5 @@
-"""Bounds read out of the request's own words -- offered, never applied (ADR-0059).
-
-Read in Python, not by the model, which would take "200 hours of battery" as a budget.
-Each shape is anchored on its unit (a currency, stars, reviews); a number followed by an
-unknown word ("under 20 hours") is left alone.
-"""
+"""Bounds read out of the request's own words, offered and never applied (ADR-0059).
+Each is anchored on its unit, so "under 20 hours" is left alone."""
 
 from __future__ import annotations
 
@@ -22,26 +18,21 @@ from buy_agent.money import (
     ungroup,
 )
 
-#: The bounds a request can ask for, named as the settings that enforce them.
+#: Named as the settings that enforce them.
 Bound = Literal["max_price", "min_rating", "min_reviews"]
 
-#: The highest plausible rating.
 _TOP_RATING = 5.0
 
-#: A number in any convention ("1,500", "1.299,99", "1 500 zł"), read by
-#: :func:`~buy_agent.money.plain_figures`. The lookaheads stop backtracking into part of
-#: one: "1500" read as "150", or "1 500" as "1" where a space grouping it was not
-#: taken (``money.SPACED_THOUSANDS`` says when one is).
+#: A number in any convention ("1.299,99", "1 500 zł"); the lookaheads stop backtracking
+#: into part of one ("1500" read as "150").
 _NUMBER = (
     rf"(?:{SPACED_THOUSANDS}"
     rf"|\d(?:[\d,.]*\d)?(?![\d,.]*\d)(?![{re.escape(GROUP_SPACES)}]\d{{3}}(?!\d)))"
 )
 
-#: A currency sign before the figure ("$200").
 _SIGN = f"[{re.escape(SIGNS)}]" if SIGNS else r"(?!)"
 
-#: A currency after the figure ("200 USD"). Words and codes in one alternation: every
-#: pattern here is ``IGNORECASE`` anyway (ADR-0054).
+#: After the figure ("200 USD"); every pattern here is ``IGNORECASE`` anyway.
 _UNIT = rf"(?:\s*(?:{'|'.join((*WORDS, *SCANNED_CODES))})\b)"
 
 #: Joins that may follow a budget ("under 1500 and ..."), unlike "under 200 hours".
@@ -51,17 +42,11 @@ _CARRIES_ON = (
 )
 
 #: What may follow a bare figure for it to be an amount: a currency, a join, or no word.
-_NOTHING_ELSE = (
-    rf"(?:{_UNIT}|(?![\s-]*[A-Za-z])|(?=\s+(?:{'|'.join(_CARRIES_ON)})\b))"
-)
+_NOTHING_ELSE = rf"(?:{_UNIT}|(?![\s-]*[A-Za-z])|(?=\s+(?:{'|'.join(_CARRIES_ON)})\b))"
 
-#: Where a figure after a sign ends: anywhere but in a letter running on from it -- read
-#: as 2, "$2k" put a budget every priced product was over in the box -- unless that is a
-#: currency ("$200USD").
+#: Not in a letter running on ("$2k" is no budget of 2), unless a currency ("$200USD").
 _FIGURE_ENDS = rf"(?={_UNIT}|(?![A-Za-z]))"
 
-#: A budget. A leading sign needs only ``_FIGURE_ENDS``; a bare figure needs
-#: ``_NOTHING_ELSE``.
 _MAX_PRICE = re.compile(
     rf"""
       \b(?:under|below|less\s+than|cheaper\s+than|no\s+more\s+than|up\s+to
@@ -72,7 +57,7 @@ _MAX_PRICE = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
-#: A rating, read only beside its scale (as :mod:`buy_agent.verification` does).
+#: Only beside its scale, as :mod:`buy_agent.verification` reads one.
 _MIN_RATING = re.compile(
     rf"""
       \b(?:at\s+least|min(?:imum)?(?:\s+of)?|over|above|better\s+than|from)
@@ -83,7 +68,7 @@ _MIN_RATING = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
-#: A review count, read only beside who is counted.
+#: Only beside who is counted.
 _MIN_REVIEWS = re.compile(
     rf"""
       \b(?:at\s+least|min(?:imum)?(?:\s+of)?|over|more\s+than|with)
@@ -93,7 +78,6 @@ _MIN_REVIEWS = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
-#: One pattern per bound, in the order a door offers them.
 _PATTERNS: tuple[tuple[Bound, re.Pattern[str]], ...] = (
     ("max_price", _MAX_PRICE),
     ("min_rating", _MIN_RATING),
@@ -102,9 +86,8 @@ _PATTERNS: tuple[tuple[Bound, re.Pattern[str]], ...] = (
 
 
 class Noticed(BaseModel):
-    """One bound the request asked for in words, and never got (ADR-0059)."""
+    """One bound the request asked for in words, and never got."""
 
-    #: The setting that would enforce it.
     bound: Bound
     value: float
     #: The shopper's words, quoted back so a misreading is visible.
@@ -112,21 +95,18 @@ class Noticed(BaseModel):
 
     @property
     def figure(self) -> str:
-        """The number as typed: 200, not 200.0 -- and 1234567, where ``:g`` wrote
-        1.23457e+06, another budget, and a count ``--min-reviews`` refuses."""
+        """As typed: 200, not 200.0, and 1234567, never ``:g``'s 1.23457e+06."""
         return f"{self.value:.0f}" if self.value.is_integer() else str(self.value)
 
     @property
     def note(self) -> str:
-        """Why the box holds a number nobody typed (ADR-0012)."""
+        """Why the box holds a number nobody typed."""
         return f'From your request: "{self.phrase}". Clear the box to search without it.'
 
 
 def notice(request: str) -> list[Noticed]:
-    """The bounds ``request`` asks for in words, the first per setting (ADR-0059).
-
-    Nothing is applied or range-checked here; the doors hold the ranges (ADR-0033).
-    """
+    """The first bound per setting ``request`` asks for in words; the doors hold the
+    ranges (ADR-0033)."""
     return [
         found
         for bound, pattern in _PATTERNS
@@ -135,7 +115,6 @@ def notice(request: str) -> list[Noticed]:
 
 
 def _first(bound: Bound, pattern: re.Pattern[str], request: str) -> Noticed | None:
-    """The first thing in ``request`` that reads like this bound, or ``None``."""
     for match in pattern.finditer(request):
         value = _figure(match)
         if value is None or not _plausible(bound, value):
@@ -155,11 +134,9 @@ def _figure(match: re.Match[str]) -> float | None:
 
 
 def _plausible(bound: Bound, value: float) -> bool:
-    """Whether the figure fits the bound's scale: positive, a rating out of five, a
-    count whole."""
+    """Positive, a rating out of five, a count whole."""
     if value <= 0:
         return False
     if bound == "min_reviews":
         return value.is_integer()
-
     return bound != "min_rating" or value <= _TOP_RATING

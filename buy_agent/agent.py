@@ -40,7 +40,7 @@ Checkpoint: TypeAlias = "Callable[[str], None]"
 
 
 def every_step_passes(_step: str) -> None:
-    """The default checkpoint: every boundary passes."""
+    """The default checkpoint."""
 
 
 class ModelUnavailableError(RuntimeError):
@@ -48,7 +48,7 @@ class ModelUnavailableError(RuntimeError):
 
 
 def _asks_the_same_question(config: AgentConfig) -> dict[str, object]:
-    """Everything besides the prompt that decides the answer (ADR-0044, ADR-0051)."""
+    """Everything besides the prompt that decides the answer (ADR-0044)."""
     fingerprint: dict[str, object] = {
         "provider": config.provider,
         "model": config.model,
@@ -61,12 +61,8 @@ def _asks_the_same_question(config: AgentConfig) -> dict[str, object]:
 
 
 def journal_for(request: str, config: AgentConfig) -> Journal:
-    """The journal of this exact search (ADR-0060).
-
-    Keyed on what was *asked*, never on the model: a model change is not a new search.
-    The cache keys the other way (:func:`_asks_the_same_question`) because it hands an
-    answer back. Built before the run, so it holds the previous one.
-    """
+    """The journal of this exact search, keyed on what was *asked* and never on the
+    model, which is no new search (ADR-0060). Built before the run."""
     return open_journal(
         request,
         asked={
@@ -84,8 +80,7 @@ def journal_for(request: str, config: AgentConfig) -> Journal:
 
 
 def _first_line(exc: Exception) -> str:
-    """What a failure says, on one line: its message's first, or its type where it says
-    nothing -- pydantic's run to a dozen lines, and a timeout's to none."""
+    """A failure's first line, or its type where it says nothing."""
     said = str(exc).strip()
     return said.splitlines()[0] if said else type(exc).__name__
 
@@ -100,10 +95,7 @@ def _and_list(items: list[str]) -> str:
 class BuyAgent:
     """Finds, ranks and logs products for a shopper (ADR-0002, ADR-0028)."""
 
-    def __init__(
-        self, config: AgentConfig | None = None, *, llm: ChatModel | None = None
-    ) -> None:
-        """Build an agent."""
+    def __init__(self, config: AgentConfig | None = None, *, llm: ChatModel | None = None) -> None:
         self.config = config or AgentConfig()
         # Here, not in ``providers``: caching is no server's concern.
         self.llm = llm or remember_answers(
@@ -112,13 +104,12 @@ class BuyAgent:
             ttl=self.config.cache_ttl,
             deterministic=self.config.temperature == 0,
         )
-        #: What :meth:`close` releases: only a model this agent opened, never one handed in.
+        #: Only a model this agent opened, never one handed in.
         self._opened = None if llm else self.llm
         self.query_chain = build_query_chain(self.llm)
         self.extraction_chain = build_extraction_chain(self.llm)
 
     def close(self) -> None:
-        """Let go of the connection to the model server this agent opened."""
         release(self._opened)
 
     def run(
@@ -129,9 +120,8 @@ class BuyAgent:
         checkpoint: Checkpoint = every_step_passes,
         record: Recorder = nothing_recorded,
     ) -> list[RankedProduct]:
-        """Search, rank and log the top products (ADR-0009, ADR-0034, ADR-0055).
-
-        ``record`` receives each candidate the run removed.
+        """Search, rank and log the top products; ``record`` receives each candidate
+        the run removed (ADR-0034, ADR-0055).
 
         Raises:
             ValueError: if the request is empty.
@@ -147,20 +137,15 @@ class BuyAgent:
         checkpoint("search")
         results = self._search(query)
         if not results:
-            logger.warning(
-                "Search returned nothing for %r%s", query, self._empty_search_note()
-            )
+            logger.warning("Search returned nothing for %r%s", query, self._empty_search_note())
             return []
 
         if self.config.fetch_pages:
             checkpoint("fetch")
             results = enrich(
-                results,
-                max_chars=self.config.page_chars,
-                opinion_chars=self.config.opinion_chars,
-                timeout=self.config.fetch_timeout,
-                cache_ttl=self.config.cache_ttl,
-                wait=sleep,
+                results, max_chars=self.config.page_chars,
+                opinion_chars=self.config.opinion_chars, timeout=self.config.fetch_timeout,
+                cache_ttl=self.config.cache_ttl, wait=sleep,
             )
 
         checkpoint("extract")
@@ -179,19 +164,14 @@ class BuyAgent:
         # Cheap, but it writes the report, which a stopped run should not.
         checkpoint("rank")
         ranked = rank_products(
-            products,
-            weights=self.config.weights,
-            sort_by=sort_by,
+            products, weights=self.config.weights, sort_by=sort_by,
             currency=self.config.currency or None,
         )
-        log_top_products(
-            ranked, self.config.top_n, weights=self.config.weights, sort_by=sort_by
-        )
+        log_top_products(ranked, self.config.top_n, weights=self.config.weights, sort_by=sort_by)
         return ranked
 
     def _warn_if_nothing_is_on_the_named_scale(self, products: Sequence[Product]) -> None:
-        """Warn when the named currency prices nothing, so every price scores neutral
-        (ADR-0056)."""
+        """Warn when the named currency prices nothing (ADR-0056)."""
         named = self.config.currency
         if not named or any(
             comparable_price(product, named) is not None for product in products
@@ -214,25 +194,21 @@ class BuyAgent:
             return self._ask_the_web(query, width)
 
         logger.info(
-            "Searching %d named source(s): %s",
-            len(sources),
+            "Searching %d named source(s): %s", len(sources),
             ", ".join(source.spec for source in sources),
         )
         share = -(-width // len(sources))  # ceiling: every source gets at least one
         pooled: dict[str, SearchResult] = {}
         for source in sources:
             found = self._ask_the_web(source.site_query(query), share)
-            # ``covers`` asked once per result; both sides are reported below.
             covered: dict[bool, list[SearchResult]] = {True: [], False: []}
             for result in found:
                 covered[source.covers(result.url)].append(result)
             kept, outside = covered[True], covered[False]
             if outside:
-                # Count at INFO, names at DEBUG: with no fallback to the wider web
-                # (ADR-0027), an over-strict ``covers`` needs the names to diagnose.
-                logger.info(
-                    "Ignored %d result(s) from outside %s", len(outside), source.domain
-                )
+                # Names at DEBUG: with no fallback to the wider web (ADR-0027), an
+                # over-strict ``covers`` needs them to diagnose.
+                logger.info("Ignored %d result(s) from outside %s", len(outside), source.domain)
                 logger.debug(
                     "From outside %s: %s",
                     source.domain,
@@ -243,12 +219,8 @@ class BuyAgent:
         return list(pooled.values())[:width]
 
     def _ask_the_web(self, query: str, limit: int) -> list[SearchResult]:
-        """One search through this run's backend and region (ADR-0053, ADR-0057)."""
         return search_web(
-            query,
-            max_results=limit,
-            region=self.config.region,
-            wait=sleep,
+            query, max_results=limit, region=self.config.region, wait=sleep,
             backend=self.config.search_backend,
         )
 
@@ -257,7 +229,6 @@ class BuyAgent:
         return f"{self._region_note() or '.'}{self._sources_note()}"
 
     def _sources_note(self) -> str:
-        """The named sources, if any (ADR-0027)."""
         sources = self.config.sources
         if not sources:
             return ""
@@ -269,7 +240,6 @@ class BuyAgent:
         )
 
     def _region_note(self) -> str:
-        """The region, unless it is the default (ADR-0031)."""
         region = self.config.region
         if region == DEFAULT_REGION:
             return ""
@@ -288,9 +258,7 @@ class BuyAgent:
         # Any failure here is recoverable: the raw request still searches.
         # pylint: disable-next=broad-exception-caught
         except Exception as exc:
-            # Why, in the one line both doors show; the traceback is for -v. With it at
-            # WARNING the terminal got thirty lines of pydantic over a run that went on
-            # fine, and the browser, which relays the message alone, got no reason.
+            # One line both doors show; the traceback is for -v.
             logger.warning(
                 "Query refinement failed (%s); using the raw request", _first_line(exc)
             )
@@ -330,7 +298,7 @@ class BuyAgent:
         return deduplicate(grounded, self.config.num_products, record=record)
 
     def _invoke(self, chain: Chain[Any], payload: dict[str, Any]) -> Any:
-        """Invoke a chain; transport errors become an actionable message (ADR-0009)."""
+        """Invoke a chain; transport errors become the row's hint (ADR-0009)."""
         server = self.config.model_server
         try:
             return chain.invoke(payload)

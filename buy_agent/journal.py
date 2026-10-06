@@ -1,12 +1,5 @@
 """What past runs of one search reported, so the next can say what moved (ADR-0060).
-
-Not a cache: a record for a person, which never expires.
-
-- Bounded by count: :data:`MAX_RUNS` per search, :data:`MAX_SEARCHES` searches, least
-  recently run out first.
-- Holds name, price and currency per product, nothing else.
-- Off with one setting; stored in ``runs/`` under ``$BUY_AGENT_CACHE_DIR``.
-"""
+Not a cache: it never expires, and is bounded by count instead."""
 
 from __future__ import annotations
 
@@ -28,93 +21,77 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: The journal's directory under the cache root.
 RUNS = "runs"
-
-#: Runs kept per search.
 MAX_RUNS = 10
-
-#: Searches kept; the least recently *run* goes first.
+#: The least recently *run* goes first.
 MAX_SEARCHES = 200
 
-#: What a product did between two runs; ``unplaced`` for differing currencies (ADR-0043).
+#: ``unplaced`` for differing currencies (ADR-0043).
 Movement = Literal["new", "gone", "cheaper", "dearer", "steady", "unplaced"]
 
-#: A date's month as shown: "Sep". The day goes in front unpadded, as a sentence
-#: writes it -- ``%d`` wrote "01 Oct", and ``%-d`` is not portable.
+#: The day goes in front unpadded: ``%d`` wrote "01 Oct", and ``%-d`` is not portable.
 _MONTH = "%b"
 
 
 class Recorded(BaseModel):
-    """One product as a past run reported it (ADR-0060)."""
+    """One product as a past run reported it."""
 
     name: str
-    # As on ``Product``: a NaN read back would be a movement of NaN, and invalid JSON.
+    # A NaN read back would be a movement of NaN, and invalid JSON.
     price: Annotated[float | None, Field(allow_inf_nan=False)] = None
     currency: str | None = None
 
     @classmethod
     def of(cls, product: Product) -> Recorded:
-        """The recorded fields of a product."""
         return cls(name=product.name, price=product.price, currency=product.currency)
 
     @property
     def key(self) -> str:
-        """``Product``'s own identity, matched across runs."""
         return dedup_key(self.name)
 
     def label(self) -> str:
-        """The price as every surface writes it (ADR-0012)."""
         return price_label(self.price, self.currency)
 
 
 class Entry(BaseModel):
     """One past run of one search."""
 
-    #: When it ran, in epoch seconds.
     at: float
     products: list[Recorded] = []
 
     @field_validator("at")
     @classmethod
     def _dated(cls, at: float) -> float:
-        """A time :meth:`when` can put on this machine's calendar. Read back, anything
-        else is a damaged file, which costs a comparison rather than the run."""
+        """A time :meth:`when` can date; anything else is a damaged file."""
         try:
             datetime.fromtimestamp(at)
-        # NaN is a ``ValueError``; too far out, an ``OverflowError`` or, on Windows,
-        # an ``OSError``.
+        # NaN is a ``ValueError``; too far out, ``OverflowError`` or (Windows) ``OSError``.
         except (ValueError, OverflowError, OSError) as exc:
             raise ValueError(f"{at!r} is not a time this machine can date") from exc
         return at
 
     def when(self) -> str:
-        """The day it ran, on this machine's calendar: the one its log lines are timed
-        by. Greenwich's dated an evening run west of it tomorrow."""
+        """The day it ran, on this machine's calendar, as its log lines are timed."""
         ran = datetime.fromtimestamp(self.at)
         return f"{ran.day} {ran.strftime(_MONTH)}"
 
 
 class Change(BaseModel):
-    """What one product did since the last run of this search (ADR-0060)."""
+    """What one product did since the last run of this search."""
 
     name: str
     movement: Movement
-    #: Now and then, as Python writes amounts.
     price_label: str | None = None
     was_label: str | None = None
-    #: Signed movement on one scale; negative is cheaper.
+    #: Negative is cheaper.
     delta: float | None = None
-    #: The sentence both front ends show (ADR-0012).
+    #: The sentence both front ends show.
     detail: str
 
 
 class Journal:
-    """The runs of one search, and the comparison of this one with the last.
-
-    Built before the run, asked after. Never fails a run: off or unwritable, it
-    remembers and compares nothing.
-    """
+    """The runs of one search, built before the run and asked after. Never fails a
+    run: off or unwritable, it remembers and compares nothing."""
 
     def __init__(
         self,
@@ -133,18 +110,14 @@ class Journal:
 
     @property
     def keeping(self) -> bool:
-        """Whether anything is being written down at all."""
         return self.directory is not None
 
     def compared_with(self) -> str | None:
-        """The day this run is being compared against, for a heading to name."""
+        """The day this run is being compared against."""
         return self.before.when() if self.before else None
 
     def against(self, products: Sequence[Product]) -> list[Change]:
-        """Record this run and say what moved since the last (ADR-0060).
-
-        An empty run is compared but not recorded.
-        """
+        """Record this run, unless empty, and say what moved since the last."""
         recorded = [Recorded.of(product) for product in products]
         if recorded:
             self._append(Entry(at=time.time(), products=recorded))
@@ -158,7 +131,6 @@ class Journal:
         return None if self.directory is None else file_for(self.directory, self.key)
 
     def _last(self) -> Entry | None:
-        """The most recent run of this search that was written down."""
         path = self._path()
         if path is None:
             return None
@@ -166,11 +138,10 @@ class Journal:
         return runs[-1] if runs else None
 
     def _read(self, path: Path) -> list[Entry]:
-        """Every run of this search on disk, oldest first, or nothing at all."""
+        """Every run of this search on disk, oldest first; unreadable is empty."""
         try:
             stored = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            # Unreadable is empty, like a cache miss.
             return []
         if not isinstance(stored, dict) or stored.get("key") != self.key:
             return []
@@ -181,7 +152,6 @@ class Journal:
             return []
 
     def _append(self, entry: Entry) -> None:
-        """Add this run to the search's own file, oldest out once it is full."""
         path = self._path()
         if path is None or self.directory is None:
             return
@@ -190,12 +160,9 @@ class Journal:
             {"key": self.key, "runs": [run.model_dump() for run in runs]},
             separators=(",", ":"),
         )
-        # Atomic, and never a failure.
         failed = write_atomically(self.directory, path, document)
         if failed is not None:
-            logger.debug(
-                "Could not write the journal in %s", self.directory, exc_info=failed
-            )
+            logger.debug("Could not write the journal in %s", self.directory, exc_info=failed)
             return
         _forget_the_least_recent(self.directory, self.searches)
 
@@ -203,10 +170,8 @@ class Journal:
 def open_journal(
     request: str, *, asked: Mapping[str, Any], keeping: bool, directory: Path | None = None
 ) -> Journal:
-    """The journal for this search, keyed by ``request`` and ``asked`` (ADR-0060).
-
-    ``directory`` defaults to ``runs/`` under the cache root.
-    """
+    """The journal for this search, keyed by ``request`` and ``asked``; ``directory``
+    defaults to ``runs/`` under the cache root."""
     if not keeping:
         return Journal(None, "")
     where = directory if directory is not None else default_dir(RUNS)
@@ -220,8 +185,7 @@ def open_journal(
 
 
 def compare(before: Entry, now: Sequence[Recorded]) -> list[Change]:
-    """What changed between two runs (ADR-0060): this run's products in rank order,
-    then those that are gone."""
+    """This run's products in rank order, then those that are gone."""
     was = {item.key: item for item in before.products}
     when = before.when()
     changes = [_moved(item, was.get(item.key), when) for item in now]
@@ -240,7 +204,6 @@ def compare(before: Entry, now: Sequence[Recorded]) -> list[Change]:
 
 
 def _moved(now: Recorded, before: Recorded | None, when: str) -> Change:
-    """What one product of this run did, against what the last one said about it."""
     label = now.label()
     if before is None:
         detail = f"{label}, and not in the run of {when}."
@@ -271,8 +234,7 @@ def _moved(now: Recorded, before: Recorded | None, when: str) -> Change:
 
 
 def _forget_the_least_recent(directory: Path, searches: int) -> int:
-    """Delete the least recently run searches beyond ``searches`` (by mtime), and say
-    how many went (ADR-0060)."""
+    """Delete the least recently run searches (by mtime) beyond ``searches``."""
     dated: list[tuple[float, Path]] = []
     for path in directory.glob("*.json"):
         try:
@@ -281,14 +243,11 @@ def _forget_the_least_recent(directory: Path, searches: int) -> int:
             continue
     forgotten = sum(_unlink(path) for _, path in sorted(dated)[: max(0, len(dated) - searches)])
     if forgotten:
-        logger.debug(
-            "Forgot %d search(es) nobody has run lately, out of %s", forgotten, directory
-        )
+        logger.debug("Forgot %d search(es) nobody has run lately, out of %s", forgotten, directory)
     return forgotten
 
 
 def _unlink(path: Path) -> bool:
-    """Delete a file, saying whether it went."""
     try:
         path.unlink()
     except OSError:
