@@ -59,7 +59,9 @@ Work down this list in order.
 ## 5. `ui/src/app/search-form/`
 
 - A signal, and the key in `options()`, the one place the payload is built.
-  `agent.ts`'s `toQuery` drops blanks.
+  `agent.ts`'s `toQuery` drops blanks. A setting a *payment* reads goes in the
+  form's `payingValues` instead (which `options()` spreads), and so in
+  `PaySettings` and `App.payFor`'s body; a box it has joins `PAYING_BOXES`.
 - **Numeric** -> one `field('<request key>', 'Label', signal, {step, hint, off,
   remembered, remembersBlank})` row in `numberFields` and nothing else: the
   template loops over it, and `settings` spreads

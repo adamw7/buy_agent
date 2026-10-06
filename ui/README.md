@@ -129,7 +129,14 @@ only once paying is ticked; `moves_money` and `needs_endpoint` come off the rail
 row. Paying runs no pipeline, so the form tells `App` its paying settings as they
 change (`payWith`), and the Pay buttons, the cart's rail and the payment follow
 them as they stand rather than as the run was started: ticked once the results
-are in, the box offers to pay for them.
+are in, the box offers to pay for them. They are held to what a run is held to.
+While the form marks a paying box (an unreadable spend limit reads as `null`,
+which the server takes for no limit), `held` names it and each card says so in its
+button's place. A payment refused on `merchant_url` or `spend_limit` is marked on
+that box like a run's refusal, with the value the payment `sent` to hold it
+against. The spend limit's hint names `countedIn`, the results' currency, since
+that is what a payment is checked in, and a card's confirmation closes when the
+switch, the rail or `held` changes under what it restates.
 
 **Refusals.** `problems()` checks each number against the server's ranges and the
 sources against the last `/api/sources` answer, and gates `canSubmit`. A field

@@ -119,6 +119,18 @@ textarea:disabled {
   background: var(--surface-2);
   color: var(--text-dim);
   cursor: not-allowed;
+  /* The browser fades a disabled select on top of this, which drew two looks for one
+     state side by side. */
+  opacity: 1;
+}
+
+/* Lighter and slanted, so a disabled box's placeholder is not read as a value it holds:
+   in the same grey as the values around it, an empty Trusted sources read as a search
+   limited to rtings.com and @mkbhd. */
+input:disabled::placeholder,
+textarea:disabled::placeholder {
+  color: color-mix(in srgb, var(--text-dim) 70%, var(--surface-2));
+  font-style: italic;
 }
 
 input:focus-visible,

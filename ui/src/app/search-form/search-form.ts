@@ -42,12 +42,30 @@ interface ModelOption {
 export interface Rejection {
   field: string;
   message: string;
+  /** What a payment sent for the field, where the refusal was a payment's: it is held
+   *  against that rather than against the run's settings, which it never used. */
+  sent?: unknown;
 }
 
 /** What a Pay button on the results pays with: the paying settings as they stand now. */
 export type PaySettings = Required<
   Pick<SearchOptions, 'pay' | 'rail' | 'merchant_url' | 'spend_limit'>
->;
+> & {
+  /** Why nothing may be paid for yet -- a paying setting the form marks, named -- or
+   *  null. A run cannot start past a marked box, and a payment may not either: an
+   *  unreadable spend limit reads as null, which the server takes for no limit. */
+  held: string | null;
+};
+
+/** The paying settings a box on the form holds, by request key, with its label: the
+ *  ones a payment's refusal is marked on, and the ones that hold paying back. */
+const PAYING_BOXES: Record<string, string> = {
+  spend_limit: 'Spend limit',
+  merchant_url: 'Payment endpoint',
+};
+
+/** The keys of a payment a refusal may name and the form marks a box for. */
+export const PAYING_KEYS = Object.keys(PAYING_BOXES);
 
 /** A number box's one key: sent, ranged, refused, seeded and placeholdered under it.
  *  Narrowed to keys whose default is a number, so a wrong box does not compile. */
@@ -131,6 +149,9 @@ export class SearchForm {
   readonly checked = input<SourcesCheck | null>(null);
   /** A value a run was refused for, to mark beside the field it came from. */
   readonly rejected = input<Rejection | null>(null);
+  /** The currency the results on screen were counted in, which is what a payment for one
+   *  of them is made in (ADR-0056); null before there are any. */
+  readonly countedIn = input<string | null>(null);
   /** Bounds the request states in words: offered, never applied, never a mark (ADR-0059). */
   readonly noticed = input<BoundsCheck | null>(null);
 
@@ -252,8 +273,10 @@ export class SearchForm {
     field('spend_limit', 'Spend limit', this.spendLimit, {
       step: 0.01,
       // Only drawn while paying, so no "off" wording is needed.
+      // In the results' currency once there are results, since that is what a payment
+      // is checked in: the form's own may have been changed since the run.
       hint: () =>
-        `The most one payment may be, in ${this.scale()}. A price in another currency is refused, not passed.`,
+        `The most one payment may be, in ${this.countedIn() ?? this.scale()}. A price in another currency is refused, not passed.`,
       off: () => !this.pay(),
       paying: true,
     }),
@@ -368,12 +391,23 @@ export class SearchForm {
 
   /** The paying settings as a payment sends them: no spend limit while paying is off,
    *  as the box goes with the switch. */
-  private readonly paying = computed<PaySettings>(() => ({
+  private readonly payingValues = computed(() => ({
     pay: this.pay(),
     rail: this.rail(),
     merchant_url: this.merchantUrl().trim(),
     spend_limit: this.pay() ? this.spendLimit() : null,
   }));
+
+  /** Those, and what holds paying back: read apart from them, since the marks read the
+   *  payload (`stillSent`), which reads the values. */
+  private readonly paying = computed<PaySettings>(() => {
+    const notes = this.notes();
+    const marked = PAYING_KEYS.find((key) => notes[key]);
+    return {
+      ...this.payingValues(),
+      held: marked ? `Paying waits on ${PAYING_BOXES[marked]}: ${notes[marked]}` : null,
+    };
+  });
 
   /** Whether this rail can charge anybody. */
   protected readonly railSpends = computed(() => this.chosenRail()?.moves_money ?? false);
@@ -405,12 +439,12 @@ export class SearchForm {
   );
 
   /** What a cleared context window falls back to, or -- switched off -- what the box
-   *  says in its place. Short, since it is read in the box: the sentence under it names
-   *  the server, and the longer one this was ("Fixed where vLLM's model is served") was
-   *  cut off at the box's edge. */
+   *  says in its place. Short, since it is read in the box at the grid's narrowest
+   *  column: the sentence under it names the server, and "Fixed where vLLM's model is
+   *  served" was cut off at the box's edge. */
   protected readonly numCtxHint = computed(() => {
     if (!this.takesNumCtx()) {
-      return 'Fixed where it is served';
+      return 'Set by the server';
     }
     const fallback = this.defaults()?.num_ctx;
     return fallback ? `The default (${fallback})` : "Ollama's own (4096)";
@@ -510,6 +544,11 @@ export class SearchForm {
 
   /** Whether the field named still holds the value the run was refused for. */
   private stillSent(field: string): boolean {
+    // A payment's refusal is held against what the payment sent.
+    const rejected = this.rejected();
+    if (rejected?.field === field && 'sent' in rejected) {
+      return this.options()[field as keyof SearchOptions] === rejected.sent;
+    }
     const sent = this.submitted();
     if (!sent || !(field in sent)) {
       return true;
@@ -733,7 +772,7 @@ export class SearchForm {
       cpu_only: this.takesCpuOnly() ? this.cpuOnly() : undefined,
       fetch: this.fetchPages(),
       journal: this.journal(),
-      ...this.paying(),
+      ...this.payingValues(),
     };
   }
 

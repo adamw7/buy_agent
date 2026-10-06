@@ -62,6 +62,8 @@ interface Paying {
   /** The product being paid for, page-wide -- null while nothing is. */
   paying?: string | null;
   receipt?: Receipt | null;
+  /** What holds paying back, as `App` hands it on from the form. */
+  held?: string | null;
 }
 
 async function render(
@@ -102,6 +104,7 @@ async function payable(shown: RankedProduct, paying: Paying = { canPay: true }) 
   fixture.componentRef.setInput('rail', paying.rail ?? DRY_RUN);
   fixture.componentRef.setInput('paying', paying.paying ?? null);
   fixture.componentRef.setInput('receipt', paying.receipt ?? null);
+  fixture.componentRef.setInput('held', paying.held ?? null);
   const approvals: { title: string; price: number; currency: string }[] = [];
   fixture.componentInstance.pay.subscribe((approval) => approvals.push(approval));
   await fixture.whenStable();
@@ -494,6 +497,101 @@ describe('ProductCard, paying', () => {
     await fixture.whenStable();
 
     expect(document.activeElement).toBe(elsewhere);
+  });
+
+  describe('what the confirmation restates, changing under it', () => {
+    /* Hidden rather than closed, a confirmation opened under the dry run came back
+       open when paying was ticked again -- reading "you will be charged" once the rail
+       was one that charges, one click from paying. The second click has to be about
+       what the first was shown. */
+    const opened = async () => {
+      const shown = await payable(SONY);
+      shown.card.querySelector<HTMLButtonElement>('.pay')!.click();
+      await shown.fixture.whenStable();
+      expect(shown.card.querySelector('.confirm')).not.toBeNull();
+      return shown;
+    };
+
+    it('closes when paying is switched off, and stays closed when it is back on', async () => {
+      const { fixture, card } = await opened();
+
+      fixture.componentRef.setInput('canPay', false);
+      await fixture.whenStable();
+      fixture.componentRef.setInput('canPay', true);
+      await fixture.whenStable();
+
+      expect(card.querySelector('.confirm')).toBeNull();
+      expect(card.querySelector('button.pay')).not.toBeNull();
+    });
+
+    it('closes when the rail it names is changed', async () => {
+      const { fixture, card } = await opened();
+
+      fixture.componentRef.setInput('rail', CHARGES);
+      await fixture.whenStable();
+
+      expect(card.querySelector('.confirm')).toBeNull();
+    });
+
+    it('closes when paying is held back', async () => {
+      const { fixture, card } = await opened();
+
+      fixture.componentRef.setInput('held', 'Paying waits on Spend limit: That is not a number.');
+      await fixture.whenStable();
+
+      expect(card.querySelector('.confirm')).toBeNull();
+    });
+  });
+
+  describe('held back by a paying setting', () => {
+    const HELD = 'Paying waits on Spend limit: That is not a number.';
+
+    it('says what holds it back where the Pay button was', async () => {
+      /* The box it names is in the Settings panel, a screen or more above the card the
+         shopper is looking at. */
+      const { card } = await payable(SONY, { canPay: true, held: HELD });
+
+      expect(card.querySelector('button.pay')).toBeNull();
+      expect(card.querySelector('.held')!.textContent!.trim()).toBe(HELD);
+      expect(await accessibilityProblems(card)).toEqual([]);
+    });
+
+    it("says the product's own refusal before the setting's", async () => {
+      /* A product nobody priced cannot be bought whatever the settings say. */
+      const { card } = await payable(UNKNOWN, { canPay: true, held: HELD });
+
+      expect(card.querySelector('.held')).toBeNull();
+      expect(card.querySelector('.cannot-pay')!.textContent).not.toContain(HELD);
+    });
+
+    it('says nothing of it where paying is off or the product is bought', async () => {
+      const off = await payable(SONY, { canPay: false, held: HELD });
+      const bought = await payable(SONY, { canPay: true, held: HELD, receipt: RECEIPT });
+
+      expect(off.card.querySelector('.held')).toBeNull();
+      expect(bought.card.querySelector('.held')).toBeNull();
+    });
+
+    it('takes the keyboard to it when it replaces the button the reader was on', async () => {
+      const { fixture, card } = await payable(SONY, { canPay: true, paying: SONY.name });
+      card.querySelector<HTMLElement>('.authorising')!.focus();
+
+      fixture.componentRef.setInput('paying', null);
+      fixture.componentRef.setInput('held', HELD);
+      await fixture.whenStable();
+
+      expect(document.activeElement).toBe(card.querySelector('.held'));
+    });
+
+    it('gives the button back once nothing holds paying back', async () => {
+      const { fixture, card } = await payable(SONY, { canPay: true, held: HELD });
+
+      fixture.componentRef.setInput('held', null);
+      await fixture.whenStable();
+
+      expect(card.querySelector('.held')).toBeNull();
+      expect(card.querySelector('button.pay')).not.toBeNull();
+    });
   });
 
   it('says why a product cannot be bought rather than showing no button', async () => {

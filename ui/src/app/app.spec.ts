@@ -1,10 +1,12 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { Observable, Subject, of, throwError } from 'rxjs';
 import { afterEach, vi } from 'vitest';
 
 import { accessibilityProblems } from './a11y';
 import { App } from './app';
+import { ProductCard } from './product-card/product-card';
 import { AgentService } from './agent';
 import { WEIGHTS, defaults, product, receipt, status } from './testing';
 import type {
@@ -1690,6 +1692,147 @@ describe('App paying', () => {
     const page = fixture.nativeElement as HTMLElement;
     expect(page.textContent).toContain('ref-abc');
     expect(page.textContent).toContain('Nothing was charged.');
+  });
+
+  /** Put text in a number box the browser cannot read, which it reports as empty. */
+  const unreadable = async (fixture: ComponentFixture<App>, name: string, bad = true) => {
+    const input = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+      `input[name="${name}"]`,
+    )!;
+    Object.defineProperty(input, 'validity', { value: { badInput: bad }, configurable: true });
+    input.value = '';
+    input.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+  };
+
+  describe('held back by a paying setting the form marks', () => {
+    /* Paying follows the form as it stands, so it is held to what a run is held to:
+       a run cannot start past a marked box, and a payment may not either. An
+       unreadable spend limit reads as null, which the server takes for no limit, so
+       "500-" typed into it paid with no limit at all. */
+    it('offers no payment while the spend limit is unreadable, and says why', async () => {
+      const fixture = await finished(true);
+      await setPaying(fixture, 'spend_limit', '500');
+      await unreadable(fixture, 'spend_limit');
+
+      const page = fixture.nativeElement as HTMLElement;
+      expect(page.querySelector('app-product-card button.pay')).toBeNull();
+      expect(page.querySelector('app-product-card .held')!.textContent).toContain(
+        'Paying waits on Spend limit: That is not a number.',
+      );
+
+      await unreadable(fixture, 'spend_limit', false);
+
+      expect(page.querySelector('app-product-card button.pay')).not.toBeNull();
+    });
+
+    it('offers no payment while the spend limit is out of range', async () => {
+      const fixture = await finished(true);
+      await setPaying(fixture, 'spend_limit', '0');
+
+      const page = fixture.nativeElement as HTMLElement;
+      expect(page.querySelector('app-product-card button.pay')).toBeNull();
+      expect(page.querySelector('app-product-card .held')!.textContent).toContain('Between');
+    });
+
+    it('buys nothing on an approval that arrives once paying is off or held', async () => {
+      /* The cards offer nothing then, so this is an approval in flight when the
+         switch moved -- not one to send. */
+      const fixture = await finished(true);
+      const card = fixture.debugElement.query(By.directive(ProductCard))
+        .componentInstance as ProductCard;
+      const approval = { title: RESULT.products[0].name, price: 100, currency: 'USD' };
+
+      await setPaying(fixture, 'spend_limit', '0');
+      card.pay.emit(approval);
+      await setPaying(fixture, 'spend_limit', '');
+      await setPaying(fixture, 'pay', false);
+      card.pay.emit(approval);
+      await fixture.whenStable();
+
+      expect(agent.paid).toEqual([]);
+    });
+  });
+
+  describe('a payment refused on a paying setting', () => {
+    /* A payment endpoint the rail needs was refused when a run started, on its box.
+       Ticked once the results are in, it is refused when the payment is, and is marked
+       on its box the same way -- not left as a sentence above the first card, a screen
+       away from both the box and the card that was pressed. */
+    const NEEDS_ADDRESS = 'Paying through HTTP endpoint needs an address.';
+
+    const refusedOn = async (field: string) => {
+      agent.payResponse = () => throwError(() => ({ error: { error: NEEDS_ADDRESS, field } }));
+      const fixture = await finished(false);
+      await setPaying(fixture, 'pay', true);
+      await setPaying(fixture, 'rail', 'http');
+      await buyTheTopOne(fixture);
+      return fixture;
+    };
+
+    const box = (fixture: ComponentFixture<App>) =>
+      (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+        'input[name="merchantUrl"]',
+      )!;
+
+    it('marks the box it names, and holds paying on it', async () => {
+      const fixture = await refusedOn('merchant_url');
+      const page = fixture.nativeElement as HTMLElement;
+
+      expect(box(fixture).getAttribute('aria-invalid')).toBe('true');
+      expect(page.querySelector('details.advanced')!.hasAttribute('open')).toBe(true);
+      expect(page.querySelector('app-product-card button.pay')).toBeNull();
+      expect(page.querySelector('app-product-card .held')!.textContent).toContain(
+        `Paying waits on Payment endpoint: ${NEEDS_ADDRESS}`,
+      );
+      expect(page.textContent).toContain('Nothing was bought');
+    });
+
+    it('lets go once the box holds something else', async () => {
+      const fixture = await refusedOn('merchant_url');
+
+      await setPaying(fixture, 'merchantUrl', 'https://pay.example');
+
+      const page = fixture.nativeElement as HTMLElement;
+      expect(box(fixture).getAttribute('aria-invalid')).toBeNull();
+      expect(page.querySelector('app-product-card button.pay')).not.toBeNull();
+      expect(page.textContent, 'nor says it any more').not.toContain('Nothing was bought');
+    });
+
+    it('marks nothing for a refusal that names no box on the form', async () => {
+      /* "approved" is the echo the page sent, and "products" the run's: neither is a
+         setting anybody can put right. */
+      const fixture = await refusedOn('approved');
+      const page = fixture.nativeElement as HTMLElement;
+
+      expect(page.querySelector('[aria-invalid="true"]')).toBeNull();
+      expect(page.querySelector('summary .flagged'), 'nor a setting to look at').toBeNull();
+      expect(page.querySelector('app-product-card button.pay')).not.toBeNull();
+      expect(page.textContent).toContain('Nothing was bought');
+    });
+  });
+
+  it('pays in the currency the run was counted in after the form names another', async () => {
+    /* The rail, endpoint and limit follow the form as it stands, and the currency does
+       not: the products were counted in the run's, and a cart counted in another is a
+       second vote (ADR-0056). The spend limit's hint names the run's too, since that is
+       the currency the limit is checked in. */
+    const fixture = await render();
+    const page = fixture.nativeElement as HTMLElement;
+    const currency = page.querySelector<HTMLSelectElement>('select[name="currency"]')!;
+    currency.value = 'EUR';
+    currency.dispatchEvent(new Event('change'));
+    await setPaying(fixture, 'pay', true);
+    await ran(agent, 'kettle', { ...RESULT, scale: 'EUR' }, fixture);
+
+    currency.value = 'GBP';
+    currency.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    const hint = page.querySelector('input[name="spend_limit"]')!.closest('.field')!.textContent;
+    await buyTheTopOne(fixture);
+
+    expect(hint).toContain('The most one payment may be, in EUR.');
+    expect(agent.paid[0]).toMatchObject({ currency: 'EUR', scale: 'EUR' });
   });
 
   it('says a payment failed beside the products and not in the run banner', async () => {

@@ -502,7 +502,12 @@ hold:
 - Buying takes two clicks, and the second restates the *cart* (`pay_label`,
   `pay_merchant`, the rail, whether anyone is charged). Pay buttons, the rail and
   the payment follow the form's paying settings as they stand (`payWith`), not
-  the run's: paying runs no pipeline. A press moves the
+  the run's: paying runs no pipeline. They are held to what a run is: while the
+  form marks a paying box, the card says so (`held`) where its button was, and a
+  payment's refusal naming one is marked on it, held against what the payment
+  sent. The spend limit's hint names the results' currency (`countedIn`), which a
+  payment is checked in, and an open confirmation closes when the switch, the
+  rail or `held` changes under it. A press moves the
   keyboard to what replaced its block (`LANDING`): the cart and never the button
   that buys, Pay again, the wait, the receipt. Focus the reader moved elsewhere
   stays there.

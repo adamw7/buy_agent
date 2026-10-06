@@ -1204,7 +1204,7 @@ describe('SearchForm', () => {
     await choose('select[name="provider"]', 'litellm');
 
     expect(element<HTMLInputElement>('input[name="num_ctx"]').placeholder).toBe(
-      'Fixed where it is served',
+      'Set by the server',
     );
     expect(cpuOnly().disabled).toBe(true);
     expect(cpuOnly().closest('.field')!.querySelector('small')!.textContent).toContain(
@@ -1286,6 +1286,7 @@ describe('SearchForm', () => {
       rail: 'http',
       merchant_url: 'https://pay.example',
       spend_limit: 250,
+      held: null,
     });
     expect(submitted).toEqual([]);
 
@@ -1294,6 +1295,89 @@ describe('SearchForm', () => {
     await fixture.whenStable();
 
     expect(told.at(-1)).toMatchObject({ pay: false, spend_limit: null });
+  });
+
+  describe('what holds paying back', () => {
+    /* Paying follows the form as it stands, so it is held to what a run is held to: a
+       marked paying box. An unreadable spend limit reads as null, which the server
+       takes for no limit. */
+    let told: PaySettings[];
+
+    beforeEach(async () => {
+      told = [];
+      fixture.componentInstance.payWith.subscribe((settings) => told.push(settings));
+      const pay = element<HTMLInputElement>('input[name="pay"]');
+      pay.checked = true;
+      pay.dispatchEvent(new Event('change'));
+      await fixture.whenStable();
+    });
+
+    it('names a spend limit the form cannot read', async () => {
+      await type('input[name="spend_limit"]', '500');
+      await unreadable('spend_limit');
+
+      expect(told.at(-1)).toMatchObject({
+        spend_limit: null,
+        held: 'Paying waits on Spend limit: That is not a number. Clear the box to use the default.',
+      });
+
+      await unreadable('spend_limit', false);
+      expect(told.at(-1)!.held).toBeNull();
+    });
+
+    it('names a spend limit out of range', async () => {
+      await type('input[name="spend_limit"]', '0');
+
+      expect(told.at(-1)!.held).toBe('Paying waits on Spend limit: Between 1 and 10000000.');
+    });
+
+    it("holds a payment's refusal against what the payment sent, not the run", async () => {
+      /* The run went out with one endpoint and the payment, once the results were in,
+         with another. Held against the run's, the refusal of the payment's would read
+         as already moved on, and be dropped before anybody saw it. */
+      const moved: unknown[] = [];
+      fixture.componentInstance.moved.subscribe(() => moved.push(true));
+      await choose('select[name="rail"]', 'http');
+      await type('input[name="merchantUrl"]', 'https://old.example');
+      await type('input[name="request"]', 'kettle');
+      await send();
+      await type('input[name="merchantUrl"]', 'https://new.example');
+
+      fixture.componentRef.setInput('rejected', {
+        field: 'merchant_url',
+        message: 'The payment endpoint did not answer.',
+        sent: 'https://new.example',
+      });
+      await fixture.whenStable();
+
+      // The box is `merchantUrl`; the key the refusal names is `merchant_url`.
+      const endpoint = element<HTMLInputElement>('input[name="merchantUrl"]');
+      expect(endpoint.getAttribute('aria-invalid')).toBe('true');
+      expect(endpoint.closest('label')!.querySelector('.problem')!.textContent).toContain(
+        'did not answer',
+      );
+      expect(told.at(-1)!.held).toBe(
+        'Paying waits on Payment endpoint: The payment endpoint did not answer.',
+      );
+      expect(moved).toEqual([]);
+
+      await type('input[name="merchantUrl"]', 'https://newer.example');
+
+      expect(moved).toEqual([true]);
+    });
+
+    it('names the currency a payment is checked in once results are on screen', async () => {
+      /* The limit is checked in the currency the results were counted in, which the
+         form's own may no longer be. */
+      const hint = () => element('input[name="spend_limit"]').closest('.field')!.textContent;
+      await choose('select[name="currency"]', 'GBP');
+      expect(hint()).toContain('The most one payment may be, in GBP.');
+
+      fixture.componentRef.setInput('countedIn', 'EUR');
+      await fixture.whenStable();
+
+      expect(hint()).toContain('The most one payment may be, in EUR.');
+    });
   });
 
   it('neither holds nor sends a spend limit while paying is off', async () => {
@@ -1329,7 +1413,7 @@ describe('SearchForm', () => {
     await choose('select[name="provider"]', 'vllm');
 
     expect(field().disabled).toBe(true);
-    expect(field().placeholder).toBe('Fixed where it is served');
+    expect(field().placeholder).toBe('Set by the server');
   });
 
   it('shows a switched-off box empty, so the sentence in its place is read', async () => {
@@ -1341,7 +1425,7 @@ describe('SearchForm', () => {
 
     await choose('select[name="provider"]', 'vllm');
     expect(field().value).toBe('');
-    expect(field().placeholder).toBe('Fixed where it is served');
+    expect(field().placeholder).toBe('Set by the server');
 
     await choose('select[name="provider"]', 'ollama');
     expect(field().value).toBe('9999');

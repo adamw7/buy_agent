@@ -156,9 +156,7 @@
           }
           — this can take a moment.
         </p>
-      } @else if (confirming() && canPay()) {
-        <!-- Only while paying is on: the switch follows the form as it stands, and a
-             confirmation left open after it was switched off would pay against it. -->
+      } @else if (confirming()) {
         <div class="confirm" role="group" aria-label="Confirm this purchase">
           <p tabindex="-1">
             <!-- `pay_label` and not `price_label`: this is the cart's amount, in
@@ -193,6 +191,10 @@
         </button>
       } @else if (refusal(); as why) {
         <p class="cannot-pay">{{ why }}</p>
+      } @else if (heldBack(); as why) {
+        <!-- In the Pay button's place, where the shopper is looking: the box it names is
+             in the Settings panel, a screen or more above the card. -->
+        <p class="cannot-pay held" tabindex="-1">{{ why }}</p>
       }
     </div>
   </div>

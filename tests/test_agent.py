@@ -152,8 +152,11 @@ def test_search_falls_back_to_the_raw_request_when_refinement_fails(
             ValueError("1 validation error for SearchQuery\nquery\n  Field required"),
             "1 validation error for SearchQuery",
         ),
-        # A failure that says nothing is named by its type.
+        # Its words, not the space around them.
+        (ValueError("\n  model returned garbage\n"), "model returned garbage"),
+        # A failure that says nothing is named by its type, as is one that says blanks.
         (RuntimeError(), "RuntimeError"),
+        (ValueError("   "), "ValueError"),
     ],
 )
 def test_a_refinement_that_failed_says_why_in_one_line(
@@ -177,6 +180,7 @@ def test_a_refinement_that_failed_says_why_in_one_line(
     assert warned[0].exc_info is None
     traced = [record for record in caplog.records if record.exc_info]
     assert [record.levelno for record in traced] == [logging.DEBUG]
+    assert traced[0].getMessage() == "Why query refinement failed"
     assert traced[0].exc_info[1] is failure
 
 
