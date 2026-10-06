@@ -492,7 +492,7 @@ graph TB
     camera("<b>Camera</b><br/><i>[Container]</i>")
 
     browserUser --> form
-    form -->|"submit, and what to check:<br/>the request's bounds, the<br/>sources, the model server"| app
+    form -->|"submit, the paying settings<br/>as they change, and what to<br/>check: the request's bounds,<br/>the sources, the model server"| app
     app --> log
     app --> card
     card -->|"pay, on the<br/>second click"| app

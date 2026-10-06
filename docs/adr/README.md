@@ -85,6 +85,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0074](0074-pay-the-score-nothing-for-silence-or-for-luck.md) | Pay the score nothing for silence or for luck | Accepted |
 | [0075](0075-say-what-a-kept-run-was-scored-under-and-compare-it-with-a-baseline.md) | Say what a kept run was scored under, and compare it with a baseline | Accepted |
 | [0076](0076-run-the-python-suite-across-processes-and-keep-mypys-cache.md) | Run the Python suite across processes, and keep mypy's cache | Accepted |
+| [0077](0077-keep-the-shoppers-bounds-out-of-what-the-form-remembers.md) | Keep the shopper's bounds out of what the form remembers | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

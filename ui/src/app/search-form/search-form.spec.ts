@@ -2,6 +2,7 @@ import { TestBed, ComponentFixture } from '@angular/core/testing';
 
 import { accessibilityProblems } from '../a11y';
 import { SearchForm } from './search-form';
+import type { PaySettings } from './search-form';
 import { LITELLM, VLLM, defaults, status } from '../testing';
 import type {
   AgentDefaults,
@@ -341,7 +342,44 @@ describe('SearchForm', () => {
     await send();
 
     expect(submitted[0].max_price).toBe(90);
-    expect(JSON.parse(localStorage.getItem('buy_agent.settings')!).maxPrice).toBeNull();
+    expect(JSON.parse(localStorage.getItem('buy_agent.settings')!)).not.toHaveProperty('maxPrice');
+  });
+
+  it('does not remember a bound the shopper typed either', async () => {
+    /* It was, as a standing answer shopped under for weeks. But a budget belongs to the
+       thing it was set for: 650 and 4.4 set for a laptop came back on the next visit
+       inside a closed panel and filtered a search for running shoes down to one pair,
+       with nothing on the page saying a limit was set. The request is not remembered
+       either, and "under $650" typed into it fills the box again (ADR-0077). */
+    await type('input[name="max_price"]', '650');
+    await type('input[name="min_rating"]', '4.4');
+    await type('input[name="min_reviews"]', '100');
+    await type('input[name="request"]', 'light laptop');
+    await send();
+
+    expect(submitted[0]).toMatchObject({ max_price: 650, min_rating: 4.4, min_reviews: 100 });
+    const saved = JSON.parse(localStorage.getItem('buy_agent.settings')!);
+    for (const key of ['maxPrice', 'minRating', 'minReviews']) {
+      expect(saved).not.toHaveProperty(key);
+    }
+  });
+
+  it('restores no bound an older build remembered', async () => {
+    /* A browser that kept one before this held still has it stored, and restoring it
+       is the filter nobody can see that the rule above exists to stop. The settings
+       stored beside it still come back. */
+    localStorage.setItem(
+      'buy_agent.settings',
+      JSON.stringify({ maxPrice: 650, minRating: 4.4, minReviews: 100, region: 'pl-pl' }),
+    );
+
+    const form = await seeded();
+    const value = (name: string) =>
+      form.querySelector<HTMLInputElement>(`input[name="${name}"]`)!.value;
+
+    expect([value('max_price'), value('min_rating'), value('min_reviews')]).toEqual(['', '', '']);
+    expect(value('region')).toBe('pl-pl');
+    expect(form.querySelector<HTMLDetailsElement>('details.advanced')!.open).toBe(false);
   });
 
   it('ignores a bound it has no box for', async () => {
@@ -390,6 +428,124 @@ describe('SearchForm', () => {
 
     expect(submitted).toHaveLength(1);
     expect(submitted[0].max_price).toBe(700);
+  });
+
+  describe('where a held submit takes the shopper', () => {
+    /* Focus alone scrolled the box to the bottom edge of the window, with the panel it
+       is in only just opened above it, and left both sentences under it -- where the
+       figure came from, and that nothing had been searched -- below the fold: a press
+       of Find products that started nothing and said nothing anybody could see. jsdom
+       lays nothing out, so a scroll is recorded by what it was asked of and how. */
+    const proto = HTMLElement.prototype as HTMLElement & { scrollIntoView?: unknown };
+    const original = proto.scrollIntoView;
+    let scrolled: { field: string; block?: ScrollLogicalPosition; behavior?: ScrollBehavior }[];
+
+    beforeEach(() => {
+      scrolled = [];
+      proto.scrollIntoView = function (this: HTMLElement, how?: ScrollIntoViewOptions) {
+        const box = this.querySelector('input');
+        scrolled.push({
+          field: box?.name ?? this.className,
+          block: how?.block,
+          behavior: how?.behavior,
+        });
+      };
+    });
+
+    afterEach(() => {
+      proto.scrollIntoView = original;
+    });
+
+    const stopAtTheBudget = async () => {
+      await type('input[name="request"]', 'laptop under $700');
+      await leave('input[name="request"]');
+      await send();
+      await noticed('laptop under $700', [
+        { bound: 'max_price', value: 700, note: 'From your request: "under $700".' },
+      ]);
+    };
+
+    /** What the box says beside Python's note, read off the field it is in. */
+    const unsearched = (name: string): string =>
+      element<HTMLInputElement>(`input[name="${name}"]`)
+        .closest('.field')!
+        .querySelector('.unsearched')
+        ?.textContent?.trim() ?? '';
+
+    it('brings the whole field into view, as little as shows it', async () => {
+      /* The focus is told not to scroll: left to, it puts the box at the window's edge
+         first, which is the jump this replaces. jsdom ignores the option, so it is read
+         off the call. Read before the spy is restored, which forgets its calls. */
+      const focused = vi.spyOn(HTMLElement.prototype, 'focus');
+      await stopAtTheBudget();
+      const how = focused.mock.calls.map((call) => call[0]);
+      focused.mockRestore();
+
+      expect(how).toEqual([{ preventScroll: true }]);
+      expect(scrolled).toEqual([{ field: 'max_price', block: 'nearest', behavior: 'smooth' }]);
+      expect(document.activeElement).toBe(element('input[name="max_price"]'));
+    });
+
+    it('says beside the box that nothing was searched yet, and how to search', async () => {
+      await stopAtTheBudget();
+
+      expect(unsearched('max_price')).toBe(
+        'Nothing was searched yet: press Enter, or Find products, to search with it.',
+      );
+      // A hint under Python's own sentence, never a mark (ADR-0059).
+      const box = element<HTMLInputElement>('input[name="max_price"]');
+      expect(box.getAttribute('aria-invalid')).toBeNull();
+      expect(box.closest('.field')!.querySelector('.noticed')!.textContent).toContain(
+        'From your request',
+      );
+      /* Part of the box's name, read out when the focus lands on it, as every note
+         in its label is. A `role="status"` took it out of the name -- a status is not
+         named by its contents -- and, inserted already holding its text, was no
+         reliable announcement either: a screen reader heard nothing of it. */
+      const line = box.closest('label')!.querySelector('.unsearched')!;
+      expect(line.getAttribute('role')).toBeNull();
+      expect(line.closest('[aria-hidden]')).toBeNull();
+    });
+
+    it('stops saying so once the search is sent', async () => {
+      await stopAtTheBudget();
+      await send();
+
+      expect(submitted).toHaveLength(1);
+      expect(unsearched('max_price')).toBe('');
+    });
+
+    it('stops saying so once the request is a new question', async () => {
+      /* Its reading offers the same figure, so Python's note is back over the box the
+         form still owns -- and no press stopped at it this time. */
+      await stopAtTheBudget();
+      await type('input[name="request"]', 'laptop under $700, in silver');
+      await leave('input[name="request"]');
+      await noticed('laptop under $700, in silver', [
+        { bound: 'max_price', value: 700, note: 'From your request: "under $700".' },
+      ]);
+
+      expect(
+        element('input[name="max_price"]').closest('.field')!.querySelector('.noticed'),
+      ).not.toBeNull();
+      expect(unsearched('max_price')).toBe('');
+    });
+
+    it('says nothing of the kind for a figure no press stopped at', async () => {
+      /* Filled when the request was left, with nothing pressed: there is no press to
+         explain, and the box's own note says where the figure came from. */
+      await type('input[name="request"]', 'laptop under $700');
+      await leave('input[name="request"]');
+      await noticed('laptop under $700', [
+        { bound: 'max_price', value: 700, note: 'From your request: "under $700".' },
+      ]);
+
+      expect(
+        element('input[name="max_price"]').closest('.field')!.querySelector('.noticed'),
+      ).not.toBeNull();
+      expect(unsearched('max_price')).toBe('');
+      expect(scrolled).toEqual([]);
+    });
   });
 
   it('sends a submit that waited once the reading finds nothing new to show', async () => {
@@ -607,18 +763,6 @@ describe('SearchForm', () => {
     expect(element<HTMLInputElement>('input[name="max_price"]').placeholder).toBe('No limit');
     expect(element<HTMLInputElement>('input[name="min_reviews"]').placeholder).toBe('No limit');
     expect(element<HTMLInputElement>('input[name="cache_ttl"]').placeholder).toBe('86400');
-  });
-
-  it('remembers the bounds a shopper set, the way it remembers the rest', async () => {
-    /* A budget is a standing answer -- shopped under for weeks -- not something
-       retyped per search. */
-    await type('input[name="request"]', 'headphones');
-    await type('input[name="max_price"]', '200');
-    await send();
-
-    const next = await seeded();
-
-    expect(next.querySelector<HTMLInputElement>('input[name="max_price"]')!.value).toBe('200');
   });
 
   it('will not search for nothing', async () => {
@@ -1060,7 +1204,7 @@ describe('SearchForm', () => {
     await choose('select[name="provider"]', 'litellm');
 
     expect(element<HTMLInputElement>('input[name="num_ctx"]').placeholder).toBe(
-      "Fixed where LiteLLM's model is served",
+      'Set by the server',
     );
     expect(cpuOnly().disabled).toBe(true);
     expect(cpuOnly().closest('.field')!.querySelector('small')!.textContent).toContain(
@@ -1122,6 +1266,153 @@ describe('SearchForm', () => {
     expect(submitted[0].num_ctx).toBeNull();
   });
 
+  it('tells the page its paying settings as they change, without a run', async () => {
+    /* Paying runs no pipeline (ADR-0046), so the Pay buttons on results already in go
+       by these as they stand: the switch, the rail, the endpoint and the limit -- and
+       no limit while the switch is off, as no run would carry one. */
+    const told: PaySettings[] = [];
+    fixture.componentInstance.payWith.subscribe((settings) => told.push(settings));
+    const pay = element<HTMLInputElement>('input[name="pay"]');
+
+    pay.checked = true;
+    pay.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    await choose('select[name="rail"]', 'http');
+    await type('input[name="merchantUrl"]', ' https://pay.example ');
+    await type('input[name="spend_limit"]', '250');
+
+    expect(told.at(-1)).toEqual({
+      pay: true,
+      rail: 'http',
+      merchant_url: 'https://pay.example',
+      spend_limit: 250,
+      held: null,
+    });
+    expect(submitted).toEqual([]);
+
+    pay.checked = false;
+    pay.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    expect(told.at(-1)).toMatchObject({ pay: false, spend_limit: null });
+  });
+
+  describe('what holds paying back', () => {
+    /* Paying follows the form as it stands, so it is held to what a run is held to: a
+       marked paying box. An unreadable spend limit reads as null, which the server
+       takes for no limit. */
+    let told: PaySettings[];
+
+    beforeEach(async () => {
+      told = [];
+      fixture.componentInstance.payWith.subscribe((settings) => told.push(settings));
+      const pay = element<HTMLInputElement>('input[name="pay"]');
+      pay.checked = true;
+      pay.dispatchEvent(new Event('change'));
+      await fixture.whenStable();
+    });
+
+    it('names a spend limit the form cannot read', async () => {
+      await type('input[name="spend_limit"]', '500');
+      await unreadable('spend_limit');
+
+      expect(told.at(-1)).toMatchObject({
+        spend_limit: null,
+        held: 'Paying waits on Spend limit: That is not a number. Clear the box to use the default.',
+      });
+
+      await unreadable('spend_limit', false);
+      expect(told.at(-1)!.held).toBeNull();
+    });
+
+    it('names a spend limit out of range', async () => {
+      await type('input[name="spend_limit"]', '0');
+
+      expect(told.at(-1)!.held).toBe('Paying waits on Spend limit: Between 1 and 10000000.');
+    });
+
+    it("holds a payment's refusal against what the payment sent, not the run", async () => {
+      /* The run went out with one endpoint and the payment, once the results were in,
+         with another. Held against the run's, the refusal of the payment's would read
+         as already moved on, and be dropped before anybody saw it. */
+      const moved: unknown[] = [];
+      fixture.componentInstance.moved.subscribe(() => moved.push(true));
+      await choose('select[name="rail"]', 'http');
+      await type('input[name="merchantUrl"]', 'https://old.example');
+      await type('input[name="request"]', 'kettle');
+      await send();
+      await type('input[name="merchantUrl"]', 'https://new.example');
+
+      fixture.componentRef.setInput('rejected', {
+        field: 'merchant_url',
+        message: 'The payment endpoint did not answer.',
+        payment: { sent: 'https://new.example', rail: 'http' },
+      });
+      await fixture.whenStable();
+
+      // The box is `merchantUrl`; the key the refusal names is `merchant_url`.
+      const endpoint = element<HTMLInputElement>('input[name="merchantUrl"]');
+      expect(endpoint.getAttribute('aria-invalid')).toBe('true');
+      expect(endpoint.closest('label')!.querySelector('.problem')!.textContent).toContain(
+        'did not answer',
+      );
+      expect(told.at(-1)!.held).toBe(
+        'Paying waits on Payment endpoint: The payment endpoint did not answer.',
+      );
+      expect(moved).toEqual([]);
+
+      await type('input[name="merchantUrl"]', 'https://newer.example');
+
+      expect(moved).toEqual([true]);
+    });
+
+    it("lets a payment's refusal go when the rail or the switch moves", async () => {
+      /* The dry run's endpoint is as blank as a refused one, in a box it disables: held
+         against the value alone, "needs an address" outlived the switch to the dry run
+         and held paying where nobody could type the address in. */
+      const refuse = async () => {
+        fixture.componentRef.setInput('rejected', {
+          field: 'merchant_url',
+          message: 'Paying through HTTP endpoint needs an address.',
+          payment: { sent: '', rail: 'http' },
+        });
+        await fixture.whenStable();
+      };
+      const moved: unknown[] = [];
+      fixture.componentInstance.moved.subscribe(() => moved.push(true));
+      await choose('select[name="rail"]', 'http');
+      await refuse();
+      expect(told.at(-1)!.held).not.toBeNull();
+
+      await choose('select[name="rail"]', 'dry-run');
+      expect(moved).toHaveLength(1);
+      expect(told.at(-1)!.held).toBeNull();
+
+      await choose('select[name="rail"]', 'http');
+      fixture.componentRef.setInput('rejected', null);
+      await refuse();
+      const pay = element<HTMLInputElement>('input[name="pay"]');
+      pay.checked = false;
+      pay.dispatchEvent(new Event('change'));
+      await fixture.whenStable();
+
+      expect(moved).toHaveLength(2);
+    });
+
+    it('names the currency a payment is checked in once results are on screen', async () => {
+      /* The limit is checked in the currency the results were counted in, which the
+         form's own may no longer be. */
+      const hint = () => element('input[name="spend_limit"]').closest('.field')!.textContent;
+      await choose('select[name="currency"]', 'GBP');
+      expect(hint()).toContain('The most one payment may be, in GBP.');
+
+      fixture.componentRef.setInput('countedIn', 'EUR');
+      await fixture.whenStable();
+
+      expect(hint()).toContain('The most one payment may be, in EUR.');
+    });
+  });
+
   it('neither holds nor sends a spend limit while paying is off', async () => {
     /* The same rule on the other field that has one: a limit typed and then
        switched off is not a setting this run has, so it is not a run to refuse.
@@ -1155,7 +1446,22 @@ describe('SearchForm', () => {
     await choose('select[name="provider"]', 'vllm');
 
     expect(field().disabled).toBe(true);
-    expect(field().placeholder).toBe("Fixed where vLLM's model is served");
+    expect(field().placeholder).toBe('Set by the server');
+  });
+
+  it('shows a switched-off box empty, so the sentence in its place is read', async () => {
+    /* The placeholder says where the setting lives instead, and a box holding the
+       number it would have sent hid it: a disabled context window read 16384 on a
+       vLLM that ignores it. The number is kept, and back once the box is. */
+    const field = () => element<HTMLInputElement>('input[name="num_ctx"]');
+    await type('input[name="num_ctx"]', '9999');
+
+    await choose('select[name="provider"]', 'vllm');
+    expect(field().value).toBe('');
+    expect(field().placeholder).toBe('Set by the server');
+
+    await choose('select[name="provider"]', 'ollama');
+    expect(field().value).toBe('9999');
   });
 
   it('sends the CPU-only switch along with the request', async () => {
@@ -1267,10 +1573,11 @@ describe('SearchForm', () => {
   it('writes every setting under the name a browser already holds it by', async () => {
     /* The saved blob outlives any version of this form, so the names in it are
        a promise to whoever is holding one: rename a key and that browser's
-       answer is not lost loudly, it is silently the default again. The ten
-       number boxes are the ones at risk, being the only names the form derives
-       rather than writes -- `max_price` is remembered as `maxPrice`, which is
-       what the signal beside it is called and what is already stored. */
+       answer is not lost loudly, it is silently the default again. The number
+       boxes are the ones at risk, being the only names the form derives rather
+       than writes -- `cache_ttl` is remembered as `cacheTtl`, which is what the
+       signal beside it is called and what is already stored. The three bounds are
+       not among them: they belong to one request (ADR-0077). */
     await type('input[name="request"]', 'headphones');
     await send();
 
@@ -1285,10 +1592,7 @@ describe('SearchForm', () => {
         'currency',
         'fetchPages',
         'journal',
-        'maxPrice',
         'merchantUrl',
-        'minRating',
-        'minReviews',
         'modelTimeout',
         'model',
         'numCtx',

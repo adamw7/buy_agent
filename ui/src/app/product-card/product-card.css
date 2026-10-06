@@ -290,7 +290,8 @@ h3 a:hover {
    ringed as the page's buttons are, since that is where the next Tab goes from. */
 .confirm p:focus-visible,
 .authorising:focus-visible,
-.receipt:focus-visible {
+.receipt:focus-visible,
+.held:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }

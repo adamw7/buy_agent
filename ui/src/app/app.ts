@@ -31,7 +31,7 @@ import { ProductCard } from './product-card/product-card';
 import { ProgressLog } from './progress-log/progress-log';
 import { filename, saveText } from './save';
 import { SearchForm } from './search-form/search-form';
-import type { Rejection } from './search-form/search-form';
+import type { PaySettings, Rejection } from './search-form/search-form';
 
 /** The page: ask for something, watch the agent work, read the ranked answer. */
 @Component({
@@ -72,6 +72,10 @@ export class App {
   /** The settings the run on screen was started with. */
   private readonly ranWith = signal<SearchOptions | null>(null);
 
+  /** The form's paying settings as they stand, which a Pay button pays with: paying
+   *  runs no pipeline, so they are the form's now rather than the run's (ADR-0046). */
+  protected readonly paySettings = signal<PaySettings>(NOT_PAYING);
+
   /** The product being paid for, by name -- one payment at a time, page-wide. */
   protected readonly paying = signal<string | null>(null);
 
@@ -82,17 +86,20 @@ export class App {
   /** A payment that did not happen. */
   protected readonly payFailed = signal<string | null>(null);
 
-  /** Whether this page may pay at all: the server can, and the run asked it to. */
+  /** Whether this page may pay at all: the server can, and the form's switch says to.
+   *  The switch as it stands and not as the run was started: ticked once the results
+   *  were in, it did nothing at all until the same search was run again. */
   protected readonly canPay = computed(
-    () => (this.defaults()?.pay_available ?? false) && (this.ranWith()?.pay ?? false),
+    () => (this.defaults()?.pay_available ?? false) && this.paySettings().pay,
   );
 
   /** Whether cards may ask for a screenshot (the server's answer). */
   protected readonly screenshots = computed(() => this.defaults()?.screenshots ?? false);
 
-  /** The run's rail row, so the confirmation can say whether anyone is charged. */
+  /** The rail a payment would go through, so the confirmation can say whether anyone is
+   *  charged. */
   protected readonly payRail = computed<RailOption | null>(() => {
-    const name = this.ranWith()?.rail;
+    const name = this.paySettings().rail;
     const rows = this.defaults()?.rail_options ?? [];
     return rows.find((row) => row.name === name) ?? null;
   });
@@ -278,6 +285,8 @@ export class App {
   protected dropRefusal(): void {
     this.failure.set(null);
     this.rejected.set(null);
+    // A payment's refusal, which a run would not have left: its box has moved on too.
+    this.payFailed.set(null);
     if (!this.logs().length && !this.result()) {
       this.started.set(false);
     }
@@ -441,7 +450,10 @@ export class App {
   ): void {
     const found = this.result();
     const settings = this.ranWith();
-    if (!found || !settings || this.paying() !== null) {
+    const paying = this.paySettings();
+    // Paying off, or held on a box the form marks: the cards offer nothing then, and a
+    // late approval is not one to send either.
+    if (!found || !settings || !paying.pay || paying.held !== null || this.paying() !== null) {
       return;
     }
     // The server indexes by rank; the receipt is filed by name.
@@ -453,10 +465,10 @@ export class App {
         products: found.products,
         rank,
         approved,
-        rail: settings.rail,
-        merchant_url: settings.merchant_url,
-        spend_limit: settings.spend_limit,
-        // As a re-sort sends them.
+        rail: paying.rail,
+        merchant_url: paying.merchant_url,
+        spend_limit: paying.spend_limit,
+        // The run's own, as a re-sort sends them: the products were counted in it.
         currency: settings.currency,
         scale: found.scale ?? undefined,
       })
@@ -473,6 +485,21 @@ export class App {
             return;
           }
           this.payFailed.set(`Nothing was bought. ${refusal(failure)}`);
+          // On its box, as a run's refusal is (ADR-0033): a payment endpoint the rail
+          // needs was refused at the start of a run, and is now refused when the payment
+          // is, so the box is marked the same way -- held against what the payment sent
+          // and through which rail -- and holds paying back until either moves. Only the
+          // endpoint: a spend limit refused is one cart over it, which says nothing about
+          // the box or about the cards under it, and stays a sentence beside them.
+          this.rejected.set(
+            refusedField(failure) === 'merchant_url'
+              ? {
+                  field: 'merchant_url',
+                  message: refusal(failure),
+                  payment: { sent: paying.merchant_url, rail: paying.rail },
+                }
+              : null,
+          );
           this.paying.set(null);
         },
       });
@@ -516,6 +543,15 @@ export class App {
   }
 }
 
+/** The paying settings before the form has said, which pay for nothing. */
+const NOT_PAYING: PaySettings = {
+  pay: false,
+  rail: '',
+  merchant_url: '',
+  spend_limit: null,
+  held: null,
+};
+
 /** The page's name, which the tab carries after what the run is doing. */
 const NAME = 'buy_agent';
 
@@ -526,6 +562,12 @@ const UNMOVED = ['steady', 'unplaced'];
 /** The wall clock as Python's `%H:%M:%S` writes it, for the one line above. */
 function now(): string {
   return new Date().toTimeString().slice(0, 8);
+}
+
+/** The setting a refusal named, if it named one (ADR-0033). */
+function refusedField(failure: unknown): string | null {
+  const field = (failure as { error?: { field?: unknown } } | null)?.error?.field;
+  return typeof field === 'string' ? field : null;
 }
 
 /** Why a request failed: the server's own sentence, or a guess where it sent none. */

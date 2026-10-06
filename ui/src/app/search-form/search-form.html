@@ -11,7 +11,12 @@
          `(input)` sits beside `(ngModelChange)` rather than instead of it: a box
          holding `12abc` reports the empty string, so the model sees the `null` a
          *cleared* box means, and only the element itself still knows the
-         difference. -->
+         difference.
+
+         A switched-off box shows nothing, so its placeholder -- the sentence saying
+         where the setting lives instead -- is what is read there. Showing the number
+         it would send elsewhere, a disabled context window read 16384 on a vLLM that
+         ignores it. What it holds comes back when the box is switched on again. -->
     <!-- eslint-disable @angular-eslint/template/no-duplicate-attributes --
          the linter reads `[name]` and `[attr.name]` as one attribute written
          twice; they are two bindings, and both are wanted (above). -->
@@ -23,7 +28,7 @@
       [max]="limits()[number.key]?.max ?? null"
       [step]="number.step"
       [placeholder]="placeholders()[number.key] ?? ''"
-      [ngModel]="number.value()"
+      [ngModel]="number.off() ? null : number.value()"
       (ngModelChange)="number.value.set($event)"
       (input)="numberTyped(number.key, $event)"
       [disabled]="running() || number.off()"
@@ -45,6 +50,16 @@
     } @else {
       @if (noticedNote(number.key); as noticed) {
         <small class="noticed">{{ noticed }}</small>
+        <!-- Under Python's note, while a press of Find products is what stopped here:
+             that press filled this box and searched nothing, and from the button it
+             looked like a press that had not registered. No `role="status"`: a status
+             is not named by its contents, so it left the box's name, which is what a
+             screen reader reads when the focus is moved here. In the label, it is. -->
+        @if (stoppedAt() === number.key) {
+          <small class="noticed unsearched"
+            >Nothing was searched yet: press Enter, or Find products, to search with it.</small
+          >
+        }
       }
       @if (number.hint(); as hint) {
         <small>{{ hint }}</small>

@@ -63,12 +63,14 @@
     [checked]="sourcesCheck()"
     [noticed]="boundsCheck()"
     [rejected]="rejected()"
+    [countedIn]="result()?.scale ?? null"
     (run)="start($event)"
     (stop)="stop()"
     (refresh)="refreshModels($event)"
     (check)="checkSources($event)"
     (read)="checkBounds($event)"
     (moved)="dropRefusal()"
+    (payWith)="paySettings.set($event)"
   />
 
   @if (failure(); as message) {
@@ -154,6 +156,7 @@
             [weights]="found.weights"
             [screenshots]="screenshots()"
             [canPay]="canPay()"
+            [held]="paySettings().held"
             [rail]="payRail()"
             [paying]="paying()"
             [receipt]="receipts()[product.name] ?? null"
@@ -174,6 +177,7 @@
                   [weights]="found.weights"
                   [screenshots]="screenshots()"
                   [canPay]="canPay()"
+                  [held]="paySettings().held"
                   [rail]="payRail()"
                   [paying]="paying()"
                   [receipt]="receipts()[product.name] ?? null"

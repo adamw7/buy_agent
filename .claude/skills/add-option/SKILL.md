@@ -59,13 +59,17 @@ Work down this list in order.
 ## 5. `ui/src/app/search-form/`
 
 - A signal, and the key in `options()`, the one place the payload is built.
-  `agent.ts`'s `toQuery` drops blanks.
+  `agent.ts`'s `toQuery` drops blanks. A setting a *payment* reads goes in the
+  form's `payingValues` instead (which `options()` spreads), and so in
+  `PaySettings` and `App.payFor`'s body; a box it has joins `PAYING_BOXES`.
 - **Numeric** -> one `field('<request key>', 'Label', signal, {step, hint, off,
-  remembersBlank})` row in `numberFields` and nothing else: the template loops
-  over it, and `settings` spreads `numberSettings(this.numberFields)`. No literal
-  `min=`, no second block of markup, no `setting(...)` row for it.
+  remembered, remembersBlank})` row in `numberFields` and nothing else: the
+  template loops over it, and `settings` spreads
+  `numberSettings(this.numberFields)`. No literal `min=`, no second block of
+  markup, no `setting(...)` row for it.
 - `remembersBlank: false` only where a cleared box should come back showing the
-  default.
+  default. `remembered: false` for a bound on what one search finds, which is
+  never kept for the next visit (ADR-0077).
 - **Anything else** -> a `setting(signal, (d) => d.<key>,
   asText|asBoolean|amongst(...))` row in `settings`.
 - Keys are typed `NumberKey`; `placeholders()` needs nothing (a `null` default

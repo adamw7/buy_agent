@@ -143,6 +143,47 @@ def test_search_falls_back_to_the_raw_request_when_refinement_fails(
     assert ranked
 
 
+@pytest.mark.parametrize(
+    ("failure", "said"),
+    [
+        (ValueError("model returned garbage"), "model returned garbage"),
+        # Pydantic's first line, not its dozen.
+        (
+            ValueError("1 validation error for SearchQuery\nquery\n  Field required"),
+            "1 validation error for SearchQuery",
+        ),
+        # Its words, not the space around them.
+        (ValueError("\n  model returned garbage\n"), "model returned garbage"),
+        # A failure that says nothing is named by its type, as is one that says blanks.
+        (RuntimeError(), "RuntimeError"),
+        (ValueError("   "), "ValueError"),
+    ],
+)
+def test_a_refinement_that_failed_says_why_in_one_line(
+    agent_factory, search_results, extracted_products, monkeypatch, caplog, failure, said
+) -> None:
+    """The browser relays a line's message and nothing else, so a reason left to the
+    traceback never reached it; and a traceback at WARNING put thirty lines of pydantic
+    on the terminal over a run that went on fine. The traceback is still there, at the
+    level ``-v`` shows."""
+    llm = FakeLLM(products=extracted_products)
+    agent, _ = agent_factory(llm, search_results)
+    monkeypatch.setattr(agent, "query_chain", _failing_chain(failure))
+
+    with caplog.at_level(logging.DEBUG, logger="buy_agent.agent"):
+        agent.run("wireless earbuds")
+
+    warned = [record for record in caplog.records if record.levelno == logging.WARNING]
+    assert [record.getMessage() for record in warned] == [
+        f"Query refinement failed ({said}); using the raw request"
+    ]
+    assert warned[0].exc_info is None
+    traced = [record for record in caplog.records if record.exc_info]
+    assert [record.levelno for record in traced] == [logging.DEBUG]
+    assert traced[0].getMessage() == "Why query refinement failed"
+    assert traced[0].exc_info[1] is failure
+
+
 def test_blank_refined_query_falls_back_to_the_raw_request(
     agent_factory, search_results, extracted_products
 ) -> None:

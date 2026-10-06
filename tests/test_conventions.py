@@ -2259,6 +2259,66 @@ def test_no_test_reads_a_declaration_off_a_function_object() -> None:
         )
 
 
+# -- the recorded demo ---------------------------------------------------------
+
+#: The demo's server, which swaps stand-ins of its own in for the package's and which
+#: nothing imports (CLAUDE.md): read, it is the only way the suite sees it at all.
+_DEMO_SERVER = _ROOT / "demo" / "server.py"
+
+
+def function_named(tree: ast.Module, name: str) -> ast.FunctionDef:
+    """The one function called ``name`` in ``tree``, however deep it is defined."""
+    found = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == name
+    ]
+    assert len(found) == 1, f"{len(found)} functions called {name}; this rule has moved"
+    return found[0]
+
+
+def test_the_demos_model_list_takes_everything_the_server_hands_the_real_one() -> None:
+    """``demo/server.py`` puts a list of its own where ``server.installed_models`` was,
+    and the day the server began passing it ``unaskable`` nothing failed but the demo:
+    every listing a ``TypeError`` and a 500, and the header reading "Ollama
+    unreachable" over every run it was there to record."""
+    demo = ast.parse(_DEMO_SERVER.read_text(encoding="utf-8"))
+    replacing = [
+        node.value.id
+        for node in ast.walk(demo)
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Name)
+        and any(
+            isinstance(target, ast.Attribute) and target.attr == "installed_models"
+            for target in node.targets
+        )
+    ]
+    assert replacing, "the demo no longer replaces installed_models; this rule has moved"
+    stand_in = function_named(demo, replacing[0]).args
+    positional = [*stand_in.posonlyargs, *stand_in.args]
+    by_name = {arg.arg for arg in (*stand_in.args, *stand_in.kwonlyargs)}
+
+    server = ast.parse((_PACKAGE / "server.py").read_text(encoding="utf-8"))
+    calls = [
+        node
+        for node in ast.walk(server)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "installed_models"
+    ]
+    assert calls, "the server no longer lists models through installed_models"
+    for call in calls:
+        assert stand_in.vararg or len(call.args) <= len(positional), (
+            f"the server passes {len(call.args)} arguments by position, and the demo's "
+            f"{replacing[0]} takes {len(positional)}"
+        )
+        passed = {keyword.arg for keyword in call.keywords if keyword.arg is not None}
+        assert stand_in.kwarg or passed <= by_name, (
+            f"the demo's {replacing[0]} takes no {sorted(passed - by_name)}, which the "
+            "server passes the real listing"
+        )
+
+
 # -- paying --------------------------------------------------------------------
 
 

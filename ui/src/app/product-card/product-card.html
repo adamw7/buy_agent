@@ -191,6 +191,10 @@
         </button>
       } @else if (refusal(); as why) {
         <p class="cannot-pay">{{ why }}</p>
+      } @else if (heldBack(); as why) {
+        <!-- In the Pay button's place, where the shopper is looking: the box it names is
+             in the Settings panel, a screen or more above the card. -->
+        <p class="cannot-pay held" tabindex="-1">{{ why }}</p>
       }
     </div>
   </div>

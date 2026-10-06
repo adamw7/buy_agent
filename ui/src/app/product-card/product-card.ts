@@ -4,6 +4,7 @@ import {
   afterRenderEffect,
   computed,
   input,
+  linkedSignal,
   output,
   signal,
   viewChild,
@@ -22,9 +23,9 @@ const CRITERIA = [
 /** Where the keyboard goes in each block the payment area draws, in the order they are
  *  drawn: the cart a confirmation restates -- never the button under it that buys, or
  *  Enter pressed twice would be the single click the confirmation exists to prevent --
- *  the wait, the receipt, and the Pay button a cancelled or failed payment comes back
- *  to. */
-const LANDING = '.confirm p, .authorising, .receipt, button.pay';
+ *  the wait, the receipt, the Pay button a cancelled or failed payment comes back to,
+ *  and the sentence saying what holds paying back where a refusal put one in its place. */
+const LANDING = '.confirm p, .authorising, .receipt, button.pay, .held';
 
 /** One criterion behind the score, as the card draws it. */
 interface ScoreShare {
@@ -56,6 +57,9 @@ export class ProductCard {
   /** Whether this run may pay at all: the shopper asked for it and the server can. */
   readonly canPay = input(false);
 
+  /** What holds paying back -- a paying setting the form marks, named -- or null. */
+  readonly held = input<string | null>(null);
+
   /** The payment's rail row, which says whether anyone is charged. */
   readonly rail = input<RailOption | null>(null);
 
@@ -68,8 +72,14 @@ export class ProductCard {
   /** The approval a person gave, emitted when they confirm. */
   readonly pay = output<{ title: string; price: number; currency: string }>();
 
-  /** Whether this card is showing its confirmation. */
-  protected readonly confirming = signal(false);
+  /** Whether this card is showing its confirmation -- closed again whenever what it
+   *  restates changes under it. Hidden rather than closed, one opened under the dry run
+   *  came back open when paying was ticked again, reading "you will be charged" over a
+   *  rail that charges, one click from paying. */
+  protected readonly confirming = linkedSignal({
+    source: () => [this.canPay(), this.held(), this.rail()?.name],
+    computation: () => false,
+  });
 
   /** The payment area, every press inside which redraws it. */
   private readonly payment = viewChild<ElementRef<HTMLElement>>('payment');
@@ -86,7 +96,18 @@ export class ProductCard {
   /** Whether to offer the button: paying is on, this product can be paid, and
    *  nothing has been bought yet. */
   protected readonly offersPayment = computed(
-    () => this.canPay() && this.product().cannot_pay === null && this.receipt() === null,
+    () =>
+      this.canPay() &&
+      this.held() === null &&
+      this.product().cannot_pay === null &&
+      this.receipt() === null,
+  );
+
+  /** What holds paying back, on a card that could otherwise be paid for. */
+  protected readonly heldBack = computed(() =>
+    this.canPay() && this.receipt() === null && this.product().cannot_pay === null
+      ? this.held()
+      : null,
   );
 
   /** Why this one cannot be bought, where the run could have bought something. */
@@ -106,6 +127,7 @@ export class ProductCard {
       this.authorising();
       this.confirming();
       this.offersPayment();
+      this.heldBack();
       const area = this.payment()?.nativeElement;
       const active = document.activeElement;
       if (area && this.focused && (active === null || active === document.body)) {

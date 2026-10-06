@@ -104,13 +104,19 @@ the matching box is filled once, only while empty, under Python's note
 It is a hint, never a mark, and a cleared box is not refilled. The request is
 read on `change`, which Enter fires on its way to submitting, so a submit waits
 for a reading on its way (`reading`, `held`). If the reading filled a box, it
-sends nothing and focuses that box; pressing again searches with it. `App`
+sends nothing, focuses that box and brings its whole field into view, where a
+line under Python's note says nothing was searched yet (`stoppedAt`); pressing
+again searches with it. `App`
 answers a failed reading as one that noticed nothing. The note sits above the
 box's hint, which says the currency the figure is read in.
 
 **Storage.** Settings are remembered in `localStorage` and the request is not.
 Every call is wrapped. `pay` is never remembered: "you may spend my money" is not
-a standing answer.
+a standing answer. Nor are the three bounds, which belong to the request they
+were set for: restored into a shut panel, one filtered the next visit's search
+for something else, and nothing on the page said so. A row declares `remembered:
+false` and is neither written nor read back
+([ADR-0077](../docs/adr/0077-keep-the-shoppers-bounds-out-of-what-the-form-remembers.md)).
 
 **Pickers.** The search backend's note comes from its row's `configured` and
 `endpoint` ([ADR-0057](../docs/adr/0057-a-search-backend-is-a-row-in-a-table.md)).
@@ -120,7 +126,19 @@ the currency the budget boxes are read in. `App` sends the run's currency, or it
 voted `scale`, back with a re-sort or payment, since a re-vote can break a tie the
 other way. The payment block is drawn only when `pay_available`, and its fields
 only once paying is ticked; `moves_money` and `needs_endpoint` come off the rail's
-row.
+row. Paying runs no pipeline, so the form tells `App` its paying settings as they
+change (`payWith`), and the Pay buttons, the cart's rail and the payment follow
+them as they stand rather than as the run was started: ticked once the results
+are in, the box offers to pay for them. They are held to what a run is held to.
+While the form marks a paying box (an unreadable spend limit reads as `null`,
+which the server takes for no limit), `held` names it and each card says so in its
+button's place. A payment refused on `merchant_url` is marked on that box like a
+run's refusal, held against the `payment` it came from: what it sent and through
+which rail, so the dry run (whose endpoint is as blank, in a disabled box) or the
+switch turned off lets it go. A spend limit refused is one cart over it, which
+says nothing about the box or the cards under it, so it stays in the banner. The spend limit's hint names `countedIn`, the results' currency, since
+that is what a payment is checked in, and a card's confirmation closes when the
+switch, the rail or `held` changes under what it restates.
 
 **Refusals.** `problems()` checks each number against the server's ranges and the
 sources against the last `/api/sources` answer, and gates `canSubmit`. A field
@@ -148,7 +166,10 @@ is waiting on. Editing the address emits `refresh` with a `ModelSource` (provide
 and address), and changing the provider refills model and address first. An
 address that is this server (vLLM's `:8000`) is explained by the server and
 refused on `base_url`. `takes_num_ctx` and `takes_cpu_only` disable the fields
-that do not apply.
+that do not apply. A switched-off number box shows nothing, so its placeholder
+(where the setting lives instead) is what is read, and keeps its value for when
+it is switched on. `styles.css` gives a disabled field a dimmed fill, dimmed text
+and a dashed edge, since the fill every field is given hides the browser's own.
 
 ## Testing it
 
