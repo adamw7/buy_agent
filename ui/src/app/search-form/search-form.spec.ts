@@ -1346,7 +1346,7 @@ describe('SearchForm', () => {
       fixture.componentRef.setInput('rejected', {
         field: 'merchant_url',
         message: 'The payment endpoint did not answer.',
-        sent: 'https://new.example',
+        payment: { sent: 'https://new.example', rail: 'http' },
       });
       await fixture.whenStable();
 
@@ -1364,6 +1364,39 @@ describe('SearchForm', () => {
       await type('input[name="merchantUrl"]', 'https://newer.example');
 
       expect(moved).toEqual([true]);
+    });
+
+    it("lets a payment's refusal go when the rail or the switch moves", async () => {
+      /* The dry run's endpoint is as blank as a refused one, in a box it disables: held
+         against the value alone, "needs an address" outlived the switch to the dry run
+         and held paying where nobody could type the address in. */
+      const refuse = async () => {
+        fixture.componentRef.setInput('rejected', {
+          field: 'merchant_url',
+          message: 'Paying through HTTP endpoint needs an address.',
+          payment: { sent: '', rail: 'http' },
+        });
+        await fixture.whenStable();
+      };
+      const moved: unknown[] = [];
+      fixture.componentInstance.moved.subscribe(() => moved.push(true));
+      await choose('select[name="rail"]', 'http');
+      await refuse();
+      expect(told.at(-1)!.held).not.toBeNull();
+
+      await choose('select[name="rail"]', 'dry-run');
+      expect(moved).toHaveLength(1);
+      expect(told.at(-1)!.held).toBeNull();
+
+      await choose('select[name="rail"]', 'http');
+      fixture.componentRef.setInput('rejected', null);
+      await refuse();
+      const pay = element<HTMLInputElement>('input[name="pay"]');
+      pay.checked = false;
+      pay.dispatchEvent(new Event('change'));
+      await fixture.whenStable();
+
+      expect(moved).toHaveLength(2);
     });
 
     it('names the currency a payment is checked in once results are on screen', async () => {

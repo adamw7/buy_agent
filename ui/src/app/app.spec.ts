@@ -1799,6 +1799,48 @@ describe('App paying', () => {
       expect(page.textContent, 'nor says it any more').not.toContain('Nothing was bought');
     });
 
+    it('lets go once the rail is one that needs no endpoint', async () => {
+      /* The way out of "needs an address" for somebody with no endpoint is the dry run,
+         whose box is as blank and disabled: held against the value alone, paying stayed
+         held where nothing could be typed, and unticked, the summary still counted a
+         setting to look at in a block it had hidden. */
+      const fixture = await refusedOn('merchant_url');
+      const page = fixture.nativeElement as HTMLElement;
+
+      await setPaying(fixture, 'rail', 'dry-run');
+
+      expect(box(fixture).getAttribute('aria-invalid')).toBeNull();
+      expect(page.querySelector('app-product-card button.pay')).not.toBeNull();
+    });
+
+    it('counts no setting to look at once paying is unticked', async () => {
+      const fixture = await refusedOn('merchant_url');
+
+      await setPaying(fixture, 'pay', false);
+
+      expect((fixture.nativeElement as HTMLElement).querySelector('summary .flagged')).toBeNull();
+    });
+
+    it('holds the mark against what the payment sent, not what the run did', async () => {
+      /* The run went out with one endpoint; the payment, with the box changed since,
+         with another. Held against the run's, the refusal read as already moved on. */
+      agent.payResponse = () =>
+        throwError(() => ({
+          error: { error: 'The payment endpoint did not answer.', field: 'merchant_url' },
+        }));
+      const fixture = await render();
+      await setPaying(fixture, 'pay', true);
+      await setPaying(fixture, 'rail', 'http');
+      await setPaying(fixture, 'merchantUrl', 'https://old.example');
+      await ran(agent, 'kettle', RESULT, fixture);
+      await setPaying(fixture, 'merchantUrl', 'https://new.example');
+
+      await buyTheTopOne(fixture);
+
+      expect(box(fixture).getAttribute('aria-invalid')).toBe('true');
+      expect(agent.paid[0].merchant_url).toBe('https://new.example');
+    });
+
     it('marks nothing for a refusal that names no box on the form', async () => {
       /* "approved" is the echo the page sent, and "products" the run's: neither is a
          setting anybody can put right. */
@@ -1810,6 +1852,30 @@ describe('App paying', () => {
       expect(page.querySelector('app-product-card button.pay')).not.toBeNull();
       expect(page.textContent).toContain('Nothing was bought');
     });
+  });
+
+  it('leaves the cards under the spend limit payable when one is over it', async () => {
+    /* "Good Kettle costs 200.00 USD, over the 150.00 USD spend limit" is about that cart
+       and not about the box: marked on it, it held every card, the ones under the
+       limit too, until a limit nobody had got wrong was changed. */
+    agent.payResponse = () =>
+      throwError(() => ({
+        error: {
+          error: 'Best Kettle costs 100.00 USD, over the 50.00 USD spend limit.',
+          field: 'spend_limit',
+        },
+      }));
+    const fixture = await finished(true);
+    await setPaying(fixture, 'spend_limit', '50');
+    await buyTheTopOne(fixture);
+
+    const page = fixture.nativeElement as HTMLElement;
+    expect(
+      page.querySelector('input[name="spend_limit"]')!.getAttribute('aria-invalid'),
+    ).toBeNull();
+    expect(page.querySelector('app-product-card .held')).toBeNull();
+    expect(page.querySelectorAll('app-product-card button.pay').length).toBeGreaterThan(0);
+    expect(page.textContent).toContain('Nothing was bought. Best Kettle costs 100.00 USD');
   });
 
   it('pays in the currency the run was counted in after the form names another', async () => {

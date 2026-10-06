@@ -31,7 +31,6 @@ import { ProductCard } from './product-card/product-card';
 import { ProgressLog } from './progress-log/progress-log';
 import { filename, saveText } from './save';
 import { SearchForm } from './search-form/search-form';
-import { PAYING_KEYS } from './search-form/search-form';
 import type { PaySettings, Rejection } from './search-form/search-form';
 
 /** The page: ask for something, watch the agent work, read the ranked answer. */
@@ -488,12 +487,17 @@ export class App {
           this.payFailed.set(`Nothing was bought. ${refusal(failure)}`);
           // On its box, as a run's refusal is (ADR-0033): a payment endpoint the rail
           // needs was refused at the start of a run, and is now refused when the payment
-          // is, so the box it names is marked the same way -- held against what the
-          // payment sent -- and holds paying back until it moves.
-          const field = refusedField(failure);
+          // is, so the box is marked the same way -- held against what the payment sent
+          // and through which rail -- and holds paying back until either moves. Only the
+          // endpoint: a spend limit refused is one cart over it, which says nothing about
+          // the box or about the cards under it, and stays a sentence beside them.
           this.rejected.set(
-            field !== null && PAYING_KEYS.includes(field)
-              ? { field, message: refusal(failure), sent: paying[field as keyof PaySettings] }
+            refusedField(failure) === 'merchant_url'
+              ? {
+                  field: 'merchant_url',
+                  message: refusal(failure),
+                  payment: { sent: paying.merchant_url, rail: paying.rail },
+                }
               : null,
           );
           this.paying.set(null);

@@ -42,9 +42,11 @@ interface ModelOption {
 export interface Rejection {
   field: string;
   message: string;
-  /** What a payment sent for the field, where the refusal was a payment's: it is held
-   *  against that rather than against the run's settings, which it never used. */
-  sent?: unknown;
+  /** Where the refusal was a payment's: what it sent for the field and the rail it went
+   *  through. It is held against those rather than against the run's settings, which it
+   *  never used -- and against the rail too, since the dry run's endpoint is as blank as
+   *  a refused one, in a box the dry run disables. */
+  payment?: { sent: unknown; rail: string };
 }
 
 /** What a Pay button on the results pays with: the paying settings as they stand now. */
@@ -64,8 +66,8 @@ const PAYING_BOXES: Record<string, string> = {
   merchant_url: 'Payment endpoint',
 };
 
-/** The keys of a payment a refusal may name and the form marks a box for. */
-export const PAYING_KEYS = Object.keys(PAYING_BOXES);
+/** Their keys, in the order a reason is looked for. */
+const PAYING_KEYS = Object.keys(PAYING_BOXES);
 
 /** A number box's one key: sent, ranged, refused, seeded and placeholdered under it.
  *  Narrowed to keys whose default is a number, so a wrong box does not compile. */
@@ -544,10 +546,16 @@ export class SearchForm {
 
   /** Whether the field named still holds the value the run was refused for. */
   private stillSent(field: string): boolean {
-    // A payment's refusal is held against what the payment sent.
+    // A payment's refusal is held against what the payment sent, and through what: a
+    // rail switched, or paying switched off, is the box moving on as much as typing is.
     const rejected = this.rejected();
-    if (rejected?.field === field && 'sent' in rejected) {
-      return this.options()[field as keyof SearchOptions] === rejected.sent;
+    const payment = rejected?.field === field ? rejected.payment : undefined;
+    if (payment) {
+      return (
+        this.pay() &&
+        this.rail() === payment.rail &&
+        this.options()[field as keyof SearchOptions] === payment.sent
+      );
     }
     const sent = this.submitted();
     if (!sent || !(field in sent)) {

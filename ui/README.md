@@ -132,9 +132,11 @@ them as they stand rather than as the run was started: ticked once the results
 are in, the box offers to pay for them. They are held to what a run is held to.
 While the form marks a paying box (an unreadable spend limit reads as `null`,
 which the server takes for no limit), `held` names it and each card says so in its
-button's place. A payment refused on `merchant_url` or `spend_limit` is marked on
-that box like a run's refusal, with the value the payment `sent` to hold it
-against. The spend limit's hint names `countedIn`, the results' currency, since
+button's place. A payment refused on `merchant_url` is marked on that box like a
+run's refusal, held against the `payment` it came from: what it sent and through
+which rail, so the dry run (whose endpoint is as blank, in a disabled box) or the
+switch turned off lets it go. A spend limit refused is one cart over it, which
+says nothing about the box or the cards under it, so it stays in the banner. The spend limit's hint names `countedIn`, the results' currency, since
 that is what a payment is checked in, and a card's confirmation closes when the
 switch, the rail or `held` changes under what it restates.
 

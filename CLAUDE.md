@@ -504,8 +504,9 @@ hold:
   the payment follow the form's paying settings as they stand (`payWith`), not
   the run's: paying runs no pipeline. They are held to what a run is: while the
   form marks a paying box, the card says so (`held`) where its button was, and a
-  payment's refusal naming one is marked on it, held against what the payment
-  sent. The spend limit's hint names the results' currency (`countedIn`), which a
+  payment refused on its endpoint is marked on that box, held against what the
+  payment sent, its rail and the switch. A spend limit refused is one cart over
+  it, and stays a sentence beside the cards. The spend limit's hint names the results' currency (`countedIn`), which a
   payment is checked in, and an open confirmation closes when the switch, the
   rail or `held` changes under it. A press moves the
   keyboard to what replaced its block (`LANDING`): the cart and never the button
