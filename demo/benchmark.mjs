@@ -15,7 +15,8 @@
  * the picture cannot drift apart. Each line is captioned on screen too. A model
  * on a CPU takes minutes over the three cases, so the stretches where it is only
  * working are sped up (`--fast-forward`, 8 by default; 1 turns it off), with a
- * badge saying so while they last. The page's own clock keeps real time.
+ * badge saying so while they last, and the seconds spent synthesising each line
+ * are cut. The page's own clock keeps real time.
  */
 import { mkdtemp, rm, mkdir } from 'node:fs/promises';
 import { cpus, loadavg, tmpdir } from 'node:os';
@@ -275,6 +276,12 @@ cues.start();
 /** The sped-up stretches, in seconds of the recording as it was taken. */
 const fast = [];
 
+/**
+ * The stretches cut out entirely: the screen held still while a line was being
+ * synthesised, which a neural voice takes seconds over and nobody should watch.
+ */
+const cut = [];
+
 function speedUp(on) {
   const open = fast.at(-1);
   if (on && (!open || open.to !== undefined)) {
@@ -300,7 +307,9 @@ async function say(line) {
   const text = line.replace(/(\d+)\/(\d+)/g, '$1 of $2');
   await speedUp(false);
   const clip = join(videoDir, `line-${++lineCount}.wav`);
+  const from = cues.now();
   const seconds = Number(python(['-m', 'demo.narration', '--out', clip], { input: text }));
+  cut.push({ from, to: cues.now() });
   await overlay(page, 'recorder-caption', [text], CAPTION).catch(() => {});
   cues.add('say', { clip });
   await sleep(seconds * 1000);
@@ -623,10 +632,16 @@ const take = await page.video().path();
 await context.close();
 await browser.close();
 
-/** Where a moment of the take lands in the finished video, once the fast stretches shrink. */
+/** Every stretch that shrinks, with the share of it given up: most of a fast one, all of a cut. */
+const shrinking = [
+  ...fast.map((stretch) => ({ ...stretch, lost: 1 - 1 / fastForward })),
+  ...cut.map((stretch) => ({ ...stretch, lost: 1 })),
+];
+
+/** Where a moment of the take lands in the finished video, once the stretches shrink. */
 function finishedAt(at) {
-  return fast.reduce(
-    (moment, { from, to }) => moment - Math.max(0, Math.min(at, to) - from) * (1 - 1 / fastForward),
+  return shrinking.reduce(
+    (moment, { from, to, lost }) => moment - Math.max(0, Math.min(at, to) - from) * lost,
     at,
   );
 }
@@ -640,13 +655,13 @@ const track = soundtrack(
   seconds,
   videoDir,
 );
-// One timestamp expression shrinks every fast stretch: a frame's new time is its
-// old one less what the stretches before it gave up. Frames that land closer
-// together than 1/25 s are dropped by the output rate.
-const shrink = fast
+// One timestamp expression shrinks every stretch: a frame's new time is its old
+// one less what the stretches before it gave up. Frames that land closer together
+// than 1/25 s, as all of a cut's do, are dropped by the output rate.
+const shrink = shrinking
   .map(
-    ({ from, to }) =>
-      `-${(1 - 1 / fastForward).toFixed(6)}*clip(T-${from.toFixed(3)},0,${(to - from).toFixed(3)})`,
+    ({ from, to, lost }) =>
+      `-${lost.toFixed(6)}*clip(T-${from.toFixed(3)},0,${(to - from).toFixed(3)})`,
   )
   .join('');
 encode(ffmpeg, [
