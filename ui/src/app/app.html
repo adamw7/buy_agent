@@ -69,6 +69,7 @@
     (check)="checkSources($event)"
     (read)="checkBounds($event)"
     (moved)="dropRefusal()"
+    (payWith)="paySettings.set($event)"
   />
 
   @if (failure(); as message) {

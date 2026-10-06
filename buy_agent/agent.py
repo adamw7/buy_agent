@@ -83,6 +83,13 @@ def journal_for(request: str, config: AgentConfig) -> Journal:
     )
 
 
+def _first_line(exc: Exception) -> str:
+    """What a failure says, on one line: its message's first, or its type where it says
+    nothing -- pydantic's run to a dozen lines, and a timeout's to none."""
+    said = str(exc).strip()
+    return said.splitlines()[0] if said else type(exc).__name__
+
+
 def _and_list(items: list[str]) -> str:
     """``a``, ``a and b``, ``a, b and c``."""
     if len(items) < 2:
@@ -280,8 +287,14 @@ class BuyAgent:
             raise
         # Any failure here is recoverable: the raw request still searches.
         # pylint: disable-next=broad-exception-caught
-        except Exception:
-            logger.warning("Query refinement failed; using the raw request", exc_info=True)
+        except Exception as exc:
+            # Why, in the one line both doors show; the traceback is for -v. With it at
+            # WARNING the terminal got thirty lines of pydantic over a run that went on
+            # fine, and the browser, which relays the message alone, got no reason.
+            logger.warning(
+                "Query refinement failed (%s); using the raw request", _first_line(exc)
+            )
+            logger.debug("Why query refinement failed", exc_info=True)
             return request
 
         query = refined.query.strip()

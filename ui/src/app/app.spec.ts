@@ -1590,6 +1590,74 @@ describe('App paying', () => {
     expect(page.querySelector('app-product-card .pay')).toBeNull();
   });
 
+  /** Set one paying control in the form, the way a click or a keystroke does. */
+  const setPaying = async (
+    fixture: ComponentFixture<App>,
+    name: string,
+    value: string | boolean,
+  ) => {
+    const control = (fixture.nativeElement as HTMLElement).querySelector<
+      HTMLInputElement | HTMLSelectElement
+    >(`[name="${name}"]`)!;
+    if (typeof value === 'boolean') {
+      (control as HTMLInputElement).checked = value;
+      control.dispatchEvent(new Event('change'));
+    } else {
+      control.value = value;
+      control.dispatchEvent(new Event(control instanceof HTMLSelectElement ? 'change' : 'input'));
+    }
+    await fixture.whenStable();
+  };
+
+  it('offers a payment on results already in once paying is ticked', async () => {
+    /* Paying runs no pipeline (ADR-0046), and the run's own setting only ever decided
+       whether its cards had a button: ticked once the results were in, the box did
+       nothing until the same search was run again, and said nothing about why. */
+    const fixture = await finished(false);
+    await setPaying(fixture, 'pay', true);
+
+    await buyTheTopOne(fixture);
+
+    expect(agent.paid).toHaveLength(1);
+    expect(agent.paid[0].rail).toBe('dry-run');
+  });
+
+  it('takes the buttons away again once paying is unticked', async () => {
+    const fixture = await finished(true);
+    const page = fixture.nativeElement as HTMLElement;
+    page.querySelector<HTMLButtonElement>('app-product-card .pay')!.click();
+    await fixture.whenStable();
+
+    await setPaying(fixture, 'pay', false);
+
+    expect(page.querySelector('app-product-card .pay')).toBeNull();
+    expect(page.querySelector('app-product-card .confirm'), 'nor the open confirmation').toBeNull();
+  });
+
+  it('pays through the rail, endpoint and limit the form holds now', async () => {
+    /* What the confirmation restates and what is sent are the same settings: the
+       form's as they stand, not the run's as it was started. */
+    const fixture = await finished(true);
+    await setPaying(fixture, 'rail', 'http');
+    await setPaying(fixture, 'merchantUrl', 'https://pay.example');
+    await setPaying(fixture, 'spend_limit', '500');
+
+    const page = fixture.nativeElement as HTMLElement;
+    page.querySelector<HTMLButtonElement>('app-product-card .pay')!.click();
+    await fixture.whenStable();
+    expect(page.querySelector('app-product-card .confirm')!.textContent).toContain(
+      'will be charged',
+    );
+    page.querySelector<HTMLButtonElement>('app-product-card .confirm .pay')!.click();
+    await fixture.whenStable();
+
+    expect(agent.paid[0]).toMatchObject({
+      rail: 'http',
+      merchant_url: 'https://pay.example',
+      spend_limit: 500,
+    });
+  });
+
   it('sends the run, the rank and the approval, and nothing else', async () => {
     const fixture = await finished(true);
     await buyTheTopOne(fixture);

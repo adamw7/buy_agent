@@ -500,7 +500,9 @@ hold:
   links somewhere. It is `loading="lazy"`, reserves 640x400, and a failed image
   drops the frame by address.
 - Buying takes two clicks, and the second restates the *cart* (`pay_label`,
-  `pay_merchant`, the rail, whether anyone is charged). A press moves the
+  `pay_merchant`, the rail, whether anyone is charged). Pay buttons, the rail and
+  the payment follow the form's paying settings as they stand (`payWith`), not
+  the run's: paying runs no pipeline. A press moves the
   keyboard to what replaced its block (`LANDING`): the cart and never the button
   that buys, Pay again, the wait, the receipt. Focus the reader moved elsewhere
   stays there.
@@ -515,7 +517,8 @@ hold:
   says beside it that nothing was searched yet (`stoppedAt`). `App` answers a
   failed reading as one that noticed nothing.
 - `problems()` gates `canSubmit` using server ranges and the last sources
-  answer. Disabled fields are neither checked nor sent. `notes()` adds the
+  answer. Disabled fields are neither checked nor sent, and a switched-off number
+  box shows empty so its placeholder is read. `notes()` adds the
   server's `rejected` field while `submitted` still matches, and `moved` tells
   `App` when to drop the banner. `options()` builds the payload. A mark is
   `aria-invalid` plus `aria-describedby` from `problemId`. `numberTyped` reads

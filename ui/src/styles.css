@@ -108,6 +108,19 @@ textarea {
   font: inherit;
 }
 
+/* A box that takes nothing says so before it is clicked. The fill and the colour above
+   override the browser's own grey, so a switched-off field -- the context window on a
+   server that fixes its own, every field while a run is under way -- looked exactly
+   like one waiting to be typed in. The dashed edge is the cue that is not a colour. */
+input:disabled:not([type='checkbox']),
+select:disabled,
+textarea:disabled {
+  border-style: dashed;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  cursor: not-allowed;
+}
+
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
@@ -136,6 +149,12 @@ summary:focus-visible {
 .checkbox input {
   width: auto;
   accent-color: var(--accent);
+}
+
+/* The sentence beside a switched-off box dims with it: the box alone is too small to
+   carry the difference. */
+.checkbox:has(input:disabled) > span {
+  color: var(--text-dim);
 }
 
 button {

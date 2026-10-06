@@ -44,6 +44,11 @@ export interface Rejection {
   message: string;
 }
 
+/** What a Pay button on the results pays with: the paying settings as they stand now. */
+export type PaySettings = Required<
+  Pick<SearchOptions, 'pay' | 'rail' | 'merchant_url' | 'spend_limit'>
+>;
+
 /** A number box's one key: sent, ranged, refused, seeded and placeholdered under it.
  *  Narrowed to keys whose default is a number, so a wrong box does not compile. */
 type NumberKey = {
@@ -141,6 +146,9 @@ export class SearchForm {
   /** The refused box now holds something else, so the banner repeating the refusal
    *  should go with the mark (see `notes`). */
   readonly moved = output<void>();
+  /** The paying settings, each time one changes. Not part of a run: paying runs no
+   *  pipeline (ADR-0046), so a box ticked after the results are in still pays. */
+  readonly payWith = output<PaySettings>();
 
   protected readonly examples = EXAMPLES;
 
@@ -358,6 +366,15 @@ export class SearchForm {
   /** Whether the optional AP2 SDK is installed on the server at all. */
   protected readonly payAvailable = computed(() => this.defaults()?.pay_available ?? false);
 
+  /** The paying settings as a payment sends them: no spend limit while paying is off,
+   *  as the box goes with the switch. */
+  private readonly paying = computed<PaySettings>(() => ({
+    pay: this.pay(),
+    rail: this.rail(),
+    merchant_url: this.merchantUrl().trim(),
+    spend_limit: this.pay() ? this.spendLimit() : null,
+  }));
+
   /** Whether this rail can charge anybody. */
   protected readonly railSpends = computed(() => this.chosenRail()?.moves_money ?? false);
 
@@ -387,10 +404,13 @@ export class SearchForm {
       : `With ${this.providerLabel()} the device is chosen where the model is served, so this is not a per-run setting there.`,
   );
 
-  /** What a cleared context window falls back to. */
+  /** What a cleared context window falls back to, or -- switched off -- what the box
+   *  says in its place. Short, since it is read in the box: the sentence under it names
+   *  the server, and the longer one this was ("Fixed where vLLM's model is served") was
+   *  cut off at the box's edge. */
   protected readonly numCtxHint = computed(() => {
     if (!this.takesNumCtx()) {
-      return `Fixed where ${this.providerLabel()}'s model is served`;
+      return 'Fixed where it is served';
     }
     const fallback = this.defaults()?.num_ctx;
     return fallback ? `The default (${fallback})` : "Ollama's own (4096)";
@@ -611,6 +631,13 @@ export class SearchForm {
         this.moved.emit();
       }
     });
+
+    // Told to the page as they change, seeded and restored values included: Pay
+    // buttons on results already in follow the switch, and pay with what it says.
+    effect(() => {
+      const settings = this.paying();
+      untracked(() => this.payWith.emit(settings));
+    });
   }
 
   /** Fill the form from the server's defaults, then let anything remembered win. */
@@ -706,9 +733,7 @@ export class SearchForm {
       cpu_only: this.takesCpuOnly() ? this.cpuOnly() : undefined,
       fetch: this.fetchPages(),
       journal: this.journal(),
-      pay: this.pay(),
-      rail: this.rail(),
-      merchant_url: this.merchantUrl().trim(),
+      ...this.paying(),
     };
   }
 

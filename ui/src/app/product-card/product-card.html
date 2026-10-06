@@ -156,7 +156,9 @@
           }
           — this can take a moment.
         </p>
-      } @else if (confirming()) {
+      } @else if (confirming() && canPay()) {
+        <!-- Only while paying is on: the switch follows the form as it stands, and a
+             confirmation left open after it was switched off would pay against it. -->
         <div class="confirm" role="group" aria-label="Confirm this purchase">
           <p tabindex="-1">
             <!-- `pay_label` and not `price_label`: this is the cart's amount, in

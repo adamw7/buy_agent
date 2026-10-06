@@ -31,7 +31,7 @@ import { ProductCard } from './product-card/product-card';
 import { ProgressLog } from './progress-log/progress-log';
 import { filename, saveText } from './save';
 import { SearchForm } from './search-form/search-form';
-import type { Rejection } from './search-form/search-form';
+import type { PaySettings, Rejection } from './search-form/search-form';
 
 /** The page: ask for something, watch the agent work, read the ranked answer. */
 @Component({
@@ -72,6 +72,10 @@ export class App {
   /** The settings the run on screen was started with. */
   private readonly ranWith = signal<SearchOptions | null>(null);
 
+  /** The form's paying settings as they stand, which a Pay button pays with: paying
+   *  runs no pipeline, so they are the form's now rather than the run's (ADR-0046). */
+  protected readonly paySettings = signal<PaySettings | null>(null);
+
   /** The product being paid for, by name -- one payment at a time, page-wide. */
   protected readonly paying = signal<string | null>(null);
 
@@ -82,17 +86,20 @@ export class App {
   /** A payment that did not happen. */
   protected readonly payFailed = signal<string | null>(null);
 
-  /** Whether this page may pay at all: the server can, and the run asked it to. */
+  /** Whether this page may pay at all: the server can, and the form's switch says to.
+   *  The switch as it stands and not as the run was started: ticked once the results
+   *  were in, it did nothing at all until the same search was run again. */
   protected readonly canPay = computed(
-    () => (this.defaults()?.pay_available ?? false) && (this.ranWith()?.pay ?? false),
+    () => (this.defaults()?.pay_available ?? false) && (this.paySettings()?.pay ?? false),
   );
 
   /** Whether cards may ask for a screenshot (the server's answer). */
   protected readonly screenshots = computed(() => this.defaults()?.screenshots ?? false);
 
-  /** The run's rail row, so the confirmation can say whether anyone is charged. */
+  /** The rail a payment would go through, so the confirmation can say whether anyone is
+   *  charged. */
   protected readonly payRail = computed<RailOption | null>(() => {
-    const name = this.ranWith()?.rail;
+    const name = this.paySettings()?.rail;
     const rows = this.defaults()?.rail_options ?? [];
     return rows.find((row) => row.name === name) ?? null;
   });
@@ -441,7 +448,8 @@ export class App {
   ): void {
     const found = this.result();
     const settings = this.ranWith();
-    if (!found || !settings || this.paying() !== null) {
+    const paying = this.paySettings();
+    if (!found || !settings || !paying?.pay || this.paying() !== null) {
       return;
     }
     // The server indexes by rank; the receipt is filed by name.
@@ -453,10 +461,10 @@ export class App {
         products: found.products,
         rank,
         approved,
-        rail: settings.rail,
-        merchant_url: settings.merchant_url,
-        spend_limit: settings.spend_limit,
-        // As a re-sort sends them.
+        rail: paying.rail,
+        merchant_url: paying.merchant_url,
+        spend_limit: paying.spend_limit,
+        // The run's own, as a re-sort sends them: the products were counted in it.
         currency: settings.currency,
         scale: found.scale ?? undefined,
       })

@@ -2,6 +2,7 @@ import { TestBed, ComponentFixture } from '@angular/core/testing';
 
 import { accessibilityProblems } from '../a11y';
 import { SearchForm } from './search-form';
+import type { PaySettings } from './search-form';
 import { LITELLM, VLLM, defaults, status } from '../testing';
 import type {
   AgentDefaults,
@@ -1203,7 +1204,7 @@ describe('SearchForm', () => {
     await choose('select[name="provider"]', 'litellm');
 
     expect(element<HTMLInputElement>('input[name="num_ctx"]').placeholder).toBe(
-      "Fixed where LiteLLM's model is served",
+      'Fixed where it is served',
     );
     expect(cpuOnly().disabled).toBe(true);
     expect(cpuOnly().closest('.field')!.querySelector('small')!.textContent).toContain(
@@ -1265,6 +1266,36 @@ describe('SearchForm', () => {
     expect(submitted[0].num_ctx).toBeNull();
   });
 
+  it('tells the page its paying settings as they change, without a run', async () => {
+    /* Paying runs no pipeline (ADR-0046), so the Pay buttons on results already in go
+       by these as they stand: the switch, the rail, the endpoint and the limit -- and
+       no limit while the switch is off, as no run would carry one. */
+    const told: PaySettings[] = [];
+    fixture.componentInstance.payWith.subscribe((settings) => told.push(settings));
+    const pay = element<HTMLInputElement>('input[name="pay"]');
+
+    pay.checked = true;
+    pay.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    await choose('select[name="rail"]', 'http');
+    await type('input[name="merchantUrl"]', ' https://pay.example ');
+    await type('input[name="spend_limit"]', '250');
+
+    expect(told.at(-1)).toEqual({
+      pay: true,
+      rail: 'http',
+      merchant_url: 'https://pay.example',
+      spend_limit: 250,
+    });
+    expect(submitted).toEqual([]);
+
+    pay.checked = false;
+    pay.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    expect(told.at(-1)).toMatchObject({ pay: false, spend_limit: null });
+  });
+
   it('neither holds nor sends a spend limit while paying is off', async () => {
     /* The same rule on the other field that has one: a limit typed and then
        switched off is not a setting this run has, so it is not a run to refuse.
@@ -1298,7 +1329,22 @@ describe('SearchForm', () => {
     await choose('select[name="provider"]', 'vllm');
 
     expect(field().disabled).toBe(true);
-    expect(field().placeholder).toBe("Fixed where vLLM's model is served");
+    expect(field().placeholder).toBe('Fixed where it is served');
+  });
+
+  it('shows a switched-off box empty, so the sentence in its place is read', async () => {
+    /* The placeholder says where the setting lives instead, and a box holding the
+       number it would have sent hid it: a disabled context window read 16384 on a
+       vLLM that ignores it. The number is kept, and back once the box is. */
+    const field = () => element<HTMLInputElement>('input[name="num_ctx"]');
+    await type('input[name="num_ctx"]', '9999');
+
+    await choose('select[name="provider"]', 'vllm');
+    expect(field().value).toBe('');
+    expect(field().placeholder).toBe('Fixed where it is served');
+
+    await choose('select[name="provider"]', 'ollama');
+    expect(field().value).toBe('9999');
   });
 
   it('sends the CPU-only switch along with the request', async () => {
