@@ -13,15 +13,17 @@ from typing import TYPE_CHECKING, Any
 
 from buy_agent import agent as agent_module
 from buy_agent.agent import BuyAgent
+from buy_agent.api import installed_models
 from buy_agent.config import AgentConfig
 from buy_agent.fetch import condense
 from buy_agent.logging_setup import configure_logging
 from buy_agent.models import SearchQuery
+from buy_agent.providers import PROVIDERS
 from buy_agent import server as server_module
 from buy_agent.server import DEFAULT_UI_DIR, create_server
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
     from types import ModuleType
 
     from buy_agent.search import SearchResult
@@ -99,10 +101,21 @@ DEMO_MODELS = ("gemma4:12b", "qwen3:8b", "llama4:8b", "lfm2.5")
 def install_fake_models() -> None:
     """Answer the UI's model picker without asking a model server."""
 
-    def models(provider: str, base_url: str) -> dict[str, Any]:
+    # Every keyword the server hands the real listing, which a convention test holds
+    # it to: one it did not take was a 500 on every listing, and the demo's header
+    # read "Ollama unreachable" over a run that worked.
+    def models(
+        provider: str, base_url: str, *, unaskable: Callable[[str], str] | None = None
+    ) -> dict[str, Any]:
+        if unaskable is not None:
+            # An address that lands on this server is refused before anything is
+            # listed, which the real listing does without asking anybody.
+            return installed_models(provider, base_url, unaskable=unaskable)
+        server = PROVIDERS.get(provider)
         return {
             "provider": provider,
-            "label": "Ollama",
+            # The picked server's own name, as the real listing says it.
+            "label": server.label if server else provider,
             "base_url": base_url,
             "reachable": True,
             # Shaped as ``api.model_payload`` shapes it: every scripted model

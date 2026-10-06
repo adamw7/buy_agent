@@ -45,6 +45,14 @@
     } @else {
       @if (noticedNote(number.key); as noticed) {
         <small class="noticed">{{ noticed }}</small>
+        <!-- Under Python's note, while a press of Find products is what stopped here:
+             that press filled this box and searched nothing, and from the button it
+             looked like a press that had not registered. -->
+        @if (stoppedAt() === number.key) {
+          <small class="noticed" role="status"
+            >Nothing was searched yet: press Enter, or Find products, to search with it.</small
+          >
+        }
       }
       @if (number.hint(); as hint) {
         <small>{{ hint }}</small>

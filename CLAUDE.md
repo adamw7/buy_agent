@@ -505,13 +505,15 @@ hold:
   that buys, Pay again, the wait, the receipt. Focus the reader moved elsewhere
   stays there.
 - Receipts are keyed by product name, never by index.
-- `pay` is the one setting not remembered in `localStorage`. Every storage call
-  is wrapped.
+- `pay` and the three bounds are the settings not remembered in `localStorage`,
+  and a bound an older build stored is not restored (ADR-0077). Every storage
+  call is wrapped.
 - A request-noticed bound fills its box once (`noticedNow`, `offered`) and marks
   nothing. Its note sits above the box's hint, never in its place. A submit waits
   for a reading still on its way (`reading`, `held`), and one that puts a figure
-  in a box sends nothing and focuses that box. `App` answers a failed reading as
-  one that noticed nothing.
+  in a box sends nothing, focuses that box, scrolls its whole field into view and
+  says beside it that nothing was searched yet (`stoppedAt`). `App` answers a
+  failed reading as one that noticed nothing.
 - `problems()` gates `canSubmit` using server ranges and the last sources
   answer. Disabled fields are neither checked nor sent. `notes()` adds the
   server's `rejected` field while `submitted` still matches, and `moved` tells
@@ -520,7 +522,7 @@ hold:
   `validity.badInput`.
 - Number boxes are declared once in `numberFields`, keyed like
   `limits_payload`. `settings` spreads `numberSettings(this.numberFields)`, and
-  `remembersBlank` is set per row. `payingFields`/`settingFields` partition it.
+  `remembered` and `remembersBlank` are set per row. `payingFields`/`settingFields` partition it.
 - The model field marks rather than hides ("not served", "embedding only")
   (ADR-0032).
 - A mark opens the Settings panel it's in, once per change of marks.

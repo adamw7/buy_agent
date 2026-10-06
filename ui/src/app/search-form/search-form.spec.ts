@@ -341,7 +341,44 @@ describe('SearchForm', () => {
     await send();
 
     expect(submitted[0].max_price).toBe(90);
-    expect(JSON.parse(localStorage.getItem('buy_agent.settings')!).maxPrice).toBeNull();
+    expect(JSON.parse(localStorage.getItem('buy_agent.settings')!)).not.toHaveProperty('maxPrice');
+  });
+
+  it('does not remember a bound the shopper typed either', async () => {
+    /* It was, as a standing answer shopped under for weeks. But a budget belongs to the
+       thing it was set for: 650 and 4.4 set for a laptop came back on the next visit
+       inside a closed panel and filtered a search for running shoes down to one pair,
+       with nothing on the page saying a limit was set. The request is not remembered
+       either, and "under $650" typed into it fills the box again (ADR-0077). */
+    await type('input[name="max_price"]', '650');
+    await type('input[name="min_rating"]', '4.4');
+    await type('input[name="min_reviews"]', '100');
+    await type('input[name="request"]', 'light laptop');
+    await send();
+
+    expect(submitted[0]).toMatchObject({ max_price: 650, min_rating: 4.4, min_reviews: 100 });
+    const saved = JSON.parse(localStorage.getItem('buy_agent.settings')!);
+    for (const key of ['maxPrice', 'minRating', 'minReviews']) {
+      expect(saved).not.toHaveProperty(key);
+    }
+  });
+
+  it('restores no bound an older build remembered', async () => {
+    /* A browser that kept one before this held still has it stored, and restoring it
+       is the filter nobody can see that the rule above exists to stop. The settings
+       stored beside it still come back. */
+    localStorage.setItem(
+      'buy_agent.settings',
+      JSON.stringify({ maxPrice: 650, minRating: 4.4, minReviews: 100, region: 'pl-pl' }),
+    );
+
+    const form = await seeded();
+    const value = (name: string) =>
+      form.querySelector<HTMLInputElement>(`input[name="${name}"]`)!.value;
+
+    expect([value('max_price'), value('min_rating'), value('min_reviews')]).toEqual(['', '', '']);
+    expect(value('region')).toBe('pl-pl');
+    expect(form.querySelector<HTMLDetailsElement>('details.advanced')!.open).toBe(false);
   });
 
   it('ignores a bound it has no box for', async () => {
@@ -390,6 +427,98 @@ describe('SearchForm', () => {
 
     expect(submitted).toHaveLength(1);
     expect(submitted[0].max_price).toBe(700);
+  });
+
+  describe('where a held submit takes the shopper', () => {
+    /* Focus alone scrolled the box to the bottom edge of the window, with the panel it
+       is in only just opened above it, and left both sentences under it -- where the
+       figure came from, and that nothing had been searched -- below the fold: a press
+       of Find products that started nothing and said nothing anybody could see. jsdom
+       lays nothing out, so a scroll is recorded by what it was asked of and how. */
+    const proto = HTMLElement.prototype as HTMLElement & { scrollIntoView?: unknown };
+    const original = proto.scrollIntoView;
+    let scrolled: { field: string; block?: ScrollLogicalPosition }[];
+
+    beforeEach(() => {
+      scrolled = [];
+      proto.scrollIntoView = function (this: HTMLElement, how?: ScrollIntoViewOptions) {
+        const box = this.querySelector('input');
+        scrolled.push({ field: box?.name ?? this.className, block: how?.block });
+      };
+    });
+
+    afterEach(() => {
+      proto.scrollIntoView = original;
+    });
+
+    const stopAtTheBudget = async () => {
+      await type('input[name="request"]', 'laptop under $700');
+      await leave('input[name="request"]');
+      await send();
+      await noticed('laptop under $700', [
+        { bound: 'max_price', value: 700, note: 'From your request: "under $700".' },
+      ]);
+    };
+
+    /** What the box says beside Python's note, read off the field it is in. */
+    const unsearched = (name: string): string =>
+      element<HTMLInputElement>(`input[name="${name}"]`)
+        .closest('.field')!
+        .querySelector('[role="status"]')
+        ?.textContent?.trim() ?? '';
+
+    it('brings the whole field into view, as little as shows it', async () => {
+      await stopAtTheBudget();
+
+      expect(scrolled).toEqual([{ field: 'max_price', block: 'nearest' }]);
+      expect(document.activeElement).toBe(element('input[name="max_price"]'));
+    });
+
+    it('says beside the box that nothing was searched yet, and how to search', async () => {
+      await stopAtTheBudget();
+
+      expect(unsearched('max_price')).toBe(
+        'Nothing was searched yet: press Enter, or Find products, to search with it.',
+      );
+      // A hint under Python's own sentence, never a mark (ADR-0059).
+      const box = element<HTMLInputElement>('input[name="max_price"]');
+      expect(box.getAttribute('aria-invalid')).toBeNull();
+      expect(box.closest('.field')!.querySelector('.noticed')!.textContent).toContain(
+        'From your request',
+      );
+    });
+
+    it('stops saying so once the search is sent', async () => {
+      await stopAtTheBudget();
+      await send();
+
+      expect(submitted).toHaveLength(1);
+      expect(unsearched('max_price')).toBe('');
+    });
+
+    it('stops saying so once the request is a new question', async () => {
+      await stopAtTheBudget();
+      await type('input[name="request"]', 'laptop under $700, in silver');
+      await leave('input[name="request"]');
+
+      expect(unsearched('max_price')).toBe('');
+    });
+
+    it('says nothing of the kind for a figure no press stopped at', async () => {
+      /* Filled when the request was left, with nothing pressed: there is no press to
+         explain, and the box's own note says where the figure came from. */
+      await type('input[name="request"]', 'laptop under $700');
+      await leave('input[name="request"]');
+      await noticed('laptop under $700', [
+        { bound: 'max_price', value: 700, note: 'From your request: "under $700".' },
+      ]);
+
+      expect(
+        element('input[name="max_price"]').closest('.field')!.querySelector('.noticed'),
+      ).not.toBeNull();
+      expect(unsearched('max_price')).toBe('');
+      expect(scrolled).toEqual([]);
+    });
   });
 
   it('sends a submit that waited once the reading finds nothing new to show', async () => {
@@ -607,18 +736,6 @@ describe('SearchForm', () => {
     expect(element<HTMLInputElement>('input[name="max_price"]').placeholder).toBe('No limit');
     expect(element<HTMLInputElement>('input[name="min_reviews"]').placeholder).toBe('No limit');
     expect(element<HTMLInputElement>('input[name="cache_ttl"]').placeholder).toBe('86400');
-  });
-
-  it('remembers the bounds a shopper set, the way it remembers the rest', async () => {
-    /* A budget is a standing answer -- shopped under for weeks -- not something
-       retyped per search. */
-    await type('input[name="request"]', 'headphones');
-    await type('input[name="max_price"]', '200');
-    await send();
-
-    const next = await seeded();
-
-    expect(next.querySelector<HTMLInputElement>('input[name="max_price"]')!.value).toBe('200');
   });
 
   it('will not search for nothing', async () => {
@@ -1267,10 +1384,11 @@ describe('SearchForm', () => {
   it('writes every setting under the name a browser already holds it by', async () => {
     /* The saved blob outlives any version of this form, so the names in it are
        a promise to whoever is holding one: rename a key and that browser's
-       answer is not lost loudly, it is silently the default again. The ten
-       number boxes are the ones at risk, being the only names the form derives
-       rather than writes -- `max_price` is remembered as `maxPrice`, which is
-       what the signal beside it is called and what is already stored. */
+       answer is not lost loudly, it is silently the default again. The number
+       boxes are the ones at risk, being the only names the form derives rather
+       than writes -- `cache_ttl` is remembered as `cacheTtl`, which is what the
+       signal beside it is called and what is already stored. The three bounds are
+       not among them: they belong to one request (ADR-0077). */
     await type('input[name="request"]', 'headphones');
     await send();
 
@@ -1285,10 +1403,7 @@ describe('SearchForm', () => {
         'currency',
         'fetchPages',
         'journal',
-        'maxPrice',
         'merchantUrl',
-        'minRating',
-        'minReviews',
         'modelTimeout',
         'model',
         'numCtx',

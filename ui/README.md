@@ -104,13 +104,19 @@ the matching box is filled once, only while empty, under Python's note
 It is a hint, never a mark, and a cleared box is not refilled. The request is
 read on `change`, which Enter fires on its way to submitting, so a submit waits
 for a reading on its way (`reading`, `held`). If the reading filled a box, it
-sends nothing and focuses that box; pressing again searches with it. `App`
+sends nothing, focuses that box and brings its whole field into view, where a
+line under Python's note says nothing was searched yet (`stoppedAt`); pressing
+again searches with it. `App`
 answers a failed reading as one that noticed nothing. The note sits above the
 box's hint, which says the currency the figure is read in.
 
 **Storage.** Settings are remembered in `localStorage` and the request is not.
 Every call is wrapped. `pay` is never remembered: "you may spend my money" is not
-a standing answer.
+a standing answer. Nor are the three bounds, which belong to the request they
+were set for: restored into a shut panel, one filtered the next visit's search
+for something else, and nothing on the page said so. A row declares `remembered:
+false` and is neither written nor read back
+([ADR-0077](../docs/adr/0077-keep-the-shoppers-bounds-out-of-what-the-form-remembers.md)).
 
 **Pickers.** The search backend's note comes from its row's `configured` and
 `endpoint` ([ADR-0057](../docs/adr/0057-a-search-backend-is-a-row-in-a-table.md)).

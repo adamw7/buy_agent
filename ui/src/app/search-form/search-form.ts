@@ -62,7 +62,10 @@ interface NumberField {
   off: () => boolean;
   /** Whether this box is drawn in the paying block, shown only once paying is ticked. */
   paying: boolean;
-  /** Whether a cleared box is remembered (true for bounds, ADR-0039, and `num_ctx`). */
+  /** Whether what the box holds is kept for the next visit: not for a bound (ADR-0077). */
+  remembered: boolean;
+  /** Whether a remembered box is remembered cleared, rather than coming back showing the
+   *  default (`num_ctx`'s cleared box is the server's own window). */
   remembersBlank: boolean;
 }
 
@@ -76,6 +79,7 @@ function field(
     hint?: string | (() => string);
     off?: () => boolean;
     paying?: boolean;
+    remembered?: boolean;
     remembersBlank?: boolean;
   } = {},
 ): NumberField {
@@ -88,6 +92,7 @@ function field(
     hint: typeof hint === 'string' ? () => hint : hint,
     off: extra.off ?? (() => false),
     paying: extra.paying ?? false,
+    remembered: extra.remembered ?? true,
     remembersBlank: extra.remembersBlank ?? true,
   };
 }
@@ -189,21 +194,30 @@ export class SearchForm {
   /** A submit waiting on that reading, by the request it was made with. */
   private readonly held = signal<string | null>(null);
 
+  /** The box a held submit stopped at, which says so until something is sent: a press
+   *  that searched nothing and only filled a box read as a button that did nothing. */
+  protected readonly stoppedAt = signal<NumberKey | null>(null);
+
   /** Every number field, in the order the form draws them. */
   protected readonly numberFields: NumberField[] = [
     // Each bound says what it does with a figure no page printed: it keeps the product
-    // (ADR-0039), and a "price unknown" in a run capped at 10 reads as a broken cap.
+    // (ADR-0039), and a "price unknown" in a run capped at 10 reads as a broken cap. None
+    // is remembered: a budget belongs to the thing it was set for, and one restored into
+    // a closed panel filtered the next visit's search for something else (ADR-0077).
     field('max_price', 'Max price', this.maxPrice, {
       step: 0.01,
       // Name the scale it is read in.
       hint: () => `In ${this.scale()}; nothing is converted. Unpriced products are still shown.`,
+      remembered: false,
     }),
     field('min_rating', 'Min rating', this.minRating, {
       step: 0.1,
       hint: 'Out of 5. Unrated products are still shown.',
+      remembered: false,
     }),
     field('min_reviews', 'Min reviews', this.minReviews, {
       hint: 'How many reviews a rating has to average. Products with no count are still shown.',
+      remembered: false,
     }),
     field('results', 'Products to find', this.results, { remembersBlank: false }),
     field('top', 'Products to highlight', this.top, { remembersBlank: false }),
@@ -241,7 +255,8 @@ export class SearchForm {
   protected readonly settingFields = this.numberFields.filter((row) => !row.paying);
   protected readonly payingFields = this.numberFields.filter((row) => row.paying);
 
-  /** The settings that are seeded from the server, remembered, and restored. */
+  /** The settings that are seeded from the server, and -- all but the bounds, which
+   *  belong to one request (ADR-0077) -- remembered and restored. */
   private readonly settings: Record<string, Setting> = {
     // Saved in one blob with its model and address, so they restore as a pair.
     provider: setting(
@@ -630,6 +645,7 @@ export class SearchForm {
 
   /** Start a run with what the form holds. */
   private send(): void {
+    this.stoppedAt.set(null);
     this.remember();
     const options = this.options();
     // So a refusal can be dropped once its field changes.
@@ -654,10 +670,19 @@ export class SearchForm {
       this.submit();
       return;
     }
-    // Once drawn: the panel the box is in has only just been opened.
+    this.stoppedAt.set(first);
+    // Once drawn: the panel the box is in has only just been opened. The whole field is
+    // brought into view, not the box alone: focus scrolled the box to the window's edge
+    // and left the sentences under it -- where the figure came from, and that nothing
+    // was searched yet -- below the fold.
     afterNextRender(
-      () =>
-        this.host.nativeElement.querySelector<HTMLInputElement>(`input[name="${first}"]`)?.focus(),
+      () => {
+        const box = this.host.nativeElement.querySelector<HTMLInputElement>(
+          `input[name="${first}"]`,
+        );
+        box?.focus({ preventScroll: true });
+        box?.closest('.field')?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+      },
       { injector: this.injector },
     );
   }
@@ -727,6 +752,8 @@ export class SearchForm {
 
   /** The request was typed and left: ask the server what it asks for in words. */
   protected requestChanged(): void {
+    // A new question: the box a held submit stopped at is no longer what it waits on.
+    this.stoppedAt.set(null);
     const request = this.request().trim();
     // An empty request is not asked about, so nothing is on its way.
     this.reading = request !== '';
@@ -746,17 +773,13 @@ export class SearchForm {
     }
   }
 
-  /** Advanced settings only: what to shop for is a new question every time. */
+  /** Advanced settings only: what to shop for is a new question every time, and so are
+   *  the bounds on it -- typed or read off the request (ADR-0059, ADR-0077). */
   private remember(): void {
     const saved: Record<string, unknown> = {};
     for (const [key, field] of Object.entries(this.settings)) {
-      saved[key] = field.value();
-    }
-    // A figure read off this request is part of the question, not a standing answer.
-    for (const [key, value] of this.filled) {
-      const name = camelCase(key);
-      if (saved[name] === value) {
-        saved[name] = null;
+      if (field.remembered) {
+        saved[key] = field.value();
       }
     }
     try {
@@ -778,7 +801,8 @@ export class SearchForm {
       return;
     }
     for (const [key, field] of Object.entries(this.settings)) {
-      if (key in saved) {
+      // Not even a bound an older build stored: that is the filter this stops restoring.
+      if (field.remembered && key in saved) {
         field.restore((saved as Record<string, unknown>)[key], defaults);
       }
     }
@@ -788,19 +812,23 @@ export class SearchForm {
 /** Reads one remembered value, or undefined for anything it will not take. */
 type Parser<T> = (raw: unknown, defaults: AgentDefaults) => T | undefined;
 
-/** One remembered setting, with the signal's own type closed over. */
+/** One seeded setting, with the signal's own type closed over, and whether it is
+ *  remembered between visits. */
 interface Setting {
   seed(defaults: AgentDefaults): void;
   value(): unknown;
   restore(raw: unknown, defaults: AgentDefaults): void;
+  readonly remembered: boolean;
 }
 
 function setting<T>(
   target: WritableSignal<T>,
   fromDefaults: (defaults: AgentDefaults) => T,
   parse: Parser<T>,
+  remembered = true,
 ): Setting {
   return {
+    remembered,
     seed: (defaults) => target.set(fromDefaults(defaults)),
     value: () => target(),
     restore: (raw, defaults) => {
@@ -812,8 +840,8 @@ function setting<T>(
   };
 }
 
-/** The number boxes as remembered settings, seeded by their key and stored under its
- *  camel case. */
+/** The number boxes as settings, seeded by their key and -- where the row is
+ *  remembered -- stored under its camel case. */
 function numberSettings(fields: readonly NumberField[]): Record<string, Setting> {
   return Object.fromEntries(
     fields.map((row) => [
@@ -822,6 +850,7 @@ function numberSettings(fields: readonly NumberField[]): Record<string, Setting>
         row.value,
         (defaults) => defaults[row.key],
         row.remembersBlank ? asNumberOrNull : asNumber,
+        row.remembered,
       ),
     ]),
   );

@@ -173,6 +173,8 @@ Coverage cannot see rules that hold *between* files, so
 - requirements match imports; pylint and mypy read the package the other tools
   measure, and no suppression lacks a reason;
 - every `*Error` is raisable, and only the `__main__` guard calls `sys.exit`;
+- the demo's stand-in for the model listing takes every argument the server hands
+  the real one, since nothing imports `demo/` to find out;
 - no test is switched off, nothing sleeps but `tests/test_server.py`, and the
   environment changes only through `monkeypatch`;
 - every module logs under the package's name in deferred form, leaving stdout to
