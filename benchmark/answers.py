@@ -20,31 +20,12 @@ BUDGETAUDIO = "https://budgetaudio.example/cheap-anc"
 
 @dataclass(frozen=True, slots=True)
 class Expected:
-    """One product the corpus really is about, and everything it says about it.
+    """One product the corpus is about, and everything it says about it.
 
-    Attributes:
-        name: The fullest spelling the pages give it. A reported name is matched
-            by words rather than by equality -- "Sony WH-1000XM5 Wireless" and
-            "WH-1000XM5" are this product, "Sony" is not enough to be (see
-            :func:`benchmark.scoring.identifies`).
-        price: The price to rank by -- the one most pages print. Used to build
-            the ideal ordering and nothing else; a run is never marked wrong for
-            reporting one of the others in :attr:`prices`.
-        rating: The rating to rank by, on the same footing.
-        review_count: The review count to rank by, likewise.
-        prices: Every ``(price, currency)`` a page prints for it -- sale,
-            refurbished, lowest-ever and the euro listing. A pair outside this
-            set was copied off another product or invented.
-        ratings: Every ``(rating, review_count)`` a page prints for it, paired
-            for ADR-0022's reason.
-        pages: The URLs that say something about it. What a link may point at,
-            and the only pages a quote about it may come from (ADR-0025).
-        currency: What :attr:`price` is counted in, which the ideal ordering is
-            ranked in (ADR-0043).
-        verdicts: Every line a page about it prints passing judgement on it, as the
-            condensed page shows it: what a quote of it may be copied from (ADR-0073).
-            A line judging two products is listed under both; a page's line about
-            another product it names is not this one's, however near it sits.
+    ``name`` is matched by words, not equality. ``price``, ``rating`` and
+    ``review_count`` build the ideal ordering only; ``prices`` and ``ratings`` hold every
+    pair a page prints, and anything else was copied or invented. ``pages`` are what a
+    link or a quote may come from, and ``verdicts`` every line judging it (ADR-0073).
     """
 
     name: str
@@ -58,8 +39,7 @@ class Expected:
     verdicts: frozenset[str] = frozenset()
 
     def as_product(self) -> Product:
-        """This entry as the :class:`~buy_agent.models.Product` a perfect run
-        reports, for :func:`buy_agent.ranking.rank_products` to order."""
+        """This entry as a perfect run reports it."""
         return Product(
             name=self.name,
             price=self.price,

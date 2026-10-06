@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from buy_agent.chat import Message
     from buy_agent.config import AgentConfig
 
-#: A placeholder key: the OpenAI client refuses to send none, and keyless servers ignore it.
+#: The OpenAI client refuses to send no key, and keyless servers ignore this one.
 _NO_KEY = "EMPTY"
 
 #: The budget for a whole model listing (ADR-0032, ADR-0051).
@@ -36,7 +36,6 @@ _COMPLETION = "completion"
 #: Turns a row's failure into a remedy sentence.
 Hint: TypeAlias = "Callable[[AgentConfig, Exception], str]"
 
-#: Timeouts from either client.
 _TIMEOUTS = (httpx.TimeoutException, openai.APITimeoutError)
 
 #: Concurrent ``ollama show`` probes.
@@ -49,13 +48,11 @@ _OLLAMA_PORT = 11434
 
 @dataclass(frozen=True, slots=True)
 class InstalledModel:
-    """One model a server is holding, whether it can answer a chat prompt (ADR-0032), and
-    which build of it, where the server says (ADR-0075)."""
+    """A model a server holds, whether it can answer a prompt (ADR-0032), and the
+    server's digest of its weights where it lists one (ADR-0075)."""
 
     name: str
     completion: bool
-    #: The server's digest of the weights behind ``name`` -- Ollama's ``sha256:...`` -- or
-    #: "" where it reports none. A tag re-pulled is the same name on another build.
     digest: str = ""
 
 
@@ -72,12 +69,10 @@ class Provider:
     takes_cpu_only: bool
     chat_model: Callable[[AgentConfig], ChatModel]
     installed: Callable[[AgentConfig], list[InstalledModel]]
-    #: What "the server is not there" raises through this row's client; typed
-    #: ``Exception`` so ``hint`` can accept what the ``except`` binds.
+    #: What "the server is not there" raises through this row's client.
     transport_errors: tuple[type[Exception], ...]
     hint: Hint
-    #: How to give a model more room, as the tail of the unreadable-answer hint
-    #: (ADR-0019).
+    #: How to give a model more room: the tail of the unreadable-answer hint (ADR-0019).
     more_room: str
 
 
@@ -93,12 +88,10 @@ class _OllamaChat:
     cpu_only: bool
 
     def answer(self, messages: Sequence[Message], schema: type[SchemaT]) -> SchemaT:
-        """One chat call, read back as ``schema``."""
         options: dict[str, Any] = {"temperature": self.temperature}
-        # ``None`` means leave the model's own (ADR-0019).
+        # ``None`` leaves the model's own (ADR-0019).
         if self.num_ctx is not None:
             options["num_ctx"] = self.num_ctx
-        # Sent only when asked for: ``False`` means the default offload.
         if self.cpu_only:
             options["num_gpu"] = 0
         response = self.client.chat(
@@ -111,12 +104,10 @@ class _OllamaChat:
         return read_answer(response.message.content or "", schema)
 
     def close(self) -> None:
-        """Close the client's connection pool."""
         self.client.close()
 
 
 def _ollama_chat_model(config: AgentConfig) -> ChatModel:
-    """Ollama takes the window and the thinking switch as request options (ADR-0051)."""
     return _OllamaChat(
         client=Client(config.base_url, timeout=config.model_timeout),
         model=config.model,
@@ -128,8 +119,7 @@ def _ollama_chat_model(config: AgentConfig) -> ChatModel:
 
 
 def _ollama_installed(config: AgentConfig) -> list[InstalledModel]:
-    """Every model tag Ollama has pulled, whether each one can be run (ADR-0032), and its
-    digest (ADR-0075)."""
+    """Every pulled tag, whether it can run (ADR-0032), and its digest (ADR-0075)."""
     deadline = time.monotonic() + _LIST_TIMEOUT
     tags = _ollama_tags(config)
     if not tags:
@@ -138,16 +128,13 @@ def _ollama_installed(config: AgentConfig) -> list[InstalledModel]:
     try:
         probed = _probe(client, list(tags), deadline)
     finally:
-        # This function opened the pool, so it closes it.
         client.close()
     return [replace(model, digest=tags[model.name]) for model in probed]
 
 
 def _ollama_tags(config: AgentConfig) -> dict[str, str]:
-    """The tags Ollama holds, each with its digest ("" where an entry carries none)."""
-    response = httpx.get(
-        _ollama_url(config.base_url, "/api/tags"), timeout=_LIST_TIMEOUT
-    )
+    """The tags Ollama holds, each with its digest ("" where none)."""
+    response = httpx.get(_ollama_url(config.base_url, "/api/tags"), timeout=_LIST_TIMEOUT)
     response.raise_for_status()
     return {
         name: str(entry.get("digest") or "")
@@ -157,13 +144,13 @@ def _ollama_tags(config: AgentConfig) -> dict[str, str]:
 
 
 def _ollama_url(base_url: str, path: str) -> str:
-    """An Ollama URL, joined as its client would join it: an address written without a
-    scheme is plain HTTP on Ollama's own port, not HTTP's (``$OLLAMA_HOST=0.0.0.0``)."""
+    """An Ollama URL, joined as its client joins one: an address with no scheme is
+    plain HTTP on Ollama's own port (``$OLLAMA_HOST=0.0.0.0``)."""
     if "://" in base_url:
         return f"{base_url.rstrip('/')}{path}"
     split = urlsplit(f"http://{base_url}")
     host = split.hostname or _OLLAMA_HOST
-    # ``hostname`` drops an IPv6 literal's brackets, which the URL needs back.
+    # ``hostname`` drops an IPv6 literal's brackets.
     if ":" in host:
         host = f"[{host}]"
     return f"http://{host}:{split.port or _OLLAMA_PORT}{split.path.rstrip('/')}{path}"
@@ -185,22 +172,17 @@ def _probe(client: Client, names: list[str], deadline: float) -> list[InstalledM
 
 
 def _ollama_capability(client: Client, name: str) -> InstalledModel:
-    """Ask one pulled tag whether it has a completion to give."""
     try:
         capabilities = client.show(name).capabilities
     # Any failure here means "cannot say", not "cannot run".
     # pylint: disable-next=broad-exception-caught
     except Exception:
         return InstalledModel(name, completion=True)
-    return InstalledModel(
-        name, completion=capabilities is None or _COMPLETION in capabilities
-    )
+    return InstalledModel(name, completion=capabilities is None or _COMPLETION in capabilities)
 
 
 def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
-    """Turn an Ollama failure into something the user can act on (ADR-0032)."""
     lowered = _answered_by(exc, ResponseError)
-    # A malformed name: pulling it would fail too.
     if "invalid model name" in lowered:
         return (
             f"Ollama cannot read {config.model!r} as a model name ({exc}). "
@@ -233,40 +215,32 @@ class _OpenAIChat:
     extra_body: dict[str, Any]
 
     def answer(self, messages: Sequence[Message], schema: type[SchemaT]) -> SchemaT:
-        """One chat completion, read back as ``schema``."""
         response = self.client.chat.completions.create(
             model=self.model,
-            # Our plain dicts are the client's ``TypedDict`` at run time; the cast stays
-            # on this side of the seam (ADR-0038).
+            # Our plain dicts are the client's ``TypedDict`` at run time (ADR-0038).
             messages=cast("list[ChatCompletionMessageParam]", list(messages)),
             temperature=self.temperature,
             response_format={
                 "type": "json_schema",
-                "json_schema": {
-                    "name": schema.__name__,
-                    "schema": schema.model_json_schema(),
-                },
+                "json_schema": {"name": schema.__name__, "schema": schema.model_json_schema()},
             },
             extra_body=self.extra_body,
         )
-        # A server may answer with no choice at all: an answer with nothing to read, not
-        # an ``IndexError`` out of the run (ADR-0009).
+        # No choice at all is an answer with nothing to read, not an ``IndexError``.
         content = response.choices[0].message.content if response.choices else None
         return read_answer(content or "", schema)
 
     def close(self) -> None:
-        """Close the client's connection pool."""
         self.client.close()
 
 
 def _openai_chat_model(config: AgentConfig, extra_body: dict[str, Any]) -> ChatModel:
-    """The OpenAI client for this config, without retries (ADR-0051)."""
+    """The OpenAI client for this config, asked once (ADR-0051)."""
     return _OpenAIChat(
         client=openai.OpenAI(
             base_url=config.base_url,
             api_key=config.api_key or _NO_KEY,
             timeout=config.model_timeout,
-            # Asked once.
             max_retries=0,
         ),
         model=config.model,
@@ -276,7 +250,6 @@ def _openai_chat_model(config: AgentConfig, extra_body: dict[str, Any]) -> ChatM
 
 
 def _vllm_chat_model(config: AgentConfig) -> ChatModel:
-    """vLLM through its OpenAI-compatible API (ADR-0019)."""
     extra_body: dict[str, Any] = {}
     if config.reasoning is not None:
         extra_body["chat_template_kwargs"] = {"enable_thinking": config.reasoning}
@@ -284,15 +257,13 @@ def _vllm_chat_model(config: AgentConfig) -> ChatModel:
 
 
 def _authorised(config: AgentConfig) -> dict[str, str]:
-    """The auth header, if a key is configured."""
     return {"Authorization": f"Bearer {config.api_key}"} if config.api_key else {}
 
 
 def _openai_models(config: AgentConfig) -> list[InstalledModel]:
     """The ``/models`` listing, each taken as able to answer."""
     response = httpx.get(
-        f"{config.base_url.rstrip('/')}/models",
-        headers=_authorised(config),
+        f"{config.base_url.rstrip('/')}/models", headers=_authorised(config),
         timeout=_LIST_TIMEOUT,
     )
     response.raise_for_status()
@@ -304,7 +275,6 @@ def _openai_models(config: AgentConfig) -> list[InstalledModel]:
 
 
 def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
-    """Turn a vLLM failure into something the user can act on."""
     detail = str(exc)
     if isinstance(exc, openai.AuthenticationError):
         return (
@@ -324,7 +294,7 @@ def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
 
 
 def _litellm_chat_model(config: AgentConfig) -> ChatModel:
-    """A LiteLLM proxy; ``reasoning`` maps to ``reasoning_effort`` (ADR-0019, ADR-0068)."""
+    """``reasoning`` maps to ``reasoning_effort`` (ADR-0019, ADR-0068)."""
     if config.reasoning is None:
         return _openai_chat_model(config, {})
     effort = "medium" if config.reasoning else "none"
@@ -332,8 +302,8 @@ def _litellm_chat_model(config: AgentConfig) -> ChatModel:
 
 
 def _litellm_installed(config: AgentConfig) -> list[InstalledModel]:
-    """Every routed alias, marked by its ``/model/info`` ``mode`` (ADR-0032); falls back
-    to ``/models``. ``/model/info`` sits beside ``/v1``."""
+    """Every routed alias, marked by its ``/model/info`` ``mode`` (ADR-0032), else
+    ``/models``. ``/model/info`` sits beside ``/v1``."""
     try:
         response = httpx.get(
             f"{config.base_url.rstrip('/').removesuffix('/v1')}/model/info",
@@ -354,7 +324,6 @@ def _litellm_installed(config: AgentConfig) -> list[InstalledModel]:
 
 
 def _litellm_hint(config: AgentConfig, exc: Exception) -> str:
-    """Turn a LiteLLM proxy's failure into something the user can act on (ADR-0068)."""
     proxy = f"The LiteLLM proxy at {config.base_url}"
     if isinstance(exc, openai.AuthenticationError) or _no_key_store(exc):
         return (
@@ -370,7 +339,6 @@ def _litellm_hint(config: AgentConfig, exc: Exception) -> str:
             f"proxy's config.yaml and restart it."
         )
     if lowered:
-        # Any other answer is relayed from the routed server.
         return (
             f"{proxy} answered, but the model behind {config.model!r} failed ({exc}). "
             "The proxy's own log says which server it routed to."
@@ -379,8 +347,7 @@ def _litellm_hint(config: AgentConfig, exc: Exception) -> str:
 
 
 def _no_key_store(exc: Exception) -> bool:
-    """Whether a database-less proxy refused a non-master key: it answers 400 "No
-    connected db." rather than 401."""
+    """A database-less proxy refuses a non-master key with 400 "No connected db."."""
     if isinstance(exc, httpx.HTTPStatusError):
         said = exc.response.text
     elif isinstance(exc, openai.APIStatusError):
@@ -391,11 +358,8 @@ def _no_key_store(exc: Exception) -> bool:
 
 
 def _answered_by(exc: Exception, client_error: type[Exception]) -> str:
-    """What the model server itself answered, lower-cased, or ``""`` if the failure is
-    not the row client's answer.
-
-    A bare 404 from something else at that address must not earn a model remedy.
-    """
+    """What the server itself answered, lower-cased, or "" if the row's client did not
+    raise it: a bare 404 from something else must not earn a model remedy."""
     return str(exc).lower() if isinstance(exc, client_error) else ""
 
 
@@ -413,7 +377,6 @@ def _hint(specific: Hint) -> Hint:
 
 
 def _too_slow_hint(config: AgentConfig, exc: Exception) -> str:
-    """A server that took the prompt and never came back."""
     server = config.model_server
     smaller = "a smaller context window" if server.takes_num_ctx else "a shorter prompt"
     # A timeout often stringifies to nothing.
@@ -426,7 +389,7 @@ def _too_slow_hint(config: AgentConfig, exc: Exception) -> str:
 
 
 def _unreadable_hint(config: AgentConfig, exc: Exception) -> str:
-    """A server that answered with something other than the JSON asked for (ADR-0019)."""
+    """Something other than the JSON asked for (ADR-0019)."""
     server = config.model_server
     said = str(exc).strip()
     detail = said.splitlines()[0] if said else type(exc).__name__
@@ -438,7 +401,6 @@ def _unreadable_hint(config: AgentConfig, exc: Exception) -> str:
 
 
 def _unreachable_hint(config: AgentConfig, exc: Exception, start: str) -> str:
-    """Nothing answered: the server is what is missing."""
     return (
         f"Could not reach {config.model_server.label} at {config.base_url} ({exc}). "
         f"Start it with:  {start}"
@@ -469,9 +431,8 @@ OLLAMA = Provider(
     takes_cpu_only=True,
     chat_model=_ollama_chat_model,
     installed=_ollama_installed,
-    # A refused connection arrives as ``ConnectionError``; timeouts and dropped streams
-    # as raw ``httpx`` errors; a host the socket cannot encode (``192.168.1..5``) as a
-    # ``UnicodeError`` from beneath every client.
+    # A refused connection arrives as ``ConnectionError``, timeouts and dropped streams
+    # as raw ``httpx`` errors, an unencodable host (``192.168.1..5``) as ``UnicodeError``.
     transport_errors=(ResponseError, RequestError, OSError, httpx.HTTPError, UnicodeError),
     hint=_hint(_ollama_hint),
     more_room="give it more room with a larger context window, or turn thinking off",
@@ -484,13 +445,12 @@ VLLM = Provider(
     model=os.getenv("VLLM_MODEL", "Qwen/Qwen3-8B"),
     base_url=os.getenv("VLLM_HOST", "http://localhost:8000/v1"),
     api_key=os.getenv("VLLM_API_KEY", ""),
+    # Both fixed at startup.
     takes_num_ctx=False,
-    # Fixed at startup, like the window.
     takes_cpu_only=False,
     chat_model=_vllm_chat_model,
     installed=_openai_models,
-    # ``openai.OpenAIError`` is the client's root, which leaves the socket's
-    # ``UnicodeError`` unwrapped, as Ollama's does.
+    # ``openai.OpenAIError`` leaves the socket's ``UnicodeError`` unwrapped.
     transport_errors=(openai.OpenAIError, OSError, httpx.HTTPError, UnicodeError),
     hint=_hint(_vllm_hint),
     # vLLM's own flag, not ours, so fine to name at either door.
@@ -517,15 +477,11 @@ LITELLM = Provider(
     ),
 )
 
-#: Every provider, by the name the CLI, the API and ``$BUY_AGENT_PROVIDER`` use
-#: (ADR-0029).
-PROVIDERS: dict[str, Provider] = {
-    provider.name: provider for provider in (OLLAMA, VLLM, LITELLM)
-}
+#: By the name the CLI, the API and ``$BUY_AGENT_PROVIDER`` use (ADR-0029).
+PROVIDERS: dict[str, Provider] = {provider.name: provider for provider in (OLLAMA, VLLM, LITELLM)}
 
 
 def provider_for(name: str) -> Provider:
-    """The provider called ``name``."""
     try:
         return PROVIDERS[name]
     except KeyError:
@@ -534,16 +490,9 @@ def provider_for(name: str) -> Provider:
         ) from None
 
 
+#: What the form's picker is told about each provider: never its key.
+_OFFERED = ("name", "label", "model", "base_url", "takes_num_ctx", "takes_cpu_only")
+
+
 def provider_options() -> list[dict[str, object]]:
-    """Every provider, as the form's picker needs it."""
-    return [
-        {
-            "name": server.name,
-            "label": server.label,
-            "model": server.model,
-            "base_url": server.base_url,
-            "takes_num_ctx": server.takes_num_ctx,
-            "takes_cpu_only": server.takes_cpu_only,
-        }
-        for server in PROVIDERS.values()
-    ]
+    return [{key: getattr(server, key) for key in _OFFERED} for server in PROVIDERS.values()]

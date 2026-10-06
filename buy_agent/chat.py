@@ -22,16 +22,14 @@ if TYPE_CHECKING:
 #: One turn, in the shape both ollama and the OpenAI API take.
 Message: TypeAlias = dict[str, str]
 
-#: The Pydantic model a call is constrained to and read back as (ADR-0004).
+#: What a call is constrained to and read back as (ADR-0004).
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
-#: How much of an unreadable answer the failure quotes.
 _QUOTED = 200
 
 
 class UnreadableAnswerError(ValueError):
-    """The server answered with something other than the JSON asked for (ADR-0009,
-    ADR-0019)."""
+    """The server answered with something other than the JSON asked for (ADR-0019)."""
 
 
 class ChatModel(Protocol):
@@ -50,7 +48,6 @@ class Closable(Protocol):
 
 
 def release(held: object) -> None:
-    """Close ``held`` if it is closable."""
     if isinstance(held, Closable):
         held.close()
 
@@ -63,7 +60,6 @@ class Prompt:
     human: str
 
     def format_messages(self, **values: Any) -> list[Message]:
-        """The two turns, filled in."""
         return [
             {"role": "system", "content": self.system.format(**values)},
             {"role": "user", "content": self.human.format(**values)},
@@ -79,7 +75,6 @@ class Chain(Generic[SchemaT]):
     schema: type[SchemaT]
 
     def invoke(self, payload: Mapping[str, Any]) -> SchemaT:
-        """Ask this chain's model this chain's question."""
         return self.model.answer(self.prompt.format_messages(**payload), self.schema)
 
 

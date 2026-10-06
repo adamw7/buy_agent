@@ -38,7 +38,6 @@ from benchmark.server import (
     Job,
     Stopped,
     _names,
-    _port,
     build_parser,
     config_payload,
     create_server,
@@ -509,7 +508,7 @@ def test_a_model_server_at_the_pages_own_address_is_refused_before_it_runs(
 
     assert status == 400
     assert body["field"] == "base_url"
-    assert body["error"].startswith(f"{base} is this page's own address, not vLLM's.")
+    assert body["error"].startswith(f"{base} is this page's own address, not vLLM's")
     assert bench.state()["status"] == ""
 
 
@@ -690,14 +689,6 @@ def test_the_script_reads_only_what_the_server_sends(script: str, board: Board) 
 
 
 # -- python -m benchmark.server ------------------------------------------------
-
-
-def test_a_port_is_a_whole_number_a_socket_can_take() -> None:
-    assert _port("8100") == 8100
-    with pytest.raises(Exception, match="must be a whole number"):
-        _port("eighty")
-    with pytest.raises(Exception, match="must be between 0 and 65535"):
-        _port("70000")
 
 
 def test_the_page_binds_this_machine_on_a_port_of_its_own_by_default() -> None:

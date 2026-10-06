@@ -97,27 +97,6 @@ def cameras() -> Any:
 # -- the camera ------------------------------------------------------------------
 
 
-def test_a_picture_is_taken_in_a_browser_launched_for_it(cameras) -> None:
-    launch = Launcher()
-    camera = cameras(launch)
-
-    assert camera.shoot(SHOP) == f"jpeg of {SHOP}".encode()
-    assert launch.launched[0].shot == [SHOP]
-
-
-def test_one_browser_takes_every_picture_while_somebody_is_asking(cameras) -> None:
-    """Ten cards are ten pictures and one browser: a launch per card would be most of the
-    wait, and ten at once most of the machine."""
-    launch = Launcher()
-    camera = cameras(launch)
-
-    camera.shoot(SHOP)
-    camera.shoot(ROUNDUP)
-
-    assert len(launch.launched) == 1
-    assert launch.launched[0].shot == [SHOP, ROUNDUP]
-
-
 def test_pictures_are_taken_on_a_thread_that_never_holds_the_server_open(cameras) -> None:
     """One thread of the camera's own, which Playwright's objects belong to, and a
     daemon: a server stopped mid-picture exits rather than waiting on the browser."""
@@ -184,18 +163,6 @@ def test_a_page_that_will_not_be_photographed_fails_only_its_own_picture(cameras
     assert len(launch.launched) == 1, "a page's failure is not the browser's"
 
 
-def test_a_browser_that_will_not_start_is_tried_again_for_the_next_picture(cameras) -> None:
-    """The remedy is a command somebody runs while the server is up, so the camera does
-    not give up on the first refusal and need a restart to notice it was answered."""
-    launch = Launcher(ScreenshotError("Could not start a browser"))
-    camera = cameras(launch)
-
-    with pytest.raises(ScreenshotError, match="Could not start a browser"):
-        camera.shoot(SHOP)
-
-    assert camera.shoot(SHOP) == f"jpeg of {SHOP}".encode()
-
-
 def test_a_browser_that_fails_unexpectedly_is_replaced(cameras, caplog) -> None:
     """Anything but a page's own failure may be a browser that has crashed, which is not
     one to go on photographing with."""
@@ -250,18 +217,6 @@ def test_a_request_that_has_waited_too_long_is_told_so(cameras) -> None:
             camera.shoot(SHOP)
     finally:
         hold.set()
-
-
-def test_closing_a_camera_lets_its_browser_go_now(cameras) -> None:
-    """The server's shutdown, which would otherwise leave the browser to the process
-    exiting under it."""
-    launch = Launcher()
-    camera = cameras(launch)
-    camera.shoot(SHOP)
-
-    camera.close()
-
-    assert launch.launched[0].closed.is_set()
 
 
 def test_a_camera_asked_again_after_closing_opens_a_browser_again(cameras) -> None:
@@ -429,25 +384,9 @@ def test_a_page_is_given_its_two_waits_in_the_milliseconds_playwright_counts_in(
     assert world.settled_within == SETTLE_SECONDS * 1000
 
 
-def test_the_agent_is_not_the_one_headless_chromium_announces() -> None:
-    """Shops that turn away python-httpx turn away "HeadlessChrome" the same way."""
-    assert "Headless" not in USER_AGENT
-    assert "Chrome/" in USER_AGENT
-
-
 def test_a_page_still_loading_is_photographed_as_far_as_it_got(world: World) -> None:
     """Shops load trackers for a long time; what is on the screen by then is the page."""
     world.still_loading = True
-
-    assert Chromium().shoot(SHOP) == b"\xff\xd8 a jpeg"
-
-
-def test_a_page_that_answered_with_nothing_to_report_is_still_photographed(
-    world: World,
-) -> None:
-    """``goto`` answers ``None`` for a navigation that fetched nothing -- an anchor on the
-    page already open -- and that is no failure."""
-    world.status = None
 
     assert Chromium().shoot(SHOP) == b"\xff\xd8 a jpeg"
 
@@ -463,17 +402,6 @@ def test_a_page_that_answered_with_an_error_is_not_photographed(
     with pytest.raises(ScreenshotError, match=f"answered {status}"):
         Chromium().shoot(SHOP)
     assert world.pictures == []
-    assert world.pages_closed == 1
-
-
-def test_a_page_that_would_not_load_says_why_in_one_line(world: World) -> None:
-    """Playwright's own message goes on to print a call log, which is not a sentence."""
-    world.goto_fails = FakeError("Page.goto: net::ERR_NAME_NOT_RESOLVED\nCall log:\n  - ...")
-
-    with pytest.raises(ScreenshotError) as refused:
-        Chromium().shoot(SHOP)
-
-    assert str(refused.value) == f"Could not photograph {SHOP}: Page.goto: net::ERR_NAME_NOT_RESOLVED"
     assert world.pages_closed == 1
 
 

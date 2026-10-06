@@ -11,8 +11,7 @@ Work down this list in order.
 
 ## 1. `buy_agent/config.py` -- the field itself
 
-- Add the field to `AgentConfig` with its default, documented in the class
-  docstring's `Attributes`.
+- Add the field to `AgentConfig` with its default.
 - **Numeric** -> a row in `LIMITS`, keyed by the field name, in whole numbers.
   The default must sit inside it.
 - **Shaped or a closed set** (`region`, `currency`) -> a `parse_<field>` here,

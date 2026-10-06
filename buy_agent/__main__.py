@@ -32,13 +32,12 @@ logger = logging.getLogger("buy_agent")
 
 
 def _a_row_of(table: Mapping[str, Any], named: str) -> str:
-    """``named`` if the table has it, else any row: a misspelt env var is reported by
-    ``_checked``, not as a traceback before ``--help``."""
+    """``named`` if the table has it, else any row: a misspelt env var is then refused
+    by the config, not as a traceback before ``--help``."""
     return named if named in table else next(iter(table))
 
 
 def _defaults() -> AgentConfig:
-    """Every flag's default, off one config."""
     return AgentConfig(
         provider=_a_row_of(PROVIDERS, DEFAULT_PROVIDER),
         rail=_a_row_of(RAILS, DEFAULT_RAIL),
@@ -48,12 +47,8 @@ def _defaults() -> AgentConfig:
 
 _DEFAULTS = _defaults()
 
-#: Exit code for a run that worked and found nothing.
 NOTHING_FOUND = 3
-
-#: Exit code for a run that was asked to pay and did not.
 PAYMENT_FAILED = 4
-
 
 #: The paying flags, and how each tells a typed value from the default.
 _PAYING_FLAGS: tuple[tuple[str, str, Callable[[Any], bool]], ...] = (
@@ -64,10 +59,9 @@ _PAYING_FLAGS: tuple[tuple[str, str, Callable[[Any], bool]], ...] = (
 
 
 def _offer_noticed_bounds(request: str, config: AgentConfig) -> None:
-    """Log the bounds the request states in words, and the flag enforcing each; never
+    """Log the bounds the request states in words and the flag enforcing each; never
     apply them (ADR-0059)."""
     for seen in notice(request):
-        # Skip a figure the flag would refuse, or a bound already set.
         if not takeable(seen) or getattr(config, seen.bound) is not None:
             continue
         logger.info(
@@ -81,20 +75,15 @@ def _offer_noticed_bounds(request: str, config: AgentConfig) -> None:
 
 
 def _idle_paying_flags(args: argparse.Namespace) -> list[str]:
-    """The paying flags given without ``--pay``."""
     return [flag for flag, field, given in _PAYING_FLAGS if given(getattr(args, field))]
 
 
 def _provider_defaults(setting: str) -> str:
-    """One column of :data:`buy_agent.providers.PROVIDERS`, for ``--help``."""
-    return ", ".join(
-        f"{getattr(server, setting)} for {name}" for name, server in PROVIDERS.items()
-    )
+    return ", ".join(f"{getattr(server, setting)} for {name}" for name, server in PROVIDERS.items())
 
 
 def _json_file(text: str) -> Path:
-    """A ``--json`` file whose directory is there, checked before the run: written at the
-    end, a typo in the path otherwise costs the whole run first."""
+    """A ``--json`` path checked before the run, so a typo does not cost a whole run."""
     path = Path(text)
     if path.is_dir():
         raise argparse.ArgumentTypeError(f"{str(path)!r} is a directory; name a file in it")
@@ -106,9 +95,8 @@ def _json_file(text: str) -> Path:
 
 
 def _flag(parse: Callable[[str], Any]) -> Callable[[str], Any]:
-    """A flag ``type`` off a door-neutral parser, whose refusal argparse then prints
-    as written: a ``ValueError`` it would report as "invalid float value", the name of
-    the converter rather than what was wrong (ADR-0033)."""
+    """A flag ``type`` whose refusal argparse prints as written, rather than "invalid
+    float value" (ADR-0033)."""
 
     def typed(text: str) -> Any:
         try:
@@ -120,14 +108,13 @@ def _flag(parse: Callable[[str], Any]) -> Callable[[str], Any]:
 
 
 def _source(text: str) -> str:
-    """One ``--source``, checked here and parsed with the rest in ``main`` (ADR-0027)."""
+    """One ``--source``, checked here and parsed with the rest in ``main``."""
     parse_named_sources(text)
     return text
 
 
 def _flag_for(option: Option, written: dict[str, Any]) -> dict[str, Any]:
-    """``add_argument``'s keywords for one ``api.OPTIONS`` row: what the row says, then
-    what only the terminal writes (``written``), which wins."""
+    """``add_argument``'s keywords for one ``api.OPTIONS`` row; ``written`` wins."""
     derived: dict[str, Any] = {"dest": option.key, "default": option.unset(_DEFAULTS)}
     if option.switch:
         derived["action"] = argparse.BooleanOptionalAction
@@ -139,21 +126,17 @@ def _flag_for(option: Option, written: dict[str, Any]) -> dict[str, Any]:
 
 
 class _Help(argparse.RawDescriptionHelpFormatter):
-    """Wraps a flag's help between words and never inside one: textwrap breaks at a
-    hyphen, which left ``--no-`` ending one line and ``cpu-only`` starting the next --
-    a flag, or a value like ``dry-run``, that nobody can copy -- at whatever width the
-    terminal happened to be."""
+    """Wraps help between words: textwrap breaks at hyphens, splitting flags."""
 
     def _split_lines(self, text: str, width: int) -> list[str]:
         return textwrap.wrap(" ".join(text.split()), width, break_on_hyphens=False)
 
 
 def _written() -> dict[str, dict[str, Any]]:
-    """What only the terminal says about each ``api.OPTIONS`` row: its help -- the
-    CLI's only documentation -- and where the flag is not what the row makes it."""
+    """Each ``api.OPTIONS`` row's help, and where its flag differs from the row."""
     return {
         "provider": {
-            # The variable as written, so a misspelt one is refused by name.
+            # As written, so a misspelt variable is refused by name.
             "default": DEFAULT_PROVIDER,
             "help": f"Which model server to talk to (default: {DEFAULT_PROVIDER}, "
             "override with $BUY_AGENT_PROVIDER). It decides what --model and --base-url "
@@ -189,7 +172,7 @@ def _written() -> dict[str, dict[str, Any]]:
         },
         "currency": {
             "metavar": "CODE",
-            # Spellings fold, so the row has no ``choices``; the help lists the codes.
+            # Spellings fold, so no ``choices``; the help lists the codes.
             "help": "Count this run's prices in this currency, empty for whatever the "
             f"pages quote (the default). One of: {', '.join(sorted(CODES))} -- or any "
             "spelling a page uses for one of them ($, usd, euros). Nothing is converted, "
@@ -249,7 +232,6 @@ def _written() -> dict[str, dict[str, Any]]:
             "nobody, so --pay on its own never spends anything.",
         },
         "merchant_url": {
-            # "Payment endpoint" is the setting's name everywhere else.
             "help": "Payment endpoint: the AP2-speaking address a paying rail talks to, "
             "empty for the rail's own default ($BUY_AGENT_MERCHANT_URL). It is asked "
             "for a signed checkout at {url}/checkout and presented the mandates at "
@@ -311,10 +293,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="buy_agent",
         description="Search the web for what you want to buy, rank it, log the best.",
-        # --help is the CLI's only documentation.
+        # Wrapped by hand: the raw formatter prints it as written.
         epilog=(
-            # Wrapped by hand (a convention test checks): the raw formatter prints it
-            # as written.
             "The report is written to stdout and the progress to stderr, so\n"
             "`... > top.txt` keeps the report and leaves the narration on screen.\n"
             "\n"
@@ -335,10 +315,8 @@ def build_parser() -> argparse.ArgumentParser:
         )
     parser.add_argument(
         "--sort-by",
-        # Read off the type, so it matches rank_products.
         choices=get_args(SortBy),
         default="score",
-        # Each with its direction, off the table the report's heading reads.
         help="How to order the report: "
         + ", ".join(f"{name} for {phrase}" for name, phrase in ORDERINGS.items())
         + " (default: score, a blend of rating, reviews and price).",
@@ -347,7 +325,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--source",
         action="append",
         metavar="SITE",
-        # On a command line, ``--source ""`` is a mistake, not "unset".
+        # ``--source ""`` is a mistake here, not "unset".
         type=_flag(_source),
         help="Take the facts from this source only; repeat for several. A site "
         "(rtings.com), a section of one (rtings.com/headphones) or a YouTube "
@@ -364,7 +342,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--json",
         type=_json_file,
-        # "--json JSON" would read like a format switch.
         metavar="FILE",
         help="Also write all results, not only the top ones, to this JSON file.",
     )
@@ -373,7 +350,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _approved(cart: payment.Cart, config: AgentConfig) -> bool:
-    """Ask the shopper to approve this exact cart, and mean it (ADR-0046)."""
+    """Ask the shopper to approve this exact cart (ADR-0046)."""
     if not sys.stdin.isatty():
         raise PaymentError(
             f"Paying {cart.label()} for {cart.title} needs your approval, and this "
@@ -395,10 +372,10 @@ def _approved(cart: payment.Cart, config: AgentConfig) -> bool:
 
 
 def _bought(ranked: list[RankedProduct], config: AgentConfig) -> bool:
-    """Buy the top-ranked product, and say what came of it (ADR-0009, ADR-0046)."""
+    """Buy the top-ranked product, and say what came of it (ADR-0046)."""
     products = [entry.product for entry in ranked]
     try:
-        # In the currency the run was counted in, not a second vote (ADR-0056).
+        # In the run's own currency, not a second vote (ADR-0056).
         cart = payment.cart_for(products[0], products, config, scale=scale_of(ranked))
         if not payment.unattended() and not _approved(cart, config):
             logger.warning("Not paid: %s was not approved.", cart.title)
@@ -411,10 +388,7 @@ def _bought(ranked: list[RankedProduct], config: AgentConfig) -> bool:
     logger.info("%s", receipt.detail)
     logger.info(
         "Authorisation %s covers %s at %s from %s",
-        receipt.reference,
-        receipt.title,
-        receipt.price_label,
-        receipt.merchant,
+        receipt.reference, receipt.title, receipt.price_label, receipt.merchant,
     )
     return True
 
@@ -422,7 +396,6 @@ def _bought(ranked: list[RankedProduct], config: AgentConfig) -> bool:
 # ``parser.error`` exits, which pylint reads as falling off the end.
 # pylint: disable-next=inconsistent-return-statements
 def _configured(parser: argparse.ArgumentParser, **settings: Any) -> AgentConfig:
-    """The run's config, with the one thing it refuses said the way a flag is."""
     try:
         return AgentConfig(**settings)
     except ValueError as exc:
@@ -434,16 +407,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     configure_logging(verbose=args.verbose)
 
-    # Flags land under their ``api.OPTIONS`` keys, so both doors share one table.
     settings = {option.field: getattr(args, option.key) for option in OPTIONS}
-    # What the table cannot say: the ``--num-ctx`` sentinel, the list of sources, and
-    # never searching fewer pages than the report shows.
+    # What the table cannot say: the ``--num-ctx`` sentinel, the sources, and never
+    # searching fewer pages than the report shows.
     settings["num_ctx"] = _DEFAULTS.num_ctx if args.num_ctx is None else args.num_ctx
     settings["sources"] = parse_sources(args.source) if args.source else _DEFAULTS.sources
     settings["search_results"] = max(args.results, args.top)
 
     config = _configured(parser, **settings)
-
     if not config.pay and (idle := _idle_paying_flags(args)):
         # Otherwise buying nothing would read as a failed rail.
         logger.warning(
@@ -453,7 +424,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if args.num_ctx is not None and not config.model_server.takes_num_ctx:
-        # The form disables this field; the CLI says so instead.
+        # The form disables this field; the CLI says so.
         logger.warning(
             "%s fixes its context window when it starts (--max-model-len), so "
             "--num-ctx %s is ignored on this run.",
@@ -462,7 +433,6 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if args.cpu_only and not config.model_server.takes_cpu_only:
-        # Likewise.
         logger.warning(
             "%s chooses its device when it starts (--device), so --cpu-only is "
             "ignored on this run.",
@@ -477,7 +447,6 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     _offer_noticed_bounds(args.request, config)
-
     # Opened before the run, so it holds the previous one (ADR-0060).
     journal = journal_for(args.request, config)
 
@@ -492,10 +461,9 @@ def main(argv: list[str] | None = None) -> int:
         logger.warning("Interrupted.")
         return 130
     finally:
-        # Release the model connection now, not at exit.
         release(agent)
 
-    # Always recorded, so the next run has something to compare with (ADR-0060).
+    # Always recorded, so the next run has something to compare with.
     changes = journal.against([entry.product for entry in ranked])
     if args.compare:
         log_changes(changes, journal.compared_with())
@@ -508,7 +476,6 @@ def main(argv: list[str] | None = None) -> int:
                 json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
             )
         except OSError as exc:
-            # An exit code, not a traceback: the report is already on stdout.
             logger.error("Could not write %s (%s)", args.json, exc)
             return 1
         logger.info("Wrote %d products to %s", len(payload), args.json)
@@ -518,7 +485,6 @@ def main(argv: list[str] | None = None) -> int:
         try:
             bought = _bought(ranked, config)
         except KeyboardInterrupt:
-            # Ctrl-C at the approval prompt: answered as anywhere else.
             logger.warning("Interrupted. Nothing was bought.")
             return 130
         return 0 if bought else PAYMENT_FAILED

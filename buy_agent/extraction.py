@@ -74,7 +74,7 @@ EXTRACTION_PROMPT = Prompt(
     human="Shopper's request: {request}\n\nSearch results:\n\n{results}",
 )
 
-#: The words a roundup ranks with (shared with :mod:`buy_agent.verification`).
+#: The words a roundup ranks with.
 SUPERLATIVES = r"(?:best|top|cheapest|worst|greatest)"
 
 #: A name opening on a superlative: "12 Best ...", "The 5 Best ...", "Top ...".
@@ -100,14 +100,13 @@ _TRAILING_NOISE = re.compile(
     re.IGNORECASE,
 )
 
-#: A token carrying both letters and digits, as a model number does: "WH-1000XM5" has
-#: "1000xm5".
+#: Letters and digits in one token, as a model number has ("1000xm5").
 _MODEL_NUMBER = re.compile(r"\b(?=[a-z0-9]*[a-z])(?=[a-z0-9]*\d)[a-z0-9]+\b", re.IGNORECASE)
 
-#: Longer than any real model name. Article titles run long.
+#: Article titles run long.
 _MAX_NAME_LENGTH = 80
 
-#: Words that describe a product without identifying it.
+#: Words that describe a product without identifying it (ADR-0008).
 GENERIC_WORDS = frozenset(
     """
     a an and the with for
@@ -120,25 +119,21 @@ GENERIC_WORDS = frozenset(
     """.split()
 )
 
-#: How a name splits into words; shared so merging and grounding agree.
+#: Shared, so merging and grounding agree.
 NAME_TOKENS = re.compile(r"[a-z0-9]+")
 
 
 def build_query_chain(llm: ChatModel) -> Chain[SearchQuery]:
-    """Chain: ``{"request": str}`` -> :class:`SearchQuery`."""
     return Chain(QUERY_PROMPT, llm, SearchQuery)
 
 
 def build_extraction_chain(llm: ChatModel) -> Chain[ProductList]:
-    """Chain: ``{"request", "results", "limit"}`` -> :class:`ProductList`."""
     return Chain(EXTRACTION_PROMPT, llm, ProductList)
 
 
 def format_results(results: Sequence[SearchResult]) -> str:
-    """Render search results as numbered blocks for the extraction prompt."""
     return "\n\n".join(
-        f"[{index}]\n{result.as_prompt_block()}"
-        for index, result in enumerate(results, start=1)
+        f"[{index}]\n{result.as_prompt_block()}" for index, result in enumerate(results, start=1)
     )
 
 
@@ -166,8 +161,7 @@ def looks_like_a_product(name: str) -> bool:
 def clean_products(
     products: Sequence[Product], *, record: Recorder = nothing_recorded
 ) -> list[Product]:
-    """Tidy up names and drop entries that are articles or shops, not products
-    (ADR-0055)."""
+    """Tidy names and drop articles or shops reported as products (ADR-0055)."""
     kept: list[Product] = []
     discarded: list[str] = []
     for product in products:
@@ -181,17 +175,14 @@ def clean_products(
     if discarded:
         # Count at INFO, names at DEBUG.
         logger.info("Discarded %d result(s) that were pages, not products", len(discarded))
-        logger.debug(
-            "Discarded as pages, not products: %s", ", ".join(repr(n) for n in discarded)
-        )
+        logger.debug("Discarded as pages, not products: %s", ", ".join(repr(n) for n in discarded))
     return kept
 
 
 def deduplicate(
     products: Sequence[Product], limit: int, *, record: Recorder = nothing_recorded
 ) -> list[Product]:
-    """Drop repeats of the same product, keeping the most complete entry (ADR-0055,
-    ADR-0058)."""
+    """Drop repeats, keeping the most complete entry (ADR-0055, ADR-0058)."""
     # ``dedup_key`` is costly, so it is read once per product.
     keyed: dict[bool, list[Product]] = {True: [], False: []}
     for product in products:
@@ -216,10 +207,8 @@ def deduplicate(
 
 
 def _as_a_listing(product: Product) -> Product:
-    """One grounded listing, carrying its price as its one offer (ADR-0058).
-
-    Seeded here: after ``ground``, and before merging folds listings together.
-    """
+    """A listing carrying its price as its one offer: seeded after ``ground`` and
+    before merging (ADR-0058)."""
     if product.price is None:
         return product
     return product.model_copy(
@@ -260,7 +249,7 @@ def merge_variants(
 
 
 def _same_product(left: str, right: str) -> bool:
-    """Whether two names identify the same thing modulo descriptive words."""
+    """Whether two names differ only by descriptive words."""
     left_tokens = frozenset(NAME_TOKENS.findall(left.lower()))
     right_tokens = frozenset(NAME_TOKENS.findall(right.lower()))
     if not left_tokens or not right_tokens:
@@ -276,7 +265,6 @@ _MERGEABLE_FIELDS = ("price", "rating", "seller", "url", "notes")
 
 
 def _combine(first: Product, second: Product) -> Product:
-    """Merge two listings for one product."""
     winner, loser = (
         (first, second) if _completeness(first) >= _completeness(second) else (second, first)
     )
@@ -288,13 +276,11 @@ def _combine(first: Product, second: Product) -> Product:
 
 
 def _merge_opinions(winner: Product, loser: Product) -> list[Opinion]:
-    """Both listings' opinions, the winner's first, without repeats (ADR-0042)."""
     return distinct_quotes([*winner.opinions, *loser.opinions])
 
 
 def _merge_offers(winner: Product, loser: Product) -> list[Offer]:
-    """Both listings' offers, the winner's first, without repeats (ADR-0058). The
-    headline price stays the winner's."""
+    """Both listings' offers, the winner's first; the headline stays the winner's."""
     seen: dict[tuple[float, str | None, str | None, str | None], Offer] = {}
     for offer in (*winner.offers, *loser.offers):
         seen.setdefault((offer.price, offer.currency, offer.seller, offer.url), offer)
@@ -324,7 +310,6 @@ def _fill_gaps(winner: Product, loser: Product) -> dict[str, object]:
 
 
 def _completeness(product: Product) -> int:
-    """How many of the fields that matter this listing actually filled in."""
     return sum(
         value is not None
         for value in (product.price, product.rating, product.review_count, product.url)

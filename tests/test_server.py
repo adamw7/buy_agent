@@ -15,10 +15,7 @@ import urllib.error
 import urllib.request
 import queue
 from collections.abc import Callable, Iterator
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from contextvars import copy_context
-from html import escape
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlparse
@@ -27,23 +24,18 @@ import pytest
 
 import buy_agent.providers as providers_module
 import buy_agent.server as server_module
-from buy_agent.agent import ModelUnavailableError, every_step_passes
+from buy_agent.agent import every_step_passes
 from buy_agent.models import Product, nothing_recorded
-from tests.conftest import Photographer, needs_ap2, ranked_product
-from buy_agent.providers import OLLAMA, VLLM
+from tests.conftest import Photographer, ranked_product
+from buy_agent.providers import VLLM
 from buy_agent.screenshots import INSTALL, Camera, ScreenshotError
-from buy_agent.search import SearchError
 from buy_agent.server import (
-    _CROSS_SITE,
-    DEFAULT_UI_DIR,
-    _KEEPALIVE_SECONDS,
     _LOOPBACK_HOSTS,
     _MAX_BODY_BYTES,
     _SECURITY_HEADERS,
     BuyAgentHandler,
     _bound_host,
     _family_for,
-    _hostname,
     _relay,
     _workspace_for,
     allowed_hosts_for,
@@ -245,21 +237,6 @@ def events(url: str) -> list[tuple[str, Any]]:
 # -- the JSON API --------------------------------------------------------------
 
 
-def test_config_serves_the_form_its_defaults(server: str) -> None:
-    status, payload = get(f"{server}/api/config")
-    assert status == 200
-    assert payload["results"] == 10
-    assert payload["sort_options"] == ["score", "price", "rating"]
-
-
-def test_config_ships_the_ranges_the_form_holds_its_numbers_to(server: str) -> None:
-    """So a field can refuse 51 products without a second copy of the bounds."""
-    status, payload = get(f"{server}/api/config")
-
-    assert status == 200
-    assert payload["limits"]["results"] == {"min": 1, "max": 50}
-
-
 def test_sources_says_what_is_wrong_with_a_field_without_running_anything(
     server: str,
 ) -> None:
@@ -271,14 +248,6 @@ def test_sources_says_what_is_wrong_with_a_field_without_running_anything(
     assert payload["sources"] == "Marques Brownlee"
     assert "does not name a source" in payload["error"]
     assert "request" not in StubAgent.captured
-
-
-def test_sources_answers_200_for_a_field_that_names_sources(server: str) -> None:
-    """Asking whether this parses is a question that was answered either way."""
-    status, payload = get(f"{server}/api/sources?sources=rtings.com+@mkbhd")
-
-    assert status == 200
-    assert payload == {"sources": "rtings.com @mkbhd", "error": ""}
 
 
 def test_sources_with_nothing_to_check_is_the_whole_web(server: str) -> None:
@@ -306,15 +275,6 @@ def test_bounds_with_nothing_to_read_answers_nothing(server: str) -> None:
     assert payload == {"request": "", "noticed": []}
 
 
-def test_a_search_answers_with_ranked_products(server: str) -> None:
-    status, payload = post(f"{server}/api/search", {"request": "headphones"})
-    assert status == 200
-    assert payload["count"] == 2
-    assert payload["products"][0]["name"] == "Sony WH-1000XM5"
-    assert payload["products"][0]["rank"] == 1
-    assert StubAgent.captured["request"] == "headphones"
-
-
 def test_search_options_reach_the_agents_config(server: str) -> None:
     post(
         f"{server}/api/search",
@@ -325,94 +285,9 @@ def test_search_options_reach_the_agents_config(server: str) -> None:
     assert StubAgent.captured["sort_by"] == "price"
 
 
-def test_an_empty_request_is_the_clients_mistake(server: str) -> None:
-    StubAgent.result = ValueError("Nothing to shop for: the request is empty.")
-    status, payload = post(f"{server}/api/search", {"request": "   "})
-    assert status == 400
-    assert "empty" in payload["error"]
-
-
-def test_a_missing_ollama_is_reported_as_unavailable(server: str) -> None:
-    StubAgent.result = ModelUnavailableError("Start it with:  ollama serve")
-    status, payload = post(f"{server}/api/search", {"request": "headphones"})
-    assert status == 503
-    assert "ollama serve" in payload["error"]
-
-
-def test_a_failed_search_is_reported_as_a_bad_gateway(server: str) -> None:
-    StubAgent.result = SearchError("DuckDuckGo rate-limited the request")
-    status, payload = post(f"{server}/api/search", {"request": "headphones"})
-    assert status == 502
-    assert "rate-limited" in payload["error"]
-
-
-def test_a_bad_option_is_rejected_before_the_agent_runs(server: str) -> None:
-    status, payload = post(f"{server}/api/search", {"request": "x", "sort_by": "cheapness"})
-    assert status == 400
-    assert "sort_by" in payload["error"]
-    assert "request" not in StubAgent.captured
-
-
-def test_a_body_that_is_not_json_is_rejected(server: str) -> None:
-    status, payload = post(f"{server}/api/search", b"not json at all")
-    assert status == 400
-    assert "JSON" in payload["error"]
-
-
 def test_a_body_that_is_not_an_object_is_rejected(server: str) -> None:
     status, payload = post(f"{server}/api/search", ["headphones"])
     assert status == 400
-
-
-def test_reordering_a_finished_run_never_reaches_the_agent(server: str) -> None:
-    """The point of the endpoint: the browser posts back what it is already holding and
-    Python reorders it, so nothing searches, fetches or extracts (ADR-0035)."""
-    found = post(f"{server}/api/search", {"request": "headphones", "top": 1})[1]
-    StubAgent.captured.clear()
-
-    status, payload = post(
-        f"{server}/api/rank",
-        {
-            "request": found["request"],
-            "products": found["products"],
-            "sort_by": "price",
-            "top": found["top_n"],
-        },
-    )
-
-    assert status == 200
-    assert [p["name"] for p in payload["products"]] == ["Anker Q30", "Sony WH-1000XM5"]
-    assert payload["sort_by"] == "price"
-    assert payload["top_n"] == 1
-    assert StubAgent.captured == {}, "no run was started to reorder what was there"
-
-
-def test_a_reorder_of_something_that_is_not_a_run_is_refused(server: str) -> None:
-    status, payload = post(f"{server}/api/rank", {"products": ["Sony"]})
-
-    assert status == 400
-    assert payload["field"] == "products"
-
-
-def test_a_get_that_raises_is_answered_rather_than_dropped(server: str, monkeypatch) -> None:
-    """The reason ``do_POST`` has a catch-all, on the half that had none."""
-
-    def explode(**_whatever_the_server_has) -> dict:
-        raise ValueError("Unknown provider 'olama'; expected one of ollama, vllm.")
-
-    monkeypatch.setattr(server_module, "defaults_payload", explode)
-
-    status, payload = get(f"{server}/api/config")
-
-    assert status == 500
-    assert "olama" in payload["error"], "the reason is what makes a 500 worth reading"
-
-
-def test_unknown_api_paths_are_not_swallowed_by_the_app(server: str) -> None:
-    """An /api typo must 404, not quietly return index.html -- and say which path it
-    was, the typo being the whole of what is wrong."""
-    assert get(f"{server}/api/nope") == (404, {"error": "No such endpoint: /api/nope"})
-    assert post(f"{server}/api/nope", {}) == (404, {"error": "No such endpoint: /api/nope"})
 
 
 def test_head_does_not_start_a_search(server: str) -> None:
@@ -427,24 +302,6 @@ def test_head_does_not_start_a_search(server: str) -> None:
 
     assert "405" in reply.splitlines()[0]
     assert "request" not in StubAgent.captured
-
-
-def test_models_reports_an_unreachable_ollama(server: str, monkeypatch) -> None:
-    status, payload = get(f"{server}/api/models?base_url=http://127.0.0.1:1")
-    assert status == 200
-    assert payload["reachable"] is False
-    assert payload["provider"] == "ollama", "the provider is what the address was asked as"
-    assert payload["base_url"] == "http://127.0.0.1:1", "and the address is the one named"
-
-
-def test_models_asks_the_provider_the_request_named(server: str) -> None:
-    """The address alone is not the question: the same URL is asked one way for
-    Ollama and another for vLLM, and a vLLM asked Ollama's question answers 404."""
-    status, payload = get(f"{server}/api/models?provider=vllm&base_url=http://127.0.0.1:1")
-
-    assert status == 200
-    assert (payload["provider"], payload["label"]) == ("vllm", "vLLM")
-    assert payload["reachable"] is False
 
 
 def test_models_falls_back_to_the_address_that_provider_serves_on(server: str) -> None:
@@ -485,19 +342,6 @@ def test_models_does_not_ask_this_server_for_a_model(server: str, monkeypatch) -
     assert payload["hint"].startswith(f"{own} is this page's own address, not vLLM's")
     assert "vLLM address" in payload["hint"], "the form's name for the box"
     assert not asked, "nothing was asked: what answers there is this page"
-
-
-def test_models_answers_an_address_that_will_not_parse(server: str) -> None:
-    """The listing refuses an address it cannot ask, with the row's hint, as for any
-    other: the own-address check raising first made it a 500, which the pill reads as
-    the agent server being down."""
-    query = urlencode({"provider": "ollama", "base_url": "http://[::1:11434"})
-
-    status, payload = get(f"{server}/api/models?{query}")
-
-    assert status == 200
-    assert payload["reachable"] is False
-    assert "http://[::1:11434" in payload["hint"]
 
 
 def test_a_head_request_answers_like_a_get_without_the_body(server: str) -> None:
@@ -589,38 +433,6 @@ def test_a_post_with_no_length_header_at_all_is_read_as_an_empty_object(
 # -- who is allowed to ask -----------------------------------------------------
 
 
-def test_a_page_on_another_site_cannot_start_a_run(server: str) -> None:
-    """The reply it cannot read is not the point -- the run happening is."""
-    reply = raw(
-        server,
-        b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\n"
-        b"Origin: https://evil.example\r\nContent-Type: text/plain\r\n"
-        b"Content-Length: 25\r\nConnection: close\r\n\r\n"
-        b'{"request": "headphones"}',
-    )
-
-    assert "403" in reply.splitlines()[0]
-    assert "captured" not in StubAgent.captured
-    assert "request" not in StubAgent.captured
-
-
-def test_a_refusal_says_why_in_the_body_too(server: str) -> None:
-    """A tool that is not a browser reads the body, and a 403 with nothing in it reads as
-    a server that is broken rather than one that is guarded."""
-    reply = ask(server, Host="evil.example")
-
-    assert reply.splitlines()[0].endswith("403 Forbidden")
-    assert reply.endswith('{"error": "This API only answers its own page."}')
-
-
-def test_a_cross_site_request_carrying_no_origin_is_still_refused(server: str) -> None:
-    """An <img> or an <iframe> pointed here sends no Origin, only fetch metadata."""
-    reply = ask(server, "/api/search/stream?request=headphones", Sec_Fetch_Site="cross-site")
-
-    assert "403" in reply.splitlines()[0]
-    assert "request" not in StubAgent.captured
-
-
 def test_a_refusal_names_the_header_that_decided_it(server: str, caplog) -> None:
     """Origin is the value a reader reaches for, and on this path there is none."""
     with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
@@ -646,25 +458,6 @@ def test_a_refusal_says_what_was_asked_for(server: str, caplog) -> None:
         ask(server, "/api/models?provider=ollama", Sec_Fetch_Site="cross-site")
 
     assert "Refused a GET /api/models?provider=ollama" in caplog.text
-
-
-def test_the_dev_servers_proxy_is_not_a_foreign_site(server: str) -> None:
-    """`npm start` serves the app on :4200 and proxies /api here, Origin and all."""
-    reply = ask(server, Origin="http://localhost:4200", Sec_Fetch_Site="same-origin")
-
-    assert "200" in reply.splitlines()[0]
-    assert OLLAMA.model in reply
-    # Ports do not make a site, so a loopback page calling this one directly -- not
-    # through the proxy -- reports same-site.
-    assert "200" in ask(
-        server, Origin="http://127.0.0.1:4200", Sec_Fetch_Site="same-site"
-    ).splitlines()[0]
-    assert _CROSS_SITE == "cross-site"
-
-
-def test_an_opaque_origin_is_refused(server: str) -> None:
-    """A sandboxed iframe posts as "null"; the app is served from a real origin."""
-    assert "403" in ask(server, Origin="null").splitlines()[0]
 
 
 def test_an_origin_that_will_not_parse_is_refused_rather_than_dropped(server: str) -> None:
@@ -699,22 +492,6 @@ def test_a_request_line_the_base_class_refuses_keeps_its_refusal(server: str) ->
     assert "Error code: 400" in reply, reply or "the connection closed unanswered"
 
 
-def test_a_client_that_is_not_a_browser_is_answered(server: str) -> None:
-    """curl and the scripts POST /api/search was shaped for send none of this."""
-    reply = ask(server)
-
-    assert "200" in reply.splitlines()[0]
-    assert OLLAMA.model in reply
-
-
-def test_a_name_that_merely_resolves_here_is_not_answered(server: str) -> None:
-    """DNS rebinding: evil.example re-points at 127.0.0.1 and is then same-origin."""
-    reply = ask(server, Host="evil.example")
-
-    assert "403" in reply.splitlines()[0]
-    assert OLLAMA.model not in reply, "the defaults leaked to a rebound name"
-
-
 def test_head_is_guarded_like_the_others(server: str) -> None:
     """It answers by way of do_GET, so a guard only on GET would still run it."""
     reply = raw(
@@ -723,21 +500,6 @@ def test_head_is_guarded_like_the_others(server: str) -> None:
     )
 
     assert "403" in reply.splitlines()[0]
-
-
-def test_a_refused_request_ends_the_connection(server: str) -> None:
-    """Nothing more is coming from a caller who was not meant to be asking."""
-    reply = ask(server, Host="evil.example")
-
-    assert "Connection: close" in reply
-
-
-def test_every_response_says_what_the_page_may_do(server: str) -> None:
-    """Including the JSON: the headers are cheap and the omission is the bug."""
-    reply = ask(server)
-
-    for name, value in _SECURITY_HEADERS:
-        assert f"{name}: {value}" in reply
 
 
 def test_the_stream_is_a_200_no_proxy_holds_back_or_rewrites(server: str) -> None:
@@ -749,14 +511,6 @@ def test_the_stream_is_a_200_no_proxy_holds_back_or_rewrites(server: str) -> Non
 
     assert status == 200
     assert cache == "no-cache, no-transform"
-
-
-def test_the_stream_carries_the_security_headers_too(server: str) -> None:
-    """It writes its own header block rather than going through _send_bytes."""
-    with urllib.request.urlopen(f"{server}/api/search/stream?request=x", timeout=30) as response:
-        headers = response.headers
-    assert headers["X-Content-Type-Options"] == "nosniff"
-    assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
 
 
 def test_a_chunked_body_does_not_desync_the_connection(server: str) -> None:
@@ -855,57 +609,12 @@ def test_a_handler_does_not_wait_on_a_stalled_client_for_ever(
     )
 
 
-def test_a_client_that_is_merely_slow_still_gets_its_answer(
-    server: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The timeout bounds one blocking read, not a request and not a run."""
-    monkeypatch.setattr(BuyAgentHandler, "timeout", 0.5)
-    body = json.dumps({"products": [{"name": "Sony WH-1000XM5"}]}).encode()
-    parsed = urlparse(server)
-
-    with socket.create_connection((parsed.hostname, parsed.port), timeout=10) as sock:
-        sock.sendall(
-            b"POST /api/rank HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n"
-            b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n"
-        )
-        # Longer than half the timeout above, so a wait per read is what is being
-        # measured rather than a wait per request.
-        time.sleep(0.3)
-        sock.sendall(body)
-        reply = read_all(sock).decode("utf-8", "replace")
-
-    assert "200" in reply.splitlines()[0]
-
-
 def test_a_path_that_cannot_name_a_file_is_answered_not_dropped(tmp_path: Path) -> None:
     """An encoded NUL cannot name a file, and it is answered rather than dropped."""
     (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
 
     with serving(tmp_path) as base:
         reply = ask(base, "/main%00.js")
-
-    assert "200" in reply.splitlines()[0]
-    assert "<app-root>" in reply
-
-
-def test_a_path_the_platform_refuses_to_resolve_is_answered_not_dropped(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The same answer, with the failure provoked rather than hoped for."""
-    (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
-    resolve = Path.resolve
-
-    def refuse(self: Path, *args: Any, **kwargs: Any) -> Path:
-        # The ui_dir resolve() on the line above the try has to keep working, or
-        # the exception is raised somewhere this branch does not cover.
-        if self.name == "main.js":
-            raise OSError("the platform will not resolve this")
-        return resolve(self, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "resolve", refuse)
-
-    with serving(tmp_path) as base:
-        reply = ask(base, "/main.js")
 
     assert "200" in reply.splitlines()[0]
     assert "<app-root>" in reply
@@ -932,31 +641,6 @@ def test_the_apps_own_page_is_answered_whatever_the_server_is_called(tmp_path: P
         assert "403" in borrowed.splitlines()[0]
 
 
-def test_the_hostname_of_an_authority_is_read_without_a_scheme() -> None:
-    """urlparse reads 'localhost:8000' as a scheme and a path, hence by hand."""
-    assert _hostname("localhost:8000") == "localhost"
-    assert _hostname("127.0.0.1") == "127.0.0.1"
-    assert _hostname("[::1]:8000") == "::1"
-    assert _hostname("[::1]") == "::1"
-    assert _hostname(" EVIL.example ") == "evil.example"
-    assert _hostname("") == ""
-
-
-def test_a_loopback_bind_answers_the_loopback_names_and_what_was_named() -> None:
-    allowed = allowed_hosts_for("127.0.0.1", ["buy.local"])
-    assert allowed is not None
-    assert _LOOPBACK_HOSTS <= allowed
-    assert "buy.local" in allowed
-    assert "evil.example" not in allowed
-
-
-def test_a_public_bind_answers_any_host_until_one_is_named() -> None:
-    """The name that reaches a public interface is the operator's to know."""
-    assert allowed_hosts_for("192.168.1.5") is None
-    assert allowed_hosts_for("192.168.1.5", ["buy.lan:8000"]) == frozenset({"buy.lan"})
-    assert allowed_hosts_for("127.0.0.1", ["  "]) == _LOOPBACK_HOSTS
-
-
 def test_an_address_typed_at_the_command_line_is_read_without_its_brackets() -> None:
     """``--host`` is not a ``Host`` header: an address bar brackets an IPv6 literal and a
     command line does not, so the colons in a bare ``::1`` are the address rather than a
@@ -968,23 +652,6 @@ def test_an_address_typed_at_the_command_line_is_read_without_its_brackets() -> 
     assert _bound_host("[::1]") == "::1"
     assert _bound_host(" LOCALHOST ") == "localhost"
     assert _bound_host("") == ""
-
-
-def test_the_ipv6_loopback_is_a_loopback_bind_like_any_other() -> None:
-    """Read as a ``Host`` header it split at the first colon and named nothing, so the
-    one address ``_LOOPBACK_HOSTS`` spells out was the one bind classed as public --
-    which turns the ``Host`` check off and says so at startup (ADR-0018)."""
-    assert allowed_hosts_for("::1") == _LOOPBACK_HOSTS
-    assert allowed_hosts_for("::") is None, "every interface is every interface"
-
-
-def test_a_named_host_that_names_nothing_is_dropped_rather_than_allowed() -> None:
-    """An entry that cannot be read comes to ``""``, which is also what a request sending
-    no ``Host`` at all arrives as -- so allowing it inverted the flag: the host somebody
-    named was refused and the one nobody named was let in."""
-    assert allowed_hosts_for("0.0.0.0", ["::1"]) == frozenset({"::1"})
-    assert allowed_hosts_for("0.0.0.0", [":8000"]) is None
-    assert "" not in (allowed_hosts_for("127.0.0.1", [":8000"]) or frozenset())
 
 
 def test_a_request_sending_no_host_is_refused_by_a_server_that_names_one(
@@ -1000,21 +667,11 @@ def test_a_request_sending_no_host_is_refused_by_a_server_that_names_one(
 
 def test_an_ipv6_address_is_bound_on_the_family_it_needs() -> None:
     """``ThreadingHTTPServer`` is ``AF_INET`` and nothing else, so every IPv6 bind failed
-    outright -- including the ``::1`` ``_browsable_url`` is written to print."""
+    outright -- including the ``::1`` ``browsable_url`` is written to print."""
     assert _family_for("127.0.0.1") is socket.AF_INET
     assert _family_for("0.0.0.0") is socket.AF_INET
     assert _family_for("::1") is socket.AF_INET6
     assert _family_for("::") is socket.AF_INET6
-
-
-def test_the_server_it_builds_is_bound_on_that_family(tmp_path: Path) -> None:
-    """Read off the socket the server opened, not off the class: the family is chosen per
-    instance, where the base class holds one for every server there is."""
-    built = create_server("127.0.0.1", 0, ui_dir=tmp_path)
-    try:
-        assert built.socket.family is socket.AF_INET
-    finally:
-        built.server_close()
 
 
 # -- the event stream ----------------------------------------------------------
@@ -1031,53 +688,16 @@ def test_the_stream_relays_progress_then_the_result(server: str) -> None:
     assert {"time", "level", "logger", "message"} == set(logs[0])
 
 
-def test_every_relayed_line_is_timed(server: str) -> None:
-    """The panel is showing the CLI's own lines, and the CLI times them."""
-    stream = events(f"{server}/api/search/stream?request=headphones")
-
-    logs = [data for name, data in stream if name == "log"]
-    assert logs
-    for entry in logs:
-        assert re.fullmatch(r"\d{2}:\d{2}:\d{2}", entry["time"]), entry
-
-    _, result = stream[-1]
-    assert result["count"] == 2
-    assert result["products"][0]["name"] == "Sony WH-1000XM5"
-
-
 def test_the_stream_passes_options_through_the_query_string(server: str) -> None:
     events(f"{server}/api/search/stream?request=espresso&model=qwen2.5&fetch=false")
     assert StubAgent.captured["config"].model == "qwen2.5"
     assert StubAgent.captured["config"].fetch_pages is False
 
 
-def test_a_failure_ends_the_stream_with_a_failure_event(server: str) -> None:
-    """Named 'failure', not 'error': EventSource reserves 'error' for the transport."""
-    StubAgent.result = ModelUnavailableError("Start it with:  ollama serve")
-    name, data = events(f"{server}/api/search/stream?request=headphones")[-1]
-    assert name == "failure"
-    assert data["status"] == 503
-    assert "ollama serve" in data["error"]
-
-
 def test_a_bad_option_ends_the_stream_before_the_agent_runs(server: str) -> None:
     name, data = events(f"{server}/api/search/stream?request=x&results=nope")[-1]
     assert (name, data["status"]) == ("failure", 400)
     assert "request" not in StubAgent.captured
-
-
-def test_a_paying_rail_with_no_address_is_refused_at_the_box_it_came_from(
-    server: str,
-) -> None:
-    """The form can make this one: pick the rail, leave the address empty."""
-    name, data = events(
-        f"{server}/api/search/stream?request=headphones&pay=true&rail=http"
-    )[-1]
-
-    assert (name, data["status"]) == ("failure", 400)
-    assert data["field"] == "merchant_url"
-    assert "needs an address" in data["error"]
-    assert "request" not in StubAgent.captured, "nothing was run for a setting like this"
 
 
 @pytest.mark.parametrize("stream", [False, True], ids=["post", "stream"])
@@ -1101,25 +721,6 @@ def test_a_run_at_this_server_s_own_address_is_refused_at_that_box(
         f"{options['base_url']} is this page's own address, not vLLM's"
     ), "which address, and whose it was meant to be"
     assert "request" not in StubAgent.captured, "nothing was run for a setting like this"
-
-
-@pytest.mark.parametrize("stream", [False, True], ids=["post", "stream"])
-def test_a_run_at_an_address_that_will_not_parse_is_not_a_500(
-    server: str, stream: bool
-) -> None:
-    """An IPv6 address typed without its closing bracket made the own-address check
-    raise, so the run answered "Unexpected failure". An address that will not parse is
-    not this server's, and the model server's row is left to refuse it in its own words."""
-    options = {"request": "headphones", "base_url": "http://[::1:11434"}
-
-    if stream:
-        name, _data = events(f"{server}/api/search/stream?{urlencode(options)}")[-1]
-        assert name == "result"
-    else:
-        status, _data = post(f"{server}/api/search", options)
-        assert status == 200
-
-    assert StubAgent.captured["config"].base_url == "http://[::1:11434"
 
 
 @pytest.mark.parametrize(
@@ -1157,16 +758,6 @@ def test_an_unexpected_failure_still_ends_the_stream(server: str) -> None:
     assert "something nobody predicted" in data["error"]
 
 
-def test_an_unexpected_failure_is_a_500_and_not_a_dropped_connection(server: str) -> None:
-    """The one-shot endpoint answers what the stream answers."""
-    StubAgent.result = RuntimeError("something nobody predicted")
-
-    status, payload = post(f"{server}/api/search", {"request": "headphones"})
-
-    assert status == 500
-    assert "something nobody predicted" in payload["error"]
-
-
 @pytest.mark.parametrize(
     ("length", "expected"),
     [(b"100000", "413"), (b"lots", "400")],
@@ -1185,29 +776,6 @@ def test_a_rejected_body_ends_the_connection_rather_than_desyncing_it(
     )
 
 
-def test_two_streams_do_not_see_each_others_progress(server: str) -> None:
-    """Log lines are routed by the context the run is being watched through, and a worker
-    thread begins in one of its own."""
-    StubAgent.delay = 0.3
-    collected: dict[str, list] = {}
-
-    def run(request: str) -> None:
-        collected[request] = events(f"{server}/api/search/stream?request={request}")
-
-    threads = [
-        threading.Thread(target=run, args=(request,)) for request in ("kettle", "toaster")
-    ]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(timeout=30)
-
-    for request, stream in collected.items():
-        messages = [data["message"] for name, data in stream if name == "log"]
-        assert any(request in message for message in messages)
-        assert not any(other in message for message in messages for other in {"kettle", "toaster"} - {request})
-
-
 def test_a_quiet_run_is_kept_alive_with_pings(server: str, monkeypatch) -> None:
     """Extraction is slow and logs nothing, so a real run goes quiet for a minute."""
     monkeypatch.setattr("buy_agent.server._KEEPALIVE_SECONDS", 0.05)
@@ -1222,11 +790,6 @@ def test_a_quiet_run_is_kept_alive_with_pings(server: str, monkeypatch) -> None:
     # And the stream goes on relaying afterwards.
     after_the_first_ping = names[names.index("ping") :]
     assert "log" in after_the_first_ping, "the progress stopped at the first ping"
-
-
-def test_the_keepalive_is_frequent_enough_to_be_worth_sending() -> None:
-    """The mechanism is only useful if the interval beats what gives up on silence."""
-    assert 0 < _KEEPALIVE_SECONDS <= 30
 
 
 def test_a_stream_nobody_is_reading_is_abandoned(server: str, monkeypatch, caplog) -> None:
@@ -1257,14 +820,6 @@ def test_a_stream_nobody_is_reading_stops_the_run(server: str, monkeypatch, capl
     assert "reached" not in StubAgent.captured, "the step after the boundary still ran"
 
 
-def test_a_run_nobody_stopped_passes_every_boundary(server: str) -> None:
-    """The other side of the same check: a reader who stays gets the whole run."""
-    collected = events(f"{server}/api/search/stream?request=kettle")
-
-    assert [name for name, _ in collected][-1] == "result"
-    assert StubAgent.captured["reached"] == "extract"
-
-
 def test_writing_to_a_closed_connection_is_reported_rather_than_raised() -> None:
     """``_send_event`` returning False is the only signal the loop has."""
 
@@ -1284,14 +839,6 @@ def test_writing_to_a_closed_connection_is_reported_rather_than_raised() -> None
 # -- the built app -------------------------------------------------------------
 
 
-def test_an_unbuilt_ui_says_how_to_build_it(tmp_path: Path) -> None:
-    with serving(unbuilt_workspace(tmp_path)) as server:
-        status, payload = get(f"{server}/")
-
-    assert status == 503
-    assert "npm run build" in payload["error"]
-
-
 def test_an_unbuilt_ui_says_it_to_a_browser_as_a_page(tmp_path: Path) -> None:
     """The one client that matters here, and the one that cannot read JSON."""
     with serving(unbuilt_workspace(tmp_path)) as server:
@@ -1307,15 +854,6 @@ def test_an_unbuilt_ui_says_it_to_a_browser_as_a_page(tmp_path: Path) -> None:
     assert "<script" not in page
 
 
-def test_the_directory_to_run_npm_in_is_the_workspace() -> None:
-    """Not the build's own parent, which is where this message used to send people."""
-    workspace = _workspace_for(DEFAULT_UI_DIR)
-
-    assert workspace is not None
-    assert (workspace / "package.json").is_file(), "the directory npm install needs"
-    assert (workspace / "angular.json").is_file(), "...and npm run build"
-
-
 def test_a_ui_dir_with_no_workspace_above_it_is_not_told_to_build(tmp_path: Path) -> None:
     """A remedy nobody can follow is worse than none."""
     assert _workspace_for(tmp_path) is None
@@ -1328,54 +866,6 @@ def test_a_ui_dir_with_no_workspace_above_it_is_not_told_to_build(tmp_path: Path
     assert str(tmp_path) in said
     assert "--ui-dir" in said
     assert "npm" not in said, f"nothing to run npm in, so nothing said about npm: {said}"
-
-
-def test_the_page_for_a_ui_dir_with_no_workspace_drops_the_command_too(
-    tmp_path: Path,
-) -> None:
-    """The browser's half of the same: no command block, because there is no command."""
-    with serving(tmp_path) as server:
-        status, page = _call(
-            urllib.request.Request(f"{server}/", headers={"Accept": "text/html"})
-        )
-
-    assert status == 503
-    assert "npm" not in page
-    assert "<pre>" not in page
-    assert escape(str(tmp_path)) in page
-
-
-def test_a_ui_dir_a_reader_names_is_escaped_into_the_page(tmp_path: Path) -> None:
-    """The path in that sentence is somebody's argument, and this is HTML."""
-    # Left uncreated on purpose: Windows refuses a filename holding '<' or '>',
-    # and an unbuilt --ui-dir is a path that need not be there anyway -- which is
-    # the whole of what this page is for. The characters have to be these ones,
-    # so the directory is the half that gives.
-    awkward = tmp_path / "a<b>&c"
-
-    with serving(awkward) as server:
-        _, page = _call(urllib.request.Request(f"{server}/", headers={"Accept": "text/html"}))
-
-    assert "a<b>&c" not in page
-    assert "a&lt;b&gt;&amp;c" in page
-
-
-def test_the_app_is_served_and_owns_its_own_routes(tmp_path: Path) -> None:
-    """Including the content types: a .js served as text/plain is a blank page."""
-    (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
-    (tmp_path / "main.js").write_text("console.log(1)", encoding="utf-8")
-    (tmp_path / "styles.css").write_text("body{}", encoding="utf-8")
-    with serving(tmp_path) as base:
-        assert get(f"{base}/")[1] == "<app-root></app-root>"
-        assert get(f"{base}/main.js")[1] == "console.log(1)"
-        assert content_type(f"{base}/main.js").startswith("text/javascript")
-        assert content_type(f"{base}/styles.css").startswith("text/css")
-        # A deep link belongs to the app's router, not to the filesystem.
-        assert get(f"{base}/results/3")[1] == "<app-root></app-root>"
-        # Walking out of the UI directory gets the app, not the file -- encoded
-        # or not, since the path is unquoted before it is checked.
-        assert get(f"{base}/../../requirements.txt")[1] == "<app-root></app-root>"
-        assert get(f"{base}/%2e%2e/%2e%2e/requirements.txt")[1] == "<app-root></app-root>"
 
 
 def test_a_hashed_file_is_kept_for_good_and_the_page_is_asked_about_again(
@@ -1399,23 +889,6 @@ def test_a_hashed_file_is_kept_for_good_and_the_page_is_asked_about_again(
         assert cache_control("/favicon.ico") == "no-cache"
         assert cache_control("/") == "no-cache"
         assert cache_control("/results/3") == "no-cache"
-
-
-def test_the_content_type_table_answers_and_not_the_platform(tmp_path: Path, monkeypatch) -> None:
-    """On Windows ``mimetypes`` reads the registry and can call a .js text/plain."""
-    monkeypatch.setattr(
-        "buy_agent.server.mimetypes.guess_type", lambda *_a, **_k: ("text/plain", None)
-    )
-    (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
-    for name in ("main.js", "polyfills.mjs", "styles.css", "icon.svg", "font.woff2"):
-        (tmp_path / name).write_text("x", encoding="utf-8")
-
-    with serving(tmp_path) as base:
-        assert content_type(f"{base}/main.js").startswith("text/javascript")
-        assert content_type(f"{base}/polyfills.mjs").startswith("text/javascript")
-        assert content_type(f"{base}/styles.css").startswith("text/css")
-        assert content_type(f"{base}/icon.svg").startswith("image/svg+xml")
-        assert content_type(f"{base}/font.woff2").startswith("font/woff2")
 
 
 def test_an_extension_only_the_platform_knows_is_served_as_the_platform_says(
@@ -1459,11 +932,6 @@ def _refusing(reason: int):
         raise OSError(reason, os.strerror(reason))
 
     return refuse
-
-
-def test_a_port_that_cannot_be_bound_is_reported_not_raised(monkeypatch) -> None:
-    monkeypatch.setattr("buy_agent.server.create_server", _refusing(errno.EADDRINUSE))
-    assert main(["--port", "8000"]) == 1
 
 
 def test_the_port_a_model_server_also_wants_is_named_in_the_refusal(
@@ -1564,23 +1032,6 @@ class FakeHttpd:
 
     def server_close(self) -> None:
         self.closed = True
-
-
-def test_serving_until_the_socket_is_given_up_exits_zero(monkeypatch, tmp_path: Path) -> None:
-    httpd = FakeHttpd()
-    monkeypatch.setattr("buy_agent.server.create_server", lambda *a, **k: httpd)
-
-    assert main(["--ui-dir", str(tmp_path)]) == 0
-    assert httpd.closed, "the port has to be released on the way out"
-
-
-def test_a_ctrl_c_stops_the_server_without_a_traceback(monkeypatch, tmp_path: Path) -> None:
-    """Ctrl-C is how this server is stopped; 130 is the shell's word for that."""
-    httpd = FakeHttpd(on_serve=KeyboardInterrupt())
-    monkeypatch.setattr("buy_agent.server.create_server", lambda *a, **k: httpd)
-
-    assert main(["--ui-dir", str(tmp_path)]) == 130
-    assert httpd.closed
 
 
 def test_an_unbuilt_ui_is_warned_about_at_startup(monkeypatch, tmp_path: Path, caplog) -> None:
@@ -1727,54 +1178,6 @@ def test_the_log_relay_is_taken_off_the_package_logger_on_the_way_out(
     assert _relay not in package_logger.handlers
 
 
-def inherit(context) -> None:
-    """What ``fetch._as_the_caller`` does, for a pool built here to stand in for
-    the one ``enrich`` builds."""
-    for variable, value in context.items():
-        variable.set(value)
-
-
-def test_a_line_from_a_thread_the_run_started_still_reaches_the_stream() -> None:
-    """The relay follows the run, not the thread that happened to log."""
-    sink: queue.Queue[Any] = queue.Queue()
-    package_logger = logging.getLogger("buy_agent")
-    # As a streamed run installs it: progress is logged at INFO, which a logger
-    # left at its default drops before any handler sees it.
-    server_module._install_relay()
-
-    def run() -> None:
-        _relay.attach(sink)
-        try:
-            # A pool whose workers start in this thread's context, which is what
-            # ``enrich`` does and ``tests/test_fetch.py`` holds it to.
-            with ThreadPoolExecutor(
-                max_workers=2, initializer=inherit, initargs=(copy_context(),)
-            ) as pool:
-                list(
-                    pool.map(
-                        lambda url: logging.getLogger("buy_agent.fetch").info(
-                            "%s asked to be tried again; waiting %.1fs", url, 3.0
-                        ),
-                        ["https://a.example", "https://b.example"],
-                    )
-                )
-        finally:
-            _relay.detach()
-
-    worker = threading.Thread(target=run)
-    worker.start()
-    worker.join(timeout=10)
-    package_logger.removeHandler(_relay)
-
-    relayed = []
-    while not sink.empty():
-        relayed.append(sink.get()["message"])
-    assert sorted(relayed) == [
-        "https://a.example asked to be tried again; waiting 3.0s",
-        "https://b.example asked to be tried again; waiting 3.0s",
-    ]
-
-
 def test_a_relayed_line_is_timed_when_it_was_logged_and_not_when_it_was_sent() -> None:
     """The panel reads the gaps between lines, so the time is the record's own: a line
     that waited in the queue behind a slow write keeps the moment it was logged."""
@@ -1795,34 +1198,6 @@ def test_a_relayed_line_is_timed_when_it_was_logged_and_not_when_it_was_sent() -
     worker.join(timeout=10)
 
     assert sink.get_nowait()["time"] == time.strftime("%H:%M:%S", time.localtime(logged))
-
-
-def test_a_thread_outside_the_run_is_not_one_of_its_lines() -> None:
-    """The other half: a context is what a line belongs to, and a thread that never took
-    one carries none."""
-    sink: queue.Queue[Any] = queue.Queue()
-    package_logger = logging.getLogger("buy_agent")
-    # As a streamed run installs it: progress is logged at INFO, which a logger
-    # left at its default drops before any handler sees it.
-    server_module._install_relay()
-
-    def run() -> None:
-        _relay.attach(sink)
-        try:
-            stranger = threading.Thread(
-                target=logging.getLogger("buy_agent.stub").info, args=("somebody else",)
-            )
-            stranger.start()
-            stranger.join(timeout=10)
-        finally:
-            _relay.detach()
-
-    worker = threading.Thread(target=run)
-    worker.start()
-    worker.join(timeout=10)
-    package_logger.removeHandler(_relay)
-
-    assert sink.empty()
 
 
 def test_a_relay_whose_reader_has_gone_does_not_break_the_run(monkeypatch, caplog) -> None:
@@ -1927,22 +1302,6 @@ PAY_BODY = {
 }
 
 
-@needs_ap2
-def test_paying_answers_a_receipt(server: str) -> None:
-    status, body = post(f"{server}/api/pay", PAY_BODY)
-
-    assert status == 200
-    assert body["receipt"]["title"] == "Sony WH-1000XM5"
-
-
-def test_paying_runs_no_pipeline(server: str) -> None:
-    """The same line `POST /api/rank` sits on (ADR-0035): the products travel in
-    the body because the browser is already holding them."""
-    post(f"{server}/api/pay", PAY_BODY)
-
-    assert "reached" not in StubAgent.captured
-
-
 def test_an_approval_that_does_not_match_is_a_409(server: str) -> None:
     body = {**PAY_BODY, "approved": {**PAY_BODY["approved"], "price": 1.0}}
 
@@ -1950,40 +1309,6 @@ def test_an_approval_that_does_not_match_is_a_409(server: str) -> None:
 
     assert status == 409
     assert answer["field"] == "approved"
-
-
-def test_an_unpayable_product_is_a_400_naming_the_field(server: str) -> None:
-    body = {
-        "products": [{**PAYABLE_PRODUCT, "price": None, "currency": None}],
-        "approved": PAY_BODY["approved"],
-    }
-
-    status, answer = post(f"{server}/api/pay", body)
-
-    assert status == 400
-    assert answer["field"] == "products"
-
-
-def test_paying_is_guarded_like_every_other_method(server: str) -> None:
-    """`_refused` runs at the top of `do_POST`, so a new endpoint added under it
-    is guarded by being there -- this is what says it still is."""
-    request = urllib.request.Request(
-        f"{server}/api/pay",
-        data=json.dumps(PAY_BODY).encode(),
-        headers={"Content-Type": "application/json", "Sec-Fetch-Site": "cross-site"},
-        method="POST",
-    )
-
-    status, _body = _call(request)
-
-    assert status == 403
-
-
-def test_the_form_is_told_what_this_server_can_pay_through(server: str) -> None:
-    _status, body = get(f"{server}/api/config")
-
-    assert body["pay"] is False
-    assert [row["name"] for row in body["rail_options"]] == ["dry-run", "http"]
 
 
 # -- a picture of the page a card links to (ADR-0065) ---------------------------

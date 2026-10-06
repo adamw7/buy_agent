@@ -33,7 +33,6 @@ if TYPE_CHECKING:
     from benchmark.cases import Case
     from benchmark.runner import Report
 
-#: What each of the two questions is called in a run's timings.
 STEPS: dict[type, str] = {SearchQuery: "query", ProductList: "extract"}
 
 
@@ -45,27 +44,18 @@ class Contender(BaseModel):
     provider: str = ""
     model: str = ""
     base_url: str = ""
-    #: One of :data:`benchmark.cases.SCRIPTS`, for an answer no model gave.
+    #: One of :data:`benchmark.cases.SCRIPTS`.
     script: str = ""
 
     @classmethod
     def served(cls, provider: str, model: str = "", base_url: str = "") -> Contender:
-        """A model on a server, its blanks filled the way a run fills them (ADR-0012), so
-        two spellings of one model are one contender.
-
-        Raises:
-            ValueError: for a provider no row serves.
-        """
+        """A model on a server, its blanks filled as a run fills them, so two spellings
+        of one model are one contender."""
         config = AgentConfig(provider=provider, model=model, base_url=base_url)
         return cls(provider=config.provider, model=config.model, base_url=config.base_url)
 
     @classmethod
     def scripted(cls, script: str) -> Contender:
-        """One of the hand-written answers.
-
-        Raises:
-            ValueError: for a script no case carries.
-        """
         if script not in SCRIPTS:
             raise ValueError(
                 f"Unknown script {script!r}; expected one of {', '.join(SCRIPTS)}."
@@ -74,45 +64,38 @@ class Contender(BaseModel):
 
     @property
     def key(self) -> str:
-        """What tells this contender from every other, on the board and the page."""
         if self.script:
             return f"script:{self.script}"
         return f"{self.provider}:{self.model}@{self.base_url}"
 
     @property
     def label(self) -> str:
-        """The name a reader knows it by."""
         return f"{self.script} (scripted)" if self.script else self.model
 
     @property
     def where(self) -> str:
-        """Where its answers come from."""
         if self.script:
             return "A hand-written answer; no model is asked."
         server = PROVIDERS.get(self.provider)
         return f"{server.label if server else self.provider} at {self.base_url}"
 
     def settings(self) -> dict[str, str]:
-        """The fields of a case's config that are this contender's."""
         if self.script:
             return {}
         return {"provider": self.provider, "model": self.model, "base_url": self.base_url}
 
     def model_for(self, case: Case, config: AgentConfig) -> ChatModel:
-        """What answers for this contender on ``case``: its script, or its server's model."""
         if self.script:
             return case.scripted(self.script)
         return config.model_server.chat_model(config)
 
     def build_on(self, config: AgentConfig) -> str:
-        """Which build of its model answered: the digest its server lists for it, asked
-        through the provider row as a run asks (ADR-0075). "" for a script, a server
-        that lists none, or one that cannot say."""
+        """The digest its server lists for its model (ADR-0075), or ""."""
         if self.script:
             return ""
         try:
             installed = config.model_server.installed(config)
-        # Whatever the listing raises says nothing about the build, which the run has.
+        # Whatever the listing raises says nothing about the build.
         except Exception:  # pylint: disable=broad-exception-caught
             return ""
         # Ollama lists a tag asked for bare ("llama3.2") as ":latest".
@@ -121,20 +104,18 @@ class Contender(BaseModel):
 
 
 class Stopwatch:
-    """A chat model, timed: how long each question took, and the query it was given."""
+    """A chat model, timed, keeping the query it refined."""
 
     def __init__(
         self, model: ChatModel, clock: Callable[[], float] = time.perf_counter
     ) -> None:
         self.model = model
         self.clock = clock
-        #: Seconds per step of :data:`STEPS`, failures included: a timeout is time.
+        #: Per step, failures included: a timeout is time.
         self.seconds: dict[str, float] = {}
-        #: The query the model refined the request into, if it gave one.
         self.query: str | None = None
 
     def answer(self, messages: Sequence[Message], schema: type[SchemaT]) -> SchemaT:
-        """Ask the model, and time it."""
         step = STEPS.get(schema, schema.__name__)
         started = self.clock()
         try:
@@ -154,14 +135,13 @@ class Reported(BaseModel):
     price: str
     rating: str
     quotes: int
-    #: What the key calls it, where it names something the pages are about.
+    #: What the key calls it.
     matches: str | None = None
     #: :data:`~benchmark.scoring.REAL`, ``REPEATED`` or ``INVENTED``.
     verdict: str
 
     @property
     def line(self) -> str:
-        """What it was reported as, in the words both doors show."""
         return f"{self.name} -- {self.price}, {self.rating}, {self.quotes} quote(s)"
 
 
@@ -170,31 +150,26 @@ class CaseRun(BaseModel):
 
     contender: Contender
     case: str
-    #: The case it was scored against (:attr:`benchmark.cases.Case.fingerprint`).
     fingerprint: str
-    #: When it finished, in UTC.
+    #: In UTC.
     finished: str
     query: QueryVerdict
-    #: Seconds per step of :data:`STEPS`.
     seconds: dict[str, float] = {}
-    #: The scorecard's ``right out of`` per metric; ``None`` where the run failed.
+    #: ``None`` where the run failed.
     counts: dict[str, tuple[int, int]] | None = None
     invented: int = 0
     repeated: int = 0
-    #: Why there is no scorecard: the model answered with something unreadable.
+    #: The model answered with something unreadable.
     failure: str | None = None
     products: list[Reported] = []
-    #: The code it went through (:func:`benchmark.pipeline.code`); "" for a run kept before
-    #: that was recorded (ADR-0075).
+    #: :func:`benchmark.pipeline.code` (ADR-0075); "" for a run kept before it was.
     pipeline: str = ""
-    #: The settings it ran with (:func:`benchmark.pipeline.settings`).
     settings: dict[str, Any] = {}
-    #: The digest of the model that answered, where its server lists one.
     build: str = ""
 
     @property
     def scorecard(self) -> Scorecard | None:
-        """The scorecard these counts make, on today's weights."""
+        """On today's weights."""
         if self.counts is None:
             return None
         return Scorecard(
@@ -203,18 +178,16 @@ class CaseRun(BaseModel):
 
     @property
     def score(self) -> float:
-        """The scorecard's score; 0.0 for a run that failed."""
+        """0.0 for a run that failed."""
         card = self.scorecard
         return card.score if card else 0.0
 
     @property
     def model_seconds(self) -> float:
-        """How long the model took over both questions."""
         return sum(self.seconds.values())
 
 
 def _now() -> str:
-    """The time a run finished, as it is kept."""
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
@@ -225,14 +198,9 @@ def run_case(
     clock: Callable[[], float] = time.perf_counter,
     checkpoint: Checkpoint = every_step_passes,
 ) -> CaseRun:
-    """Run one contender over one case and score what it reported.
-
-    Raises:
-        ModelUnavailableError: if the model could not be asked at all -- the server is
-            not there, has no such model, or took longer than a run allows. A model that
-            answered with something unreadable is not that: the answer is this case's
-            result, and comes back as a failed run.
-    """
+    """Run one contender over one case and score what it reported. A model that could
+    not be asked raises ``ModelUnavailableError``; one that answered unreadably is a
+    failed run."""
     config = case.settings(**contender.settings())
     watched = Stopwatch(contender.model_for(case, config), clock)
     try:
@@ -250,9 +218,7 @@ def run_case(
 def scored_run(
     contender: Contender, case: Case, config: AgentConfig, watched: Stopwatch, report: Report
 ) -> CaseRun:
-    """A finished run as it is kept: what ``report`` scored, with the query and the time
-    ``watched`` saw, run on ``config``. The nightly builds its own this way, off the one
-    run its live tests share (ADR-0072)."""
+    """A finished run as it is kept; the nightly builds its own this way (ADR-0072)."""
     card = report.scorecard
     return _kept(
         contender,
@@ -269,7 +235,7 @@ def scored_run(
 def _kept(
     contender: Contender, case: Case, config: AgentConfig, watched: Stopwatch, **outcome: Any
 ) -> CaseRun:
-    """A finished run, as it is kept: with what it was scored under (ADR-0075)."""
+    """With what it was scored under (ADR-0075)."""
     return CaseRun(
         contender=contender,
         case=case.name,
@@ -285,8 +251,7 @@ def _kept(
 
 
 def settings_now(run: CaseRun) -> dict[str, Any] | None:
-    """The settings this checkout would run ``run``'s contender on its case with, or None
-    where it no longer can: a case or a server since removed."""
+    """The settings this checkout would rerun ``run`` with, or None where it cannot."""
     case = CASES.get(run.case)
     if case is None:
         return None
@@ -297,8 +262,7 @@ def settings_now(run: CaseRun) -> dict[str, Any] | None:
 
 
 def scored_under(run: CaseRun) -> list[str]:
-    """Why ``run`` is no comparison with one this checkout would make, a sentence each;
-    none where it is (ADR-0075)."""
+    """Why ``run`` is no comparison with one this checkout would make (ADR-0075)."""
     reasons = []
     if run.pipeline != pipeline.code():
         reasons.append(
@@ -320,7 +284,6 @@ def scored_under(run: CaseRun) -> list[str]:
 
 
 def reported(ranked: Sequence[RankedProduct], case: Case) -> list[Reported]:
-    """What a run reported, in its order, each with what the key makes of it."""
     products = [entry.product for entry in ranked]
     return [
         Reported(
@@ -344,38 +307,32 @@ class Standing:
 
     rank: int
     contender: Contender
-    #: Its latest run of each case, in the order the cases are given.
+    #: Its latest run of each case.
     runs: tuple[CaseRun, ...]
 
     @property
     def score(self) -> float:
-        """The mean of its runs' scores, a failed run counting 0."""
         return fmean(run.score for run in self.runs)
 
     @property
     def query(self) -> float:
-        """The mean of its runs' query scores."""
         return fmean(run.query.score for run in self.runs)
 
     @property
     def seconds(self) -> float:
-        """The mean time its model took per case."""
         return fmean(run.model_seconds for run in self.runs)
 
     @property
     def failed(self) -> int:
-        """How many of its runs failed."""
         return sum(run.failure is not None for run in self.runs)
 
     @property
     def stale(self) -> int:
-        """How many of its runs were scored under another pipeline or other settings than
-        this checkout's (ADR-0075)."""
+        """Runs scored under another pipeline or other settings (ADR-0075)."""
         return sum(bool(scored_under(run)) for run in self.runs)
 
     @property
     def notes(self) -> list[str]:
-        """What somebody comparing this row with the others should know first."""
         notes = []
         if stale := self.stale:
             notes.append(
@@ -388,12 +345,8 @@ class Standing:
 
 
 def standings(runs: Iterable[CaseRun], cases: Sequence[Case]) -> list[Standing]:
-    """Each contender's latest run of each case, ranked.
-
-    A contender that has run more of ``cases`` ranks above one that has run fewer, since
-    a mean over an easier set is no comparison; then the score, the query, and the time
-    its model took, quickest first.
-    """
+    """Each contender's latest run of each case, ranked: more cases run first (a mean
+    over fewer is no comparison), then score, query and time."""
     latest: dict[Contender, dict[str, CaseRun]] = {}
     for run in runs:
         latest.setdefault(run.contender, {})[run.case] = run
@@ -418,7 +371,7 @@ def standings(runs: Iterable[CaseRun], cases: Sequence[Case]) -> list[Standing]:
 
 
 def seconds_label(seconds: float) -> str:
-    """A duration as both doors write it: "4.2 s", "3 min 07 s"."""
+    """As both doors write it: "4.2 s", "3 min 07 s"."""
     if seconds < 60:
         return f"{seconds:.1f} s"
     minutes, rest = divmod(round(seconds), 60)
@@ -426,7 +379,7 @@ def seconds_label(seconds: float) -> str:
 
 
 def finished_label(finished: str) -> str:
-    """When a run finished, to the minute: "2026-10-02 09:05 UTC"."""
+    """To the minute: "2026-10-02 09:05 UTC"."""
     try:
         when = datetime.fromisoformat(finished)
     except ValueError:
@@ -435,7 +388,6 @@ def finished_label(finished: str) -> str:
 
 
 def case_payload(case: Case) -> dict[str, Any]:
-    """One case, as the page lists it."""
     return {
         "name": case.name,
         "title": case.title,
@@ -447,7 +399,6 @@ def case_payload(case: Case) -> dict[str, Any]:
 
 
 def metrics_payload() -> list[dict[str, Any]]:
-    """Every metric, with its weight, its floor and what it counts."""
     return [
         {"name": name, "weight": weight, "floor": FLOORS[name], "means": MEANINGS[name]}
         for name, (weight, _) in METRICS.items()
@@ -455,7 +406,7 @@ def metrics_payload() -> list[dict[str, Any]]:
 
 
 def run_payload(run: CaseRun) -> dict[str, Any]:
-    """One run, everything the page shows when it is opened (ADR-0012)."""
+    """One run, everything the page shows when it is opened."""
     case = CASES[run.case]
     card = run.scorecard
     return {
@@ -508,13 +459,12 @@ def run_payload(run: CaseRun) -> dict[str, Any]:
 
 
 def build_label(build: str) -> str:
-    """A digest as ``ollama list`` shortens one: "1a2b3c4d5e6f"."""
+    """A digest as ``ollama list`` shortens one."""
     return build.removeprefix("sha256:")[:12]
 
 
 def scored_with(run: CaseRun) -> str:
-    """When a run finished, with what and on which build: "Ran 2026-10-02 09:05 UTC with
-    temperature 0, think off, ... on build 1a2b3c4d5e6f"."""
+    """When a run finished, with what, and on which build."""
     label = f"Ran {finished_label(run.finished)}"
     if run.settings:
         label += f" with {pipeline.settings_label(run.settings)}"
@@ -524,7 +474,6 @@ def scored_with(run: CaseRun) -> str:
 
 
 def _cell(run: CaseRun | None) -> dict[str, str]:
-    """One case's column in a contender's row."""
     if run is None:
         return {"state": "missing", "label": "not run"}
     if run.failure is not None:
@@ -533,7 +482,6 @@ def _cell(run: CaseRun | None) -> dict[str, str]:
 
 
 def standing_payload(standing: Standing, cases: Sequence[Case]) -> dict[str, Any]:
-    """One row of the leaderboard, and its runs for the details beneath it."""
     contender = standing.contender
     by_case = {run.case: run for run in standing.runs}
     return {
@@ -566,11 +514,7 @@ def standings_payload(runs: Iterable[CaseRun], cases: Sequence[Case]) -> dict[st
 
 
 def write_standings(path: Path, runs: Iterable[CaseRun], cases: Sequence[Case]) -> None:
-    """:func:`standings_payload`, to a file: ``--json``, and what the nightly keeps.
-
-    Raises:
-        OSError: if the file cannot be written.
-    """
+    """:func:`standings_payload`, to a file: ``--json``, and what the nightly keeps."""
     path.write_text(json.dumps(standings_payload(runs, cases), indent=2), encoding="utf-8")
 
 
@@ -578,7 +522,7 @@ def write_standings(path: Path, runs: Iterable[CaseRun], cases: Sequence[Case]) 
 
 
 def describe(run: CaseRun, case: Case) -> str:
-    """One run: its scorecard, the query it searched with, and the products it reported."""
+    """One run's scorecard, query and products, for a log."""
     heading = f"{run.contender.label} on {case.name} -- {case.title}"
     timing = ", ".join(f"{step} {seconds_label(took)}" for step, took in run.seconds.items())
     query = run.query.query
@@ -607,8 +551,7 @@ def describe(run: CaseRun, case: Case) -> str:
 
 
 def summary_markdown(run: CaseRun, case: Case) -> str:
-    """One run as a job's summary page renders it (ADR-0072): a heading with its score,
-    then :func:`describe` word for word."""
+    """One run as a job's summary page renders it (ADR-0072)."""
     score = "failed" if run.scorecard is None else f"{run.score:.3f}"
     return (
         f"### {run.contender.label} on {case.name}: {score}\n\n"

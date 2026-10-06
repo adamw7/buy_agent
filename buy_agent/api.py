@@ -51,41 +51,28 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
-
-#: Constrained, so a number parser answers its own kind and the bounds check type-checks.
+#: Constrained, so a number parser answers its own kind.
 _Number = TypeVar("_Number", int, float)
 
 #: Builds the agent :func:`run_search` uses; a test seam.
 AgentFactory = Callable[[AgentConfig], BuyAgent]
 
-#: The criteria a request may ask for, read off :data:`~buy_agent.ranking.SortBy`; values
-#: checked against it are cast back to ``SortBy``.
 SORT_OPTIONS: tuple[str, ...] = get_args(SortBy)
-
-#: The model servers a request may name, off the registry.
 PROVIDER_OPTIONS: tuple[str, ...] = tuple(PROVIDERS)
-
-#: The rails a request may name, off the registry.
 RAIL_OPTIONS: tuple[str, ...] = tuple(RAILS)
-
-#: The search backends a request may name, off the registry (ADR-0057).
 BACKEND_OPTIONS: tuple[str, ...] = tuple(BACKENDS)
-
-#: Every currency a run may count in, sorted for the picker (ADR-0056).
 CURRENCY_OPTIONS: tuple[str, ...] = tuple(sorted(CODES))
 
 _TRUE = frozenset({"true", "1", "yes", "on"})
 _FALSE = frozenset({"false", "0", "no", "off"})
 
-#: Which HTTP status each of the agent's three failure modes deserves.
+#: The HTTP status of each of the agent's three failure modes (ADR-0009).
 _STATUS: dict[type[Exception], int] = {
     ValueError: 400,
     ModelUnavailableError: 503,
     SearchError: 502,
 }
 
-
-#: Which HTTP status each payment failure deserves.
 PAY_STATUS: dict[type[Exception], int] = {
     RailUnreachableError: 502,
     PaymentError: 400,
@@ -94,8 +81,7 @@ PAY_STATUS: dict[type[Exception], int] = {
 
 @dataclass(frozen=True, slots=True)
 class _Reported:
-    """How a finished run is reported: sort, highlight count, weights and currency
-    (ADR-0035)."""
+    """How a finished run is reported (ADR-0035)."""
 
     top_n: int
     sort_by: str
@@ -104,7 +90,7 @@ class _Reported:
 
 
 class ApiError(Exception):
-    """A failure with the HTTP status the client should be told about (ADR-0033)."""
+    """A failure with the HTTP status, and the box, it is reported with (ADR-0033)."""
 
     def __init__(self, message: str, status: int = 400, field: str | None = None) -> None:
         super().__init__(message)
@@ -116,7 +102,6 @@ class ApiError(Exception):
 
 
 def _status_for(exc: Exception, table: Mapping[type[Exception], int]) -> int:
-    """The status of ``table``'s first row matching this failure."""
     return next(status for kind, status in table.items() if isinstance(exc, kind))
 
 
@@ -127,17 +112,14 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, SortBy]:
         option.field: _read(data, option.key, option.unset(defaults), option.parse)
         for option in OPTIONS
     }
-    # The one list option, which ``_read`` cannot take.
     settings["sources"] = _read_sources(data, defaults.sources)
-    # Searching fewer pages than we report would cap the report -- as in the CLI.
+    # Searching fewer pages than we report would cap the report.
     settings["search_results"] = max(settings["num_products"], settings["top_n"])
     sort_by = _read(data, "sort_by", "score", _among(SORT_OPTIONS))
     return _configured(**settings), cast(SortBy, sort_by)
 
 
 def _configured(**settings: Any) -> AgentConfig:
-    """An :class:`AgentConfig`; its refusal becomes an :class:`ApiError`, not a 500
-    (ADR-0033)."""
     try:
         return AgentConfig(**settings)
     except ValueError as exc:
@@ -154,7 +136,6 @@ def run_search(
 ) -> dict[str, Any]:
     """Run the pipeline and shape the answer as JSON-ready data (ADR-0034)."""
     agent = None
-    # What the run removed, in order (ADR-0055).
     removals: list[Removal] = []
     # Opened before the run, so it holds the previous one (ADR-0060).
     journal = journal_for(request, config)
@@ -163,14 +144,13 @@ def run_search(
         ranked = agent.run(
             request, sort_by=sort_by, checkpoint=checkpoint, record=removals.append
         )
-    # Built from ``_STATUS`` at run time, which pylint cannot read exceptions out of.
+    # Built from ``_STATUS``, which pylint cannot read exceptions out of.
     except tuple(_STATUS) as exc:  # pylint: disable=catching-non-exception
         # The same tuple, so the same blind spot.
         raise ApiError(  # pylint: disable=bad-exception-cause
             str(exc), _status_for(exc, _STATUS)
         ) from exc
     finally:
-        # One agent per request, released here.
         release(agent)
 
     return _run_payload(
@@ -189,20 +169,15 @@ def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
     request = _read(data, "request", "", _as_text)
     sort_by = _read(data, "sort_by", "score", _among(SORT_OPTIONS))
     top_n = _read(data, "top", defaults.top_n, _bounded(int, "top_n"))
-    # Explicit, so the answer reports the weights it ranked by.
     weights = RankingWeights()
-    # The run's own scale, so the set does not vote again (ADR-0056): the currency the
-    # shopper named, else the one the run was counted in.
+    # The run's own scale, so the set does not vote again (ADR-0056).
     currency = _read(data, "currency", "", parse_currency)
     scale = currency or _read(data, "scale", "", _as_code)
     ranked = rank_products(
-        _read_products(data),
-        weights=weights,
-        sort_by=cast(SortBy, sort_by),
+        _read_products(data), weights=weights, sort_by=cast(SortBy, sort_by),
         currency=scale or None,
     )
-    # No pipeline ran, so no removals or changes; the page keeps the run's own
-    # (ADR-0035, ADR-0055, ADR-0060).
+    # No pipeline ran, so no removals or changes of its own.
     return _run_payload(request, ranked, _Reported(top_n, sort_by, weights, scale or None))
 
 
@@ -216,18 +191,14 @@ def mandate_support() -> bool:
 
 
 def pay_now(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Buy one product of a finished run, given proof of approval (ADR-0035, ADR-0012,
-    ADR-0046)."""
-    # Always a paying run, so ``AgentConfig`` refuses a missing endpoint as a 400 on its
-    # box rather than a 502 later (ADR-0033).
+    """Buy one product of a finished run, given proof of approval (ADR-0046)."""
+    # Always paying, so a missing endpoint is a 400 on its box rather than a 502 later.
     config, _sort_by = parse_options({**data, "pay": True})
     products = _read_products(data)
     if not products:
         raise ApiError("There are no products to pay for.", field="products")
     product = products[_rank(data, len(products))]
-    # The currency the run was counted in, so paying does not vote again (ADR-0056).
     scale = _read(data, "scale", "", _as_code)
-
     try:
         cart = cart_for(product, products, config, scale=scale or None)
         if not unattended():
@@ -239,12 +210,10 @@ def pay_now(data: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def receipt_payload(receipt: Receipt) -> dict[str, Any]:
-    """What came of a payment, as JSON (ADR-0046)."""
     return receipt.model_dump()
 
 
 def _rank(data: Mapping[str, Any], count: int) -> int:
-    """The index of the product to buy."""
     return _read(data, "rank", 1, _as_number(int, 1, count)) - 1
 
 
@@ -271,7 +240,6 @@ def _witnessed(data: Mapping[str, Any], cart: Cart) -> None:
 
 
 def _same_price(approved: Mapping[str, Any], price: float) -> bool:
-    """Whether the echoed price is the cart's, to a hundredth."""
     try:
         return abs(float(approved.get("price", "nan")) - price) < 0.005
     except (TypeError, ValueError):
@@ -287,7 +255,7 @@ def _run_payload(
     changes: Sequence[Change] = (),
     compared_with: str | None = None,
 ) -> dict[str, Any]:
-    """The payload of a finished run or re-sort (ADR-0055, ADR-0060)."""
+    """A finished run or re-sort (ADR-0055, ADR-0060)."""
     scale = _counted_in(ranked, reported.currency)
     return {
         "request": request.strip(),
@@ -296,14 +264,10 @@ def _run_payload(
         "sort_by": reported.sort_by,
         "weights": reported.weights.fractions,
         "products": results_payload(ranked, scale),
-        # What a re-sort or a payment is handed back, so the set is not voted on again
-        # (ADR-0056); null where no price had a currency.
+        # Handed back by a re-sort or a payment, so the set is not voted on again.
         "scale": scale,
-        # Removed candidates, each with Python's reason (ADR-0055).
         "dropped": [removal.model_dump() for removal in removals],
-        # What moved since the last run of this search (ADR-0060).
         "changes": [change.model_dump() for change in changes],
-        # The day compared against; null on a first run or with the journal off.
         "compared_with": compared_with,
     }
 
@@ -317,19 +281,17 @@ def results_payload(
 
 
 def _counted_in(ranked: Sequence[RankedProduct], named: str | None) -> str | None:
-    """The currency a ranking's products are counted in: the one named, else the one it
-    was ranked in -- never a second vote over it in rank order, which can break a tie
-    the other way (ADR-0056) -- else, for a ranking that says none, the set's vote."""
+    """The one named, else the one it was ranked in -- never a second vote in rank
+    order, which can break a tie the other way (ADR-0056)."""
     return dominant_currency((entry.product for entry in ranked), named or scale_of(ranked))
 
 
 def offer_payload(offer: Offer) -> dict[str, Any]:
-    """One listing as JSON, with Python's ``price_label`` (ADR-0058, ADR-0012)."""
     return {**offer.model_dump(), "price_label": amount_label(offer.price, offer.currency)}
 
 
 def product_payload(entry: RankedProduct, currency: str | None = None) -> dict[str, Any]:
-    """One ranked product as JSON (ADR-0012, ADR-0033, ADR-0043, ADR-0058)."""
+    """One ranked product, with Python's labels (ADR-0012, ADR-0041, ADR-0058)."""
     terms, cannot_pay = terms_for(entry.product, currency)
     return {
         "cannot_pay": cannot_pay,
@@ -338,45 +300,35 @@ def product_payload(entry: RankedProduct, currency: str | None = None) -> dict[s
         "pay_merchant": merchant_for(entry.product) if terms else None,
         "rank": entry.rank,
         "score": round(entry.score, 4),
-        # The score's parts, and which were assumed (ADR-0041).
         "breakdown": entry.breakdown.model_dump(),
         **entry.product.model_dump(),
-        # Overrides the dump's offers with labelled ones (ADR-0058).
         "offers": [offer_payload(offer) for offer in entry.product.offers],
         "price_label": entry.product.price_label(),
         "rating_label": entry.product.rating_label(),
-        # "3 listings, 129.00-149.00 USD", or null for fewer than two.
         "offers_label": entry.product.offers_label(),
     }
 
 
 def model_payload(model: InstalledModel) -> dict[str, Any]:
-    """One model a server is holding, as the picker needs it (ADR-0032)."""
     return {"name": model.name, "completion": model.completion}
 
 
 def defaults_payload(*, screenshots: bool = False) -> dict[str, Any]:
-    """The form's defaults (the ones ``--help`` shows), plus the pickers' rows and each
-    number's range (ADR-0033). ``screenshots`` says whether this server has a camera
-    (ADR-0065)."""
+    """The form's defaults, the pickers' rows and each number's range (ADR-0033);
+    ``screenshots`` says whether this server has a camera (ADR-0065)."""
     defaults = AgentConfig()
     return {
         **{option.key: getattr(defaults, option.field) for option in OPTIONS},
-        # As the form's one text field.
         "sources": format_sources(defaults.sources),
-        # Each with its model and address, so the form can fill them in.
         "provider_options": provider_options(),
         "backend_options": backend_options(),
         "rail_options": rail_options(),
-        # Blank, the default, means the pages' vote (ADR-0043).
         "currency_options": list(CURRENCY_OPTIONS),
         "pay_available": mandate_support(),
-        # Not a setting: whether this server has a camera.
         "screenshots": screenshots,
         "sort_by": "score",
         "sort_options": list(SORT_OPTIONS),
-        # Each criterion as the order it puts a run in, the report's own words: a
-        # picker reading "price" cannot say cheapest from dearest.
+        # The report's own words: "price" alone cannot say cheapest from dearest.
         "sort_labels": {name: phrase.capitalize() for name, phrase in ORDERINGS.items()},
         "limits": limits_payload(),
     }
@@ -392,10 +344,8 @@ def limits_payload() -> dict[str, dict[str, int]]:
 
 
 def bounds_payload(request: str) -> dict[str, Any]:
-    """Bounds the request states in words, offered for the form to fill in (ADR-0059).
-
-    Never applied. A figure outside its setting's range is dropped (ADR-0033).
-    """
+    """Bounds the request states in words, offered to the form and never applied
+    (ADR-0059); a figure outside its setting's range is dropped."""
     return {
         "request": request,
         "noticed": [
@@ -407,13 +357,13 @@ def bounds_payload(request: str) -> dict[str, Any]:
 
 
 def takeable(seen: Noticed) -> bool:
-    """Whether the figure is within its setting's range; asked by both doors (ADR-0033)."""
+    """Whether the figure is within its setting's range; asked by both doors."""
     minimum, maximum = LIMITS[seen.bound]
     return minimum <= seen.value <= maximum
 
 
 def sources_payload(spec: str) -> dict[str, Any]:
-    """Whether a Trusted-sources field names sources, and what is wrong if not (ADR-0033)."""
+    """Whether a Trusted-sources field names sources, and what is wrong if not."""
     error = ""
     try:
         parse_sources(spec)
@@ -435,8 +385,7 @@ def screenshot(url: str, camera: Camera | None) -> bytes:
 
 
 def _web_page(url: str) -> bool:
-    """Whether ``url`` is a web page: a ``file:`` URL would show this machine's disk, and
-    one that will not parse (an unclosed IPv6 bracket) is no address at all."""
+    """Not a ``file:`` URL, which would show this machine's disk, nor an unparseable one."""
     try:
         parsed = urlparse(url)
     except ValueError:
@@ -447,8 +396,8 @@ def _web_page(url: str) -> bool:
 def installed_models(
     provider: str, base_url: str, *, unaskable: Callable[[str], str] | None = None
 ) -> dict[str, Any]:
-    """Ask a model server what it is serving, for the UI's model picker (ADR-0032,
-    ADR-0012). ``unaskable``, given the server's label, says why it is not asked."""
+    """What a model server is serving, for the model picker (ADR-0032). ``unaskable``,
+    given the server's label, says why it is not asked."""
     label = PROVIDERS[provider].label if provider in PROVIDERS else provider
     status = {"provider": provider, "label": label, "base_url": base_url}
     if unaskable is not None:
@@ -466,17 +415,12 @@ def installed_models(
         if config is not None:
             failed["hint"] = config.model_server.hint(config, exc)
         return failed
-    return {
-        **status,
-        "reachable": True,
-        "models": [model_payload(model) for model in models],
-    }
+    return {**status, "reachable": True, "models": [model_payload(model) for model in models]}
 
 
 def _read_sources(
     data: Mapping[str, Any], default: tuple[Source, ...]
 ) -> tuple[Source, ...]:
-    """The sources the request named, if any (ADR-0033)."""
     if not _present(data, "sources"):
         return default
     value = data["sources"]
@@ -501,12 +445,7 @@ def _present(data: Mapping[str, Any], key: str) -> bool:
     return True
 
 
-def _read(
-    data: Mapping[str, Any],
-    key: str,
-    default: _T,
-    parse: Callable[[str], _T],
-) -> _T:
+def _read(data: Mapping[str, Any], key: str, default: _T, parse: Callable[[str], _T]) -> _T:
     """``key``'s value parsed, or ``default`` if unset; a refusal marks ``key``'s box."""
     if not _present(data, key):
         return default
@@ -519,12 +458,10 @@ def _read(
 
 
 def _read_products(data: Mapping[str, Any]) -> list[Product]:
-    """The products of a finished run, off the request."""
     value = data.get("products")
     if not isinstance(value, list):
         raise ApiError(
-            "products must be the list of products a run answered with.",
-            field="products",
+            "products must be the list of products a run answered with.", field="products"
         )
     products = []
     for index, entry in enumerate(value):
@@ -540,24 +477,20 @@ def _read_products(data: Mapping[str, Any]) -> list[Product]:
 
 
 def _as_text(text: str) -> str:
-    """Text as is (already stripped)."""
     return text
 
 
 def _as_code(text: str) -> str:
-    """A currency folded the way a page's is (ADR-0054), whatever it is: a set may be
-    counted in one nothing can place, and a re-sort is counted in it all the same."""
+    """A currency folded as a page's is (ADR-0054), placeable or not."""
     return code_for(text) or ""
 
 
 class _Unnamed(ValueError):
     """A refusal worded to follow the setting's name -- "must be a number; got 'x'" --
-    which each door puts its own name for the setting in front of (ADR-0033)."""
+    which each door names its own way (ADR-0033)."""
 
 
 def _among(options: tuple[str, ...]) -> Callable[[str], str]:
-    """A parser for a setting naming a table row (ADR-0033)."""
-
     def parse(text: str) -> str:
         if text not in options:
             raise _Unnamed(f"must be one of {', '.join(options)}; got {text!r}")
@@ -567,7 +500,6 @@ def _among(options: tuple[str, ...]) -> Callable[[str], str]:
 
 
 def _as_bool(text: str) -> bool:
-    """A checkbox, query parameter or JSON boolean."""
     lowered = text.lower()
     if lowered in _TRUE:
         return True
@@ -587,8 +519,6 @@ def _as_number(
     minimum: float,
     maximum: float,
 ) -> Callable[[str], _Number]:
-    """One number parser for both kinds: convert, then check the bounds."""
-
     def parse(text: str) -> _Number:
         try:
             number = kind(text)
@@ -602,7 +532,6 @@ def _as_number(
 
 
 def _bounded(kind: Callable[[str], _Number], field: str) -> Callable[[str], _Number]:
-    """A parser for a number within its field's ``LIMITS`` range."""
     return _as_number(kind, *LIMITS[field])
 
 
@@ -611,11 +540,9 @@ def _bounded(kind: Callable[[str], _Number], field: str) -> Callable[[str], _Num
 
 @dataclass(frozen=True, slots=True)
 class Option:
-    """One setting: its request key, its parser, and the :class:`AgentConfig` field it
-    fills when that is not the key (ADR-0012, ADR-0033). Read by both doors -- the CLI
-    builds its flags off these rows -- the form's seed and the ranges.
-
-    A parser takes stripped text and raises ``ValueError`` saying why not."""
+    """One setting, read by both doors (ADR-0012, ADR-0033, ADR-0071): its request
+    key, a parser that raises ``ValueError`` saying why not, and the
+    :class:`AgentConfig` field it fills when that is not the key."""
 
     key: str
     parse: Callable[[str], Any]
@@ -631,26 +558,22 @@ class Option:
 
     @property
     def switch(self) -> bool:
-        """Whether this is on or off: ``--x``/``--no-x`` on the command line."""
+        """``--x``/``--no-x`` on the command line."""
         return self.parse is _as_bool
 
     def unset(self, defaults: AgentConfig) -> Any:
-        """What this key means when a request does not carry it."""
         return "" if self.blank else getattr(defaults, self.field)
 
 
 def _number(key: str, kind: Callable[[str], Any], field: str = "") -> Option:
-    """A number setting, held to its field's ``LIMITS`` range."""
     return Option(key, _bounded(kind, field or key), field)
 
 
 def _row(key: str, options: tuple[str, ...]) -> Option:
-    """A setting naming a row of one of the tables."""
     return Option(key, _among(options), choices=options)
 
 
-#: Every setting both doors fill in, in ``--help``'s order. ``sources``, a list, is
-#: handled apart (ADR-0027).
+#: Every setting both doors fill in, in ``--help``'s order; ``sources`` is apart.
 OPTIONS: tuple[Option, ...] = (
     _row("provider", PROVIDER_OPTIONS),
     Option("model", _as_text, blank=True),
@@ -659,16 +582,14 @@ OPTIONS: tuple[Option, ...] = (
     _number("top", int, "top_n"),
     Option("region", parse_region),
     _row("backend", BACKEND_OPTIONS),
-    # Blank is the default and means "whatever the pages quote" (ADR-0056).
+    # Blank means "whatever the pages quote" (ADR-0056).
     Option("currency", parse_currency),
-    # Blank is "no bound" (ADR-0012, ADR-0039).
+    # Blank is "no bound" (ADR-0039).
     _number("max_price", float),
     _number("min_rating", float),
     _number("min_reviews", int),
     _number("cache_ttl", float),
-    # ADR-0060.
     Option("journal", _as_bool),
-    # Off unless asked for; the default rail charges nobody.
     Option("pay", _as_bool),
     _row("rail", RAIL_OPTIONS),
     Option("merchant_url", _as_text, blank=True),

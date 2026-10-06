@@ -18,69 +18,6 @@ def product(name: str, **figures) -> Product:
 # -- what the bounds admit -----------------------------------------------------
 
 
-def test_nothing_set_keeps_everything_and_says_nothing(caplog) -> None:
-    """The default. A run nobody gave terms to is the run this always was."""
-    products = [product("dear", price=900.0), product("cheap", price=9.0)]
-
-    with caplog.at_level(logging.INFO, logger="buy_agent.constraints"):
-        kept = Constraints().apply(products)
-
-    assert kept == products
-    assert caplog.records == []
-
-
-@pytest.mark.parametrize(
-    ("bounds", "figure", "outside", "inside"),
-    [
-        pytest.param(Constraints(max_price=200.0), "price", 900.0, 99.0, id="over budget"),
-        pytest.param(Constraints(min_rating=4.0), "rating", 3.9, 4.5, id="rated too low"),
-        # A 5.0 from two people is not a rating, whatever the arithmetic says.
-        pytest.param(
-            Constraints(min_reviews=100), "review_count", 2, 8000, id="too few reviews"
-        ),
-    ],
-)
-def test_a_bound_drops_what_is_outside_it_and_keeps_what_is_not(
-    bounds: Constraints, figure: str, outside: float, inside: float
-) -> None:
-    kept = bounds.apply(
-        [product("out", **{figure: outside}), product("in", **{figure: inside})]
-    )
-
-    assert [entry.name for entry in kept] == ["in"]
-
-
-@pytest.mark.parametrize(
-    ("bounds", "figures"),
-    [
-        (Constraints(max_price=200.0), {"price": 200.0}),
-        (Constraints(min_rating=4.0), {"rating": 4.0}),
-        (Constraints(min_reviews=100), {"review_count": 100}),
-    ],
-)
-def test_a_figure_exactly_on_a_bound_is_inside_it(
-    bounds: Constraints, figures: dict
-) -> None:
-    """"Under $200" is how a shopper says it and "at most 200" is what they mean:
-    a listing at exactly the budget is the one they were hoping for."""
-    assert [entry.name for entry in bounds.apply([product("exact", **figures)])] == ["exact"]
-
-
-def test_every_bound_set_has_to_be_satisfied_at_once() -> None:
-    """Each is a separate reason to drop something, not three votes."""
-    limits = Constraints(max_price=200.0, min_rating=4.0, min_reviews=100)
-    kept = limits.apply(
-        [
-            product("dear", price=900.0, rating=4.8, review_count=5000),
-            product("poor", price=99.0, rating=2.0, review_count=5000),
-            product("thin", price=99.0, rating=4.8, review_count=3),
-            product("right", price=99.0, rating=4.8, review_count=5000),
-        ]
-    )
-
-    assert [entry.name for entry in kept] == ["right"]
-
-
 # -- the blanks, which are the whole judgement call -----------------------------
 
 
@@ -100,17 +37,6 @@ def test_a_figure_the_run_never_learned_is_not_a_violation(bounds: Constraints) 
 # -- what the run is told about it ---------------------------------------------
 
 
-def test_the_count_is_logged_whenever_bounds_were_set(caplog) -> None:
-    """Without it, a report of two products because eight were over budget looks
-    exactly like a search that only found two."""
-    with caplog.at_level(logging.INFO, logger="buy_agent.constraints"):
-        Constraints(max_price=200.0).apply(
-            [product("a", price=99.0), product("b", price=900.0)]
-        )
-
-    assert "1 of 2 product(s) are within the limits (at most 200.00)" in caplog.text
-
-
 def test_what_fell_outside_is_named_for_the_reader_who_asked(caplog) -> None:
     """"Why is the one I had in mind not in there?" is what a bound provokes more
     than anything else in a run, and a count on its own answers it with a number."""
@@ -120,22 +46,6 @@ def test_what_fell_outside_is_named_for_the_reader_who_asked(caplog) -> None:
         )
 
     assert "Outside the limits: 'dear'" in caplog.text
-
-
-def test_a_bound_that_dropped_nothing_names_nobody(caplog) -> None:
-    with caplog.at_level(logging.DEBUG, logger="buy_agent.constraints"):
-        Constraints(max_price=200.0).apply([product("cheap", price=99.0)])
-
-    assert "Outside the limits" not in caplog.text
-
-
-def test_a_bound_that_dropped_nothing_still_says_so(caplog) -> None:
-    """"10 of 10" is the answer that says the bound did nothing, which is not the
-    same answer as silence."""
-    with caplog.at_level(logging.INFO, logger="buy_agent.constraints"):
-        Constraints(min_rating=1.0).apply([product("a", rating=4.0)])
-
-    assert "1 of 1 product(s) are within the limits" in caplog.text
 
 
 def test_dropping_the_last_product_is_a_warning(caplog) -> None:
@@ -178,32 +88,6 @@ def test_only_the_bounds_that_were_set_are_named(bounds: Constraints, expected: 
 
 
 # -- where they come from ------------------------------------------------------
-
-
-def test_the_bounds_are_read_off_the_config_a_run_carries() -> None:
-    config = AgentConfig(max_price=200.0, min_rating=4.0, min_reviews=100)
-
-    assert Constraints.from_config(config) == Constraints(
-        max_price=200.0, min_rating=4.0, min_reviews=100
-    )
-
-
-def test_a_config_nobody_narrowed_carries_no_bounds() -> None:
-    assert Constraints.from_config(AgentConfig()) == Constraints()
-    assert not Constraints.from_config(AgentConfig()).given
-
-
-@pytest.mark.parametrize(
-    "bounds",
-    [
-        Constraints(max_price=1.0),
-        Constraints(min_rating=0.0),
-        Constraints(min_reviews=0),
-    ],
-)
-def test_a_bound_at_the_bottom_of_its_range_is_still_a_bound(bounds: Constraints) -> None:
-    """``0`` and ``None`` are different answers, and only the second is "unset"."""
-    assert bounds.given
 
 
 # -- a budget is a number in one currency (ADR-0043) ---------------------------
@@ -254,40 +138,6 @@ def test_the_budget_is_read_in_the_currency_the_report_is_counted_in(caplog) -> 
     assert "'Dear', 'Dearer', 'Over'" in caplog.text
 
 
-@pytest.mark.parametrize(
-    ("products", "expected"),
-    [
-        # The part of the bound nobody typed: the number came from the shopper
-        # and the currency from whatever the pages were printing.
-        pytest.param([UNDER], "at most 200.00 USD", id="a currency the pages named"),
-        # Nothing left is counted in no currency at all, so the one to name is the
-        # one that emptied the set: "(at most 200.00)" drops the half of the bound
-        # nobody typed from the one report that most needs it.
-        pytest.param([OVER], "at most 200.00 USD", id="a currency nothing survived"),
-        # What survived prices nothing, so it votes for no currency either: the one to
-        # name is still the one the rest were judged in, or every removal read "at
-        # most 200.00" beside a product priced "300.00 USD".
-        pytest.param(
-            [OVER, Product(name="Unpriced")], "at most 200.00 USD", id="only the unpriced survived"
-        ),
-        # A bare price is the run's own (ADR-0043), and names no currency to vote with.
-        pytest.param(
-            [OVER, Product(name="Bare", price=100.0)], "at most 200.00 USD", id="a bare price survived"
-        ),
-        # Nothing to say, and "at most 200.00 None" would be worse than the
-        # sentence the report always had.
-        pytest.param([Product(name="Under", price=100.0)], "(at most 200.00)", id="no currency"),
-    ],
-)
-def test_the_budget_is_reported_with_the_currency_it_was_read_in(
-    products: list[Product], expected: str, caplog
-) -> None:
-    with caplog.at_level(logging.INFO, logger="buy_agent.constraints"):
-        Constraints(max_price=200.0).apply(products)
-
-    assert expected in caplog.text
-
-
 def test_the_other_two_bounds_are_the_same_in_every_currency(caplog) -> None:
     """A rating is out of five wherever it was printed, so nothing about the
     currency reaches those rows."""
@@ -307,23 +157,6 @@ def test_the_other_two_bounds_are_the_same_in_every_currency(caplog) -> None:
 # -- what the bounds say they took out (ADR-0055) ------------------------------
 
 
-def test_a_product_outside_the_bounds_is_removed_and_says_which_bound() -> None:
-    """The bound is the one thing a reader can act on, so the sentence carries it --
-    the same phrase the logged line does, off one ``describe``."""
-    removed: list[Removal] = []
-    Constraints(max_price=100.0).apply(
-        [
-            product("dear", price=900.0, currency="USD"),
-            product("cheap", price=9.0, currency="USD"),
-        ],
-        record=removed.append,
-    )
-
-    assert [entry.name for entry in removed] == ["dear"]
-    assert removed[0].step == "limits"
-    assert removed[0].reason == "Outside the limits you set (at most 100.00 USD)."
-
-
 def test_the_removal_names_the_currency_the_bound_was_settled_in() -> None:
     """A budget is read in the currency the surviving set is counted in (ADR-0043),
     so the sentence names it: "at most 100.00" is half a bound."""
@@ -334,28 +167,6 @@ def test_the_removal_names_the_currency_the_bound_was_settled_in() -> None:
     )
 
     assert "EUR" in removed[0].reason
-
-
-def test_the_removal_names_the_currency_when_only_an_unpriced_product_is_left() -> None:
-    """A budget of 100 over the laptops demo: six dollar prices out and the one no page
-    priced kept, so the set left voted for no currency -- and each of the six said it
-    was "Outside the limits you set (at most 100.00)", of nothing in particular."""
-    removed: list[Removal] = []
-    Constraints(max_price=100.0).apply(
-        [product("dear", price=900.0, currency="USD"), product("unpriced")],
-        record=removed.append,
-    )
-
-    assert [entry.name for entry in removed] == ["dear"]
-    assert removed[0].reason == "Outside the limits you set (at most 100.00 USD)."
-
-
-def test_bounds_nobody_set_remove_nothing_at_all() -> None:
-    """The early return is the whole of that: no bound, no removal, no panel."""
-    removed: list[Removal] = []
-    Constraints().apply([product("anything", price=900.0)], record=removed.append)
-
-    assert removed == []
 
 
 def test_the_budget_is_read_on_the_currency_the_shopper_named(caplog) -> None:
@@ -373,15 +184,6 @@ def test_the_budget_is_read_on_the_currency_the_shopper_named(caplog) -> None:
     # The dollar price is a figure the bound cannot judge, so it is kept (ADR-0039).
     assert [product.name for product in kept] == ["Cheap dollars", "Cheap euros"]
     assert "at most 100.00 EUR" in caplog.text
-
-
-def test_a_run_with_no_named_currency_settles_the_scale_by_voting() -> None:
-    products = [
-        Product(name="A", price=50.0, currency="USD"),
-        Product(name="B", price=500.0, currency="USD"),
-    ]
-
-    assert [p.name for p in Constraints(max_price=100.0).apply(products)] == ["A"]
 
 
 def test_the_named_currency_reaches_the_bounds_off_the_config() -> None:

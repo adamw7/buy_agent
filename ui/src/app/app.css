@@ -43,7 +43,6 @@ h1 {
   color: var(--good);
 }
 
-/** Neither up nor down: nothing has answered yet. */
 .server.checking {
   color: var(--text-dim);
 }
@@ -52,7 +51,6 @@ h1 {
   color: var(--text-dim);
 }
 
-/** The provider's own remedy, under the pill it belongs to, with the way back beside it. */
 .server-reason {
   max-width: 860px;
   margin: 0 auto;
@@ -66,13 +64,7 @@ h1 {
   line-height: 1.5;
 }
 
-/* `pre-wrap` keeps the run of spaces Python puts before the command, which is
-   what sets it apart from the sentence in front of it. On the sentence alone --
-   the button beside it is markup, and would otherwise wear the newlines the
-   template is indented with. A failed run's banner carries the same sentences,
-   "Pull it with:  ollama pull ..." the commonest, and collapsed them to one space
-   there -- the one place the command was not set apart being the place a run's
-   own failure lands. Its template holds nothing around the message to wear. */
+/* `pre-wrap` keeps the spaces Python sets a command apart with, on the sentence only. */
 .server-reason p,
 .banner.failed {
   white-space: pre-wrap;
@@ -130,10 +122,7 @@ main {
   width: fit-content;
 }
 
-/* What moved since the last run is laid out the way what the run took out is:
-   left to the browser, the list was bulleted and indented, and the name ran into
-   the sentence after it with nothing between -- "MSI Modern 14599.00 USD", a
-   price nobody quoted. The gap is what keeps the two apart. */
+/* Laid out as the removals are, with a gap between the name and its sentence. */
 .removals,
 .movements {
   display: flex;
@@ -153,9 +142,7 @@ main {
   font-size: 13px;
 }
 
-/* The name reads as the product it was, and the reason as the note beside it:
-   the panel is a list of things that are *not* results, so nothing here is
-   styled like a card. */
+/* Not results, so nothing here is styled like a card. */
 .removed-name,
 .moved-name {
   font-weight: 600;
@@ -166,10 +153,7 @@ main {
   color: var(--text-dim);
 }
 
-/* The one word of `movement` the page reads, and only for a colour (ADR-0060):
-   the sentence beside it already says cheaper, dearer or new, so the colour is
-   never the only carrier. A price that went up is not an error, so it is the
-   warning colour and not the one the failures are drawn in. */
+/* For colour only; the sentence carries the meaning (ADR-0060). */
 .moved-cheaper .moved-why {
   color: var(--good);
 }
@@ -190,8 +174,6 @@ main {
   flex-wrap: wrap;
 }
 
-/* Beside the heading rather than in the settings: both are about the run that
-   has already finished, and neither costs one. */
 .results-actions {
   display: flex;
   align-items: center;
@@ -204,8 +186,7 @@ main {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  /* Two words, and the row is tight enough that they would otherwise stack and
-     make the whole header a line taller than the heading beside them. */
+  /* Kept on one line, so the header is no taller than its heading. */
   white-space: nowrap;
 }
 

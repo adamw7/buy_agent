@@ -16,48 +16,36 @@ import type {
   SourcesCheck,
 } from './agent.types';
 
-/**
- * The browser's half of the agent: the JSON endpoints, and the event stream a
- * run reports its progress on.
- */
+/** The browser's half of the agent: the JSON endpoints, and a run's event stream. */
 @Injectable({ providedIn: 'root' })
 export class AgentService {
   private readonly http = inject(HttpClient);
 
-  /** The form's starting values -- the same defaults the CLI shows in `--help`. */
   defaults(): Observable<AgentDefaults> {
     return this.http.get<AgentDefaults>('/api/config');
   }
 
-  /** What that model server is serving, or why it could not be asked. */
   models(source: ModelSource): Observable<ModelStatus> {
     return this.http.get<ModelStatus>('/api/models', { params: { ...source } });
   }
 
-  /** What the server makes of a Trusted sources field, before a run is started. */
   checkSources(sources: string): Observable<SourcesCheck> {
     return this.http.get<SourcesCheck>('/api/sources', { params: { sources } });
   }
 
-  /** Bounds the request states in words, for the form to offer (see `BoundsCheck`). */
   checkBounds(request: string): Observable<BoundsCheck> {
     return this.http.get<BoundsCheck>('/api/bounds', { params: { request } });
   }
 
-  /** Put a finished run's products in another order, without running it again. */
   rank(options: RankOptions): Observable<SearchResult> {
     return this.http.post<SearchResult>('/api/rank', options);
   }
 
-  /** Buy one product of a finished run, having been shown that it was approved. */
   pay(options: PayOptions): Observable<{ receipt: Receipt }> {
     return this.http.post<{ receipt: Receipt }>('/api/pay', options);
   }
 
-  /**
-   * Run a search, emitting the agent's log lines as they happen and finishing on a `result` or a
-   * `failure`.
-   */
+  /** Run a search: log lines as they happen, then a `result` or a `failure`. */
   search(options: SearchOptions): Observable<SearchEvent> {
     return new Observable<SearchEvent>((subscriber) => {
       const source = new EventSource(`/api/search/stream?${toQuery(options)}`);
@@ -112,7 +100,7 @@ export function screenshotUrl(url: string): string {
   return `/api/screenshot?${new URLSearchParams({ url })}`;
 }
 
-/** Turn options into a query string, leaving out anything unset. */
+/** Leaves out anything unset. */
 export function toQuery(options: SearchOptions): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(options)) {

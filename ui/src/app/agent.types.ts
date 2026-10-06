@@ -2,7 +2,6 @@
 
 /** One log line of a run, as the CLI prints it. */
 export interface LogLine {
-  /** When Python logged it, in the CLI's format. */
   time: string;
   level: string;
   logger: string;
@@ -37,7 +36,6 @@ export interface Offer {
   currency: string | null;
   seller: string | null;
   url: string | null;
-  /** Python's wording; the card never formats money. */
   price_label: string;
 }
 
@@ -45,11 +43,9 @@ export interface Offer {
 export interface RankedProduct {
   /** Why this product cannot be bought, or `null` where it can. */
   cannot_pay: string | null;
-  /** The cart's currency and amount, from the check behind `cannot_pay` (so `null`
-   *  together with it). Not the product's own figures (ADR-0043). */
+  /** The cart's, `null` together with `cannot_pay`'s check (ADR-0043). */
   pay_currency: string | null;
   pay_label: string | null;
-  /** The cart's merchant: the printed seller, else the page's site. */
   pay_merchant: string | null;
   rank: number;
   score: number;
@@ -61,7 +57,6 @@ export interface RankedProduct {
   review_count: number | null;
   seller: string | null;
   url: string | null;
-  /** Grounded quotes, each with its page. */
   opinions: Opinion[];
   /** Every priced listing, the headline among them; ranking reads only the headline. */
   offers: Offer[];
@@ -74,7 +69,6 @@ export interface RankedProduct {
 
 /** One candidate that left the report, and what took it out. */
 export interface Removal {
-  /** Its name when removed. */
   name: string;
   /** `clean`, `ground`, `deduplicate`, `merge` or `limits`: for grouping only. */
   step: string;
@@ -85,10 +79,8 @@ export interface Removal {
 /** What one product did between the last run of a search and this one. */
 export interface Change {
   name: string;
-  /** `new`, `gone`, `cheaper`, `dearer`, `steady` or `unplaced` (ADR-0043): for
-   *  grouping and colour only. */
+  /** For grouping and colour only (ADR-0060). */
   movement: string;
-  /** Now and then, in Python's wording. */
   price_label: string | null;
   was_label: string | null;
   /** Negative is cheaper; `null` where the two are not comparable. */
@@ -103,17 +95,14 @@ export interface SearchResult {
   count: number;
   top_n: number;
   sort_by: SortBy;
-  /** The weights every score was blended by. */
   weights: ScoreWeights;
   products: RankedProduct[];
-  /** The currency the run was counted in, which a re-sort and a payment are handed back
-   *  rather than letting the set vote again (ADR-0056); `null` where no price had one. */
+  /** Handed back by a re-sort and a payment, so the set does not vote again (ADR-0056). */
   scale: string | null;
   /** What the run removed (ADR-0055). Empty from a re-sort; the page keeps the run's. */
   dropped: Removal[];
   /** What moved since the last run (ADR-0060). Empty from a re-sort, as `dropped` is. */
   changes: Change[];
-  /** The day compared against, or `null` if no earlier run was kept. */
   compared_with: string | null;
 }
 
@@ -126,7 +115,6 @@ export interface ProviderOption {
   model: string;
   base_url: string;
   takes_num_ctx: boolean;
-  /** Whether a run can ask for CPU only, or the server fixed its device at startup. */
   takes_cpu_only: boolean;
 }
 
@@ -134,10 +122,8 @@ export interface ProviderOption {
 export interface BackendOption {
   name: string;
   label: string;
-  /** Where it listens; empty for a library-backed backend. */
   endpoint: string;
   needs_key: boolean;
-  /** Whether this server has the key it needs (Python's answer). */
   configured: boolean;
 }
 
@@ -181,10 +167,8 @@ export interface AgentDefaults {
   base_url: string;
   temperature: number;
   num_ctx: number | null;
-  /** The longest one answer may take, in seconds. */
   model_timeout: number;
   think: boolean | null;
-  /** Whether to keep the model off the GPU entirely. */
   cpu_only: boolean;
   results: number;
   top: number;
@@ -192,36 +176,28 @@ export interface AgentDefaults {
   max_price: number | null;
   min_rating: number | null;
   min_reviews: number | null;
-  /** How many seconds a fetched page stays usable on disk; 0 fetches every page fresh. */
   cache_ttl: number;
-  /** Whether runs are recorded, so the next can say what moved. */
   journal: boolean;
   region: string;
   /** The run's currency; empty, the default, lets the set vote (ADR-0043, ADR-0056). */
   currency: string;
-  /** Every currency a run may count in. */
   currency_options: string[];
   backend: string;
   backend_options: BackendOption[];
-  /** Sites to take the facts from, separated by spaces or commas. Empty is the whole web. */
+  /** Separated by spaces or commas; empty is the whole web. */
   sources: string;
   fetch: boolean;
-  /** Whether the agent may pay for what it found. */
   pay: boolean;
-  /** Whether the optional AP2 SDK is installed at all. */
   pay_available: boolean;
   /** Whether this server has a camera; not a setting (ADR-0065). */
   screenshots: boolean;
   rail: string;
   rail_options: RailOption[];
-  /** The AP2-speaking endpoint a paying rail talks to. */
   merchant_url: string;
-  /** The most one payment may be, `null` for no limit. */
   spend_limit: number | null;
   sort_by: SortBy;
   sort_options: SortBy[];
-  /** Each criterion as the order it produces -- "Cheapest first" -- which is what the
-   *  two ordering controls list it by; Python's words, as the report's heading is. */
+  /** Each criterion as the order it gives ("Cheapest first"), in Python's words. */
   sort_labels: Record<SortBy, string>;
   /** Each number's range, keyed as sent (`results`, `top`, ...); absent is unbounded. */
   limits: Record<string, Limit>;
@@ -238,7 +214,6 @@ export interface NoticedBound {
   /** The setting that would enforce it: `max_price`, `min_rating`, `min_reviews`. */
   bound: string;
   value: number;
-  /** Why the box holds a number nobody typed, in Python's words. */
   note: string;
 }
 
@@ -267,7 +242,6 @@ export interface ModelStatus {
   base_url: string;
   reachable: boolean;
   models: InstalledModel[];
-  /** The transport's own reason, when it could not be reached. */
   detail?: string;
   /** The provider's remedy, as a run would fail with; only when unreachable. */
   hint?: string;
@@ -284,8 +258,7 @@ export interface SearchOptions {
   currency?: string;
   backend?: string;
   sources?: string;
-  /** Null is a cleared box, dropped by `toQuery`: the default, or no bound
-   *  (ADR-0012, ADR-0039). */
+  /** Null is a cleared box, dropped by `toQuery` (ADR-0012, ADR-0039). */
   results?: number | null;
   top?: number | null;
   max_price?: number | null;
@@ -303,7 +276,6 @@ export interface SearchOptions {
   model_timeout?: number | null;
   /** Two-valued: the tri-state's `null` cannot be sent -- see `Thinking`. */
   think?: boolean;
-  /** Left out where the server fixes its own device. */
   cpu_only?: boolean;
   fetch?: boolean;
 }
@@ -328,9 +300,7 @@ export interface PayOptions {
   rail?: string;
   merchant_url?: string;
   spend_limit?: number | null;
-  /** The run's currency, as a re-sort sends it. */
   currency?: string;
-  /** The currency the run was counted in, as a re-sort sends it. */
   scale?: string;
 }
 

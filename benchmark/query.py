@@ -9,27 +9,18 @@ from pydantic import BaseModel
 
 from buy_agent.verification import running_words
 
-#: Past this many words a query is an explanation of one, which a search engine reads
-#: as a very long query.
+#: Past this, a query is an explanation of one.
 MAX_WORDS = 20
 
-#: The one check a run is given when the model answered with no query at all, and the
-#: agent searched with the shopper's own words instead.
+#: The one check of a run whose model gave no query, so the request was searched.
 NO_QUERY = "Answered with a query the run could search with"
 
 
 @dataclass(frozen=True, slots=True)
 class QueryKey:
-    """What a refined query owes the request it was refined from.
-
-    Attributes:
-        keeps: Each constraint the shopper stated, as the spellings that keep it --
-            ``("noise cancelling", "noise canceling", "anc")``. A spelling of letters and
-            digits is matched as words; one with a sign in it (``"€"``) as written.
-        brands: Brands and product lines the pages name and the shopper did not. A
-            query naming one has narrowed the search on the shopper's behalf, which the
-            prompt forbids ("Do not add constraints the shopper never mentioned").
-    """
+    """What a refined query owes its request: ``keeps`` each stated constraint (as
+    the spellings that keep it), and none of ``brands``, which the shopper never named
+    and the prompt forbids adding."""
 
     keeps: tuple[tuple[str, ...], ...]
     brands: tuple[str, ...]

@@ -1,12 +1,6 @@
-"""Turn a mutation run into the report it publishes, and hold a floor under its score.
-
-Two testers run against this project -- mutmut over `buy_agent/` on Saturday
-morning, Stryker over `ui/src/app` after it -- and the report is one thing either
-way: the score, a row per module worst first, and where the survivors cluster.
-What differs is who wrote the results file, what that tester calls a mutant
-nothing noticed and what it can say about where one lives -- which is `TOOLS` and
-nothing else (ADR-0061).
-"""
+"""Turn a mutmut or Stryker run into the report it publishes -- the score, a row per
+module worst first, where survivors cluster -- and hold a floor under it. What differs
+per tester is `TOOLS` and nothing else (ADR-0061)."""
 
 from __future__ import annotations
 
@@ -21,7 +15,7 @@ from typing import NamedTuple
 
 
 class Mutant(NamedTuple):
-    """One mutant, as a report reads it: where the row is, where the test goes, how it went."""
+    """One mutant: its row, where a test goes, and how it went."""
 
     module: str
     where: str
@@ -44,11 +38,8 @@ def readable(mutant: str) -> str:
 
 
 def read_mutmut(text: str) -> list[Mutant]:
-    """Every mutant in a ``mutmut results --all true`` listing.
-
-    A mutant's number is dropped on the way in: two mutants of one function are one
-    place a test is missing, not two.
-    """
+    """Every mutant in a ``mutmut results --all true`` listing, its number dropped: two
+    mutants of one function are one place a test is missing."""
     found = [match for match in map(_RESULT.match, text.splitlines()) if match]
     return [
         Mutant(
@@ -61,13 +52,8 @@ def read_mutmut(text: str) -> list[Mutant]:
 
 
 def read_stryker(text: str) -> list[Mutant]:
-    """Every mutant in a Stryker JSON report.
-
-    Stryker records a file and a position rather than a function, so what a survivor
-    is filed under is the file and the mutator that made it -- twelve conditionals
-    living through the specs in one component being the same kind of answer to "where
-    does the next test go" that a function name is on the other side.
-    """
+    """Every mutant in a Stryker JSON report, filed under its file and mutator: Stryker
+    records a position, not a function."""
     report = json.loads(text)
     return [
         Mutant(path, f"{path} -- {mutant['mutatorName']}", mutant["status"])
@@ -78,36 +64,26 @@ def read_stryker(text: str) -> list[Mutant]:
 
 @dataclass(frozen=True)
 class Tool:
-    """One mutation tester: what it is pointed at, how a run of it reads, and the floor.
-
-    The floors are set where each half stands rather than where it ought to, which is
-    ADR-0016's argument and the one `benchmark.scoring.FLOORS` makes: a floor over the
-    thing it measures is a weekly job that goes red for a week and is then ignored.
-    """
+    """One mutation tester, how a run of it reads, and its floor: set where each half
+    stands, not where it ought to (ADR-0016)."""
 
     name: str
-    #: What it mutates, named as the report's heading names it.
     mutates: str
     #: What a row of the table is, and what a cluster of survivors is filed under.
     rows: str
     clusters: str
-    #: Below this, the run fails.
     floor: float
-    #: The statuses that say the suite reacted to a mutant at all.
+    #: The suite reacted; it got past (tested or not); it was never put to the tests.
     caught: frozenset[str]
-    #: ...the ones that say it got past, whether or not a test ever ran against it.
     survived: frozenset[str]
-    #: ...and the ones that were never put to the tests, and so say nothing either way.
     unchecked: frozenset[str]
-    #: What its results file is called, which is how a run of one is told from the other.
+    #: How a run of one is told from the other.
     suffix: str
     read: Callable[[str], list[Mutant]]
 
 
-#: mutmut, over the package. "caught by type check" is a mutant a static check refused
-#: before a test ran, which is the suite's own answer too; "no tests" is deliberately
-#: not unchecked -- a mutant nothing covers counts against the score, exactly as
-#: Stryker's `NoCoverage` does.
+#: "no tests" is deliberately not unchecked: an uncovered mutant counts against the
+#: score, as Stryker's `NoCoverage` does.
 MUTMUT = Tool(
     name="mutmut",
     mutates="buy_agent",
@@ -121,9 +97,7 @@ MUTMUT = Tool(
     read=read_mutmut,
 )
 
-#: Stryker, over the front end. `CompileError` and `RuntimeError` are mutants that never
-#: ran -- the mutation a tool could not make, not a test that missed one -- and `Ignored`
-#: is one the configuration took out.
+#: `CompileError` and `RuntimeError` mutants never ran, so they are unchecked.
 STRYKER = Tool(
     name="Stryker",
     mutates="ui/src/app",
@@ -141,12 +115,7 @@ TOOLS = (MUTMUT, STRYKER)
 
 
 def tool_for(results: Path) -> Tool:
-    """Which tester wrote a results file, read off what it is called.
-
-    Stryker answers a JSON report and mutmut a listing, which is a text file under
-    whatever name the workflow redirected it to -- so JSON is the one that is
-    recognised and everything else is read the way mutmut writes one.
-    """
+    """Which tester wrote a results file: JSON is Stryker's, anything else mutmut's."""
     for tool in TOOLS:
         if results.suffix == tool.suffix:
             return tool
@@ -154,17 +123,15 @@ def tool_for(results: Path) -> Tool:
 
 
 def caught(statuses: Counter[str], tool: Tool) -> int:
-    """How many of these mutants the suite reacted to."""
     return sum(count for status, count in statuses.items() if status in tool.caught)
 
 
 def survived(statuses: Counter[str], tool: Tool) -> int:
-    """...and how many got past it."""
     return sum(count for status, count in statuses.items() if status in tool.survived)
 
 
 def score(statuses: Counter[str], tool: Tool) -> float | None:
-    """Caught mutants as a percentage of the ones that were actually tested."""
+    """Caught mutants as a percentage of those tested."""
     checked = sum(count for status, count in statuses.items() if status not in tool.unchecked)
     if not checked:
         return None
@@ -176,7 +143,7 @@ def percentage(value: float | None) -> str:
 
 
 def module_table(mutants: list[Mutant], tool: Tool) -> list[str]:
-    """A row per module, worst score first -- where the next test should go."""
+    """A row per module, worst score first."""
     statuses: dict[str, Counter[str]] = {}
     for mutant in mutants:
         statuses.setdefault(mutant.module, Counter())[mutant.status] += 1
@@ -195,7 +162,7 @@ def module_table(mutants: list[Mutant], tool: Tool) -> list[str]:
 
 
 def survivor_list(mutants: list[Mutant], tool: Tool) -> list[str]:
-    """The places the survivors cluster in, the thickest cluster first."""
+    """Where survivors cluster, the thickest first."""
     survivors = Counter(mutant.where for mutant in mutants if mutant.status in tool.survived)
     if not survivors:
         return ["Every mutant was caught."]
@@ -219,11 +186,8 @@ def report(mutants: list[Mutant], tool: Tool) -> tuple[list[str], bool]:
 
     achieved = score(statuses, tool)
     if achieved is None:
-        # Nothing was put to the tests, so there are no survivors to list -- which the
-        # table and the list below would otherwise publish as "Every mutant was caught"
-        # under a column of dashes. It is what a run that stopped at its baseline reads
-        # as: mutmut marks every mutant "not checked" when a test fails on the code as
-        # written, before the first mutant is tried.
+        # Nothing was tested -- not "every mutant was caught": mutmut marks all "not
+        # checked" when a test fails on the code as written.
         return [
             heading,
             "",

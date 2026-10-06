@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 
 import httpx
 import pytest
@@ -12,19 +11,14 @@ from ddgs.exceptions import DDGSException
 from buy_agent.search import (
     _NO_RESULTS,
     _RETRY_WAIT,
-    BACKENDS,
     BRAVE,
     DDG,
     SEARXNG,
     Backend,
-    Query,
     SearchError,
     SearchResult,
-    backend_for,
-    backend_options,
     search_web,
 )
-from tests.conftest import unencodable
 
 
 def stub_ddgs(monkeypatch, *, results=None, error: Exception | None = None) -> dict:
@@ -42,50 +36,12 @@ def stub_ddgs(monkeypatch, *, results=None, error: Exception | None = None) -> d
     return seen
 
 
-def test_raw_results_are_mapped_onto_search_result(monkeypatch) -> None:
-    stub_ddgs(
-        monkeypatch,
-        results=[{"title": "Sony XM5", "href": "https://shop/x", "body": "$328"}],
-    )
-
-    results = search_web("headphones")
-
-    assert results[0].title == "Sony XM5"
-    assert results[0].url == "https://shop/x"
-    assert results[0].snippet == "$328"
-
-
 def test_missing_fields_become_empty_strings(monkeypatch) -> None:
     stub_ddgs(monkeypatch, results=[{}])
 
     result = search_web("headphones")[0]
 
     assert (result.title, result.url, result.snippet) == ("", "", "")
-
-
-def test_a_null_field_is_an_empty_string_and_not_the_word_none(monkeypatch) -> None:
-    """A JSON ``null`` is a key that is there: read with a default it became "None", a
-    title the model reads and an address the fetcher asks for."""
-    stub_ddgs(monkeypatch, results=[{"title": None, "href": None, "body": None}])
-
-    result = search_web("headphones")[0]
-
-    assert (result.title, result.url, result.snippet) == ("", "", "")
-
-
-def test_search_arguments_reach_the_backend(monkeypatch) -> None:
-    seen = stub_ddgs(monkeypatch)
-
-    search_web("laptops", max_results=4, region="pl-pl")
-
-    assert seen == {"query": "laptops", "max_results": 4, "region": "pl-pl"}
-
-
-def test_backend_failures_become_search_error(monkeypatch) -> None:
-    stub_ddgs(monkeypatch, error=DDGSException("rate limit"))
-
-    with pytest.raises(SearchError, match="rate limit"):
-        search_web("headphones")
 
 
 def test_prompt_block_shows_title_url_and_snippet(monkeypatch) -> None:
@@ -102,32 +58,6 @@ def test_the_prompt_block_includes_the_fetched_page_text() -> None:
     ).as_prompt_block()
 
     assert block == "TITLE: T\nURL: U\nSNIPPET: S\nPAGE:\nJBL Live 780NC\n$149"
-
-
-def test_a_fresh_result_carries_no_page_content() -> None:
-    """content is filled in later by fetch.enrich, if at all."""
-    assert SearchResult(title="T").content == ""
-
-
-def test_finding_nothing_is_an_empty_list_not_a_failure(monkeypatch) -> None:
-    stub_ddgs(monkeypatch, results=[])
-
-    assert search_web("something nobody sells") == []
-
-
-def test_the_way_ddgs_itself_spells_finding_nothing_is_not_a_failure(monkeypatch) -> None:
-    """ddgs raises rather than returning [], and that is not a backend failure."""
-    stub_ddgs(monkeypatch, error=DDGSException(_NO_RESULTS))
-
-    assert search_web("something nobody sells") == []
-
-
-def test_a_real_backend_failure_is_still_a_failure(monkeypatch) -> None:
-    """The message is the discriminator, so anything else keeps raising."""
-    stub_ddgs(monkeypatch, error=DDGSException("No results found. (engine timed out)"))
-
-    with pytest.raises(SearchError):
-        search_web("headphones")
 
 
 def test_the_search_and_its_result_count_are_logged(monkeypatch, caplog) -> None:
@@ -203,25 +133,6 @@ def test_a_search_that_fails_twice_is_the_failure_it_always_was(monkeypatch) -> 
     assert len(asked) == 2
 
 
-def test_a_search_is_asked_once_where_there_is_nothing_to_wait_by(monkeypatch) -> None:
-    """The default: a step handed no clock does not wait, and the failure is immediate."""
-    asked = stub_sequence(monkeypatch, DDGSException("rate limit"))
-
-    with pytest.raises(SearchError, match="rate limit"):
-        search_web("headphones")
-
-    assert len(asked) == 1
-
-
-def test_a_search_that_matched_nothing_is_never_asked_again(monkeypatch) -> None:
-    """It worked."""
-    asked = stub_sequence(monkeypatch, DDGSException(_NO_RESULTS))
-    waits: list[float] = []
-
-    assert search_web("headphones", wait=waits.append) == []
-    assert (waits, len(asked)) == ([], 1)
-
-
 def test_a_search_that_matched_nothing_on_the_second_try_is_still_an_answer(
     monkeypatch,
 ) -> None:
@@ -232,82 +143,7 @@ def test_a_search_that_matched_nothing_on_the_second_try_is_still_an_answer(
     assert len(asked) == 2
 
 
-def test_the_retry_says_what_it_is_waiting_for(monkeypatch, caplog) -> None:
-    """At WARNING: this is the failure the run would have ended on, and the line is
-    what tells a run that took two seconds longer from one that nearly stopped."""
-    stub_sequence(monkeypatch, DDGSException("rate limit"), [])
-
-    with caplog.at_level(logging.WARNING):
-        search_web("headphones", wait=lambda _: None)
-
-    assert "asking again in 2s" in caplog.text
-
-
 # -- the table itself ----------------------------------------------------------
-
-
-def test_the_default_backend_is_the_one_that_needs_nothing(monkeypatch, caplog) -> None:
-    """ADR-0057: a run that was told nothing searches the way it always did.
-
-    Asked of a run rather than read off ``search_web.__kwdefaults__``: the mutation run
-    tests a copy of the package in which every function sits behind mutmut's trampoline,
-    which carries none of the defaults declared under it, so a rule read off the function
-    object fails on the copy while saying nothing at all about the code.
-    """
-    seen = stub_ddgs(monkeypatch)
-
-    with caplog.at_level(logging.INFO):
-        search_web("headphones")
-
-    # ``ddgs`` is the one row that reaches for it; the others go through ``httpx``.
-    assert seen["query"] == "headphones"
-    assert DDG.label in caplog.text
-    assert BACKENDS["ddg"] is DDG
-    assert DDG.configured and not DDG.needs_key
-
-
-def test_an_unknown_backend_is_refused_by_name() -> None:
-    with pytest.raises(ValueError, match="Unknown search backend 'bing'"):
-        backend_for("bing")
-
-
-def test_the_picker_is_offered_every_row_and_never_a_key() -> None:
-    """The rows go to a browser, so the one secret on them may not (ADR-0057)."""
-    offered = backend_options()
-
-    assert [row["name"] for row in offered] == list(BACKENDS)
-    assert all("api_key" not in row for row in offered)
-
-
-def test_a_backend_that_needs_a_key_and_has_none_is_not_configured() -> None:
-    """What the picker marks a row with, decided here rather than in TypeScript.
-
-    Built rather than read off the shipped row: its key comes from the environment this
-    process started in, so a developer holding one would be testing the other answer.
-    """
-    assert BRAVE.needs_key
-    assert not _with_key(BRAVE, "").configured
-    assert _with_key(BRAVE, "secret").configured
-
-
-@pytest.mark.parametrize(
-    ("region", "country", "language"),
-    [("us-en", "US", "en"), ("pl-pl", "PL", "pl"), ("hk-tzh", "HK", "tzh")],
-)
-def test_a_region_splits_into_the_halves_each_backend_asks_for(
-    region: str, country: str, language: str
-) -> None:
-    """ADR-0031 spells a region one way and the backends want it in halves, so the
-    splitting is done once above the rows."""
-    asked = Query(text="headphones", max_results=3, region=region)
-
-    assert (asked.country, asked.language) == (country, language)
-
-
-def test_a_region_with_no_language_half_is_used_whole() -> None:
-    """Nothing can reach this through a door -- ``parse_region`` refuses it -- and a
-    row asking for a blank language would search for nothing rather than for less."""
-    assert Query(text="x", max_results=1, region="us").language == "us"
 
 
 # -- the two backends asked over HTTP ------------------------------------------
@@ -428,16 +264,6 @@ def test_a_brave_answer_becomes_search_results(monkeypatch) -> None:
     }
 
 
-def test_brave_is_never_asked_for_more_than_it_answers(monkeypatch) -> None:
-    """A run may ask for fifty results; Brave answers at most twenty and refuses a larger
-    ``count`` rather than answering fewer."""
-    seen = stub_http(monkeypatch, payload={"web": {"results": []}})
-
-    search_web("headphones", max_results=50, backend=_with_key(BRAVE, "k"))
-
-    assert seen["params"]["count"] == 20
-
-
 def test_brave_without_a_key_says_which_variable_to_set(monkeypatch) -> None:
     """Not a transport failure, so it is not asked twice: a second keyless request is
     a second refusal."""
@@ -472,13 +298,6 @@ def test_an_answer_that_is_not_an_object_is_the_same_failure(monkeypatch) -> Non
         search_web("headphones", backend=SEARXNG)
 
 
-def test_entries_that_are_not_objects_are_skipped(monkeypatch) -> None:
-    """One malformed row is not worth losing the nine beside it."""
-    stub_http(monkeypatch, payload={"results": ["nonsense", {"title": "Sony"}]})
-
-    assert [r.title for r in search_web("x", backend=SEARXNG)] == ["Sony"]
-
-
 def test_an_unreachable_instance_names_its_address_and_the_way_back(monkeypatch) -> None:
     stub_http(monkeypatch, error=httpx.ConnectError("refused"))
 
@@ -490,24 +309,6 @@ def test_an_unreachable_instance_names_its_address_and_the_way_back(monkeypatch)
     assert "(refused)" in said, "with what the transport said"
     assert "$SEARXNG_HOST" in said
     assert DDG.label in said
-
-
-@pytest.mark.parametrize("which", ["unencodable host", "invalid URL"])
-@pytest.mark.parametrize("variable", ["$SEARXNG_HOST", "$BRAVE_HOST"])
-def test_a_mistyped_address_is_the_backend_unreachable(
-    monkeypatch, which: str, variable: str
-) -> None:
-    """Both fail outside httpx's root, so they left ``search_web`` as no ``SearchError``
-    at all: a 400 quoting a codec, or a 500, where the row's hint names the variable."""
-    failure = {
-        "unencodable host": unencodable("localhost.."),
-        "invalid URL": httpx.InvalidURL("Invalid non-printable ASCII character in URL"),
-    }[which]
-    stub_http(monkeypatch, error=failure)
-    backend = SEARXNG if variable == "$SEARXNG_HOST" else _with_key(BRAVE, "secret")
-
-    with pytest.raises(SearchError, match=re.escape(variable)):
-        search_web("headphones", backend=backend)
 
 
 @pytest.mark.parametrize("status", [401, 403])

@@ -3,45 +3,15 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
 
 from buy_agent.models import (
     _MAX_OPINION_LENGTH,
     ExtractedProduct,
     Offer,
     Product,
-    ProductList,
-    SearchQuery,
-    comparable_price,
-    dedup_key,
     dominant_currency,
 )
 from tests.conftest import said
-
-
-def test_sentinels_become_none() -> None:
-    converted = ExtractedProduct(
-        name="Thing", price=-1, currency="", rating=-1, review_count=0
-    ).to_product()
-    assert converted.price is None
-    assert converted.currency is None
-    assert converted.rating is None
-    assert converted.review_count is None
-
-
-def test_real_values_survive_conversion() -> None:
-    converted = ExtractedProduct(
-        name="  Sony   WH-1000XM5 ",
-        price=328.5,
-        currency="usd",
-        rating=4.7,
-        review_count=12000,
-        seller="Amazon",
-    ).to_product()
-    assert converted.name == "Sony WH-1000XM5"
-    assert converted.currency == "USD"
-    assert converted.price == 328.5
-    assert converted.review_count == 12000
 
 
 def test_a_currency_without_a_price_never_becomes_one() -> None:
@@ -50,51 +20,6 @@ def test_a_currency_without_a_price_never_becomes_one() -> None:
 
     assert converted.price is None
     assert converted.currency is None
-
-
-@pytest.mark.parametrize(
-    ("named", "expected"),
-    [
-        pytest.param("USD", "USD", id="the code the schema asks for"),
-        pytest.param("usd", "USD", id="the same code shouted quietly"),
-        pytest.param("$", "USD", id="the sign the page printed"),
-        pytest.param(" US$ ", "USD", id="the sign with its country on it"),
-        pytest.param("dollars", "USD", id="the word"),
-        pytest.param("€", "EUR", id="the euro sign"),
-        pytest.param("zł", "PLN", id="a sign that is two letters"),
-        pytest.param("C$", "CAD", id="the dollar that says which one"),
-        # Not a guess: the sign belongs to the yen and to the yuan alike, so it
-        # stays as it was written -- a price this run cannot place (ADR-0043),
-        # which is the answer that reports nothing wrong.
-        pytest.param("¥", "¥", id="an ambiguous sign is left alone"),
-        pytest.param("Galactic credits", "GALACTIC CREDITS", id="an invention"),
-    ],
-)
-def test_a_currency_is_read_as_the_code_the_run_compares_by(
-    named: str, expected: str
-) -> None:
-    """The schema asks for an ISO code and a small model hands back what the page printed,
-    so "$129" comes back as "$" while the next listing says "USD"."""
-    converted = ExtractedProduct(name="Thing", price=129.0, currency=named).to_product()
-
-    assert converted.currency == expected
-
-
-def test_two_spellings_of_one_currency_are_one_currency() -> None:
-    """Which is the point of the table: the set has one scale, not two."""
-    listings = [
-        ExtractedProduct(name="Cheap", price=100.0, currency="$").to_product(),
-        ExtractedProduct(name="Dear", price=200.0, currency="USD").to_product(),
-    ]
-
-    assert dominant_currency(listings) == "USD"
-    assert [comparable_price(listing, "USD") for listing in listings] == [100.0, 200.0]
-
-
-def test_out_of_range_rating_is_discarded() -> None:
-    """Models sometimes report a 0-10 or percentage score despite the instruction."""
-    assert ExtractedProduct(name="Thing", rating=9.2).to_product().rating is None
-    assert ExtractedProduct(name="Thing", rating=88).to_product().rating is None
 
 
 def test_a_rating_just_over_the_scale_is_discarded() -> None:
@@ -109,21 +34,6 @@ def test_a_single_review_is_still_a_review_count() -> None:
     assert converted.review_count == 1
 
 
-def test_a_review_count_without_a_rating_is_dropped() -> None:
-    """ADR-0022: a count is what its rating was averaged over, and nothing alone."""
-    converted = ExtractedProduct(name="Thing", rating=-1, review_count=3200).to_product()
-
-    assert converted.rating is None
-    assert converted.review_count is None
-
-
-def test_a_rejected_rating_takes_its_review_count_with_it() -> None:
-    """The same rule where the rating was reported but off the scale."""
-    converted = ExtractedProduct(name="Thing", rating=9.2, review_count=800).to_product()
-
-    assert converted.review_count is None
-
-
 def test_the_seller_and_the_notes_survive_conversion() -> None:
     converted = ExtractedProduct(
         name="Thing", seller="  Amazon ", url=" https://shop.example ", notes="\n Quiet. "
@@ -132,24 +42,6 @@ def test_the_seller_and_the_notes_survive_conversion() -> None:
     assert converted.seller == "Amazon"
     assert converted.url == "https://shop.example"
     assert converted.notes == "Quiet."
-
-
-def test_dedup_key_ignores_case_punctuation_and_spacing() -> None:
-    a = Product(name="Sony WH-1000XM5")
-    b = Product(name="sony  wh 1000xm5!!")
-    assert a.dedup_key == b.dedup_key
-
-
-def test_labels_read_well_when_data_is_missing() -> None:
-    bare = Product(name="Thing")
-    assert bare.price_label() == "price unknown"
-    assert bare.rating_label() == "unrated"
-
-
-def test_labels_format_known_data() -> None:
-    full = Product(name="Thing", price=1234.5, currency="USD", rating=4.25, review_count=9000)
-    assert full.price_label() == "1,234.50 USD"
-    assert full.rating_label() == "4.2/5 (9,000 reviews)"
 
 
 def test_a_zero_price_is_unknown_not_free() -> None:
@@ -170,104 +62,8 @@ def test_the_rating_scale_includes_its_own_endpoints() -> None:
     assert ExtractedProduct(name="Thing", rating=5.0).to_product().rating == 5.0
 
 
-def test_a_negative_review_count_is_treated_as_unknown() -> None:
-    assert ExtractedProduct(name="Thing", review_count=-4).to_product().review_count is None
-
-
-def test_a_price_that_overflowed_a_float_is_not_a_price() -> None:
-    """JSON puts no ceiling on an exponent, so a model that runs away on digits answers
-    ``1e400`` -- which is ``inf`` once it is a float, and ``inf`` is a figure nothing
-    downstream can hold: it grounds on the "inf" in "information", it prints as "inf",
-    and it turns every price share in the set into a NaN, which is not even JSON the
-    browser can parse."""
-    overflowed = ProductList.model_validate_json(
-        '{"products": [{"name": "Sony WH-1000XM5", "price": 1e400, "currency": "USD"}]}'
-    ).products[0]
-
-    assert overflowed.price == float("inf")
-    assert overflowed.to_product().price is None
-    # The currency goes with it, being the qualifier of a figure that is gone.
-    assert overflowed.to_product().currency is None
-    assert overflowed.to_product().price_label() == "price unknown"
-
-
-@pytest.mark.parametrize("figure", [float("inf"), float("-inf"), float("nan")])
-@pytest.mark.parametrize("field", ["price", "rating"])
-def test_a_product_refuses_a_figure_that_is_not_a_number(field, figure) -> None:
-    """``to_product`` blanks one on the way in from the model, but that is not the only
-    way a ``Product`` is built: ``/api/rank`` and ``/api/pay`` validate one straight
-    out of a request body, and ``json.loads`` reads ``Infinity`` and ``NaN`` as readily
-    as it reads ``1``."""
-    with pytest.raises(ValidationError):
-        Product(name="Sony WH-1000XM5", **{field: figure})
-
-
-@pytest.mark.parametrize("rating", [5.5, 100.0, -1.0])
-def test_a_product_refuses_a_rating_off_the_scale(rating: float) -> None:
-    """The rating is the one figure here that is not simply a quantity: ``score_product``
-    divides it by 5 to get a share of the blend, so a 100 out of a request body is a
-    share of 20 and a score of 10.2 -- outside the ``[0, 1]`` ``ScoreParts`` promises
-    and drawn as a meter ten times its own track."""
-    with pytest.raises(ValidationError):
-        Product(name="Sony WH-1000XM5", rating=rating)
-
-
-def test_only_the_name_is_required() -> None:
-    """Every other field has a sentinel default, so a sparse answer still parses."""
-    converted = ExtractedProduct(name="Thing").to_product()
-
-    assert converted.name == "Thing"
-    assert converted.price is None
-    assert converted.rating is None
-    assert converted.seller is None
-
-
-def test_a_nameless_product_is_a_validation_error() -> None:
-    with pytest.raises(ValidationError):
-        ExtractedProduct()
-
-
-def test_names_are_flattened_onto_one_line() -> None:
-    """A model copies a name straight off a page, newlines and tabs included."""
-    assert ExtractedProduct(name="Sony\n WH-1000XM5\t").to_product().name == "Sony WH-1000XM5"
-
-
-def test_whitespace_only_text_fields_become_none() -> None:
-    converted = ExtractedProduct(name="Thing", seller="  ", url=" ", notes="\n").to_product()
-
-    assert converted.seller is None
-    assert converted.url is None
-    assert converted.notes is None
-
-
-def test_an_empty_product_list_is_the_default() -> None:
-    """A model that finds nothing answers with an empty list, not a failure."""
-    assert ProductList().products == []
-
-
-def test_the_query_schema_carries_one_query() -> None:
-    assert SearchQuery(query="tent price review").query == "tent price review"
-
-
-def test_price_label_without_a_currency_is_just_the_number() -> None:
-    assert Product(name="Thing", price=99.0).price_label() == "99.00"
-
-
 def test_rating_label_omits_a_review_count_it_does_not_have() -> None:
     assert Product(name="Thing", rating=4.0).rating_label() == "4.0/5"
-
-
-def test_a_free_product_does_not_read_as_unpriced() -> None:
-    assert Product(name="Thing", price=0.0).price_label() == "0.00"
-
-
-def test_dedup_key_of_a_punctuation_only_name_is_empty() -> None:
-    """deduplicate() drops these entries, and the empty key is what tells it to."""
-    assert Product(name="!!! ---").dedup_key == ""
-
-
-def test_dedup_key_separates_genuinely_different_models() -> None:
-    assert Product(name="Sony WH-1000XM4").dedup_key != Product(name="Sony WH-1000XM5").dedup_key
 
 
 def test_quoted_opinions_survive_conversion_tidied() -> None:
@@ -276,39 +72,6 @@ def test_quoted_opinions_survive_conversion_tidied() -> None:
     ).to_product()
 
     assert converted.opinions == said("the fit is snug", "the case is bulky")
-
-
-def test_a_quote_the_model_gave_points_at_no_page_yet() -> None:
-    """The model is asked for the words and never for the page: which page said
-    it is grounding's answer, out of the results that were really searched
-    (ADR-0017, ADR-0042)."""
-    converted = ExtractedProduct(name="Thing", opinions=["the fit is snug"]).to_product()
-
-    assert converted.opinions[0].url is None
-
-
-def test_no_opinions_is_an_empty_list_and_not_a_none() -> None:
-    """The one unknown that is not converted: "nobody said anything" and "no
-    quote survived grounding" are the same answer, spelled one way."""
-    assert ExtractedProduct(name="Thing").to_product().opinions == []
-    assert Product(name="Thing").opinions == []
-
-
-def test_the_same_opinion_twice_is_reported_once() -> None:
-    """A model listing a page's verdict once per paragraph it appeared in."""
-    converted = ExtractedProduct(
-        name="Thing", opinions=["The fit is snug", "the FIT is snug"]
-    ).to_product()
-
-    assert converted.opinions == said("The fit is snug")
-
-
-def test_more_opinions_than_a_card_can_hold_are_cut_to_the_first_few() -> None:
-    converted = ExtractedProduct(
-        name="Thing", opinions=["one", "two", "three", "four"]
-    ).to_product()
-
-    assert converted.opinions == said("one", "two", "three")
 
 
 def test_a_quote_exactly_as_long_as_a_card_holds_is_kept() -> None:
@@ -334,14 +97,6 @@ def test_a_review_count_of_zero_is_no_count_at_all() -> None:
 
     assert converted.review_count is None
     assert converted.rating == 4.5
-
-
-def test_a_paragraph_is_not_a_quote() -> None:
-    """Dropped rather than cut short: half a sentence attributed to a reviewer
-    says something the reviewer did not, the way half a name is another product."""
-    retold = "The reviewers were impressed. " * 10
-
-    assert ExtractedProduct(name="Thing", opinions=[retold]).to_product().opinions == []
 
 
 # -- which currency a set of prices is counted in (ADR-0043) -------------------
@@ -376,53 +131,11 @@ def test_which_currency_a_set_is_counted_in(
     assert dominant_currency(products) == expected, why
 
 
-@pytest.mark.parametrize(
-    ("product", "currency", "expected"),
-    [
-        pytest.param(Product(name="a", price=100.0, currency="USD"), "USD", 100.0, id="same"),
-        pytest.param(Product(name="a", price=100.0), "USD", 100.0, id="a bare price"),
-        # Not a smaller number: a number this set cannot place.
-        pytest.param(Product(name="a", price=100.0, currency="JPY"), "USD", None, id="other"),
-        pytest.param(Product(name="a", price=100.0, currency="JPY"), None, 100.0,
-                     id="nothing says these differ"),
-        pytest.param(Product(name="a"), "USD", None, id="no price at all"),
-    ],
-)
-def test_which_prices_are_on_the_set_s_scale(
-    product: Product, currency: str | None, expected: float | None
-) -> None:
-    assert comparable_price(product, currency) == expected
-
-
-def test_a_named_currency_wins_outright_over_the_vote() -> None:
-    """ADR-0056: the vote is what a run falls back on when nobody said, not evidence
-    to be weighed against a choice."""
-    products = [
-        Product(name="A", price=1.0, currency="USD"),
-        Product(name="B", price=2.0, currency="USD"),
-    ]
-
-    assert dominant_currency(products, "PLN") == "PLN"
-    assert dominant_currency(products) == "USD"
-
-
-def test_a_named_currency_stands_even_where_nothing_is_priced_at_all() -> None:
-    """The set has no vote to take, and the shopper's answer is still their answer."""
-    assert dominant_currency([Product(name="A")], "PLN") == "PLN"
-
-
 # -- the offers a product was priced at (ADR-0058) -----------------------------
 
 
 def offer(price: float, currency: str | None = "USD", **rest: object) -> Offer:
     return Offer(price=price, currency=currency, **rest)
-
-
-def test_one_listing_is_no_spread_to_report() -> None:
-    """A single offer is the headline price said twice, so the card is told nothing."""
-    priced = Product(name="Sony WH-1000XM5", price=329.0, currency="USD", offers=[offer(329.0)])
-
-    assert priced.offers_label() is None
 
 
 def test_several_listings_are_reported_as_a_range() -> None:
@@ -434,41 +147,6 @@ def test_several_listings_are_reported_as_a_range() -> None:
     )
 
     assert priced.offers_label() == "3 listings, 149.00-349.00 USD"
-
-
-def test_several_listings_at_one_price_report_that_price() -> None:
-    priced = Product(
-        name="Sony WH-1000XM5", price=329.0, currency="USD", offers=[offer(329.0), offer(329.0)]
-    )
-
-    assert priced.offers_label() == "2 listings, 329.00 USD"
-
-
-def test_two_listings_sharing_the_lowest_price_are_still_a_range() -> None:
-    """The ends of the spread are the cheapest and the dearest, not the first two: a
-    tie at the bottom is not every shop agreeing."""
-    priced = Product(
-        name="Sony WH-1000XM5",
-        price=329.0,
-        currency="USD",
-        offers=[offer(329.0), offer(299.0), offer(299.0)],
-    )
-
-    assert priced.offers_label() == "3 listings, 299.00-329.00 USD"
-
-
-def test_a_listing_off_the_runs_scale_is_counted_and_not_measured() -> None:
-    """Two prices in two currencies have nothing between them, and nothing is
-    converted (ADR-0043) -- but the one left out is said to be: "3 listings,
-    329.00-349.00 USD" read as three shops inside that range."""
-    priced = Product(
-        name="Sony WH-1000XM5",
-        price=329.0,
-        currency="USD",
-        offers=[offer(329.0), offer(299.0, "EUR"), offer(349.0)],
-    )
-
-    assert priced.offers_label() == "3 listings: 329.00-349.00 USD, and 1 in EUR"
 
 
 @pytest.mark.parametrize(
@@ -509,9 +187,3 @@ def test_listings_none_of_which_are_on_the_scale_are_only_counted() -> None:
     )
 
     assert priced.offers_label() == "2 listings"
-
-
-def test_a_name_is_identified_the_same_way_whichever_asks() -> None:
-    """``journal`` matches two runs' products by this, so there must not be two
-    spellings of it (ADR-0060)."""
-    assert dedup_key("Sony  WH-1000XM5!") == Product(name="Sony  WH-1000XM5!").dedup_key

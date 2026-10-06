@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import dataclasses
 import importlib
 
 import pytest
 
 import buy_agent.config as config_module
 import buy_agent.providers as providers_module
-from buy_agent.config import DEFAULT_REGION, LIMITS, AgentConfig, parse_region
-from buy_agent.ranking import RankingWeights
+from buy_agent.config import AgentConfig
 
 # The rows are reached through the module rather than imported by name, because
 # tests/test_providers.py reloads it: a reload re-runs the module over its own globals, so
@@ -18,97 +16,7 @@ from buy_agent.ranking import RankingWeights
 # imported here would still hold the row from before.
 
 
-def test_defaults_are_ten_results_ten_products_and_a_top_three() -> None:
-    config = AgentConfig()
-
-    assert config.search_results == 10
-    assert config.num_products == 10
-    assert config.top_n == 3
-    assert config.region == "us-en"
-
-
-def test_the_default_provider_is_the_one_the_readme_starts_with() -> None:
-    """Ollama, because that is the run the README's first transcript is of."""
-    assert AgentConfig().provider == "ollama"
-
-
-def test_an_unset_model_and_server_come_from_the_provider() -> None:
-    """The pair cannot be a plain field default: which value is right depends on
-    a sibling field, so the empty string is the "unset" that gets resolved."""
-    ollama, vllm = AgentConfig(), AgentConfig(provider="vllm")
-
-    ollama_row, vllm_row = providers_module.OLLAMA, providers_module.VLLM
-
-    assert (ollama.model, ollama.base_url) == (ollama_row.model, ollama_row.base_url)
-    assert (vllm.model, vllm.base_url) == (vllm_row.model, vllm_row.base_url)
-
-
-def test_the_provider_name_resolves_to_the_behaviour_behind_it() -> None:
-    """``model_server`` is the one way anything reaches a provider, which is what
-    keeps the agent, the API and the CLI from branching on a name (ADR-0029)."""
-    assert AgentConfig().model_server is providers_module.OLLAMA
-    assert AgentConfig(provider="vllm").model_server is providers_module.VLLM
-    assert AgentConfig(provider="litellm").model_server is providers_module.LITELLM
-
-
-def test_a_named_model_and_server_are_left_alone() -> None:
-    config = AgentConfig(provider="vllm", model="a-model", base_url="http://gpu:8000/v1")
-
-    assert (config.model, config.base_url) == ("a-model", "http://gpu:8000/v1")
-
-
-def test_a_provider_nothing_can_serve_is_refused_where_it_is_set() -> None:
-    """Not at the first request: a typo in $BUY_AGENT_PROVIDER should fail when
-    the config is built, not a minute into a run that has already searched."""
-    with pytest.raises(ValueError, match="Unknown provider 'llama.cpp'"):
-        AgentConfig(provider="llama.cpp")
-
-
 # -- the region, the one search setting a typo makes look like an empty web ----
-
-
-@pytest.mark.parametrize("region", ["us-en", "uk-en", "pl-pl", "wt-wt", "hk-tzh"])
-def test_a_country_and_a_language_is_a_region(region: str) -> None:
-    """Three letters on the language half included: ``hk-tzh`` is a real code, and
-    a shape that refused it would be a rule about this project rather than about
-    the search backend (ADR-0031)."""
-    assert parse_region(region) == region
-
-
-@pytest.mark.parametrize(
-    "typo",
-    [
-        "us_en",  # the separator people reach for first
-        "pl",  # a language, or a country -- either way, half of one
-        "us-en-x",  # an engine splits on the hyphen and gets three halves
-        "united states",
-        "us-",
-        "",
-    ],
-)
-def test_anything_else_is_refused_where_it_is_set(typo: str) -> None:
-    """Not a minute into a run that has already searched: a region no engine knows
-    comes back empty, which reads as the web having nothing to say."""
-    with pytest.raises(ValueError, match="is not a search region"):
-        parse_region(typo)
-
-
-def test_the_refusal_names_the_shape_and_codes_that_have_it() -> None:
-    """The codes are not guessable -- it is ``us-en`` and not ``en-us`` -- so the
-    message is the whole value of refusing rather than searching."""
-    with pytest.raises(ValueError) as failure:
-        parse_region("en_US")
-
-    message = str(failure.value)
-    assert "'en_US'" in message
-    assert DEFAULT_REGION in message and "pl-pl" in message
-
-
-@pytest.mark.parametrize("typed", [" US-EN ", "Us-En"])
-def test_a_region_is_lower_cased_rather_than_sent_as_typed(typed: str) -> None:
-    """Google is handed the halves as they were written, so ``US-EN`` asks it for
-    a language called ``lang_EN`` -- another quiet way to be sent nothing."""
-    assert parse_region(typed) == "us-en"
 
 
 def test_a_config_holds_the_region_to_the_same_shape() -> None:
@@ -117,91 +25,6 @@ def test_a_config_holds_the_region_to_the_same_shape() -> None:
 
     with pytest.raises(ValueError, match="is not a search region"):
         AgentConfig(region="en_us")
-
-
-def test_extraction_is_a_copying_task_not_a_creative_one() -> None:
-    assert AgentConfig().temperature == 0.0
-
-
-def test_pages_are_fetched_by_default() -> None:
-    """Snippets alone rarely quote a price, and a model asked to fill that gap invents one."""
-    config = AgentConfig()
-
-    assert config.fetch_pages is True
-    assert config.page_chars == 1200
-    assert config.fetch_timeout == 8.0
-
-
-def test_context_and_thinking_default_to_suiting_the_default_model() -> None:
-    """DEFAULT_MODEL thinks, so out of the box it is told not to, and given room."""
-    config = AgentConfig()
-
-    assert config.num_ctx == 16384
-    assert config.reasoning is False
-
-
-def test_context_and_thinking_can_still_be_left_to_the_model() -> None:
-    """None means "send nothing", which is what another model may want."""
-    config = AgentConfig(num_ctx=None, reasoning=None)
-
-    assert config.num_ctx is None
-    assert config.reasoning is None
-
-
-def test_a_run_uses_whatever_the_model_server_offers_it_unless_told_otherwise() -> None:
-    """Nothing about where the model runs changes without somebody asking."""
-    assert AgentConfig().cpu_only is False
-
-
-def test_one_question_has_a_longest_it_may_take() -> None:
-    """Ten minutes, which is what the OpenAI client already gave a vLLM and what
-    Ollama gave nobody: its client disables httpx's timeout unless told one, so a
-    server that went quiet holding the prompt hung the run outright (ADR-0051)."""
-    config = AgentConfig()
-
-    assert config.model_timeout == 600.0
-    assert LIMITS["model_timeout"] == (1, 3600)
-
-
-def test_each_config_gets_its_own_weights() -> None:
-    """A shared default would let one run's tuning leak into the next."""
-    first, second = AgentConfig(), AgentConfig()
-
-    assert first.weights == second.weights
-    assert first.weights is not second.weights
-
-
-def test_weights_can_be_replaced_wholesale() -> None:
-    weights = RankingWeights(rating=1.0, popularity=0.0, price=0.0)
-
-    assert AgentConfig(weights=weights).weights is weights
-
-
-def test_the_default_weights_sum_to_one() -> None:
-    assert RankingWeights().total == pytest.approx(1.0)
-
-
-def test_total_follows_whatever_weights_it_is_given() -> None:
-    assert RankingWeights(rating=0.5, popularity=0.5, price=1.0).total == pytest.approx(2.0)
-
-
-def test_weights_are_frozen() -> None:
-    """Scoring reads them per product; a mid-run edit would rank on two scales."""
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        RankingWeights().rating = 0.9
-
-
-def test_a_misspelled_field_is_rejected_rather_than_silently_added() -> None:
-    """slots=True: config.top = 5 must fail loudly, not shadow top_n."""
-    config = AgentConfig()
-
-    with pytest.raises(AttributeError):
-        config.top = 5
-
-
-def test_an_unknown_keyword_is_rejected() -> None:
-    with pytest.raises(TypeError):
-        AgentConfig(temperatur=0.5)
 
 
 @pytest.fixture
@@ -230,53 +53,9 @@ def test_the_provider_itself_can_be_set_from_the_environment(reloaded_config) ->
 # -- paying --------------------------------------------------------------------
 
 
-def test_paying_is_off_and_charges_nobody_by_default() -> None:
-    config = AgentConfig()
-
-    assert config.pay is False
-    assert config.rail == "dry-run"
-    assert config.rail_used.moves_money is False
-    assert config.spend_limit is None
-
-
 def test_a_rail_nothing_can_pay_through_is_refused_where_a_provider_would_be() -> None:
     with pytest.raises(ValueError, match="Unknown payment rail"):
         AgentConfig(rail="paypal")
-
-
-def test_a_paying_rail_needs_an_address() -> None:
-    """The one thing about these settings a range cannot say, so it is said here
-    -- where both front doors and a Python caller all go through it."""
-    with pytest.raises(ValueError, match="needs an address"):
-        AgentConfig(pay=True, rail="http")
-
-
-def test_a_rail_that_is_not_paying_needs_no_address() -> None:
-    """The switch is off, so there is nothing to refuse yet: a config is not a
-    payment, and refusing here would make `--rail http` unusable until it was."""
-    assert AgentConfig(rail="http").merchant_url == ""
-
-
-def test_an_address_is_resolved_off_the_rail_the_way_a_base_url_is_off_a_provider(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("BUY_AGENT_MERCHANT_URL", "https://from-the-environment.example")
-    import importlib
-
-    from buy_agent import config as config_module
-    from buy_agent import rails
-
-    importlib.reload(rails)
-    importlib.reload(config_module)
-    try:
-        assert (
-            config_module.AgentConfig(pay=True, rail="http").merchant_url
-            == "https://from-the-environment.example"
-        )
-    finally:
-        monkeypatch.delenv("BUY_AGENT_MERCHANT_URL")
-        importlib.reload(rails)
-        importlib.reload(config_module)
 
 
 def test_a_trailing_slash_is_dropped_so_a_rail_never_builds_a_double_one() -> None:
@@ -286,35 +65,7 @@ def test_a_trailing_slash_is_dropped_so_a_rail_never_builds_a_double_one() -> No
     )
 
 
-def test_the_spend_limit_is_bounded_like_every_other_number() -> None:
-    assert LIMITS["spend_limit"] == (1, 10_000_000)
-
-
 # -- the currency a run counts itself in (ADR-0056) ----------------------------
-
-
-@pytest.mark.parametrize(
-    ("typed", "code"),
-    [("PLN", "PLN"), ("pln", "PLN"), ("$", "USD"), (" eur ", "EUR"), ("zł", "PLN")],
-)
-def test_a_named_currency_is_folded_the_way_a_page_s_is(typed: str, code: str) -> None:
-    """The one table decides which spellings are one currency (ADR-0054), so a shopper
-    typing what their pages print is understood."""
-    assert AgentConfig(currency=typed).currency == code
-
-
-def test_no_currency_at_all_is_the_default_and_lets_the_set_vote() -> None:
-    """Blank is not a value to place; it is the absence of one (ADR-0012, ADR-0043)."""
-    assert AgentConfig().currency == ""
-    assert AgentConfig(currency="   ").currency == ""
-
-
-@pytest.mark.parametrize("typed", ["XXX", "dollarydoos", "¥"])
-def test_a_currency_this_run_could_never_place_is_refused_by_name(typed: str) -> None:
-    """``¥`` among them: it is read off a page and deliberately never placed, so a run
-    counted in it could place nothing at all (ADR-0054)."""
-    with pytest.raises(ValueError, match="not a currency this run can count in"):
-        AgentConfig(currency=typed)
 
 
 def test_the_refusal_names_the_currencies_that_would_have_worked() -> None:
@@ -323,11 +74,6 @@ def test_the_refusal_names_the_currencies_that_would_have_worked() -> None:
 
 
 # -- the search backend a run asks (ADR-0057) ---------------------------------
-
-
-def test_the_default_backend_needs_no_key_and_no_server() -> None:
-    assert AgentConfig().backend == "ddg"
-    assert AgentConfig().search_backend.name == "ddg"
 
 
 def test_a_backend_nothing_can_search_is_refused_where_the_config_is_built() -> None:

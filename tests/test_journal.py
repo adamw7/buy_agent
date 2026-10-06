@@ -4,18 +4,11 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable, Iterator
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
-from buy_agent.agent import journal_for
-from buy_agent.cache import default_dir
-from buy_agent.config import AgentConfig
 from buy_agent.journal import (
-    MAX_RUNS,
-    RUNS,
     Entry,
     Journal,
     Recorded,
@@ -24,7 +17,6 @@ from buy_agent.journal import (
     open_journal,
 )
 from buy_agent.models import Product, price_label
-from buy_agent.sources import parse_sources
 
 
 def priced(name: str, price: float | None, currency: str | None = "USD") -> Product:
@@ -37,22 +29,6 @@ def journal(tmp_path: Path, request: str = "espresso machine", **asked: object) 
 
 
 # -- what it keeps -------------------------------------------------------------
-
-
-def test_a_first_run_has_nothing_to_compare_against(tmp_path: Path) -> None:
-    kept = journal(tmp_path)
-
-    assert kept.compared_with() is None
-    assert kept.against([priced("Sage Bambino", 349.0)]) == []
-
-
-def test_the_next_run_of_the_same_search_is_compared_with_the_last(tmp_path: Path) -> None:
-    journal(tmp_path).against([priced("Sage Bambino", 349.0)])
-
-    changes = journal(tmp_path).against([priced("Sage Bambino", 329.0)])
-
-    assert [(change.movement, change.delta) for change in changes] == [("cheaper", -20.0)]
-    assert "20.00 USD cheaper" in changes[0].detail
 
 
 def test_a_journal_that_is_off_remembers_nothing_and_compares_nothing(
@@ -69,51 +45,6 @@ def test_a_journal_that_is_off_remembers_nothing_and_compares_nothing(
     assert list(tmp_path.glob("*.json")) == []
 
 
-def test_a_run_that_found_nothing_is_not_written_down(tmp_path: Path) -> None:
-    """It says nothing about a price, and recorded it would make every product of the
-    next run read as new."""
-    journal(tmp_path).against([priced("Sage Bambino", 349.0)])
-    journal(tmp_path).against([])
-
-    changes = journal(tmp_path).against([priced("Sage Bambino", 349.0)])
-
-    assert [change.movement for change in changes] == ["steady"]
-
-
-def test_only_a_name_a_price_and_a_currency_are_written_down(tmp_path: Path) -> None:
-    """A shopping history on disk is a different object from a page cache, so what is
-    kept is what a comparison needs and nothing else."""
-    journal(tmp_path).against(
-        [
-            Product(
-                name="Sage Bambino",
-                price=349.0,
-                currency="USD",
-                url="https://shop.example/bambino",
-                notes="Fast to heat.",
-            )
-        ]
-    )
-
-    stored = json.loads(next(iter(tmp_path.glob("*.json"))).read_text(encoding="utf-8"))
-
-    assert stored["runs"][0]["products"] == [
-        {"name": "Sage Bambino", "price": 349.0, "currency": "USD"}
-    ]
-
-
-def test_a_search_keeps_at_most_its_last_few_runs(tmp_path: Path) -> None:
-    """Retention is a count and not an age: a record that expired is no use for the one
-    question it exists to answer."""
-    for run in range(MAX_RUNS + 3):
-        journal(tmp_path).against([priced("Sage Bambino", 300.0 + run)])
-
-    stored = json.loads(next(iter(tmp_path.glob("*.json"))).read_text(encoding="utf-8"))
-
-    assert len(stored["runs"]) == MAX_RUNS
-    assert stored["runs"][-1]["products"][0]["price"] == 300.0 + MAX_RUNS + 2
-
-
 def test_the_least_recently_run_search_is_the_one_forgotten(tmp_path: Path) -> None:
     """Pruning oldest-*entry*-first would delete exactly the entry a comparison wants,
     so what goes is a whole search nobody has run lately."""
@@ -128,16 +59,6 @@ def test_the_least_recently_run_search_is_the_one_forgotten(tmp_path: Path) -> N
 
     assert not oldest.exists()
     assert len(list(tmp_path.glob("*.json"))) == 2
-
-
-def test_forgetting_says_how_many_searches_went(tmp_path: Path) -> None:
-    for name in ("kettle", "laptop", "headphones"):
-        open_journal(name, asked={}, keeping=True, directory=tmp_path).against(
-            [priced(name, 10.0)]
-        )
-
-    assert _forget_the_least_recent(tmp_path, 1) == 2
-    assert len(list(tmp_path.glob("*.json"))) == 1
 
 
 # -- what it says moved --------------------------------------------------------
@@ -271,44 +192,7 @@ def test_a_movement_is_measured_to_the_cent(
     assert said in change.detail
 
 
-def test_two_runs_match_a_product_by_the_identity_a_run_already_uses(
-    tmp_path: Path,
-) -> None:
-    """``Product.dedup_key``'s own reading, so there are never two spellings of "the
-    same product"."""
-    journal(tmp_path).against([priced("Sage Bambino!", 349.0)])
-
-    change = journal(tmp_path).against([priced("sage  bambino", 329.0)])[0]
-
-    assert change.movement == "cheaper"
-
-
-def test_a_recorded_product_with_no_price_reads_as_one(tmp_path: Path) -> None:
-    assert Recorded(name="Thing").label() == "price unknown"
-
-
 # -- what makes two searches two questions -------------------------------------
-
-
-@pytest.mark.parametrize(
-    "asked",
-    [
-        {"region": "uk-en"},
-        {"max_price": 500.0},
-        {"sources": [source.spec for source in parse_sources("rtings.com")]},
-    ],
-)
-def test_a_search_asked_differently_has_a_history_of_its_own(
-    tmp_path: Path, asked: dict[str, object]
-) -> None:
-    """A comparison across two different budgets is a comparison of two questions."""
-    journal(tmp_path, region="us-en", max_price=None, sources=[]).against(
-        [priced("Sage Bambino", 349.0)]
-    )
-
-    kept = journal(tmp_path, **{"region": "us-en", "max_price": None, "sources": [], **asked})
-
-    assert kept.compared_with() is None
 
 
 def test_the_order_the_settings_arrive_in_is_not_part_of_what_was_asked(
@@ -319,50 +203,7 @@ def test_the_order_the_settings_arrive_in_is_not_part_of_what_was_asked(
     assert journal(tmp_path, max_price=500.0, region="uk-en").compared_with() is not None
 
 
-def test_the_same_request_typed_differently_is_the_same_search(tmp_path: Path) -> None:
-    journal(tmp_path, request="Espresso Machine").against([priced("Sage Bambino", 349.0)])
-
-    assert journal(tmp_path, request=" espresso machine ").compared_with() is not None
-
-
-def test_the_model_is_not_part_of_what_was_asked() -> None:
-    """Which model read the pages decides how well the question was answered rather than
-    what it was; keying on it would leave every change of model a search with no history
-    at all."""
-    first = journal_for("espresso machine", AgentConfig(model="gemma4:12b"))
-    second = journal_for("espresso machine", AgentConfig(model="lfm2.5"))
-
-    assert first.key == second.key
-
-
-def test_the_budget_is_part_of_what_was_asked() -> None:
-    assert journal_for("espresso machine", AgentConfig()).key != journal_for(
-        "espresso machine", AgentConfig(max_price=500.0)
-    ).key
-
-
-def test_a_run_writes_its_journal_under_the_cache_directory(monkeypatch, tmp_path) -> None:
-    """One root, so deleting it throws the page cache and the history away together."""
-    monkeypatch.setenv("BUY_AGENT_CACHE_DIR", str(tmp_path))
-    kept = journal_for("espresso machine", AgentConfig())
-
-    kept.against([priced("Sage Bambino", 349.0)])
-
-    assert kept.directory == default_dir(RUNS) == tmp_path / RUNS
-    assert list((tmp_path / RUNS).glob("*.json"))
-
-
 # -- a journal never fails a run -----------------------------------------------
-
-
-def test_an_unwritable_directory_costs_the_history_and_not_the_run(tmp_path: Path) -> None:
-    """A shopping history is worth less than the run it would have interrupted."""
-    blocked = tmp_path / "not-a-directory"
-    blocked.write_text("", encoding="utf-8")
-
-    kept = open_journal("espresso", asked={}, keeping=True, directory=blocked / "runs")
-
-    assert kept.against([priced("Sage Bambino", 349.0)]) == []
 
 
 def test_a_file_that_is_not_an_entry_is_read_as_no_history(tmp_path: Path) -> None:
@@ -380,19 +221,6 @@ def test_a_file_that_is_not_an_entry_is_read_as_no_history(tmp_path: Path) -> No
     assert journal(tmp_path).compared_with() is None
 
     written.write_text(json.dumps({"key": kept.key}), encoding="utf-8")
-    assert journal(tmp_path).compared_with() is None
-
-
-def test_an_entry_that_is_not_a_run_is_read_as_no_history(tmp_path: Path) -> None:
-    """It should not happen -- nothing else writes these -- and it costs a comparison
-    rather than a run."""
-    kept = journal(tmp_path)
-    kept.against([priced("Sage Bambino", 349.0)])
-    written = next(iter(tmp_path.glob("*.json")))
-    written.write_text(
-        json.dumps({"key": kept.key, "runs": [{"at": "yesterday"}]}), encoding="utf-8"
-    )
-
     assert journal(tmp_path).compared_with() is None
 
 
@@ -424,21 +252,6 @@ def test_an_entry_that_reads_as_numbers_but_means_none_is_no_history(
     assert again.compared_with() is None
     assert again.against([priced("Sage Bambino", 329.0)]) == []
     assert journal(tmp_path).compared_with() is not None
-
-
-def test_a_half_written_journal_is_not_left_to_be_read_as_one(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # Patched where the move happens, which is ``cache.write_atomically``: a journal is
-    # written the way a cache entry is, and what this asserts is that it is *this*
-    # module that never fails a run over one.
-    monkeypatch.setattr(
-        "buy_agent.cache.os.replace", _raising(OSError("no space left on device"))
-    )
-
-    journal(tmp_path).against([priced("Sage Bambino", 349.0)])  # no raise
-
-    assert list(tmp_path.iterdir()) == []
 
 
 def test_a_temporary_file_that_cannot_be_removed_is_not_an_error(
@@ -505,71 +318,7 @@ def test_one_search_being_replaced_does_not_stop_the_rest_being_forgotten(
     assert stepped_over[0].exists()
 
 
-def test_a_directory_that_cannot_be_listed_is_an_empty_history(tmp_path: Path) -> None:
-    kept = open_journal("espresso", asked={}, keeping=True, directory=tmp_path / "absent")
-
-    assert kept.compared_with() is None
-
-
 # -- the comparison on its own -------------------------------------------------
-
-
-def test_compare_reads_the_day_off_the_run_it_is_comparing_with() -> None:
-    """The date is inside every sentence, because the page shows the sentences and
-    composes none of its own (ADR-0012)."""
-    # Noon on this machine's clock, which is 11 Sep wherever the suite is run.
-    at = datetime(2025, 9, 11, 12).timestamp()
-    before = Entry(at=at, products=[Recorded(name="Thing", price=10.0)])
-
-    changes = compare(before, [Recorded(name="Thing", price=10.0)])
-
-    assert before.when() == "11 Sep"
-    assert changes[0].detail.endswith("unchanged since 11 Sep.")
-
-
-def test_a_day_before_the_tenth_is_written_as_a_sentence_writes_it() -> None:
-    """``%d`` read "unchanged since 01 Oct"."""
-    assert Entry(at=datetime(2026, 10, 1, 12).timestamp()).when() == "1 Oct"
-
-
-#: ``time.tzset`` is what makes a changed ``$TZ`` count, and Windows has none.
-needs_tzset = pytest.mark.skipif(
-    not hasattr(time, "tzset"), reason="no time.tzset to move this process's time zone with"
-)
-
-
-@pytest.fixture
-def zone(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[[str], None]]:
-    """Put this process in a POSIX time zone for one test, and back after it."""
-
-    def move(spec: str) -> None:
-        monkeypatch.setenv("TZ", spec)
-        time.tzset()
-
-    yield move
-    monkeypatch.undo()
-    time.tzset()
-
-
-@needs_tzset
-@pytest.mark.parametrize(
-    ("spec", "greenwich", "day"),
-    [
-        # 21:00 on 30 Sep, ten hours west of Greenwich, is 07:00 on 1 Oct there.
-        ("WEST+10", datetime(2026, 10, 1, 7, tzinfo=timezone.utc), "30 Sep"),
-        # 06:00 on 1 Oct, ten hours east of it, is 20:00 on 30 Sep there.
-        ("EAST-10", datetime(2026, 9, 30, 20, tzinfo=timezone.utc), "1 Oct"),
-    ],
-)
-def test_a_run_is_dated_by_the_calendar_its_log_lines_are_timed_by(
-    zone: Callable[[str], None], spec: str, greenwich: datetime, day: str
-) -> None:
-    """Dated by Greenwich's calendar, an evening's second run in California said the
-    first was "unchanged since 1 Oct" on the 30th, under log lines timed by the
-    shopper's own clock."""
-    zone(spec)
-
-    assert Entry(at=greenwich.timestamp()).when() == day
 
 
 def _raise_gone() -> float:

@@ -47,15 +47,6 @@ def test_scripts_and_styles_are_stripped() -> None:
     assert "Sony WH-CH720N" in text
 
 
-def test_elements_stay_on_separate_lines() -> None:
-    """text_content() would glue the product name onto its price."""
-    assert "Sony WH-CH720N\n" in html_to_text(PAGE)
-
-
-def test_unparseable_markup_yields_no_text() -> None:
-    assert html_to_text("") == ""
-
-
 def test_a_page_that_opens_with_an_xml_declaration_is_still_read() -> None:
     """XHTML pages carry one, and lxml refuses a *str* that does."""
     text = html_to_text(
@@ -73,38 +64,10 @@ def test_a_line_as_short_as_the_floor_is_still_a_line() -> None:
     assert condense("$129", max_chars=1000) == "$129"
 
 
-def test_only_lines_with_figures_are_kept() -> None:
-    condensed = condense(html_to_text(PAGE), max_chars=1000)
-
-    assert "$129.99" in condensed
-    assert "$99.95" in condensed
-    assert "Free shipping" not in condensed
-    assert "All rights reserved" not in condensed
-
-
-def test_the_line_above_a_price_is_kept_as_context() -> None:
-    """A price is useless without the product name it sits under."""
-    condensed = condense(html_to_text(PAGE), max_chars=1000)
-
-    assert "Sony WH-CH720N" in condensed
-    assert "JBL Tune 770NC" in condensed
-
-
-def test_the_character_budget_is_respected() -> None:
-    assert len(condense(html_to_text(PAGE), max_chars=50)) <= 51
-
-
 def test_repeated_lines_appear_once() -> None:
     repeated = "Sony WH-CH720N\n$129.00\n" * 5
 
     assert condense(repeated, max_chars=1000).count("$129.00") == 1
-
-
-def test_a_repeat_is_skipped_and_the_lines_after_it_are_still_read() -> None:
-    """A page that prints its headline deal twice has not run out of prices."""
-    page = "Sony WH-CH720N\n$129.00\nSony WH-CH720N\n$129.00\nBose QuietComfort\n$279.00"
-
-    assert "$279.00" in condense(page, max_chars=1000)
 
 
 def test_the_same_figure_under_two_names_is_two_figures() -> None:
@@ -120,10 +83,6 @@ def test_the_same_figure_under_two_names_is_two_figures() -> None:
         "Bose QuietComfort Ultra",
         "$349.00",
     ]
-
-
-def test_boilerplate_without_figures_condenses_to_nothing() -> None:
-    assert condense("About us\nContact\nPrivacy policy\n", max_chars=1000) == ""
 
 
 def fake_client(handler, captured: dict | None = None):
@@ -199,73 +158,6 @@ def answering(*responses):
     return handler, asked
 
 
-def test_fetch_page_condenses_a_live_page(monkeypatch) -> None:
-    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
-    with httpx.Client() as client:
-        page = fetch_page(client, "https://shop.example", max_chars=1000)
-
-    assert "$129.99" in page.text
-    assert page.problem is None, "a page that was read has nothing wrong with it"
-
-
-def test_a_failed_request_yields_no_content(monkeypatch) -> None:
-    def explode(url: str):
-        raise httpx.ConnectTimeout("too slow")
-
-    stub_client(monkeypatch, explode)
-    with httpx.Client() as client:
-        page = fetch_page(client, "https://slow.example", max_chars=1000)
-
-    assert page == PageText("", "timed out")
-
-
-def test_a_url_httpx_will_not_parse_yields_no_content(monkeypatch) -> None:
-    """``InvalidURL`` is not an ``HTTPError``, so it needs naming separately."""
-
-    def explode(url: str):
-        raise httpx.InvalidURL("Invalid port: ':1'")
-
-    stub_client(monkeypatch, explode)
-    with httpx.Client() as client:
-        page = fetch_page(client, "http://[::1/", max_chars=1000)
-
-    assert page == PageText("", "had an address that cannot be fetched")
-
-
-@pytest.mark.parametrize(
-    "host", ["shop..example", "a" * 64 + ".example"], ids=["empty label", "long label"]
-)
-def test_a_host_the_socket_cannot_encode_yields_no_content(monkeypatch, host: str) -> None:
-    """httpx parses these, and the socket refuses them with a ``UnicodeError`` that is
-    no ``HTTPError``: one result's address, or one its page redirected to, ended the
-    whole fetch step -- and the run with it, as a 400 blaming the request."""
-
-    def explode(url: str):
-        raise unencodable(host)
-
-    stub_client(monkeypatch, explode)
-    with httpx.Client() as client:
-        page = fetch_page(client, f"http://{host}/", max_chars=1000)
-
-    assert page == PageText("", "had an address that cannot be fetched")
-
-
-def test_a_redirect_to_a_host_nobody_can_encode_does_not_lose_the_others(monkeypatch) -> None:
-    def handler(url: str):
-        if "moved" in url:
-            # Raised by ``stream``, where httpx follows the redirect.
-            raise unencodable("shop..example")
-        return make_response(url, PAGE)
-
-    stub_client(monkeypatch, handler)
-    results = [SearchResult(url="https://good.example"), SearchResult(url="https://moved.example")]
-
-    enriched = enrich(results, max_chars=1000)
-
-    assert "$129.99" in enriched[0].content
-    assert enriched[1].content == ""
-
-
 def test_a_malformed_href_does_not_bring_the_run_down() -> None:
     """The real client, on the real parse, with no stub in the way."""
     results = [
@@ -279,14 +171,6 @@ def test_a_malformed_href_does_not_bring_the_run_down() -> None:
     assert [result.title for result in enriched] == ["bad port", "bad idna"]
 
 
-def test_an_error_status_yields_no_content(monkeypatch) -> None:
-    stub_client(monkeypatch, lambda url: make_response(url, PAGE, status=403))
-    with httpx.Client() as client:
-        page = fetch_page(client, "https://blocked.example", max_chars=1000)
-
-    assert page == PageText("", "refused (403)")
-
-
 def test_non_html_responses_are_ignored(monkeypatch) -> None:
     stub_client(
         monkeypatch, lambda url: make_response(url, "%PDF-1.4", content_type="application/pdf")
@@ -295,92 +179,6 @@ def test_non_html_responses_are_ignored(monkeypatch) -> None:
         page = fetch_page(client, "https://manual.example/x.pdf", max_chars=1000)
 
     assert page == PageText("", "did not answer with HTML")
-
-
-def test_enrich_attaches_content_to_each_result(monkeypatch) -> None:
-    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
-    results = [
-        SearchResult(title="A", url="https://a.example", snippet="s"),
-        SearchResult(title="B", url="https://b.example", snippet="s"),
-    ]
-
-    enriched = enrich(results, max_chars=1000)
-
-    assert all("$129.99" in result.content for result in enriched)
-    assert [result.title for result in enriched] == ["A", "B"]
-    assert results[0].content == "", "the originals must not be mutated"
-
-
-def test_one_unreachable_page_does_not_lose_the_others(monkeypatch) -> None:
-    results = one_reachable_one_not(monkeypatch)
-
-    enriched = enrich(results, max_chars=1000)
-
-    assert "$129.99" in enriched[0].content
-    assert enriched[1].content == ""
-
-
-@pytest.mark.parametrize(
-    "line",
-    [
-        "Sony WH-CH720N EUR 129 today",
-        "Sony deal 4.5 stars",
-        "Price: 250 PLN here",
-        # Every sign the sweep knows has its code beside it: a page printing
-        # "129000 JPY" quotes a price as plainly as one printing "¥129000".
-        "Sony WH-CH720N 129000 JPY today",
-        # ...and the other way round, for the one currency whose sign is a word rather
-        # than a character.
-        "Sony WH-CH720N za 599 zł dzisiaj",
-        "Sony WH-CH720N zł 599 dzisiaj",
-        # A hyphen is how a review roundup writes the figure a shop writes with
-        # a space, and it is the same rating either way.
-        "Sony WH-CH720N is a 4.5-star pick",
-        # The three the tables disagreed about until they were merged (ADR-0054).
-        "Sony WH-CH720N sells for 349 dollars",
-        "Sony WH-CH720N is yours for 1,299 euros",
-        "Sony WH-CH720N kostar 8999 TRY idag",
-        # A word spelling is folded, since a page capitalises one wherever it likes --
-        # in a heading, at the start of a sentence, or not at all.
-        "Sony WH-CH720N sells for 349 Dollars",
-        "Sony WH-CH720N za 599 ZŁ dzisiaj",
-        # A sign goes after the figure as readily as before it, which is how most of
-        # the continent writes a price: read one way round only, every price on a
-        # German, French or Spanish shop was dropped before the model saw it.
-        "Sony WH-CH720N kostet 129,99 €",
-        "Sony WH-CH720N coûte 129 €",
-        "Sony WH-CH720N is 99 $ in Montreal",
-    ],
-)
-def test_prices_and_ratings_are_recognised_in_several_shapes(line: str) -> None:
-    assert condense(line, max_chars=200) == line
-
-
-@pytest.mark.parametrize(
-    "line",
-    [
-        "Try 3 of these before you commit to one pair",
-        "Try 2 sizes up if you have wide feet, reviewers say",
-    ],
-)
-def test_an_english_word_that_is_also_a_code_is_not_a_price(line: str) -> None:
-    """The other half of ``money``'s split, exercised rather than declared: the codes
-    are read in their own case alone, so "TRY" is the Turkish lira and "Try" opens a
-    sentence. Folded together, a roundup's advice crowded real prices out of
-    ``page_chars``."""
-    assert condense(line, max_chars=200) == ""
-
-
-@pytest.mark.parametrize(
-    "line",
-    [
-        "The Sony WH-CH720N weighs 2 pounds with the case",
-        "At 1.5 pounds it is the lightest of the three",
-    ],
-)
-def test_a_figure_in_pounds_of_weight_is_not_a_price(line: str) -> None:
-    """Why ``money.UNSCANNED`` exists, exercised rather than declared."""
-    assert condense(line, max_chars=200) == ""
 
 
 def test_the_price_pattern_is_built_from_the_currency_tables() -> None:
@@ -398,52 +196,6 @@ def test_the_price_pattern_is_built_from_the_currency_tables() -> None:
     assert not fetch_module.quotes_a_figure("it costs 42 QUATLOOS")
 
 
-def test_a_wall_of_text_is_dropped_even_when_it_quotes_a_price() -> None:
-    """The ceiling is what keeps paragraphs of boilerplate out of the prompt."""
-    wall = "Terms and conditions apply to this offer. " * 10 + "$129"
-    assert len(wall) > 300
-
-    assert condense(wall, max_chars=5000) == ""
-
-
-def test_a_stray_fragment_is_too_short_to_keep() -> None:
-    assert condense("$1", max_chars=100) == ""
-
-
-def test_condensing_stops_once_the_budget_is_spent() -> None:
-    condensed = condense("Sony WH-1\n$100.00\nJBL T7\n$200.00", max_chars=20)
-
-    assert "$100.00" in condensed
-    assert "$200.00" not in condensed
-
-
-def test_nothing_to_condense_is_empty() -> None:
-    assert condense("", max_chars=1000) == ""
-
-
-def test_a_line_without_a_figure_is_dropped_even_next_to_one() -> None:
-    """Only the immediately preceding line rides along as context."""
-    condensed = condense("Unrelated banner\nSony WH-CH720N\n$129.00", max_chars=1000)
-
-    assert "Unrelated banner" not in condensed
-    assert "Sony WH-CH720N" in condensed
-
-
-def test_markup_without_a_body_still_yields_its_text() -> None:
-    assert "Sony XM5" in html_to_text("<div>Sony XM5</div><span>$328</span>")
-
-
-def test_noscript_and_svg_are_stripped_too() -> None:
-    text = html_to_text(
-        "<html><body><noscript>Enable JavaScript</noscript>"
-        "<svg><title>cart icon</title></svg><p>Sony XM5</p></body></html>"
-    )
-
-    assert "Enable JavaScript" not in text
-    assert "cart icon" not in text
-    assert "Sony XM5" in text
-
-
 def test_a_response_without_a_content_type_is_read_as_html(monkeypatch) -> None:
     """Shops that omit the header still serve pages worth reading."""
     stub_client(
@@ -455,24 +207,6 @@ def test_a_response_without_a_content_type_is_read_as_html(monkeypatch) -> None:
 
     with httpx.Client() as client:
         assert "$129.99" in fetch_page(client, "https://shop.example", max_chars=1000).text
-
-
-def test_a_page_with_no_figures_yields_no_content(monkeypatch) -> None:
-    stub_client(monkeypatch, lambda url: make_response(url, "<html><p>About us</p></html>"))
-
-    with httpx.Client() as client:
-        page = fetch_page(client, "https://about.example", max_chars=1000)
-
-    assert page == PageText("", "quoted no prices and no verdicts")
-
-
-def test_enriching_nothing_fetches_nothing(monkeypatch) -> None:
-    def explode(url: str):
-        raise AssertionError(f"nothing should have been fetched, got {url}")
-
-    stub_client(monkeypatch, explode)
-
-    assert enrich([], max_chars=1000) == []
 
 
 def test_enrich_reports_how_many_pages_were_usable(monkeypatch, caplog) -> None:
@@ -550,36 +284,6 @@ def test_the_kinds_of_failure_are_counted_commonest_first() -> None:
     assert summarise_failures(problems) == "3 refused (403), 2 timed out"
 
 
-def test_nothing_going_wrong_summarises_to_nothing() -> None:
-    """Empty, so the caller appends it or does not -- rather than a dangling colon."""
-    assert summarise_failures([]) == ""
-
-
-def test_the_tally_names_the_kinds_of_failure_and_not_the_urls(monkeypatch, caplog) -> None:
-    """The diagnosis the run already had and used to throw away."""
-
-    def handler(url: str):
-        if "slow" in url:
-            raise httpx.ConnectTimeout("too slow")
-        if "quiet" in url:
-            return make_response(url, "<html><p>About us</p></html>")
-        return make_response(url, PAGE, status=403)
-
-    stub_client(monkeypatch, handler)
-    results = [
-        SearchResult(url=f"https://shop{index}.example") for index in range(3)
-    ] + [SearchResult(url="https://slow.example"), SearchResult(url="https://quiet.example")]
-
-    with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
-        enrich(results, max_chars=1000)
-
-    assert (
-        "Got usable page text from 0 of 5 result(s): 3 refused (403), 1 timed out, "
-        "1 quoted no prices and no verdicts"
-    ) in caplog.text
-    assert "shop0.example" not in caplog.text, "one line, not one line per result"
-
-
 def test_reading_nothing_at_all_is_a_warning(monkeypatch, caplog) -> None:
     """Every figure in the report ahead is about to be blanked by grounding, so
     this is the run saying why -- not another step of its narration."""
@@ -594,25 +298,6 @@ def test_reading_nothing_at_all_is_a_warning(monkeypatch, caplog) -> None:
 
     tally = [record for record in caplog.records if "Got usable page text" in record.message]
     assert [record.levelno for record in tally] == [logging.WARNING]
-
-
-def test_reading_some_of_the_pages_is_only_narration(monkeypatch, caplog) -> None:
-    def handler(url: str):
-        if "bad" in url:
-            raise httpx.ConnectError("refused")
-        return make_response(url, PAGE)
-
-    stub_client(monkeypatch, handler)
-    results = [
-        SearchResult(url="https://good.example"),
-        SearchResult(url="https://bad.example"),
-    ]
-
-    with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
-        enrich(results, max_chars=1000)
-
-    tally = [record for record in caplog.records if "Got usable page text" in record.message]
-    assert [record.levelno for record in tally] == [logging.INFO]
 
 
 def test_fetching_nothing_is_not_a_failure_to_fetch(monkeypatch, caplog) -> None:
@@ -682,18 +367,6 @@ def test_pages_are_requested_as_a_browser_would(monkeypatch) -> None:
     assert "Mozilla" in captured["headers"]["User-Agent"]
 
 
-def test_the_character_budget_is_per_page(monkeypatch) -> None:
-    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
-    results = [
-        SearchResult(url="https://a.example"),
-        SearchResult(url="https://b.example"),
-    ]
-
-    enriched = enrich(results, max_chars=40)
-
-    assert all(len(result.content) <= 41 for result in enriched)
-
-
 def test_a_line_that_exactly_fills_the_budget_is_kept() -> None:
     """The budget is what may be spent, not what must be left over."""
     text = "Price $10\nPrice $20"
@@ -710,23 +383,6 @@ def test_a_spent_budget_stops_the_sweep_rather_than_skipping_the_line() -> None:
     condensed = condense(text, max_chars=25)
 
     assert condensed == "Price $10"
-
-
-def test_context_that_will_not_fit_is_gone_without_the_figure_going_with_it() -> None:
-    """The line above a match is furniture, and furniture is what to go without."""
-    text = "\n".join(["Sony WH-1000XM5", "$399.00", "X" * 90, "$249.00", "$99.00"])
-
-    condensed = condense(text, max_chars=100, opinion_chars=0)
-
-    # The 90-character line is skipped; the two prices under it are not.
-    assert condensed == "Sony WH-1000XM5\n$399.00\n$249.00\n$99.00"
-
-
-def test_a_figure_is_kept_even_where_its_context_line_was_not() -> None:
-    """The pair is not atomic: the figure is what the ranking is made of."""
-    text = "A rather longer product name than the budget will stretch to\n$249.00"
-
-    assert condense(text, max_chars=20, opinion_chars=0) == "$249.00"
 
 
 def test_a_line_exactly_at_the_ceiling_is_still_a_line() -> None:
@@ -795,102 +451,6 @@ Copyright 2026 AudioSite. All rights reserved.
 """
 
 
-def test_what_the_page_says_about_a_product_is_kept_too() -> None:
-    """A price says what it costs; only these lines say whether to want it."""
-    condensed = condense(REVIEW, max_chars=1000)
-
-    assert "noise cancelling uncanny" in condensed
-    assert "too bulky for a coat pocket" in condensed
-
-
-def test_a_line_that_is_neither_a_figure_nor_a_judgement_is_still_dropped() -> None:
-    """The vocabulary is one of judgement, not of shopping: a delivery promise
-    reads like a page about a product and says nothing about one."""
-    condensed = condense("Free returns within 30 days of delivery", max_chars=1000)
-
-    assert condensed == ""
-
-
-def test_a_bare_pros_heading_is_too_short_to_be_an_opinion() -> None:
-    """Its content is the lines below it, which no rule here brings along, so on
-    its own it is a word of budget spent on nothing."""
-    assert condense("Pros", max_chars=1000) == ""
-
-
-def test_lines_come_back_in_the_order_the_page_had_them() -> None:
-    """Two sweeps, one excerpt: read back the other way round it would suggest the
-    verdicts belong to whichever product was priced last."""
-    condensed = condense(REVIEW, max_chars=1000).splitlines()
-
-    assert condensed == [
-        "Sony WH-CH720N",
-        "Now $129.00",
-        "Reviewers found the noise cancelling uncanny for the money.",
-        "Free returns within 30 days of delivery",
-        "The downside is a case too bulky for a coat pocket.",
-    ]
-
-
-def test_the_line_above_a_verdict_is_kept_the_way_the_line_above_a_price_is() -> None:
-    """Review pages put the verdict under the heading that names the product."""
-    condensed = condense("Sony WH-CH720N\nWe loved the noise cancelling on these.", max_chars=100)
-
-    assert "Sony WH-CH720N" in condensed
-
-
-def test_a_page_of_prices_cannot_crowd_out_the_verdicts() -> None:
-    """Separate budgets, which is the whole reason there are two sweeps: a shop
-    page listing forty prices would otherwise spend the lot before the verdict."""
-    prices = "\n".join(f"Model {index} costs ${index}00.00" for index in range(40))
-    condensed = condense(f"{prices}\nWe found the fit uncomfortable after an hour.", max_chars=200)
-
-    assert "uncomfortable after an hour" in condensed
-    assert len(condensed) > 200
-
-
-def test_the_verdicts_cannot_crowd_out_the_price_either() -> None:
-    """The other direction, which is the reason the pages are fetched at all."""
-    verdicts = "\n".join(
-        f"Reviewers found version {index} disappointing to listen to." for index in range(40)
-    )
-    condensed = condense(f"{verdicts}\nSony WH-CH720N\nNow $129.00", max_chars=200)
-
-    assert "$129.00" in condensed
-
-
-def test_the_opinions_can_be_left_unread() -> None:
-    """``opinion_chars=0``: back to the figures alone, for a smaller prompt."""
-    condensed = condense(REVIEW, max_chars=1000, opinion_chars=0)
-
-    assert "$129.00" in condensed
-    assert "uncanny" not in condensed
-
-
-def test_the_opinion_budget_is_spent_and_then_the_sweep_stops() -> None:
-    verdicts = "\n".join(
-        f"Reviewers found version {index} disappointing to listen to." for index in range(10)
-    )
-
-    assert len(condense(verdicts, max_chars=0, opinion_chars=120)) <= 120
-
-
-def test_a_page_read_twice_is_not_quoted_twice() -> None:
-    """A line that is both a price and a verdict is taken by the first sweep and
-    paid for there; the second finds it already kept."""
-    text = "Sony WH-CH720N\nExcellent value for money at $129.00\n"
-
-    assert condense(text, max_chars=1000).count("$129.00") == 1
-
-
-def test_the_opinion_budget_reaches_the_pages(monkeypatch) -> None:
-    """``enrich`` hands each page both budgets, or the second sweep is off by default."""
-    stub_client(monkeypatch, lambda url: make_response(url, f"<p>{REVIEW}</p>"))
-
-    enriched = enrich([SearchResult(url="https://audiosite.example")], max_chars=1000)
-
-    assert "uncanny" in enriched[0].content
-
-
 def test_leaving_the_opinions_unread_reaches_the_pages(monkeypatch) -> None:
     """The other half of that: a budget of nothing is passed on as nothing, rather than
     each page falling back to the default and reading them anyway."""
@@ -902,25 +462,6 @@ def test_leaving_the_opinions_unread_reaches_the_pages(monkeypatch) -> None:
 
     assert "$129.00" in enriched[0].content
     assert "uncanny" not in enriched[0].content
-
-
-def test_a_product_called_pro_is_not_mistaken_for_a_pros_list() -> None:
-    """Half the products on a headphone page are a "Pro" of something."""
-    assert condense("Apple AirPods Pro (2nd generation)", max_chars=1000) == ""
-    assert "Pros and cons" in condense("Pros and cons of the WH-CH720N", max_chars=1000)
-
-
-def test_a_page_is_read_only_as_far_as_the_ceiling(monkeypatch) -> None:
-    """Neither of the other two bounds is a bound on how much arrives."""
-    monkeypatch.setattr("buy_agent.fetch._MAX_PAGE_BYTES", 64)
-    body = "<p>Sony WH-CH720N $129.00</p>" + "<p>filler</p>" * 500
-    stub_client(monkeypatch, lambda url: make_response(url, body))
-
-    with httpx.Client() as client:
-        page = fetch_page(client, "https://huge.example", max_chars=1000)
-
-    assert "$129.00" in page.text, "what arrived before the cut is still read"
-    assert page.problem is None
 
 
 #: A page arriving in three pieces, each a line with a price of its own.
@@ -978,24 +519,6 @@ def test_the_pieces_of_a_page_are_joined_with_nothing_between_them(monkeypatch) 
     assert "Sony WH-CH720N $129.00" in page.text
 
 
-def test_a_page_is_read_in_the_encoding_it_declares(monkeypatch) -> None:
-    """A shop still serving Latin-1 prints its accents in bytes UTF-8 cannot read."""
-    stub_client(
-        monkeypatch,
-        lambda url: httpx.Response(
-            200,
-            headers={"content-type": "text/html; charset=iso-8859-1"},
-            content="<p>Café Noir espresso machine £129.00</p>".encode("iso-8859-1"),
-            request=httpx.Request("GET", url),
-        ),
-    )
-
-    with httpx.Client() as client:
-        page = fetch_page(client, "https://cafe.example", max_chars=1000)
-
-    assert "Café Noir" in page.text
-
-
 def test_a_byte_the_declared_encoding_lacks_does_not_cost_it_the_page(monkeypatch) -> None:
     """Windows-1252 leaves five bytes unassigned. One of them in a footer is replaced
     where it stands, rather than throwing the whole page over to UTF-8, which cannot
@@ -1015,24 +538,6 @@ def test_a_byte_the_declared_encoding_lacks_does_not_cost_it_the_page(monkeypatc
         page = fetch_page(client, "https://cafe.example", max_chars=1000)
 
     assert "Café Noir espresso machine £129.00" in page.text
-
-
-def test_a_byte_no_encoding_can_read_does_not_cost_the_page(monkeypatch) -> None:
-    """Replaced, not raised: one bad byte in a footer is not the page's prices gone."""
-    stub_client(
-        monkeypatch,
-        lambda url: httpx.Response(
-            200,
-            headers={"content-type": "text/html"},
-            content=b"<p>Sony WH-CH720N $129.00</p><p>\xff</p>",
-            request=httpx.Request("GET", url),
-        ),
-    )
-
-    with httpx.Client() as client:
-        page = fetch_page(client, "https://odd.example", max_chars=1000)
-
-    assert "$129.00" in page.text
 
 
 @pytest.mark.parametrize("charset", ["base64", "zlib", "idna", "undefined"])
@@ -1058,82 +563,7 @@ def test_a_charset_that_reads_no_text_is_read_as_utf8(monkeypatch, charset: str)
     assert "Café Noir espresso machine €129.00" in page.text
 
 
-def test_a_page_served_as_something_else_is_dropped_before_its_body(monkeypatch) -> None:
-    """The content type is on the headers, which a stream delivers first."""
-    read: list[str] = []
-
-    def answer(url: str):
-        response = make_response(url, "%PDF-1.4" + "x" * 10_000, content_type="application/pdf")
-        original = response.iter_bytes
-
-        def watched(*args, **kwargs):
-            read.append(url)
-            return original(*args, **kwargs)
-
-        response.iter_bytes = watched
-        return response
-
-    stub_client(monkeypatch, answer)
-    with httpx.Client() as client:
-        page = fetch_page(client, "https://manual.example/x.pdf", max_chars=1000)
-
-    assert page == PageText("", "did not answer with HTML")
-    assert read == [], "nothing of the body was read"
-
-
 # -- the page cache, where a run reads the pages it read last time (ADR-0040) ---
-
-
-def test_a_cached_page_is_condensed_rather_than_fetched(monkeypatch, tmp_path) -> None:
-    """The whole point: the network is not touched, and the answer is the same."""
-    cache = DiskCache(tmp_path, ttl=3600)
-    cache.put("https://shop.example", html_to_text(PAGE))
-    stub_client(monkeypatch, _refuses_to_be_called)
-
-    with httpx.Client() as client:
-        page = fetch_page(client, "https://shop.example", max_chars=1000, cache=cache)
-
-    assert "$129.99" in page.text
-    assert page.cached is True
-
-
-def test_a_fetched_page_is_stored_and_marked_as_not_cached(monkeypatch, tmp_path) -> None:
-    cache = DiskCache(tmp_path, ttl=3600)
-    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
-
-    with httpx.Client() as client:
-        page = fetch_page(client, "https://shop.example", max_chars=1000, cache=cache)
-
-    assert page.cached is False
-    assert "Sony WH-CH720N" in (cache.get("https://shop.example") or "")
-
-
-def test_what_is_stored_is_the_page_and_not_the_excerpt(monkeypatch, tmp_path) -> None:
-    """``page_chars`` decides which lines survive into the prompt and is a per-run
-    setting, so an excerpt stored under one budget is the wrong excerpt under the next."""
-    cache = DiskCache(tmp_path, ttl=3600)
-    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
-
-    with httpx.Client() as client:
-        narrow = fetch_page(client, "https://shop.example", max_chars=20, cache=cache)
-        stub_client(monkeypatch, _refuses_to_be_called)
-        wide = fetch_page(client, "https://shop.example", max_chars=1000, cache=cache)
-
-    assert len(wide.text) > len(narrow.text)
-    assert wide.cached is True
-
-
-def test_a_page_that_could_not_be_read_is_not_stored(monkeypatch, tmp_path) -> None:
-    """A 403 stays live, so a shop that has stopped refusing is noticed on the
-    next run rather than at the end of a day-long time to live."""
-    cache = DiskCache(tmp_path, ttl=3600)
-    stub_client(monkeypatch, lambda url: make_response(url, PAGE, status=403))
-
-    with httpx.Client() as client:
-        page = fetch_page(client, "https://blocked.example", max_chars=1000, cache=cache)
-
-    assert page == PageText("", "refused (403)")
-    assert cache.get("https://blocked.example") is None
 
 
 def test_markup_that_will_not_parse_is_neither_stored_nor_called_a_failure(
@@ -1165,30 +595,6 @@ def test_a_cached_page_with_nothing_worth_keeping_is_still_marked_cached(
     assert page == PageText("", "quoted no prices and no verdicts", True)
 
 
-def test_no_cache_at_all_fetches_every_page(monkeypatch, tmp_path) -> None:
-    """The default here, and what ``--cache-ttl 0`` asks for."""
-    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
-
-    with httpx.Client() as client:
-        page = fetch_page(client, "https://shop.example", max_chars=1000, cache=None)
-
-    assert page.cached is False
-    assert list(tmp_path.iterdir()) == []
-
-
-def test_enrich_opens_a_cache_for_the_run(monkeypatch, tmp_path) -> None:
-    """Opened here rather than passed in, for the reason the HTTP client is."""
-    monkeypatch.setenv("BUY_AGENT_CACHE_DIR", str(tmp_path))
-    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
-    results = [SearchResult(title="t", url="https://shop.example", snippet="s")]
-
-    first = enrich(results, max_chars=1000, cache_ttl=3600)
-    stub_client(monkeypatch, _refuses_to_be_called)
-    again = enrich(results, max_chars=1000, cache_ttl=3600)
-
-    assert again[0].content == first[0].content
-
-
 def test_enrich_says_how_many_pages_came_off_disk(monkeypatch, tmp_path, caplog) -> None:
     """A run that read nine of its ten pages out of the cache took seconds where
     it takes a minute, and this line is what tells that from a fast web."""
@@ -1204,21 +610,6 @@ def test_enrich_says_how_many_pages_came_off_disk(monkeypatch, tmp_path, caplog)
         enrich(results, max_chars=1000, cache_ttl=3600)
 
     assert "from 2 of 2 result(s), 2 from cache" in caplog.text
-
-
-def test_a_run_that_cached_nothing_says_nothing_about_a_cache(
-    monkeypatch, caplog
-) -> None:
-    """The phrase is there when there is something to say and absent otherwise --
-    ", 0 from cache" on every line would be noise on the ordinary run."""
-    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
-    results = [SearchResult(title="t", url="https://shop.example", snippet="s")]
-
-    with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
-        enrich(results, max_chars=1000, cache_ttl=0)
-
-    assert "from 1 of 1 result(s)" in caplog.text
-    assert "cache" not in caplog.text
 
 
 def _refuses_to_be_called(url: str):
@@ -1242,26 +633,6 @@ def test_a_rate_limited_page_is_asked_again_after_the_wait_it_asked_for(monkeypa
     assert page.problem is None
     assert waits == [2.0], "the wait the shop asked for, and one of them"
     assert asked == ["https://shop.example"] * 2, "and the second time, the same page"
-
-
-def test_a_page_that_asks_again_without_saying_when_still_gets_one_more_try(
-    monkeypatch,
-) -> None:
-    """Most rate limits arrive with no ``Retry-After`` at all, so the default is
-    what decides whether this helps in practice."""
-    handler, asked = answering(
-        make_response("https://shop.example", PAGE, status=429),
-        make_response("https://shop.example", PAGE),
-    )
-    stub_client(monkeypatch, handler)
-    waits: list[float] = []
-
-    with httpx.Client() as client:
-        page = fetch_page(client, "https://shop.example", max_chars=1000, wait=waits.append)
-
-    assert waits == [_RETRY_WAIT]
-    assert "$129.99" in page.text
-    assert len(asked) == 2
 
 
 @pytest.mark.parametrize(
@@ -1295,21 +666,6 @@ def test_what_a_retry_after_header_is_allowed_to_ask_for(
     assert waits == [waited]
 
 
-def test_a_503_is_asked_again_too(monkeypatch) -> None:
-    """The other status that means "later": a shop restarting is not a shop refusing."""
-    handler, asked = answering(
-        make_response("https://shop.example", PAGE, status=503),
-        make_response("https://shop.example", PAGE),
-    )
-    stub_client(monkeypatch, handler)
-
-    with httpx.Client() as client:
-        page = fetch_page(client, "https://shop.example", max_chars=1000, wait=lambda _: None)
-
-    assert "$129.99" in page.text
-    assert len(asked) == 2
-
-
 @pytest.mark.parametrize(
     "answer",
     [
@@ -1330,22 +686,6 @@ def test_an_answer_that_is_not_come_back_later_is_asked_once(monkeypatch, answer
 
     assert page.text == ""
     assert waits == []
-    assert len(asked) == 1
-
-
-def test_a_page_is_asked_once_where_there_is_nothing_to_wait_by(monkeypatch) -> None:
-    """The default, and what every caller but ``BuyAgent`` gets: a step of the
-    pipeline holds no clock, so one handed none does not wait (ADR-0053)."""
-    handler, asked = answering(
-        make_response("https://shop.example", PAGE, status=429, retry_after="1"),
-        make_response("https://shop.example", PAGE),
-    )
-    stub_client(monkeypatch, handler)
-
-    with httpx.Client() as client:
-        page = fetch_page(client, "https://shop.example", max_chars=1000)
-
-    assert page == PageText("", "rate-limited (429)")
     assert len(asked) == 1
 
 

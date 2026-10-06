@@ -37,12 +37,8 @@ class Report:
 def serving_the_corpus(
     pages: Sequence[SearchResult] = PAGES, page_text: Mapping[str, str] = PAGE_TEXT
 ) -> Iterator[list[SearchResult]]:
-    """Hand every agent the corpus instead of the web, for as long as this is open.
-
-    Yields:
-        The enriched results, filled in as the agent asks for them, so a caller
-        can score against exactly the text the run was given.
-    """
+    """Hand every agent the corpus instead of the web; yields the enriched results as
+    the agent asks for them, to score against exactly what the run was given."""
     served: list[SearchResult] = []
 
     def search(

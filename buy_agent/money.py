@@ -30,32 +30,27 @@ ALIASES: dict[str, str] = {
     "AU$": "AUD",
 }
 
-#: Scanned but never placed: ``¥`` is both yen and yuan, so it stays unplaceable
-#: (ADR-0043).
+#: Scanned but never placed: ``¥`` is both yen and yuan.
 UNPLACEABLE = frozenset({"¥"})
 
 #: Placed but never scanned: "pounds" is more often a weight than a price.
 UNSCANNED = frozenset({"POUND", "POUNDS"})
 
-#: ISO codes a page may print instead of a sign ("129 EUR").
 CODES: frozenset[str] = frozenset(ALIASES.values()) | {
     "JPY", "CHF", "SEK", "HUF", "MXN", "NZD", "SGD", "DKK", "NOK", "CNY", "ZAR"
 }
 
-#: Every way a currency may be written beside a figure, the two exemptions applied.
 _SPELLINGS: frozenset[str] = frozenset(ALIASES.keys() | CODES | UNPLACEABLE) - UNSCANNED
 
-#: The one-character signs, as the character class :mod:`buy_agent.fetch` scans with.
+#: For a character class.
 SIGNS = "".join(sorted(s for s in _SPELLINGS if len(s) == 1 and not s.isalpha()))
 
 #: Letter spellings, scanned case-insensitively ("129 Dollars", "129 zł").
 WORDS: tuple[str, ...] = tuple(sorted(s for s in _SPELLINGS if s.isalpha() and s not in CODES))
 
-#: ISO codes, scanned case-sensitively: folded, ``TRY`` would match the verb "try", and
-#: any code may collide with a word.
+#: Case-sensitive: folded, ``TRY`` would match the verb "try".
 SCANNED_CODES: tuple[str, ...] = tuple(sorted(s for s in _SPELLINGS if s in CODES))
 
-#: Currencies not counted in hundredths.
 _ZERO_DECIMAL = frozenset(
     {
         "BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW",
@@ -64,38 +59,32 @@ _ZERO_DECIMAL = frozenset(
 )
 _THREE_DECIMAL = frozenset({"BHD", "IQD", "JOD", "KWD", "LYD", "OMR", "TND"})
 
-#: Where a grouped run of digits ends: a decimal comma and its cents ("1.299,99"), or
-#: nothing more of the number at all.
+#: A grouped run of digits ends at a decimal comma and its cents, or nothing more.
 _GROUPS_END = r"(?=,\d{1,2}(?![\d.,]*\d)|(?![\d.,]*\d))"
 
-#: The currencies counted in thousandths, where "12.500 KWD" is twelve and a half.
+#: Where "12.500 KWD" is twelve and a half.
 _THOUSANDTHS = "|".join(sorted(_THREE_DECIMAL))
 
-#: Continental dot-grouped thousands ("1.299,99 €", "12.500 Bewertungen"): a dot before
-#: exactly three digits groups thousands, except beside a currency counted in thousandths.
+#: "1.299,99 €": a dot before exactly three digits groups thousands, except beside a
+#: currency counted in thousandths.
 _DOTTED_THOUSANDS = re.compile(
     rf"(?<![\d.,])(?<!(?:{_THOUSANDTHS}) )(?<!{_THOUSANDTHS})"
     rf"[1-9]\d{{0,2}}(?:\.\d{{3}})+{_GROUPS_END}(?!\s?(?:{_THOUSANDTHS})\b)"
 )
 
-#: The no-break, narrow no-break and thin spaces typesetting groups thousands with.
+#: No-break, narrow no-break and thin: the spaces typesetting groups thousands with.
 _NO_BREAK_SPACES = "\u00a0\u202f\u2009"
-
-#: Every space thousands are grouped with ("1 299,99 zł"): those, and an ordinary one.
 GROUP_SPACES = " " + _NO_BREAK_SPACES
 
-#: A currency written after a figure ("1 299 zł", "1 299 PLN"), read as
-#: :mod:`buy_agent.fetch` reads one: words folded, codes as written.
+#: A currency after a figure ("1 299 zł"): words folded, codes as written.
 _CURRENCY_AFTER = (
     rf"\s?(?:[{re.escape(SIGNS)}]|(?i:{'|'.join(map(re.escape, WORDS))})\b"
     rf"|(?-i:{'|'.join(SCANNED_CODES)})\b)"
 )
 
-#: A number grouped with spaces, its cents included, as a pattern :mod:`buy_agent.bounds`
-#: reads a request with too. A no-break space groups and does nothing else; an ordinary
-#: one also stands between two figures ("128 256 512 GB"), so it groups only where a
-#: decimal comma or a currency closes the run as one amount. Written for ``VERBOSE`` too:
-#: no bare space.
+#: A number grouped with spaces, shared with :mod:`buy_agent.bounds`. An ordinary space
+#: also stands between figures ("128 256 512 GB"), so it groups only where a decimal
+#: comma or a currency closes the run. No bare space: ``VERBOSE`` patterns use it too.
 SPACED_THOUSANDS = (
     rf"[1-9]\d{{0,2}}"
     rf"(?:(?:[{re.escape(_NO_BREAK_SPACES)}]\d{{3}})+(?:,\d{{1,2}})?(?![\d.,]*\d)"
@@ -106,26 +95,21 @@ SPACED_THOUSANDS = (
 _SPACED = re.compile(rf"(?<![\d.,]){SPACED_THOUSANDS}")
 _GROUP_SPACE = re.compile(f"[{re.escape(GROUP_SPACES)}]")
 
-#: A comma before three digits groups thousands ("1,299"); before one or two it is a
-#: decimal point ("129,99").
+#: A comma before three digits groups ("1,299"); before one or two it is decimal.
 _THOUSANDS_COMMA = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
 _DECIMAL_COMMA = re.compile(r"(?<=\d),(?=\d{1,2}(?!\d))")
 
 
 def plain_figures(text: str) -> str:
-    """Every figure in ``text`` ungrouped with a decimal dot: "1,299.99", "1.299,99",
-    "1 299,99" and "1299.99" all become 1299.99.
-
-    Shared by :mod:`buy_agent.verification` and :mod:`buy_agent.bounds`, so a page and a
-    request are read the same way.
-    """
+    """Every figure ungrouped with a decimal dot ("1.299,99" -> 1299.99), so a page and a
+    request are read the same way."""
     ungrouped = _DOTTED_THOUSANDS.sub(lambda match: match.group(0).replace(".", ""), text)
     ungrouped = _SPACED.sub(lambda match: ungroup(match.group(0)), ungrouped)
     return _DECIMAL_COMMA.sub(".", _THOUSANDS_COMMA.sub("", ungrouped))
 
 
 def ungroup(figure: str) -> str:
-    """``figure``, already known to be one number, without the spaces grouping it."""
+    """One known number, without the spaces grouping it."""
     return _GROUP_SPACE.sub("", figure)
 
 
@@ -136,26 +120,18 @@ def code_for(value: str) -> str | None:
 
 
 def placeable(value: str) -> str | None:
-    """``value`` as a code in :data:`CODES`, or ``None`` (ADR-0056).
-
-    Stricter than :func:`code_for`: a shopper naming the scale must pick a known code.
-    """
+    """``value`` as a code in :data:`CODES`, or ``None`` (ADR-0056)."""
     code = code_for(value)
     return code if code in CODES else None
 
 
 def amount_label(price: float, currency: str | None = None) -> str:
-    """An amount as every surface writes it."""
     unit = f" {currency}" if currency else ""
     return f"{price:,.2f}{unit}"
 
 
 def minor_units(price: float, currency: str) -> int:
-    """``price`` in the currency's smallest unit, rounded half up.
-
-    Raises:
-        ValueError: if ``price`` cannot be counted (NaN, infinity).
-    """
+    """``price`` in the currency's smallest unit, rounded half up."""
     exponent = 0 if currency in _ZERO_DECIMAL else 3 if currency in _THREE_DECIMAL else 2
     try:
         scaled = Decimal(str(price)).scaleb(exponent).quantize(Decimal(1), rounding=ROUND_HALF_UP)

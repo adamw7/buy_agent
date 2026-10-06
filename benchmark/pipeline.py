@@ -1,11 +1,6 @@
 """What a kept run was scored under besides its case and its model: the code between the
-pages and the scorecard, and the settings that reach the model (ADR-0075).
-
-A case's fingerprint (ADR-0070) says whether a kept run was scored against the same
-pages and key, and a run that was not is left out. This says whether it went through
-the same pipeline, and a run that did not is kept and marked: its counts are true of
-the code that made them, and not comparable with a run made today.
-"""
+pages and the scorecard, and the settings that reach the model. A run made under other
+code is kept, and marked as no comparison (ADR-0075)."""
 
 from __future__ import annotations
 
@@ -34,9 +29,8 @@ if TYPE_CHECKING:
 
     from buy_agent.config import AgentConfig
 
-#: The modules a run goes through between the pages and its scorecard: the steps, the
-#: prompts and schemas, how the model is asked, how the corpus is served and how the
-#: answer is scored. The cases are not among them; each has a fingerprint of its own.
+#: The modules between the pages and the scorecard; the cases have fingerprints of
+#: their own.
 MODULES: tuple[ModuleType, ...] = (
     agent,
     chat,
@@ -53,13 +47,11 @@ MODULES: tuple[ModuleType, ...] = (
     query,
 )
 
-#: The node types whose first statement may be a docstring.
 _DOCUMENTED = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 
 
 def _without_docstrings(source: str) -> str:
-    """``source`` as its syntax tree, docstrings out: what it does, not how it reads.
-    Comments, blank lines and line breaks never reach the tree."""
+    """``source`` as its syntax tree without docstrings: what it does, not how it reads."""
     tree = ast.parse(source)
     for node in ast.walk(tree):
         if (
@@ -75,9 +67,7 @@ def _without_docstrings(source: str) -> str:
 
 @functools.cache
 def code(modules: tuple[ModuleType, ...] = MODULES) -> str:
-    """A fingerprint of the code a run goes through: every module of ``modules``, without
-    its comments or docstrings. A prompt, a threshold or a step that changes moves it;
-    a reworded docstring does not."""
+    """A fingerprint of the code a run goes through; a reworded docstring does not move it."""
     digest = hashlib.sha256()
     for module in modules:
         digest.update(module.__name__.encode("utf-8"))
@@ -87,13 +77,9 @@ def code(modules: tuple[ModuleType, ...] = MODULES) -> str:
 
 
 def settings(config: AgentConfig) -> dict[str, Any]:
-    """The settings a run went through that are neither its case's nor its contender's:
-    what reaches the model, and how much of each page the model is shown. Named as the
-    doors name them where they do (``think``, not ``reasoning``)."""
-    shown: dict[str, Any] = {
-        "temperature": config.temperature,
-        "think": config.reasoning,
-    }
+    """What reaches the model, besides the case and the contender, named as the doors
+    name it (``think``, not ``reasoning``)."""
+    shown: dict[str, Any] = {"temperature": config.temperature, "think": config.reasoning}
     if config.model_server.takes_num_ctx:
         shown["num_ctx"] = config.num_ctx
     shown["page_chars"] = config.page_chars
@@ -102,7 +88,7 @@ def settings(config: AgentConfig) -> dict[str, Any]:
 
 
 def setting_label(name: str, value: Any) -> str:
-    """One setting as a reader takes it in: "think off", "num_ctx 16384"."""
+    """As "think off", "num_ctx 16384"."""
     if value is None:
         return f"{name} unset"
     if isinstance(value, bool):
@@ -111,7 +97,6 @@ def setting_label(name: str, value: Any) -> str:
 
 
 def settings_label(shown: dict[str, Any]) -> str:
-    """Every setting of ``shown``, in a line."""
     return ", ".join(setting_label(name, value) for name, value in shown.items())
 
 

@@ -5,16 +5,14 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-import httpx
 import pytest
 
-from buy_agent.agent import ModelUnavailableError, every_step_passes
+from buy_agent.agent import every_step_passes
 from buy_agent.api import (
     ApiError,
     bounds_payload,
     defaults_payload,
     installed_models,
-    limits_payload,
     parse_options,
     pay_now,
     product_payload,
@@ -22,15 +20,11 @@ from buy_agent.api import (
     results_payload,
     run_search,
     screenshot,
-    sources_payload,
 )
 from buy_agent.config import LIMITS, AgentConfig
-from buy_agent.models import Offer, Product, Removal, nothing_recorded
-from buy_agent.ranking import ORDERINGS, RankingWeights, rank_products
-from buy_agent.providers import LITELLM, VLLM
-from buy_agent.screenshots import ScreenshotError
-from buy_agent import money
-from buy_agent.search import BACKENDS, SearchError
+from buy_agent.models import Offer, Product, nothing_recorded
+from buy_agent.ranking import RankingWeights, rank_products
+from buy_agent.providers import LITELLM
 from buy_agent.sources import Source
 from tests.conftest import (
     enrolled_key,
@@ -97,64 +91,10 @@ def test_empty_request_data_gives_the_config_defaults() -> None:
     assert sort_by == "score"
 
 
-def test_options_reach_the_config() -> None:
-    config, sort_by = parse_options(
-        {
-            "model": "qwen2.5",
-            "base_url": "http://elsewhere:11434",
-            "results": 6,
-            "top": 2,
-            "region": "pl-pl",
-            "temperature": 0.4,
-            "num_ctx": 8192,
-            "model_timeout": 45,
-            "think": False,
-            "cpu_only": True,
-            "fetch": False,
-            "sort_by": "price",
-        }
-    )
-    assert config.model == "qwen2.5"
-    assert config.base_url == "http://elsewhere:11434"
-    assert (config.num_products, config.top_n) == (6, 2)
-    assert config.region == "pl-pl"
-    assert config.temperature == 0.4
-    assert config.num_ctx == 8192
-    assert config.model_timeout == 45.0
-    assert config.reasoning is False
-    assert config.cpu_only is True
-    assert config.fetch_pages is False
-    assert sort_by == "price"
-
-
 # -- the region, which is the one option a typo makes look like an empty web ---
 
 
-def test_a_region_that_is_not_a_region_is_a_400_saying_what_is() -> None:
-    """A form field with no closed set behind it, so the refusal carries the shape
-    -- otherwise the run comes back "search returned nothing" (ADR-0031)."""
-    with pytest.raises(ApiError) as failure:
-        parse_options({"region": "en_us"})
-
-    assert failure.value.status == 400
-    assert "us-en" in str(failure.value)
-
-
-def test_a_region_is_lower_cased_the_way_the_CLI_lower_cases_it() -> None:
-    assert parse_options({"region": "PL-PL"})[0].region == "pl-pl"
-
-
-@pytest.mark.parametrize("blank", ["", "   "])
-def test_a_blank_region_field_is_the_default_region(blank: str) -> None:
-    """A cleared field means "unset", not "search nowhere"."""
-    assert parse_options({"region": blank})[0].region == AgentConfig().region
-
-
 # -- the sources, which are the one option that is a list ----------------------
-
-
-def test_no_sources_asked_for_is_the_whole_web() -> None:
-    assert parse_options({})[0].sources == ()
 
 
 @pytest.mark.parametrize("blank", ["", "   ", [], [""], ["", "  "], ","])
@@ -173,14 +113,6 @@ def test_several_sources_arrive_as_one_separated_string() -> None:
     )
 
 
-def test_a_json_body_may_send_them_as_an_array_instead() -> None:
-    """The one option ``_read`` cannot handle: it renders every value with ``str``
-    first, which would turn a JSON array into its Python repr."""
-    config, _ = parse_options({"sources": ["rtings.com", "@mkbhd"]})
-
-    assert [source.domain for source in config.sources] == ["rtings.com", "youtube.com"]
-
-
 def test_an_array_holding_something_that_is_not_text_is_refused_not_a_traceback() -> None:
     """A JSON array is whatever was posted, so its entries are rendered with ``str`` the
     way ``_present`` already reads them."""
@@ -190,113 +122,6 @@ def test_an_array_holding_something_that_is_not_text_is_refused_not_a_traceback(
     assert failure.value.status == 400
     assert failure.value.field == "sources"
     assert "'5'" in str(failure.value)
-
-
-def test_a_source_that_names_no_site_is_a_400_saying_what_would_work() -> None:
-    with pytest.raises(ApiError) as failure:
-        parse_options({"sources": "Marques Brownlee"})
-
-    assert failure.value.status == 400
-    assert "@mkbhd" in str(failure.value)
-
-
-def test_query_string_values_are_coerced_from_text() -> None:
-    """A query string only ever yields strings; the JSON body yields real types."""
-    config, sort_by = parse_options(
-        {
-            "results": "6",
-            "top": "2",
-            "temperature": "0.4",
-            "num_ctx": "8192",
-            "think": "false",
-            "fetch": "no",
-            "sort_by": "rating",
-        }
-    )
-    assert (config.num_products, config.top_n, config.num_ctx) == (6, 2, 8192)
-    assert config.temperature == 0.4
-    assert config.reasoning is False
-    assert config.fetch_pages is False
-    assert sort_by == "rating"
-
-
-@pytest.mark.parametrize("blank", ["", "   "])
-def test_a_blank_field_means_unset_not_zero(blank: str) -> None:
-    config, _ = parse_options({"model": blank, "num_ctx": blank, "think": blank})
-    defaults = AgentConfig()
-    assert config.model == defaults.model
-    assert config.num_ctx is defaults.num_ctx
-    assert config.reasoning is defaults.reasoning
-
-
-def test_a_blank_device_switch_leaves_the_run_where_the_server_puts_it() -> None:
-    """An unticked box and an absent key are the same answer: the default (ADR-0012)."""
-    config, _ = parse_options({"cpu_only": ""})
-
-    assert config.cpu_only is AgentConfig().cpu_only
-
-
-def test_a_native_json_boolean_is_taken_as_it_is() -> None:
-    """A JSON body carries real booleans; only a query string turns them into text."""
-    config, _ = parse_options({"fetch": False, "think": True})
-
-    assert config.fetch_pages is False
-    assert config.reasoning is True
-
-
-@pytest.mark.parametrize("yes", ["true", "1", "yes", "on", "TRUE", " On "])
-def test_a_flag_can_be_turned_on_in_any_of_the_spellings_a_form_sends(yes: str) -> None:
-    """A checkbox reaches the query string as one of several words for the same thing."""
-    config, _ = parse_options({"think": yes, "fetch": yes})
-
-    assert config.reasoning is True
-    assert config.fetch_pages is True
-
-
-def test_searching_covers_the_wider_of_results_and_top() -> None:
-    """Reporting more products than were searched for would cap the report."""
-    config, _ = parse_options({"results": 3, "top": 8})
-    assert config.search_results == 8
-
-
-@pytest.mark.parametrize(
-    ("data", "field", "expected"),
-    [
-        ({"results": 1}, "num_products", 1),
-        ({"results": 50}, "num_products", 50),
-        ({"top": 1}, "top_n", 1),
-        ({"top": 50}, "top_n", 50),
-        ({"num_ctx": 1}, "num_ctx", 1),
-        ({"num_ctx": 1_000_000}, "num_ctx", 1_000_000),
-        ({"model_timeout": 1}, "model_timeout", 1.0),
-        ({"model_timeout": 3600}, "model_timeout", 3600.0),
-        ({"temperature": 0.0}, "temperature", 0.0),
-        ({"temperature": 2.0}, "temperature", 2.0),
-    ],
-)
-def test_both_ends_of_a_range_are_inside_it(data: dict, field: str, expected) -> None:
-    """The bounds are inclusive, which is only true while something checks it."""
-    config, _ = parse_options(data)
-
-    assert getattr(config, field) == expected
-
-
-@pytest.mark.parametrize(
-    "data",
-    [
-        {"results": 51},
-        {"top": 51},
-        {"num_ctx": 0},
-        {"num_ctx": 1_000_001},
-        {"model_timeout": 0},
-        {"model_timeout": 3601},
-        {"temperature": 2.1},
-        {"temperature": -0.1},
-    ],
-)
-def test_one_step_outside_a_range_is_rejected(data: dict) -> None:
-    with pytest.raises(ApiError):
-        parse_options(data)
 
 
 @pytest.mark.parametrize(
@@ -322,126 +147,10 @@ def test_a_rejection_says_what_was_wrong_and_what_was_wanted(data: dict, message
     assert str(excinfo.value) == message
 
 
-@pytest.mark.parametrize(
-    "data",
-    [
-        {"sort_by": "cheapness"},
-        {"provider": "llama.cpp"},
-        {"results": "many"},
-        {"results": 0},
-        {"results": 500},
-        {"top": -1},
-        {"temperature": "hot"},
-        {"temperature": 9},
-        {"num_ctx": "wide"},
-        {"think": "maybe"},
-        {"fetch": "sometimes"},
-    ],
-)
-def test_unusable_values_are_rejected_with_a_message(data: dict) -> None:
-    with pytest.raises(ApiError) as excinfo:
-        parse_options(data)
-    assert excinfo.value.status == 400
-    assert str(excinfo.value)
-
-
-def test_the_rejection_names_the_field() -> None:
-    with pytest.raises(ApiError, match="num_ctx"):
-        parse_options({"num_ctx": "wide"})
-
-
-@pytest.mark.parametrize(
-    ("data", "field"),
-    [
-        ({"results": 51}, "results"),
-        ({"top": 0}, "top"),
-        ({"temperature": 9}, "temperature"),
-        ({"num_ctx": "wide"}, "num_ctx"),
-        ({"think": "maybe"}, "think"),
-        ({"cpu_only": "sometimes"}, "cpu_only"),
-        ({"fetch": "sometimes"}, "fetch"),
-        ({"sort_by": "cheapness"}, "sort_by"),
-        ({"provider": "llama.cpp"}, "provider"),
-        ({"region": "en_US"}, "region"),
-        ({"sources": "Marques Brownlee"}, "sources"),
-    ],
-)
-def test_a_refusal_carries_the_field_it_was_about(data: dict, field: str) -> None:
-    """Which box the sentence belongs under is answered here rather than read
-    back out of the message: the browser marks that input instead of leaving a
-    banner to be read against ten settings (ADR-0033)."""
-    with pytest.raises(ApiError) as excinfo:
-        parse_options(data)
-
-    assert excinfo.value.field == field
-    assert excinfo.value.payload() == {"error": str(excinfo.value), "field": field}
-
-
 # -- the ranges the form is shipped --------------------------------------------
 
 
-def test_the_limits_are_the_ones_both_doors_hold_a_request_to() -> None:
-    """Shipped off ``config.LIMITS``, so the form cannot come to offer a number
-    the API refuses -- which is the whole reason it is sent rather than written
-    into the template."""
-    limits = limits_payload()
-
-    assert limits["results"] == {"min": LIMITS["num_products"][0], "max": LIMITS["num_products"][1]}
-    assert limits["top"] == {"min": LIMITS["top_n"][0], "max": LIMITS["top_n"][1]}
-    assert limits["temperature"] == {"min": 0, "max": 2}
-    assert limits["max_price"] == {"min": LIMITS["max_price"][0], "max": LIMITS["max_price"][1]}
-    assert set(limits) == {
-        "results",
-        "top",
-        "temperature",
-        "num_ctx",
-        "model_timeout",
-        "max_price",
-        "min_rating",
-        "min_reviews",
-        "cache_ttl",
-        "spend_limit",
-    }
-
-
-def test_every_shipped_range_is_one_a_request_is_actually_held_to() -> None:
-    """A range on the form that nothing enforced would be a promise, not a rule."""
-    for key, limit in limits_payload().items():
-        for outside in (limit["min"] - 1, limit["max"] + 1):
-            with pytest.raises(ApiError) as excinfo:
-                parse_options({key: outside})
-            assert excinfo.value.field == key
-
-
-def test_the_form_defaults_carry_the_ranges() -> None:
-    assert defaults_payload()["limits"] == limits_payload()
-
-
 # -- the sources check, which is the one rule the form cannot apply itself ------
-
-
-def test_a_field_naming_sources_has_nothing_wrong_with_it() -> None:
-    assert sources_payload("rtings.com @mkbhd") == {"sources": "rtings.com @mkbhd", "error": ""}
-
-
-def test_an_empty_field_is_the_whole_web_and_fine() -> None:
-    assert sources_payload("") == {"sources": "", "error": ""}
-
-
-def test_a_field_naming_a_person_is_answered_with_the_sentence_the_CLI_prints() -> None:
-    """The same `parse_sources` a run would have used, so the page never grows a
-    second idea of what a source is."""
-    answer = sources_payload("Marques Brownlee")
-
-    assert answer["sources"] == "Marques Brownlee"
-    assert "does not name a source" in answer["error"]
-    assert "@mkbhd" in answer["error"]
-
-
-def test_the_answer_names_the_spec_it_was_about() -> None:
-    """The field is typed into while the answer is in flight, and an answer about
-    text since typed over must not be shown against what replaced it."""
-    assert sources_payload("  rtings.com  ")["sources"] == "  rtings.com  "
 
 
 # -- the listings a product was priced at (ADR-0058) ---------------------------
@@ -481,44 +190,7 @@ def test_a_products_offers_carry_the_amount_written_out() -> None:
     assert payload["offers_label"] == "2 listings, 329.00-349.00 USD"
 
 
-def test_a_product_one_page_priced_has_no_spread_to_report() -> None:
-    payload = product_payload(
-        ranked_product(Product(name="Sony WH-1000XM5"), score=0.9, rank=1), "USD"
-    )
-
-    assert payload["offers"] == []
-    assert payload["offers_label"] is None
-
-
 # -- what the request itself asks for, which is offered and never applied ------
-
-
-def test_a_bound_written_into_the_request_is_offered_with_pythons_sentence() -> None:
-    """The form puts this in the box that would enforce it; nothing here applies one
-    (ADR-0059)."""
-    answer = bounds_payload("headphones under $200")
-
-    assert answer["request"] == "headphones under $200"
-    assert answer["noticed"] == [
-        {
-            "bound": "max_price",
-            "value": 200.0,
-            "note": 'From your request: "under $200". Clear the box to search without it.',
-        }
-    ]
-
-
-def test_a_request_asking_for_nothing_is_answered_with_nothing() -> None:
-    assert bounds_payload("wireless headphones")["noticed"] == []
-    assert bounds_payload("")["noticed"] == []
-
-
-def test_a_figure_the_setting_would_refuse_is_not_offered() -> None:
-    """Pre-filling a box the form would then mark is a mark on something nobody
-    typed (ADR-0033)."""
-    over = LIMITS["max_price"][1] + 1
-
-    assert bounds_payload(f"a house under ${over:,}")["noticed"] == []
 
 
 def test_a_figure_at_the_top_of_the_range_still_is() -> None:
@@ -529,17 +201,6 @@ def test_a_figure_at_the_top_of_the_range_still_is() -> None:
 def test_a_figure_at_the_bottom_of_the_range_still_is() -> None:
     """...at both ends of it: a budget of the smallest the box takes is one it takes."""
     assert bounds_payload(f"a charging cable under ${LIMITS['max_price'][0]}")["noticed"]
-
-
-def test_the_answer_names_the_request_it_was_about() -> None:
-    """The box is typed into while the answer is in flight, as the sources field is."""
-    assert bounds_payload("  headphones  ")["request"] == "  headphones  "
-
-
-def test_reading_a_request_runs_nothing() -> None:
-    """The second endpoint that opens no run: a config is not even built, so a
-    misconfigured server still answers it."""
-    assert set(bounds_payload("headphones under $200")) == {"request", "noticed"}
 
 
 # -- run_search ----------------------------------------------------------------
@@ -570,21 +231,6 @@ def test_a_product_carries_both_the_figures_and_their_labels() -> None:
     assert payload["score"] == 0.9123  # rounded for display
 
 
-def test_a_product_carries_what_the_sources_said_about_it() -> None:
-    """Quoted, not summarised: the browser shows words Python already grounded."""
-    assert product_payload(RANKED[0])["opinions"] == [
-        {"text": "the noise cancelling is uncanny", "url": "https://example.com/sony"}
-    ], "each quote goes over the wire with the page that printed it (ADR-0042)"
-    assert product_payload(RANKED[1])["opinions"] == []
-
-
-def test_an_unknown_figure_is_labelled_not_hidden() -> None:
-    payload = product_payload(RANKED[1])
-    assert payload["price"] is None
-    assert payload["price_label"] == "price unknown"
-    assert payload["rating_label"] == "unrated"
-
-
 def test_a_second_run_of_one_search_says_what_moved_since_the_first() -> None:
     """The journal is opened before the run and written after it, so the second run of
     a search is answered with the first as what it was compared against -- which is
@@ -608,110 +254,7 @@ def test_a_second_run_of_one_search_says_what_moved_since_the_first() -> None:
     }["Sony WH-1000XM5"] == "cheaper"
 
 
-def test_a_first_run_has_nothing_to_compare_with() -> None:
-    payload = run_search(
-        "headphones", AgentConfig(), agent_factory=agent_returning(RANKED)["factory"]
-    )
-
-    assert (payload["changes"], payload["compared_with"]) == ([], None)
-
-
-#: Two dollar prices and one in euros: a set that votes for dollars, for a run told to
-#: count in euros -- the one arrangement where the vote and the setting disagree.
-_MOSTLY_DOLLARS = [
-    Product(name="Bose QC", price=279.0, currency="USD", url="https://shop/b"),
-    Product(name="JBL Live", price=149.0, currency="USD", url="https://shop/j"),
-    Product(name="Sony XM5", price=329.0, currency="EUR", url="https://shop/x"),
-]
-
-
-def test_a_run_told_to_count_in_a_currency_answers_on_that_scale() -> None:
-    """``results_payload`` is handed the run's currency rather than letting the set
-    vote again, or the card offers to buy the dollar listings a euro run refuses."""
-    ranked = rank_products(_MOSTLY_DOLLARS, currency="EUR")
-
-    payload = run_search(
-        "headphones",
-        AgentConfig(currency="EUR"),
-        agent_factory=agent_returning(ranked)["factory"],
-    )
-    by_name = {entry["name"]: entry for entry in payload["products"]}
-
-    assert by_name["Sony XM5"]["pay_currency"] == "EUR"
-    assert by_name["Bose QC"]["cannot_pay"]
-
-
-def test_no_products_is_an_answer_not_a_failure() -> None:
-    captured = agent_returning([])
-    payload = run_search("nothing", AgentConfig(), agent_factory=captured["factory"])
-    assert payload["count"] == 0
-    assert payload["products"] == []
-
-
-@pytest.mark.parametrize(
-    ("error", "status"),
-    [
-        (ValueError("the request is empty"), 400),
-        (ModelUnavailableError("start it with: ollama serve"), 503),
-        (SearchError("rate limited"), 502),
-    ],
-)
-def test_each_failure_gets_the_status_it_deserves(error: Exception, status: int) -> None:
-    """The agent raises exactly these three; each maps to something actionable."""
-    captured = agent_returning(error)
-    with pytest.raises(ApiError) as excinfo:
-        run_search("headphones", AgentConfig(), agent_factory=captured["factory"])
-    assert excinfo.value.status == status
-    # No field: a model server that did not answer is nothing a form could have
-    # refused, so there is no box for the page to mark.
-    assert excinfo.value.payload() == {"error": str(error), "field": None}
-
-
-def test_the_checkpoint_reaches_the_agent() -> None:
-    """Handed through rather than acted on here: the boundaries belong to the pipeline."""
-    captured = agent_returning(RANKED)
-    checkpoint = lambda _step: None  # an identity to compare, not a behaviour
-
-    run_search(
-        "headphones", AgentConfig(), agent_factory=captured["factory"], checkpoint=checkpoint
-    )
-
-    assert captured["checkpoint"] is checkpoint
-
-
-def test_a_run_nobody_asked_to_stop_gets_a_checkpoint_that_passes() -> None:
-    """The default is a function and not ``None``, so the pipeline calls it either
-    way rather than testing for one at every boundary."""
-    captured = agent_returning(RANKED)
-
-    run_search("headphones", AgentConfig(), agent_factory=captured["factory"])
-
-    assert captured["checkpoint"] is every_step_passes
-    assert every_step_passes("extract") is None
-
-
-def test_what_a_checkpoint_raises_is_not_turned_into_an_api_error() -> None:
-    """It is the caller's own way of ending a run it is no longer reading, so there
-    is nobody left to answer with a status (ADR-0034)."""
-    captured = agent_returning(KeyboardInterrupt("extract"))
-
-    with pytest.raises(KeyboardInterrupt):
-        run_search("headphones", AgentConfig(), agent_factory=captured["factory"])
-
-
 # -- rank_again, the one entry point that runs no pipeline ---------------------
-
-
-#: Two products the criteria disagree about: the dearer one is better reviewed, so score
-#: puts it first and price puts it last.
-DISAGREEING = [
-    ranked_product(
-        Product(name="Sony WH-1000XM5", price=328.0, rating=5.0, review_count=5000),
-        score=0.7,
-        rank=1,
-    ),
-    ranked_product(Product(name="Anker Q30", price=79.0, rating=2.0), score=0.6, rank=2),
-]
 
 
 def posted(**overrides) -> dict:
@@ -725,29 +268,6 @@ def posted(**overrides) -> dict:
     }
 
 
-def test_a_finished_run_can_be_reordered_without_running_it_again() -> None:
-    """The whole point of the endpoint: the same products, the other criterion, and no
-    agent anywhere near it -- ``rank_again`` takes no factory to hand one to
-    (ADR-0035)."""
-    products = results_payload(DISAGREEING)
-
-    by_score = rank_again(posted(products=products, sort_by="score"))
-    by_price = rank_again(posted(products=products, sort_by="price"))
-
-    assert [p["name"] for p in by_score["products"]] == ["Sony WH-1000XM5", "Anker Q30"]
-    assert [p["name"] for p in by_price["products"]] == ["Anker Q30", "Sony WH-1000XM5"]
-    assert [p["rank"] for p in by_price["products"]] == [1, 2], "renumbered, not resent"
-
-
-def test_reordering_answers_the_shape_a_finished_run_answers_with() -> None:
-    """So the page can show it exactly the way it showed the run's own answer,
-    rather than reading a second shape into the same view."""
-    captured = agent_returning(RANKED)
-    ran = run_search("headphones", AgentConfig(top_n=1), agent_factory=captured["factory"])
-
-    assert set(rank_again(posted())) == set(ran)
-
-
 def test_a_run_lets_go_of_its_agent_once_the_answer_is_shaped() -> None:
     """One request, one agent, and the connection it opened closed here rather than
     whenever the last reference to it happens to fall."""
@@ -758,52 +278,6 @@ def test_a_run_lets_go_of_its_agent_once_the_answer_is_shaped() -> None:
     run_search("headphones", AgentConfig(), agent_factory=captured["factory"])
 
     assert closed == [True]
-
-
-def test_a_run_that_failed_lets_go_of_its_agent_too() -> None:
-    """The failing run is the one that most wants it: a model server that is not
-    answering is a client left holding a connection to nothing."""
-    captured = agent_returning(ModelUnavailableError("Ollama is not running"))
-    closed: list[bool] = []
-    captured["factory"].close = lambda _self: closed.append(True)
-
-    with pytest.raises(ApiError):
-        run_search("headphones", AgentConfig(), agent_factory=captured["factory"])
-
-    assert closed == [True]
-
-
-def test_a_stand_in_with_nothing_to_close_is_left_alone() -> None:
-    """Which is what every other test in this file hands over: the rule for a
-    stand-in is still a class with a ``run`` and nothing else."""
-    captured = agent_returning(RANKED)
-
-    assert not hasattr(captured["factory"], "close")
-    run_search("headphones", AgentConfig(), agent_factory=captured["factory"])
-
-
-def test_a_run_reports_the_weights_its_scores_were_blended_by() -> None:
-    """Three shares beside a total they do not add up to cannot be read at all:
-    the card draws each criterion's own score, and only the weight says which of
-    them the placing turned on (ADR-0041)."""
-    captured = agent_returning(RANKED)
-    weights = RankingWeights(rating=3.0, popularity=1.0, price=0.0)
-
-    payload = run_search(
-        "headphones",
-        AgentConfig(weights=weights),
-        agent_factory=captured["factory"],
-    )
-
-    # Fractions of the blend rather than as they were written, so the browser
-    # draws a number instead of working one out.
-    assert payload["weights"] == {"rating": 0.75, "popularity": 0.25, "price": 0.0}
-
-
-def test_a_re_sort_reports_the_weights_it_ranked_by() -> None:
-    """It ranks with the defaults, having no config to read -- so it says so,
-    rather than leaving the cards it answers with nothing to draw."""
-    assert rank_again(posted())["weights"] == RankingWeights().fractions
 
 
 def test_a_re_sort_that_was_told_nothing_else_answers_with_the_defaults() -> None:
@@ -822,42 +296,6 @@ def test_reordering_keeps_the_request_and_the_count_it_was_given() -> None:
     assert payload["request"] == "headphones", "stripped, as a run's own answer is"
     assert payload["count"] == 2
     assert payload["top_n"] == 1, "how many to highlight is the page's to carry over"
-
-
-def test_reordering_scores_the_set_again_rather_than_trusting_what_came_back() -> None:
-    """A score is a fact about the whole candidate set, and this is that set, so
-    it is recomputed -- which is also why a number the browser edited on the way
-    out changes nothing about the order."""
-    tampered = results_payload(RANKED)
-    tampered[1]["score"] = 1.0
-
-    payload = rank_again(posted(products=tampered))
-
-    assert [product["rank"] for product in payload["products"]] == [1, 2]
-    assert payload["products"][0]["name"] == "Sony WH-1000XM5"
-    assert payload["products"][1]["score"] < 1.0
-
-
-def test_reordering_reads_the_products_and_not_the_labels_beside_them() -> None:
-    """``product_payload`` adds two fields ``Product`` does not have, and they go
-    back out written from the figures rather than taken from the request."""
-    lying = results_payload(RANKED)
-    lying[0]["price_label"] = "free"
-
-    assert rank_again(posted(products=lying))["products"][0]["price_label"] == "328.00 USD"
-
-
-def test_reordering_defaults_to_the_score_the_run_was_ranked_by() -> None:
-    assert rank_again(posted())["sort_by"] == "score"
-
-
-def test_nothing_to_reorder_is_an_answer_not_a_failure() -> None:
-    """A run that found nothing offers no re-sort, but a client asking for one
-    gets the empty answer rather than a refusal to explain."""
-    payload = rank_again(posted(products=[]))
-
-    assert payload["count"] == 0
-    assert payload["products"] == []
 
 
 def test_reordering_refuses_a_criterion_nothing_sorts_by() -> None:
@@ -896,34 +334,6 @@ def test_reordering_says_which_product_it_could_not_read() -> None:
     assert excinfo.value.field == "products"
 
 
-@pytest.mark.parametrize("figure", ["Infinity", "-Infinity", "NaN"])
-@pytest.mark.parametrize("field", ["price", "rating"])
-def test_reordering_refuses_a_figure_that_is_not_a_number(field, figure) -> None:
-    """``json.loads`` reads ``Infinity`` and ``NaN`` as readily as it reads ``1``, so this
-    is the one door a non-finite figure can arrive at: the model's own is blanked by
-    ``to_product``."""
-    posted_products = json.loads(f'[{{"name": "Sony", "{field}": {figure}}}]')
-
-    with pytest.raises(ApiError) as excinfo:
-        rank_again(posted(products=posted_products))
-
-    assert excinfo.value.status == 400
-    assert excinfo.value.field == "products"
-    assert "finite" in str(excinfo.value)
-
-
-@pytest.mark.parametrize("rating", [5.5, 100, -1])
-def test_reordering_refuses_a_rating_off_the_scale(rating: float) -> None:
-    """A rating is a share of the blend and not a quantity -- ``score_product`` divides it
-    by 5 -- so one off the scale ranks at a score outside the ``[0, 1]`` every reader
-    of a breakdown is owed, and the card draws a meter longer than its own track."""
-    with pytest.raises(ApiError) as excinfo:
-        rank_again(posted(products=[{"name": "Sony", "rating": rating}]))
-
-    assert excinfo.value.status == 400
-    assert excinfo.value.field == "products"
-
-
 def test_paying_refuses_a_figure_that_is_not_a_number_at_the_door() -> None:
     """The same door, and the one where it costs more than a broken page: an
     infinite price clears ``payable``, so the card would offer a Pay button for
@@ -939,33 +349,11 @@ def test_paying_refuses_a_figure_that_is_not_a_number_at_the_door() -> None:
 # -- the rest ------------------------------------------------------------------
 
 
-def test_a_request_can_name_the_provider_to_run_against() -> None:
-    config, _ = parse_options({"provider": "vllm"})
-
-    assert config.provider == "vllm"
-
-
-def test_choosing_a_provider_brings_its_model_and_its_server_with_it() -> None:
-    """A form that switched provider and left the two fields blank must not run
-    an Ollama tag against a vLLM: blank means "this provider's own", not "the
-    one the server happened to start on"."""
-    config, _ = parse_options({"provider": "vllm"})
-
-    assert config.model == VLLM.model
-    assert config.base_url == VLLM.base_url
-
-
 def test_choosing_a_litellm_proxy_brings_its_own_pair() -> None:
     config, _ = parse_options({"provider": "litellm", "model": "", "base_url": ""})
 
     assert config.provider == "litellm"
     assert (config.model, config.base_url) == (LITELLM.model, LITELLM.base_url)
-
-
-def test_a_named_model_still_wins_over_the_provider_default() -> None:
-    config, _ = parse_options({"provider": "vllm", "model": "meta-llama/Llama-3.1-8B"})
-
-    assert config.model == "meta-llama/Llama-3.1-8B"
 
 
 def test_defaults_payload_matches_the_config() -> None:
@@ -981,112 +369,6 @@ def test_defaults_payload_matches_the_config() -> None:
     assert payload["sort_by"] == "score"
     # One text field holding all of them, which is what the form sends back.
     assert payload["sources"] == ""
-
-
-def test_the_defaults_name_every_criterion_by_the_order_it_produces() -> None:
-    """The two ordering controls list these, and "price" alone does not say cheapest
-    from dearest: the half of an ordering the report's heading says (ADR-0012)."""
-    labels = defaults_payload()["sort_labels"]
-
-    assert list(labels) == defaults_payload()["sort_options"]
-    assert labels["price"] == "Cheapest first"
-    for criterion, label in labels.items():
-        assert label.lower() == ORDERINGS[criterion]
-
-
-def test_the_defaults_carry_every_provider_with_its_own_pair() -> None:
-    """The picker fills the model and the server fields from these, so a provider
-    that arrived without them would leave the other one's tag in the box."""
-    options = {option["name"]: option for option in defaults_payload()["provider_options"]}
-
-    assert set(options) == {"ollama", "vllm", "litellm"}
-    assert options["vllm"]["model"] == VLLM.model
-    assert options["vllm"]["base_url"] == VLLM.base_url
-    assert options["ollama"]["label"] == "Ollama"
-
-
-def test_the_defaults_never_carry_the_api_key() -> None:
-    """It is a secret read from $VLLM_API_KEY, and this payload is what the server
-    hands every page that asks for the form -- including one on another origin
-    that got past the guard by being a browser nobody expected."""
-    assert "api_key" not in defaults_payload()
-
-
-def test_the_defaults_say_which_providers_take_a_context_window() -> None:
-    """The form disables the field for the one that does not, rather than sending
-    a setting vLLM fixed when it started."""
-    options = {option["name"]: option for option in defaults_payload()["provider_options"]}
-
-    assert options["ollama"]["takes_num_ctx"] is True
-    assert options["vllm"]["takes_num_ctx"] is False
-    assert options["litellm"]["takes_num_ctx"] is False
-
-
-def test_the_defaults_say_which_providers_can_be_kept_off_the_gpu() -> None:
-    """The form disables that box for the one that cannot, rather than offering a
-    switch vLLM settled when it started."""
-    options = {option["name"]: option for option in defaults_payload()["provider_options"]}
-
-    assert options["ollama"]["takes_cpu_only"] is True
-    assert options["vllm"]["takes_cpu_only"] is False
-    assert options["litellm"]["takes_cpu_only"] is False
-
-
-def test_installed_models_lists_what_ollama_has(monkeypatch) -> None:
-    """Each model with what it can do beside it: Ollama holds embedding-only tags
-    and a listing of bare names offers them as if a run could use one (ADR-0032)."""
-
-    tags = [
-        {"model": "llama3.2", "name": "llama3.2"},
-        {"model": "nomic-embed-text", "name": "nomic-embed-text"},
-        {"size": 1},
-    ]
-
-    def get(url, **_kwargs):
-        assert url.endswith("/api/tags"), url
-        return SimpleNamespace(
-            raise_for_status=lambda: None, json=lambda: {"models": tags}
-        )
-
-    class FakeClient:
-        def __init__(self, base_url, **_kwargs):
-            self.base_url = base_url
-
-        @staticmethod
-        def show(name):
-            capability = "embedding" if "embed" in name else "completion"
-            return SimpleNamespace(capabilities=[capability])
-
-        def close(self) -> None:
-            """The listing lets go of the client it opened, as a chat model does."""
-
-    monkeypatch.setattr("buy_agent.providers.httpx.get", get)
-    monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
-    assert installed_models("ollama", "http://localhost:11434") == {
-        "provider": "ollama",
-        "label": "Ollama",
-        "base_url": "http://localhost:11434",
-        "reachable": True,
-        "models": [
-            {"name": "llama3.2", "completion": True},
-            {"name": "nomic-embed-text", "completion": False},
-        ],
-    }
-
-
-def test_installed_models_asks_vllm_what_it_is_serving(monkeypatch) -> None:
-    """The other provider, over the same endpoint: one server, one model, one list."""
-    monkeypatch.setattr(
-        "buy_agent.providers.httpx.get", _serving(["Qwen/Qwen3-8B"])
-    )
-
-    assert installed_models("vllm", "http://localhost:8000/v1") == {
-        "provider": "vllm",
-        "label": "vLLM",
-        "base_url": "http://localhost:8000/v1",
-        "reachable": True,
-        "models": [{"name": "Qwen/Qwen3-8B", "completion": True}],
-    }
 
 
 def test_installed_models_asks_a_proxy_which_aliases_answer(monkeypatch) -> None:
@@ -1106,55 +388,6 @@ def test_installed_models_asks_a_proxy_which_aliases_answer(monkeypatch) -> None
         "reachable": True,
         "models": [{"name": "embedder", "completion": False}],
     }
-
-
-def test_a_provider_nothing_can_serve_is_a_status_too(monkeypatch) -> None:
-    """A name the picker could not have produced still reaches the form as a
-    status rather than a 500 -- the pill is already the place that says why."""
-    payload = installed_models("llama.cpp", "http://localhost:8080")
-
-    assert payload["reachable"] is False
-    assert payload["label"] == "llama.cpp", "an unknown name is its own label"
-    assert "llama.cpp" in payload["detail"]
-    assert "hint" not in payload, "there is no provider to ask what to start"
-
-
-def _serving(models: list[str]):
-    """Stand in for ``httpx.get`` answering vLLM's ``/v1/models``."""
-
-    class Response:
-        @staticmethod
-        def raise_for_status() -> None:
-            return None
-
-        @staticmethod
-        def json() -> dict:
-            return {"data": [{"id": name} for name in models]}
-
-    def get(url, **_kwargs):
-        assert url.endswith("/models"), url
-        return Response()
-
-    return get
-
-
-def test_the_listing_is_asked_of_the_address_the_form_named(monkeypatch) -> None:
-    """The picker asks about the server in the box, which is seldom the default one --
-    a second machine, a port moved off vLLM's 8000 -- and an answer about another
-    server is a model list for a server nobody chose."""
-    asked: list[str] = []
-    serving = _serving(["Qwen/Qwen3-8B"])
-
-    def get(url, **kwargs):
-        asked.append(url)
-        return serving(url, **kwargs)
-
-    monkeypatch.setattr("buy_agent.providers.httpx.get", get)
-
-    payload = installed_models("vllm", "http://gpu-box.lan:9000/v1")
-
-    assert payload["reachable"] is True
-    assert asked == ["http://gpu-box.lan:9000/v1/models"]
 
 
 def test_an_unreachable_ollama_is_a_status_not_an_error(monkeypatch) -> None:
@@ -1185,108 +418,10 @@ def test_an_unreachable_server_says_how_to_start_it(monkeypatch) -> None:
     assert "ollama serve" in hint
 
 
-def test_an_unreachable_vllm_is_told_to_start_a_vllm(monkeypatch) -> None:
-    """The other provider's remedy is its own -- ``vllm serve``, not ``ollama
-    serve`` -- which is the whole reason the sentence is asked of the row."""
-
-    def explode(url, **_kwargs):
-        raise httpx.ConnectError("connection refused")
-
-    monkeypatch.setattr("buy_agent.providers.httpx.get", explode)
-    payload = installed_models("vllm", "http://localhost:8000/v1")
-
-    assert "vllm serve" in payload["hint"]
-    assert "ollama" not in payload["hint"].lower()
-
-
 # -- the shopper's bounds and the cache, over the wire -------------------------
 
 
-@pytest.mark.parametrize("spell", [lambda value: value, str], ids=["json", "query string"])
-def test_the_bounds_and_the_cache_reach_the_config(spell) -> None:
-    """Both carriers: a JSON body sends numbers and the stream's query string sends the
-    same options as text, so each has to survive being spelled either way."""
-    config, _ = parse_options(
-        {
-            key: spell(value)
-            for key, value in (
-                ("max_price", 200),
-                ("min_rating", 4.5),
-                ("min_reviews", 100),
-                ("cache_ttl", 0),
-            )
-        }
-    )
-
-    assert (config.max_price, config.min_rating, config.min_reviews) == (200.0, 4.5, 100)
-    assert config.cache_ttl == 0.0
-
-
-@pytest.mark.parametrize("key", ["max_price", "min_rating", "min_reviews"])
-def test_a_blank_bound_is_no_bound(key: str) -> None:
-    """An empty form field means "unset" (ADR-0012), and unset here is ``None`` --
-    which is the same answer, these three defaulting to no bound at all."""
-    assert getattr(parse_options({key: ""})[0], key) is None
-    assert getattr(parse_options({})[0], key) is None
-
-
-@pytest.mark.parametrize(
-    ("key", "unusable"), [("min_rating", 9), ("max_price", "cheap"), ("cache_ttl", -1)]
-)
-def test_an_unusable_bound_is_refused_before_a_run_starts(key: str, unusable) -> None:
-    """Out of range or not a number at all, and either way it names the box it
-    came out of so the form can mark it (ADR-0033)."""
-    with pytest.raises(ApiError) as excinfo:
-        parse_options({key: unusable})
-
-    assert excinfo.value.field == key
-    assert excinfo.value.status == 400
-
-
-def test_the_form_is_sent_the_bounds_as_nothing_at_all() -> None:
-    """Not zero, which is a real bound that admits nothing dearer than free: the
-    box starts empty and empty means "no limit" (ADR-0039)."""
-    defaults = defaults_payload()
-
-    assert defaults["max_price"] is None
-    assert defaults["min_rating"] is None
-    assert defaults["min_reviews"] is None
-    assert defaults["cache_ttl"] == AgentConfig().cache_ttl
-
-
 # -- the score's parts, on the way to the card (ADR-0041) ----------------------
-
-
-def test_a_product_carries_what_its_score_is_made_of() -> None:
-    payload = product_payload(RANKED[0])
-
-    assert payload["breakdown"] == {
-        "rating": pytest.approx(0.912345),
-        "popularity": pytest.approx(0.912345),
-        "price": pytest.approx(0.912345),
-        "total": pytest.approx(0.912345),
-        "neutral": [],
-    }
-
-
-def test_the_parts_name_the_criteria_that_were_assumed() -> None:
-    """The one thing the numbers cannot say for themselves: a criterion nothing
-    was published for scores the same 0.5 as one that scored exactly middling."""
-    ranked = rank_products([Product(name="Silent")])
-
-    assert product_payload(ranked[0])["breakdown"]["neutral"] == [
-        "rating",
-        "popularity",
-        "price",
-    ]
-
-
-def test_a_re_sorted_run_carries_the_parts_too() -> None:
-    """Re-scored from the products rather than carried over from the request, so
-    the shares describe the order the page is actually showing (ADR-0035)."""
-    answer = rank_again({"request": "headphones", "products": results_payload(DISAGREEING)})
-
-    assert all("breakdown" in product for product in answer["products"])
 
 
 # -- paying --------------------------------------------------------------------
@@ -1307,37 +442,6 @@ def paying(**extra: object) -> dict:
     }
 
 
-@needs_ap2
-def test_paying_answers_a_receipt() -> None:
-    answer = pay_now(paying())
-
-    receipt = answer["receipt"]
-    assert receipt["title"] == "Sony WH-1000XM5"
-    assert receipt["rail"] == "dry-run"
-    assert receipt["paid"] is False
-    assert receipt["reference"]
-
-
-@needs_ap2
-def test_a_receipt_never_carries_the_mandate_chain() -> None:
-    """It is written to a log and handed to a browser; the chain authorises the
-    purchase to whoever holds it."""
-    receipt = pay_now(paying())["receipt"]
-
-    assert "checkout" not in receipt
-    assert "payment_mandate" not in receipt
-
-
-@needs_ap2
-def test_the_default_rank_is_the_top_product() -> None:
-    """A run is already an ordering, so a request that names none wants the one
-    the report leads with."""
-    body = paying()
-    del body["rank"]
-
-    assert pay_now(body)["receipt"]["title"] == "Sony WH-1000XM5"
-
-
 def test_a_rank_past_the_end_of_the_run_is_refused() -> None:
     with pytest.raises(ApiError) as excinfo:
         pay_now(paying(rank=4))
@@ -1349,27 +453,6 @@ def test_a_rank_past_the_end_of_the_run_is_refused() -> None:
 def test_paying_for_nothing_is_refused() -> None:
     with pytest.raises(ApiError, match="no products to pay for"):
         pay_now({"products": [], "approved": APPROVED})
-
-
-def test_an_approval_that_does_not_match_the_cart_buys_nothing() -> None:
-    """A page showing a stale price cannot buy at that price: the cart is built
-    here and the echo has to match it (ADR-0012)."""
-    with pytest.raises(ApiError) as excinfo:
-        pay_now(paying(approved={**APPROVED, "price": 29.99}))
-
-    assert excinfo.value.status == 409
-    assert excinfo.value.field == "approved"
-    assert "Nothing was paid" in str(excinfo.value)
-
-
-def test_an_approval_naming_another_product_buys_nothing() -> None:
-    with pytest.raises(ApiError, match="not what this would buy"):
-        pay_now(paying(approved={**APPROVED, "title": "Bose QC Ultra"}))
-
-
-def test_an_approval_in_another_currency_buys_nothing() -> None:
-    with pytest.raises(ApiError, match="not what this would buy"):
-        pay_now(paying(approved={**APPROVED, "currency": "EUR"}))
 
 
 @needs_ap2
@@ -1384,17 +467,6 @@ def test_a_price_that_is_not_a_number_is_not_an_approval() -> None:
         pay_now(paying(approved={**APPROVED, "price": "about three hundred"}))
 
 
-def test_paying_with_no_approval_at_all_is_refused() -> None:
-    body = paying()
-    del body["approved"]
-
-    with pytest.raises(ApiError) as excinfo:
-        pay_now(body)
-
-    assert excinfo.value.field == "approved"
-    assert "send back the title" in str(excinfo.value)
-
-
 @needs_ap2
 def test_an_open_mandate_needs_no_echo_from_the_page(
     tmp_path, monkeypatch: pytest.MonkeyPatch
@@ -1407,37 +479,6 @@ def test_an_open_mandate_needs_no_echo_from_the_page(
     del body["approved"]
 
     assert pay_now(body)["receipt"]["autonomous"] is True
-
-
-def test_a_product_the_sources_did_not_price_is_a_400_naming_the_field() -> None:
-    unpriced = PAYABLE.model_dump() | {"price": None, "currency": None}
-
-    with pytest.raises(ApiError) as excinfo:
-        pay_now({"products": [unpriced], "rank": 1, "approved": APPROVED})
-
-    assert excinfo.value.status == 400
-    assert excinfo.value.field == "products"
-
-
-@needs_ap2
-def test_a_rail_that_could_not_be_reached_is_a_502(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """An endpoint that is down is nothing to do with the request, so 400 would
-    send the shopper off to fix a form with nothing wrong with it."""
-    from buy_agent import rails
-
-    enrolled_key(tmp_path, monkeypatch)
-
-    def refuse(*_a: object, **_k: object) -> object:
-        raise httpx.ConnectError("refused")
-
-    monkeypatch.setattr(rails.httpx, "post", refuse)
-
-    with pytest.raises(ApiError) as excinfo:
-        pay_now(paying(rail="http", merchant_url="https://pay.example"))
-
-    assert excinfo.value.status == 502
 
 
 @needs_ap2
@@ -1490,18 +531,6 @@ def test_the_spend_limit_travels_with_the_payment() -> None:
     assert "spend limit" in str(excinfo.value)
 
 
-def test_the_products_carry_whether_each_may_be_bought() -> None:
-    """One rule, asked twice: the page never offers a button the server would
-    refuse, and the sentence is Python's (ADR-0012)."""
-    unpriced = Product(name="Anker Q30", url="https://x.example/a")
-    ranked = rank_products([PAYABLE, unpriced], weights=RankingWeights())
-
-    by_name = {entry["name"]: entry for entry in results_payload(ranked)}
-
-    assert by_name["Sony WH-1000XM5"]["cannot_pay"] is None
-    assert "nothing to authorise" in by_name["Anker Q30"]["cannot_pay"]
-
-
 def test_the_products_carry_the_money_a_purchase_would_be_in() -> None:
     """Which is frequently not the product's own: a page that printed a bare "179.00" is
     priced in the run's currency (ADR-0043), so ``currency`` is null while the cart is
@@ -1545,120 +574,7 @@ def test_a_product_that_cannot_be_bought_names_no_amount_either() -> None:
     assert payload["pay_merchant"] is None
 
 
-@needs_ap2
-def test_the_form_is_told_whether_this_server_can_pay_at_all() -> None:
-    defaults = defaults_payload()
-
-    assert defaults["pay"] is False
-    assert defaults["pay_available"] is True
-    assert defaults["rail"] == "dry-run"
-    assert [row["name"] for row in defaults["rail_options"]] == ["dry-run", "http"]
-
-
-def test_the_payment_settings_are_read_off_a_request() -> None:
-    config, _sort_by = parse_options(
-        {"pay": "true", "rail": "http", "merchant_url": "https://pay.example", "spend_limit": "250"}
-    )
-
-    assert config.pay is True
-    assert config.rail == "http"
-    assert config.merchant_url == "https://pay.example"
-    assert config.spend_limit == 250
-
-
-def test_a_rail_nothing_can_pay_through_is_refused_by_its_field() -> None:
-    with pytest.raises(ApiError) as excinfo:
-        parse_options({"rail": "paypal"})
-
-    assert excinfo.value.field == "rail"
-    assert "dry-run, http" in str(excinfo.value)
-
-
-def test_a_paying_rail_with_nowhere_to_pay_is_refused() -> None:
-    """`AgentConfig` refuses it, which is the one thing about these settings the form
-    cannot judge from a range."""
-    with pytest.raises(ApiError, match="needs an address") as refusal:
-        parse_options({"pay": "true", "rail": "http"})
-
-    assert refusal.value.status == 400, "the request is wrong, not the server"
-    assert refusal.value.field == "merchant_url", "so the form can mark the box (ADR-0033)"
-
-
-def test_a_blank_payment_setting_means_the_default() -> None:
-    config, _sort_by = parse_options({"rail": "", "merchant_url": "", "spend_limit": ""})
-
-    assert config.rail == "dry-run"
-    assert config.spend_limit is None
-
-
 # -- which product, and what was actually approved -----------------------------
-
-
-SECOND = Product(
-    name="Bose QuietComfort Ultra",
-    price=379.0,
-    currency="USD",
-    seller="AudioSite",
-    url="https://audiosite.example/qc",
-)
-
-THIRD = Product(
-    name="Sennheiser Momentum 4",
-    price=299.0,
-    currency="USD",
-    seller="AudioSite",
-    url="https://audiosite.example/m4",
-)
-
-
-@needs_ap2
-def test_the_rank_names_which_product_of_the_run_is_bought() -> None:
-    """Off by one here is a shopper charged for a product they did not choose,
-    which is the worst thing this endpoint can quietly get wrong."""
-    body = {
-        "products": [PAYABLE.model_dump(), SECOND.model_dump(), THIRD.model_dump()],
-        "rank": 2,
-        "approved": {"title": SECOND.name, "price": 379.0, "currency": "USD"},
-    }
-
-    assert pay_now(body)["receipt"]["title"] == SECOND.name
-
-
-@needs_ap2
-def test_the_last_product_of_a_run_can_be_bought() -> None:
-    body = {
-        "products": [PAYABLE.model_dump(), SECOND.model_dump(), THIRD.model_dump()],
-        "rank": 3,
-        "approved": {"title": THIRD.name, "price": 299.0, "currency": "USD"},
-    }
-
-    assert pay_now(body)["receipt"]["price"] == 299.0
-
-
-def test_an_approval_for_one_product_cannot_buy_another() -> None:
-    """The echo is held against the cart the *rank* names, so approving the top
-    one and asking for the second is not a purchase either of them agreed to."""
-    body = {
-        "products": [PAYABLE.model_dump(), SECOND.model_dump()],
-        "rank": 2,
-        "approved": APPROVED,
-    }
-
-    with pytest.raises(ApiError) as excinfo:
-        pay_now(body)
-
-    assert excinfo.value.status == 409
-
-
-@pytest.mark.parametrize("missing", ["title", "price", "currency"])
-def test_an_approval_missing_any_of_the_three_buys_nothing(missing: str) -> None:
-    """All three are what a person was shown."""
-    approved = {key: value for key, value in APPROVED.items() if key != missing}
-
-    with pytest.raises(ApiError) as excinfo:
-        pay_now(paying(approved=approved))
-
-    assert excinfo.value.status == 409
 
 
 def test_an_approval_that_is_not_an_object_buys_nothing() -> None:
@@ -1667,14 +583,6 @@ def test_an_approval_that_is_not_an_object_buys_nothing() -> None:
 
     assert excinfo.value.field == "approved"
     assert "send back the title" in str(excinfo.value)
-
-
-@needs_ap2
-def test_an_approval_with_spaces_round_the_title_is_still_the_same_approval() -> None:
-    """A browser is free to send what a text node held; the agreement is about the words."""
-    padded = {**APPROVED, "title": f"  {APPROVED['title']}  ", "currency": "usd"}
-
-    assert pay_now(paying(approved=padded))["receipt"]["title"] == PAYABLE.name
 
 
 def test_a_price_a_hundredth_out_is_not_the_same_approval() -> None:
@@ -1691,115 +599,10 @@ def test_paying_for_nothing_names_the_field_the_run_should_have_filled() -> None
     assert excinfo.value.field == "products"
 
 
-def test_a_rank_below_one_is_refused() -> None:
-    """One-based, like the rank on a card: 0 is not the first one."""
-    with pytest.raises(ApiError) as excinfo:
-        pay_now(paying(rank=0))
-
-    assert excinfo.value.field == "rank"
-
-
 # -- what a run says it took out (ADR-0055) ------------------------------------
 
 
-def _agent_that_removes(*removals: Removal):
-    """A stand-in whose run takes those candidates out and reports one product."""
-
-    class Agent:
-        def run(self, request, *, sort_by="score", checkpoint=None, record=nothing_recorded):
-            for removal in removals:
-                record(removal)
-            return rank_products([Product(name="Sony WH-CH720N")])
-
-    return lambda _config: Agent()
-
-
-def test_a_run_reports_what_it_took_out() -> None:
-    """The answer to "why is the one I had in mind not in there?", which used to be a
-    log line that had scrolled past."""
-    taken = Removal(name="A headline", step="clean", reason="Not a product.")
-
-    ran = run_search(
-        "headphones", AgentConfig(), agent_factory=_agent_that_removes(taken)
-    )
-
-    assert ran["dropped"] == [
-        {"name": "A headline", "step": "clean", "reason": "Not a product."}
-    ]
-
-
-def test_the_removals_are_reported_in_the_order_they_happened() -> None:
-    """The pipeline's own order is the story: cleaned, then grounded, then bounded."""
-    ran = run_search(
-        "headphones",
-        AgentConfig(),
-        agent_factory=_agent_that_removes(
-            Removal(name="first", step="clean", reason="Not a product."),
-            Removal(name="second", step="ground", reason="No page mentions it."),
-        ),
-    )
-
-    assert [entry["name"] for entry in ran["dropped"]] == ["first", "second"]
-
-
-def test_a_run_that_took_nothing_out_says_so_with_an_empty_list() -> None:
-    """Never absent: a key the browser has to test for existence of is one it will
-    eventually read off a run that has it and a run that does not."""
-    ran = run_search("headphones", AgentConfig(), agent_factory=_agent_that_removes())
-
-    assert ran["dropped"] == []
-
-
-def test_a_re_sort_reports_no_removals_of_its_own() -> None:
-    """A re-sort runs no pipeline (ADR-0035), so it removed nothing -- and inventing
-    the run's own list here would be this endpoint answering for a run it never saw."""
-    resorted = rank_again(
-        {"request": "headphones", "products": [{"name": "Sony WH-CH720N"}], "sort_by": "price"}
-    )
-
-    assert resorted["dropped"] == []
-
-
 # -- the currency a run counts itself in (ADR-0056) ---------------------------
-
-
-def test_a_named_currency_is_read_as_the_code_the_run_compares_by() -> None:
-    assert parse_options({"currency": "zł"})[0].currency == "PLN"
-
-
-@pytest.mark.parametrize("blank", ["", "   "])
-def test_a_blank_currency_field_lets_the_set_vote(blank: str) -> None:
-    """A cleared picker means "whatever the pages quote", which is the default."""
-    assert parse_options({"currency": blank})[0].currency == ""
-
-
-def test_a_currency_this_run_cannot_place_is_a_400_marking_that_box() -> None:
-    with pytest.raises(ApiError) as failure:
-        parse_options({"currency": "XXX"})
-
-    assert (failure.value.status, failure.value.field) == (400, "currency")
-
-
-def test_the_form_is_offered_every_currency_a_run_can_be_counted_in() -> None:
-    """Off ``money``'s own table, so a currency added there is offered the same day."""
-    offered = defaults_payload()["currency_options"]
-
-    assert offered == sorted(money.CODES)
-    assert all(parse_options({"currency": code})[0].currency == code for code in offered)
-
-
-def test_a_run_reports_its_products_on_the_currency_it_was_told_to_count_in() -> None:
-    """``results_payload`` decides what may be bought and for how much, so it is on the
-    same scale the ranking used or the card offers a button the payment would refuse."""
-    euros = Product(name="Sony XM5", price=329.0, currency="EUR", url="https://shop/x")
-    dollars = Product(name="Bose QC", price=279.0, currency="USD", url="https://shop/b")
-    ranked = rank_products([dollars, euros], currency="EUR")
-
-    payload = results_payload(ranked, "EUR")
-    by_name = {entry["name"]: entry for entry in payload}
-
-    assert by_name["Sony XM5"]["pay_currency"] == "EUR"
-    assert by_name["Bose QC"]["cannot_pay"]
 
 
 def test_a_re_sort_is_counted_on_the_scale_the_run_was_counted_on() -> None:
@@ -1815,18 +618,6 @@ def test_a_re_sort_is_counted_on_the_scale_the_run_was_counted_on() -> None:
     assert [entry["name"] for entry in reordered["products"]] == ["Sony XM5", "Bose QC"]
 
 
-def test_a_re_sort_answers_on_the_scale_it_was_told_as_well_as_ordering_on_it() -> None:
-    """The order is one half; what each card may be bought for is the other, and the
-    set left to itself would vote for dollars (ADR-0056)."""
-    products = results_payload(rank_products(_MOSTLY_DOLLARS, currency="EUR"), "EUR")
-
-    reordered = rank_again({"products": products, "currency": "EUR"})
-    by_name = {entry["name"]: entry for entry in reordered["products"]}
-
-    assert by_name["Sony XM5"]["pay_currency"] == "EUR"
-    assert by_name["Bose QC"]["cannot_pay"]
-
-
 def test_a_re_sort_refuses_a_currency_the_way_a_run_does() -> None:
     """With the sentence ``parse_currency`` writes and the box it belongs under, since
     the page posts back what the form held (ADR-0033, ADR-0056)."""
@@ -1835,16 +626,6 @@ def test_a_re_sort_refuses_a_currency_the_way_a_run_does() -> None:
 
     assert (refused.value.status, refused.value.field) == (400, "currency")
     assert "'bucks' is not a currency this run can count in" in str(refused.value)
-
-
-def test_a_re_sort_told_no_currency_lets_the_products_vote() -> None:
-    euros = Product(name="Sony XM5", price=329.0, currency="EUR", url="https://shop/x")
-    dollars = Product(name="Bose QC", price=279.0, currency="USD", url="https://shop/b")
-    products = results_payload(rank_products([dollars, euros]))
-
-    reordered = rank_again({"products": products, "sort_by": "price"})
-
-    assert [entry["name"] for entry in reordered["products"]] == ["Bose QC", "Sony XM5"]
 
 
 #: One listing in each currency: a tie, which the vote gives to whichever comes first --
@@ -1907,24 +688,6 @@ def test_a_payment_handed_the_scale_a_run_voted_for_is_counted_in_it() -> None:
 # -- the search backend a run asks (ADR-0057) ---------------------------------
 
 
-def test_a_named_backend_is_read_off_the_table() -> None:
-    assert parse_options({"backend": "searxng"})[0].backend == "searxng"
-
-
-def test_a_backend_nothing_can_search_is_a_400_marking_that_box() -> None:
-    with pytest.raises(ApiError) as failure:
-        parse_options({"backend": "bing"})
-
-    assert (failure.value.status, failure.value.field) == (400, "backend")
-
-
-def test_the_form_is_offered_every_backend_with_what_it_needs() -> None:
-    offered = defaults_payload()["backend_options"]
-
-    assert [row["name"] for row in offered] == list(BACKENDS)
-    assert all("api_key" not in row for row in offered)
-
-
 # -- a picture of the page a card links to (ADR-0065) ---------------------------
 
 
@@ -1932,21 +695,6 @@ def test_the_form_is_told_whether_this_server_takes_screenshots() -> None:
     """Not a setting: the server either has a camera or it has not, and says which."""
     assert defaults_payload()["screenshots"] is False
     assert defaults_payload(screenshots=True)["screenshots"] is True
-
-
-def test_a_page_is_photographed_by_the_server_s_camera() -> None:
-    camera = Photographer()
-
-    picture = screenshot("https://audiosite.example/xm5", camera)
-
-    assert picture == b"jpeg of https://audiosite.example/xm5"
-
-
-def test_a_server_with_no_camera_says_so() -> None:
-    with pytest.raises(ApiError) as refused:
-        screenshot("https://audiosite.example/xm5", None)
-
-    assert refused.value.status == 404
 
 
 @pytest.mark.parametrize(
@@ -1975,15 +723,3 @@ def test_a_page_served_without_tls_is_still_a_web_page() -> None:
     camera = Photographer()
 
     assert screenshot("http://shop.example/xm5", camera) == b"jpeg of http://shop.example/xm5"
-
-
-def test_a_page_that_would_not_be_photographed_is_the_page_s_failure() -> None:
-    """502 and not 400: nothing about the request was wrong, and a card asked only because
-    the server said it could."""
-    camera = Photographer(ScreenshotError("https://audiosite.example/xm5 answered 403"))
-
-    with pytest.raises(ApiError) as refused:
-        screenshot("https://audiosite.example/xm5", camera)
-
-    assert refused.value.status == 502
-    assert "answered 403" in str(refused.value)

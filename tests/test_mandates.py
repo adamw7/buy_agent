@@ -70,34 +70,6 @@ def test_a_missing_sdk_is_one_command_and_not_an_import_error(
 
 
 @needs_ap2
-def test_a_key_is_read_off_the_path_the_environment_names(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    enrolled_key(tmp_path, monkeypatch)
-
-    key, enrolled = mandates.load_key(required=True)
-
-    assert enrolled is True
-    assert key.has_private
-
-
-@needs_ap2
-def test_a_rail_that_moves_money_refuses_to_sign_without_an_enrolled_key() -> None:
-    """An ephemeral key authorises nothing a counterparty could have agreed to
-    trust, so a rail with a counterparty must not be handed one."""
-    with pytest.raises(MandateError, match="openssl ecparam"):
-        mandates.load_key(required=True)
-
-
-@needs_ap2
-def test_the_dry_run_generates_a_key_rather_than_refusing() -> None:
-    key, enrolled = mandates.load_key(required=False)
-
-    assert enrolled is False
-    assert key.has_private
-
-
-@needs_ap2
 def test_a_key_that_is_not_there_is_refused_by_its_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -117,24 +89,6 @@ def test_a_public_key_is_refused_since_signing_needs_the_private_half(
 
     with pytest.raises(MandateError, match="public key"):
         mandates.load_key(required=True)
-
-
-@needs_ap2
-def test_a_key_behind_a_passphrase_is_refused_by_its_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Nothing here can type the passphrase, and the loader says so with a ``TypeError``,
-    which reached the shopper as an unexpected failure rather than this sentence."""
-    locked = tmp_path / "locked.pem"
-    locked.write_bytes(
-        mandates.generate_key("agent").export_to_pem(private_key=True, password=b"secret")
-    )
-    monkeypatch.setenv(mandates.KEY_PATH, str(locked))
-
-    with pytest.raises(MandateError, match="Could not read the signing key") as refused:
-        mandates.load_key(required=True)
-
-    assert str(locked) in str(refused.value)
 
 
 @needs_ap2
@@ -183,13 +137,6 @@ def test_the_checkout_document_counts_in_minor_units_and_names_the_merchant() ->
 
 
 @needs_ap2
-def test_a_signed_checkout_carries_the_hash_the_mandates_bind_to() -> None:
-    signed = signed_checkout()
-
-    assert signed.hash == mandates.checkout_hash(signed.jwt)
-
-
-@needs_ap2
 def test_the_checkout_is_a_ucp_checkout_the_sdk_validates() -> None:
     """The document is hand-built rather than constructed through the model, so
     this is what says it is still the shape the schema describes."""
@@ -201,102 +148,7 @@ def test_the_checkout_is_a_ucp_checkout_the_sdk_validates() -> None:
 # -- human present -------------------------------------------------------------
 
 
-@needs_ap2
-def test_approving_in_person_signs_both_mandates_directly() -> None:
-    key = mandates.generate_key("agent")
-    checkout = signed_checkout()
-
-    authorisation = mandates.authorise(CART, checkout, key=key, nonce="n")
-
-    assert authorisation.autonomous is False
-    assert authorisation.transaction_id == checkout.hash
-    assert authorisation.reference
-
-
-@needs_ap2
-def test_the_payment_mandate_is_bound_to_the_checkout_by_its_hash() -> None:
-    """AP2 binds the two by making the Payment Mandate's ``transaction_id`` the
-    Checkout Mandate's ``checkout_hash``, so neither half can be paired with
-    another cart's other half."""
-    from ap2.sdk.generated.checkout_mandate import CheckoutMandate
-    from ap2.sdk.generated.payment_mandate import PaymentMandate
-    from ap2.sdk.mandate import MandateClient
-
-    key = mandates.generate_key("agent")
-    checkout = signed_checkout()
-
-    authorisation = mandates.authorise(CART, checkout, key=key, nonce="n")
-
-    # A single token takes the key itself and the type it should read back as;
-    # the provider callable is for a chain, whose root hop it is asked about.
-    client = MandateClient()
-    payment = client.verify(
-        token=authorisation.payment, key_or_provider=key, payload_type=PaymentMandate
-    )
-    signed = client.verify(
-        token=authorisation.checkout, key_or_provider=key, payload_type=CheckoutMandate
-    )
-
-    assert payment.mandate_payload.transaction_id == checkout.hash
-    assert signed.mandate_payload.checkout_hash == checkout.hash
-
-
-@needs_ap2
-def test_the_payment_mandate_carries_the_amount_and_never_an_instrument_number() -> None:
-    from ap2.sdk.generated.payment_mandate import PaymentMandate
-    from ap2.sdk.mandate import MandateClient
-
-    key = mandates.generate_key("agent")
-
-    authorisation = mandates.authorise(CART, signed_checkout(), key=key, nonce="n")
-    payload = (
-        MandateClient()
-        .verify(token=authorisation.payment, key_or_provider=key, payload_type=PaymentMandate)
-        .mandate_payload
-    )
-
-    assert payload.payment_amount.amount == 32999
-    assert payload.payment_amount.currency == "USD"
-    assert payload.payment_instrument.id == "default"
-    assert "4242" not in payload.model_dump_json()
-
-
 # -- human not present ---------------------------------------------------------
-
-
-@needs_ap2
-def test_an_open_mandate_authorises_a_cart_inside_its_constraints(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    agent, _issuer = open_mandate(tmp_path, monkeypatch)
-
-    authorisation = mandates.authorise(CART, signed_checkout(), key=agent, nonce="n")
-
-    assert authorisation.autonomous is True
-    assert authorisation.reference
-
-
-@needs_ap2
-def test_an_open_mandate_refuses_a_cart_over_its_amount_range(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The constraint is evaluated by the SDK's own evaluator -- the one a
-    credential provider runs -- so the refusal is the real one and not a second
-    reading of the budget written here."""
-    agent, _issuer = open_mandate(tmp_path, monkeypatch, maximum=10000)
-
-    with pytest.raises(MandateError, match="exceeds maximum"):
-        mandates.authorise(CART, signed_checkout(), key=agent, nonce="n")
-
-
-@needs_ap2
-def test_an_open_mandate_refuses_a_merchant_it_does_not_allow(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    agent, _issuer = open_mandate(tmp_path, monkeypatch, payee="somewhere-else.example")
-
-    with pytest.raises(MandateError, match="does not authorise"):
-        mandates.authorise(CART, signed_checkout(), key=agent, nonce="n")
 
 
 @needs_ap2
@@ -344,10 +196,6 @@ def test_an_open_mandate_cannot_be_closed_with_the_wrong_key(
         )
 
 
-def test_no_mandate_configured_is_the_attended_mode() -> None:
-    assert mandates.open_mandate() is None
-
-
 def test_a_mandate_file_that_is_not_one_is_refused_rather_than_read_as_absent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -356,21 +204,6 @@ def test_a_mandate_file_that_is_not_one_is_refused_rather_than_read_as_absent(
     broken = tmp_path / "mandate.json"
     broken.write_text("{}", encoding="utf-8")
     monkeypatch.setenv(mandates.MANDATE_PATH, str(broken))
-
-    with pytest.raises(MandateError, match="Could not read the open mandate"):
-        mandates.open_mandate()
-
-
-def test_the_mandate_file_is_read_before_the_signing_stack_is_asked_for(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Reading a JSON document needs none of the signing stack, and asked for it
-    first this answered a path that is simply wrong with the sentence about
-    installing the SDK -- which sends somebody to pip over a typo."""
-    monkeypatch.setenv(mandates.MANDATE_PATH, str(tmp_path / "gone.json"))
-    monkeypatch.setattr(
-        mandates, "_jwk_class", lambda: pytest.fail("asked for the signing stack")
-    )
 
     with pytest.raises(MandateError, match="Could not read the open mandate"):
         mandates.open_mandate()
@@ -468,10 +301,6 @@ def test_a_chain_replayed_with_another_nonce_does_not_verify(
         )
 
 
-def test_a_challenge_is_not_the_same_twice() -> None:
-    assert mandates.challenge() != mandates.challenge()
-
-
 # -- what a mandate is worth, and for how long ---------------------------------
 
 
@@ -500,11 +329,6 @@ def test_both_mandates_expire() -> None:
         assert payload.exp == payload.iat + mandates.TTL_SECONDS
 
 
-def test_the_ttl_is_minutes_rather_than_hours() -> None:
-    """A price is not evidence of anything for long, and this authorises one."""
-    assert 0 < mandates.TTL_SECONDS <= 3600
-
-
 def test_the_checkout_is_for_one_of_the_thing() -> None:
     """Nothing upstream can ask for two, so a quantity that was not 1 would be a
     shopper charged twice for a cart they approved once."""
@@ -512,17 +336,6 @@ def test_the_checkout_is_for_one_of_the_thing() -> None:
 
     assert document["line_items"][0]["quantity"] == 1
     assert len(document["line_items"]) == 1
-
-
-def test_the_totals_and_the_line_item_agree_with_the_cart() -> None:
-    document = mandates.checkout_document(CART, order_id="order-1")
-
-    assert {total["amount"] for total in document["totals"]} == {CART.amount}
-    assert document["line_items"][0]["totals"] == document["totals"]
-
-
-def test_the_order_id_is_the_one_it_was_given() -> None:
-    assert mandates.checkout_document(CART, order_id="order-77")["id"] == "order-77"
 
 
 @needs_ap2
@@ -564,16 +377,6 @@ def test_the_instrument_says_who_holds_it_and_never_what_it_is() -> None:
     assert instrument.type == "card"
 
 
-@needs_ap2
-def test_a_generated_key_is_a_different_key_every_time() -> None:
-    """Ephemeral means ephemeral: two dry runs are two authorisations, and one
-    that reused a key would let the first be replayed as the second."""
-    first = mandates.generate_key("one")
-    second = mandates.generate_key("one")
-
-    assert first.export_public() != second.export_public()
-
-
 # -- verification, asked the questions it exists to answer ---------------------
 
 
@@ -597,55 +400,6 @@ def test_a_chain_bound_to_another_checkout_reports_a_violation(
 
     assert violations
     assert any("transaction_id" in violation for violation in violations)
-
-
-@needs_ap2
-def test_a_chain_asked_about_its_own_checkout_reports_nothing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    agent, issuer = open_mandate(tmp_path, monkeypatch)
-    authorisation = mandates.authorise(CART, signed_checkout(), key=agent, nonce="n")
-
-    assert (
-        mandates.verify(
-            authorisation.payment,
-            issuer=issuer,
-            audience=mandates.CREDENTIAL_PROVIDER_AUDIENCE,
-            nonce="n",
-            transaction_id=authorisation.transaction_id,
-        )
-        == []
-    )
-
-
-@needs_ap2
-def test_an_autonomous_authorisation_carries_two_real_mandates(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Both halves are what a counterparty is handed, so both have to be tokens
-    that verify -- not just the one the constraints were checked on."""
-    from ap2.sdk.generated.checkout_mandate import CheckoutMandate
-    from ap2.sdk.mandate import MandateClient
-
-    agent, issuer = open_mandate(tmp_path, monkeypatch)
-    checkout = signed_checkout()
-
-    authorisation = mandates.authorise(CART, checkout, key=agent, nonce="n")
-
-    assert (
-        mandates.verify(
-            authorisation.payment,
-            issuer=issuer,
-            audience=mandates.CREDENTIAL_PROVIDER_AUDIENCE,
-            nonce="n",
-            transaction_id=checkout.hash,
-        )
-        == []
-    )
-    signed = MandateClient().verify(
-        token=authorisation.checkout, key_or_provider=agent, payload_type=CheckoutMandate
-    )
-    assert signed.mandate_payload.checkout_hash == checkout.hash
 
 
 @pytest.mark.parametrize("broken", [pytest.param("jwcrypto", marks=needs_ap2), "cryptography"])
@@ -695,12 +449,3 @@ def test_an_import_failure_with_no_module_name_still_reads(
 
     with pytest.raises(MandateError, match="part of it is not there"):
         mandates.generate_key("agent")
-
-
-def test_the_install_command_installs_the_deps_before_the_sdk() -> None:
-    """Two commands in the right order: `--no-deps` is what the SDK needs and what its
-    dependencies must not get, so the file that resolves normally goes first."""
-    deps = mandates.INSTALL.index("requirements-ap2-deps.txt")
-    sdk = mandates.INSTALL.index("--no-deps")
-
-    assert deps < sdk

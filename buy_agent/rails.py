@@ -17,10 +17,7 @@ if TYPE_CHECKING:
     from buy_agent.config import AgentConfig
     from buy_agent.mandates import Authorisation, SignedCheckout
 
-#: How long to wait on a counterparty.
 _TIMEOUT = 30.0
-
-#: The order id the dry run stamps on the checkout it signs itself.
 _DRY_RUN_ORDER = "dry-run-order"
 
 
@@ -36,8 +33,6 @@ class Rail:
     moves_money: bool
     checkout: Callable[[Cart, AgentConfig], tuple[SignedCheckout, str]]
     settle: Callable[[Cart, Authorisation, AgentConfig], Settlement]
-    #: What "the counterparty is not there" raises through this row's client; typed
-    #: ``Exception`` so ``hint`` can accept what the ``except`` binds.
     transport_errors: tuple[type[Exception], ...]
     hint: Callable[[AgentConfig, Exception], str]
 
@@ -50,10 +45,8 @@ def _dry_run_checkout(cart: Cart, config: AgentConfig) -> tuple[SignedCheckout, 
     return signed, mandates.challenge()
 
 
-def _dry_run_settle(
-    cart: Cart, authorisation: Authorisation, config: AgentConfig
-) -> Settlement:
-    """Report what would have happened, and charge nobody."""
+def _dry_run_settle(cart: Cart, authorisation: Authorisation, config: AgentConfig) -> Settlement:
+    """Charge nobody."""
     del authorisation, config
     return Settlement(
         paid=False,
@@ -66,11 +59,7 @@ def _dry_run_settle(
 
 
 def _post(url: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """One JSON call to a counterparty.
-
-    An unreadable answer is the counterparty's failure, so :class:`RailUnreachableError`
-    (502) rather than a 400 blaming the form.
-    """
+    """One JSON call to a counterparty; an unreadable answer is its failure (502)."""
     response = httpx.post(url, json=payload, timeout=_TIMEOUT)
     response.raise_for_status()
     try:
@@ -90,12 +79,11 @@ def _http_checkout(cart: Cart, config: AgentConfig) -> tuple[SignedCheckout, str
     answer = _post(f"{config.merchant_url}/checkout", {"checkout": document})
     token = answer.get("checkout_jwt")
     if not isinstance(token, str) or not token:
-        # Readable but useless: the counterparty's failure, as above.
         raise RailUnreachableError(
             f"{config.merchant_url} did not return a signed checkout "
             f"(no 'checkout_jwt' in its answer), so there is no price to authorise."
         )
-    # Use the counterparty's challenge if it sent one, else ours: one use either way.
+    # The counterparty's challenge if it sent one, else ours.
     nonce = answer.get("nonce")
     return (
         mandates.SignedCheckout(jwt=token, hash=mandates.checkout_hash(token)),
@@ -114,7 +102,7 @@ def _http_settle(cart: Cart, authorisation: Authorisation, config: AgentConfig) 
         },
     )
     if not answer.get("paid"):
-        # A decline is about the request: the plain failure, read as 400.
+        # A decline is about the request: a plain 400.
         raise PaymentError(
             f"{config.merchant_url} did not complete the payment for {cart.label()}"
             f"{_because(answer)}."
@@ -123,13 +111,11 @@ def _http_settle(cart: Cart, authorisation: Authorisation, config: AgentConfig) 
 
 
 def _because(answer: dict[str, Any]) -> str:
-    """The far end's own reason, if it gave one."""
     detail = str(answer.get("detail") or "").strip()
     return f": {detail}" if detail else ""
 
 
 def _http_hint(config: AgentConfig, exc: Exception) -> str:
-    """Nothing answered: the endpoint is what is missing."""
     return (
         f"Could not reach the payment endpoint at {config.merchant_url} ({exc}). "
         f"Check the address, or sign without paying by paying through {DRY_RUN.label}."
@@ -159,19 +145,16 @@ HTTP = Rail(
     moves_money=True,
     checkout=_http_checkout,
     settle=_http_settle,
-    # httpx's root: refusals, timeouts and ``raise_for_status``. Outside it, a mistyped
-    # address: ``InvalidURL``, and the socket's ``UnicodeError`` for a host it cannot
-    # encode (``pay..example``).
+    # Outside httpx's root: ``InvalidURL``, and ``UnicodeError`` for ``pay..example``.
     transport_errors=(httpx.HTTPError, httpx.InvalidURL, OSError, UnicodeError),
     hint=_http_hint,
 )
 
-#: Every rail, by the name the CLI, the API and ``$BUY_AGENT_RAIL`` use (ADR-0046).
+#: By the name the CLI, the API and ``$BUY_AGENT_RAIL`` use (ADR-0046).
 RAILS: dict[str, Rail] = {rail.name: rail for rail in (DRY_RUN, HTTP)}
 
 
 def rail_for(name: str) -> Rail:
-    """The rail called ``name``."""
     try:
         return RAILS[name]
     except KeyError:
@@ -180,15 +163,9 @@ def rail_for(name: str) -> Rail:
         ) from None
 
 
+#: What the form's picker is told about each rail.
+_OFFERED = ("name", "label", "endpoint", "needs_endpoint", "moves_money")
+
+
 def rail_options() -> list[dict[str, object]]:
-    """Every rail, as the form's picker needs it."""
-    return [
-        {
-            "name": rail.name,
-            "label": rail.label,
-            "endpoint": rail.endpoint,
-            "needs_endpoint": rail.needs_endpoint,
-            "moves_money": rail.moves_money,
-        }
-        for rail in RAILS.values()
-    ]
+    return [{key: getattr(rail, key) for key in _OFFERED} for rail in RAILS.values()]

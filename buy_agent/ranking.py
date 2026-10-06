@@ -20,14 +20,12 @@ if TYPE_CHECKING:
 
 SortBy = Literal["score", "price", "rating"]
 
-#: What a missing figure scores: mid-field, not last.
+#: What a missing figure scores: mid-field, not last (ADR-0007).
 NEUTRAL = 0.5
 
-#: The blended criteria: field names on both :class:`RankingWeights` and
-#: :class:`~buy_agent.models.ScoreParts`.
+#: Fields of both :class:`RankingWeights` and :class:`~buy_agent.models.ScoreParts`.
 CRITERIA: tuple[str, ...] = ("rating", "popularity", "price")
 
-#: Each :data:`SortBy` as the ordering it produces.
 ORDERINGS: dict[SortBy, str] = {
     "score": "best score first",
     "price": "cheapest first",
@@ -49,18 +47,15 @@ class RankingWeights:
 
     @property
     def fractions(self) -> dict[str, float]:
-        """Each criterion's share of the blend, by name, adding up to one (ADR-0041)."""
+        """Each criterion's share of the blend, adding up to one (ADR-0041)."""
         total = self.total
-        return {
-            name: (getattr(self, name) / total if total else 0.0)
-            for name in CRITERIA
-        }
+        return {name: (getattr(self, name) / total if total else 0.0) for name in CRITERIA}
 
 
 def _price_share(
     placed: float | None, cheapest: float | None, priciest: float | None
 ) -> float | None:
-    """1 for the cheapest of the set, 0 for the priciest (ADR-0043, ADR-0041)."""
+    """1 for the cheapest of the set, 0 for the priciest."""
     if placed is None:
         return None
     if cheapest is None or priciest is None or priciest <= cheapest:
@@ -76,14 +71,12 @@ def score_product(
     weights: RankingWeights,
     currency: str | None = None,
 ) -> ScoreParts:
-    """Score one product in ``[0, 1]`` relative to the rest of the candidate set
-    (ADR-0043, ADR-0041)."""
-    # ``None`` means unread; a measured share may legitimately equal 0.5.
+    """One product's score in ``[0, 1]`` against the set (ADR-0041, ADR-0043)."""
+    # ``None`` means unread; a measured share may equal 0.5.
     placed = comparable_price(product, currency)
     read = {
         "rating": None if product.rating is None else product.rating / 5,
-        # log10 so the 10th review counts for far more than the 10_000th; saturates at
-        # 1_000 (ADR-0007).
+        # log10: the 10th review counts for far more than the 10_000th; saturates at 1_000.
         "popularity": (
             min(1.0, math.log10(product.review_count + 1) / 3)
             if product.review_count and product.review_count > 0
@@ -101,7 +94,7 @@ def score_product(
 
 
 class _Scored(NamedTuple):
-    """One product on its way through :func:`rank_products`, mid-sort."""
+    """One product mid-sort."""
 
     product: Product
     price: float | None
@@ -115,15 +108,12 @@ def rank_products(
     sort_by: SortBy = "score",
     currency: str | None = None,
 ) -> list[RankedProduct]:
-    """Sort products best-first with score and 1-based rank (ADR-0043).
-
-    ``currency`` overrides the set's vote on its scale (ADR-0056).
-    """
+    """Products best-first with score and 1-based rank; ``currency`` overrides the
+    set's vote (ADR-0056)."""
     weights = weights or RankingWeights()
     currency = dominant_currency(products, currency)
     prices = [comparable_price(product, currency) for product in products]
     on_the_scale = [price for price in prices if price is not None]
-    # Nothing placeable means no ends: ``None``.
     cheapest = min(on_the_scale, default=None)
     priciest = max(on_the_scale, default=None)
 
@@ -159,9 +149,6 @@ def rank_products(
 
 
 def scale_of(ranked: Sequence[RankedProduct]) -> str | None:
-    """The currency a ranking was counted in (ADR-0056).
-
-    Read back, not voted again: a vote breaks a tie by which currency comes first, and
-    a ranking is no longer in the order the one it was counted in saw.
-    """
+    """The currency a ranking was counted in, read back rather than voted again: a
+    vote in rank order can break a tie the other way (ADR-0056)."""
     return ranked[0].scale if ranked else None

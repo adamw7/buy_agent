@@ -2145,7 +2145,9 @@ def test_the_module_that_reloads_providers_binds_nothing_a_reload_replaces() -> 
     """The suite must not care what order it runs in, and this is the one place it could."""
     imported = names_imported_from(_RELOADS, "buy_agent.providers")
 
-    assert imported, "the module no longer imports from providers; this rule has moved"
+    assert "importlib.reload(providers_module)" in _RELOADS.read_text(encoding="utf-8"), (
+        "the module no longer reloads providers; this rule has moved"
+    )
     for name in imported:
         attribute = getattr(providers_module, name)
         assert inspect.isfunction(attribute), (

@@ -19,7 +19,6 @@ _UNKNOWN_NUMBER = -1.0
 _WHITESPACE = re.compile(r"\s+")
 _PUNCTUATION = re.compile(r"[^\w\s]")
 
-#: How many opinions a product is reported with.
 MAX_OPINIONS = 3
 
 #: Longer than this is a retelling, not a quote.
@@ -64,8 +63,7 @@ class ExtractedProduct(BaseModel):
     ] = []
 
     def to_product(self) -> Product:
-        """Convert sentinels back into ``None`` and tidy up whitespace."""
-        # A qualifier never outlives its figure (:data:`QUALIFIERS`).
+        """Sentinels back into ``None``; a qualifier never outlives its figure."""
         rating = self.rating if 0 <= self.rating <= 5 else None
         # ``> 0``: models also write 0 for unknown, and "$0 shipping" would ground it.
         price = self.price if isfinite(self.price) and self.price > 0 else None
@@ -93,10 +91,7 @@ class Opinion(BaseModel):
 
 
 class Offer(BaseModel):
-    """One listing's price, currency, shop and page (ADR-0058).
-
-    The four travel together, so merges keep offers whole rather than mixing fields.
-    """
+    """One listing's price, currency, shop and page, kept whole by merges (ADR-0058)."""
 
     price: float
     currency: str | None = None
@@ -105,7 +100,7 @@ class Offer(BaseModel):
 
 
 class ProductList(BaseModel):
-    """Wrapper schema — Ollama's structured output needs a JSON object at the root."""
+    """Ollama's structured output needs a JSON object at the root."""
 
     products: Annotated[
         list[ExtractedProduct], Field(description="The products found in the search results.")
@@ -113,7 +108,7 @@ class ProductList(BaseModel):
 
 
 class SearchQuery(BaseModel):
-    """The shopping-oriented query the LLM rewrites the user's request into."""
+    """The query the LLM rewrites the request into."""
 
     query: Annotated[
         str, Field(description="A web search query likely to surface products for sale.")
@@ -130,16 +125,13 @@ class Product(BaseModel):
     review_count: int | None = None
     seller: str | None = None
     url: str | None = None
-    #: Quotes from the sources, each with its page.
     opinions: list[Opinion] = []
-    #: Every priced listing, the headline among them (ADR-0058); seeded by
-    #: ``deduplicate``.
+    #: Every priced listing, the headline among them; seeded by ``deduplicate``.
     offers: list[Offer] = []
     notes: str | None = None
 
     @property
     def dedup_key(self) -> str:
-        """Loose identity: same name modulo case, punctuation and spacing."""
         return dedup_key(self.name)
 
     def price_label(self) -> str:
@@ -152,11 +144,8 @@ class Product(BaseModel):
         return f"{self.rating:.1f}/5{reviews}"
 
     def offers_label(self) -> str | None:
-        """The spread of listings' prices, or ``None`` for fewer than two (ADR-0058).
-
-        Measured in the headline's currency only; others are counted, and said to be
-        elsewhere (ADR-0043).
-        """
+        """The spread of listings' prices in the headline's currency, with the others
+        counted and said to be elsewhere; ``None`` for fewer than two (ADR-0058)."""
         if len(self.offers) < 2:
             return None
         listings = f"{len(self.offers)} listings"
@@ -173,8 +162,7 @@ class Product(BaseModel):
         elsewhere = [offer.currency for offer in self.offers if offer.currency != self.currency]
         if not elsewhere:
             return f"{listings}, {spread}"
-        # Said, not only counted: "2 listings, 749.00 USD" read as two shops at 749.00
-        # when the other had quoted 689.00 EUR -- and the report lists no offers.
+        # Said, not only counted: "2 listings, 749.00 USD" read as two shops at 749.00.
         codes = set(elsewhere)
         if codes == {None}:
             where = "with no currency printed"
@@ -185,7 +173,7 @@ class Product(BaseModel):
         return f"{listings}: {spread}, and {len(elsewhere)} {where}"
 
 
-#: Fields that describe another field rather than the product (ADR-0022).
+#: Fields that describe another field, and move with it (ADR-0022).
 QUALIFIERS: dict[str, tuple[str, ...]] = {
     "price": ("currency",),
     "rating": ("review_count",),
@@ -193,8 +181,7 @@ QUALIFIERS: dict[str, tuple[str, ...]] = {
 
 
 def dominant_currency(products: Iterable[Product], named: str | None = None) -> str | None:
-    """The currency the set is counted in: ``named`` if given (ADR-0056), else the
-    majority of priced products (ADR-0043)."""
+    """``named`` if given (ADR-0056), else the majority of priced products' (ADR-0043)."""
     if named:
         return named
     counted = Counter(
@@ -203,7 +190,7 @@ def dominant_currency(products: Iterable[Product], named: str | None = None) -> 
         # A currency with no price describes nothing (ADR-0022).
         if product.price is not None and product.currency is not None
     )
-    # ``most_common`` sorts stably, so equal counts stay in first-seen order.
+    # Stable, so equal counts stay in first-seen order.
     return counted.most_common(1)[0][0] if counted else None
 
 
@@ -220,7 +207,7 @@ class ScoreParts(BaseModel):
     popularity: float
     price: float
     total: float
-    #: The criteria this product published nothing for, each scored ``NEUTRAL``.
+    #: The criteria scored ``NEUTRAL`` for want of a figure.
     neutral: list[str] = []
 
 
@@ -230,25 +217,21 @@ class RankedProduct(BaseModel):
     product: Product
     breakdown: ScoreParts
     rank: int
-    #: The currency the whole set was counted in when this was ranked (ADR-0043), which
-    #: re-sorting or paying for it is counted in too rather than voted on again
-    #: (ADR-0056). ``None`` where no price had one, or where a ranking was built by hand.
+    #: The currency the set was ranked in, which a re-sort or a payment reuses rather
+    #: than voting again (ADR-0056).
     scale: str | None = None
 
     @property
     def score(self) -> float:
-        """The blended score, which is the total of its parts."""
         return self.breakdown.total
 
 
 class Removal(BaseModel):
     """One candidate that left the report, and what took it out (ADR-0055)."""
 
-    #: Its name when removed (cleaned, where cleaning ran).
     name: str
-    #: Which step removed it.
     step: str
-    #: Why, as the sentence the browser shows.
+    #: The sentence the browser shows.
     reason: str
 
 
@@ -257,18 +240,16 @@ Recorder: TypeAlias = "Callable[[Removal], None]"
 
 
 def nothing_recorded(_removal: Removal) -> None:
-    """The default recorder: discards."""
+    """The default recorder."""
 
 
 def dedup_key(name: str) -> str:
-    """Loose identity for a product name: same modulo case, punctuation and spacing.
-    Also used by :mod:`buy_agent.journal` (ADR-0060)."""
+    """A name modulo case, punctuation and spacing; shared with the journal."""
     return _WHITESPACE.sub(" ", _PUNCTUATION.sub(" ", name.lower())).strip()
 
 
 def price_label(price: float | None, currency: str | None) -> str:
-    """A price as every surface writes it, an unknown one included (ADR-0012). Also
-    used by :mod:`buy_agent.journal` (ADR-0060)."""
+    """A price as every surface writes it, an unknown one included (ADR-0012)."""
     return "price unknown" if price is None else amount_label(price, currency)
 
 
@@ -285,10 +266,8 @@ def distinct_quotes(values: Iterable[Opinion]) -> list[Opinion]:
 
 
 def _quotes(values: list[str]) -> list[Opinion]:
-    """Tidy quotes, dropping blanks, repeats and paragraphs (ADR-0017, ADR-0042)."""
+    """Tidy quotes, dropping blanks, repeats and paragraphs (ADR-0042)."""
     cleaned = (_clean(value) for value in values)
     return distinct_quotes(
-        Opinion(text=quote)
-        for quote in cleaned
-        if quote and len(quote) <= _MAX_OPINION_LENGTH
+        Opinion(text=quote) for quote in cleaned if quote and len(quote) <= _MAX_OPINION_LENGTH
     )

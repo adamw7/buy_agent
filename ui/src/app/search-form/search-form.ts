@@ -29,10 +29,9 @@ import type {
   SourcesCheck,
 } from '../agent.types';
 
-/** The model's thinking mode as a `<select>` can hold it. */
 type Thinking = 'on' | 'off';
 
-/** One entry in the model dropdown, and what is wrong with picking it. */
+/** A model dropdown entry, and what is wrong with picking it. */
 interface ModelOption {
   name: string;
   note: string;
@@ -42,42 +41,35 @@ interface ModelOption {
 export interface Rejection {
   field: string;
   message: string;
-  /** Where the refusal was a payment's: what it sent for the field and the rail it went
-   *  through. It is held against those rather than against the run's settings, which it
-   *  never used -- and against the rail too, since the dry run's endpoint is as blank as
-   *  a refused one, in a box the dry run disables. */
+  /** A payment's refusal: what it sent for the field, and through which rail. It is held
+   *  against those, never against the run's settings. */
   payment?: { sent: unknown; rail: string };
 }
 
-/** What a Pay button on the results pays with: the paying settings as they stand now. */
+/** What a Pay button pays with: the paying settings as they stand now. */
 export type PaySettings = Required<
   Pick<SearchOptions, 'pay' | 'rail' | 'merchant_url' | 'spend_limit'>
 > & {
-  /** Why nothing may be paid for yet -- a paying setting the form marks, named -- or
-   *  null. A run cannot start past a marked box, and a payment may not either: an
-   *  unreadable spend limit reads as null, which the server takes for no limit. */
+  /** The marked paying setting holding payment back, or null: an unreadable spend limit
+   *  reads as null, which the server takes for no limit. */
   held: string | null;
 };
 
-/** The paying settings a box on the form holds, by request key, with its label: the
- *  ones a payment's refusal is marked on, and the ones that hold paying back. */
+/** The paying boxes, by request key: where a payment's refusal is marked. */
 const PAYING_BOXES: Record<string, string> = {
   spend_limit: 'Spend limit',
   merchant_url: 'Payment endpoint',
 };
 
-/** Their keys, in the order a reason is looked for. */
 const PAYING_KEYS = Object.keys(PAYING_BOXES);
 
-/** A number box's one key: sent, ranged, refused, seeded and placeholdered under it.
- *  Narrowed to keys whose default is a number, so a wrong box does not compile. */
+/** Keys whose default is a number, so a wrong box does not compile. */
 type NumberKey = {
   [K in keyof AgentDefaults & keyof SearchOptions]: AgentDefaults[K] extends number | null
     ? K
     : never;
 }[keyof AgentDefaults & keyof SearchOptions];
 
-/** One number box, as the template draws it and the checks read it. */
 interface NumberField {
   key: NumberKey;
   label: string;
@@ -85,16 +77,14 @@ interface NumberField {
   step: number;
   hint: () => string;
   off: () => boolean;
-  /** Whether this box is drawn in the paying block, shown only once paying is ticked. */
+  /** Drawn in the paying block. */
   paying: boolean;
-  /** Whether what the box holds is kept for the next visit: not for a bound (ADR-0077). */
+  /** Kept for the next visit; never a bound (ADR-0077). */
   remembered: boolean;
-  /** Whether a remembered box is remembered cleared, rather than coming back showing the
-   *  default (`num_ctx`'s cleared box is the server's own window). */
+  /** Remembered cleared, rather than coming back as the default. */
   remembersBlank: boolean;
 }
 
-/** One row of the table above, with the defaults most of them take. */
 function field(
   key: NumberField['key'],
   label: string,
@@ -124,7 +114,6 @@ function field(
 
 const SETTINGS_KEY = 'buy_agent.settings';
 
-/** What a cleared bound box falls back to, said in the box. */
 const NO_LIMIT = 'No limit';
 
 const EXAMPLES = [
@@ -145,32 +134,24 @@ export class SearchForm {
   readonly defaults = input<AgentDefaults | null>(null);
   readonly status = input<ModelStatus | null>(null);
   readonly running = input(false);
-  /** Whether the model list currently on screen is being replaced. */
+  /** Whether the model list on screen is being replaced. */
   readonly checking = input(false);
-  /** What the server made of the sources field, last time it was asked. */
   readonly checked = input<SourcesCheck | null>(null);
-  /** A value a run was refused for, to mark beside the field it came from. */
   readonly rejected = input<Rejection | null>(null);
-  /** The currency the results on screen were counted in, which is what a payment for one
-   *  of them is made in (ADR-0056); null before there are any. */
+  /** The results' currency, which a payment is made in (ADR-0056). */
   readonly countedIn = input<string | null>(null);
-  /** Bounds the request states in words: offered, never applied, never a mark (ADR-0059). */
+  /** Bounds the request states in words: offered, never applied (ADR-0059). */
   readonly noticed = input<BoundsCheck | null>(null);
 
   /** Not `search`, which a native DOM event would also answer. */
   readonly run = output<SearchOptions>();
   readonly stop = output<void>();
-  /** Ask what another server is serving, when the provider or the address changes. */
   readonly refresh = output<ModelSource>();
-  /** Ask whether the sources field names sources. */
   readonly check = output<string>();
-  /** Ask what the request itself says about the bounds. */
   readonly read = output<string>();
-  /** The refused box now holds something else, so the banner repeating the refusal
-   *  should go with the mark (see `notes`). */
+  /** The refused box holds something else now, so the banner goes with the mark. */
   readonly moved = output<void>();
-  /** The paying settings, each time one changes. Not part of a run: paying runs no
-   *  pipeline (ADR-0046), so a box ticked after the results are in still pays. */
+  /** The paying settings on each change: paying runs no pipeline (ADR-0046). */
   readonly payWith = output<PaySettings>();
 
   protected readonly examples = EXAMPLES;
@@ -205,39 +186,31 @@ export class SearchForm {
   protected readonly spendLimit = signal<number | null>(null);
   protected readonly advanced = signal(false);
 
-  /** The number boxes holding something that is not a number, by their key. */
   private readonly unreadable = signal<Record<string, boolean>>({});
 
-  /** The settings a run was actually started with, for as long as they stand. */
+  /** The settings a run was started with. */
   private readonly submitted = signal<SearchOptions | null>(null);
 
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
 
-  /** Whether the server is still reading the request it was last asked about, so a
-   *  submit can wait for what it reads rather than run ahead of it (ADR-0059). */
+  /** The server is still reading the request, so a submit waits for it (ADR-0059). */
   private reading = false;
 
-  /** The last reading the fill below saw, so it can tell one landing from the request
-   *  being typed into. */
+  /** Tells a reading landing from the request being typed into. */
   private lastReading: BoundsCheck | null = null;
 
-  /** A submit waiting on that reading, by the request it was made with. */
+  /** A submit waiting on that reading, by its request. */
   private readonly held = signal<string | null>(null);
 
-  /** The box a held submit stopped at, which says so until something is sent: a press
-   *  that searched nothing and only filled a box read as a button that did nothing. */
+  /** The box a held submit stopped at, which says so until something is sent. */
   protected readonly stoppedAt = signal<NumberKey | null>(null);
 
   /** Every number field, in the order the form draws them. */
   protected readonly numberFields: NumberField[] = [
-    // Each bound says what it does with a figure no page printed: it keeps the product
-    // (ADR-0039), and a "price unknown" in a run capped at 10 reads as a broken cap. None
-    // is remembered: a budget belongs to the thing it was set for, and one restored into
-    // a closed panel filtered the next visit's search for something else (ADR-0077).
+    // A bound keeps a product with no figure (ADR-0039), and is never remembered (ADR-0077).
     field('max_price', 'Max price', this.maxPrice, {
       step: 0.01,
-      // Name the scale it is read in.
       hint: () => `In ${this.scale()}; nothing is converted. Unpriced products are still shown.`,
       remembered: false,
     }),
@@ -254,7 +227,6 @@ export class SearchForm {
     field('top', 'Products to highlight', this.top, { remembersBlank: false }),
     field('temperature', 'Temperature', this.temperature, {
       step: 0.1,
-      // The box opens holding a bare 0, which says nothing of what raising it costs.
       hint: 'Above 0 answers can vary from run to run and are never cached.',
       remembersBlank: false,
     }),
@@ -269,14 +241,11 @@ export class SearchForm {
       hint: 'Seconds to wait for one answer. Asked once, so this is the whole wait.',
     }),
     field('cache_ttl', 'Cache pages for', this.cacheTtl, {
-      // The box opens holding 86400, which nobody reads as a day; `--cache-ttl` says so.
       hint: 'Seconds a page, and the answer about it, stay usable: 86400 is a day, 0 is off.',
     }),
     field('spend_limit', 'Spend limit', this.spendLimit, {
       step: 0.01,
-      // Only drawn while paying, so no "off" wording is needed.
-      // In the results' currency once there are results, since that is what a payment
-      // is checked in: the form's own may have been changed since the run.
+      // In the results' currency once there are any: what a payment is checked in.
       hint: () =>
         `The most one payment may be, in ${this.countedIn() ?? this.scale()}. A price in another currency is refused, not passed.`,
       off: () => !this.pay(),
@@ -284,14 +253,11 @@ export class SearchForm {
     }),
   ];
 
-  /** The table above, split by where each box is drawn. */
   protected readonly settingFields = this.numberFields.filter((row) => !row.paying);
   protected readonly payingFields = this.numberFields.filter((row) => row.paying);
 
-  /** The settings that are seeded from the server, and -- all but the bounds, which
-   *  belong to one request (ADR-0077) -- remembered and restored. */
+  /** Seeded from the server, and all but the bounds remembered (ADR-0077). */
   private readonly settings: Record<string, Setting> = {
-    // Saved in one blob with its model and address, so they restore as a pair.
     provider: setting(
       this.provider,
       (d) => d.provider,
@@ -300,7 +266,6 @@ export class SearchForm {
     model: setting(this.model, (d) => d.model, asText),
     baseUrl: setting(this.baseUrl, (d) => d.base_url, asText),
     region: setting(this.region, (d) => d.region, asText),
-    // Checked against what the server offers, like `provider` and `rail`.
     currency: setting(
       this.currency,
       (d) => d.currency,
@@ -313,7 +278,6 @@ export class SearchForm {
       amongst((d) => d.backend_options.map((option) => option.name)),
     ),
     sources: setting(this.sources, (d) => d.sources, asText),
-    // Every number box, off the table above.
     ...numberSettings(this.numberFields),
     // Checked, not cast: the server may change `SortBy`.
     sortBy: setting(
@@ -325,7 +289,6 @@ export class SearchForm {
     cpuOnly: setting(this.cpuOnly, (d) => d.cpu_only, asBoolean),
     fetchPages: setting(this.fetchPages, (d) => d.fetch, asBoolean),
     journal: setting(this.journal, (d) => d.journal, asBoolean),
-    // Checked against what the server offers, like `provider`.
     rail: setting(
       this.rail,
       (d) => d.rail,
@@ -334,12 +297,11 @@ export class SearchForm {
     merchantUrl: setting(this.merchantUrl, (d) => d.merchant_url, asText),
   };
 
-  /** Each criterion named by the order it puts a run in: "price" alone cannot say
-   *  cheapest from dearest. By name only until the defaults have said. */
+  /** Each criterion named by the order it gives ("cheapest first"). */
   protected readonly sortOptions = computed<{ name: SortBy; label: string }[]>(() => {
     const defaults = this.defaults();
     const names: SortBy[] = defaults?.sort_options ?? ['score', 'price', 'rating'];
-    // A server older than the page -- a build under one still running -- sends none.
+    // A server older than the page sends no labels.
     return names.map((name) => ({ name, label: defaults?.sort_labels?.[name] ?? name }));
   });
 
@@ -351,7 +313,6 @@ export class SearchForm {
     () => this.defaults()?.rail_options ?? [],
   );
 
-  /** The currency the form's amounts are read in. */
   protected readonly scale = computed(
     () => this.currency() || 'the currency most of the pages quote',
   );
@@ -364,7 +325,6 @@ export class SearchForm {
     () => this.defaults()?.backend_options ?? [],
   );
 
-  /** The chosen backend's row. */
   protected readonly chosenBackend = computed<BackendOption | undefined>(() =>
     this.backendOptions().find((option) => option.name === this.backend()),
   );
@@ -383,16 +343,14 @@ export class SearchForm {
       : `${option.label} needs no server of your own and rate-limits heavy use.`;
   });
 
-  /** The chosen rail's row. */
   protected readonly chosenRail = computed<RailOption | undefined>(() =>
     this.railOptions().find((option) => option.name === this.rail()),
   );
 
-  /** Whether the optional AP2 SDK is installed on the server at all. */
+  /** Whether the server has the optional AP2 SDK. */
   protected readonly payAvailable = computed(() => this.defaults()?.pay_available ?? false);
 
-  /** The paying settings as a payment sends them: no spend limit while paying is off,
-   *  as the box goes with the switch. */
+  /** As a payment sends them: no spend limit while paying is off. */
   private readonly payingValues = computed(() => ({
     pay: this.pay(),
     rail: this.rail(),
@@ -400,8 +358,7 @@ export class SearchForm {
     spend_limit: this.pay() ? this.spendLimit() : null,
   }));
 
-  /** Those, and what holds paying back: read apart from them, since the marks read the
-   *  payload (`stillSent`), which reads the values. */
+  /** Those, and what holds paying back; apart, since the marks read the values. */
   private readonly paying = computed<PaySettings>(() => {
     const notes = this.notes();
     const marked = PAYING_KEYS.find((key) => notes[key]);
@@ -411,39 +368,30 @@ export class SearchForm {
     };
   });
 
-  /** Whether this rail can charge anybody. */
   protected readonly railSpends = computed(() => this.chosenRail()?.moves_money ?? false);
 
-  /** Whether the address field is a setting on this rail at all. */
   protected readonly railNeedsEndpoint = computed(() => this.chosenRail()?.needs_endpoint ?? false);
 
-  /** The chosen provider's row; absent until the defaults land. */
   protected readonly chosenProvider = computed<ProviderOption | undefined>(() =>
     this.providerOptions().find((option) => option.name === this.provider()),
   );
 
-  /** What to call this server on screen -- "Ollama", "vLLM", "LiteLLM". */
   protected readonly providerLabel = computed(
     () => this.chosenProvider()?.label ?? this.provider(),
   );
 
-  /** Whether the context window is a per-run setting at all. */
   protected readonly takesNumCtx = computed(() => this.chosenProvider()?.takes_num_ctx ?? true);
 
-  /** Whether keeping the model off the GPU is a per-run setting at all. */
   protected readonly takesCpuOnly = computed(() => this.chosenProvider()?.takes_cpu_only ?? true);
 
-  /** The CPU-only box's hint. */
   protected readonly cpuOnlyHint = computed(() =>
     this.takesCpuOnly()
       ? 'Slower, but it leaves the card free and runs a model too large to fit on it.'
       : `With ${this.providerLabel()} the device is chosen where the model is served, so this is not a per-run setting there.`,
   );
 
-  /** What a cleared context window falls back to, or -- switched off -- what the box
-   *  says in its place. Short, since it is read in the box at the grid's narrowest
-   *  column: the sentence under it names the server, and "Fixed where vLLM's model is
-   *  served" was cut off at the box's edge. */
+  /** What a cleared context window falls back to, or what a switched-off box says:
+   *  short, since it is read in the box at the grid's narrowest column. */
   protected readonly numCtxHint = computed(() => {
     if (!this.takesNumCtx()) {
       return 'Set by the server';
@@ -452,8 +400,7 @@ export class SearchForm {
     return fallback ? `The default (${fallback})` : "Ollama's own (4096)";
   });
 
-  /** The model dropdown: what the server reported, plus the chosen name if missing,
-   *  each marked with what is wrong with it (ADR-0032). */
+  /** What the server reported, plus the chosen name if missing, marked (ADR-0032). */
   protected readonly modelOptions = computed<ModelOption[]>(() => {
     const installed = this.status()?.models ?? [];
     if (!installed.length) {
@@ -470,7 +417,6 @@ export class SearchForm {
     return options;
   });
 
-  /** The server's ranges by key; typed with `undefined` for unbounded fields. */
   protected readonly limits = computed<Record<string, Limit | undefined>>(
     () => this.defaults()?.limits ?? {},
   );
@@ -481,7 +427,7 @@ export class SearchForm {
     const limits = this.limits();
     const unreadable = this.unreadable();
     for (const { key, value: held, off } of this.numberFields) {
-      // A disabled box is not sent, so it is not marked.
+      // Not sent, so not marked.
       if (off()) {
         continue;
       }
@@ -491,7 +437,6 @@ export class SearchForm {
       if (unreadable[key]) {
         problems[key] = 'That is not a number. Clear the box to use the default.';
       } else if (limit && value !== null && (value < limit.min || value > limit.max)) {
-        // A cleared box is the default, not a number to range-check (ADR-0012).
         problems[key] = `Between ${limit.min} and ${limit.max}.`;
       }
     }
@@ -502,33 +447,31 @@ export class SearchForm {
     return problems;
   });
 
-  /** The noticed bounds, while they are about the request now in the box. */
+  /** The noticed bounds, while about the request now in the box. */
   private readonly noticedNow = computed(() => {
     const check = this.noticed();
     return check && check.request === this.request().trim() ? check.noticed : [];
   });
 
-  /** Python's note under a box the request filled in; a hint, not a mark. */
+  /** Python's note under a box the request filled in, while it holds that figure. */
   protected noticedNote(key: string): string {
     const offer = this.noticedNow().find((bound) => bound.bound === key);
-    // Only while the box still holds that figure.
     const row = this.numberFields.find((field) => field.key === key);
     return offer && row?.value() === offer.value ? offer.note : '';
   }
 
-  /** Offers already made, as `key=figure`, so a box the shopper cleared stays clear. */
+  /** Offers made, as `key=figure`, so a box the shopper cleared stays clear. */
   private readonly offered = new Set<string>();
 
-  /** Boxes this form filled and nobody touched since, by key: they follow the request. */
+  /** Boxes this form filled and nobody touched since: they follow the request. */
   private readonly filled = new Map<string, number>();
 
-  /** The server's verdict on the sources field, while it is about what the field holds. */
   private readonly sourcesProblem = computed(() => {
     const checked = this.checked();
     return checked && checked.sources === this.sources().trim() ? checked.error : '';
   });
 
-  /** What to show under each field: the page's problems, else the server's refusal. */
+  /** Under each field: the page's problems, else the server's refusal. */
   protected readonly notes = computed<Record<string, string>>(() => {
     const problems = this.problems();
     const rejected = this.rejected();
@@ -538,16 +481,14 @@ export class SearchForm {
     return { ...problems, [rejected.field]: rejected.message };
   });
 
-  /** The id of the sentence marking this box, or null: both the sentence's `id` and
-   *  the box's `aria-describedby`, so they never disagree (ADR-0033). */
+  /** Both the sentence's `id` and the box's `aria-describedby` (ADR-0033). */
   protected problemId(key: string): string | null {
     return this.notes()[key] ? `problem-${key}` : null;
   }
 
-  /** Whether the field named still holds the value the run was refused for. */
+  /** Whether the field still holds the value it was refused for. */
   private stillSent(field: string): boolean {
-    // A payment's refusal is held against what the payment sent, and through what: a
-    // rail switched, or paying switched off, is the box moving on as much as typing is.
+    // A rail switched, or paying off, moves a payment's box on as much as typing does.
     const rejected = this.rejected();
     const payment = rejected?.field === field ? rejected.payment : undefined;
     if (payment) {
@@ -564,7 +505,6 @@ export class SearchForm {
     return this.options()[field as keyof SearchOptions] === sent[field as keyof SearchOptions];
   }
 
-  /** How many settings are marked, for the summary. */
   protected readonly flagged = computed(() => Object.keys(this.notes()).length);
 
   /** Each number box's placeholder: its default, or "No limit" for a bound. */
@@ -572,27 +512,23 @@ export class SearchForm {
     const named: Record<string, string> = {};
     const defaults = this.defaults();
     for (const { key } of this.numberFields) {
-      // Read off the defaults under the box's own key.
       const fallback = defaults?.[key];
       if (typeof fallback === 'number') {
         named[key] = `${fallback}`;
       } else if (fallback === null) {
-        // A bound, whose default is none (ADR-0039).
+        // A bound (ADR-0039).
         named[key] = NO_LIMIT;
       }
     }
-    // Per provider, so a sentence rather than a number.
     named['num_ctx'] = this.numCtxHint();
     return named;
   });
 
-  /** A request, and no field the server would refuse. */
   protected readonly canSubmit = computed(
     () => this.request().trim().length > 0 && Object.keys(this.problems()).length === 0,
   );
 
   constructor() {
-    // Seed the fields when the server's defaults land.
     effect(() => {
       const defaults = this.defaults();
       if (defaults) {
@@ -600,35 +536,33 @@ export class SearchForm {
       }
     });
 
-    // Open the settings the first time there is something in them to read.
+    // Open the settings when there is something in them to read.
     effect(() => {
       if (this.flagged()) {
         this.advanced.set(true);
       }
     });
 
-    // Fill a noticed bound into an empty box, once, and open the panel (ADR-0059). A
-    // box the form filled follows the request; one the shopper touched is theirs.
+    // Fill a noticed bound into an empty box once, and open the panel (ADR-0059). A box
+    // the form filled follows the request; one the shopper touched is theirs.
     effect(() => {
       const check = this.noticed();
       const answered = check !== null && check.request === this.request().trim();
       const offers = this.noticedNow();
       untracked(() => {
-        // A reading landing, rather than the request being typed into. `App` drops a
-        // superseded one, so whatever lands answers the last question asked.
+        // `App` drops a superseded reading, so one landing answers the last question.
         const landed = check !== this.lastReading;
         this.lastReading = check;
         if (landed) {
           this.reading = false;
         }
-        // The boxes this reading put a figure in that they were not holding.
+        // Boxes this reading changed.
         const shown: NumberKey[] = [];
         for (const [key, value] of this.filled) {
           const row = this.numberFields.find((field) => field.key === key);
           if (row?.value() !== value) {
             this.filled.delete(key);
           } else if (answered && !offers.some((bound) => bound.bound === key)) {
-            // Cleared by the form, so it may be offered again.
             row.value.set(null);
             this.filled.delete(key);
             this.offered.delete(`${key}=${value}`);
@@ -640,7 +574,6 @@ export class SearchForm {
           if (!row) {
             continue;
           }
-          // A box the form still owns takes whatever the request now asks for.
           const owned = this.filled.has(bound.bound);
           if (!owned && this.offered.has(mark)) {
             continue;
@@ -661,7 +594,7 @@ export class SearchForm {
       });
     });
 
-    // A held submit was for the request as it stood; typing over it takes it back.
+    // Typing over a held submit's request takes it back.
     effect(() => {
       const request = this.request().trim();
       untracked(() => {
@@ -671,7 +604,6 @@ export class SearchForm {
       });
     });
 
-    // Re-runs on any field change, via `stillSent`.
     effect(() => {
       const rejected = this.rejected();
       if (rejected && !this.stillSent(rejected.field)) {
@@ -679,25 +611,23 @@ export class SearchForm {
       }
     });
 
-    // Told to the page as they change, seeded and restored values included: Pay
-    // buttons on results already in follow the switch, and pay with what it says.
+    // Pay buttons on results already in follow the switch.
     effect(() => {
       const settings = this.paying();
       untracked(() => this.payWith.emit(settings));
     });
   }
 
-  /** Fill the form from the server's defaults, then let anything remembered win. */
+  /** The server's defaults, then anything remembered. */
   private seed(defaults: AgentDefaults): void {
     for (const field of Object.values(this.settings)) {
       field.seed(defaults);
     }
     this.restore(defaults);
-    // Check remembered sources now; nobody will type them to trigger it.
+    // Nobody will type remembered sources to check them.
     this.sourcesChanged();
   }
 
-  /** Track the reader opening or shutting the panel. */
   protected toggled(event: Event): void {
     this.advanced.set((event.target as HTMLDetailsElement).open);
   }
@@ -706,10 +636,7 @@ export class SearchForm {
     if (!this.canSubmit() || this.running()) {
       return;
     }
-    // Asked about and not answered yet: Enter leaves the box and submits in one
-    // keystroke, so the reading was always a few milliseconds behind the run. What it
-    // read then filled a box the run never had, under results that ignored it
-    // (ADR-0059).
+    // Enter leaves the box and submits at once, so the reading is behind the run (ADR-0059).
     if (this.reading) {
       this.held.set(this.request().trim());
       return;
@@ -717,38 +644,30 @@ export class SearchForm {
     this.send();
   }
 
-  /** Start a run with what the form holds. */
   private send(): void {
     this.stoppedAt.set(null);
     this.remember();
     const options = this.options();
-    // So a refusal can be dropped once its field changes.
     this.submitted.set(options);
     this.run.emit(options);
   }
 
-  /** The reading a submit waited on has landed: send it -- unless the reading put a
-   *  figure in a box, which is then where the shopper is taken, and the run waits for
-   *  them to send it with the figure or without. Sent at once, it would apply an offer
-   *  nobody had seen. */
+  /** The reading a submit waited on has landed: send it, unless it put a figure in a
+   *  box, where the shopper is taken instead, never applying an offer unseen. */
   private release(shown: readonly NumberKey[]): void {
     const request = this.held();
     this.held.set(null);
-    // Typed over since, it was a submit of a request no longer in the box.
     if (request !== this.request().trim()) {
       return;
     }
     const first = shown[0];
     if (first === undefined) {
-      // Submitted again rather than sent, so a box marked in the meantime still stops it.
+      // Again, so a box marked in the meantime still stops it.
       this.submit();
       return;
     }
     this.stoppedAt.set(first);
-    // Once drawn: the panel the box is in has only just been opened. The whole field is
-    // brought into view, not the box alone: focus scrolled the box to the window's edge
-    // and left the sentences under it -- where the figure came from, and that nothing
-    // was searched yet -- below the fold.
+    // Once its panel is drawn; the whole field, so the sentences under the box show.
     afterNextRender(
       () => {
         const box = this.host.nativeElement.querySelector<HTMLInputElement>(
@@ -761,10 +680,8 @@ export class SearchForm {
     );
   }
 
-  /** Every setting as a run would be asked for it. */
   private options(): SearchOptions {
     return {
-      // Every number box, off the one table.
       ...this.numbers(),
       request: this.request().trim(),
       provider: this.provider(),
@@ -776,7 +693,6 @@ export class SearchForm {
       sources: this.sources().trim(),
       sort_by: this.sortBy(),
       think: fromThinking(this.thinking()),
-      // Left out where the server fixes its own device.
       cpu_only: this.takesCpuOnly() ? this.cpuOnly() : undefined,
       fetch: this.fetchPages(),
       journal: this.journal(),
@@ -784,14 +700,13 @@ export class SearchForm {
     };
   }
 
-  /** What the number boxes are sent as: nothing, for one this run does not take. */
+  /** Nothing for a box this run does not take. */
   private numbers(): Pick<SearchOptions, NumberField['key']> {
     return Object.fromEntries(
       this.numberFields.map((row) => [row.key, row.off() ? null : row.value()]),
     );
   }
 
-  /** A number box was typed into: ask the element whether it can read it. */
   protected numberTyped(key: string, event: Event): void {
     const input = event.target as HTMLInputElement;
     const bad = input.validity?.badInput ?? false;
@@ -800,11 +715,10 @@ export class SearchForm {
 
   protected useExample(example: string): void {
     this.request.set(example);
-    // The same reading a typed request gets: an example is the request now.
     this.requestChanged();
   }
 
-  /** Another provider was picked: its model and its address come with it. */
+  /** A provider's model and address come with it. */
   protected providerChanged(): void {
     const option = this.chosenProvider();
     if (option) {
@@ -814,7 +728,6 @@ export class SearchForm {
     this.serverChanged();
   }
 
-  /** Another rail was picked: its address comes with it. */
   protected railChanged(): void {
     const option = this.chosenRail();
     if (option) {
@@ -822,22 +735,19 @@ export class SearchForm {
     }
   }
 
-  /** The request was typed and left: ask the server what it asks for in words. */
+  /** Ask the server what the request asks for in words. */
   protected requestChanged(): void {
-    // A new question: the box a held submit stopped at is no longer what it waits on.
     this.stoppedAt.set(null);
     const request = this.request().trim();
-    // An empty request is not asked about, so nothing is on its way.
+    // An empty request is not asked about.
     this.reading = request !== '';
     this.read.emit(request);
   }
 
-  /** The sources field was left: ask the server what it makes of what it holds. */
   protected sourcesChanged(): void {
     this.check.emit(this.sources().trim());
   }
 
-  /** The server field was left: whatever that one is serving is a new list. */
   protected serverChanged(): void {
     const url = this.baseUrl().trim();
     if (url) {
@@ -845,8 +755,7 @@ export class SearchForm {
     }
   }
 
-  /** Advanced settings only: what to shop for is a new question every time, and so are
-   *  the bounds on it -- typed or read off the request (ADR-0059, ADR-0077). */
+  /** Settings only: the request and its bounds are new every time (ADR-0077). */
   private remember(): void {
     const saved: Record<string, unknown> = {};
     for (const [key, field] of Object.entries(this.settings)) {
@@ -861,7 +770,6 @@ export class SearchForm {
     }
   }
 
-  /** Let anything this browser remembered win over the seeded defaults. */
   private restore(defaults: AgentDefaults): void {
     let saved: unknown;
     try {
@@ -873,7 +781,7 @@ export class SearchForm {
       return;
     }
     for (const [key, field] of Object.entries(this.settings)) {
-      // Not even a bound an older build stored: that is the filter this stops restoring.
+      // Not even a bound an older build stored (ADR-0077).
       if (field.remembered && key in saved) {
         field.restore((saved as Record<string, unknown>)[key], defaults);
       }
@@ -881,11 +789,10 @@ export class SearchForm {
   }
 }
 
-/** Reads one remembered value, or undefined for anything it will not take. */
+/** One remembered value, or undefined for anything it will not take. */
 type Parser<T> = (raw: unknown, defaults: AgentDefaults) => T | undefined;
 
-/** One seeded setting, with the signal's own type closed over, and whether it is
- *  remembered between visits. */
+/** One seeded setting, its signal's type closed over. */
 interface Setting {
   seed(defaults: AgentDefaults): void;
   value(): unknown;
@@ -912,8 +819,7 @@ function setting<T>(
   };
 }
 
-/** The number boxes as settings, seeded by their key and -- where the row is
- *  remembered -- stored under its camel case. */
+/** The number boxes as settings, stored under their camel case. */
 function numberSettings(fields: readonly NumberField[]): Record<string, Setting> {
   return Object.fromEntries(
     fields.map((row) => [
@@ -928,7 +834,6 @@ function numberSettings(fields: readonly NumberField[]): Record<string, Setting>
   );
 }
 
-/** `max_price` -> `maxPrice`: a request key as this file names the signal for it. */
 function camelCase(key: string): string {
   return key.replace(/_(\w)/g, (_, letter: string) => letter.toUpperCase());
 }
@@ -939,7 +844,7 @@ const asBoolean: Parser<boolean> = (raw) => (typeof raw === 'boolean' ? raw : un
 const asNumberOrNull: Parser<number | null> = (raw) =>
   raw === null || typeof raw === 'number' ? raw : undefined;
 
-/** A remembered name the server still offers, and nothing else. */
+/** A remembered name the server still offers. */
 function amongst<T extends string>(
   offered: (defaults: AgentDefaults) => readonly string[],
 ): Parser<T> {
