@@ -291,18 +291,13 @@ def backend_for(name: str) -> Backend:
         ) from None
 
 
+#: What the form's picker is told about each backend: never its key.
+_OFFERED = ("name", "label", "endpoint", "needs_key", "configured")
+
+
 def backend_options() -> list[dict[str, object]]:
     """Every backend, as the form's picker needs it."""
-    return [
-        {
-            "name": backend.name,
-            "label": backend.label,
-            "endpoint": backend.endpoint,
-            "needs_key": backend.needs_key,
-            "configured": backend.configured,
-        }
-        for backend in BACKENDS.values()
-    ]
+    return [{key: getattr(backend, key) for key in _OFFERED} for backend in BACKENDS.values()]
 
 
 def search_web(

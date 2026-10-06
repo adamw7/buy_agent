@@ -534,16 +534,10 @@ def provider_for(name: str) -> Provider:
         ) from None
 
 
+#: What the form's picker is told about each provider: never its key.
+_OFFERED = ("name", "label", "model", "base_url", "takes_num_ctx", "takes_cpu_only")
+
+
 def provider_options() -> list[dict[str, object]]:
     """Every provider, as the form's picker needs it."""
-    return [
-        {
-            "name": server.name,
-            "label": server.label,
-            "model": server.model,
-            "base_url": server.base_url,
-            "takes_num_ctx": server.takes_num_ctx,
-            "takes_cpu_only": server.takes_cpu_only,
-        }
-        for server in PROVIDERS.values()
-    ]
+    return [{key: getattr(server, key) for key in _OFFERED} for server in PROVIDERS.values()]

@@ -325,6 +325,27 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             return False
         return True
 
+    #: Where a search is streamed (ADR-0011); a handler with nothing to stream has None.
+    stream_path: str | None = "/api/search/stream"
+
+    def get_routes(self) -> dict[str, Callable[[dict[str, str]], dict[str, Any] | bytes]]:
+        """Each ``GET`` endpoint by path, answering JSON -- or a screenshot's JPEG, for an
+        ``<img>`` (ADR-0065)."""
+        return {
+            "/api/config": lambda _: defaults_payload(screenshots=self.camera is not None),
+            "/api/models": self._models,
+            # 200 either way: the answer is the verdict (ADR-0033).
+            "/api/sources": lambda params: sources_payload(params.get("sources", "")),
+            # Offered to the form, never applied (ADR-0059).
+            "/api/bounds": lambda params: bounds_payload(params.get("request", "")),
+            "/api/screenshot": lambda params: screenshot(params.get("url", ""), self.camera),
+        }
+
+    def post_routes(self) -> dict[str, Callable[[dict[str, Any]], dict[str, Any]]]:
+        """Each ``POST`` endpoint by path; only a search runs anything (ADR-0035). A POST
+        because a query string cannot carry the products or the approval."""
+        return {"/api/search": self._search, "/api/rank": rank_again, "/api/pay": pay_now}
+
     # The base class dispatches on the verb's name.
     # pylint: disable-next=invalid-name
     def do_GET(self) -> None:
@@ -334,23 +355,13 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         params = {key: values[-1] for key, values in parse_qs(url.query).items()}
         # Outside the guard: the stream spends its status line early and reports
         # failures as ``failure`` events.
-        if url.path == "/api/search/stream":
+        if url.path == self.stream_path:
             self._stream_search(params)
             return
         try:
-            if url.path == "/api/config":
-                self._send_json(200, defaults_payload(screenshots=self.camera is not None))
-            elif url.path == "/api/models":
-                self._send_json(200, self._models(params))
-            elif url.path == "/api/sources":
-                # 200 either way: the answer is the verdict (ADR-0033).
-                self._send_json(200, sources_payload(params.get("sources", "")))
-            elif url.path == "/api/bounds":
-                # Offered to the form, never applied (ADR-0059).
-                self._send_json(200, bounds_payload(params.get("request", "")))
-            elif url.path == "/api/screenshot":
-                # A JPEG, for an ``<img>`` (ADR-0065).
-                self._send_screenshot(params.get("url", ""))
+            route = self.get_routes().get(url.path)
+            if route is not None:
+                self._send_answer(route(params))
             elif url.path.startswith("/api/"):
                 self._send_json(404, _no_such_endpoint(url.path))
             else:
@@ -366,14 +377,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         if self._refused():
             return
         url = urlparse(self.path)
-        # Same shape; only a search runs anything (ADR-0035).
-        endpoints: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
-            "/api/search": self._search,
-            "/api/rank": rank_again,
-            # A POST: a query string cannot carry the products or the approval.
-            "/api/pay": pay_now,
-        }
-        run = endpoints.get(url.path)
+        run = self.post_routes().get(url.path)
         if run is None:
             # The body is unread, so the connection must close (as in ``_read_json``).
             self.close_connection = True
@@ -403,7 +407,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         """Answer HEAD like GET, minus the body -- but never by running a search."""
         if self._refused():
             return
-        if urlparse(self.path).path == "/api/search/stream":
+        if urlparse(self.path).path == self.stream_path:
             self._send_json(405, {"error": "A search stream has to be asked for with GET."})
             return
         self.do_GET()
@@ -430,15 +434,17 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         host, port = cast("tuple[Any, ...]", self.server.server_address)[:2]
         return _reaches(address, str(host), int(port))
 
+    def refuse_own_address(self, label: str, address: str) -> None:
+        """Refuse a model server at this page's own address before a run opens, on the
+        box that holds it (ADR-0033)."""
+        if self._answered_here(address):
+            raise ApiError(_own_address(label, address), field="base_url")
+
     def _search(
         self, data: dict[str, Any], *, checkpoint: Checkpoint = every_step_passes
     ) -> dict[str, Any]:
         config, sort_by = parse_options(data)
-        if self._answered_here(config.base_url):
-            # Before the run opens, on the box that holds it (ADR-0033).
-            raise ApiError(
-                _own_address(config.model_server.label, config.base_url), field="base_url"
-            )
+        self.refuse_own_address(config.model_server.label, config.base_url)
         request = str(data.get("request") or "")
         return run_search(
             request,
@@ -519,12 +525,13 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             status, payload = outcome.get("error", (500, {"error": "The search ended."}))
             yield "failure", {**payload, "status": status}
 
-    def _send_screenshot(self, address: str) -> None:
-        """A JPEG of a card's page; a refusal is ``do_GET``'s to answer."""
-        picture = screenshot(address, self.camera)
-        self._send_bytes(
-            200, picture, "image/jpeg", headers=(("Cache-Control", _SCREENSHOT_CACHE),)
-        )
+    def _send_answer(self, answer: dict[str, Any] | bytes) -> None:
+        """A route's answer: JSON, or a JPEG of a card's page."""
+        if isinstance(answer, bytes):
+            cache = (("Cache-Control", _SCREENSHOT_CACHE),)
+            self._send_bytes(200, answer, "image/jpeg", headers=cache)
+        else:
+            self._send_json(200, answer)
 
     # -- static files ----------------------------------------------------------
 
@@ -681,7 +688,7 @@ def _unbuilt_remedy(ui_dir: Path) -> str:
     )
 
 
-def _browsable_url(host: str, port: int) -> str:
+def browsable_url(host: str, port: int) -> str:
     """The address to type into a browser for a server bound to ``host``."""
     shown = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)
     if ":" in shown:
@@ -777,6 +784,12 @@ class _HTTPServer(ThreadingHTTPServer):
         super().__init__(server_address, handler)
 
 
+def bind(host: str, port: int, handler: Any) -> ThreadingHTTPServer:
+    """A threading server for ``handler``, bound to ``host`` in whichever family it needs;
+    shared with the benchmark's page."""
+    return _HTTPServer((host, port), handler)
+
+
 def create_server(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
@@ -794,7 +807,7 @@ def create_server(
         allowed_hosts=allowed_hosts,
         camera=camera,
     )
-    return _HTTPServer((host, port), handler)
+    return bind(host, port, handler)
 
 
 def camera_for(host: str) -> Camera | None:
@@ -818,7 +831,7 @@ def camera_for(host: str) -> Camera | None:
     return Camera()
 
 
-def _port(text: str) -> int:
+def port_number(text: str) -> int:
     """``--port`` as argparse takes it: a bindable port, else a usage error."""
     minimum, maximum = _PORTS
     try:
@@ -857,7 +870,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--port",
-        type=_port,
+        type=port_number,
         default=DEFAULT_PORT,
         help=f"Port to bind (default: {DEFAULT_PORT}; 0 takes whichever one is free "
         "and says which at startup).",
@@ -926,7 +939,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     host, port = httpd.server_address[:2]
-    logger.info("buy_agent UI on %s", _browsable_url(str(host), port))
+    logger.info("buy_agent UI on %s", browsable_url(str(host), port))
     if not (args.ui_dir / "index.html").is_file():
         # The remedy the 503 page quotes.
         logger.warning(
@@ -935,15 +948,22 @@ def main(argv: list[str] | None = None) -> int:
             _unbuilt_remedy(args.ui_dir),
         )
     try:
+        return serve_until_interrupted(httpd)
+    finally:
+        if camera is not None:
+            camera.close()
+        logging.getLogger("buy_agent").removeHandler(_relay)
+
+
+def serve_until_interrupted(httpd: ThreadingHTTPServer) -> int:
+    """Serve until Ctrl-C, then close: 130, as every entry point answers one."""
+    try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         logger.warning("Interrupted.")
         return 130
     finally:
         httpd.server_close()
-        if camera is not None:
-            camera.close()
-        logging.getLogger("buy_agent").removeHandler(_relay)
     return 0
 
 

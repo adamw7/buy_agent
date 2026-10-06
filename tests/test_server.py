@@ -1000,7 +1000,7 @@ def test_a_request_sending_no_host_is_refused_by_a_server_that_names_one(
 
 def test_an_ipv6_address_is_bound_on_the_family_it_needs() -> None:
     """``ThreadingHTTPServer`` is ``AF_INET`` and nothing else, so every IPv6 bind failed
-    outright -- including the ``::1`` ``_browsable_url`` is written to print."""
+    outright -- including the ``::1`` ``browsable_url`` is written to print."""
     assert _family_for("127.0.0.1") is socket.AF_INET
     assert _family_for("0.0.0.0") is socket.AF_INET
     assert _family_for("::1") is socket.AF_INET6

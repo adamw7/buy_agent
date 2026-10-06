@@ -180,15 +180,10 @@ def rail_for(name: str) -> Rail:
         ) from None
 
 
+#: What the form's picker is told about each rail.
+_OFFERED = ("name", "label", "endpoint", "needs_endpoint", "moves_money")
+
+
 def rail_options() -> list[dict[str, object]]:
     """Every rail, as the form's picker needs it."""
-    return [
-        {
-            "name": rail.name,
-            "label": rail.label,
-            "endpoint": rail.endpoint,
-            "needs_endpoint": rail.needs_endpoint,
-            "moves_money": rail.moves_money,
-        }
-        for rail in RAILS.values()
-    ]
+    return [{key: getattr(rail, key) for key in _OFFERED} for rail in RAILS.values()]
