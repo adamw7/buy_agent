@@ -133,14 +133,19 @@ def _ollama_installed(config: AgentConfig) -> list[InstalledModel]:
 
 
 def _ollama_tags(config: AgentConfig) -> dict[str, str]:
-    """The tags Ollama holds, each with its digest ("" where none)."""
+    """The tags Ollama holds, each with its digest ("" where none, or where one tag is
+    listed twice with two, since which of them answers is not said)."""
     response = httpx.get(_ollama_url(config.base_url, "/api/tags"), timeout=_LIST_TIMEOUT)
     response.raise_for_status()
-    return {
-        name: str(entry.get("digest") or "")
-        for entry in response.json().get("models", [])
-        if (name := entry.get("model") or entry.get("name"))
-    }
+    tags: dict[str, str] = {}
+    for entry in response.json().get("models", []):
+        name = entry.get("model") or entry.get("name")
+        digest = str(entry.get("digest") or "")
+        # A runner's own alias ("llamacpp:<digest>") is a tag nobody pulled.
+        if not name or (digest and name.partition(":")[2] == digest):
+            continue
+        tags[name] = digest if tags.get(name, digest) == digest else ""
+    return tags
 
 
 def _ollama_url(base_url: str, path: str) -> str:
