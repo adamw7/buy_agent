@@ -337,6 +337,29 @@ def test_a_tag_spelled_only_the_way_ollama_list_prints_it_is_still_offered(
     assert names(OLLAMA_CONFIG) == ["gemma4:12b", "qwen3:8b"]
 
 
+def test_a_tag_listed_twice_on_two_builds_is_offered_once_with_no_build(pulled) -> None:
+    """Ollama 0.40 converts a model on its first load and then lists the tag once per
+    runner, plus the converted weights under the runner's own alias. Which build
+    answers is not said, so none is claimed (ADR-0075), and the alias, which nobody
+    pulled, is not offered beside the tag it duplicates."""
+    converted = "c97eb11d70b1" + "0" * 52
+    pulled(
+        [],
+        entries=[
+            {"model": "qwen3.5:9b", "digest": "2e16a80fe3d7" + "0" * 52},
+            {"model": "qwen3.5:9b", "digest": converted},
+            {"model": f"llamacpp:{converted}", "digest": converted},
+            {"model": "gemma4:12b", "digest": "4eb23ef187e2" + "0" * 52},
+            {"model": "gemma4:12b", "digest": "4eb23ef187e2" + "0" * 52},
+        ],
+    )
+
+    assert [(model.name, model.digest[:12]) for model in listed(OLLAMA_CONFIG)] == [
+        ("qwen3.5:9b", ""),
+        ("gemma4:12b", "4eb23ef187e2"),
+    ]
+
+
 @pytest.mark.parametrize("base_url", ["localhost:11434", "http://localhost:11434/"])
 def test_the_address_is_asked_however_it_was_written(pulled, base_url: str) -> None:
     """``$OLLAMA_HOST`` is written every way -- with the scheme and without it, with a
