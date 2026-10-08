@@ -40,7 +40,7 @@ python -m mypy buy_agent
 - pylint (ADR-0048, ADR-0049) and mypy (ADR-0063) must report nothing at all. Fix
   the line or the declaration, or suppress on the line with a reason.
 
-## UI (Node 22.23.3)
+## UI (Node 24.21.0)
 
 ```powershell
 cd ui

@@ -4,7 +4,7 @@
 #   docker run --rm -p 8000:8000 --add-host=host.docker.internal:host-gateway buy-agent
 
 # -- stage 1: build the UI, on the Node CI builds with ------------------------
-FROM node:22.23.3-bookworm-slim AS ui
+FROM node:24.21.0-bookworm-slim AS ui
 
 WORKDIR /ui
 
