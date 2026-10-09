@@ -85,7 +85,7 @@ If `ui/dist/ui/browser` is missing, the API still works and the page returns a
 otherwise), naming `--ui-dir` when `_workspace_for` finds no workspace.
 
 **CI.** `ci.yml` runs Python 3.14 (pytest with coverage, pylint, mypy) and Node
-22.23.3 (`test:coverage`, `build`, `lint`, `format:check`) under `bash`, on Linux
+24.21.0 (`test:coverage`, `build`, `lint`, `format:check`) under `bash`, on Linux
 for pushes and PRs. Windows joins on the Saturday schedule and on
 `workflow_dispatch` (ADR-0037): dispatch it for a branch that touches paths,
 encodings, sockets or `start.ps1`. The scheduled workflows (audit, integration,

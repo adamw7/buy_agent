@@ -48,7 +48,7 @@ TOP 3 OF 9 PRODUCTS, BEST SCORE FIRST
 ## Setup
 
 Everything runs locally; no API keys, no accounts. Python 3.14 and, for the web
-UI, Node 22.23.3 or later.
+UI, Node 24.21.0 or later.
 
 ```powershell
 # 1. Ollama, with a model pulled

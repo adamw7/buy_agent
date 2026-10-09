@@ -80,7 +80,7 @@ jobs:
         run: python -m mypy buy_agent
 
   ui:
-    name: ng test (Node 22, ${{ matrix.os }})
+    name: ng test (Node 24, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
