@@ -89,6 +89,24 @@ def test_a_product_with_no_source_page_has_no_merchant_to_pay() -> None:
     assert "no source page" in refused(unlinked, "USD")
 
 
+def test_a_listing_its_page_says_is_out_of_stock_is_not_bought() -> None:
+    """A price beside "out of stock" is what it would have cost (ADR-0079)."""
+    gone = SONY.model_copy(update={"availability": "out of stock"})
+
+    assert refused(gone, "USD") == (
+        "The page that priced Sony WH-1000XM5 at 329.99 USD says it is out of stock, so "
+        "there is nothing to buy at that price."
+    )
+    assert not refused(SONY.model_copy(update={"availability": "in stock"}), "USD")
+
+
+def test_the_cart_carries_the_listings_standing_for_whoever_approves_it() -> None:
+    refurbished = SONY.model_copy(update={"availability": "in stock", "condition": "refurbished"})
+
+    assert cart_for(refurbished, [refurbished], AgentConfig()).listing == "In stock, refurbished"
+    assert cart_for(SONY, [SONY], AgentConfig()).listing is None
+
+
 def test_a_figure_the_cart_cannot_count_is_refused_as_a_payment_would_be() -> None:
     """``money.minor_units`` raises a ``ValueError``, knowing nothing about who is being
     paid; the refusal a shopper sees is this module's, and it names the field the form

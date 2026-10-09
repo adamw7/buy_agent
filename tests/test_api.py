@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from buy_agent.agent import every_step_passes
+from buy_agent.agent import every_step_passes, journal_for
 from buy_agent.api import (
     ApiError,
     bounds_payload,
@@ -177,6 +177,8 @@ def test_a_products_offers_carry_the_amount_written_out() -> None:
             "currency": "USD",
             "seller": "ShopA",
             "url": "https://a.example/p",
+            "availability": None,
+            "condition": None,
             "price_label": "349.00 USD",
         },
         {
@@ -184,6 +186,8 @@ def test_a_products_offers_carry_the_amount_written_out() -> None:
             "currency": "USD",
             "seller": None,
             "url": None,
+            "availability": None,
+            "condition": None,
             "price_label": "329.00 USD",
         },
     ]
@@ -723,3 +727,78 @@ def test_a_page_served_without_tls_is_still_a_web_page() -> None:
     camera = Photographer()
 
     assert screenshot("http://shop.example/xm5", camera) == b"jpeg of http://shop.example/xm5"
+
+
+# -- a listing's standing (ADR-0079) and the price alert (ADR-0080) -------------
+
+
+def test_a_product_carries_its_listing_label_in_pythons_words() -> None:
+    standing = Product(
+        name="Sony WH-1000XM5", price=299.0, currency="USD", availability="in stock",
+        condition="used",
+    )
+
+    payload = product_payload(ranked_product(standing, score=0.9, rank=1), "USD")
+
+    assert payload["availability"] == "in stock"
+    assert payload["condition"] == "used"
+    assert payload["listing_label"] == "In stock, used"
+    assert product_payload(RANKED[1])["listing_label"] is None
+
+
+def test_an_out_of_stock_product_says_why_it_cannot_be_bought() -> None:
+    gone = payable_product(availability="out of stock")
+
+    payload = product_payload(ranked_product(gone, score=0.9, rank=1), "USD")
+
+    assert "out of stock" in payload["cannot_pay"]
+    assert payload["pay_label"] is None
+
+
+def test_a_run_given_a_price_alert_says_whether_it_was_met() -> None:
+    payload = run_search(
+        "headphones",
+        AgentConfig(alert_below=330),
+        agent_factory=agent_returning(RANKED)["factory"],
+    )
+
+    assert payload["alert"] == {
+        "below": 330,
+        "below_label": "330.00 USD",
+        "met": ["Sony WH-1000XM5"],
+        "detail": "At or under 330.00 USD: Sony WH-1000XM5 at 328.00 USD.",
+    }
+    assert payload["count"] == 2, "told, and nothing removed"
+
+
+def test_a_run_given_no_alert_answers_none() -> None:
+    payload = run_search(
+        "headphones", AgentConfig(), agent_factory=agent_returning(RANKED)["factory"]
+    )
+
+    assert payload["alert"] is None
+
+
+def test_a_re_sort_answers_no_alert_of_its_own() -> None:
+    """It ran no pipeline and was given no setting; the page keeps the run's."""
+    assert rank_again({"products": results_payload(RANKED)})["alert"] is None
+
+
+def test_the_alert_is_a_setting_both_doors_read_and_refuse_alike() -> None:
+    config, _ = parse_options({"request": "x", "alert_below": "180.5"})
+
+    assert config.alert_below == 180.5
+    assert parse_options({"request": "x", "alert_below": " "})[0].alert_below is None
+    assert defaults_payload()["alert_below"] is None
+    assert defaults_payload()["limits"]["alert_below"] == {"min": 1, "max": 10_000_000}
+    with pytest.raises(ApiError) as refused:
+        parse_options({"request": "x", "alert_below": "0"})
+    assert refused.value.field == "alert_below"
+
+
+def test_the_alert_is_not_part_of_what_the_journal_keys_a_search_by() -> None:
+    """An alert changes what is said about a run, not what was searched (ADR-0060)."""
+    assert (
+        journal_for("headphones", AgentConfig(alert_below=100)).key
+        == journal_for("headphones", AgentConfig()).key
+    )

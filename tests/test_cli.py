@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 import buy_agent.__main__ as main_module
-from buy_agent.__main__ import NOTHING_FOUND, build_parser, main
+from buy_agent.__main__ import ABOVE_ALERT, NOTHING_FOUND, build_parser, main
 from buy_agent.agent import ModelUnavailableError
 from buy_agent.config import AgentConfig
 from buy_agent.models import Product
@@ -106,7 +106,7 @@ def test_the_help_names_every_exit_code(fake_agent) -> None:
     """--help is the only documentation the CLI has, and these are branched on."""
     help_text = build_parser().format_help()
 
-    for code in ("0", "1", "2", str(NOTHING_FOUND), "130"):
+    for code in ("0", "1", "2", str(NOTHING_FOUND), str(ABOVE_ALERT), "130"):
         assert f"  {code}  " in help_text, code
 
 
@@ -665,3 +665,44 @@ def test_comparing_a_search_never_run_before_says_so(fake_agent, caplog) -> None
 
     assert "Nothing to compare" in caplog.text
     assert "--compare has nothing to read" not in caplog.text, "the journal is on"
+
+
+# -- the price alert (ADR-0080) ------------------------------------------------
+
+
+def test_an_alert_that_was_met_exits_zero_and_says_so_in_the_report(fake_agent, capsys) -> None:
+    assert main(["headphones", "--alert-below", "100", "--no-journal"]) == 0
+
+    out = capsys.readouterr().out
+    assert "PRICE ALERT MET: At or under 100.00: Anker Q30 at 79.00." in out
+
+
+def test_an_alert_that_was_not_met_has_an_exit_code_of_its_own(fake_agent, capsys) -> None:
+    """So a scheduled run can be ``... && notify``: the code is the answer."""
+    assert main(["headphones", "--alert-below", "50", "--no-journal"]) == ABOVE_ALERT
+    assert ABOVE_ALERT not in (0, 1, 2, NOTHING_FOUND, 4, 130)
+
+    assert "PRICE ALERT NOT MET" in capsys.readouterr().out
+
+
+def test_finding_nothing_is_still_nothing_found_with_an_alert(fake_agent) -> None:
+    fake_agent["result"] = []
+
+    assert main(["headphones", "--alert-below", "50", "--no-journal"]) == NOTHING_FOUND
+
+
+def test_no_alert_is_reported_without_the_flag(fake_agent, capsys) -> None:
+    assert main(["headphones", "--no-journal"]) == 0
+
+    assert "PRICE ALERT" not in capsys.readouterr().out
+
+
+def test_the_prompt_restates_a_listings_standing(fake_agent, monkeypatch, capsys) -> None:
+    """What is approved is a refurbished pair, not the new one the price implies."""
+    standing = payable_product(availability="in stock", condition="refurbished")
+    fake_agent["result"] = [ranked_product(standing, score=0.9, rank=1)]
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("no\n"))
+
+    main(["headphones", "--pay", "--no-journal"])
+
+    assert "listing   In stock, refurbished" in capsys.readouterr().err

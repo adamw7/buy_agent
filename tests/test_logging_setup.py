@@ -15,9 +15,11 @@ from buy_agent.logging_setup import (
     _REPORT_FORMAT,
     _TRACE_LIBRARIES,
     configure_logging,
+    log_alert,
     log_changes,
     log_top_products,
 )
+from buy_agent.alerts import Alert
 from buy_agent.chat import release
 from buy_agent.config import AgentConfig
 from buy_agent.journal import Change
@@ -649,3 +651,46 @@ def test_a_run_that_moved_nothing_says_the_same(caplog) -> None:
         log_changes([], "11 Sep")
 
     assert "Nothing to compare" in caplog.text
+
+
+# -- a listing's standing (ADR-0079) and the price alert (ADR-0080) -------------
+
+
+def test_a_listings_stock_and_condition_follow_its_price(report) -> None:
+    log_top_products(
+        ranked(
+            Product(
+                name="Sony WH-1000XM5",
+                price=299.0,
+                currency="USD",
+                availability="in stock",
+                condition="refurbished",
+            )
+        ),
+        1,
+    )
+
+    shown = lines(report)
+    price = shown.index("     price  : 299.00 USD")
+    assert shown[price + 1] == "     state  : In stock, refurbished"
+
+
+def test_no_line_for_a_standing_no_page_gave(report) -> None:
+    log_top_products(ranked(Product(name="Sony WH-1000XM5", price=299.0)), 1)
+
+    assert "state" not in report.text
+
+
+def test_the_alert_is_part_of_the_report(report) -> None:
+    """It is what a scheduled run is waiting for, so ``> top.txt`` keeps it."""
+    met = Alert(below=300, below_label="300.00 USD", met=["Sony"], detail="At or under it: Sony.")
+    unmet = Alert(below=100, below_label="100.00 USD", met=[], detail="Nothing found is.")
+
+    log_alert(met)
+    log_alert(unmet)
+
+    assert lines(report) == [
+        "PRICE ALERT MET: At or under it: Sony.",
+        "PRICE ALERT NOT MET: Nothing found is.",
+    ]
+    assert all(getattr(record, "report", False) for record in report.records)

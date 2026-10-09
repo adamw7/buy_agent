@@ -63,8 +63,8 @@ Optional prerequisites skip, never fail:
 - One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
   and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `3228 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `3143 passed, 105 skipped`.
+So the SDK without PowerShell reads `3343 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `3258 passed, 105 skipped`.
 
 ### Across processes
 
@@ -179,9 +179,9 @@ Coverage cannot see rules that hold *between* files, so
 - every module logs under the package's name in deferred form, leaving stdout to
   the report.
 
-`tests/test_logging_contract.py` checks that the eight heuristics that take
+`tests/test_logging_contract.py` checks that the nine heuristics that take
 something away say how many at INFO and which at DEBUG, and that the five that
-remove a whole product call `record` while the three that blank do not (ADR-0055).
+remove a whole product call `record` while the four that blank do not (ADR-0055).
 
 ### Architecture tests
 

@@ -17,8 +17,10 @@ from buy_agent.verification import (
     mentions_number,
     mentions_rating,
     mentions_review_count,
+    mentions_standing,
     verify_numbers,
     verify_opinions,
+    verify_standing,
 )
 from tests.conftest import said
 
@@ -48,12 +50,26 @@ def test_the_products_that_lost_a_figure_are_counted_once_each(caplog) -> None:
 def test_which_figures_went_is_said_for_the_reader_who_asked_for_detail(caplog) -> None:
     """The count is the headline and this is the detail behind it, which is the
     only place a run says *what* it disbelieved rather than how much."""
-    product = Product(name="Sony WH-CH720N", price=99.0, rating=4.9, review_count=12500)
+    product = Product(
+        name="Sony WH-CH720N", price=99.0, currency="USD", rating=4.9, review_count=12500
+    )
 
     with caplog.at_level(logging.DEBUG, logger="buy_agent.verification"):
         verify_numbers([product], HAYSTACK)
 
     assert "Unsupported currency/price/rating/review_count for 'Sony WH-CH720N'" in caplog.text
+
+
+def test_a_qualifier_the_product_never_carried_is_not_named_as_going(caplog) -> None:
+    """A blanked price takes its stock and condition with it (ADR-0079), but the line
+    names only what the product carried, not every field that might have gone."""
+    product = Product(name="Sony WH-CH720N", price=99.0, condition="refurbished")
+
+    with caplog.at_level(logging.DEBUG, logger="buy_agent.verification"):
+        [checked] = verify_numbers([product], HAYSTACK)
+
+    assert checked.condition is None
+    assert "Unsupported condition/price for 'Sony WH-CH720N'" in caplog.text
 
 
 def test_a_no_break_space_groups_a_count_too() -> None:
@@ -312,3 +328,74 @@ def test_a_product_no_page_mentions_is_removed_and_says_so() -> None:
     assert [entry.name for entry in removed] == ["Bonavita Gooseneck Kettle"]
     assert removed[0].step == "ground"
     assert removed[0].reason == "No page that was searched mentions it."
+
+
+# -- a listing's stock and condition (ADR-0079) ---------------------------------
+
+
+def _page(url: str, content: str) -> SearchResult:
+    return SearchResult(title="", url=url, snippet="", content=content)
+
+
+@pytest.mark.parametrize(
+    ("text", "standing", "said"),
+    [
+        ("In stock, ships today", "in stock", True),
+        ("Not in stock", "in stock", False),
+        ("No longer in stock", "out of stock", False),
+        ("Currently unavailable", "out of stock", True),
+        ("Sold out", "out of stock", True),
+        ("Condition: Used - Very Good", "used", True),
+        ("I used it for a week", "used", False),
+        ("New for 2026", "new", False),
+        ("Brand new, factory sealed", "new", True),
+        ("Amazon Renewed", "refurbished", True),
+    ],
+)
+def test_a_standing_is_read_only_in_the_words_that_make_it_one(
+    text: str, standing: str, said: bool
+) -> None:
+    assert mentions_standing(text, standing) is said
+
+
+def test_a_standing_the_products_own_page_prints_is_kept() -> None:
+    pages = [_page("https://shop.example/ch720n", "Sony WH-CH720N $99. Refurbished. In stock.")]
+    product = Product(
+        name="Sony WH-CH720N", price=99.0, availability="in stock", condition="refurbished"
+    )
+
+    assert verify_standing([product], pages) == [product]
+
+
+def test_a_standing_only_another_products_page_prints_is_blanked(caplog) -> None:
+    """"In stock" is on half the shop pages ever written; it counts on a page about
+    this product, as a quote does (ADR-0042)."""
+    pages = [
+        _page("https://shop.example/ch720n", "Sony WH-CH720N $99."),
+        _page("https://shop.example/q30", "Anker Q30 $79. Out of stock."),
+    ]
+    product = Product(name="Sony WH-CH720N", price=99.0, availability="out of stock")
+
+    with caplog.at_level(logging.DEBUG, logger="buy_agent.verification"):
+        [checked] = verify_standing([product], pages)
+
+    assert checked.availability is None
+    assert checked.price == 99.0, "the price was grounded on its own"
+    assert "Unsupported availability for 'Sony WH-CH720N'" in caplog.text
+    assert "Dropped an unsupported stock or condition on 1 product(s)" in caplog.text
+
+
+def test_a_product_with_no_standing_is_passed_as_it_is() -> None:
+    product = Product(name="Sony WH-CH720N", price=99.0)
+
+    assert verify_standing([product], []) == [product]
+
+
+def test_grounding_checks_the_standing_too() -> None:
+    page = _page("https://shop.example/ch720n", "Sony WH-CH720N $99, rated 4.3/5.")
+    product = Product(name="Sony WH-CH720N", price=99.0, condition="used")
+
+    [checked] = ground([product], [page])
+
+    assert checked.price == 99.0
+    assert checked.condition is None

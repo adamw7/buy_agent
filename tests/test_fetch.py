@@ -736,3 +736,39 @@ def test_enrich_hands_every_page_the_wait(monkeypatch) -> None:
     assert "$129.99" in enriched[0].content
     assert waits == [_RETRY_WAIT]
     assert len(asked) == 2
+
+
+# -- what a page declares (ADR-0078) and how a listing stands (ADR-0079) -------
+
+
+DECLARING = """<html><head>
+<script type="Application/LD+JSON">
+{"@type": "Product", "name": "Sony WH-1000XM5",
+ "offers": {"@type": "Offer", "price": 348, "priceCurrency": "USD",
+            "availability": "https://schema.org/OutOfStock"}}
+</script>
+<script>var tracking = "Sony WH-1000XM5: 1.00 USD";</script>
+</head><body><p>Our review of the headphones.</p></body></html>"""
+
+
+def test_what_a_page_declares_comes_first_and_its_scripts_do_not() -> None:
+    """First, so the budget reaches it first; a script's own text never shows."""
+    lines = html_to_text(DECLARING).splitlines()
+
+    assert lines[0] == "Sony WH-1000XM5: 348.00 USD, out of stock"
+    assert "Our review of the headphones." in lines
+    assert not any("tracking" in line for line in lines)
+
+
+def test_a_page_declaring_nothing_reads_as_it_did() -> None:
+    assert html_to_text("<p>Hello</p>") == "Hello"
+
+
+def test_a_line_saying_how_a_listing_stands_is_kept_with_the_line_above() -> None:
+    text = "Sony WH-1000XM5\nOut of stock\nShipping and returns\nRefurbished by the maker"
+
+    kept = condense(text, max_chars=1200).splitlines()
+
+    assert kept == ["Sony WH-1000XM5", "Out of stock", "Shipping and returns", "Refurbished by the maker"]
+    assert quotes_a_figure("In stock")
+    assert not quotes_a_figure("Shipping and returns")

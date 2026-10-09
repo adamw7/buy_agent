@@ -13,12 +13,13 @@ from typing import Any, get_args
 
 from buy_agent import mandates, payment
 from buy_agent.agent import BuyAgent, ModelUnavailableError, journal_for
-from buy_agent.api import OPTIONS, Option, results_payload, takeable
+from buy_agent.alerts import Alert
+from buy_agent.api import OPTIONS, Option, alert_for, results_payload, takeable
 from buy_agent.bounds import notice
 from buy_agent.chat import release
 from buy_agent.config import DEFAULT_BACKEND, DEFAULT_PROVIDER, DEFAULT_RAIL, AgentConfig
 from buy_agent.journal import MAX_RUNS, RUNS
-from buy_agent.logging_setup import configure_logging, log_changes
+from buy_agent.logging_setup import configure_logging, log_alert, log_changes
 from buy_agent.models import RankedProduct
 from buy_agent.money import CODES
 from buy_agent.payment import PaymentError
@@ -49,6 +50,8 @@ _DEFAULTS = _defaults()
 
 NOTHING_FOUND = 3
 PAYMENT_FAILED = 4
+#: ``--alert-below`` was given and nothing was at or under it (ADR-0080).
+ABOVE_ALERT = 5
 
 #: The paying flags, and how each tells a typed value from the default.
 _PAYING_FLAGS: tuple[tuple[str, str, Callable[[Any], bool]], ...] = (
@@ -197,6 +200,15 @@ def _written() -> dict[str, dict[str, Any]]:
             "this (default: no limit). A 5.0 from two people is not a rating. A rating "
             "with no count beside it is kept, for the reason unpriced products are.",
         },
+        "alert_below": {
+            "metavar": "PRICE",
+            "help": "Say whether anything found is at or under this price, and exit "
+            f"with {ABOVE_ALERT} when nothing is (default: no alert) -- for a scheduled "
+            "run that waits for a price to drop. Unlike --max-price it removes nothing: "
+            "it is read in the currency the run's prices are counted in, and only a "
+            "price a page printed in that currency, on a listing no page says is out "
+            "of stock, can meet it.",
+        },
         "cache_ttl": {
             "metavar": "SECONDS",
             "help": "How long a fetched page, and the model's answer about it, stay "
@@ -304,6 +316,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  2  the command line could not be understood\n"
             f"  {NOTHING_FOUND}  the run worked and found nothing\n"
             f"  {PAYMENT_FAILED}  --pay was asked for and nothing was bought\n"
+            f"  {ABOVE_ALERT}  --alert-below was given and nothing was at or under it\n"
             "  130  interrupted with Ctrl-C\n"
         ),
         formatter_class=_Help,
@@ -360,10 +373,12 @@ def _approved(cart: payment.Cart, config: AgentConfig) -> bool:
         )
     rail = config.rail_used
     charge = "will be charged" if rail.moves_money else "will NOT be charged"
+    listing = f"    listing   {cart.listing}\n" if cart.listing else ""
     sys.stderr.write(
         f"\n  Pay {cart.label()} for {cart.title}\n"
         f"    merchant  {cart.merchant}\n"
         f"    page      {cart.url}\n"
+        f"{listing}"
         f"    rail      {rail.label} -- you {charge}\n"
         f"  Type yes to authorise: "
     )
@@ -467,6 +482,9 @@ def main(argv: list[str] | None = None) -> int:
     changes = journal.against([entry.product for entry in ranked])
     if args.compare:
         log_changes(changes, journal.compared_with())
+    alert = alert_for(ranked, config)
+    if alert is not None:
+        log_alert(alert)
 
     if args.json:
         # Written even when empty, so a stale file never looks current.
@@ -481,7 +499,15 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("Wrote %d products to %s", len(payload), args.json)
 
     # Last, so a failed purchase never costs the report or the file.
-    if args.pay and ranked:
+    return _settled(ranked, config, pay=args.pay, alert=alert)
+
+
+def _settled(
+    ranked: list[RankedProduct], config: AgentConfig, *, pay: bool, alert: Alert | None
+) -> int:
+    """The exit code of a run that worked: what paying came to, else whether anything
+    was found, else whether the price alert was met (ADR-0080)."""
+    if pay and ranked:
         try:
             bought = _bought(ranked, config)
         except KeyboardInterrupt:
@@ -489,7 +515,9 @@ def main(argv: list[str] | None = None) -> int:
             return 130
         return 0 if bought else PAYMENT_FAILED
 
-    return 0 if ranked else NOTHING_FOUND
+    if not ranked:
+        return NOTHING_FOUND
+    return ABOVE_ALERT if alert is not None and not alert.met else 0
 
 
 if __name__ == "__main__":

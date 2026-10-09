@@ -181,11 +181,13 @@ The order matters at three joints:
 | `agent.py` | `BuyAgent.run()` -- orchestrates the pipeline, translates model-server errors |
 | `chat.py` | The whole model-facing seam: a prompt, a chain, an answer read back as its schema (ADR-0038) |
 | `extraction.py` | Both prompts, both chains, name cleaning, deduplication |
-| `fetch.py` | Streams result pages up to a ceiling, keeps the lines quoting a figure or passing judgement, and tallies how the rest failed |
+| `fetch.py` | Streams result pages up to a ceiling, keeps the lines quoting a figure, a listing's standing or a judgement, and tallies how the rest failed |
+| `structured.py` | What a page declares in schema.org JSON-LD, written as the lines a shop prints (ADR-0078) -- no HTML, no I/O |
 | `cache.py` | What a run can reuse: page text (ADR-0040) and answers (ADR-0044) -- and nothing else |
 | `journal.py` | What past runs of this search reported and what moved since (ADR-0060) |
 | `verification.py` | Drops products, figures and quotes absent from the sources; links what is left |
 | `constraints.py` | The bounds the shopper set, applied before ranking |
+| `alerts.py` | Whether a finished run met the shopper's price alert (ADR-0080) -- told, never applied |
 | `bounds.py` | What the request itself asks for, read in Python and offered at both doors (ADR-0059) -- never applied |
 | `ranking.py` | Scoring and sorting, and what each score is made of; no LLM involved |
 | `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain), and which currency a set is counted in |
@@ -235,7 +237,8 @@ listed in `docs/testing.md`.
 - **Never pay on an unverified number, and never on one this run cannot place.**
   `payment._check` refuses a product whose price was blanked by grounding, whose
   currency is unprinted, whose run scale is not `money.placeable`, whose price is
-  outside the run's currency (ADR-0043), or that has no source page. That is the
+  outside the run's currency (ADR-0043), that has no source page, or whose page
+  says it is out of stock (ADR-0079). That is the
   deliberate opposite of the shopper's bounds, which *keep* what they can't
   judge. The CLI prompt, the card's button (`cannot_pay`) and the payment all ask
   this one function.
@@ -268,10 +271,19 @@ listed in `docs/testing.md`.
   `Opinion(words, url)`; the model is never asked for the page, and a `url` of
   `None` means the search result had no URL.
 - **A currency belongs to its price, and a review count to its rating**
-  (ADR-0022). `models.QUALIFIERS` pairs them. `_fill_gaps`,
+  (ADR-0022). `models.QUALIFIERS` pairs them, and a listing's `availability` and
+  `condition` qualify its price too (ADR-0079). `_fill_gaps`,
   `verification.verify_numbers` and `ExtractedProduct.to_product` all move or
   drop a qualifier with its figure. A new field that only qualifies another joins
   that field's group. `opinions` is merged separately in `_merge_opinions`.
+- **A listing's stock and condition are said in one vocabulary** (ADR-0079).
+  `models.STANDING_PHRASES` has a row per `Availability` and `Condition` value;
+  `verify_standing` keeps one only where a page about the product prints it, `fetch`
+  keeps lines in it, and `structured` writes in it. "New" and "used" alone never
+  count. Ranking reads neither; `Product.listing_label` is the one wording.
+- **A page's declaration is page text** (ADR-0078). `fetch.html_to_text` puts
+  `structured.declared`'s lines first, and every line it writes must be one
+  grounding accepts. Nothing downstream knows a figure was declared.
 - **Every listing a product was priced at is kept, and the cart is for one of
   them** (ADR-0058). `deduplicate` seeds one `models.Offer` per listing (after
   `ground`), and `_combine` keeps all of them via `_merge_offers` (not
@@ -316,7 +328,7 @@ listed in `docs/testing.md`.
 - **A heuristic that takes something away says how many at INFO and which at
   DEBUG.** That is `clean_products`, `drop_ungrounded`, `merge_variants`,
   `deduplicate`'s nameless drop, `Constraints.apply`, `verify_numbers`,
-  `verify_opinions` and `attribute_sources`. The first five drop whole products
+  `verify_standing`, `verify_opinions` and `attribute_sources`. The first five drop whole products
   and also call `record` with a `models.Removal`, which the run payload carries
   as `dropped` (ADR-0055). `tests/test_logging_contract.py` covers all of them.
 - **The web is asked twice and the model once, and the clock is handed in.**
@@ -336,8 +348,8 @@ listed in `docs/testing.md`.
 `SearchError` (ADR-0009). `__main__.main()` catches exactly those around the run
 and returns 1, and `api._STATUS` maps them to 400/503/502. A new failure mode must
 be handled in all three places. Other exit codes: 130 for Ctrl-C (including at
-the payment prompt), `NOTHING_FOUND` (3), `PAYMENT_FAILED` (4), and 2 for
-argparse. `main` has a separate `except OSError` for writing `--json`.
+the payment prompt), `NOTHING_FOUND` (3), `PAYMENT_FAILED` (4), `ABOVE_ALERT` (5,
+ADR-0080), and 2 for argparse. `main` has a separate `except OSError` for writing `--json`.
 
 Payment failures are *not* a fourth row. `payment.PaymentError` is the one thing
 paying raises: a plain one (400) means it declined, and its subclass
@@ -392,6 +404,10 @@ docstrings. A convention test enforces it.
 - **`sources`** bypasses `api._read`: `_read_sources` takes an array or a
   separated string. An empty value over the wire means the whole web, while the
   CLI refuses a `--source` naming nothing.
+- **`alert_below`** is told and never applied (ADR-0080): `api.alert_for` asks
+  `alerts.price_alert` of a finished ranking for both doors. Only a placeable price
+  not marked out of stock meets it, it is not part of the journal's key, and the CLI
+  exits `ABOVE_ALERT` when it was given and not met.
 - **The three bounds** (`max_price`, `min_rating`, `min_reviews`) default to
   `None`, meaning no bound. Unknown figures pass, and help text says so. The
   placeholder is "No limit". `max_price` is in the run's currency.
@@ -438,7 +454,7 @@ everything else goes to the built app, with `index.html` as the fallback.
   reconnects on `error`. `HEAD /api/search/stream` is 405.
 - **The browser decides nothing** (ADR-0012). Python supplies `cannot_pay`,
   `pay_currency`/`pay_label`/`pay_merchant` (all null together), `price_label`,
-  `rating_label`, `offers_label`, each model's `completion`, the provider `label`
+  `rating_label`, `offers_label`, `listing_label`, each model's `completion`, the provider `label`
   and `hint`. `ui/src/app/agent.types.ts` mirrors every payload.
 - **Paying is witnessed** (ADR-0046). `POST /api/pay` gets the run, the product
   and `approved` (an echo of title, `pay_label` and `pay_currency`). The server
@@ -447,7 +463,7 @@ everything else goes to the built app, with `index.html` as the fallback.
 - **Re-sorting is a request, not a re-run** (ADR-0035). `rank_again` is only
   `rank_products`, and the products travel in the body. `api.results_payload` is
   the one shaping of a run's products (API, `--json`, Download). A re-sort
-  reports no `dropped` or `changes` of its own, so the page keeps the run's.
+  reports no `dropped`, `changes` or `alert` of its own, so the page keeps the run's.
 - **A blank value means "use the default"** in `parse_options` and in the UI's
   `toQuery`.
 - **The form refuses first, on Python's rules** (ADR-0033). `limits` bind
@@ -513,8 +529,8 @@ hold:
   that buys, Pay again, the wait, the receipt. Focus the reader moved elsewhere
   stays there.
 - Receipts are keyed by product name, never by index.
-- `pay` and the three bounds are the settings not remembered in `localStorage`,
-  and a bound an older build stored is not restored (ADR-0077). Every storage
+- `pay`, the three bounds and `alert_below` are the settings not remembered in
+  `localStorage`, and a bound an older build stored is not restored (ADR-0077). Every storage
   call is wrapped.
 - A request-noticed bound fills its box once (`noticedNow`, `offered`) and marks
   nothing. Its note sits above the box's hint, never in its place. A submit waits

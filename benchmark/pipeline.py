@@ -20,6 +20,7 @@ from buy_agent import (
     money,
     providers,
     ranking,
+    structured,
     verification,
 )
 from benchmark import query, runner, scoring
@@ -41,6 +42,7 @@ MODULES: tuple[ModuleType, ...] = (
     money,
     providers,
     ranking,
+    structured,
     verification,
     runner,
     scoring,

@@ -349,3 +349,54 @@ def test_a_merge_keeps_both_listings_prices() -> None:
         (149.0, "ShopB"),
         (129.0, "ShopA"),
     ]
+
+
+# -- a listing's stock and condition travel with its price (ADR-0079) ----------
+
+
+def test_a_listings_standing_is_seeded_onto_its_offer() -> None:
+    [kept] = deduplicate(
+        [
+            Product(
+                name="Sony WH-1000XM5",
+                price=299.0,
+                currency="USD",
+                availability="in stock",
+                condition="refurbished",
+            )
+        ],
+        10,
+    )
+
+    assert kept.offers == [
+        Offer(price=299.0, currency="USD", availability="in stock", condition="refurbished")
+    ]
+
+
+def test_a_price_filled_in_by_a_merge_brings_its_standing_with_it() -> None:
+    """The listing's stock describes its price (ADR-0022): never one shop's price
+    beside another shop's "in stock"."""
+    [merged] = deduplicate(
+        [
+            Product(
+                name="Sony WH-1000XM5 Wireless",
+                rating=4.6,
+                review_count=900,
+                url="https://reviews.example/xm5",
+            ),
+            Product(
+                name="Sony WH-1000XM5",
+                price=249.0,
+                currency="USD",
+                availability="out of stock",
+                condition="used",
+            ),
+        ],
+        10,
+    )
+
+    assert (merged.price, merged.availability, merged.condition) == (
+        249.0,
+        "out of stock",
+        "used",
+    )

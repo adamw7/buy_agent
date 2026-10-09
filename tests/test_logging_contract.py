@@ -18,6 +18,7 @@ from buy_agent.verification import (
     drop_ungrounded,
     verify_numbers,
     verify_opinions,
+    verify_standing,
 )
 from tests.conftest import said
 
@@ -55,7 +56,7 @@ class Heuristic:
     removal: str | None = None
 
 
-#: The eight, each driven over the one page above.
+#: The nine, each driven over the one page above.
 HEURISTICS = {
     "a headline reported as a product": Heuristic(
         drive=lambda record: clean_products(
@@ -104,6 +105,14 @@ HEURISTICS = {
         count=1,
         casualty=REAL,
     ),
+    "a stock or condition no page printed": Heuristic(
+        drive=lambda _record: verify_standing(
+            [Product(name=REAL, price=129.0, currency="USD", availability="out of stock")],
+            SOURCES,
+        ),
+        count=1,
+        casualty=REAL,
+    ),
     "a quote nobody wrote": Heuristic(
         drive=lambda _record: verify_opinions(
             [Product(name=REAL, opinions=said("battery life is poor"))], SOURCES
@@ -139,7 +148,7 @@ CASES = pytest.mark.parametrize(
 
 def _where(removing: bool) -> pytest.MarkDecorator:
     """The cases that remove a whole product, or the ones that only blank a field --
-    a partition of the eight rather than a skip inside a test that has been handed the
+    a partition of the nine rather than a skip inside a test that has been handed the
     other half (ADR-0055)."""
     chosen = {
         name: case
@@ -149,7 +158,7 @@ def _where(removing: bool) -> pytest.MarkDecorator:
     return pytest.mark.parametrize("heuristic", chosen.values(), ids=list(chosen))
 
 
-#: The five that take a product out of the report, and the three that leave it in.
+#: The five that take a product out of the report, and the four that leave it in.
 REMOVES = _where(True)
 BLANKS = _where(False)
 

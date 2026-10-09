@@ -347,3 +347,9 @@ h3 a:hover {
 .offer-seller {
   color: var(--text-dim);
 }
+
+/* The words say it; the colour only repeats them (ADR-0079). */
+.listing.gone {
+  border-color: var(--bad);
+  color: var(--bad);
+}

@@ -47,6 +47,7 @@ _LAYERS: dict[str, tuple[str, ...]] = {
         "constraints.py",
         "ranking.py",
         "fetch.py",
+        "alerts.py",
     ),
     "paying": ("payment.py", "rails.py", "mandates.py"),
     # ``search.py`` is here and not among the steps: it is the table a backend is one
@@ -61,7 +62,7 @@ _LAYERS: dict[str, tuple[str, ...]] = {
         "screenshots.py",
     ),
     "settings": ("config.py", "logging_setup.py"),
-    "domain": ("models.py", "money.py", "sources.py", "bounds.py"),
+    "domain": ("models.py", "money.py", "sources.py", "bounds.py", "structured.py"),
 }
 
 #: Which layer may reach which, and nothing else.

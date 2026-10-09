@@ -364,6 +364,18 @@ describe('SearchForm', () => {
     }
   });
 
+  it('sends a price alert and does not remember it for the next search', async () => {
+    /* An alert, like a bound, is set for the one thing it is watching (ADR-0080). */
+    await type('input[name="alert_below"]', '180');
+    await type('input[name="request"]', 'headphones');
+    await send();
+
+    expect(submitted[0]).toMatchObject({ alert_below: 180 });
+    expect(JSON.parse(localStorage.getItem('buy_agent.settings')!)).not.toHaveProperty(
+      'alertBelow',
+    );
+  });
+
   it('restores no bound an older build remembered', async () => {
     /* A browser that kept one before this held still has it stored, and restoring it
        is the filter nobody can see that the rule above exists to stop. The settings

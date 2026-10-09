@@ -17,6 +17,7 @@ from buy_agent.agent import (
     every_step_passes,
     journal_for,
 )
+from buy_agent.alerts import price_alert
 from buy_agent.bounds import Noticed, notice
 from buy_agent.chat import release
 from buy_agent.config import LIMITS, AgentConfig, parse_currency, parse_region
@@ -43,6 +44,7 @@ from buy_agent.sources import Source, format_sources, parse_sources
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from buy_agent.alerts import Alert
     from buy_agent.journal import Change
     from buy_agent.models import RankedProduct
     from buy_agent.providers import InstalledModel
@@ -160,7 +162,16 @@ def run_search(
         removals=removals,
         changes=journal.against([entry.product for entry in ranked]),
         compared_with=journal.compared_with(),
+        alert=alert_for(ranked, config),
     )
+
+
+def alert_for(ranked: Sequence[RankedProduct], config: AgentConfig) -> Alert | None:
+    """The run's price alert, counted in the run's own currency; ``None`` unset
+    (ADR-0080). Asked by both doors."""
+    if config.alert_below is None:
+        return None
+    return price_alert(ranked, config.alert_below, _counted_in(ranked, config.currency or None))
 
 
 def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
@@ -177,7 +188,7 @@ def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
         _read_products(data), weights=weights, sort_by=cast(SortBy, sort_by),
         currency=scale or None,
     )
-    # No pipeline ran, so no removals or changes of its own.
+    # No pipeline ran, so no removals, changes or alert of its own.
     return _run_payload(request, ranked, _Reported(top_n, sort_by, weights, scale or None))
 
 
@@ -254,8 +265,9 @@ def _run_payload(
     removals: Sequence[Removal] = (),
     changes: Sequence[Change] = (),
     compared_with: str | None = None,
+    alert: Alert | None = None,
 ) -> dict[str, Any]:
-    """A finished run or re-sort (ADR-0055, ADR-0060)."""
+    """A finished run or re-sort (ADR-0055, ADR-0060, ADR-0080)."""
     scale = _counted_in(ranked, reported.currency)
     return {
         "request": request.strip(),
@@ -269,6 +281,7 @@ def _run_payload(
         "dropped": [removal.model_dump() for removal in removals],
         "changes": [change.model_dump() for change in changes],
         "compared_with": compared_with,
+        "alert": alert.payload() if alert else None,
     }
 
 
@@ -306,6 +319,7 @@ def product_payload(entry: RankedProduct, currency: str | None = None) -> dict[s
         "price_label": entry.product.price_label(),
         "rating_label": entry.product.rating_label(),
         "offers_label": entry.product.offers_label(),
+        "listing_label": entry.product.listing_label(),
     }
 
 
@@ -588,6 +602,8 @@ OPTIONS: tuple[Option, ...] = (
     _number("max_price", float),
     _number("min_rating", float),
     _number("min_reviews", int),
+    # Told, never applied (ADR-0080).
+    _number("alert_below", float),
     _number("cache_ttl", float),
     Option("journal", _as_bool),
     Option("pay", _as_bool),

@@ -80,6 +80,14 @@
   }
 
   @if (result(); as found) {
+    <!-- Python's sentence, told and never applied (ADR-0080); the words say which. -->
+    @if (found.alert; as alert) {
+      <p class="card alert" [class.met]="alert.met.length" role="status">
+        <strong>Price alert {{ alert.met.length ? 'met' : 'not met' }}.</strong>
+        {{ alert.detail }}
+      </p>
+    }
+
     @if (found.count) {
       <section class="results">
         <header class="results-head">

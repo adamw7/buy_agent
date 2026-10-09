@@ -27,6 +27,7 @@ LIMITS: dict[str, tuple[int, int]] = {
     "num_ctx": (1, 1_000_000),
     "model_timeout": (1, 3600),
     "max_price": (1, 10_000_000),
+    "alert_below": (1, 10_000_000),
     "min_rating": (0, 5),
     "min_reviews": (0, 10_000_000),
     # 0 is off; past 30 days a stored price is no evidence (ADR-0040).
@@ -84,6 +85,8 @@ class AgentConfig:
     max_price: float | None = None
     min_rating: float | None = None
     min_reviews: int | None = None
+    #: Told whether anything is at or under it, never applied (ADR-0080).
+    alert_below: float | None = None
     region: str = DEFAULT_REGION
     currency: str = ""
     backend: str = DEFAULT_BACKEND
