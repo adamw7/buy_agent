@@ -237,3 +237,80 @@ def test_nesting_past_any_real_page_is_not_followed() -> None:
 
 def test_a_line_two_products_share_is_written_once() -> None:
     assert declared([script(SONY), script(SONY)]) == declared([script(SONY)])
+
+
+def test_a_type_is_read_whatever_its_case_and_whichever_spelling_of_the_vocabulary() -> None:
+    for declared_type in ("product", "http://schema.org/Product", "https://schema.org/Product/"):
+        assert declared([script({**SONY, "@type": declared_type})]), declared_type
+
+
+def test_each_variant_of_a_product_group_is_a_product() -> None:
+    group = {
+        "@type": "ProductGroup",
+        "name": "Sony WH-1000XM5",
+        "hasVariant": [
+            {"@type": "Product", "name": "Sony WH-1000XM5 Black",
+             "offers": {"@type": "Offer", "price": 348, "priceCurrency": "USD"}},
+            {"@type": "Product", "name": "Sony WH-1000XM5 Silver",
+             "offers": {"@type": "Offer", "price": 329, "priceCurrency": "USD"}},
+        ],
+    }
+
+    assert declared([script(group)]) == [
+        "Sony WH-1000XM5 Black: 348.00 USD",
+        "Sony WH-1000XM5 Silver: 329.00 USD",
+    ]
+
+
+def test_a_product_named_inside_a_review_is_not_one_the_page_sells() -> None:
+    """A review's ``itemReviewed`` can name a rival; it is read with the review, never
+    as a product of its own."""
+    product = {
+        **SONY,
+        "review": [{"@type": "Review", "itemReviewed": {**SONY, "name": "Bose QC Ultra"}}],
+    }
+
+    assert not any(line.startswith("Bose") for line in declared([script(product)]))
+
+
+def test_an_offer_saying_only_who_sells_it_says_nothing() -> None:
+    offer = {"@type": "Offer", "seller": {"name": "Shop"}}
+
+    assert declared([script({"@type": "Product", "name": "Kettle", "offers": offer})]) == []
+
+
+def test_a_standing_outside_the_vocabulary_is_left_out() -> None:
+    offer = {
+        "@type": "Offer", "price": 10, "availability": "https://schema.org/MadeToOrder",
+        "itemCondition": 7,
+    }
+
+    assert declared([script({"@type": "Product", "name": "Kettle", "offers": offer})]) == [
+        "Kettle: 10.00"
+    ]
+
+
+def test_a_damaged_condition_is_said_and_claims_no_standing() -> None:
+    offer = {"@type": "Offer", "price": 10, "itemCondition": "DamagedCondition"}
+    [line] = declared([script({"@type": "Product", "name": "Kettle", "offers": offer})])
+
+    assert line == "Kettle: 10.00, condition: damaged"
+    assert not any(
+        mentions_standing(line, standing) for standing in ("new", "used", "refurbished")
+    )
+
+
+def test_a_rating_out_of_a_hundred_is_put_on_five() -> None:
+    rating = {"ratingValue": 92, "bestRating": 100}
+
+    assert declared([script({"@type": "Product", "name": "Kettle", "aggregateRating": rating})]) == [
+        "Kettle: rated 4.6/5"
+    ]
+
+
+def test_a_price_with_a_thousands_comma_is_read_whole() -> None:
+    offer = {"@type": "Offer", "price": "1,299.00", "priceCurrency": "USD"}
+
+    assert declared([script({"@type": "Product", "name": "Laptop", "offers": offer})]) == [
+        "Laptop: 1299.00 USD"
+    ]

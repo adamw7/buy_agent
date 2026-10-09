@@ -820,6 +820,23 @@ describe('SearchForm', () => {
     expect(bounds('results')).toEqual(['1', '50']);
     expect(bounds('temperature')).toEqual(['0', '2']);
     expect(bounds('num_ctx')).toEqual(['1', '1000000']);
+    expect(bounds('alert_below')).toEqual(['1', '10000000']);
+  });
+
+  it('holds the price alert to its range before anything is sent', async () => {
+    await type('input[name="request"]', 'kettle');
+    await type('input[name="alert_below"]', '0');
+
+    expect(problem('alert_below')).toContain('Between 1 and 10000000');
+    expect(submit().disabled).toBe(true);
+  });
+
+  it('starts the price alert empty, which is no alert', async () => {
+    await type('input[name="request"]', 'kettle');
+    await send();
+
+    expect(element<HTMLInputElement>('input[name="alert_below"]').value).toBe('');
+    expect(submitted[0].alert_below).toBeNull();
   });
 
   it('lets a cleared number field mean the default, not a number out of range', async () => {
@@ -1873,6 +1890,17 @@ describe('SearchForm', () => {
     await choose('select[name="currency"]', 'PLN');
 
     expect(hint()).toContain('In PLN');
+  });
+
+  it('names the same scale under the price alert, and says it removes nothing', async () => {
+    /* An alert is read in the run's currency as a budget is (ADR-0080). */
+    const hint = () =>
+      element('input[name="alert_below"]').closest('label')!.querySelector('small')!.textContent!;
+
+    await choose('select[name="currency"]', 'EUR');
+
+    expect(hint()).toContain('In EUR');
+    expect(hint()).toContain('nothing is removed');
   });
 
   it('says under every bound that a product it cannot judge is kept', async () => {

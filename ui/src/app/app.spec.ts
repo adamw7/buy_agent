@@ -243,6 +243,33 @@ describe('App', () => {
     expect(await accessibilityProblems(page)).toEqual([]);
   });
 
+  it('is still readable with a price alert and a listing marked out of stock', async () => {
+    /* The banner and the pill are words first (ADR-0079, ADR-0080); colour only
+       repeats them. */
+    const fixture = await ran(agent, 'kettle', {
+      ...RESULT,
+      products: [
+        {
+          ...RESULT.products[0]!,
+          availability: 'out of stock',
+          listing_label: 'Out of stock',
+        },
+        ...RESULT.products.slice(1),
+      ],
+      alert: {
+        below: 50,
+        below_label: '50.00 USD',
+        met: [],
+        detail: 'Nothing found that can be bought is at or under 50.00 USD.',
+      },
+    });
+    const page = fixture.nativeElement as HTMLElement;
+
+    expect(page.querySelector('.alert')).not.toBeNull();
+    expect(page.querySelector('.listing.gone')).not.toBeNull();
+    expect(await accessibilityProblems(page)).toEqual([]);
+  });
+
   it('says which server it is waiting on rather than showing the last answer', async () => {
     /* `/api/models` is a call per pulled tag on a five-second budget, so a dead
        server takes the whole of it. Left showing the previous answer, the pill

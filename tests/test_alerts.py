@@ -108,3 +108,87 @@ def test_an_unknown_price_cannot_meet_it() -> None:
 
 def test_a_run_that_found_nothing_meets_nothing() -> None:
     assert price_alert([], 100).met == []
+
+
+def test_the_shoppers_currency_decides_the_scale_not_the_vote() -> None:
+    """Two euro listings outvote one dollar listing, but the shopper named dollars
+    (ADR-0056)."""
+    alert = price_alert(
+        ranked(
+            Product(name="Euro one", price=50.0, currency="EUR"),
+            Product(name="Euro two", price=60.0, currency="EUR"),
+            Product(name="Dollar", price=90.0, currency="USD"),
+        ),
+        100,
+        "USD",
+    )
+
+    assert alert.met == ["Dollar"]
+    assert alert.below_label == "100.00 USD"
+
+
+def test_without_a_named_currency_the_vote_decides() -> None:
+    alert = price_alert(
+        ranked(
+            Product(name="Euro one", price=50.0, currency="EUR"),
+            Product(name="Euro two", price=60.0, currency="EUR"),
+            Product(name="Dollar", price=90.0, currency="USD"),
+        ),
+        100,
+    )
+
+    assert alert.met == ["Euro one", "Euro two"]
+
+
+def test_a_price_with_no_currency_printed_is_counted_on_the_runs_scale() -> None:
+    """As ranking reads it (``comparable_price``): unprinted is not elsewhere."""
+    alert = price_alert(
+        ranked(
+            Product(name="Dollar", price=150.0, currency="USD"),
+            Product(name="Unsaid", price=90.0),
+        ),
+        100,
+    )
+
+    assert alert.met == ["Unsaid"]
+
+
+def test_an_in_stock_or_unknown_standing_meets_it_alike() -> None:
+    alert = price_alert(
+        ranked(
+            Product(name="Here", price=90.0, currency="USD", availability="in stock"),
+            Product(name="Unsaid", price=95.0, currency="USD"),
+            Product(name="Used", price=80.0, currency="USD", condition="used"),
+        ),
+        100,
+    )
+
+    assert alert.met == ["Used", "Here", "Unsaid"]
+    assert alert.detail == (
+        "At or under 100.00 USD: Used at 80.00 USD, Here at 90.00 USD and Unsaid at 95.00 USD."
+    )
+
+
+def test_a_met_alert_still_names_what_under_it_is_out_of_stock() -> None:
+    alert = price_alert(
+        ranked(
+            Product(name="Here", price=90.0, currency="USD"),
+            Product(name="Gone", price=70.0, currency="USD", availability="out of stock"),
+        ),
+        100,
+    )
+
+    assert alert.met == ["Here"]
+    assert alert.detail.endswith("Gone is at or under it, but out of stock where it was priced.")
+
+
+def test_the_alert_says_nothing_about_order_and_removes_nothing() -> None:
+    entries = ranked(
+        Product(name="Dear", price=250.0, currency="USD"),
+        Product(name="Cheap", price=150.0, currency="USD"),
+    )
+    before = [entry.model_copy(deep=True) for entry in entries]
+
+    price_alert(entries, 200)
+
+    assert entries == before

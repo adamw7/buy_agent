@@ -706,3 +706,56 @@ def test_the_prompt_restates_a_listings_standing(fake_agent, monkeypatch, capsys
     main(["headphones", "--pay", "--no-journal"])
 
     assert "listing   In stock, refurbished" in capsys.readouterr().err
+
+
+def test_an_alert_out_of_range_is_a_usage_error_naming_the_flag(fake_agent, capsys) -> None:
+    with pytest.raises(SystemExit) as exited:
+        main(["headphones", "--alert-below", "0"])
+
+    assert exited.value.code == 2
+    assert "--alert-below" in capsys.readouterr().err
+    assert "request" not in fake_agent, "refused before the run"
+
+
+def test_an_alert_is_read_in_the_currency_the_run_was_told_to(fake_agent, capsys) -> None:
+    """79.00 USD is not under 100 euros: nothing is converted (ADR-0043)."""
+    fake_agent["result"] = [
+        ranked_product(Product(name="Anker Q30", price=79.0, currency="USD"), score=0.8, rank=1)
+    ]
+
+    code = main(["headphones", "--alert-below", "100", "--currency", "EUR", "--no-journal"])
+
+    assert code == ABOVE_ALERT
+    assert "can count in EUR" in capsys.readouterr().out
+
+
+def test_paying_decides_the_exit_code_even_with_an_alert_unmet(
+    fake_agent, monkeypatch
+) -> None:
+    """Declined at the prompt, so nothing was bought: that is the answer --pay asked
+    for, whatever the alert said (ADR-0080)."""
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("no\n"))
+
+    assert main(["headphones", "--pay", "--alert-below", "10", "--no-journal"]) == 4
+
+
+def test_the_alert_goes_in_the_report_and_not_in_the_json(fake_agent, tmp_path, capsys) -> None:
+    """The report is stdout, and ``--json`` stays the products alone (ADR-0035)."""
+    path = tmp_path / "out.json"
+
+    main(["headphones", "--alert-below", "100", "--json", str(path), "--no-journal"])
+
+    captured = capsys.readouterr()
+    assert "PRICE ALERT MET" in captured.out
+    assert "PRICE ALERT" not in captured.err
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(written, list) and "alert" not in written[0]
+
+
+def test_the_alert_flag_says_what_it_does_not_do(capsys) -> None:
+    action = next(a for a in build_parser()._actions if "--alert-below" in a.option_strings)
+
+    assert "removes nothing" in action.help
+    assert "--max-price" in action.help
+    assert action.default is None

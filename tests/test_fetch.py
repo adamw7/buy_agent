@@ -772,3 +772,45 @@ def test_a_line_saying_how_a_listing_stands_is_kept_with_the_line_above() -> Non
     assert kept == ["Sony WH-1000XM5", "Out of stock", "Shipping and returns", "Refurbished by the maker"]
     assert quotes_a_figure("In stock")
     assert not quotes_a_figure("Shipping and returns")
+
+
+def test_what_a_page_declared_is_cached_with_it(monkeypatch) -> None:
+    """The cache keeps the page's text, declaration included (ADR-0040): the second
+    run reads it without asking the web, and the model sees the same lines."""
+    asked: list[str] = []
+
+    def answer(url: str):
+        asked.append(url)
+        return make_response(url, DECLARING)
+
+    stub_client(monkeypatch, answer)
+    results = [SearchResult(url="https://shop.example/xm5")]
+
+    first = enrich(results, cache_ttl=3600)
+    second = enrich(results, cache_ttl=3600)
+
+    assert asked == ["https://shop.example/xm5"]
+    assert first[0].content == second[0].content
+    assert second[0].content.startswith("Sony WH-1000XM5: 348.00 USD, out of stock")
+
+
+def test_a_declaration_is_kept_before_a_page_full_of_prices() -> None:
+    """First in the text, so it is the first thing the figure budget pays for."""
+    noise = "".join(f"<p>Accessory {index}: ${index}.99</p>" for index in range(200))
+    markup = DECLARING.replace("<p>Our review of the headphones.</p>", noise)
+
+    kept = condense(html_to_text(markup), max_chars=120)
+
+    assert kept.splitlines()[0] == "Sony WH-1000XM5: 348.00 USD, out of stock"
+
+
+def test_a_script_of_another_type_is_not_read_as_a_declaration() -> None:
+    markup = DECLARING.replace("Application/LD+JSON", "application/json")
+
+    assert not html_to_text(markup).startswith("Sony WH-1000XM5: 348.00")
+
+
+def test_an_empty_declaration_reads_as_none() -> None:
+    markup = '<script type="application/ld+json"></script><p>Price $10</p>'
+
+    assert html_to_text(markup) == "Price $10"

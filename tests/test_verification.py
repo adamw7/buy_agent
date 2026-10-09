@@ -399,3 +399,34 @@ def test_grounding_checks_the_standing_too() -> None:
 
     assert checked.price == 99.0
     assert checked.condition is None
+
+
+def test_one_declared_line_grounds_both_standings() -> None:
+    """The line ``structured`` writes for an offer carries both (ADR-0078)."""
+    line = "Sony WH-CH720N: 99.00 USD, in stock, condition: refurbished"
+    product = Product(
+        name="Sony WH-CH720N", price=99.0, availability="in stock", condition="refurbished"
+    )
+
+    assert verify_standing([product], [_page("https://shop.example/a", line)]) == [product]
+
+
+def test_a_supported_standing_stays_when_the_other_is_blanked() -> None:
+    page = _page("https://shop.example/a", "Sony WH-CH720N $99. In stock.")
+    product = Product(name="Sony WH-CH720N", price=99.0, availability="in stock", condition="used")
+
+    [checked] = verify_standing([product], [page])
+
+    assert (checked.availability, checked.condition) == ("in stock", None)
+
+
+@pytest.mark.parametrize("text", ["In-stock today", "Available now", "IN STOCK"])
+def test_in_stock_is_read_in_the_ways_shops_write_it(text: str) -> None:
+    assert mentions_standing(text, "in stock")
+
+
+def test_a_page_with_no_url_still_grounds_a_standing() -> None:
+    page = SearchResult(title="Sony WH-CH720N", snippet="Refurbished, $99", url="")
+    product = Product(name="Sony WH-CH720N", price=99.0, condition="refurbished")
+
+    assert verify_standing([product], [page]) == [product]

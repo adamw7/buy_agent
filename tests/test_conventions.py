@@ -56,6 +56,7 @@ from buy_agent.rails import RAILS, rail_options
 from buy_agent.search import BACKENDS, backend_options
 from buy_agent.models import Offer, Product, Removal
 from tests.conftest import SOURCE_ROOT, needs_ap2, payable_product, ranked_product, said
+import buy_agent.models as models_module
 from buy_agent.ranking import ORDERINGS, SortBy
 from buy_agent.server import DEFAULT_UI_DIR
 from buy_agent.server import build_parser as build_server_parser
@@ -290,6 +291,18 @@ def _typescript_sort_union() -> str:
     match = re.search(r"export type SortBy = ([^;]+);", source)
     assert match, "no SortBy union in agent.types.ts"
     return match.group(1)
+
+
+@pytest.mark.parametrize("union", ["Availability", "Condition"])
+def test_a_listings_standing_is_spelled_the_same_in_typescript(union: str) -> None:
+    """The card colours "out of stock" by comparing the payload against these words
+    (ADR-0079): a value renamed on one side only is a card that never marks it."""
+    source = _TYPES_TS.read_text(encoding="utf-8")
+    match = re.search(rf"export type {union} = ([^;]+);", source)
+    assert match, f"no {union} union in agent.types.ts"
+    python = set(get_args(getattr(models_module, union)))
+
+    assert set(re.findall(r"'([^']+)'", match.group(1))) == python
 
 
 def test_both_doors_say_which_end_of_each_criterion_comes_first() -> None:
