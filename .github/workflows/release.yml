@@ -25,7 +25,7 @@ env:
 jobs:
   archive:
     # Linux only: the archive is the same bytes from any runner.
-    name: Archive (Node 22.23.3, Python 3.14)
+    name: Archive (Node 24.21.0, Python 3.14)
     runs-on: ubuntu-latest
     permissions:
       contents: write

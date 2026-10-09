@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   stryker:
-    name: Stryker (Node 22)
+    name: Stryker (Node 24)
     runs-on: ubuntu-latest
     # About 1031 mutants and 100 minutes; three hours guards a hung mutant.
     timeout-minutes: 180
