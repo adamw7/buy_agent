@@ -67,6 +67,7 @@ const RESULT: SearchResult = {
   dropped: [{ name: 'The 5 best kettles of 2026', step: 'clean', reason: 'Reads as an article.' }],
   changes: [],
   compared_with: null,
+  alert: null,
 };
 
 const RECEIPT = receipt({
@@ -109,6 +110,7 @@ class FakeAgent {
       dropped: [],
       changes: [],
       compared_with: null,
+      alert: null,
     });
 
   defaults() {
@@ -238,6 +240,33 @@ describe('App', () => {
     expect(page.querySelectorAll('app-product-card')).not.toHaveLength(0);
     expect(page.querySelector('.changes')).not.toBeNull();
     expect(page.querySelector('.dropped')).not.toBeNull();
+    expect(await accessibilityProblems(page)).toEqual([]);
+  });
+
+  it('is still readable with a price alert and a listing marked out of stock', async () => {
+    /* The banner and the pill are words first (ADR-0079, ADR-0080); colour only
+       repeats them. */
+    const fixture = await ran(agent, 'kettle', {
+      ...RESULT,
+      products: [
+        {
+          ...RESULT.products[0]!,
+          availability: 'out of stock',
+          listing_label: 'Out of stock',
+        },
+        ...RESULT.products.slice(1),
+      ],
+      alert: {
+        below: 50,
+        below_label: '50.00 USD',
+        met: [],
+        detail: 'Nothing found that can be bought is at or under 50.00 USD.',
+      },
+    });
+    const page = fixture.nativeElement as HTMLElement;
+
+    expect(page.querySelector('.alert')).not.toBeNull();
+    expect(page.querySelector('.listing.gone')).not.toBeNull();
     expect(await accessibilityProblems(page)).toEqual([]);
   });
 
@@ -1475,6 +1504,81 @@ describe('App what changed since last time', () => {
 
     const page = fixture.nativeElement as HTMLElement;
     expect(page.querySelector('.changes')!.textContent).toContain('cheaper than on 11 Sep');
+  });
+});
+
+describe('App with a price alert', () => {
+  let agent: FakeAgent;
+
+  beforeEach(() => {
+    localStorage.clear();
+    agent = new FakeAgent();
+    TestBed.configureTestingModule({ providers: [{ provide: AgentService, useValue: agent }] });
+  });
+
+  const MET: SearchResult = {
+    ...RESULT,
+    alert: {
+      below: 100,
+      below_label: '100.00 USD',
+      met: ['Best Kettle'],
+      detail: 'At or under 100.00 USD: Best Kettle at 99.00 USD.',
+    },
+  };
+
+  it("says the alert was met, in Python's sentence, above the results", async () => {
+    /* Told and never applied (ADR-0080): every product is still listed. */
+    const page = (await ran(agent, 'kettle', MET)).nativeElement as HTMLElement;
+    const alert = page.querySelector('.alert')!;
+
+    expect(alert.textContent).toContain('Price alert met.');
+    expect(alert.textContent).toContain('At or under 100.00 USD: Best Kettle at 99.00 USD.');
+    expect(alert.classList).toContain('met');
+    expect(page.querySelectorAll('app-product-card')).toHaveLength(3);
+    expect(alert.compareDocumentPosition(page.querySelector('.results')!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it('says in words when it was not met, so the colour is not the only carrier', async () => {
+    const page = (
+      await ran(agent, 'kettle', {
+        ...RESULT,
+        alert: {
+          below: 50,
+          below_label: '50.00 USD',
+          met: [],
+          detail:
+            'Nothing found is at or under 50.00 USD; the cheapest is Best Kettle at 99.00 USD.',
+        },
+      })
+    ).nativeElement as HTMLElement;
+    const alert = page.querySelector('.alert')!;
+
+    expect(alert.textContent).toContain('Price alert not met.');
+    expect(alert.classList).not.toContain('met');
+  });
+
+  it('shows nothing for a run given no alert', async () => {
+    const page = (await ran(agent, 'kettle', RESULT)).nativeElement as HTMLElement;
+
+    expect(page.querySelector('.alert')).toBeNull();
+  });
+
+  it("keeps the run's alert when the results are re-ordered", async () => {
+    /* A re-sort ran no pipeline and answers `alert: null`, as it answers `dropped`
+       empty (ADR-0035). */
+    const fixture = await ran(agent, 'kettle', MET);
+    const select = (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>(
+      'select[name="resort"]',
+    )!;
+    select.value = 'price';
+    select.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('.alert')!.textContent).toContain(
+      'Best Kettle at 99.00 USD',
+    );
   });
 });
 

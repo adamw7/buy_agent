@@ -11,6 +11,7 @@ from buy_agent.ranking import CRITERIA, ORDERINGS, RankingWeights
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from buy_agent.alerts import Alert
     from buy_agent.journal import Change
     from buy_agent.models import RankedProduct, ScoreParts
     from buy_agent.ranking import SortBy
@@ -110,6 +111,9 @@ def log_top_products(
         _report("#%d  %s", entry.rank, product.name)
         _report("     score  : %.3f  (%s)", entry.score, _parts(entry.breakdown, weights))
         _report("     price  : %s", product.price_label())
+        # Only where a page said (ADR-0079).
+        if (listing := product.listing_label()) is not None:
+            _report("     state  : %s", listing)
         # Only where several pages priced it (ADR-0058).
         if (offers := product.offers_label()) is not None:
             _report("     offers : %s", offers)
@@ -142,3 +146,8 @@ def log_changes(changes: Sequence[Change], since: str | None) -> None:
     for change in changes:
         _report("  %-32s %s", change.name[:32], change.detail)
     _report(_RULE)
+
+
+def log_alert(alert: Alert) -> None:
+    """Report whether the price alert was met, in its own sentence (ADR-0080)."""
+    _report("PRICE ALERT %s: %s", "MET" if alert.met else "NOT MET", alert.detail)

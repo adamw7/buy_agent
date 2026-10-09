@@ -48,6 +48,8 @@ EXTRACTION_PROMPT = Prompt(
         "- Only use facts present in the results. Never invent a price or a rating.\n"
         "- Unknown price or rating is -1; unknown review count is 0; unknown text "
         "is empty; no opinions is an empty list.\n"
+        "- availability is 'in stock' or 'out of stock', and condition 'new', 'used' "
+        "or 'refurbished', only where the results say so for that listing.\n"
         "- Ratings go on a 0-5 scale. Convert a 0-10 or percentage score first.\n"
         "- A name is a specific model, such as 'Sony WH-1000XM5'. Never an article "
         "headline, a shop name, or a category.\n"
@@ -219,6 +221,8 @@ def _as_a_listing(product: Product) -> Product:
                     currency=product.currency,
                     seller=product.seller,
                     url=product.url,
+                    availability=product.availability,
+                    condition=product.condition,
                 )
             ]
         }

@@ -20,6 +20,12 @@
       <span class="pill" [class.unknown]="product().rating === null">{{
         product().rating_label
       }}</span>
+      <!-- Python's words, grounded with the price (ADR-0079). -->
+      @if (product().listing_label; as listing) {
+        <span class="pill listing" [class.gone]="product().availability === 'out of stock'">{{
+          listing
+        }}</span>
+      }
       @if (product().seller) {
         <span class="pill">{{ product().seller }}</span>
       }

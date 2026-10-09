@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from typing import get_args
+
 import pytest
 
 from buy_agent.models import (
     _MAX_OPINION_LENGTH,
+    STANDING_PHRASES,
+    Availability,
+    Condition,
     ExtractedProduct,
     Offer,
     Product,
@@ -187,3 +192,82 @@ def test_listings_none_of_which_are_on_the_scale_are_only_counted() -> None:
     )
 
     assert priced.offers_label() == "2 listings"
+
+
+# -- a listing's stock and condition (ADR-0079) ---------------------------------
+
+
+@pytest.mark.parametrize(
+    ("written", "availability"),
+    [
+        ("In Stock", "in stock"),
+        ("  available ", "in stock"),
+        ("sold out", "out of stock"),
+        ("Out-of-stock", "out of stock"),
+        ("ships in 3 weeks", None),
+        ("", None),
+    ],
+)
+def test_a_models_word_for_stock_is_read_as_one_of_two_or_as_unknown(
+    written: str, availability: str | None
+) -> None:
+    converted = ExtractedProduct(name="Thing", price=10, availability=written).to_product()
+
+    assert converted.availability == availability
+
+
+@pytest.mark.parametrize(
+    ("written", "condition"),
+    [
+        ("Brand New", "new"),
+        ("pre-owned", "used"),
+        ("Renewed", "refurbished"),
+        ("open box", None),
+    ],
+)
+def test_a_models_word_for_condition_is_read_as_one_of_three_or_as_unknown(
+    written: str, condition: str | None
+) -> None:
+    converted = ExtractedProduct(name="Thing", price=10, condition=written).to_product()
+
+    assert converted.condition == condition
+
+
+def test_a_standing_without_a_price_describes_no_listing() -> None:
+    """ADR-0022's rule, which a listing's stock and condition join: they describe the
+    price, so without one they are dropped with it."""
+    converted = ExtractedProduct(
+        name="Thing", availability="in stock", condition="used"
+    ).to_product()
+
+    assert converted.availability is None
+    assert converted.condition is None
+
+
+def test_every_standing_has_the_phrases_a_page_prints_it_with() -> None:
+    assert set(STANDING_PHRASES) == {*get_args(Availability), *get_args(Condition)}
+
+
+@pytest.mark.parametrize(
+    ("availability", "condition", "label"),
+    [
+        ("in stock", "refurbished", "In stock, refurbished"),
+        ("out of stock", None, "Out of stock"),
+        (None, "used", "Used"),
+        (None, None, None),
+    ],
+)
+def test_the_listing_label_says_what_the_pages_said_and_nothing_else(
+    availability: str | None, condition: str | None, label: str | None
+) -> None:
+    product = Product(name="Thing", price=10, availability=availability, condition=condition)
+
+    assert product.listing_label() == label
+
+
+def test_a_standing_off_the_wire_is_held_to_its_words() -> None:
+    """A re-sort and a payment read products back off the browser (ADR-0035)."""
+    with pytest.raises(ValueError):
+        Product(name="Thing", availability="maybe")
+    with pytest.raises(ValueError):
+        Offer(price=1.0, condition="mint")

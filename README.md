@@ -101,6 +101,7 @@ python -m buy_agent "running shoes" --sort-by price --json results.json
 python -m buy_agent "wireless earbuds" --source rtings.com --source @mkbhd
 python -m buy_agent "headphones" --max-price 200 --min-rating 4.5 --min-reviews 500
 python -m buy_agent "espresso machine" --compare          # ...and what moved since last time
+python -m buy_agent "espresso machine" --alert-below 400  # exit 5 unless one is at or under 400
 ```
 
 | Flag | Default | Meaning |
@@ -118,6 +119,7 @@ python -m buy_agent "espresso machine" --compare          # ...and what moved si
 | `--max-price` | no limit | Report nothing dearer, in the run's currency |
 | `--min-rating` | no limit | Report nothing rated below this, out of 5 |
 | `--min-reviews` | no limit | Report nothing whose rating averages fewer reviews |
+| `--alert-below` | no alert | Say whether anything in stock is at or under this price; removes nothing |
 | `--cache-ttl` | `86400` | Seconds a page, and the model's answer about it, stay usable; `0` is off |
 | `--journal` / `--no-journal` | `--journal` | Write this run down for the next run to compare against |
 | `--compare` | off | Report what is cheaper, dearer, new or gone since the last run |
@@ -133,7 +135,7 @@ python -m buy_agent "espresso machine" --compare          # ...and what moved si
 The report goes to **stdout** and the timestamped progress to **stderr**, so
 `> top.txt` keeps just the answer. Exit codes: `0` found products, `1` failed
 (the reason is the last line on stderr), `2` usage error, `3` found nothing, `4`
-asked to pay and did not, `130` Ctrl-C. `--json` is written either way.
+asked to pay and did not, `5` an `--alert-below` nothing met, `130` Ctrl-C. `--json` is written either way.
 
 As a library:
 
@@ -351,6 +353,25 @@ it (region, scale, sources, bounds), never the model
 `--no-journal` writes nothing. The browser shows the same comparison under the
 results.
 
+### ...and whether the price you are waiting for has arrived
+
+`--alert-below` (the form's **Price alert**) says whether anything found is at or
+under a price, and removes nothing:
+
+```powershell
+python -m buy_agent "espresso machine" --alert-below 400 --top 1 && notify-me
+```
+
+```
+PRICE ALERT MET: At or under 400.00 USD: Sage Bambino Plus at 329.00 USD.
+```
+
+Unlike `--max-price`, which keeps a product whose price nobody printed, only a
+price this run can place meets it, and never one whose page says it is out of
+stock. When nothing does, the run exits `5` and names the cheapest, so a scheduled
+run is a price watch with the journal as its history
+([ADR-0080](docs/adr/0080-tell-the-shopper-whether-a-price-alert-was-met.md)).
+
 ### What each page priced it at
 
 Every grounded listing is kept as an **offer** -- price, currency, shop and page
@@ -359,6 +380,13 @@ and the CLI adds an `offers` line. Ranking, bounds and the currency vote still
 read one headline price; the cart is built from the listing that price came off,
 so it names the shop that quoted it
 ([ADR-0058](docs/adr/0058-keep-every-listing-a-product-was-priced-at.md)).
+
+A listing also says whether it is **in stock** and whether it is **new, used or
+refurbished**, where a page about it says so: a `state` line on the CLI, a pill on
+the card. Both are grounded with the price and dropped with it, a cheap
+refurbished pair says so wherever its price is shown, and a listing its page marks
+out of stock is never paid for
+([ADR-0079](docs/adr/0079-ground-a-listings-stock-and-condition-with-its-price.md)).
 
 ### What the pages say
 
@@ -525,6 +553,12 @@ prose -- and Python does the rest (ADR-0002). What makes that work:
 - **Reading the pages, not the snippets.** A snippet for "headphones under $200"
   holds one number: the $200. Each page is fetched and condensed
   (`buy_agent/fetch.py`).
+- **Reading what a page declares.** Most shops describe their products to search
+  engines in schema.org JSON-LD. That is written out as the lines a shop would
+  print -- "Sony WH-1000XM5: 348.00 USD, in stock, condition: new" -- ahead of the
+  page's text, so the model reads it and grounding checks it like any other line
+  (`buy_agent/structured.py`,
+  [ADR-0078](docs/adr/0078-read-what-a-page-declares-as-lines-it-prints.md)).
 - **Grounding.** `buy_agent/verification.py` drops products whose name no source
   mentions and blanks any figure the text does not show. A blanked figure scores
   neutral instead of winning.
@@ -715,6 +749,9 @@ holds the import graph
   bar, so a model's "WH-1000XM4" survives pages about the XM5. The benchmark
   counts it as a product nobody wrote about.
 - **A bound has to be typed.** It is noticed and offered, never applied.
+- **Stock and condition are only what a page said**, and most pages say neither.
+  An unknown standing is not refused at payment, and ranking reads neither.
+  Microdata and RDFa declarations are not read, only JSON-LD.
 - **A cached page or answer is as current as its age**, up to a day by default.
 - **A named source is a domain, not an author.** `--source @mkbhd` keeps YouTube
   pages, including other people's.

@@ -25,8 +25,9 @@ import pytest
 import buy_agent.providers as providers_module
 import buy_agent.server as server_module
 from buy_agent.agent import every_step_passes
+from buy_agent.api import results_payload
 from buy_agent.models import Product, nothing_recorded
-from tests.conftest import Photographer, ranked_product
+from tests.conftest import Photographer, payable_product, ranked_product
 from buy_agent.providers import VLLM
 from buy_agent.screenshots import INSTALL, Camera, ScreenshotError
 from buy_agent.server import (
@@ -1463,3 +1464,77 @@ def test_the_camera_is_handed_to_the_server_and_let_go_on_the_way_out(
     assert main(["--ui-dir", str(tmp_path)]) == 0
     assert captured["camera"] is camera
     assert camera.closed
+
+
+# -- the price alert and a listing's standing, over the wire (ADR-0079, ADR-0080) -
+
+
+def test_a_search_given_a_price_alert_answers_whether_it_was_met(server: str) -> None:
+    status, payload = post(f"{server}/api/search", {"request": "headphones", "alert_below": 100})
+
+    assert status == 200
+    assert StubAgent.captured["config"].alert_below == 100
+    assert payload["alert"]["met"] == ["Anker Q30"]
+    assert payload["count"] == 2, "told, never applied"
+
+
+def test_a_search_given_no_alert_answers_null(server: str) -> None:
+    _status, payload = post(f"{server}/api/search", {"request": "headphones"})
+
+    assert payload["alert"] is None
+
+
+def test_an_alert_out_of_range_is_refused_on_its_box_before_the_run(server: str) -> None:
+    status, payload = post(f"{server}/api/search", {"request": "headphones", "alert_below": 0})
+
+    assert (status, payload["field"]) == (400, "alert_below")
+    assert "request" not in StubAgent.captured
+
+
+def test_the_stream_carries_the_alert_in_its_result(server: str) -> None:
+    name, data = events(f"{server}/api/search/stream?request=headphones&alert_below=50")[-1]
+
+    assert name == "result"
+    assert data["alert"]["met"] == []
+    assert "the cheapest is Anker Q30 at 79.00" in data["alert"]["detail"]
+
+
+def test_a_re_sort_over_the_wire_carries_the_standing_back(server: str) -> None:
+    """The products travel in the body (ADR-0035), so their standing must survive the
+    round trip, or a re-sorted card would lose its "Out of stock"."""
+    gone = payable_product(name="Bose QC", availability="out of stock")
+    products = results_payload([ranked_product(gone, score=0.5, rank=1)])
+
+    status, payload = post(f"{server}/api/rank", {"products": products, "sort_by": "price"})
+
+    assert status == 200
+    assert payload["products"][0]["availability"] == "out of stock"
+    assert payload["products"][0]["listing_label"] == "Out of stock"
+    assert "out of stock" in payload["products"][0]["cannot_pay"]
+    assert payload["alert"] is None
+
+
+def test_a_re_sort_with_a_standing_it_does_not_know_is_refused(server: str) -> None:
+    products = results_payload(RANKED)
+    products[0]["condition"] = "mint"
+
+    status, payload = post(f"{server}/api/rank", {"products": products})
+
+    assert (status, payload["field"]) == (400, "products")
+
+
+def test_paying_for_an_out_of_stock_listing_is_refused_on_the_products(server: str) -> None:
+    gone = payable_product(availability="out of stock")
+    products = results_payload([ranked_product(gone, score=0.9, rank=1)])
+
+    status, payload = post(
+        f"{server}/api/pay",
+        {
+            "products": products,
+            "rank": 1,
+            "approved": {"title": gone.name, "price": gone.price, "currency": "USD"},
+        },
+    )
+
+    assert (status, payload["field"]) == (400, "products")
+    assert "out of stock" in payload["error"]

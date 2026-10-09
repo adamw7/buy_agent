@@ -15,7 +15,9 @@ import httpx
 from lxml import html as lxml_html
 
 from buy_agent.cache import PAGES, DiskCache, open_cache
+from buy_agent.models import STANDING_PHRASES
 from buy_agent.money import SCANNED_CODES, SIGNS, WORDS
+from buy_agent.structured import declared
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
@@ -68,6 +70,12 @@ _OPINION = re.compile(
     """,
     re.IGNORECASE | re.VERBOSE,
 )
+#: Lines saying whether a listing is in stock or what state it comes in (ADR-0079).
+_STANDING = re.compile("|".join(STANDING_PHRASES.values()), re.IGNORECASE)
+
+#: Where a page declares its products to search engines (ADR-0078).
+_DECLARATIONS = "//script[contains(translate(@type, 'LDJSON', 'ldjson'), 'ld+json')]"
+
 _SEGMENT_BREAK = re.compile(r"[\n\r]+")
 _WHITESPACE = re.compile(r"\s+")
 
@@ -127,14 +135,16 @@ class PageText(NamedTuple):
 
 
 def html_to_text(markup: str) -> str:
-    """A page's visible text, one line per element."""
+    """A page's visible text, one line per element, after a line per offer and rating
+    its JSON-LD declares (ADR-0078): first, so the budget reaches them first."""
     try:
         document = lxml_html.fromstring(_XML_DECLARATION.sub("", markup, count=1))
     except (ValueError, lxml_html.etree.ParserError):
         return ""
+    stated = declared(script.text or "" for script in document.xpath(_DECLARATIONS))
     for element in document.xpath("//script|//style|//noscript|//svg"):
         element.drop_tree()
-    return "\n".join(document.itertext())
+    return "\n".join([*stated, *document.itertext()])
 
 
 def condense(text: str, *, max_chars: int, opinion_chars: int = _OPINION_BUDGET) -> str:
@@ -182,8 +192,8 @@ def condense(text: str, *, max_chars: int, opinion_chars: int = _OPINION_BUDGET)
 
 
 def quotes_a_figure(segment: str) -> bool:
-    """Whether a line names a price or a rating."""
-    return bool(_PRICE.search(segment) or _RATING.search(segment))
+    """Whether a line names a price or a rating, or says how a listing stands."""
+    return bool(_PRICE.search(segment) or _RATING.search(segment) or _STANDING.search(segment))
 
 
 def reads_like_an_opinion(segment: str) -> bool:

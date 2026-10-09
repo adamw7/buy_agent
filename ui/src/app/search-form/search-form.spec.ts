@@ -364,6 +364,18 @@ describe('SearchForm', () => {
     }
   });
 
+  it('sends a price alert and does not remember it for the next search', async () => {
+    /* An alert, like a bound, is set for the one thing it is watching (ADR-0080). */
+    await type('input[name="alert_below"]', '180');
+    await type('input[name="request"]', 'headphones');
+    await send();
+
+    expect(submitted[0]).toMatchObject({ alert_below: 180 });
+    expect(JSON.parse(localStorage.getItem('buy_agent.settings')!)).not.toHaveProperty(
+      'alertBelow',
+    );
+  });
+
   it('restores no bound an older build remembered', async () => {
     /* A browser that kept one before this held still has it stored, and restoring it
        is the filter nobody can see that the rule above exists to stop. The settings
@@ -808,6 +820,23 @@ describe('SearchForm', () => {
     expect(bounds('results')).toEqual(['1', '50']);
     expect(bounds('temperature')).toEqual(['0', '2']);
     expect(bounds('num_ctx')).toEqual(['1', '1000000']);
+    expect(bounds('alert_below')).toEqual(['1', '10000000']);
+  });
+
+  it('holds the price alert to its range before anything is sent', async () => {
+    await type('input[name="request"]', 'kettle');
+    await type('input[name="alert_below"]', '0');
+
+    expect(problem('alert_below')).toContain('Between 1 and 10000000');
+    expect(submit().disabled).toBe(true);
+  });
+
+  it('starts the price alert empty, which is no alert', async () => {
+    await type('input[name="request"]', 'kettle');
+    await send();
+
+    expect(element<HTMLInputElement>('input[name="alert_below"]').value).toBe('');
+    expect(submitted[0].alert_below).toBeNull();
   });
 
   it('lets a cleared number field mean the default, not a number out of range', async () => {
@@ -1861,6 +1890,17 @@ describe('SearchForm', () => {
     await choose('select[name="currency"]', 'PLN');
 
     expect(hint()).toContain('In PLN');
+  });
+
+  it('names the same scale under the price alert, and says it removes nothing', async () => {
+    /* An alert is read in the run's currency as a budget is (ADR-0080). */
+    const hint = () =>
+      element('input[name="alert_below"]').closest('label')!.querySelector('small')!.textContent!;
+
+    await choose('select[name="currency"]', 'EUR');
+
+    expect(hint()).toContain('In EUR');
+    expect(hint()).toContain('nothing is removed');
   });
 
   it('says under every bound that a product it cannot judge is kept', async () => {

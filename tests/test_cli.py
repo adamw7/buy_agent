@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 import buy_agent.__main__ as main_module
-from buy_agent.__main__ import NOTHING_FOUND, build_parser, main
+from buy_agent.__main__ import ABOVE_ALERT, NOTHING_FOUND, build_parser, main
 from buy_agent.agent import ModelUnavailableError
 from buy_agent.config import AgentConfig
 from buy_agent.models import Product
@@ -106,7 +106,7 @@ def test_the_help_names_every_exit_code(fake_agent) -> None:
     """--help is the only documentation the CLI has, and these are branched on."""
     help_text = build_parser().format_help()
 
-    for code in ("0", "1", "2", str(NOTHING_FOUND), "130"):
+    for code in ("0", "1", "2", str(NOTHING_FOUND), str(ABOVE_ALERT), "130"):
         assert f"  {code}  " in help_text, code
 
 
@@ -665,3 +665,97 @@ def test_comparing_a_search_never_run_before_says_so(fake_agent, caplog) -> None
 
     assert "Nothing to compare" in caplog.text
     assert "--compare has nothing to read" not in caplog.text, "the journal is on"
+
+
+# -- the price alert (ADR-0080) ------------------------------------------------
+
+
+def test_an_alert_that_was_met_exits_zero_and_says_so_in_the_report(fake_agent, capsys) -> None:
+    assert main(["headphones", "--alert-below", "100", "--no-journal"]) == 0
+
+    out = capsys.readouterr().out
+    assert "PRICE ALERT MET: At or under 100.00: Anker Q30 at 79.00." in out
+
+
+def test_an_alert_that_was_not_met_has_an_exit_code_of_its_own(fake_agent, capsys) -> None:
+    """So a scheduled run can be ``... && notify``: the code is the answer."""
+    assert main(["headphones", "--alert-below", "50", "--no-journal"]) == ABOVE_ALERT
+    assert ABOVE_ALERT not in (0, 1, 2, NOTHING_FOUND, 4, 130)
+
+    assert "PRICE ALERT NOT MET" in capsys.readouterr().out
+
+
+def test_finding_nothing_is_still_nothing_found_with_an_alert(fake_agent) -> None:
+    fake_agent["result"] = []
+
+    assert main(["headphones", "--alert-below", "50", "--no-journal"]) == NOTHING_FOUND
+
+
+def test_no_alert_is_reported_without_the_flag(fake_agent, capsys) -> None:
+    assert main(["headphones", "--no-journal"]) == 0
+
+    assert "PRICE ALERT" not in capsys.readouterr().out
+
+
+def test_the_prompt_restates_a_listings_standing(fake_agent, monkeypatch, capsys) -> None:
+    """What is approved is a refurbished pair, not the new one the price implies."""
+    standing = payable_product(availability="in stock", condition="refurbished")
+    fake_agent["result"] = [ranked_product(standing, score=0.9, rank=1)]
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("no\n"))
+
+    main(["headphones", "--pay", "--no-journal"])
+
+    assert "listing   In stock, refurbished" in capsys.readouterr().err
+
+
+def test_an_alert_out_of_range_is_a_usage_error_naming_the_flag(fake_agent, capsys) -> None:
+    with pytest.raises(SystemExit) as exited:
+        main(["headphones", "--alert-below", "0"])
+
+    assert exited.value.code == 2
+    assert "--alert-below" in capsys.readouterr().err
+    assert "request" not in fake_agent, "refused before the run"
+
+
+def test_an_alert_is_read_in_the_currency_the_run_was_told_to(fake_agent, capsys) -> None:
+    """79.00 USD is not under 100 euros: nothing is converted (ADR-0043)."""
+    fake_agent["result"] = [
+        ranked_product(Product(name="Anker Q30", price=79.0, currency="USD"), score=0.8, rank=1)
+    ]
+
+    code = main(["headphones", "--alert-below", "100", "--currency", "EUR", "--no-journal"])
+
+    assert code == ABOVE_ALERT
+    assert "can count in EUR" in capsys.readouterr().out
+
+
+def test_paying_decides_the_exit_code_even_with_an_alert_unmet(
+    fake_agent, monkeypatch
+) -> None:
+    """Declined at the prompt, so nothing was bought: that is the answer --pay asked
+    for, whatever the alert said (ADR-0080)."""
+    fake_agent["result"] = PAYABLE
+    monkeypatch.setattr(main_module.sys, "stdin", Typed("no\n"))
+
+    assert main(["headphones", "--pay", "--alert-below", "10", "--no-journal"]) == 4
+
+
+def test_the_alert_goes_in_the_report_and_not_in_the_json(fake_agent, tmp_path, capsys) -> None:
+    """The report is stdout, and ``--json`` stays the products alone (ADR-0035)."""
+    path = tmp_path / "out.json"
+
+    main(["headphones", "--alert-below", "100", "--json", str(path), "--no-journal"])
+
+    captured = capsys.readouterr()
+    assert "PRICE ALERT MET" in captured.out
+    assert "PRICE ALERT" not in captured.err
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(written, list) and "alert" not in written[0]
+
+
+def test_the_alert_flag_says_what_it_does_not_do(capsys) -> None:
+    action = next(a for a in build_parser()._actions if "--alert-below" in a.option_strings)
+
+    assert "removes nothing" in action.help
+    assert "--max-price" in action.help
+    assert action.default is None

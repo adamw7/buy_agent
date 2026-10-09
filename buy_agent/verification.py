@@ -8,7 +8,7 @@ import re
 from typing import TYPE_CHECKING
 
 from buy_agent.extraction import GENERIC_WORDS, NAME_TOKENS, SUPERLATIVES
-from buy_agent.models import QUALIFIERS, Removal, nothing_recorded
+from buy_agent.models import QUALIFIERS, STANDING_PHRASES, Removal, nothing_recorded
 from buy_agent.money import plain_figures
 
 if TYPE_CHECKING:
@@ -144,6 +144,7 @@ def ground(
     dropped product is recorded; blanked fields show on the card (ADR-0055)."""
     haystack = build_haystack(results)
     kept = verify_numbers(drop_ungrounded(products, haystack, record=record), haystack)
+    kept = verify_standing(kept, results)
     return attribute_sources(verify_opinions(kept, results), results)
 
 
@@ -201,7 +202,14 @@ def verify_numbers(products: Sequence[Product], haystack: str) -> list[Product]:
             value = getattr(product, figure)
             if value is not None and not supported(haystack, value):
                 updates[figure] = None
-                updates.update(dict.fromkeys(QUALIFIERS.get(figure, ())))
+                # Only those it carries, so the DEBUG line names what went.
+                updates.update(
+                    dict.fromkeys(
+                        name
+                        for name in QUALIFIERS.get(figure, ())
+                        if getattr(product, name) is not None
+                    )
+                )
 
         if updates:
             dropped += 1
@@ -210,6 +218,43 @@ def verify_numbers(products: Sequence[Product], haystack: str) -> list[Product]:
 
     if dropped:
         logger.info("Dropped unsupported figures on %d product(s)", dropped)
+    return verified
+
+
+def mentions_standing(haystack: str, value: str) -> bool:
+    """Whether ``haystack`` says a listing is ``value``: "in stock", "refurbished"."""
+    return re.search(STANDING_PHRASES[value], haystack, re.IGNORECASE) is not None
+
+
+_STANDINGS = ("availability", "condition")
+
+
+def verify_standing(
+    products: Sequence[Product], results: Sequence[SearchResult]
+) -> list[Product]:
+    """Blank a stock or condition no page about the product prints (ADR-0079)."""
+    pages = _page_haystacks(results)
+    verified: list[Product] = []
+    dropped = 0
+
+    for product in products:
+        said = {field: getattr(product, field) for field in _STANDINGS}
+        if not any(said.values()):
+            verified.append(product)
+            continue
+        mine = [text for _url, text in pages if mentions_name(text, product.name)]
+        updates: dict[str, None] = {
+            field: None
+            for field, value in said.items()
+            if value and not any(mentions_standing(text, value) for text in mine)
+        }
+        if updates:
+            dropped += 1
+            logger.debug("Unsupported %s for %r", "/".join(sorted(updates)), product.name)
+        verified.append(product.model_copy(update=updates) if updates else product)
+
+    if dropped:
+        logger.info("Dropped an unsupported stock or condition on %d product(s)", dropped)
     return verified
 
 

@@ -36,8 +36,17 @@ export interface Offer {
   currency: string | null;
   seller: string | null;
   url: string | null;
+  /** Grounded with the price, and dropped with it (ADR-0079). */
+  availability: Availability | null;
+  condition: Condition | null;
   price_label: string;
 }
+
+/** Whether a listing can be bought now, as a page said (ADR-0079). */
+export type Availability = 'in stock' | 'out of stock';
+
+/** The state a listing comes in, as a page said (ADR-0079). */
+export type Condition = 'new' | 'used' | 'refurbished';
 
 /** One ranked product. The `*_label` fields are written by Python's `Product`. */
 export interface RankedProduct {
@@ -53,6 +62,9 @@ export interface RankedProduct {
   name: string;
   price: number | null;
   currency: string | null;
+  /** The headline listing's, grounded as its price is (ADR-0079). */
+  availability: Availability | null;
+  condition: Condition | null;
   rating: number | null;
   review_count: number | null;
   seller: string | null;
@@ -65,6 +77,18 @@ export interface RankedProduct {
   rating_label: string;
   /** "3 listings, 129.00-149.00 USD", or `null` for fewer than two. */
   offers_label: string | null;
+  /** "In stock, refurbished", or `null` where no page said either (ADR-0079). */
+  listing_label: string | null;
+}
+
+/** Whether a run found the price the shopper is waiting for; never applied (ADR-0080). */
+export interface PriceAlert {
+  below: number;
+  below_label: string;
+  /** The products at or under it that can be bought, cheapest first. */
+  met: string[];
+  /** Python's sentence; the page writes none of its own. */
+  detail: string;
 }
 
 /** One candidate that left the report, and what took it out. */
@@ -104,6 +128,8 @@ export interface SearchResult {
   /** What moved since the last run (ADR-0060). Empty from a re-sort, as `dropped` is. */
   changes: Change[];
   compared_with: string | null;
+  /** `null` unless the run was given one, and from a re-sort; the page keeps the run's. */
+  alert: PriceAlert | null;
 }
 
 export type SortBy = 'score' | 'price' | 'rating';
@@ -176,6 +202,8 @@ export interface AgentDefaults {
   max_price: number | null;
   min_rating: number | null;
   min_reviews: number | null;
+  /** Said whether anything is at or under it; never applied (ADR-0080). */
+  alert_below: number | null;
   cache_ttl: number;
   journal: boolean;
   region: string;
@@ -264,6 +292,7 @@ export interface SearchOptions {
   max_price?: number | null;
   min_rating?: number | null;
   min_reviews?: number | null;
+  alert_below?: number | null;
   cache_ttl?: number | null;
   spend_limit?: number | null;
   journal?: boolean;

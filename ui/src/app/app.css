@@ -203,3 +203,13 @@ main {
     align-items: flex-start;
   }
 }
+
+/* The price alert's sentence (ADR-0080): its words say met or not, the border repeats it. */
+.alert {
+  border-left: 4px solid var(--border);
+  font-size: 14px;
+}
+
+.alert.met {
+  border-left-color: var(--good);
+}

@@ -167,6 +167,36 @@ describe('ProductCard', () => {
     expect(card.querySelector('.offers')).toBeNull();
   });
 
+  it("says whether the listing is in stock and what state it comes in, in Python's words", async () => {
+    /* Grounded with the price (ADR-0079): a refurbished pair at a used price is not the
+       new one it would otherwise be read as. */
+    const card = await render(
+      product({
+        availability: 'in stock',
+        condition: 'refurbished',
+        listing_label: 'In stock, refurbished',
+      }),
+    );
+    const listing = card.querySelector('.listing')!;
+
+    expect(listing.textContent).toContain('In stock, refurbished');
+    expect(listing.classList).not.toContain('gone');
+  });
+
+  it('marks a listing its page says is out of stock, in words and in colour', async () => {
+    const card = await render(
+      product({ availability: 'out of stock', listing_label: 'Out of stock' }),
+    );
+    const listing = card.querySelector('.listing')!;
+
+    expect(listing.textContent).toContain('Out of stock');
+    expect(listing.classList).toContain('gone');
+  });
+
+  it('says nothing of stock where no page did', async () => {
+    expect((await render(SONY)).querySelector('.listing')).toBeNull();
+  });
+
   it('links to where the product was found, in a new tab', async () => {
     const link = (await render(SONY)).querySelector<HTMLAnchorElement>('h3 a')!;
     expect(link.href).toBe('https://www.example.com/sony');

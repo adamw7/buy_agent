@@ -18,6 +18,7 @@ from buy_agent.search import SearchError, SearchResult
 from buy_agent.sources import parse_sources
 
 from tests.conftest import FakeLLM
+from tests.test_fetch import make_response, stub_client
 
 
 @pytest.fixture
@@ -840,3 +841,85 @@ def test_the_run_s_backend_is_the_one_the_search_is_asked_through(monkeypatch) -
     BuyAgent(AgentConfig(backend="searxng"), llm=FakeLLM()).run("headphones")
 
     assert [backend.name for backend in asked] == ["searxng"]
+
+
+# -- a declared page, through the real fetch, to the report (ADR-0078, ADR-0079) -
+
+
+#: A shop page that prints nothing visible but its name: every figure is declared.
+DECLARING_PAGE = """<html><head><script type="application/ld+json">
+{"@context": "https://schema.org", "@type": "Product", "name": "Sony WH-1000XM5",
+ "offers": {"@type": "Offer", "price": "299.00", "priceCurrency": "USD",
+            "availability": "https://schema.org/InStock",
+            "itemCondition": "https://schema.org/RefurbishedCondition"},
+ "aggregateRating": {"@type": "AggregateRating", "ratingValue": "4.6", "reviewCount": 3200}}
+</script></head><body><h1>Sony WH-1000XM5</h1><p>Free returns.</p></body></html>"""
+
+
+@pytest.fixture
+def declaring_shop(monkeypatch):
+    """One search result whose page is ``DECLARING_PAGE``, fetched for real."""
+    url = "https://shop.example/xm5"
+    monkeypatch.setattr(
+        "buy_agent.agent.search_web",
+        lambda *_args, **_kwargs: [SearchResult(title="Sony WH-1000XM5", url=url)],
+    )
+    stub_client(monkeypatch, lambda asked: make_response(asked, DECLARING_PAGE))
+    return url
+
+
+def _sony(**fields) -> ProductList:
+    return ProductList(products=[ExtractedProduct(name="Sony WH-1000XM5", **fields)])
+
+
+def test_a_declared_offer_is_shown_to_the_model_and_survives_grounding(
+    declaring_shop
+) -> None:
+    """The figures exist only in the page's JSON-LD, so without ADR-0078 the model
+    never saw them and grounding blanked whatever it said."""
+    llm = FakeLLM(
+        products=_sony(
+            price=299.0, currency="USD", rating=4.6, review_count=3200,
+            availability="in stock", condition="refurbished",
+        )
+    )
+    agent = BuyAgent(AgentConfig(cache_ttl=0), llm=llm)
+
+    [entry] = agent.run("headphones")
+
+    shown = str(llm.calls[-1])
+    assert "Sony WH-1000XM5: 299.00 USD, in stock, condition: refurbished" in shown
+    assert "rated 4.6/5 from 3200 reviews" in shown
+    product = entry.product
+    assert (product.price, product.currency, product.rating, product.review_count) == (
+        299.0, "USD", 4.6, 3200,
+    )
+    assert product.url == declaring_shop
+    assert product.listing_label() == "In stock, refurbished"
+    assert product.offers[0].condition == "refurbished"
+
+
+def test_a_standing_the_page_never_declared_is_blanked_in_a_run(declaring_shop) -> None:
+    """The model says "used, sold out"; the page says refurbished and in stock."""
+    llm = FakeLLM(
+        products=_sony(price=299.0, currency="USD", availability="sold out", condition="used")
+    )
+
+    [entry] = BuyAgent(AgentConfig(cache_ttl=0), llm=llm).run("headphones")
+
+    assert entry.product.price == 299.0
+    assert (entry.product.availability, entry.product.condition) == (None, None)
+
+
+def test_a_price_the_page_never_declared_takes_its_standing_with_it(declaring_shop) -> None:
+    """ADR-0022 through a whole run: the stock described the price that went."""
+    llm = FakeLLM(
+        products=_sony(
+            price=249.0, currency="USD", availability="in stock", condition="refurbished"
+        )
+    )
+
+    [entry] = BuyAgent(AgentConfig(cache_ttl=0), llm=llm).run("headphones")
+
+    assert entry.product.price is None
+    assert entry.product.listing_label() is None

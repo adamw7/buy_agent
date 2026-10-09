@@ -170,6 +170,7 @@ export class SearchForm {
   protected readonly maxPrice = signal<number | null>(null);
   protected readonly minRating = signal<number | null>(null);
   protected readonly minReviews = signal<number | null>(null);
+  protected readonly alertBelow = signal<number | null>(null);
   protected readonly cacheTtl = signal<number | null>(null);
   protected readonly sortBy = signal<SortBy>('score');
   protected readonly temperature = signal<number | null>(0);
@@ -221,6 +222,13 @@ export class SearchForm {
     }),
     field('min_reviews', 'Min reviews', this.minReviews, {
       hint: 'How many reviews a rating has to average. Products with no count are still shown.',
+      remembered: false,
+    }),
+    // Told, never applied, and asked of one search as a bound is (ADR-0080).
+    field('alert_below', 'Price alert', this.alertBelow, {
+      step: 0.01,
+      hint: () =>
+        `In ${this.scale()}. Says whether anything in stock is at or under it; nothing is removed.`,
       remembered: false,
     }),
     field('results', 'Products to find', this.results, { remembersBlank: false }),

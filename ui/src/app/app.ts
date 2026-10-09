@@ -373,6 +373,7 @@ export class App {
             dropped: found.dropped,
             changes: found.changes,
             compared_with: found.compared_with,
+            alert: found.alert,
           });
           this.reordering.set(false);
         },

@@ -6,7 +6,7 @@ import re
 from collections import Counter
 from collections.abc import Iterable
 from math import isfinite
-from typing import TYPE_CHECKING, Annotated, TypeAlias
+from typing import TYPE_CHECKING, Annotated, Literal, TypeAlias, cast, get_args
 
 from pydantic import BaseModel, Field
 
@@ -23,6 +23,51 @@ MAX_OPINIONS = 3
 
 #: Longer than this is a retelling, not a quote.
 _MAX_OPINION_LENGTH = 240
+
+#: Whether a listing can be bought now, and what state it comes in (ADR-0079).
+Availability: TypeAlias = Literal["in stock", "out of stock"]
+Condition: TypeAlias = Literal["new", "used", "refurbished"]
+
+#: How a page prints each standing: what grounding looks for and ``fetch`` keeps. "New"
+#: and "used" alone are everywhere ("new for 2026", "used it daily"), so each needs the
+#: words that make it a listing's condition.
+STANDING_PHRASES: dict[str, str] = {
+    "in stock": r"(?<!not )(?<!no longer )\bin[-\s]stock\b|\bavailable\s+now\b",
+    "out of stock": (
+        r"\bout[-\s]of[-\s]stock\b|\bsold[-\s]out\b|\bcurrently\s+unavailable\b"
+        r"|\bnot\s+in\s+stock\b|\bno\s+longer\s+available\b|\bdiscontinued\b"
+    ),
+    "new": r"\bbrand[-\s]new\b|\bcondition:?\s+new\b|\bnew\s+condition\b|\bfactory[-\s]sealed\b",
+    "used": (
+        r"\bpre[-\s]?owned\b|\bsecond[-\s]?hand\b|\bcondition:?\s+used\b|\bused\s+condition\b"
+        r"|\bused\s*[-(:]\s*(?:like\s+new|very\s+good|good|acceptable)\b"
+    ),
+    "refurbished": r"\brefurbished\b|\brenewed\b|\breconditioned\b",
+}
+
+#: What a model may write for each standing, folded; anything else is unknown.
+_STANDING_SPELLINGS: dict[str, str] = {
+    "in stock": "in stock",
+    "in-stock": "in stock",
+    "instock": "in stock",
+    "available": "in stock",
+    "out of stock": "out of stock",
+    "out-of-stock": "out of stock",
+    "outofstock": "out of stock",
+    "sold out": "out of stock",
+    "unavailable": "out of stock",
+    "discontinued": "out of stock",
+    "new": "new",
+    "brand new": "new",
+    "used": "used",
+    "pre-owned": "used",
+    "preowned": "used",
+    "second-hand": "used",
+    "secondhand": "used",
+    "refurbished": "refurbished",
+    "renewed": "refurbished",
+    "reconditioned": "refurbished",
+}
 
 
 class ExtractedProduct(BaseModel):
@@ -51,6 +96,16 @@ class ExtractedProduct(BaseModel):
     notes: Annotated[
         str, Field(description="One short sentence on what stands out about this product.")
     ] = ""
+    availability: Annotated[
+        str,
+        Field(description='"in stock" or "out of stock", as the results say. Empty if unknown.'),
+    ] = ""
+    condition: Annotated[
+        str,
+        Field(
+            description='"new", "used" or "refurbished", as the results say. Empty if unknown.'
+        ),
+    ] = ""
     opinions: Annotated[
         list[str],
         Field(
@@ -71,6 +126,9 @@ class ExtractedProduct(BaseModel):
             name=_clean(self.name),
             price=price,
             currency=code_for(self.currency) if price is not None else None,
+            # A listing's standing describes its price, and goes with it (ADR-0022).
+            availability=_availability(self.availability) if price is not None else None,
+            condition=_condition(self.condition) if price is not None else None,
             rating=rating,
             review_count=(
                 self.review_count if rating is not None and self.review_count > 0 else None
@@ -97,6 +155,8 @@ class Offer(BaseModel):
     currency: str | None = None
     seller: str | None = None
     url: str | None = None
+    availability: Availability | None = None
+    condition: Condition | None = None
 
 
 class ProductList(BaseModel):
@@ -121,6 +181,9 @@ class Product(BaseModel):
     name: str
     price: Annotated[float | None, Field(allow_inf_nan=False)] = None
     currency: str | None = None
+    #: The headline listing's, grounded as its price is and blanked with it (ADR-0079).
+    availability: Availability | None = None
+    condition: Condition | None = None
     rating: Annotated[float | None, Field(allow_inf_nan=False, ge=0, le=5)] = None
     review_count: int | None = None
     seller: str | None = None
@@ -142,6 +205,11 @@ class Product(BaseModel):
             return "unrated"
         reviews = f" ({self.review_count:,} reviews)" if self.review_count else ""
         return f"{self.rating:.1f}/5{reviews}"
+
+    def listing_label(self) -> str | None:
+        """ "In stock, refurbished", or ``None`` where no page said either (ADR-0079)."""
+        said = [value for value in (self.availability, self.condition) if value]
+        return ", ".join(said).capitalize() if said else None
 
     def offers_label(self) -> str | None:
         """The spread of listings' prices in the headline's currency, with the others
@@ -175,7 +243,7 @@ class Product(BaseModel):
 
 #: Fields that describe another field, and move with it (ADR-0022).
 QUALIFIERS: dict[str, tuple[str, ...]] = {
-    "price": ("currency",),
+    "price": ("currency", "availability", "condition"),
     "rating": ("review_count",),
 }
 
@@ -263,6 +331,18 @@ def distinct_quotes(values: Iterable[Opinion]) -> list[Opinion]:
     for quote in values:
         seen.setdefault(quote.text.casefold(), quote)
     return list(seen.values())[:MAX_OPINIONS]
+
+
+def _availability(value: str) -> Availability | None:
+    """A model's word for whether a listing is in stock, if it is one."""
+    said = _STANDING_SPELLINGS.get(_clean(value).casefold())
+    return cast("Availability", said) if said in get_args(Availability) else None
+
+
+def _condition(value: str) -> Condition | None:
+    """A model's word for the state a listing comes in, if it is one."""
+    said = _STANDING_SPELLINGS.get(_clean(value).casefold())
+    return cast("Condition", said) if said in get_args(Condition) else None
 
 
 def _quotes(values: list[str]) -> list[Opinion]:

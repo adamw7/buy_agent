@@ -736,3 +736,81 @@ def test_enrich_hands_every_page_the_wait(monkeypatch) -> None:
     assert "$129.99" in enriched[0].content
     assert waits == [_RETRY_WAIT]
     assert len(asked) == 2
+
+
+# -- what a page declares (ADR-0078) and how a listing stands (ADR-0079) -------
+
+
+DECLARING = """<html><head>
+<script type="Application/LD+JSON">
+{"@type": "Product", "name": "Sony WH-1000XM5",
+ "offers": {"@type": "Offer", "price": 348, "priceCurrency": "USD",
+            "availability": "https://schema.org/OutOfStock"}}
+</script>
+<script>var tracking = "Sony WH-1000XM5: 1.00 USD";</script>
+</head><body><p>Our review of the headphones.</p></body></html>"""
+
+
+def test_what_a_page_declares_comes_first_and_its_scripts_do_not() -> None:
+    """First, so the budget reaches it first; a script's own text never shows."""
+    lines = html_to_text(DECLARING).splitlines()
+
+    assert lines[0] == "Sony WH-1000XM5: 348.00 USD, out of stock"
+    assert "Our review of the headphones." in lines
+    assert not any("tracking" in line for line in lines)
+
+
+def test_a_page_declaring_nothing_reads_as_it_did() -> None:
+    assert html_to_text("<p>Hello</p>") == "Hello"
+
+
+def test_a_line_saying_how_a_listing_stands_is_kept_with_the_line_above() -> None:
+    text = "Sony WH-1000XM5\nOut of stock\nShipping and returns\nRefurbished by the maker"
+
+    kept = condense(text, max_chars=1200).splitlines()
+
+    assert kept == ["Sony WH-1000XM5", "Out of stock", "Shipping and returns", "Refurbished by the maker"]
+    assert quotes_a_figure("In stock")
+    assert not quotes_a_figure("Shipping and returns")
+
+
+def test_what_a_page_declared_is_cached_with_it(monkeypatch) -> None:
+    """The cache keeps the page's text, declaration included (ADR-0040): the second
+    run reads it without asking the web, and the model sees the same lines."""
+    asked: list[str] = []
+
+    def answer(url: str):
+        asked.append(url)
+        return make_response(url, DECLARING)
+
+    stub_client(monkeypatch, answer)
+    results = [SearchResult(url="https://shop.example/xm5")]
+
+    first = enrich(results, cache_ttl=3600)
+    second = enrich(results, cache_ttl=3600)
+
+    assert asked == ["https://shop.example/xm5"]
+    assert first[0].content == second[0].content
+    assert second[0].content.startswith("Sony WH-1000XM5: 348.00 USD, out of stock")
+
+
+def test_a_declaration_is_kept_before_a_page_full_of_prices() -> None:
+    """First in the text, so it is the first thing the figure budget pays for."""
+    noise = "".join(f"<p>Accessory {index}: ${index}.99</p>" for index in range(200))
+    markup = DECLARING.replace("<p>Our review of the headphones.</p>", noise)
+
+    kept = condense(html_to_text(markup), max_chars=120)
+
+    assert kept.splitlines()[0] == "Sony WH-1000XM5: 348.00 USD, out of stock"
+
+
+def test_a_script_of_another_type_is_not_read_as_a_declaration() -> None:
+    markup = DECLARING.replace("Application/LD+JSON", "application/json")
+
+    assert not html_to_text(markup).startswith("Sony WH-1000XM5: 348.00")
+
+
+def test_an_empty_declaration_reads_as_none() -> None:
+    markup = '<script type="application/ld+json"></script><p>Price $10</p>'
+
+    assert html_to_text(markup) == "Price $10"

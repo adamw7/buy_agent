@@ -55,6 +55,8 @@ class Cart(BaseModel):
     url: str
     item_id: str
     instrument: str = DEFAULT_INSTRUMENT
+    #: "In stock, refurbished": restated to whoever approves it (ADR-0079).
+    listing: str | None = None
 
     def merchant_payload(self) -> dict[str, str]:
         """The merchant as AP2 names one."""
@@ -87,7 +89,8 @@ class Receipt(BaseModel):
 
 def _check(product: Product, currency: str | None) -> tuple[float, str]:
     """The price and currency this product may be paid in, or a refusal: never an
-    unverified number, nor one this run cannot place (ADR-0043)."""
+    unverified number, nor one this run cannot place (ADR-0043), nor a listing its page
+    says is out of stock (ADR-0079)."""
     if product.price is None:
         raise PaymentError(
             f"No source printed a price for {product.name}, so there is nothing to "
@@ -125,6 +128,12 @@ def _check(product: Product, currency: str | None) -> tuple[float, str]:
     if not product.url:
         raise PaymentError(
             f"{product.name} has no source page, so there is no merchant to pay.",
+            field="products",
+        )
+    if product.availability == "out of stock":
+        raise PaymentError(
+            f"The page that priced {product.name} at {amount_label(price, currency)} "
+            f"says it is out of stock, so there is nothing to buy at that price.",
             field="products",
         )
     return price, currency
@@ -197,6 +206,7 @@ def cart_for(
         merchant=merchant,
         url=page,
         item_id=product.dedup_key.replace(" ", "-")[:120],
+        listing=product.listing_label(),
     )
 
 

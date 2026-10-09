@@ -333,3 +333,16 @@ def _raising(exc: Exception):
         raise exc
 
     return fail
+
+
+def test_a_listings_standing_is_not_written_down() -> None:
+    """The journal keeps a name, a price and a currency and nothing else (ADR-0060), so
+    stock and condition, which change by the hour, are not history (ADR-0079)."""
+    product = Product(
+        name="Sony WH-1000XM5", price=299.0, currency="USD",
+        availability="out of stock", condition="refurbished",
+    )
+
+    assert Recorded.of(product).model_dump() == {
+        "name": "Sony WH-1000XM5", "price": 299.0, "currency": "USD",
+    }

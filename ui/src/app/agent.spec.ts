@@ -42,6 +42,13 @@ describe('toQuery', () => {
     expect(query.get('fetch')).toBe('false');
     expect(query.get('temperature')).toBe('0');
   });
+
+  it('sends a price alert as typed, and none when the box is cleared', () => {
+    expect(
+      new URLSearchParams(toQuery({ request: 'kettle', alert_below: 99.5 })).get('alert_below'),
+    ).toBe('99.5');
+    expect(toQuery({ request: 'kettle', alert_below: null })).toBe('request=kettle');
+  });
 });
 
 describe('AgentService', () => {
