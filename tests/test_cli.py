@@ -190,7 +190,7 @@ def test_the_help_names_every_provider_s_variables_and_what_a_proxy_ignores(caps
         main(["--help"])
     printed = " ".join(capsys.readouterr().out.split())
 
-    for name in ("OLLAMA", "VLLM", "LITELLM"):
+    for name in ("OLLAMA", "VLLM", "LITELLM", "TRTLLM"):
         assert f"${name}_MODEL" in printed and f"${name}_HOST" in printed
     assert printed.count("a LiteLLM proxy leaves it to the server it routes to") == 2
 

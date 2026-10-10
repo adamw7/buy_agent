@@ -383,7 +383,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         return installed_models(provider, base_url, unaskable=unaskable)
 
     def _answered_here(self, address: str) -> bool:
-        """Whether ``address`` is this server's own (vLLM's default 8000 is)."""
+        """Whether ``address`` is this server's own (vLLM's and TensorRT-LLM's 8000 is)."""
         host, port = cast("tuple[Any, ...]", self.server.server_address)[:2]
         return _reaches(address, str(host), int(port))
 

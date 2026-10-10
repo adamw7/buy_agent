@@ -1,5 +1,5 @@
-"""The model servers -- Ollama, vLLM, a LiteLLM proxy -- one row each (ADR-0028,
-ADR-0029, ADR-0032, ADR-0051, ADR-0068)."""
+"""The model servers -- Ollama, vLLM, a LiteLLM proxy, TensorRT-LLM -- one row each
+(ADR-0028, ADR-0029, ADR-0032, ADR-0051, ADR-0068, ADR-0081)."""
 
 from __future__ import annotations
 
@@ -211,8 +211,8 @@ def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
 
 @dataclass(frozen=True, slots=True)
 class _OpenAIChat:
-    """An OpenAI-compatible chat API (vLLM, LiteLLM) asked for one schema-shaped answer
-    (ADR-0004, ADR-0028, ADR-0068)."""
+    """An OpenAI-compatible chat API (vLLM, LiteLLM, TensorRT-LLM) asked for one
+    schema-shaped answer (ADR-0004, ADR-0028, ADR-0068, ADR-0081)."""
 
     client: openai.OpenAI
     model: str
@@ -254,7 +254,9 @@ def _openai_chat_model(config: AgentConfig, extra_body: dict[str, Any]) -> ChatM
     )
 
 
-def _vllm_chat_model(config: AgentConfig) -> ChatModel:
+def _templated_chat_model(config: AgentConfig) -> ChatModel:
+    """``reasoning`` as ``enable_thinking``, read by the chat templates of the thinking
+    models vLLM and ``trtllm-serve`` render (ADR-0019, ADR-0081)."""
     extra_body: dict[str, Any] = {}
     if config.reasoning is not None:
         extra_body["chat_template_kwargs"] = {"enable_thinking": config.reasoning}
@@ -279,23 +281,49 @@ def _openai_models(config: AgentConfig) -> list[InstalledModel]:
     ]
 
 
-def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
-    detail = str(exc)
-    if isinstance(exc, openai.AuthenticationError):
+def _one_model_hint(label: str, serve: str, key: str) -> Hint:
+    """The hint of a server started for one model by ``serve``: a refused key, a model
+    it is not serving, and nothing answering (ADR-0028, ADR-0081)."""
+
+    def hint(config: AgentConfig, exc: Exception) -> str:
+        if isinstance(exc, openai.AuthenticationError):
+            return f"{label} at {config.base_url} refused the API key ({exc}). {key}"
+        lowered = _answered_by(exc, openai.APIStatusError)
+        if "does not exist" in lowered or "not found" in lowered:
+            return (
+                f"{label} at {config.base_url} is not serving {config.model!r}. "
+                f"A {label} process serves one model, chosen when it starts, so either "
+                f"ask for what it has (serving: {_listed(config)}) or restart it "
+                f"with:  {serve} {config.model}"
+            )
+        return _unreachable_hint(config, exc, f"{serve} {config.model}")
+
+    return hint
+
+
+_vllm_hint = _one_model_hint(
+    "vLLM",
+    "vllm serve",
+    "Set $VLLM_API_KEY to the key it was started with:  vllm serve ... --api-key <key>",
+)
+
+_trtllm_served = _one_model_hint(
+    "TensorRT-LLM",
+    "trtllm-serve",
+    "Set $TRTLLM_API_KEY to the key whatever stands in front of it expects.",
+)
+
+
+def _trtllm_hint(config: AgentConfig, exc: Exception) -> str:
+    """``trtllm-serve`` constrains decoding only when started with a backend for it."""
+    if "guided" in _answered_by(exc, openai.APIStatusError):
         return (
-            f"vLLM at {config.base_url} refused the API key ({detail}). "
-            "Set $VLLM_API_KEY to the key it was started with:  "
-            "vllm serve ... --api-key <key>"
+            f"TensorRT-LLM at {config.base_url} would not decode against the JSON schema "
+            f"this sends ({exc}). Restart it with guided decoding on: put "
+            f"'guided_decoding_backend: xgrammar' in a YAML file and start it with:  "
+            f"trtllm-serve {config.model} --extra_llm_api_options <that file>"
         )
-    lowered = _answered_by(exc, openai.APIStatusError)
-    if "does not exist" in lowered or "not found" in lowered:
-        return (
-            f"vLLM at {config.base_url} is not serving {config.model!r}. "
-            f"A vLLM process serves one model, chosen when it starts, so either "
-            f"ask for what it has (serving: {_listed(config)}) or restart it "
-            f"with:  vllm serve {config.model}"
-        )
-    return _unreachable_hint(config, exc, f"vllm serve {config.model}")
+    return _trtllm_served(config, exc)
 
 
 def _litellm_chat_model(config: AgentConfig) -> ChatModel:
@@ -453,7 +481,7 @@ VLLM = Provider(
     # Both fixed at startup.
     takes_num_ctx=False,
     takes_cpu_only=False,
-    chat_model=_vllm_chat_model,
+    chat_model=_templated_chat_model,
     installed=_openai_models,
     # ``openai.OpenAIError`` leaves the socket's ``UnicodeError`` unwrapped.
     transport_errors=(openai.OpenAIError, OSError, httpx.HTTPError, UnicodeError),
@@ -482,8 +510,32 @@ LITELLM = Provider(
     ),
 )
 
+TRTLLM = Provider(
+    name="trtllm",
+    label="TensorRT-LLM",
+    # A repository id, as ``trtllm-serve`` takes it.
+    model=os.getenv("TRTLLM_MODEL", "Qwen/Qwen3-8B"),
+    base_url=os.getenv("TRTLLM_HOST", "http://localhost:8000/v1"),
+    # ``trtllm-serve`` checks none; a gateway in front of it may.
+    api_key=os.getenv("TRTLLM_API_KEY", ""),
+    # Both fixed at startup, as vLLM's are.
+    takes_num_ctx=False,
+    takes_cpu_only=False,
+    chat_model=_templated_chat_model,
+    installed=_openai_models,
+    transport_errors=(openai.OpenAIError, OSError, httpx.HTTPError, UnicodeError),
+    hint=_hint(_trtllm_hint),
+    # Without a guided-decoding backend it answers in free text, which lands here too.
+    more_room=(
+        "ask for fewer products, or restart it with a larger --max_seq_len, and with "
+        "guided decoding on (guided_decoding_backend: xgrammar)"
+    ),
+)
+
 #: By the name the CLI, the API and ``$BUY_AGENT_PROVIDER`` use (ADR-0029).
-PROVIDERS: dict[str, Provider] = {provider.name: provider for provider in (OLLAMA, VLLM, LITELLM)}
+PROVIDERS: dict[str, Provider] = {
+    provider.name: provider for provider in (OLLAMA, VLLM, LITELLM, TRTLLM)
+}
 
 
 def provider_for(name: str) -> Provider:

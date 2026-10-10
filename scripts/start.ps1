@@ -9,14 +9,14 @@
     foreground with the page open; Ctrl+C stops the server, and Ollama if this
     started it.
 
-    Only Ollama is started; a vLLM or LiteLLM proxy named by
+    Only Ollama is started; a vLLM, LiteLLM proxy or TensorRT-LLM named by
     $env:BUY_AGENT_PROVIDER is waited for at its address. The AP2 SDK is installed
     only when $env:BUY_AGENT_RAIL, $env:BUY_AGENT_MERCHANT_URL,
     $env:BUY_AGENT_AP2_KEY or $env:BUY_AGENT_AP2_MANDATE says a payment is meant.
 
     No parameters: the provider, model and address come from buy_agent.config
-    ($env:BUY_AGENT_PROVIDER, $env:OLLAMA_MODEL and $env:OLLAMA_HOST, or the VLLM_
-    and LITELLM_ pairs), and the rest is `python -m buy_agent.server --help`.
+    ($env:BUY_AGENT_PROVIDER, $env:OLLAMA_MODEL and $env:OLLAMA_HOST, or the VLLM_,
+    LITELLM_ and TRTLLM_ pairs), and the rest is `python -m buy_agent.server --help`.
 
 .EXAMPLE
     .\scripts\start.ps1

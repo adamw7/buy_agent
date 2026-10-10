@@ -136,7 +136,7 @@ def test_an_array_holding_something_that_is_not_text_is_refused_not_a_traceback(
         ({"think": "maybe"}, "think must be true or false; got 'maybe'."),
         ({"cpu_only": "sometimes"}, "cpu_only must be true or false; got 'sometimes'."),
         ({"sort_by": "cheapness"}, "sort_by must be one of score, price, rating; got 'cheapness'."),
-        ({"provider": "llama.cpp"}, "provider must be one of ollama, vllm, litellm; got 'llama.cpp'."),
+        ({"provider": "llama.cpp"}, "provider must be one of ollama, vllm, litellm, trtllm; got 'llama.cpp'."),
     ],
 )
 def test_a_rejection_says_what_was_wrong_and_what_was_wanted(data: dict, message: str) -> None:

@@ -16,11 +16,12 @@ Desktop supplies; on Linux, hand it over explicitly:
 docker run --rm -p 8000:8000 --add-host=host.docker.internal:host-gateway buy-agent
 ```
 
-`OLLAMA_HOST`, `VLLM_HOST` (`host.docker.internal:8000/v1`) and `LITELLM_HOST`
-(`host.docker.internal:4000/v1`) are preset, so another server needs only its
-provider named
+`OLLAMA_HOST`, `VLLM_HOST` (`host.docker.internal:8000/v1`), `LITELLM_HOST`
+(`host.docker.internal:4000/v1`) and `TRTLLM_HOST` (`host.docker.internal:8000/v1`)
+are preset, so another server needs only its provider named
 ([ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md),
-[ADR-0068](adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md)). The
+[ADR-0068](adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md),
+[ADR-0081](adr/0081-reach-tensorrt-llm-as-a-fourth-model-server.md)). The
 entrypoint is `python`, so the CLI is there too:
 
 ```powershell

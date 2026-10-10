@@ -89,6 +89,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0078](0078-read-what-a-page-declares-as-lines-it-prints.md) | Read what a page declares as lines it prints | Accepted |
 | [0079](0079-ground-a-listings-stock-and-condition-with-its-price.md) | Ground a listing's stock and condition with its price | Accepted |
 | [0080](0080-tell-the-shopper-whether-a-price-alert-was-met.md) | Tell the shopper whether a price alert was met | Accepted |
+| [0081](0081-reach-tensorrt-llm-as-a-fourth-model-server.md) | Reach TensorRT-LLM as a fourth model server, through vLLM's client | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

@@ -1,8 +1,9 @@
 # buy_agent
 
 A shopping agent built on a local model, served by [Ollama](https://ollama.com),
-a [vLLM](https://docs.vllm.ai) you already run, or whatever a
-[LiteLLM](https://docs.litellm.ai) proxy of yours routes to. Tell it what you
+a [vLLM](https://docs.vllm.ai) or
+[TensorRT-LLM](https://nvidia.github.io/TensorRT-LLM/) you already run, or
+whatever a [LiteLLM](https://docs.litellm.ai) proxy of yours routes to. Tell it what you
 want to buy; it searches the web, pulls out up to 10 products with what the
 pages say about them, ranks them, and logs the best 3.
 
@@ -106,8 +107,8 @@ python -m buy_agent "espresso machine" --alert-below 400  # exit 5 unless one is
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--provider` | `ollama` (or `$BUY_AGENT_PROVIDER`) | `ollama`, `vllm` or `litellm` |
-| `--model` | the provider's own | Ollama tag, the name a vLLM was started with, or a LiteLLM alias |
+| `--provider` | `ollama` (or `$BUY_AGENT_PROVIDER`) | `ollama`, `vllm`, `litellm` or `trtllm` |
+| `--model` | the provider's own | Ollama tag, the name a vLLM or TensorRT-LLM was started with, or a LiteLLM alias |
 | `--base-url` | the provider's own | Where that server listens |
 | `--results` | `10` | How many products to find (1-50) |
 | `--top` | `3` | How many to log (1-50) |
@@ -183,6 +184,28 @@ LiteLLM SDK is not a dependency. `--num-ctx` and `--cpu-only` are not sent, and
 `--think` becomes `reasoning_effort`. Whether a request leaves the machine is up
 to the proxy's `config.yaml`
 ([ADR-0068](docs/adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md)).
+
+### Running against TensorRT-LLM
+
+```powershell
+python -m buy_agent "gaming laptop under $1500" --provider trtllm
+```
+
+`trtllm-serve` is reached the way a vLLM is: the same client, the same
+`/v1/models` listing, and `--think` sent as `enable_thinking`. The defaults are
+`$TRTLLM_MODEL` (`Qwen/Qwen3-8B`), `$TRTLLM_HOST` (`http://localhost:8000/v1`)
+and `$TRTLLM_API_KEY`, which is for a gateway in front of it, since
+`trtllm-serve` checks no key itself. It serves one model, and `--num-ctx` and
+`--cpu-only` are not sent. It has to be started with guided decoding on, or the
+JSON schema is not enforced:
+
+```bash
+echo 'guided_decoding_backend: xgrammar' > guided.yaml
+trtllm-serve Qwen/Qwen3-8B --extra_llm_api_options guided.yaml
+```
+
+If it was started without that, the hint says so
+([ADR-0081](docs/adr/0081-reach-tensorrt-llm-as-a-fourth-model-server.md)).
 
 ### Thinking models
 
@@ -433,8 +456,8 @@ It creates `.venv`, installs `requirements.txt`, starts Ollama, pulls the defaul
 model and builds `ui/` where each is not already done, then serves and opens the
 page. Ctrl+C stops the server, and Ollama if it started it. It takes no
 arguments: the provider, model and address come from `$env:BUY_AGENT_PROVIDER`,
-`$env:OLLAMA_MODEL`/`$env:OLLAMA_HOST` (or the `VLLM_`/`LITELLM_` pairs). It
-starts only Ollama; for vLLM or LiteLLM it waits for the server you run. Without
+`$env:OLLAMA_MODEL`/`$env:OLLAMA_HOST` (or the `VLLM_`/`LITELLM_`/`TRTLLM_`
+pairs). It starts only Ollama; for the others it waits for the server you run. Without
 `npm` it serves the API and a 503 page. It installs the AP2 SDK only when
 `$env:BUY_AGENT_RAIL`, `$env:BUY_AGENT_MERCHANT_URL`, `$env:BUY_AGENT_AP2_KEY` or
 `$env:BUY_AGENT_AP2_MANDATE` is set. Under a restrictive execution policy, run
@@ -686,7 +709,7 @@ exits 0 only when every run finished and cleared every floor:
 | `--all-models` | off | Every model the server holds that can answer a prompt |
 | `--scripted` | -- | `perfect` or `sloppy`, beside the models or instead of them |
 | `--case` | all three | `headphones`, `laptops` or `espresso`; repeatable |
-| `--provider` | `ollama` (or `$BUY_AGENT_PROVIDER`) | `ollama`, `vllm` or `litellm` |
+| `--provider` | `ollama` (or `$BUY_AGENT_PROVIDER`) | `ollama`, `vllm`, `litellm` or `trtllm` |
 | `--base-url` | the provider's own | Where that server listens |
 | `--json` | -- | Also write the standings, every run included, to this file |
 | `--baseline` | -- | Compare each run, metric by metric, with its run in an earlier `--json` file |

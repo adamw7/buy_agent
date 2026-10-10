@@ -1,4 +1,4 @@
-"""The three model servers, and the four things each of them answers differently."""
+"""The four model servers, and the four things each of them answers differently."""
 
 from __future__ import annotations
 
@@ -227,7 +227,7 @@ _CONVERSATION = [
 ]
 
 
-@pytest.mark.parametrize("provider", ["vllm", "litellm"])
+@pytest.mark.parametrize("provider", ["vllm", "litellm", "trtllm"])
 def test_the_prompt_is_what_an_openai_compatible_server_is_asked(
     completing, provider: str
 ) -> None:
@@ -273,25 +273,27 @@ def test_vllm_is_asked_to_decode_against_the_schema(completing) -> None:
     }
 
 
+@pytest.mark.parametrize("provider", ["vllm", "trtllm"])
 @pytest.mark.parametrize("reasoning", [True, False])
 def test_vllm_carries_the_thinking_switch_its_templates_read(
-    completing, reasoning: bool
+    completing, reasoning: bool, provider: str
 ) -> None:
-    """``enable_thinking`` is what the chat templates of the thinking models vLLM
-    serves look for, and ADR-0019's default of off has to reach them."""
-    sent = asked(AgentConfig(provider="vllm", reasoning=reasoning), completing())
+    """``enable_thinking`` is what the chat templates of the thinking models vLLM and
+    ``trtllm-serve`` render look for, and ADR-0019's default of off has to reach them."""
+    sent = asked(AgentConfig(provider=provider, reasoning=reasoning), completing())
 
     assert sent["extra_body"] == {"chat_template_kwargs": {"enable_thinking": reasoning}}
 
 
-def test_vllm_sends_nothing_when_thinking_is_left_alone(completing) -> None:
+@pytest.mark.parametrize("provider", ["vllm", "trtllm"])
+def test_vllm_sends_nothing_when_thinking_is_left_alone(completing, provider: str) -> None:
     """The tri-state's third value: send nothing, and let the template decide."""
-    sent = asked(AgentConfig(provider="vllm", reasoning=None), completing())
+    sent = asked(AgentConfig(provider=provider, reasoning=None), completing())
 
     assert sent["extra_body"] == {}
 
 
-@pytest.mark.parametrize("provider", ["ollama", "vllm", "litellm"])
+@pytest.mark.parametrize("provider", ["ollama", "vllm", "litellm", "trtllm"])
 def test_a_server_that_answers_with_nothing_says_so(
     chatting, completing, provider: str
 ) -> None:
@@ -304,7 +306,7 @@ def test_a_server_that_answers_with_nothing_says_so(
         asked(AgentConfig(provider=provider), {})
 
 
-@pytest.mark.parametrize("provider", ["vllm", "litellm"])
+@pytest.mark.parametrize("provider", ["vllm", "litellm", "trtllm"])
 def test_an_answer_with_no_choice_in_it_is_one_with_nothing_to_read(
     completing, provider: str
 ) -> None:
@@ -538,7 +540,7 @@ def test_a_vllm_that_cannot_be_listed_still_says_how_to_restart_it(serving) -> N
     assert "vllm serve Qwen/Qwen3-8B" in message
 
 
-@pytest.mark.parametrize("provider", ["ollama", "vllm", "litellm"])
+@pytest.mark.parametrize("provider", ["ollama", "vllm", "litellm", "trtllm"])
 def test_a_listing_with_no_list_in_it_is_a_server_serving_nothing(
     monkeypatch, provider: str
 ) -> None:
@@ -862,3 +864,75 @@ def test_an_unreachable_proxy_quotes_the_transport() -> None:
 
     assert "(connection refused)" in message
     assert "litellm --config config.yaml" in message
+
+
+# -- TensorRT-LLM --------------------------------------------------------------
+
+TRTLLM_CONFIG = AgentConfig(provider="trtllm", model="Qwen/Qwen3-8B")
+
+
+def test_trtllm_is_asked_through_the_client_vllm_is(completing) -> None:
+    """``trtllm-serve`` speaks the same OpenAI chat API, schema and all (ADR-0081)."""
+    sent = asked(
+        AgentConfig(provider="trtllm", base_url="http://gpu.internal:8000/v1"),
+        completing(),
+        SearchQuery,
+    )
+
+    assert sent["client"]["base_url"] == "http://gpu.internal:8000/v1"
+    assert sent["client"]["max_retries"] == 0
+    assert sent["response_format"]["json_schema"]["schema"] == SearchQuery.model_json_schema()
+
+
+def test_trtllm_lists_what_it_serves_off_the_openai_listing(serving) -> None:
+    asked_for = serving(["Qwen/Qwen3-8B"])
+
+    assert names(AgentConfig(provider="trtllm", base_url="http://gpu.internal:8000/v1")) == [
+        "Qwen/Qwen3-8B"
+    ]
+    assert asked_for["url"] == "http://gpu.internal:8000/v1/models"
+
+
+def test_the_trtllm_key_is_read_from_its_own_variable(reloaded_providers) -> None:
+    reloaded_providers(TRTLLM_API_KEY="s3cret")
+
+    assert AgentConfig(provider="trtllm").api_key == "s3cret"
+
+
+def test_a_trtllm_started_without_guided_decoding_is_told_how_to_turn_it_on() -> None:
+    """Without a backend for it, ``trtllm-serve`` cannot honour ``response_format`` --
+    the one failure of this row that vLLM's never has."""
+    refused = _answered(
+        openai.BadRequestError, 400, "Guided decoding is not enabled for this server"
+    )
+
+    message = hint(TRTLLM_CONFIG, refused)
+
+    assert "guided_decoding_backend: xgrammar" in message
+    assert "trtllm-serve Qwen/Qwen3-8B --extra_llm_api_options" in message
+    assert "(Guided decoding is not enabled for this server)" in message
+
+
+@pytest.mark.parametrize(
+    ("exc", "says"),
+    [
+        (openai.APIConnectionError(request=_REQUEST), "Start it with:  trtllm-serve Qwen/Qwen3-8B"),
+        (_status_error(openai.AuthenticationError, 401), "Set $TRTLLM_API_KEY"),
+        (
+            _status_error(openai.NotFoundError, 404),
+            "A TensorRT-LLM process serves one model",
+        ),
+        (httpx.ReadTimeout("slow"), "or a shorter prompt."),
+        (UnreadableAnswerError("Invalid json output: {"), "guided decoding on"),
+    ],
+)
+def test_a_trtllm_failure_names_its_own_command_and_variable(
+    serving, exc: Exception, says: str
+) -> None:
+    serving(["Qwen/Qwen3-8B"])
+
+    message = hint(TRTLLM_CONFIG, exc)
+
+    assert says in message
+    assert f"TensorRT-LLM at {TRTLLM_CONFIG.base_url}" in message
+    assert "vllm serve" not in message and "$VLLM_API_KEY" not in message
