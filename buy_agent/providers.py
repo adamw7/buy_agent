@@ -38,6 +38,10 @@ Hint: TypeAlias = "Callable[[AgentConfig, Exception], str]"
 
 _TIMEOUTS = (httpx.TimeoutException, openai.APITimeoutError)
 
+#: What "the server is not there" raises through the OpenAI client, for every row that
+#: speaks its API. ``openai.OpenAIError`` leaves the socket's ``UnicodeError`` unwrapped.
+_OPENAI_TRANSPORT = (openai.OpenAIError, OSError, httpx.HTTPError, UnicodeError)
+
 #: Concurrent ``ollama show`` probes.
 _PROBES = 8
 
@@ -483,8 +487,7 @@ VLLM = Provider(
     takes_cpu_only=False,
     chat_model=_templated_chat_model,
     installed=_openai_models,
-    # ``openai.OpenAIError`` leaves the socket's ``UnicodeError`` unwrapped.
-    transport_errors=(openai.OpenAIError, OSError, httpx.HTTPError, UnicodeError),
+    transport_errors=_OPENAI_TRANSPORT,
     hint=_hint(_vllm_hint),
     # vLLM's own flag, not ours, so fine to name at either door.
     more_room="ask for fewer products, or restart it with a larger --max-model-len",
@@ -502,7 +505,7 @@ LITELLM = Provider(
     takes_cpu_only=False,
     chat_model=_litellm_chat_model,
     installed=_litellm_installed,
-    transport_errors=(openai.OpenAIError, OSError, httpx.HTTPError, UnicodeError),
+    transport_errors=_OPENAI_TRANSPORT,
     hint=_hint(_litellm_hint),
     more_room=(
         "ask for fewer products, or give the model the proxy routes to a larger "
@@ -523,7 +526,7 @@ TRTLLM = Provider(
     takes_cpu_only=False,
     chat_model=_templated_chat_model,
     installed=_openai_models,
-    transport_errors=(openai.OpenAIError, OSError, httpx.HTTPError, UnicodeError),
+    transport_errors=_OPENAI_TRANSPORT,
     hint=_hint(_trtllm_hint),
     # Without a guided-decoding backend it answers in free text, which lands here too.
     more_room=(

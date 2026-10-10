@@ -29,6 +29,22 @@ _COMPLETION = "completion"
 _EMBEDDING = "embedding"
 VLLM_CONFIG = AgentConfig(provider="vllm", model="Qwen/Qwen3-8B")
 
+#: Every server, every one reached through the OpenAI client, and every one rendering the
+#: thinking switch into its chat template -- read off the table, so a new row is tried
+#: wherever it belongs without editing each list. Names only: the rows themselves would
+#: go stale on a reload.
+_EVERY = list(providers_module.PROVIDERS)
+_OPENAI_STYLE = [
+    name
+    for name, row in providers_module.PROVIDERS.items()
+    if row.chat_model is not providers_module.OLLAMA.chat_model
+]
+_TEMPLATED = [
+    name
+    for name, row in providers_module.PROVIDERS.items()
+    if row.chat_model is providers_module.VLLM.chat_model
+]
+
 #: The OpenAI client's errors all carry the request that failed, so building one
 #: takes a request. Which request is irrelevant here -- nothing sends it.
 _REQUEST = httpx.Request("POST", "http://localhost:8000/v1/chat/completions")
@@ -227,7 +243,7 @@ _CONVERSATION = [
 ]
 
 
-@pytest.mark.parametrize("provider", ["vllm", "litellm", "trtllm"])
+@pytest.mark.parametrize("provider", _OPENAI_STYLE)
 def test_the_prompt_is_what_an_openai_compatible_server_is_asked(
     completing, provider: str
 ) -> None:
@@ -245,9 +261,12 @@ def test_ollama_is_told_to_offload_nothing_for_a_cpu_only_run(chatting) -> None:
     assert sent["options"]["num_gpu"] == 0
 
 
-def test_vllm_is_pointed_at_the_openai_api_it_serves(completing) -> None:
+@pytest.mark.parametrize("provider", _OPENAI_STYLE)
+def test_an_openai_style_server_is_pointed_at_the_api_it_serves(
+    completing, provider: str
+) -> None:
     config = AgentConfig(
-        provider="vllm",
+        provider=provider,
         model="Qwen/Qwen3-8B",
         base_url="http://gpu.internal:8000/v1",
         temperature=0.2,
@@ -256,13 +275,17 @@ def test_vllm_is_pointed_at_the_openai_api_it_serves(completing) -> None:
     sent = asked(config, completing())
 
     assert sent["client"]["base_url"] == "http://gpu.internal:8000/v1"
+    assert sent["client"]["max_retries"] == 0, "the model is asked once (ADR-0051)"
     assert sent["model"] == "Qwen/Qwen3-8B"
     assert sent["temperature"] == 0.2
 
 
-def test_vllm_is_asked_to_decode_against_the_schema(completing) -> None:
+@pytest.mark.parametrize("provider", _OPENAI_STYLE)
+def test_an_openai_style_server_is_asked_to_decode_against_the_schema(
+    completing, provider: str
+) -> None:
     """The same constraint as Ollama's ``format``, in the OpenAI API's spelling."""
-    sent = asked(AgentConfig(provider="vllm"), completing(), SearchQuery)
+    sent = asked(AgentConfig(provider=provider), completing(), SearchQuery)
 
     assert sent["response_format"] == {
         "type": "json_schema",
@@ -273,7 +296,7 @@ def test_vllm_is_asked_to_decode_against_the_schema(completing) -> None:
     }
 
 
-@pytest.mark.parametrize("provider", ["vllm", "trtllm"])
+@pytest.mark.parametrize("provider", _TEMPLATED)
 @pytest.mark.parametrize("reasoning", [True, False])
 def test_vllm_carries_the_thinking_switch_its_templates_read(
     completing, reasoning: bool, provider: str
@@ -285,7 +308,7 @@ def test_vllm_carries_the_thinking_switch_its_templates_read(
     assert sent["extra_body"] == {"chat_template_kwargs": {"enable_thinking": reasoning}}
 
 
-@pytest.mark.parametrize("provider", ["vllm", "trtllm"])
+@pytest.mark.parametrize("provider", _TEMPLATED)
 def test_vllm_sends_nothing_when_thinking_is_left_alone(completing, provider: str) -> None:
     """The tri-state's third value: send nothing, and let the template decide."""
     sent = asked(AgentConfig(provider=provider, reasoning=None), completing())
@@ -293,7 +316,7 @@ def test_vllm_sends_nothing_when_thinking_is_left_alone(completing, provider: st
     assert sent["extra_body"] == {}
 
 
-@pytest.mark.parametrize("provider", ["ollama", "vllm", "litellm", "trtllm"])
+@pytest.mark.parametrize("provider", _EVERY)
 def test_a_server_that_answers_with_nothing_says_so(
     chatting, completing, provider: str
 ) -> None:
@@ -306,7 +329,7 @@ def test_a_server_that_answers_with_nothing_says_so(
         asked(AgentConfig(provider=provider), {})
 
 
-@pytest.mark.parametrize("provider", ["vllm", "litellm", "trtllm"])
+@pytest.mark.parametrize("provider", _OPENAI_STYLE)
 def test_an_answer_with_no_choice_in_it_is_one_with_nothing_to_read(
     completing, provider: str
 ) -> None:
@@ -439,12 +462,14 @@ def test_a_tag_that_will_not_say_what_it_can_do_is_still_offered(pulled) -> None
     ]
 
 
-def test_the_listing_is_asked_of_the_api_root_the_config_names(serving) -> None:
+@pytest.mark.parametrize("provider", _TEMPLATED)
+def test_the_listing_is_asked_of_the_api_root_the_config_names(serving, provider: str) -> None:
     """``base_url`` already ends at the API root, so the path is appended to it --
     a second ``/v1`` or a stripped one is a 404 the picker would show as "down"."""
     asked = serving(["Qwen/Qwen3-8B"])
-    listed(AgentConfig(provider="vllm", base_url="http://gpu.internal:8000/v1/"))
+    config = AgentConfig(provider=provider, base_url="http://gpu.internal:8000/v1/")
 
+    assert names(config) == ["Qwen/Qwen3-8B"]
     assert asked["url"] == "http://gpu.internal:8000/v1/models"
 
 
@@ -530,17 +555,24 @@ def test_a_model_vllm_reports_as_not_found_is_one_it_is_not_serving(serving) -> 
     assert "serving: Qwen/Qwen3-0.6B" in message
 
 
-def test_a_vllm_that_cannot_be_listed_still_says_how_to_restart_it(serving) -> None:
+@pytest.mark.parametrize(
+    ("provider", "command"), [("vllm", "vllm serve"), ("trtllm", "trtllm-serve")]
+)
+def test_a_one_model_server_that_cannot_be_listed_still_says_how_to_restart_it(
+    serving, provider: str, command: str
+) -> None:
     """Whatever else is broken, the command is still the thing to try -- and the
     second failure must not replace the message being written about the first."""
     serving([], error=httpx.ConnectError("refused"))
-    message = hint(VLLM_CONFIG, _status_error(openai.NotFoundError, 404))
+    config = AgentConfig(provider=provider, model="Qwen/Qwen3-8B")
+
+    message = hint(config, _status_error(openai.NotFoundError, 404))
 
     assert "serving: unknown" in message
-    assert "vllm serve Qwen/Qwen3-8B" in message
+    assert f"{command} Qwen/Qwen3-8B" in message
 
 
-@pytest.mark.parametrize("provider", ["ollama", "vllm", "litellm", "trtllm"])
+@pytest.mark.parametrize("provider", _EVERY)
 def test_a_listing_with_no_list_in_it_is_a_server_serving_nothing(
     monkeypatch, provider: str
 ) -> None:
@@ -589,6 +621,23 @@ def test_an_ollama_serving_nothing_that_answers_reports_none(pulled) -> None:
 # -- what counts as "the server is not there" ----------------------------------
 
 
+@pytest.mark.parametrize("provider", _OPENAI_STYLE)
+@pytest.mark.parametrize(
+    "failure",
+    [
+        openai.APIConnectionError(request=_REQUEST),
+        httpx.ConnectError("refused"),
+        ConnectionRefusedError("refused"),
+        # The socket's own, for a host it cannot encode (``192.168.1..5``).
+        UnicodeError("label empty or too long"),
+    ],
+)
+def test_an_openai_style_server_counts_every_way_of_not_being_there(
+    failure: Exception, provider: str
+) -> None:
+    assert isinstance(failure, AgentConfig(provider=provider).model_server.transport_errors)
+
+
 # -- what each server defaults to ----------------------------------------------
 
 
@@ -606,12 +655,13 @@ def reloaded_providers(monkeypatch):
     importlib.reload(providers_module)
 
 
-def test_the_key_is_read_from_the_environment(reloaded_providers) -> None:
+@pytest.mark.parametrize("provider", _OPENAI_STYLE)
+def test_the_key_is_read_from_the_environment(reloaded_providers, provider: str) -> None:
     """The one setting with no flag and no form field: it is a secret, so it does not land
     in a shell history and is not in what the API hands a browser."""
-    reloaded_providers(VLLM_API_KEY="s3cret")
+    reloaded_providers(**{f"{provider.upper()}_API_KEY": "s3cret"})
 
-    assert AgentConfig(provider="vllm").api_key == "s3cret"
+    assert AgentConfig(provider=provider).api_key == "s3cret"
 
 
 def _status_error(kind: type[openai.APIStatusError], status: int) -> openai.APIStatusError:
@@ -871,34 +921,6 @@ def test_an_unreachable_proxy_quotes_the_transport() -> None:
 TRTLLM_CONFIG = AgentConfig(provider="trtllm", model="Qwen/Qwen3-8B")
 
 
-def test_trtllm_is_asked_through_the_client_vllm_is(completing) -> None:
-    """``trtllm-serve`` speaks the same OpenAI chat API, schema and all (ADR-0081)."""
-    sent = asked(
-        AgentConfig(provider="trtllm", base_url="http://gpu.internal:8000/v1"),
-        completing(),
-        SearchQuery,
-    )
-
-    assert sent["client"]["base_url"] == "http://gpu.internal:8000/v1"
-    assert sent["client"]["max_retries"] == 0
-    assert sent["response_format"]["json_schema"]["schema"] == SearchQuery.model_json_schema()
-
-
-def test_trtllm_lists_what_it_serves_off_the_openai_listing(serving) -> None:
-    asked_for = serving(["Qwen/Qwen3-8B"])
-
-    assert names(AgentConfig(provider="trtllm", base_url="http://gpu.internal:8000/v1")) == [
-        "Qwen/Qwen3-8B"
-    ]
-    assert asked_for["url"] == "http://gpu.internal:8000/v1/models"
-
-
-def test_the_trtllm_key_is_read_from_its_own_variable(reloaded_providers) -> None:
-    reloaded_providers(TRTLLM_API_KEY="s3cret")
-
-    assert AgentConfig(provider="trtllm").api_key == "s3cret"
-
-
 def test_a_trtllm_started_without_guided_decoding_is_told_how_to_turn_it_on() -> None:
     """Without a backend for it, ``trtllm-serve`` cannot honour ``response_format`` --
     the one failure of this row that vLLM's never has."""
@@ -945,29 +967,6 @@ def test_a_guided_decoding_mention_the_server_did_not_make_is_not_its_remedy() -
 
     assert "guided_decoding_backend" not in message
     assert "Could not reach TensorRT-LLM" in message
-
-
-def test_a_trtllm_that_cannot_be_listed_still_says_how_to_restart_it(serving) -> None:
-    serving([], error=httpx.ConnectError("refused"))
-
-    message = hint(TRTLLM_CONFIG, _status_error(openai.NotFoundError, 404))
-
-    assert "serving: unknown" in message
-    assert "trtllm-serve Qwen/Qwen3-8B" in message
-
-
-@pytest.mark.parametrize(
-    "failure",
-    [
-        openai.APIConnectionError(request=_REQUEST),
-        httpx.ConnectError("refused"),
-        ConnectionRefusedError("refused"),
-        # The socket's own, for a host it cannot encode (``192.168.1..5``).
-        UnicodeError("label empty or too long"),
-    ],
-)
-def test_trtllm_counts_every_way_of_not_being_there(failure: Exception) -> None:
-    assert isinstance(failure, TRTLLM_CONFIG.model_server.transport_errors)
 
 
 def test_trtllm_is_its_own_row_and_takes_neither_per_run_setting() -> None:
