@@ -333,7 +333,7 @@ def test_the_page_is_drawn_from_the_tables_it_offers() -> None:
     drawn = config_payload()
 
     assert drawn["provider"] == server_module.DEFAULT_PROVIDER
-    assert [row["name"] for row in drawn["provider_options"]] == ["ollama", "vllm", "litellm"]
+    assert [row["name"] for row in drawn["provider_options"]] == ["ollama", "vllm", "litellm", "trtllm"]
     assert [case["name"] for case in drawn["cases"]] == list(CASES)
     assert [script["name"] for script in drawn["scripts"]] == list(SCRIPTS)
     assert [metric["name"] for metric in drawn["metrics"]] == list(METRICS)

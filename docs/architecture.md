@@ -80,7 +80,8 @@ model server answers is `AgentConfig.provider`, and only `buy_agent/providers.py
 knows the difference
 ([ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md),
 [ADR-0029](adr/0029-one-table-per-model-server.md),
-[ADR-0068](adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md)).
+[ADR-0068](adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md),
+[ADR-0081](adr/0081-reach-tensorrt-llm-as-a-fourth-model-server.md)).
 
 The operator's way in is the benchmark, which asks the model server and nothing
 else: every model is served the same fixed pages, so a comparison never reaches

@@ -24,7 +24,7 @@ from buy_agent.api import (
 from buy_agent.config import LIMITS, AgentConfig
 from buy_agent.models import Offer, Product, nothing_recorded
 from buy_agent.ranking import RankingWeights, rank_products
-from buy_agent.providers import LITELLM
+from buy_agent.providers import LITELLM, TRTLLM
 from buy_agent.sources import Source
 from tests.conftest import (
     enrolled_key,
@@ -136,7 +136,7 @@ def test_an_array_holding_something_that_is_not_text_is_refused_not_a_traceback(
         ({"think": "maybe"}, "think must be true or false; got 'maybe'."),
         ({"cpu_only": "sometimes"}, "cpu_only must be true or false; got 'sometimes'."),
         ({"sort_by": "cheapness"}, "sort_by must be one of score, price, rating; got 'cheapness'."),
-        ({"provider": "llama.cpp"}, "provider must be one of ollama, vllm, litellm; got 'llama.cpp'."),
+        ({"provider": "llama.cpp"}, "provider must be one of ollama, vllm, litellm, trtllm; got 'llama.cpp'."),
     ],
 )
 def test_a_rejection_says_what_was_wrong_and_what_was_wanted(data: dict, message: str) -> None:
@@ -358,6 +358,40 @@ def test_choosing_a_litellm_proxy_brings_its_own_pair() -> None:
 
     assert config.provider == "litellm"
     assert (config.model, config.base_url) == (LITELLM.model, LITELLM.base_url)
+
+
+def test_choosing_tensorrt_llm_brings_its_own_pair() -> None:
+    config, _ = parse_options({"provider": "trtllm", "model": "", "base_url": ""})
+
+    assert config.provider == "trtllm"
+    assert (config.model, config.base_url) == (TRTLLM.model, TRTLLM.base_url)
+    assert config.model_server.label == "TensorRT-LLM"
+
+
+def test_tensorrt_llm_is_offered_without_the_two_settings_it_fixes_at_startup() -> None:
+    """The form disables the context window and the CPU switch off these two flags."""
+    (offered,) = [row for row in defaults_payload()["provider_options"] if row["name"] == "trtllm"]
+
+    assert offered["label"] == "TensorRT-LLM"
+    assert (offered["takes_num_ctx"], offered["takes_cpu_only"]) == (False, False)
+    assert "api_key" not in offered
+
+
+def test_installed_models_asks_tensorrt_llm_its_openai_listing(monkeypatch) -> None:
+    def get(url, **_kwargs):
+        assert url == "http://gpu.lan:8000/v1/models", url
+        listing = {"data": [{"id": "Qwen/Qwen3-8B"}]}
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: listing)
+
+    monkeypatch.setattr("buy_agent.providers.httpx.get", get)
+
+    assert installed_models("trtllm", "http://gpu.lan:8000/v1") == {
+        "provider": "trtllm",
+        "label": "TensorRT-LLM",
+        "base_url": "http://gpu.lan:8000/v1",
+        "reachable": True,
+        "models": [{"name": "Qwen/Qwen3-8B", "completion": True}],
+    }
 
 
 def test_defaults_payload_matches_the_config() -> None:

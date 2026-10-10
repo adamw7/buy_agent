@@ -1275,6 +1275,21 @@ def test_the_startup_script_asks_python_for_the_model_and_the_server() -> None:
             assert value not in source, f"{value} is the provider table's to say"
 
 
+def test_every_hand_written_list_of_the_servers_variables_names_every_row() -> None:
+    """The container presets each server's address, and the startup script, the CLI's
+    help and the container's docs list each server's pair by hand. A row added to
+    ``PROVIDERS`` and forgotten in one of them is a server the container cannot reach
+    or a variable nobody is told about (ADR-0068, ADR-0081)."""
+    docker_docs = (_ROOT / "docs" / "docker.md").read_text(encoding="utf-8")
+    for name in PROVIDERS:
+        prefix = name.upper()
+        assert f"{prefix}_HOST=http://host.docker.internal:" in dockerfile(), (
+            f"the Dockerfile presets no ${prefix}_HOST"
+        )
+        assert f"`{prefix}_HOST`" in docker_docs, f"docs/docker.md names no {prefix}_HOST"
+        assert f"{prefix}_" in start_script(), f"scripts/start.ps1 names no {prefix}_ pair"
+
+
 def test_the_startup_script_looks_for_the_build_the_server_serves() -> None:
     """It skips the Angular build when one is already there, and the server answers with a
     503 telling you to build the UI when ``DEFAULT_UI_DIR`` is empty."""

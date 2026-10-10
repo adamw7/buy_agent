@@ -39,7 +39,8 @@ USER shopper
 # Every provider's address on the host (on Linux, via --add-host).
 ENV OLLAMA_HOST=http://host.docker.internal:11434 \
     VLLM_HOST=http://host.docker.internal:8000/v1 \
-    LITELLM_HOST=http://host.docker.internal:4000/v1
+    LITELLM_HOST=http://host.docker.internal:4000/v1 \
+    TRTLLM_HOST=http://host.docker.internal:8000/v1
 
 EXPOSE 8000
 

@@ -7,9 +7,9 @@ Guidance for Claude Code (claude.ai/code) in this repository.
 A shopping agent: a plain-language request ("wireless headphones under $200")
 goes in, the web is searched, up to 10 products and what pages say about them
 are extracted, ranked, and the top 3 logged. The model is local, served by
-Ollama, vLLM, or whatever a LiteLLM proxy routes to. `AgentConfig.provider`
-chooses, and `buy_agent/providers.py` is the only module that knows the
-difference (ADR-0028, ADR-0068). There is no framework: `buy_agent/chat.py` is the
+Ollama, vLLM, TensorRT-LLM, or whatever a LiteLLM proxy routes to.
+`AgentConfig.provider` chooses, and `buy_agent/providers.py` is the only module
+that knows the difference (ADR-0028, ADR-0068, ADR-0081). There is no framework: `buy_agent/chat.py` is the
 whole model seam (ADR-0038). `ui/` is an Angular front end served by
 `buy_agent.server`. Two things are optional, off by default and need extra
 installs: *buying* what was found, authorised by signed
@@ -46,7 +46,7 @@ python -m benchmark --baseline before.json    # what moved since an earlier --js
 python -m benchmark.server                    # the same comparison as a page on :8100
 
 python -m buy_agent "gaming laptop under $1500"
-python -m buy_agent "gaming laptop" --provider vllm      # or litellm
+python -m buy_agent "gaming laptop" --provider vllm      # or litellm, trtllm
 python -m buy_agent "headphones" --max-price 200 --min-rating 4.5
 python -m buy_agent "espresso machine" --compare         # what moved since last run
 python -m buy_agent "wireless earbuds" --source rtings.com --source @mkbhd
@@ -96,7 +96,7 @@ lines in `ui/angular.json` (don't add a branch floor); 75% mutation (ADR-0016).
 
 **The container** (`docs/docker.md`). No model server runs in the image
 (ADR-0015); it reaches the host through `host.docker.internal`, which
-`$OLLAMA_HOST`, `$VLLM_HOST` and `$LITELLM_HOST` are set to. `ENTRYPOINT` is
+`$OLLAMA_HOST`, `$VLLM_HOST`, `$LITELLM_HOST` and `$TRTLLM_HOST` are set to. `ENTRYPOINT` is
 `python`. Only `release.yml` builds it (ADR-0030). `.dockerignore` must cover
 everything `.gitignore` names (and `.env`), must not catch anything the
 `Dockerfile` copies, and must account for every top-level directory.
@@ -127,12 +127,14 @@ use `conftest.SOURCE_ROOT`, and no test reads declarations (such as
   the row with a sentence naming the variable, not at the config.
 - `$BUY_AGENT_PROVIDER` plus `$OLLAMA_MODEL`/`$OLLAMA_HOST`,
   `$VLLM_MODEL`/`$VLLM_HOST`/`$VLLM_API_KEY` and
-  `$LITELLM_MODEL`/`$LITELLM_HOST`/`$LITELLM_API_KEY` are read on each row of
+  `$LITELLM_MODEL`/`$LITELLM_HOST`/`$LITELLM_API_KEY` and
+  `$TRTLLM_MODEL`/`$TRTLLM_HOST`/`$TRTLLM_API_KEY` are read on each row of
   `providers.PROVIDERS` (ADR-0029). `model`, `base_url` and `api_key` default to
   `""` and are resolved per provider in `__post_init__` (ADR-0012). API keys have
   no flag or form field and are never in `defaults_payload` or
   `provider_options()`. `$LITELLM_MODEL` defaults to the placeholder
-  `local_model` (ADR-0068).
+  `local_model` (ADR-0068). TensorRT-LLM shares vLLM's client, listing and
+  `_one_model_hint`, and its hint adds how to turn guided decoding on (ADR-0081).
 - `reasoning=False` and `num_ctx=16384` are the defaults because the default
   model (`gemma4:12b`) thinks, and the ~4.3k-token extraction prompt plus the
   JSON output would not fit in 4096 (ADR-0019, ADR-0050). `num_ctx` and
@@ -194,7 +196,7 @@ The order matters at three joints:
 | `money.py` | Every currency table (ADR-0054) |
 | `search.py` | Which backend a search is asked through, one row each -- and nothing else (ADR-0021, ADR-0057) |
 | `sources.py` | What a trusted source is: domain, term, `site:` query, `covers` |
-| `providers.py` | Everything that differs between Ollama, vLLM and a LiteLLM proxy, and nothing else |
+| `providers.py` | Everything that differs between Ollama, vLLM, a LiteLLM proxy and TensorRT-LLM, and nothing else |
 | `screenshots.py` | The browser seam; the only module that imports `playwright` (ADR-0065) |
 | `payment.py` | What may be bought and for how much: cart, spend limit, receipt -- and one failure |
 | `mandates.py` | The AP2 seam; the only module that imports `ap2` (ADR-0046) |
@@ -212,7 +214,7 @@ listed in `docs/testing.md`.
 - **A model server is one row in one table, reached one way.**
   `providers.PROVIDERS` holds each server whole: defaults from its own env vars,
   its client, schema declaration, listing, transport errors, hint sentences,
-  `takes_num_ctx`, `takes_cpu_only` and `more_room` (ADR-0029, ADR-0068).
+  `takes_num_ctx`, `takes_cpu_only` and `more_room` (ADR-0029, ADR-0068, ADR-0081).
   `AgentConfig.model_server` is the *only* place a provider name becomes
   behaviour: no `if provider == ...` above the table, no module-level wrappers.
   Listings answer `InstalledModel`s, so embedding-only models are marked, not
@@ -475,7 +477,7 @@ everything else goes to the built app, with `index.html` as the fallback.
   `allowed_hosts`. Typed addresses go through `_bound_host` (IPv6 brackets), and
   `_family_for` picks `AF_INET6`.
 - **The server never asks itself for a model.** `server._reaches` detects an
-  address that lands on this server (`:8000` is vLLM's default). `/api/models`
+  address that lands on this server (`:8000` is vLLM's and TensorRT-LLM's default). `/api/models`
   explains, and a run is refused on `base_url`.
 - **Only a loopback-bound server with Playwright takes pictures** (ADR-0065),
   via `server.camera_for`, and `defaults_payload.screenshots` says whether it

@@ -3,10 +3,11 @@
 An Ollama tag follows the registry, so re-pulling it is how a model is updated,
 but `ollama pull` prints `success` either way. `scripts/update_ollama.py` pulls
 the installed models and compares digests either side, so it says which builds
-moved. A vLLM is updated by restarting it, and a LiteLLM proxy wherever its
-models are served, so this is Ollama's alone
+moved. A vLLM or a TensorRT-LLM is updated by restarting it, and a LiteLLM proxy
+wherever its models are served, so this is Ollama's alone
 ([ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md),
-[ADR-0068](adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md)).
+[ADR-0068](adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md),
+[ADR-0081](adr/0081-reach-tensorrt-llm-as-a-fourth-model-server.md)).
 
 ```powershell
 python -m scripts.update_ollama                      # every installed model
