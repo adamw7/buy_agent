@@ -335,14 +335,17 @@ def distinct_quotes(values: Iterable[Opinion]) -> list[Opinion]:
 
 def _availability(value: str) -> Availability | None:
     """A model's word for whether a listing is in stock, if it is one."""
-    said = _STANDING_SPELLINGS.get(_clean(value).casefold())
-    return cast("Availability", said) if said in get_args(Availability) else None
+    return cast("Availability | None", _standing(value, get_args(Availability)))
 
 
 def _condition(value: str) -> Condition | None:
     """A model's word for the state a listing comes in, if it is one."""
+    return cast("Condition | None", _standing(value, get_args(Condition)))
+
+
+def _standing(value: str, allowed: tuple[str, ...]) -> str | None:
     said = _STANDING_SPELLINGS.get(_clean(value).casefold())
-    return cast("Condition", said) if said in get_args(Condition) else None
+    return said if said in allowed else None
 
 
 def _quotes(values: list[str]) -> list[Opinion]:

@@ -109,11 +109,7 @@ def _lines(product: dict[str, Any]) -> list[str]:
 
 
 def _name(product: dict[str, Any]) -> str:
-    name = product.get("name")
-    if not isinstance(name, str):
-        return ""
-    text = _WHITESPACE.sub(" ", name).strip()
-    return text if len(text) <= _MAX_NAME else ""
+    return _short_text(product.get("name"))
 
 
 def _offers(node: Any) -> list[str]:
@@ -168,10 +164,14 @@ def _specified(node: Any) -> Any:
 
 
 def _seller(node: Any) -> str:
-    name = node.get("name") if isinstance(node, dict) else node
-    if not isinstance(name, str):
+    return _short_text(node.get("name") if isinstance(node, dict) else node)
+
+
+def _short_text(value: Any) -> str:
+    """A declared name on one line, or nothing if it is not one or runs too long."""
+    if not isinstance(value, str):
         return ""
-    text = _WHITESPACE.sub(" ", name).strip()
+    text = _WHITESPACE.sub(" ", value).strip()
     return text if len(text) <= _MAX_NAME else ""
 
 
