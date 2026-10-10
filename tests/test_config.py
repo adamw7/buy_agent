@@ -50,6 +50,13 @@ def test_the_provider_itself_can_be_set_from_the_environment(reloaded_config) ->
     assert reloaded.AgentConfig().base_url == providers_module.VLLM.base_url
 
 
+def test_tensorrt_llm_can_be_the_provider_the_environment_names(reloaded_config) -> None:
+    reloaded = reloaded_config(BUY_AGENT_PROVIDER="trtllm")
+
+    assert reloaded.AgentConfig().provider == "trtllm"
+    assert reloaded.AgentConfig().base_url == providers_module.TRTLLM.base_url
+
+
 # -- paying --------------------------------------------------------------------
 
 

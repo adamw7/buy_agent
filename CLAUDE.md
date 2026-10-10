@@ -196,7 +196,7 @@ The order matters at three joints:
 | `money.py` | Every currency table (ADR-0054) |
 | `search.py` | Which backend a search is asked through, one row each -- and nothing else (ADR-0021, ADR-0057) |
 | `sources.py` | What a trusted source is: domain, term, `site:` query, `covers` |
-| `providers.py` | Everything that differs between Ollama, vLLM and a LiteLLM proxy, and nothing else |
+| `providers.py` | Everything that differs between Ollama, vLLM, a LiteLLM proxy and TensorRT-LLM, and nothing else |
 | `screenshots.py` | The browser seam; the only module that imports `playwright` (ADR-0065) |
 | `payment.py` | What may be bought and for how much: cart, spend limit, receipt -- and one failure |
 | `mandates.py` | The AP2 seam; the only module that imports `ap2` (ADR-0046) |
@@ -477,7 +477,7 @@ everything else goes to the built app, with `index.html` as the fallback.
   `allowed_hosts`. Typed addresses go through `_bound_host` (IPv6 brackets), and
   `_family_for` picks `AF_INET6`.
 - **The server never asks itself for a model.** `server._reaches` detects an
-  address that lands on this server (`:8000` is vLLM's default). `/api/models`
+  address that lands on this server (`:8000` is vLLM's and TensorRT-LLM's default). `/api/models`
   explains, and a run is refused on `base_url`.
 - **Only a loopback-bound server with Playwright takes pictures** (ADR-0065),
   via `server.camera_for`, and `defaults_payload.screenshots` says whether it

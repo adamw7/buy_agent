@@ -936,3 +936,54 @@ def test_a_trtllm_failure_names_its_own_command_and_variable(
     assert says in message
     assert f"TensorRT-LLM at {TRTLLM_CONFIG.base_url}" in message
     assert "vllm serve" not in message and "$VLLM_API_KEY" not in message
+
+
+def test_a_guided_decoding_mention_the_server_did_not_make_is_not_its_remedy() -> None:
+    """Only the row's own client carries the server's words (``_answered_by``); a
+    transport error that happens to say "guided" is still nothing answering."""
+    message = hint(TRTLLM_CONFIG, httpx.ConnectError("guided tour of a refused socket"))
+
+    assert "guided_decoding_backend" not in message
+    assert "Could not reach TensorRT-LLM" in message
+
+
+def test_a_trtllm_that_cannot_be_listed_still_says_how_to_restart_it(serving) -> None:
+    serving([], error=httpx.ConnectError("refused"))
+
+    message = hint(TRTLLM_CONFIG, _status_error(openai.NotFoundError, 404))
+
+    assert "serving: unknown" in message
+    assert "trtllm-serve Qwen/Qwen3-8B" in message
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        openai.APIConnectionError(request=_REQUEST),
+        httpx.ConnectError("refused"),
+        ConnectionRefusedError("refused"),
+        # The socket's own, for a host it cannot encode (``192.168.1..5``).
+        UnicodeError("label empty or too long"),
+    ],
+)
+def test_trtllm_counts_every_way_of_not_being_there(failure: Exception) -> None:
+    assert isinstance(failure, TRTLLM_CONFIG.model_server.transport_errors)
+
+
+def test_trtllm_is_its_own_row_and_takes_neither_per_run_setting() -> None:
+    """Fixed at startup, as vLLM's are: the form disables both boxes for it."""
+    row = providers_module.provider_for("trtllm")
+
+    assert row is providers_module.TRTLLM
+    assert (row.takes_num_ctx, row.takes_cpu_only) == (False, False)
+    assert row.chat_model is providers_module.VLLM.chat_model, "one client, shared"
+    assert row.installed is providers_module.VLLM.installed, "one listing, shared"
+
+
+def test_the_trtllm_defaults_are_read_from_its_own_variables(reloaded_providers) -> None:
+    reloaded_providers(TRTLLM_MODEL="meta-llama/Llama-3.1-8B", TRTLLM_HOST="http://gpu:9000/v1")
+
+    config = AgentConfig(provider="trtllm")
+
+    assert (config.model, config.base_url) == ("meta-llama/Llama-3.1-8B", "http://gpu:9000/v1")
+    assert AgentConfig(provider="vllm").base_url != "http://gpu:9000/v1", "vLLM's are its own"

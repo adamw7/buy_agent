@@ -27,7 +27,7 @@ python -m benchmark.server               # ...or as a page comparing several mod
 
 ## The unit suites
 
-3238 Python tests and 318 UI tests. Neither touches the network or a model
+3270 Python tests and 367 UI tests. Neither touches the network or a model
 server:
 
 - the model is faked through `BuyAgent(llm=...)`, a class with one `answer`
@@ -63,8 +63,8 @@ Optional prerequisites skip, never fail:
 - One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
   and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `3401 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `3316 passed, 105 skipped`.
+So the SDK without PowerShell reads `3417 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `3332 passed, 105 skipped`.
 
 ### Across processes
 
@@ -162,7 +162,8 @@ Coverage cannot see rules that hold *between* files, so
   off the server, and `ui/src/app/agent.types.ts` mirrors every payload
   (ADR-0033, ADR-0071);
 - the `Dockerfile`, `.dockerignore`, workflows, release, nightly, mutation and
-  audit settings agree with each other and with CI's pins;
+  audit settings agree with each other and with CI's pins, and every model
+  server's variables are named wherever they are listed by hand (ADR-0081);
 - everything a release publishes is scanned before it is pushed and attested,
   and only a job that attests can mint a token naming the run (ADR-0069);
 - ADRs are indexed, skills name real paths, and every Markdown link resolves;

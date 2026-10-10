@@ -39,6 +39,16 @@ export const LITELLM: ProviderOption = {
   takes_cpu_only: false,
 };
 
+/** A one-model server fixed at startup, as vLLM is, on the same port (ADR-0081). */
+export const TRTLLM: ProviderOption = {
+  name: 'trtllm',
+  label: 'TensorRT-LLM',
+  model: 'Qwen/Qwen3-8B',
+  base_url: 'http://localhost:8000/v1',
+  takes_num_ctx: false,
+  takes_cpu_only: false,
+};
+
 /** The rail that charges nobody, and the one that would. */
 export const DRY_RUN: RailOption = {
   name: 'dry-run',
@@ -104,7 +114,7 @@ const LIMITS: AgentDefaults['limits'] = {
 export function defaults(overrides: Partial<AgentDefaults> = {}): AgentDefaults {
   return {
     provider: OLLAMA.name,
-    provider_options: [OLLAMA, VLLM, LITELLM],
+    provider_options: [OLLAMA, VLLM, LITELLM, TRTLLM],
     model: OLLAMA.model,
     base_url: OLLAMA.base_url,
     temperature: 0,

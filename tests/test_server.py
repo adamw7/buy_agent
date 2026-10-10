@@ -724,6 +724,30 @@ def test_a_run_at_this_server_s_own_address_is_refused_at_that_box(
     assert "request" not in StubAgent.captured, "nothing was run for a setting like this"
 
 
+def test_a_tensorrt_llm_at_this_server_s_own_address_is_refused_too(
+    server: str, monkeypatch
+) -> None:
+    """``trtllm-serve`` defaults to port 8000 as vLLM does, so the same mistake is one
+    pick of the provider away, and is named for the server that was meant."""
+    asked: list[str] = []
+    monkeypatch.setattr(providers_module.httpx, "get", lambda url, **_: asked.append(url))
+    own = f"{server}/v1"
+
+    query = urlencode({"provider": "trtllm", "base_url": own})
+
+    status, payload = get(f"{server}/api/models?{query}")
+    run_status, run = post(
+        f"{server}/api/search", {"request": "headphones", "provider": "trtllm", "base_url": own}
+    )
+
+    assert status == 200
+    assert (payload["reachable"], payload["label"]) == (False, "TensorRT-LLM")
+    assert payload["hint"].startswith(f"{own} is this page's own address, not TensorRT-LLM's")
+    assert (run_status, run["field"]) == (400, "base_url")
+    assert not asked, "nothing was asked: what answers there is this page"
+    assert "request" not in StubAgent.captured
+
+
 @pytest.mark.parametrize(
     ("address", "host", "port", "reaches"),
     [

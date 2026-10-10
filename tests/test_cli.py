@@ -190,7 +190,7 @@ def test_the_help_names_every_provider_s_variables_and_what_a_proxy_ignores(caps
         main(["--help"])
     printed = " ".join(capsys.readouterr().out.split())
 
-    for name in ("OLLAMA", "VLLM", "LITELLM", "TRTLLM"):
+    for name in (provider.upper() for provider in PROVIDERS):
         assert f"${name}_MODEL" in printed and f"${name}_HOST" in printed
     assert printed.count("a LiteLLM proxy leaves it to the server it routes to") == 2
 
@@ -310,10 +310,14 @@ def test_writing_the_json_is_logged(fake_agent, tmp_path, caplog) -> None:
     assert "Wrote 2 products" in caplog.text
 
 
-def test_a_context_window_the_provider_ignores_is_called_out(fake_agent, caplog) -> None:
-    """vLLM fixes its window with --max-model-len when it starts."""
+@pytest.mark.parametrize("provider", ["vllm", "trtllm"])
+def test_a_context_window_the_provider_ignores_is_called_out(
+    fake_agent, caplog, provider: str
+) -> None:
+    """vLLM fixes its window with --max-model-len when it starts, and TensorRT-LLM
+    with --max_seq_len."""
     with caplog.at_level(logging.WARNING):
-        main(["headphones", "--provider", "vllm", "--num-ctx", "4096"])
+        main(["headphones", "--provider", provider, "--num-ctx", "4096"])
 
     assert "--num-ctx 4096 is ignored" in caplog.text
 
@@ -326,10 +330,13 @@ def test_the_default_context_window_is_not_called_out(fake_agent, caplog) -> Non
     assert "ignored" not in caplog.text
 
 
-def test_a_cpu_only_run_the_provider_ignores_is_called_out(fake_agent, caplog) -> None:
-    """vLLM picks its device with --device when it starts."""
+@pytest.mark.parametrize("provider", ["vllm", "trtllm"])
+def test_a_cpu_only_run_the_provider_ignores_is_called_out(
+    fake_agent, caplog, provider: str
+) -> None:
+    """vLLM and TensorRT-LLM both pick their device when they start."""
     with caplog.at_level(logging.WARNING):
-        main(["headphones", "--provider", "vllm", "--cpu-only"])
+        main(["headphones", "--provider", provider, "--cpu-only"])
 
     assert "--cpu-only is ignored" in caplog.text
 

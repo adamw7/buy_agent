@@ -3,7 +3,7 @@ import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { accessibilityProblems } from '../a11y';
 import { SearchForm } from './search-form';
 import type { PaySettings } from './search-form';
-import { LITELLM, VLLM, defaults, status } from '../testing';
+import { LITELLM, TRTLLM, VLLM, defaults, status } from '../testing';
 import type {
   AgentDefaults,
   InstalledModel,
@@ -1202,7 +1202,7 @@ describe('SearchForm', () => {
       (option) => option.value,
     );
 
-    expect(names).toEqual(['ollama', 'vllm', 'litellm']);
+    expect(names).toEqual(['ollama', 'vllm', 'litellm', 'trtllm']);
   });
 
   it('brings the model and the address along when the provider changes', async () => {
@@ -1238,6 +1238,25 @@ describe('SearchForm', () => {
     expect(cpuOnly().disabled).toBe(true);
     expect(cpuOnly().closest('.field')!.querySelector('small')!.textContent).toContain(
       'With LiteLLM the device is chosen where the model is served',
+    );
+  });
+
+  it('brings TensorRT-LLM its own pair, and closes what it fixes at startup', async () => {
+    const asked: ModelSource[] = [];
+    fixture.componentInstance.refresh.subscribe((source) => asked.push(source));
+    const cpuOnly = () => element<HTMLInputElement>('input[name="cpu_only"]');
+
+    await choose('select[name="provider"]', 'trtllm');
+
+    expect(element<HTMLInputElement>('input[name="model"]').value).toBe(TRTLLM.model);
+    expect(element<HTMLInputElement>('input[name="baseUrl"]').value).toBe(TRTLLM.base_url);
+    expect(asked).toEqual([{ provider: 'trtllm', base_url: TRTLLM.base_url }]);
+    expect(element<HTMLInputElement>('input[name="num_ctx"]').placeholder).toBe(
+      'Set by the server',
+    );
+    expect(cpuOnly().disabled).toBe(true);
+    expect(cpuOnly().closest('.field')!.querySelector('small')!.textContent).toContain(
+      'With TensorRT-LLM the device is chosen where the model is served',
     );
   });
 
