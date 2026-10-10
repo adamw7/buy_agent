@@ -57,9 +57,7 @@ class Contender(BaseModel):
     @classmethod
     def scripted(cls, script: str) -> Contender:
         if script not in SCRIPTS:
-            raise ValueError(
-                f"Unknown script {script!r}; expected one of {', '.join(SCRIPTS)}."
-            )
+            raise ValueError(f"Unknown script {script!r}; expected one of {', '.join(SCRIPTS)}.")
         return cls(script=script)
 
     @property
@@ -106,9 +104,7 @@ class Contender(BaseModel):
 class Stopwatch:
     """A chat model, timed, keeping the query it refined."""
 
-    def __init__(
-        self, model: ChatModel, clock: Callable[[], float] = time.perf_counter
-    ) -> None:
+    def __init__(self, model: ChatModel, clock: Callable[[], float] = time.perf_counter) -> None:
         self.model = model
         self.clock = clock
         #: Per step, failures included: a timeout is time.

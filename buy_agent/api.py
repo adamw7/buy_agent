@@ -75,10 +75,7 @@ _STATUS: dict[type[Exception], int] = {
     SearchError: 502,
 }
 
-PAY_STATUS: dict[type[Exception], int] = {
-    RailUnreachableError: 502,
-    PaymentError: 400,
-}
+PAY_STATUS: dict[type[Exception], int] = {RailUnreachableError: 502, PaymentError: 400}
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,7 +174,7 @@ def alert_for(ranked: Sequence[RankedProduct], config: AgentConfig) -> Alert | N
 def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
     """Re-sort a finished run's products without running it again (ADR-0035)."""
     defaults = AgentConfig()
-    request = _read(data, "request", "", _as_text)
+    request = _read(data, "request", "", str)
     sort_by = _read(data, "sort_by", "score", _among(SORT_OPTIONS))
     top_n = _read(data, "top", defaults.top_n, _bounded(int, "top_n"))
     weights = RankingWeights()
@@ -432,15 +429,11 @@ def installed_models(
     return {**status, "reachable": True, "models": [model_payload(model) for model in models]}
 
 
-def _read_sources(
-    data: Mapping[str, Any], default: tuple[Source, ...]
-) -> tuple[Source, ...]:
+def _read_sources(data: Mapping[str, Any], default: tuple[Source, ...]) -> tuple[Source, ...]:
     if not _present(data, "sources"):
         return default
     value = data["sources"]
-    specs = (
-        [str(entry) for entry in value] if isinstance(value, (list, tuple)) else str(value)
-    )
+    specs = [str(entry) for entry in value] if isinstance(value, (list, tuple)) else str(value)
     try:
         return parse_sources(specs)
     except ValueError as exc:
@@ -488,10 +481,6 @@ def _read_products(data: Mapping[str, Any]) -> list[Product]:
                 field="products",
             ) from exc
     return products
-
-
-def _as_text(text: str) -> str:
-    return text
 
 
 def _as_code(text: str) -> str:
@@ -590,8 +579,8 @@ def _row(key: str, options: tuple[str, ...]) -> Option:
 #: Every setting both doors fill in, in ``--help``'s order; ``sources`` is apart.
 OPTIONS: tuple[Option, ...] = (
     _row("provider", PROVIDER_OPTIONS),
-    Option("model", _as_text, blank=True),
-    Option("base_url", _as_text, blank=True),
+    Option("model", str, blank=True),
+    Option("base_url", str, blank=True),
     _number("results", int, "num_products"),
     _number("top", int, "top_n"),
     Option("region", parse_region),
@@ -608,7 +597,7 @@ OPTIONS: tuple[Option, ...] = (
     Option("journal", _as_bool),
     Option("pay", _as_bool),
     _row("rail", RAIL_OPTIONS),
-    Option("merchant_url", _as_text, blank=True),
+    Option("merchant_url", str, blank=True),
     _number("spend_limit", float),
     _number("temperature", float),
     _number("num_ctx", int),

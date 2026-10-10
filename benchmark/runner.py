@@ -41,9 +41,7 @@ def serving_the_corpus(
     the agent asks for them, to score against exactly what the run was given."""
     served: list[SearchResult] = []
 
-    def search(
-        query: str, *, max_results: int = 10, region: str = "us-en", **_: object
-    ) -> list:
+    def search(query: str, *, max_results: int = 10, region: str = "us-en", **_: object) -> list:
         return [result.model_copy() for result in pages[:max_results]]
 
     def enrich(

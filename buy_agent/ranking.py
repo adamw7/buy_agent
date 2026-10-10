@@ -6,12 +6,7 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
-from buy_agent.models import (
-    RankedProduct,
-    ScoreParts,
-    comparable_price,
-    dominant_currency,
-)
+from buy_agent.models import RankedProduct, ScoreParts, comparable_price, dominant_currency
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

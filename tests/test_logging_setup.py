@@ -23,18 +23,10 @@ from buy_agent.alerts import Alert
 from buy_agent.chat import release
 from buy_agent.config import AgentConfig
 from buy_agent.journal import Change
-from buy_agent.models import Offer, Product, RankedProduct
+from buy_agent.models import Offer, Product
 from buy_agent.providers import PROVIDERS, provider_for
 from buy_agent.ranking import RankingWeights, rank_products
-from tests.conftest import ranked_product, said
-
-
-def ranked(*products: Product) -> list[RankedProduct]:
-    """Wrap products as a finished ranking, best first."""
-    return [
-        ranked_product(product, score=1.0 - index / 10, rank=index + 1)
-        for index, product in enumerate(products)
-    ]
+from tests.conftest import ranked, said
 
 
 @pytest.fixture

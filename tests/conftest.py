@@ -239,6 +239,14 @@ def ranked_product(product: Product, *, score: float, rank: int) -> RankedProduc
     )
 
 
+def ranked(*products: Product) -> list[RankedProduct]:
+    """Wrap products as a finished ranking, best first."""
+    return [
+        ranked_product(product, score=1.0 - index / 10, rank=index + 1)
+        for index, product in enumerate(products)
+    ]
+
+
 def payable_product(**extra: Any) -> Product:
     """A product a run really could pay for, and the one four files needed."""
     return Product(

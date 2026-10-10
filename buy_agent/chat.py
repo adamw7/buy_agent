@@ -4,15 +4,7 @@ ADR-0038)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Generic,
-    Protocol,
-    TypeAlias,
-    TypeVar,
-    runtime_checkable,
-)
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeAlias, TypeVar, runtime_checkable
 
 from pydantic import BaseModel, ValidationError
 
