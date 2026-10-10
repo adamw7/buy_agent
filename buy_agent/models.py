@@ -47,26 +47,15 @@ STANDING_PHRASES: dict[str, str] = {
 
 #: What a model may write for each standing, folded; anything else is unknown.
 _STANDING_SPELLINGS: dict[str, str] = {
-    "in stock": "in stock",
-    "in-stock": "in stock",
-    "instock": "in stock",
-    "available": "in stock",
-    "out of stock": "out of stock",
-    "out-of-stock": "out of stock",
-    "outofstock": "out of stock",
-    "sold out": "out of stock",
-    "unavailable": "out of stock",
-    "discontinued": "out of stock",
-    "new": "new",
-    "brand new": "new",
-    "used": "used",
-    "pre-owned": "used",
-    "preowned": "used",
-    "second-hand": "used",
-    "secondhand": "used",
-    "refurbished": "refurbished",
-    "renewed": "refurbished",
-    "reconditioned": "refurbished",
+    spelling: standing
+    for standing, spellings in {
+        "in stock": "in stock|in-stock|instock|available",
+        "out of stock": "out of stock|out-of-stock|outofstock|sold out|unavailable|discontinued",
+        "new": "new|brand new",
+        "used": "used|pre-owned|preowned|second-hand|secondhand",
+        "refurbished": "refurbished|renewed|reconditioned",
+    }.items()
+    for spelling in spellings.split("|")
 }
 
 
@@ -217,9 +206,7 @@ class Product(BaseModel):
         if len(self.offers) < 2:
             return None
         listings = f"{len(self.offers)} listings"
-        placed = sorted(
-            offer.price for offer in self.offers if offer.currency == self.currency
-        )
+        placed = sorted(offer.price for offer in self.offers if offer.currency == self.currency)
         if not placed:
             return listings
         spread = (
@@ -319,6 +306,13 @@ def dedup_key(name: str) -> str:
 def price_label(price: float | None, currency: str | None) -> str:
     """A price as every surface writes it, an unknown one included (ADR-0012)."""
     return "price unknown" if price is None else amount_label(price, currency)
+
+
+def and_list(items: list[str]) -> str:
+    """``a``, ``a and b``, ``a, b and c``."""
+    if len(items) < 2:
+        return "".join(items)
+    return f"{', '.join(items[:-1])} and {items[-1]}"
 
 
 def _clean(value: str) -> str:

@@ -468,7 +468,7 @@ def test_a_quote_is_checked_against_the_condensed_page() -> None:
     assert set(words) == {page.url for page in PAGES[:2]}
     assert "copyright 2026 audiosite media" not in words[PAGES[0].url]
     # Running words, so "4.7" is "4 7" and "12,480" is "12480": compared word for
-    # word after ``normalise_numbers``, which lets a quote match a page that
+    # word after ``plain_figures``, which lets a quote match a page that
     # grouped its thousands differently.
     assert "rated 4 7 out of 5 from 12480 reviews" in words[PAGES[0].url]
 

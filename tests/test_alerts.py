@@ -4,14 +4,7 @@ from __future__ import annotations
 
 from buy_agent.alerts import price_alert
 from buy_agent.models import Product
-from tests.conftest import ranked_product
-
-
-def ranked(*products: Product):
-    return [
-        ranked_product(product, score=1 - index / 10, rank=index + 1)
-        for index, product in enumerate(products)
-    ]
+from tests.conftest import ranked
 
 
 def test_the_products_at_or_under_the_line_are_named_cheapest_first() -> None:

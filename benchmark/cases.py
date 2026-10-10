@@ -148,9 +148,7 @@ def case_for(name: str) -> Case:
     try:
         return CASES[name]
     except KeyError:
-        raise ValueError(
-            f"Unknown case {name!r}; expected one of {', '.join(CASES)}."
-        ) from None
+        raise ValueError(f"Unknown case {name!r}; expected one of {', '.join(CASES)}.") from None
 
 
 __all__ = ["CASES", "ESPRESSO", "HEADPHONES", "LAPTOPS", "SCRIPTS", "Case", "case_for"]

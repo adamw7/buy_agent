@@ -51,9 +51,7 @@ def configure_logging(*, verbose: bool = False) -> None:
 
 def _split_report_from_progress() -> None:
     package = logging.getLogger("buy_agent")
-    for previous in [
-        handler for handler in package.handlers if handler.name == _REPORT_HANDLER
-    ]:
+    for previous in [handler for handler in package.handlers if handler.name == _REPORT_HANDLER]:
         package.removeHandler(previous)
 
     handler = logging.StreamHandler(sys.stdout)
@@ -110,20 +108,19 @@ def log_top_products(
         product = entry.product
         _report("#%d  %s", entry.rank, product.name)
         _report("     score  : %.3f  (%s)", entry.score, _parts(entry.breakdown, weights))
-        _report("     price  : %s", product.price_label())
-        # Only where a page said (ADR-0079).
-        if (listing := product.listing_label()) is not None:
-            _report("     state  : %s", listing)
-        # Only where several pages priced it (ADR-0058).
-        if (offers := product.offers_label()) is not None:
-            _report("     offers : %s", offers)
-        _report("     rating : %s", product.rating_label())
-        if product.seller:
-            _report("     seller : %s", product.seller)
-        if product.url:
-            _report("     url    : %s", product.url)
-        if product.notes:
-            _report("     note   : %s", product.notes)
+        # A state only where a page said (ADR-0079), offers where several priced it
+        # (ADR-0058); price and rating always.
+        for label, said in (
+            ("price", product.price_label()),
+            ("state", product.listing_label()),
+            ("offers", product.offers_label()),
+            ("rating", product.rating_label()),
+            ("seller", product.seller),
+            ("url", product.url),
+            ("note", product.notes),
+        ):
+            if said:
+                _report("     %-6s : %s", label, said)
         # Quotes last: the longer read (ADR-0042).
         for opinion in product.opinions:
             elsewhere = opinion.url and opinion.url != product.url

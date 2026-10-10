@@ -42,13 +42,9 @@ _COUNT_AFTER = rf"\s+(?:\w+\s+){{0,2}}{_COUNTED}\b"
 _COUNT_BEFORE = rf"{_COUNTED}\b[^\d]{{0,12}}"
 
 
-def normalise_numbers(text: str) -> str:
-    return plain_figures(text)
-
-
 def build_haystack(results: Sequence[SearchResult]) -> str:
     """All the text the model was shown, numbers normalised."""
-    return normalise_numbers(
+    return plain_figures(
         " ".join(f"{result.title} {result.snippet} {result.content}" for result in results)
     )
 
@@ -96,9 +92,7 @@ def mentions_review_count(haystack: str, value: float) -> bool:
 
 def distinctive_words(name: str) -> list[str]:
     """The words of ``name`` that identify something rather than describe it."""
-    return [
-        token for token in NAME_TOKENS.findall(name.lower()) if token not in GENERIC_WORDS
-    ]
+    return [token for token in NAME_TOKENS.findall(name.lower()) if token not in GENERIC_WORDS]
 
 
 def word_coverage(tokens: Sequence[str], text: str) -> float:
@@ -172,9 +166,7 @@ def attribute_sources(
             if product.url:
                 invented += 1
                 logger.debug("Never searched: %r for %r", product.url, product.name)
-            url = next(
-                (page for page, text in pages if mentions_name(text, product.name)), None
-            )
+            url = next((page for page, text in pages if mentions_name(text, product.name)), None)
         attributed.append(
             product if url == product.url else product.model_copy(update={"url": url})
         )
@@ -203,13 +195,8 @@ def verify_numbers(products: Sequence[Product], haystack: str) -> list[Product]:
             if value is not None and not supported(haystack, value):
                 updates[figure] = None
                 # Only those it carries, so the DEBUG line names what went.
-                updates.update(
-                    dict.fromkeys(
-                        name
-                        for name in QUALIFIERS.get(figure, ())
-                        if getattr(product, name) is not None
-                    )
-                )
+                carried = QUALIFIERS.get(figure, ())
+                updates.update(dict.fromkeys(n for n in carried if getattr(product, n) is not None))
 
         if updates:
             dropped += 1
@@ -259,7 +246,7 @@ def verify_standing(
 
 
 def running_words(text: str) -> str:
-    return " ".join(NAME_TOKENS.findall(normalise_numbers(text).lower()))
+    return " ".join(NAME_TOKENS.findall(plain_figures(text).lower()))
 
 
 def quotes_sources(haystack_words: str, quote: str) -> bool:

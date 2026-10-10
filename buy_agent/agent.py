@@ -20,7 +20,7 @@ from buy_agent.extraction import (
 from buy_agent.fetch import enrich
 from buy_agent.journal import Journal, open_journal
 from buy_agent.logging_setup import log_top_products
-from buy_agent.models import comparable_price, nothing_recorded
+from buy_agent.models import and_list, comparable_price, nothing_recorded
 from buy_agent.ranking import rank_products
 from buy_agent.search import search_web
 from buy_agent.verification import ground
@@ -83,13 +83,6 @@ def _first_line(exc: Exception) -> str:
     """A failure's first line, or its type where it says nothing."""
     said = str(exc).strip()
     return said.splitlines()[0] if said else type(exc).__name__
-
-
-def _and_list(items: list[str]) -> str:
-    """``a``, ``a and b``, ``a, b and c``."""
-    if len(items) < 2:
-        return "".join(items)
-    return f"{', '.join(items[:-1])} and {items[-1]}"
 
 
 class BuyAgent:
@@ -232,7 +225,7 @@ class BuyAgent:
         sources = self.config.sources
         if not sources:
             return ""
-        named = _and_list([source.spec for source in sources])
+        named = and_list([source.spec for source in sources])
         was = "was" if len(sources) == 1 else "were"
         return (
             f" Only {named} {was} searched, and there is no falling back to the rest "

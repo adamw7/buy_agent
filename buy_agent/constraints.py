@@ -7,12 +7,7 @@ import operator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeAlias
 
-from buy_agent.models import (
-    Removal,
-    comparable_price,
-    dominant_currency,
-    nothing_recorded,
-)
+from buy_agent.models import Removal, comparable_price, dominant_currency, nothing_recorded
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence

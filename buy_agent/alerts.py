@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
 
-from buy_agent.models import comparable_price, dominant_currency
+from buy_agent.models import and_list, comparable_price, dominant_currency
 from buy_agent.money import amount_label
 
 if TYPE_CHECKING:
@@ -51,7 +51,7 @@ def price_alert(
     gone = [product for price, product in priced if price <= below and not _buyable(product)]
 
     if met:
-        listed = _and_list([f"{product.name} at {_at(price, product)}" for price, product in met])
+        listed = and_list([f"{product.name} at {_at(price, product)}" for price, product in met])
         detail = f"At or under {line}: {listed}."
     elif buyable:
         cheapest_price, cheapest = buyable[0]
@@ -71,7 +71,7 @@ def price_alert(
     if gone:
         were = "is" if len(gone) == 1 else "are"
         detail += (
-            f" {_and_list([product.name for product in gone])} {were} at or under it, "
+            f" {and_list([product.name for product in gone])} {were} at or under it, "
             f"but out of stock where it was priced."
         )
     return Alert(
@@ -88,10 +88,3 @@ def _buyable(product: Product) -> bool:
 
 def _at(price: float, product: Product) -> str:
     return amount_label(price, product.currency)
-
-
-def _and_list(items: list[str]) -> str:
-    """``a``, ``a and b``, ``a, b and c``."""
-    if len(items) < 2:
-        return "".join(items)
-    return f"{', '.join(items[:-1])} and {items[-1]}"

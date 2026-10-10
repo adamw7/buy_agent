@@ -213,20 +213,8 @@ def _as_a_listing(product: Product) -> Product:
     before merging (ADR-0058)."""
     if product.price is None:
         return product
-    return product.model_copy(
-        update={
-            "offers": [
-                Offer(
-                    price=product.price,
-                    currency=product.currency,
-                    seller=product.seller,
-                    url=product.url,
-                    availability=product.availability,
-                    condition=product.condition,
-                )
-            ]
-        }
-    )
+    offer = Offer.model_validate(product.model_dump(include=set(Offer.model_fields)))
+    return product.model_copy(update={"offers": [offer]})
 
 
 def merge_variants(

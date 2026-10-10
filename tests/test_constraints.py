@@ -15,9 +15,6 @@ def product(name: str, **figures) -> Product:
     return Product(name=name, **figures)
 
 
-# -- what the bounds admit -----------------------------------------------------
-
-
 # -- the blanks, which are the whole judgement call -----------------------------
 
 

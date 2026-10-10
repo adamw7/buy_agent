@@ -99,17 +99,13 @@ def _term(value: str) -> str:
 
 
 def _lines(product: dict[str, Any]) -> list[str]:
-    name = _name(product)
+    name = _short_text(product.get("name"))
     if not name:
         return []
     lines = [f"{name}: {offer}" for offer in _offers(product.get("offers"))]
     if rating := _rating(product.get("aggregateRating")):
         lines.append(f"{name}: {rating}")
     return lines
-
-
-def _name(product: dict[str, Any]) -> str:
-    return _short_text(product.get("name"))
 
 
 def _offers(node: Any) -> list[str]:
@@ -194,15 +190,10 @@ def _rating(node: Any) -> str:
 
 def _number(value: Any) -> float | None:
     """A declared figure: JSON's number, or the string schema.org allows instead."""
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
         return None
-    if isinstance(value, (int, float)):
-        number = float(value)
-    elif isinstance(value, str):
-        try:
-            number = float(value.strip().replace(",", ""))
-        except ValueError:
-            return None
-    else:
+    try:
+        number = float(value.strip().replace(",", "") if isinstance(value, str) else value)
+    except ValueError:
         return None
     return number if isfinite(number) else None
