@@ -310,16 +310,18 @@ def test_writing_the_json_is_logged(fake_agent, tmp_path, caplog) -> None:
     assert "Wrote 2 products" in caplog.text
 
 
-@pytest.mark.parametrize("provider", ["vllm", "trtllm"])
+@pytest.mark.parametrize("provider", ["vllm", "trtllm", "litellm"])
 def test_a_context_window_the_provider_ignores_is_called_out(
     fake_agent, caplog, provider: str
 ) -> None:
-    """vLLM fixes its window with --max-model-len when it starts, and TensorRT-LLM
-    with --max_seq_len."""
+    """vLLM fixes its window with --max-model-len when it starts, TensorRT-LLM with
+    --max_seq_len, and a LiteLLM proxy leaves it to what it routes to -- so the line
+    names none of them, where it once told all three to use vLLM's."""
     with caplog.at_level(logging.WARNING):
         main(["headphones", "--provider", provider, "--num-ctx", "4096"])
 
     assert "--num-ctx 4096 is ignored" in caplog.text
+    assert "--max-model-len" not in caplog.text
 
 
 def test_the_default_context_window_is_not_called_out(fake_agent, caplog) -> None:
@@ -330,15 +332,17 @@ def test_the_default_context_window_is_not_called_out(fake_agent, caplog) -> Non
     assert "ignored" not in caplog.text
 
 
-@pytest.mark.parametrize("provider", ["vllm", "trtllm"])
+@pytest.mark.parametrize("provider", ["vllm", "trtllm", "litellm"])
 def test_a_cpu_only_run_the_provider_ignores_is_called_out(
     fake_agent, caplog, provider: str
 ) -> None:
-    """vLLM and TensorRT-LLM both pick their device when they start."""
+    """vLLM and TensorRT-LLM both pick their device when they start, and a LiteLLM
+    proxy where what it routes to does; only vLLM ever took a --device."""
     with caplog.at_level(logging.WARNING):
         main(["headphones", "--provider", provider, "--cpu-only"])
 
     assert "--cpu-only is ignored" in caplog.text
+    assert "--device" not in caplog.text
 
 
 @pytest.mark.parametrize(

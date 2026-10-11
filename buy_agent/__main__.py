@@ -440,9 +440,10 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if args.num_ctx is not None and not config.model_server.takes_num_ctx:
-        # The form disables this field; the CLI says so.
+        # The form disables this field; the CLI says so, naming no server's own flag:
+        # vLLM's is not TensorRT-LLM's, and a LiteLLM proxy has none.
         logger.warning(
-            "%s fixes its context window when it starts (--max-model-len), so "
+            "With %s the context window is chosen where the model is served, so "
             "--num-ctx %s is ignored on this run.",
             config.model_server.label,
             args.num_ctx,
@@ -450,7 +451,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cpu_only and not config.model_server.takes_cpu_only:
         logger.warning(
-            "%s chooses its device when it starts (--device), so --cpu-only is "
+            "With %s the device is chosen where the model is served, so --cpu-only is "
             "ignored on this run.",
             config.model_server.label,
         )
