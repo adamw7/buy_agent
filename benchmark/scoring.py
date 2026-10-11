@@ -125,7 +125,9 @@ def match_products(
 def figure_verdicts(product: Product, entry: Expected) -> list[bool | None]:
     """Each of the three figures: True printed for it, False not, None blank."""
 
-    def judged(value: float | None, qualifier: float | None, printed: frozenset) -> bool | None:
+    def judged(
+        value: float | None, qualifier: float | str | None, printed: frozenset
+    ) -> bool | None:
         if value is None:
             return None
         if qualifier is not None:
@@ -209,7 +211,7 @@ class Scorecard:
         }
         paired = {name: pair for pair in PAIRS for name in pair}
         parts: dict[str, tuple[float, float]] = {}
-        for name, (weight, _) in METRICS.items():
+        for name in METRICS:
             pair = paired.get(name, (name,))
             if name != pair[0]:
                 continue
