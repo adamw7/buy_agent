@@ -51,22 +51,24 @@ _WHITESPACE = re.compile(r"\s+")
 def declared(scripts: Iterable[str]) -> list[str]:
     """One line per offer and one per rating, for each product the scripts declare;
     a script that is not JSON is skipped, as a browser would."""
-    lines: list[str] = []
+    # Keyed, not listed: a catalogue of offers is thousands of lines to compare pairwise.
+    lines: dict[str, None] = {}
     seen = 0
     for script in scripts:
         try:
             data = json.loads(script)
-        except ValueError:
+        # Nested past what the decoder will follow is a script nobody can read either.
+        except (ValueError, RecursionError):
             continue
         for product in _products(data, 0):
             written = _lines(product)
             if not written:
                 continue
-            lines.extend(line for line in written if line not in lines)
+            lines.update(dict.fromkeys(written))
             seen += 1
             if seen >= _MAX_PRODUCTS:
-                return lines
-    return lines
+                return list(lines)
+    return list(lines)
 
 
 def _products(node: Any, depth: int) -> Iterator[dict[str, Any]]:
@@ -108,25 +110,26 @@ def _lines(product: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _offers(node: Any) -> list[str]:
-    """Each offer as "348.00 USD, in stock, condition: new, sold by Shop"."""
+def _offers(node: Any, depth: int = 0) -> list[str]:
+    """Each offer as "348.00 USD, in stock, condition: new, sold by Shop", once each."""
     offers = node if isinstance(node, list) else [node]
-    written: list[str] = []
+    written: dict[str, None] = {}
     for offer in offers:
         if not isinstance(offer, dict):
             continue
         if "aggregateoffer" in _types(offer):
-            written.extend(_aggregate(offer))
+            written.update(dict.fromkeys(_aggregate(offer, depth)))
             continue
-        line = _offer(offer)
-        if line and line not in written:
-            written.append(line)
-    return written
+        if line := _offer(offer):
+            written[line] = None
+    return list(written)
 
 
-def _aggregate(offer: dict[str, Any]) -> list[str]:
-    """The listings an ``AggregateOffer`` holds, else its lowest price on its own."""
-    if inner := _offers(offer.get("offers")):
+def _aggregate(offer: dict[str, Any], depth: int) -> list[str]:
+    """The listings an ``AggregateOffer`` holds, else its lowest price on its own; one
+    nested past :data:`_MAX_DEPTH` in others is read by its lowest price, so a page
+    cannot recurse the reader out of its stack."""
+    if depth < _MAX_DEPTH and (inner := _offers(offer.get("offers"), depth + 1)):
         return inner
     line = _offer({**offer, "price": offer.get("lowPrice")})
     return [line] if line else []
@@ -194,6 +197,7 @@ def _number(value: Any) -> float | None:
         return None
     try:
         number = float(value.strip().replace(",", "") if isinstance(value, str) else value)
-    except ValueError:
+    # JSON's integers are unbounded, and one past a float's range overflows instead.
+    except (ValueError, OverflowError):
         return None
     return number if isfinite(number) else None

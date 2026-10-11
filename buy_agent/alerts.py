@@ -34,7 +34,8 @@ def price_alert(
     ranked: Sequence[RankedProduct], below: float, named: str | None = None
 ) -> Alert:
     """Which products are priced at or under ``below`` in the run's currency and not out
-    of stock (ADR-0079); an unknown or unplaceable price never meets it."""
+    of stock (ADR-0079); an unknown or unplaceable price never meets it, nor one no page
+    printed a currency for, which paying will not take either (ADR-0046)."""
     products = [entry.product for entry in ranked]
     currency = dominant_currency(products, named)
     line = amount_label(below, currency)
@@ -42,13 +43,26 @@ def price_alert(
         (
             (price, product)
             for product in products
-            if (price := comparable_price(product, currency)) is not None
+            # Ranking counts a bare price on the run's scale (ADR-0043); this does not.
+            if product.currency is not None
+            and (price := comparable_price(product, currency)) is not None
         ),
         key=lambda pair: pair[0],
     )
     buyable = [(price, product) for price, product in priced if _buyable(product)]
     met = [(price, product) for price, product in buyable if price <= below]
     gone = [product for price, product in priced if price <= below and not _buyable(product)]
+    # Under the line on a figure alone: said, as an out-of-stock one is, and never met.
+    bare = sorted(
+        (
+            (price, product)
+            for product in products
+            if product.currency is None
+            and (price := product.price) is not None
+            and price <= below
+        ),
+        key=lambda pair: pair[0],
+    )
 
     if met:
         listed = and_list([f"{product.name} at {_at(price, product)}" for price, product in met])
@@ -66,6 +80,8 @@ def price_alert(
             f"Nothing found is at or under {line}: no page printed a price this run "
             f"can count in {currency}."
         )
+    elif any(product.price is not None for product in products):
+        detail = f"Nothing found is at or under {line}: no page printed a currency."
     else:
         detail = f"Nothing found is at or under {line}: no page printed a price."
     if gone:
@@ -73,6 +89,12 @@ def price_alert(
         detail += (
             f" {and_list([product.name for product in gone])} {were} at or under it, "
             f"but out of stock where it was priced."
+        )
+    if bare:
+        were = "is" if len(bare) == 1 else "are"
+        detail += (
+            f" {and_list([product.name for _price, product in bare])} {were} priced at "
+            f"or under it, but with no currency printed."
         )
     return Alert(
         below=below,

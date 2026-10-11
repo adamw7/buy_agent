@@ -65,8 +65,9 @@ found**, **Failed** or **Stopped** in the tab title, without a per-second clock.
 ## `product-card`
 
 Buying takes **two** clicks. The second restates the *cart* -- title, the cart's
-`pay_label` (a bare "329.00" still has a currency to be paid in,
-[ADR-0043](../docs/adr/0043-compare-prices-only-within-one-currency.md)),
+`pay_label` (in the currency a page printed beside the price: a bare "329.00" is
+ranked in the run's, and never paid in it,
+[ADR-0046](../docs/adr/0046-pay-on-the-shoppers-behalf-with-ap2.md)),
 `pay_merchant` (most pages print no seller), the rail, and whether anyone is
 charged. A product that may not be bought shows Python's `cannot_pay`. While
 paying, the card in `paying` (a name, not a flag) says "Authorising … with …"

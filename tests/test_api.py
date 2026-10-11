@@ -569,10 +569,10 @@ def test_the_spend_limit_travels_with_the_payment() -> None:
     assert "spend limit" in str(excinfo.value)
 
 
-def test_the_products_carry_the_money_a_purchase_would_be_in() -> None:
-    """Which is frequently not the product's own: a page that printed a bare "179.00" is
-    priced in the run's currency (ADR-0043), so ``currency`` is null while the cart is
-    in USD."""
+def test_a_bare_price_is_ranked_in_the_runs_currency_and_never_bought_in_it() -> None:
+    """A page that printed a bare "179.00" is priced on the run's scale for ranking
+    (ADR-0043), and the cart once took it too, as 179.00 USD. ADR-0046 refuses a
+    product whose currency no page printed, so no amount is offered for it."""
     bare = Product(name="Sennheiser Accentum", price=179.0, url="https://x.example/s")
     ranked = rank_products([PAYABLE, bare], weights=RankingWeights())
 
@@ -581,8 +581,11 @@ def test_the_products_carry_the_money_a_purchase_would_be_in() -> None:
 
     assert accentum["currency"] is None
     assert accentum["price_label"] == "179.00"
-    assert accentum["pay_currency"] == "USD"
-    assert accentum["pay_label"] == "179.00 USD"
+    assert "price" not in accentum["breakdown"]["neutral"], "ranked on the run's scale"
+    assert "No page printed a currency" in accentum["cannot_pay"]
+    assert (accentum["pay_currency"], accentum["pay_label"], accentum["pay_merchant"]) == (
+        None, None, None,
+    )
 
 
 def test_the_products_carry_who_a_purchase_would_pay() -> None:

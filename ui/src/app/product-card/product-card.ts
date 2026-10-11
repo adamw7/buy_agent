@@ -126,7 +126,7 @@ export class ProductCard {
 
   protected confirm(): void {
     const product = this.product();
-    // The cart's currency, not the product's own (ADR-0043).
+    // The cart's currency, as Python checked it (ADR-0012, ADR-0046).
     if (product.price === null || product.pay_currency === null) {
       return;
     }

@@ -68,6 +68,23 @@ def test_a_run_where_no_page_named_a_currency_has_no_amount_to_send() -> None:
     assert "not an amount" in refused(SONY, None)
 
 
+def test_a_price_no_page_gave_a_currency_is_not_paid_in_the_runs_own() -> None:
+    """Ranking takes a bare price as the set's (ADR-0043), and the cart took it too:
+    beside a dollar listing, a bare 90 was bought as 90.00 USD. ADR-0046 refuses a
+    product whose currency no page printed, whatever the rest of the run named."""
+    bare = SONY.model_copy(update={"price": 90.0, "currency": None})
+
+    assert refused(bare, "USD") == (
+        "No page printed a currency beside Sony WH-1000XM5's 90.00, so it is a number "
+        "and not an amount. Ranking counts it in USD with the rest of the run, but "
+        "nothing is paid on a currency no page printed."
+    )
+    assert terms_for(bare, "USD")[0] is None
+    with pytest.raises(PaymentError, match="No page printed a currency") as excinfo:
+        cart_for(bare, [BOSE, bare], AgentConfig(pay=True))
+    assert excinfo.value.field == "products"
+
+
 @pytest.mark.parametrize("scale", ["¥", "BUCKS"])
 def test_a_scale_that_names_no_currency_is_no_scale_to_send_an_amount_on(scale: str) -> None:
     """The run's own currency is whatever the pages spelled, which ``money.code_for``

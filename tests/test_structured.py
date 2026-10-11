@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from buy_agent.structured import declared
+from buy_agent.structured import _MAX_DEPTH, declared
 from buy_agent.verification import (
     build_haystack,
     mentions_number,
@@ -217,6 +217,40 @@ def test_a_product_with_nothing_to_say_or_no_usable_name_writes_nothing() -> Non
 
 def test_a_script_that_is_not_json_is_skipped_as_a_browser_skips_it() -> None:
     assert declared(["{ not json", "", script(SONY), "42"]) == declared([script(SONY)])
+
+
+def test_a_script_nested_past_what_the_decoder_follows_is_skipped_too() -> None:
+    """``json`` raises ``RecursionError`` there, not ``ValueError``, and it escaped
+    through ``fetch`` and ended the whole run over one page."""
+    assert declared(["[" * 100_000, script(SONY)]) == declared([script(SONY)])
+
+
+def test_a_figure_past_a_floats_range_is_no_figure() -> None:
+    """JSON's integers have no bound, and ``float`` of a 400-digit one is an
+    ``OverflowError``, which ended the run the page was fetched for."""
+    huge = "1" + "0" * 400
+    offer = f'{{"@type": "Offer", "price": {huge}, "priceCurrency": "USD"}}'
+    rating = f'{{"ratingValue": 4.5, "reviewCount": {huge}}}'
+
+    assert declared([f'{{"@type": "Product", "name": "Kettle", "offers": {offer}}}']) == []
+    assert declared(
+        [f'{{"@type": "Product", "name": "Kettle", "aggregateRating": {rating}}}']
+    ) == ["Kettle: rated 4.5/5"]
+
+
+def test_aggregate_offers_nested_in_each_other_are_not_followed_forever() -> None:
+    """Each one opened the next, so a page two thousand deep recursed the reader out
+    of its stack; past the depth any real page needs, one is read by its lowest price."""
+
+    def lines(depth: int) -> list[str]:
+        offers: dict = {"@type": "Offer", "price": 10, "priceCurrency": "USD"}
+        for _ in range(depth):
+            offers = {"@type": "AggregateOffer", "lowPrice": 9, "offers": offers}
+        return declared([script({"@type": "Product", "name": "Kettle", "offers": offers})])
+
+    assert lines(2_000) == ["Kettle: 9.00"]
+    assert lines(_MAX_DEPTH) == ["Kettle: 10.00 USD"]
+    assert lines(_MAX_DEPTH + 1) == ["Kettle: 9.00"]
 
 
 def test_a_catalogue_is_cut_at_twenty_products() -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from time import sleep
 from types import SimpleNamespace
@@ -923,3 +924,62 @@ def test_a_price_the_page_never_declared_takes_its_standing_with_it(declaring_sh
 
     assert entry.product.price is None
     assert entry.product.listing_label() is None
+
+
+def _a_shop_printing(monkeypatch, declaration: str) -> None:
+    """One search result, fetched for real, whose page declares ``declaration`` and
+    prints the Sony's price beside it."""
+    url = "https://shop.example/xm5"
+    page = (
+        f'<html><head><script type="application/ld+json">{declaration}</script></head>'
+        f"<body><p>Sony WH-1000XM5 for $299</p></body></html>"
+    )
+    monkeypatch.setattr(
+        "buy_agent.agent.search_web",
+        lambda *_args, **_kwargs: [SearchResult(title="Sony WH-1000XM5", url=url)],
+    )
+    stub_client(monkeypatch, lambda asked: make_response(asked, page))
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        '{"@type": "Product", "name": "Sony WH-1000XM5", "offers": {"price": 1'
+        + "0" * 400
+        + "}}",
+        "[" * 100_000,
+    ],
+    ids=["a price past a float's range", "nested past the decoder"],
+)
+def test_a_declaration_nobody_can_read_leaves_the_page_it_is_on(
+    monkeypatch, declaration: str
+) -> None:
+    """Each raised past ``fetch``'s tally -- an ``OverflowError``, a ``RecursionError`` --
+    and ended the whole run over one page; skipped, the page's own text still prices it."""
+    _a_shop_printing(monkeypatch, declaration)
+    llm = FakeLLM(products=_sony(price=299.0, currency="USD"))
+
+    [entry] = BuyAgent(AgentConfig(cache_ttl=0), llm=llm).run("headphones")
+
+    assert entry.product.price == 299.0
+
+
+def test_a_name_declared_cut_mid_emoji_reaches_the_model_as_text_it_can_send(
+    monkeypatch,
+) -> None:
+    """``json`` reads the ``"\\ud83c"`` as half a pair, which the clients cannot encode
+    as UTF-8, and the run ended as "Could not reach Ollama"."""
+    _a_shop_printing(
+        monkeypatch,
+        '{"@type": "Product", "name": "Sony WH-1000XM5 \\ud83c", '
+        '"offers": {"price": 299, "priceCurrency": "USD"}}',
+    )
+    llm = FakeLLM(products=_sony(price=299.0, currency="USD"))
+
+    BuyAgent(AgentConfig(cache_ttl=0), llm=llm).run("headphones")
+
+    shown = llm.calls[-1][1]["content"]
+    assert "Sony WH-1000XM5 \ufffd: 299.00 USD" in shown
+    for messages in llm.calls:
+        # As the clients send a prompt: a JSON body, in UTF-8.
+        assert json.dumps(list(messages), ensure_ascii=False).encode("utf-8")

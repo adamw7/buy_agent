@@ -89,8 +89,9 @@ class Receipt(BaseModel):
 
 def _check(product: Product, currency: str | None) -> tuple[float, str]:
     """The price and currency this product may be paid in, or a refusal: never an
-    unverified number, nor one this run cannot place (ADR-0043), nor a listing its page
-    says is out of stock (ADR-0079)."""
+    unverified number, nor one whose currency no page printed (ADR-0046), nor one this
+    run cannot place (ADR-0043), nor a listing its page says is out of stock
+    (ADR-0079)."""
     if product.price is None:
         raise PaymentError(
             f"No source printed a price for {product.name}, so there is nothing to "
@@ -108,6 +109,14 @@ def _check(product: Product, currency: str | None) -> tuple[float, str]:
         raise PaymentError(
             f"None of the pages named a currency, so {product.price:,.2f} is a number "
             f"and not an amount.",
+            field="products",
+        )
+    if product.currency is None:
+        # Ranking takes a bare price as the set's own (ADR-0043); money assumes nothing.
+        raise PaymentError(
+            f"No page printed a currency beside {product.name}'s {product.price:,.2f}, "
+            f"so it is a number and not an amount. Ranking counts it in {currency} with "
+            f"the rest of the run, but nothing is paid on a currency no page printed.",
             field="products",
         )
     if placeable(currency) is None:

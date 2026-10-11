@@ -3,6 +3,7 @@ ADR-0038)."""
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeAlias, TypeVar, runtime_checkable
 
@@ -18,6 +19,11 @@ Message: TypeAlias = dict[str, str]
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
 _QUOTED = 200
+
+#: Half of a UTF-16 pair, as ``json`` hands back a ``"\ud83c"`` a page cut mid-emoji:
+#: no client can encode it as UTF-8, and each row counts that ``UnicodeError`` as a
+#: server it could not reach.
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
 
 
 class UnreadableAnswerError(ValueError):
@@ -52,9 +58,11 @@ class Prompt:
     human: str
 
     def format_messages(self, **values: Any) -> list[Message]:
+        """Both turns filled in, as text UTF-8 can carry: a lone surrogate is sent as
+        the replacement character, which an undecodable byte on a page already is."""
         return [
-            {"role": "system", "content": self.system.format(**values)},
-            {"role": "user", "content": self.human.format(**values)},
+            {"role": "system", "content": _sendable(self.system.format(**values))},
+            {"role": "user", "content": _sendable(self.human.format(**values))},
         ]
 
 
@@ -68,6 +76,10 @@ class Chain(Generic[SchemaT]):
 
     def invoke(self, payload: Mapping[str, Any]) -> SchemaT:
         return self.model.answer(self.prompt.format_messages(**payload), self.schema)
+
+
+def _sendable(text: str) -> str:
+    return _LONE_SURROGATE.sub("\ufffd", text)
 
 
 def read_answer(content: str, schema: type[SchemaT]) -> SchemaT:

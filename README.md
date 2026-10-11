@@ -390,9 +390,10 @@ PRICE ALERT MET: At or under 400.00 USD: Sage Bambino Plus at 329.00 USD.
 ```
 
 Unlike `--max-price`, which keeps a product whose price nobody printed, only a
-price this run can place meets it, and never one whose page says it is out of
-stock. When nothing does, the run exits `5` and names the cheapest, so a scheduled
-run is a price watch with the journal as its history
+price this run can place meets it, and never one printed with no currency beside
+it or one whose page says it is out of stock. When nothing does, the run exits
+`5` and names the cheapest, so a scheduled run is a price watch with the journal
+as its history
 ([ADR-0080](docs/adr/0080-tell-the-shopper-whether-a-price-alert-was-met.md)).
 
 ### What each page priced it at

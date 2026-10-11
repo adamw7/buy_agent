@@ -408,8 +408,9 @@ docstrings. A convention test enforces it.
   CLI refuses a `--source` naming nothing.
 - **`alert_below`** is told and never applied (ADR-0080): `api.alert_for` asks
   `alerts.price_alert` of a finished ranking for both doors. Only a placeable price
-  not marked out of stock meets it, it is not part of the journal's key, and the CLI
-  exits `ABOVE_ALERT` when it was given and not met.
+  printed with its currency and not marked out of stock meets it (a bare one is named,
+  never met, as `payment._check` refuses it), it is not part of the journal's key, and
+  the CLI exits `ABOVE_ALERT` when it was given and not met.
 - **The three bounds** (`max_price`, `min_rating`, `min_reviews`) default to
   `None`, meaning no bound. Unknown figures pass, and help text says so. The
   placeholder is "No limit". `max_price` is in the run's currency.

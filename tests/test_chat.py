@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from buy_agent.chat import (
+    Chain,
     Prompt,
 )
 from buy_agent.models import SearchQuery
@@ -37,6 +40,20 @@ def test_a_hole_the_payload_cannot_fill_is_a_failure_here() -> None:
     """Rather than a prompt reaching the model with the braces still in it."""
     with pytest.raises(KeyError):
         PROMPT.format_messages(request="a tent")
+
+
+def test_half_a_surrogate_pair_is_sent_as_the_replacement_character() -> None:
+    """``json`` reads a page's ``"\\ud83c"`` -- a name its JSON-LD cut mid-emoji -- as
+    half a pair, which no client can encode as UTF-8, and every row counts that
+    ``UnicodeError`` as a server it could not reach. It goes as the character an
+    undecodable byte on a page is already read as."""
+    model = Recording()
+
+    Chain(PROMPT, model, SearchQuery).invoke({"request": "cool cans \ud83c", "limit": 7})
+
+    assert model.messages[1] == {"role": "user", "content": "Wanted: cool cans \ufffd"}
+    # As the clients send a prompt: a JSON body, in UTF-8.
+    assert json.dumps(model.messages, ensure_ascii=False).encode("utf-8")
 
 
 # -- letting go of what a model holds open -------------------------------------

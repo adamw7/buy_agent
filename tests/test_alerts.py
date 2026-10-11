@@ -133,17 +133,57 @@ def test_without_a_named_currency_the_vote_decides() -> None:
     assert alert.met == ["Euro one", "Euro two"]
 
 
-def test_a_price_with_no_currency_printed_is_counted_on_the_runs_scale() -> None:
-    """As ranking reads it (``comparable_price``): unprinted is not elsewhere."""
+def test_a_price_with_no_currency_printed_never_meets_it() -> None:
+    """Ranking counts a bare price on the run's scale (ADR-0043), and so did this: a bare
+    "90" woke a price watch at 100 USD for a product paying would refuse (ADR-0046). It
+    is said beside the line, as an out-of-stock one is."""
     alert = price_alert(
         ranked(
             Product(name="Dollar", price=150.0, currency="USD"),
+            Product(name="Unsaid", price=90.0),
+            Product(name="Also unsaid", price=85.0),
+            Product(name="Dear and unsaid", price=120.0),
+        ),
+        100,
+    )
+
+    assert alert.met == []
+    assert alert.detail == (
+        "Nothing found is at or under 100.00 USD; the cheapest is Dollar at 150.00 USD. "
+        "Also unsaid and Unsaid are priced at or under it, but with no currency printed."
+    )
+
+
+def test_a_met_alert_still_names_a_bare_price_under_it() -> None:
+    alert = price_alert(
+        ranked(
+            Product(name="Dollar", price=80.0, currency="USD"),
             Product(name="Unsaid", price=90.0),
         ),
         100,
     )
 
-    assert alert.met == ["Unsaid"]
+    assert alert.met == ["Dollar"]
+    assert alert.detail == (
+        "At or under 100.00 USD: Dollar at 80.00 USD. "
+        "Unsaid is priced at or under it, but with no currency printed."
+    )
+
+
+def test_a_run_whose_pages_printed_no_currency_meets_nothing() -> None:
+    """Before, with no currency anywhere, every bare price was on the scale and any of
+    them could meet it."""
+    alert = price_alert(
+        ranked(Product(name="Unsaid", price=90.0), Product(name="Dear", price=150.0)),
+        100,
+    )
+
+    assert alert.met == []
+    assert alert.below_label == "100.00"
+    assert alert.detail == (
+        "Nothing found is at or under 100.00: no page printed a currency. "
+        "Unsaid is priced at or under it, but with no currency printed."
+    )
 
 
 def test_an_in_stock_or_unknown_standing_meets_it_alike() -> None:

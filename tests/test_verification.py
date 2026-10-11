@@ -104,6 +104,20 @@ def test_a_decimal_price_matches_a_trailing_zero() -> None:
     assert not mentions_number(build_haystack(sources), 10000.55)
 
 
+def test_a_whole_price_is_not_backed_by_a_page_printing_cents() -> None:
+    """A model that wrote 129 off "$129.99" has a figure no page printed, and ranking
+    and paying would take it for the price; a rating's 4 is already not backed by "4.5
+    stars". A page's "$149.00" and "$99." are those figures exactly."""
+    haystack = build_haystack([SearchResult(snippet="Now $129.99, was $149.00. Or $99.")])
+
+    assert not mentions_number(haystack, 129)
+    assert mentions_number(haystack, 129.99)
+    assert mentions_number(haystack, 149)
+    assert mentions_number(haystack, 99)
+    [checked] = verify_numbers([Product(name="Sony WH-CH720N", price=129.0)], haystack)
+    assert checked.price is None
+
+
 def test_a_name_of_only_generic_words_is_not_grounded() -> None:
     assert not mentions_name(HAYSTACK, "Wireless Headphones")
 

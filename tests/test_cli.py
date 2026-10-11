@@ -310,16 +310,18 @@ def test_writing_the_json_is_logged(fake_agent, tmp_path, caplog) -> None:
     assert "Wrote 2 products" in caplog.text
 
 
-@pytest.mark.parametrize("provider", ["vllm", "trtllm"])
+@pytest.mark.parametrize("provider", ["vllm", "trtllm", "litellm"])
 def test_a_context_window_the_provider_ignores_is_called_out(
     fake_agent, caplog, provider: str
 ) -> None:
-    """vLLM fixes its window with --max-model-len when it starts, and TensorRT-LLM
-    with --max_seq_len."""
+    """vLLM fixes its window with --max-model-len when it starts, TensorRT-LLM with
+    --max_seq_len, and a LiteLLM proxy leaves it to what it routes to -- so the line
+    names none of them, where it once told all three to use vLLM's."""
     with caplog.at_level(logging.WARNING):
         main(["headphones", "--provider", provider, "--num-ctx", "4096"])
 
     assert "--num-ctx 4096 is ignored" in caplog.text
+    assert "--max-model-len" not in caplog.text
 
 
 def test_the_default_context_window_is_not_called_out(fake_agent, caplog) -> None:
@@ -330,15 +332,17 @@ def test_the_default_context_window_is_not_called_out(fake_agent, caplog) -> Non
     assert "ignored" not in caplog.text
 
 
-@pytest.mark.parametrize("provider", ["vllm", "trtllm"])
+@pytest.mark.parametrize("provider", ["vllm", "trtllm", "litellm"])
 def test_a_cpu_only_run_the_provider_ignores_is_called_out(
     fake_agent, caplog, provider: str
 ) -> None:
-    """vLLM and TensorRT-LLM both pick their device when they start."""
+    """vLLM and TensorRT-LLM both pick their device when they start, and a LiteLLM
+    proxy where what it routes to does; only vLLM ever took a --device."""
     with caplog.at_level(logging.WARNING):
         main(["headphones", "--provider", provider, "--cpu-only"])
 
     assert "--cpu-only is ignored" in caplog.text
+    assert "--device" not in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -677,11 +681,31 @@ def test_comparing_a_search_never_run_before_says_so(fake_agent, caplog) -> None
 # -- the price alert (ADR-0080) ------------------------------------------------
 
 
+#: ``RANKED`` with the currency printed: a bare price never meets an alert (ADR-0046).
+PRICED = [
+    ranked_product(Product(name="Sony WH-1000XM5", price=328.0, currency="USD"), score=0.9, rank=1),
+    ranked_product(Product(name="Anker Q30", price=79.0, currency="USD"), score=0.8, rank=2),
+]
+
+
 def test_an_alert_that_was_met_exits_zero_and_says_so_in_the_report(fake_agent, capsys) -> None:
+    fake_agent["result"] = PRICED
+
     assert main(["headphones", "--alert-below", "100", "--no-journal"]) == 0
 
     out = capsys.readouterr().out
-    assert "PRICE ALERT MET: At or under 100.00: Anker Q30 at 79.00." in out
+    assert "PRICE ALERT MET: At or under 100.00 USD: Anker Q30 at 79.00 USD." in out
+
+
+def test_a_bare_price_under_the_line_does_not_wake_a_price_watch(fake_agent, capsys) -> None:
+    """``RANKED`` prints no currency, and its 79.00 once exited 0 as an alert met: a
+    script would have been told to buy what paying refuses (ADR-0046)."""
+    assert main(["headphones", "--alert-below", "100", "--no-journal"]) == ABOVE_ALERT
+
+    assert (
+        "PRICE ALERT NOT MET: Nothing found is at or under 100.00: no page printed a "
+        "currency. Anker Q30 is priced at or under it, but with no currency printed."
+    ) in capsys.readouterr().out
 
 
 def test_an_alert_that_was_not_met_has_an_exit_code_of_its_own(fake_agent, capsys) -> None:
@@ -750,6 +774,7 @@ def test_paying_decides_the_exit_code_even_with_an_alert_unmet(
 def test_the_alert_goes_in_the_report_and_not_in_the_json(fake_agent, tmp_path, capsys) -> None:
     """The report is stdout, and ``--json`` stays the products alone (ADR-0035)."""
     path = tmp_path / "out.json"
+    fake_agent["result"] = PRICED
 
     main(["headphones", "--alert-below", "100", "--json", str(path), "--no-journal"])
 
