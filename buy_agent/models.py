@@ -100,8 +100,9 @@ class ExtractedProduct(BaseModel):
         Field(
             description=(
                 "Up to 3 short quotes, copied word for word from the results, saying "
-                "what this product is like to own -- praise, complaints, a verdict. "
-                "Empty list if the results give no opinion about it."
+                "what this product is like to own -- praise, complaints, a verdict, "
+                "what reviewers or owners found. Look for one for every product; "
+                "empty only if no sentence in the results judges this product."
             )
         ),
     ] = []
