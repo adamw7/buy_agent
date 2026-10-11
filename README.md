@@ -638,29 +638,14 @@ small model up: a headline or a shop posing as a product, one product under two
 names, a monthly payment or a student price posing as the price, a listing in
 Canadian dollars, decimal commas, cashback.
 
-A case's score is made of eight shares, each in `[0, 1]`. Six come in pairs -- how
-much was found, and how much of what was reported is right: the five slots filled
-with products really on the pages (weighed 3) and entries that are real products,
-not shops or repeats (2); prices, ratings and review counts printed for that product
-(2) and figures that are not another's (2); products carrying a verdict their pages
-passed on them, and quotes that are such a verdict word for word (1 each). A pair
-counts by the weighted harmonic mean of its halves, so it is worth only as much as
-the weaker one allows: reporting nothing earns nothing, and neither does reporting
-nonsense. The other two are a link to a page about the product (1) and a ranking in
-the key's own order (1), which counts only what it got right above the half of its
-pairs a shuffle would. A share with nothing to count still shows on the scorecard,
-where its floor reads it, and counts 0 in the score (ADR-0074).
-**Query** is scored apart, as the share of checks the search query passed: each
-constraint the request states kept, no brand and no figure the shopper did not
-give, and twenty words or fewer.
-
-A row's **Score** is the mean over its cases, a failed run counting 0, and
-**Query** and **Time per case** are means too. Rows rank by how many cases they
-ran, then the score, the query, and the time, quickest first. The two references
-need no model, and bracket the ones that do: `perfect` is the answer key copied
-out and scores 1.000, and `sloppy` makes the mistakes small models make -- a price
-off another product's line, a headline and a shop reported as products, a quote
-nobody wrote, one product twice.
+A case scores in `[0, 1]`: products really on the pages and nothing else, figures
+printed for that product, quotes that are a verdict its pages passed, links to a
+page about it, and the key's own order. Found-versus-right shares count in pairs,
+so reporting nothing earns nothing and neither does reporting nonsense. The query
+the model wrote is scored apart. Two references need no model and bracket the ones
+that do: `perfect`, the answer key copied out, scores 1.000, and `sloppy` makes the
+mistakes small models make. [docs/testing.md](docs/testing.md#the-benchmark) has
+the metrics one by one, the board runs are kept on, and how the keys are kept honest.
 
 ### What the recorded run found
 
@@ -690,75 +675,23 @@ python -m benchmark --scripted perfect           # no model at all: 1.000 by con
 python -m benchmark --baseline before.json       # what moved since an earlier --json
 ```
 
-On the page, pick a model server and tick the models it lists (an embedding model
-is shown but cannot be ticked), the references and the cases, then press **Run**.
-Rows fill in as each run finishes, and a model's name opens what it did on each
-case: the scorecard against its floors, the query and the checks it passed, how
-long each question took, and every product it reported, tagged where it was
-invented or repeated. One comparison runs at a time and outlives the tab; **Stop**
-ends it at the next step. `python -m benchmark.server` binds this machine only,
-and takes `--host`, `--port` and `--allowed-host` as the shop's server does
-(ADR-0018).
-
-`python -m benchmark` prints each run's scorecard and then the standings, and
-exits 0 only when every run finished and cleared every floor:
-
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--model` | the provider's own, if nothing else is named | A model to score; repeatable |
-| `--all-models` | off | Every model the server holds that can answer a prompt |
-| `--scripted` | -- | `perfect` or `sloppy`, beside the models or instead of them |
-| `--case` | all three | `headphones`, `laptops` or `espresso`; repeatable |
-| `--provider` | `ollama` (or `$BUY_AGENT_PROVIDER`) | `ollama`, `vllm`, `litellm` or `trtllm` |
-| `--base-url` | the provider's own | Where that server listens |
-| `--json` | -- | Also write the standings, every run included, to this file |
-| `--baseline` | -- | Compare each run, metric by metric, with its run in an earlier `--json` file |
-| `--no-save` | off | Keep these runs off the board |
-| `-v` | off | Each run's own progress log |
-
-A model that cannot be asked at all -- not running, not pulled, too slow -- is
-reported in its server's own words, and its other cases are skipped. One that
-answers with something unreadable has failed that case, which counts 0.
-
-Every run is kept on a board, `$BUY_AGENT_CACHE_DIR/benchmark/board.json`, which
-the page and the command line both read, so a model pulled next week stands beside
-this week's. A run scored against a case whose pages or key have changed since is
-left out, and **Clear the board** forgets them all. Each run also records the code it
-went through, its settings and its model's build: a row made under code or settings
-this checkout no longer has is tagged **stale** and says which of its runs to make
-again, and one whose runs span two builds of a tag says so (ADR-0075). The board keeps
-only the latest run, so to ask whether a change helped, keep `--json` from before it
-and give it to `--baseline` after. The nightly integration run
-scores `qwen3:0.6b` on the headphones case alone, prints the scorecard on its summary
-page and keeps it as the `scorecard` artifact, pass or fail (ADR-0072), and fails
-under `benchmark.scoring.FLOORS`, a tripwire rather than a target (ADR-0026).
-[docs/testing.md](docs/testing.md#the-benchmark) has the metrics one by one and
-how the keys are kept honest.
+On the page, tick the models a server lists, the references and the cases, then
+press **Run**; a model's name opens what it did on each case. `python -m benchmark
+--help` lists the command's flags. The nightly integration run scores `qwen3:0.6b`
+on the headphones case and fails under `benchmark.scoring.FLOORS`, a tripwire
+rather than a target (ADR-0026, ADR-0072).
 
 ## Tests
 
-```powershell
-.\scripts\preflight.ps1       # everything CI checks, in its order -- or one at a time:
-
-python -m pytest              # the Python suite
-python -m pylint buy_agent    # the linter
-python -m mypy buy_agent      # the type checker
-cd ui; npm test               # the UI's own tests, in jsdom
-python -m pytest integration  # against a real model, if one is pulled
-
-python -m benchmark --scripted perfect   # score the pipeline, no model needed
-python -m benchmark                      # ...and score whatever is serving
-python -m benchmark.server               # ...or compare several models on a page
-```
-
-Neither suite touches the network or a model server, and both have coverage
-floors. `integration/` runs against a real Ollama on a CPU-sized model, nightly
-with a five-minute cap (ADR-0026). `benchmark/` scores runs against fixed answer
-keys over three cases ([above](#the-benchmark)). `tests/test_architecture.py`
-holds the import graph
+`.\scripts\preflight.ps1` runs everything CI checks, in its order. Neither suite
+touches the network or a model server, and both have coverage floors.
+`integration/` runs against a real Ollama on a CPU-sized model, nightly with a
+five-minute cap (ADR-0026). `benchmark/` scores runs against fixed answer keys over
+three cases ([above](#the-benchmark)). `tests/test_architecture.py` holds the
+import graph
 ([ADR-0047](docs/adr/0047-check-the-import-graph-with-archunit.md)), and
 `tests/test_conventions.py` the rules between modules.
-[docs/testing.md](docs/testing.md) has the rest.
+[docs/testing.md](docs/testing.md) has every command and the rest.
 
 ## Limitations
 
