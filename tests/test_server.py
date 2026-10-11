@@ -1493,7 +1493,20 @@ def test_the_camera_is_handed_to_the_server_and_let_go_on_the_way_out(
 # -- the price alert and a listing's standing, over the wire (ADR-0079, ADR-0080) -
 
 
+#: ``RANKED`` with the currency printed: a bare price never meets an alert (ADR-0046).
+PRICED = [
+    ranked_product(
+        Product(name="Sony WH-1000XM5", price=328.0, currency="USD", rating=4.7),
+        score=0.9,
+        rank=1,
+    ),
+    ranked_product(Product(name="Anker Q30", price=79.0, currency="USD"), score=0.7, rank=2),
+]
+
+
 def test_a_search_given_a_price_alert_answers_whether_it_was_met(server: str) -> None:
+    StubAgent.result = PRICED
+
     status, payload = post(f"{server}/api/search", {"request": "headphones", "alert_below": 100})
 
     assert status == 200
@@ -1516,11 +1529,13 @@ def test_an_alert_out_of_range_is_refused_on_its_box_before_the_run(server: str)
 
 
 def test_the_stream_carries_the_alert_in_its_result(server: str) -> None:
+    StubAgent.result = PRICED
+
     name, data = events(f"{server}/api/search/stream?request=headphones&alert_below=50")[-1]
 
     assert name == "result"
     assert data["alert"]["met"] == []
-    assert "the cheapest is Anker Q30 at 79.00" in data["alert"]["detail"]
+    assert "the cheapest is Anker Q30 at 79.00 USD" in data["alert"]["detail"]
 
 
 def test_a_re_sort_over_the_wire_carries_the_standing_back(server: str) -> None:
