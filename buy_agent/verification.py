@@ -50,10 +50,10 @@ def build_haystack(results: Sequence[SearchResult]) -> str:
 
 
 def mentions_number(haystack: str, value: float) -> bool:
-    """Whether ``value`` appears in ``haystack`` as a standalone number."""
+    """Whether ``value`` appears in ``haystack`` as a standalone number: "129.00" backs
+    129, and "129.99" does not."""
     literal = _as_literal(value)
-    padding = "0*" if "." in literal else ""
-    pattern = rf"(?<![\d.]){re.escape(literal)}{padding}(?!\d)"
+    pattern = rf"(?<![\d.]){re.escape(literal)}{_same_figure(literal)}"
     return re.search(pattern, haystack) is not None
 
 
