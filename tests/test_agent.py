@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from time import sleep
 from types import SimpleNamespace
@@ -961,3 +962,24 @@ def test_a_declaration_nobody_can_read_leaves_the_page_it_is_on(
     [entry] = BuyAgent(AgentConfig(cache_ttl=0), llm=llm).run("headphones")
 
     assert entry.product.price == 299.0
+
+
+def test_a_name_declared_cut_mid_emoji_reaches_the_model_as_text_it_can_send(
+    monkeypatch,
+) -> None:
+    """``json`` reads the ``"\\ud83c"`` as half a pair, which the clients cannot encode
+    as UTF-8, and the run ended as "Could not reach Ollama"."""
+    _a_shop_printing(
+        monkeypatch,
+        '{"@type": "Product", "name": "Sony WH-1000XM5 \\ud83c", '
+        '"offers": {"price": 299, "priceCurrency": "USD"}}',
+    )
+    llm = FakeLLM(products=_sony(price=299.0, currency="USD"))
+
+    BuyAgent(AgentConfig(cache_ttl=0), llm=llm).run("headphones")
+
+    shown = llm.calls[-1][1]["content"]
+    assert "Sony WH-1000XM5 \ufffd: 299.00 USD" in shown
+    for messages in llm.calls:
+        # As the clients send a prompt: a JSON body, in UTF-8.
+        assert json.dumps(list(messages), ensure_ascii=False).encode("utf-8")
