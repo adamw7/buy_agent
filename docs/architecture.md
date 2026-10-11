@@ -50,7 +50,7 @@ graph TB
 
     system("<b>buy_agent</b><br/><i>[Software System]</i><br/>Turns a plain-language request<br/>into a ranked shortlist of real<br/>products, each figure backed by<br/>a source page, and scores which<br/>local model does that best")
 
-    ollama("<b>Model server</b><br/><i>[External System]</i><br/>A local Ollama, a vLLM, or<br/>a LiteLLM proxy routing to<br/>whatever its owner chose --<br/>the last two behind an<br/>OpenAI-compatible API.<br/>Refines the query and<br/>extracts products, under a<br/>JSON schema that constrains<br/>decoding")
+    ollama("<b>Model server</b><br/><i>[External System]</i><br/>A local Ollama, a vLLM, a<br/>TensorRT-LLM, or a LiteLLM<br/>proxy routing to whatever its<br/>owner chose -- the last three<br/>behind an OpenAI-compatible API.<br/>Refines the query and<br/>extracts products, under a<br/>JSON schema that constrains<br/>decoding")
     ddg("<b>Search backend</b><br/><i>[External System]</i><br/>DuckDuckGo with no key, a<br/>SearXNG the shopper runs, or<br/>Brave on a key they hold --<br/>one row each")
     shops("<b>Shop and review pages</b><br/><i>[External System]</i><br/>The pages the search returns:<br/>the only source of prices,<br/>ratings and review counts")
     counterparty("<b>AP2 endpoint</b><br/><i>[External System]</i><br/>Whatever merchant or credential<br/>provider the operator names,<br/>reached only by a run that was<br/>asked to buy. None is named<br/>in this project")
@@ -117,7 +117,7 @@ graph TB
         store[("<b>Cache directory</b><br/><i>[Container: JSON files]</i><br/>$BUY_AGENT_CACHE_DIR: the<br/>pages and answers a run may<br/>reuse, the journal of past<br/>runs, the benchmark's board")]
     end
 
-    ollama("<b>Model server</b><br/><i>[External System]</i><br/>Ollama, vLLM or<br/>a LiteLLM proxy")
+    ollama("<b>Model server</b><br/><i>[External System]</i><br/>Ollama, vLLM,<br/>TensorRT-LLM or<br/>a LiteLLM proxy")
     ddg("<b>Search backend</b><br/><i>[External System]</i><br/>DuckDuckGo, SearXNG<br/>or Brave")
     shops("<b>Shop and review pages</b><br/><i>[External System]</i>")
     counterparty("<b>AP2 endpoint</b><br/><i>[External System]</i><br/>Whatever the operator<br/>names; none is named here")
@@ -332,7 +332,7 @@ graph TB
         fetch("<b>Fetch</b><br/><i>[Component: fetch.py]</i>")
         chat("<b>Chat</b><br/><i>[Component: chat.py]</i><br/>A prompt with the run's<br/>values in it, a chain binding<br/>one to a schema, and the<br/>answer read back as that<br/>schema -- or refused")
         journal("<b>Journal</b><br/><i>[Component: journal.py]</i><br/>What past runs of this same<br/>search reported -- a name, a<br/>price and a currency each --<br/>so this one can say what is<br/>cheaper, dearer, new or gone.<br/>Bounded by a count and never<br/>by an age, and one setting off")
-        providers("<b>Providers</b><br/><i>[Component: providers.py]</i><br/>Everything that differs<br/>between Ollama, vLLM and a<br/>LiteLLM proxy, one row each:<br/>the model, address and key it<br/>defaults to, the client and<br/>how it declares a schema, the<br/>listing, which of the two<br/>settings it takes per request,<br/>the errors that mean &quot;not<br/>there&quot;, and what to say")
+        providers("<b>Providers</b><br/><i>[Component: providers.py]</i><br/>Everything that differs<br/>between Ollama, vLLM, a<br/>LiteLLM proxy and<br/>TensorRT-LLM, one row each:<br/>the model, address and key it<br/>defaults to, the client and<br/>how it declares a schema, the<br/>listing, which of the two<br/>settings it takes per request,<br/>the errors that mean &quot;not<br/>there&quot;, and what to say")
         cache("<b>Cache</b><br/><i>[Component: cache.py]</i><br/>What a run can reuse: the<br/>text of a fetched page, and<br/>the answer a model gave about<br/>it. Kept for a day, and<br/>bounded by size as well as<br/>age. Best-effort: every<br/>failure is a miss, never a<br/>failed run")
     end
 

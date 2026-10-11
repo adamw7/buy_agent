@@ -368,15 +368,17 @@ run reaches one, or a scripted answer. Each runs over each case in turn, timed p
 question. An answer the server cannot read is that case's result and scores 0; a
 model that cannot be asked at all (not running, not pulled, too slow) is reported
 in the server's own words and its other cases are skipped. The standings rank by
-cases run, then the mean score, the query, and the time taken.
+cases run, then the mean score, the query, and the time taken. `python -m benchmark`
+prints each run's scorecard and then the standings, and exits 0 only when every run
+finished and cleared every floor.
 
 Every run is kept on a board, `$BUY_AGENT_CACHE_DIR/benchmark/board.json`, that both
 doors read afresh, so a model scored last week stands beside one scored today.
 `--no-save` keeps a run off it. A run scored against a case whose pages or key have
-changed since is left out. A run also records what it was scored under
-(`benchmark/pipeline.py`): a fingerprint of the code between the pages and the
-scorecard, read without its docstrings and comments; the settings that reach the
-model; and the digest its server lists for the tag. A kept run made under other code
+changed since is left out, and **Clear the board** forgets them all. A run also
+records what it was scored under (`benchmark/pipeline.py`): a fingerprint of the
+code between the pages and the scorecard, read without its docstrings and comments;
+the settings that reach the model; and the digest its server lists for the tag. A kept run made under other code
 or settings is kept, ranked and marked **stale**, and a row whose runs span two builds
 says so (ADR-0075). `--json` writes the standings as the page reads them, values
 included, and `--baseline FILE` sets each run beside the same contender's run of the
