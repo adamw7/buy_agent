@@ -32,16 +32,21 @@ const UNKNOWN = product({
   rating_label: 'unrated',
 });
 
-/** A product off a page that printed a bare "179.00": no currency of its own,
- *  and payable all the same, in whatever the run is counted in (ADR-0043). */
+/** A product off a page that printed a bare "179.00": ranked in the run's currency
+ *  (ADR-0043), never bought in it (ADR-0046), so Python offers no cart for it. */
 const BARE = product({
   rank: 2,
   name: 'Sennheiser Accentum',
   price: 179,
   currency: null,
   price_label: '179.00',
-  pay_currency: 'USD',
-  pay_label: '179.00 USD',
+  cannot_pay:
+    "No page printed a currency beside Sennheiser Accentum's 179.00, so it is a number " +
+    'and not an amount. Ranking counts it in USD with the rest of the run, but nothing ' +
+    'is paid on a currency no page printed.',
+  pay_currency: null,
+  pay_label: null,
+  pay_merchant: null,
 });
 
 /** A product off a page that named no seller, which is most of them: the cart
@@ -425,23 +430,16 @@ describe('ProductCard, paying', () => {
     expect(approvals).toEqual([{ title: 'Sony WH-1000XM5', price: 328, currency: 'USD' }]);
   });
 
-  it("buys a product whose page printed no currency, in the run's own", async () => {
-    /* The money a purchase is in is the run's, so `currency` is null on a page
-       that printed a bare figure while the cart is in USD (ADR-0043). Read off
-       the product, the confirm button emitted nothing at all -- it returned on
-       the null and left the panel open, on a card Python had said was payable. */
-    const { fixture, card, approvals } = await payable(BARE);
-    expect(card.querySelector('.pay')!.textContent).toContain('179.00 USD');
+  it('offers no cart for a product whose page printed no currency', async () => {
+    /* A bare figure is ranked in the run's currency (ADR-0043), and was once bought in
+       it too, as 179.00 USD. ADR-0046 refuses it, so the card shows the price as the
+       page printed it and Python's sentence where the button would be. */
+    const { card, approvals } = await payable(BARE);
 
-    card.querySelector<HTMLButtonElement>('.pay')!.click();
-    await fixture.whenStable();
-    expect(card.querySelector('.confirm')!.textContent).toContain('179.00 USD');
-
-    card.querySelectorAll<HTMLButtonElement>('.confirm .pay')[0].click();
-    await fixture.whenStable();
-
-    expect(approvals).toEqual([{ title: 'Sennheiser Accentum', price: 179, currency: 'USD' }]);
-    expect(card.querySelector('.confirm')).toBeNull();
+    expect(card.querySelector('.pay')).toBeNull();
+    expect(card.querySelector('.price')!.textContent).toContain('179.00');
+    expect(card.querySelector('.cannot-pay')!.textContent).toContain('No page printed a currency');
+    expect(approvals).toEqual([]);
   });
 
   it('cancelling puts the card back and buys nothing', async () => {

@@ -63,8 +63,8 @@ Optional prerequisites skip, never fail:
 - One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
   and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `2271 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `2223 passed, 68 skipped`.
+So the SDK without PowerShell reads `2272 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `2224 passed, 68 skipped`.
 
 ### Across processes
 
