@@ -2048,8 +2048,8 @@ def test_the_front_end_has_its_own_mutation_run_and_its_own_slot() -> None:
 
 def test_no_two_scheduled_runs_are_waiting_on_the_same_runners() -> None:
     """Five schedules now, and the reason each is off the hour is the reason no two
-    of them are at the same time: a run of the front end's is ninety minutes of `ng
-    test`, and a job queueing behind it reports ninety minutes late (ADR-0061)."""
+    of them are at the same time: a run of the front end's is three hours of `ng
+    test`, and a job queueing behind it reports three hours late (ADR-0061)."""
     scheduled = {
         workflow.name: cron(workflow)[1::-1]
         for workflow in workflows()
