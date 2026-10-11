@@ -431,12 +431,12 @@ strips it.
 
 [Stryker](https://stryker-mutator.io/) runs over `ui/src/app` in
 `.github/workflows/mutation-ui.yml` at `23 6 * * 6` and on demand (ADR-0061). It
-runs the real `ng test` once per mutant -- about 1031 mutants and a hundred
-minutes on four cores:
+runs the real `ng test` once per mutant -- about 1410 mutants and three hours
+on four cores:
 
 ```powershell
 cd ui
-npx stryker run                     # ~100 minutes; reports/mutation/ is the output
+npx stryker run                     # ~3 hours; reports/mutation/ is the output
 cd ..
 python scripts/mutation_report.py ui/reports/mutation/mutation.json
 ```

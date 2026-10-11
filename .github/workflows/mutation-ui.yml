@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # A workflow of its own so mutmut's report never waits on Stryker's 90 minutes.
+  # A workflow of its own so mutmut's report never waits on Stryker's three hours.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -18,8 +18,9 @@ jobs:
   stryker:
     name: Stryker (Node 24)
     runs-on: ubuntu-latest
-    # About 1031 mutants and 100 minutes; three hours guards a hung mutant.
-    timeout-minutes: 180
+    # About 1410 mutants and three hours (the 2026-10-10 run was cut off at 96%
+    # after 180 minutes); five hours guards a hung mutant, under the hosted six.
+    timeout-minutes: 300
     defaults:
       run:
         # pipefail, so the report's pipe fails with its left-hand side.
