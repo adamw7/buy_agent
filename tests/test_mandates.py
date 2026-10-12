@@ -278,7 +278,7 @@ def test_a_chain_presented_to_the_wrong_audience_does_not_verify(
         mandates.verify(
             authorisation.payment,
             issuer=issuer,
-            audience=mandates.MERCHANT_AUDIENCE,
+            audience="merchant",
             nonce="n",
             transaction_id=authorisation.transaction_id,
         )

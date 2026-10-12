@@ -6,7 +6,6 @@ import argparse
 import json
 import logging
 import sys
-import textwrap
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, get_args
@@ -19,7 +18,7 @@ from buy_agent.bounds import notice
 from buy_agent.chat import release
 from buy_agent.config import DEFAULT_BACKEND, DEFAULT_PROVIDER, DEFAULT_RAIL, AgentConfig
 from buy_agent.journal import MAX_RUNS, RUNS
-from buy_agent.logging_setup import configure_logging, log_alert, log_changes
+from buy_agent.logging_setup import configure_logging, log_alert, log_changes, wrap_help
 from buy_agent.models import RankedProduct
 from buy_agent.money import CODES
 from buy_agent.payment import PaymentError
@@ -129,10 +128,10 @@ def _flag_for(option: Option, written: dict[str, Any]) -> dict[str, Any]:
 
 
 class _Help(argparse.RawDescriptionHelpFormatter):
-    """Wraps help between words: textwrap breaks at hyphens, splitting flags."""
+    """Wraps help with :func:`~buy_agent.logging_setup.wrap_help`."""
 
     def _split_lines(self, text: str, width: int) -> list[str]:
-        return textwrap.wrap(" ".join(text.split()), width, break_on_hyphens=False)
+        return wrap_help(text, width)
 
 
 def _written() -> dict[str, dict[str, Any]]:

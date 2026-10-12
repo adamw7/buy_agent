@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import textwrap
 from typing import TYPE_CHECKING
 
 from buy_agent.ranking import CRITERIA, ORDERINGS, RankingWeights
@@ -17,6 +18,12 @@ if TYPE_CHECKING:
     from buy_agent.ranking import SortBy
 
 logger = logging.getLogger("buy_agent")
+
+
+def wrap_help(text: str, width: int) -> list[str]:
+    """Both entry points' ``--help``, wrapped between words: textwrap otherwise breaks
+    at a hyphen, which splits a flag across two lines."""
+    return textwrap.wrap(" ".join(text.split()), width, break_on_hyphens=False)
 
 #: A line per call, so quiet unless ``--verbose``; the OpenAI client logs as ``httpx2``.
 _NOISY_LIBRARIES = ("httpx", "httpx2", "openai", "ddgs")

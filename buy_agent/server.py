@@ -12,7 +12,6 @@ import queue
 import re
 import socket
 import sys
-import textwrap
 import threading
 import time
 from contextvars import ContextVar
@@ -37,7 +36,7 @@ from buy_agent.api import (
     sources_payload,
 )
 from buy_agent.config import DEFAULT_BACKEND, DEFAULT_PROVIDER, DEFAULT_RAIL
-from buy_agent.logging_setup import configure_logging
+from buy_agent.logging_setup import configure_logging, wrap_help
 from buy_agent.providers import PROVIDERS, provider_for
 from buy_agent.rails import rail_for
 from buy_agent.screenshots import INSTALL, Camera, available
@@ -750,10 +749,10 @@ def port_number(text: str) -> int:
 
 
 class _Help(argparse.HelpFormatter):
-    """Wraps help between words: textwrap breaks at hyphens, splitting flags."""
+    """Wraps help with :func:`~buy_agent.logging_setup.wrap_help`."""
 
     def _split_lines(self, text: str, width: int) -> list[str]:
-        return textwrap.wrap(" ".join(text.split()), width, break_on_hyphens=False)
+        return wrap_help(text, width)
 
 
 def build_parser() -> argparse.ArgumentParser:
