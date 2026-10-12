@@ -54,8 +54,10 @@ pip install -r requirements.txt
 python -m buy_agent.server                       # http://127.0.0.1:8000
 ```
 
-The workflow starts both and asks each for `/api/config` and the page before
-publishing.
+The workflow builds neither unless `ci.yml` passed on the tag's commit, then
+starts both and asks each for `/api/config` and the page before publishing
+([ADR-0082](adr/0082-package-only-a-commit-ci-passed.md)). A commit whose CI
+run was cancelled by a later push needs CI run on its tag first.
 
 ### What you can verify
 

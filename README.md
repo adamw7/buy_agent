@@ -734,3 +734,8 @@ import graph
 - No model larger than the nightly's `qwen3:0.6b` is scored on a schedule;
   `python -m benchmark --all-models`, or [its page](#the-benchmark), is how to
   find out on yours.
+
+## License
+
+[MIT](LICENSE). A release carries the same file, in the archive and at
+`/app/LICENSE` in the image.

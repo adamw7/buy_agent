@@ -23,9 +23,40 @@ env:
   TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
 
 jobs:
+  tested:
+    # Nothing is packaged from a commit ci.yml has not passed: neither job below
+    # runs the suites, and a tag can name any commit (ADR-0082).
+    name: CI passed on the tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Reading ci.yml's runs for the tag's commit.
+      actions: read
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Find a passing CI run for the tag's commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)"
+          passed="$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$sha&status=success" \
+            --jq .total_count)"
+
+          if [ "$passed" -eq 0 ]; then
+            echo "::error::CI has not passed on $sha, the commit $TAG names." \
+              "Run the CI workflow on $TAG and re-run this release once it is green." >&2
+            exit 1
+          fi
+          echo "CI passed on $sha ($passed run(s))."
+
   archive:
     # Linux only: the archive is the same bytes from any runner.
     name: Archive (Node 24.21.0, Python 3.14)
+    needs: tested
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -73,7 +104,7 @@ jobs:
           cp -r buy_agent "dist/$name/"
           cp -r "$UI_DIST/." "dist/$name/$UI_DIST/"
           cp -r docs "dist/$name/"
-          cp requirements.txt README.md "dist/$name/"
+          cp requirements.txt README.md LICENSE "dist/$name/"
           # Do not ship bytecode compiled by this runner.
           find "dist/$name" -name __pycache__ -type d -prune -exec rm -rf {} +
 
@@ -138,6 +169,7 @@ jobs:
   image:
     # The web tier as an image (ADR-0015); nothing else builds the Dockerfile.
     name: Container image
+    needs: tested
     runs-on: ubuntu-latest
     permissions:
       # Write only to attach the SBOM to the release, as the archive job does.

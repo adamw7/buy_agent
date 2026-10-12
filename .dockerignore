@@ -1,5 +1,5 @@
-# Everything the build does not need: it copies `ui/`, `requirements.txt` and
-# `buy_agent/` only.
+# Everything the build does not need: it copies `ui/`, `requirements.txt`,
+# `LICENSE` and `buy_agent/` only.
 
 .git/
 .github/

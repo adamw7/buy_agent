@@ -18,6 +18,9 @@ RUN npm run build
 # -- stage 2: the server, on the Python CI tests with -------------------------
 FROM python:3.14-slim AS runtime
 
+# The terms the image is published under, said where a registry reads them.
+LABEL org.opencontainers.image.licenses="MIT"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONUNBUFFERED=1 \
@@ -28,6 +31,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY LICENSE ./
 COPY buy_agent/ ./buy_agent/
 
 # Where `server.DEFAULT_UI_DIR` looks, so the container needs no --ui-dir.
