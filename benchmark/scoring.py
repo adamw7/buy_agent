@@ -70,6 +70,8 @@ FLOORS: dict[str, float] = {
     "figures": 0.25,
     "attribution": 0.5,
     "links": 0.5,
+    # qwen3:0.6b quotes one product on a good night and none on a bad one, at the same
+    # prompt; what it does quote is held by "faithful".
     "quotes": 0.0,
     "faithful": 0.5,
     "order": 0.25,
