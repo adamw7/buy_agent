@@ -201,7 +201,14 @@ class BuyAgent:
             if outside:
                 # Names at DEBUG: with no fallback to the wider web (ADR-0027), an
                 # over-strict ``covers`` needs them to diagnose.
-                logger.info("Ignored %d result(s) from outside %s", len(outside), source.domain)
+                # A WARNING when nothing was left: that source then reports nothing.
+                logger.log(
+                    logging.INFO if kept else logging.WARNING,
+                    "Ignored %d result(s) from outside %s%s",
+                    len(outside),
+                    source.domain,
+                    "" if kept else ", which leaves nothing from it",
+                )
                 logger.debug(
                     "From outside %s: %s",
                     source.domain,
@@ -212,10 +219,21 @@ class BuyAgent:
         return list(pooled.values())[:width]
 
     def _ask_the_web(self, query: str, limit: int) -> list[SearchResult]:
-        return search_web(
+        """One search, each address once: a repeat would be fetched twice at once,
+        too soon for the page cache to catch it."""
+        found = search_web(
             query, max_results=limit, region=self.config.region, wait=sleep,
             backend=self.config.search_backend,
         )
+        seen: set[str] = set()
+        kept: list[SearchResult] = []
+        for result in found:
+            # A hit with no address is nobody's repeat.
+            if result.url and result.url in seen:
+                continue
+            seen.add(result.url)
+            kept.append(result)
+        return kept
 
     def _empty_search_note(self) -> str:
         """What narrowed this search, for the empty-search warning."""

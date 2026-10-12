@@ -233,6 +233,55 @@ def test_a_tally_with_nothing_going_wrong_ends_at_the_count(monkeypatch, caplog)
     ] == ["Got usable page text from 1 of 1 result(s)"]
 
 
+def test_a_result_with_no_address_is_not_fetched_or_counted(monkeypatch, caplog) -> None:
+    """It keeps its snippet; it is no page that "cannot be fetched"."""
+    handler, asked = answering(make_response("https://good.example", PAGE))
+    stub_client(monkeypatch, handler)
+    linkless = SearchResult(title="no link", snippet="Sony WH-CH720N, $129.99")
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
+        enriched = enrich([linkless, SearchResult(url="https://good.example")], max_chars=1000)
+
+    assert asked == ["https://good.example"]
+    assert enriched[0] == linkless
+    assert "$129.99" in enriched[1].content
+    assert "Got usable page text from 1 of 1 result(s)" in caplog.text
+    assert "cannot be fetched" not in caplog.text
+
+
+def test_results_with_no_address_alone_fetch_nothing_and_warn_of_nothing(
+    monkeypatch, caplog
+) -> None:
+    """No page was asked for, so none failing to read is no reason for a WARNING."""
+    handler, asked = answering(make_response("https://unused.example", PAGE))
+    stub_client(monkeypatch, handler)
+    linkless = [SearchResult(title="one"), SearchResult(title="two")]
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
+        enriched = enrich(linkless, max_chars=1000)
+
+    assert asked == []
+    assert enriched == linkless
+    assert "Got usable page text from 0 of 0 result(s)" in caplog.text
+    assert not any(record.levelno >= logging.WARNING for record in caplog.records)
+
+
+def test_results_sharing_an_address_share_one_fetch(monkeypatch, caplog) -> None:
+    """Fetched twice at once, a repeat is too quick for the page cache; each result
+    still gets the page, and the tally counts it once."""
+    handler, asked = answering(make_response("https://shop.example", PAGE))
+    stub_client(monkeypatch, handler)
+    same = [SearchResult(title=title, url="https://shop.example") for title in ("a", "b")]
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
+        enriched = enrich(same, max_chars=1000)
+
+    assert asked == ["https://shop.example"]
+    assert [result.title for result in enriched] == ["a", "b"]
+    assert all("$129.99" in result.content for result in enriched)
+    assert "Got usable page text from 1 of 1 result(s)" in caplog.text
+
+
 # -- why the pages that yielded nothing yielded nothing --------------------------
 
 
