@@ -311,6 +311,58 @@ def test_a_page_the_search_repeats_is_fetched_once(agent_factory, extracted_prod
     assert [call["enriched"] for call in calls if "enriched" in call] == [3]
 
 
+def _prompt(llm: FakeLLM) -> str:
+    """What the extraction step showed the model, as one string."""
+    return json.dumps(llm.calls[-1])
+
+
+def test_the_first_of_a_repeat_is_the_one_the_model_sees(monkeypatch) -> None:
+    """Order is the backend's ranking, so the earlier hit is the one kept."""
+    monkeypatch.setattr(
+        "buy_agent.agent.search_web",
+        lambda *_args, **_kwargs: [
+            SearchResult(title="First", url="https://shop.example/a"),
+            SearchResult(title="Second", url="https://shop.example/a"),
+            SearchResult(title="Third", url="https://shop.example/b"),
+        ],
+    )
+    llm = FakeLLM()
+
+    BuyAgent(AgentConfig(fetch_pages=False), llm=llm).run("headphones")
+
+    prompt = _prompt(llm)
+    assert "TITLE: First" in prompt
+    assert "TITLE: Second" not in prompt
+    assert "TITLE: Third" in prompt
+
+
+def test_a_hit_with_no_address_reaches_the_model_unfetched(monkeypatch) -> None:
+    """Through the real fetch: only the page with an address is asked for, and the
+    linkless hit's snippet is still in front of the model."""
+    monkeypatch.setattr(
+        "buy_agent.agent.search_web",
+        lambda *_args, **_kwargs: [
+            SearchResult(title="No link", snippet="Anker Q30 for $79"),
+            SearchResult(title="Shop", url="https://shop.example/sony"),
+        ],
+    )
+    asked: list[str] = []
+
+    def handler(url: str):
+        asked.append(url)
+        return make_response(url, "<p>Sony WH-1000XM5</p><p>Now $328</p>")
+
+    stub_client(monkeypatch, handler)
+    llm = FakeLLM()
+
+    BuyAgent(AgentConfig(cache_ttl=0), llm=llm).run("headphones")
+
+    assert asked == ["https://shop.example/sony"]
+    prompt = _prompt(llm)
+    assert "Anker Q30 for $79" in prompt
+    assert "Now $328" in prompt
+
+
 @pytest.fixture
 def ollama_request(monkeypatch):
     """Capture the request the Ollama provider puts a run's settings into."""
@@ -673,6 +725,40 @@ def test_a_source_left_with_nothing_is_a_warning(source_search, caplog) -> None:
         "Ignored 1 result(s) from outside a.com, which leaves nothing from it": logging.WARNING,
         "Ignored 1 result(s) from outside b.com": logging.INFO,
     }
+
+
+def test_a_source_that_kept_everything_says_nothing_about_ignoring(
+    source_search, caplog
+) -> None:
+    """No "Ignored 0": the count is only logged when something was refused."""
+    agent, _, _reached = source_search(
+        {"headphones site:a.com": [_page("Anker Q30", "https://a.com/anker")]},
+        FakeLLM(query=SearchQuery(query="headphones")),
+        sources=parse_sources("a.com"),
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="buy_agent.agent"):
+        agent.run("headphones")
+
+    assert not any(
+        record.getMessage().startswith(("Ignored", "From outside"))
+        for record in caplog.records
+    )
+
+
+def test_a_source_that_found_nothing_is_not_said_to_have_ignored_anything(
+    source_search, caplog
+) -> None:
+    """An empty answer is the empty-search warning's to explain, not this one's."""
+    agent, _, _reached = source_search(
+        {}, FakeLLM(query=SearchQuery(query="headphones")), sources=parse_sources("a.com")
+    )
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.agent"):
+        agent.run("headphones")
+
+    assert "Ignored" not in caplog.text
+    assert "Search returned nothing" in caplog.text
 
 
 def test_a_result_ignored_for_its_domain_is_named_at_debug(source_search, caplog) -> None:

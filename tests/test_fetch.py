@@ -249,6 +249,34 @@ def test_a_result_with_no_address_is_not_fetched_or_counted(monkeypatch, caplog)
     assert "cannot be fetched" not in caplog.text
 
 
+def test_results_with_no_address_alone_fetch_nothing_and_warn_of_nothing(
+    monkeypatch, caplog
+) -> None:
+    """No page was asked for, so none failing to read is no reason for a WARNING."""
+    handler, asked = answering(make_response("https://unused.example", PAGE))
+    stub_client(monkeypatch, handler)
+    linkless = [SearchResult(title="one"), SearchResult(title="two")]
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
+        enriched = enrich(linkless, max_chars=1000)
+
+    assert asked == []
+    assert enriched == linkless
+    assert "Got usable page text from 0 of 0 result(s)" in caplog.text
+    assert not any(record.levelno >= logging.WARNING for record in caplog.records)
+
+
+def test_every_result_sharing_an_address_gets_its_page(monkeypatch) -> None:
+    """``enrich`` itself still serves a repeat; the agent is what drops them."""
+    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
+    same = [SearchResult(title=title, url="https://shop.example") for title in ("a", "b")]
+
+    enriched = enrich(same, max_chars=1000)
+
+    assert [result.title for result in enriched] == ["a", "b"]
+    assert all("$129.99" in result.content for result in enriched)
+
+
 # -- why the pages that yielded nothing yielded nothing --------------------------
 
 
