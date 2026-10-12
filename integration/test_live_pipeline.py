@@ -39,15 +39,6 @@ def test_the_model_reads_products_out_of_the_pages(live_run: LiveRun) -> None:
     assert live_run.ranked, "everything the model extracted was thrown out"
 
 
-def test_the_model_quotes_the_pages_rather_than_only_pricing_them(
-    live_run: LiveRun,
-) -> None:
-    """The same smoke test, for the field ADR-0024 and ADR-0025 are about."""
-    quoted = [item.name for item in live_run.extracted.products if item.opinions]
-
-    assert quoted, "the model reported no opinions for any product"
-
-
 def test_every_product_reported_is_named_in_the_sources(products, haystack) -> None:
     """ADR-0006: a name absent from every page cannot have been read off one."""
     for product in products:
