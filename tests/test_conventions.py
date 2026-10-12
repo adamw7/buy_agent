@@ -1781,6 +1781,36 @@ def test_the_scan_fails_a_release_only_on_what_it_could_fix() -> None:
     assert "type: python" in (_ROOT / match.group(1)).read_text(encoding="utf-8")
 
 
+def test_nothing_is_published_from_a_commit_ci_has_not_passed() -> None:
+    """Neither packaging job runs the suites, and a tag can name any commit; `tested`
+    is what asks CI about it, so a job that publishes without needing it is the gap
+    ADR-0082 closed, one job over."""
+    jobs = workflow_jobs(_RELEASE)
+    gate = jobs.get("tested")
+    assert gate, "the release asks nothing of CI"
+    assert "actions/workflows/ci.yml/runs?head_sha=" in gate
+    assert "status=success" in gate
+
+    publishing = [
+        job for job, body in jobs.items() if "gh release upload" in body or "docker push" in body
+    ]
+    assert publishing, "the release publishes nothing; this test has outlived its rule"
+    for job in publishing:
+        assert re.search(r"^    needs: tested$", jobs[job], re.M), job
+
+
+def test_both_packages_carry_the_license() -> None:
+    """Code published with no license is code nobody may use (ADR-0082): the archive
+    copies `LICENSE` beside the package, and the image copies it in and declares it."""
+    assert (_ROOT / "LICENSE").is_file()
+
+    archive = workflow_jobs(_RELEASE)["archive"]
+    assert re.search(r'^\s+cp [^\n]*\bLICENSE\b[^\n]*"dist/\$name/"$', archive, re.M)
+    assert "LICENSE" in context_copies()
+    assert excluded_from_the_build_context("LICENSE") is None
+    assert 'LABEL org.opencontainers.image.licenses="MIT"' in dockerfile()
+
+
 # -- the suites themselves -----------------------------------------------------
 
 #: Both suites, as directories: everything under them is a module pytest imports

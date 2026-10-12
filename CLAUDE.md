@@ -97,7 +97,8 @@ lines in `ui/angular.json` (don't add a branch floor); 75% mutation (ADR-0016).
 **The container** (`docs/docker.md`). No model server runs in the image
 (ADR-0015); it reaches the host through `host.docker.internal`, which
 `$OLLAMA_HOST`, `$VLLM_HOST`, `$LITELLM_HOST` and `$TRTLLM_HOST` are set to. `ENTRYPOINT` is
-`python`. Only `release.yml` builds it (ADR-0030). `.dockerignore` must cover
+`python`. Only `release.yml` builds it (ADR-0030), and only from a tag whose
+commit `ci.yml` passed; both packages carry `LICENSE` (MIT, ADR-0082). `.dockerignore` must cover
 everything `.gitignore` names (and `.env`), must not catch anything the
 `Dockerfile` copies, and must account for every top-level directory.
 
