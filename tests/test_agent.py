@@ -646,6 +646,35 @@ def test_a_result_from_outside_a_source_never_reaches_the_model(
     assert "https://elsewhere.example/sony" not in caplog.text
 
 
+def test_a_source_left_with_nothing_is_a_warning(source_search, caplog) -> None:
+    """With no falling back to the wider web (ADR-0027), every result refused means
+    the source reports nothing, which an ordinary run should show; some kept is INFO."""
+    agent, _, _reached = source_search(
+        {
+            "headphones site:a.com": [_page("Sony XM5", "https://elsewhere.example/sony")],
+            "headphones site:b.com": [
+                _page("Anker Q30", "https://b.com/anker"),
+                _page("Bose QC45", "https://elsewhere.example/bose"),
+            ],
+        },
+        FakeLLM(query=SearchQuery(query="headphones")),
+        sources=parse_sources("a.com, b.com"),
+    )
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.agent"):
+        agent.run("headphones")
+
+    ignored = {
+        record.getMessage(): record.levelno
+        for record in caplog.records
+        if record.getMessage().startswith("Ignored")
+    }
+    assert ignored == {
+        "Ignored 1 result(s) from outside a.com, which leaves nothing from it": logging.WARNING,
+        "Ignored 1 result(s) from outside b.com": logging.INFO,
+    }
+
+
 def test_a_result_ignored_for_its_domain_is_named_at_debug(source_search, caplog) -> None:
     """"Why is the one I had in mind not in there?" -- which ``covers`` refused is the
     answer, and with no falling back to the wider web (ADR-0027) the count alone leaves

@@ -201,7 +201,14 @@ class BuyAgent:
             if outside:
                 # Names at DEBUG: with no fallback to the wider web (ADR-0027), an
                 # over-strict ``covers`` needs them to diagnose.
-                logger.info("Ignored %d result(s) from outside %s", len(outside), source.domain)
+                # A WARNING when nothing was left: that source then reports nothing.
+                logger.log(
+                    logging.INFO if kept else logging.WARNING,
+                    "Ignored %d result(s) from outside %s%s",
+                    len(outside),
+                    source.domain,
+                    "" if kept else ", which leaves nothing from it",
+                )
                 logger.debug(
                     "From outside %s: %s",
                     source.domain,
