@@ -347,8 +347,8 @@ def enrich(
     wait: Callable[[float], None] | None = None,
 ) -> list[SearchResult]:
     """Attach condensed page content to each result, in parallel (ADR-0040, ADR-0053)."""
-    # A hit with no address keeps its snippet; there is nothing to fetch for it.
-    urls = [result.url for result in results if result.url]
+    # Each address once; a hit with none keeps its snippet and has nothing to fetch.
+    urls = list(dict.fromkeys(result.url for result in results if result.url))
     logger.info("Fetching %d result page(s)", len(urls))
     cache = open_cache(PAGES, cache_ttl)
 
@@ -363,16 +363,15 @@ def enrich(
             fetch_page, client, max_chars=max_chars, opinion_chars=opinion_chars,
             cache=cache, wait=wait,
         )
-        pages = list(pool.map(read, urls))
+        pages = dict(zip(urls, pool.map(read, urls), strict=True))
 
-    text = {url: page.text for url, page in zip(urls, pages, strict=True)}
     enriched = [
-        result.model_copy(update={"content": text[result.url]}) if result.url else result
+        result.model_copy(update={"content": pages[result.url].text}) if result.url else result
         for result in results
     ]
-    with_content = sum(1 for page in pages if page.text)
-    cached = sum(1 for page in pages if page.cached)
-    failures = summarise_failures(page.problem for page in pages if page.problem)
+    with_content = sum(1 for page in pages.values() if page.text)
+    cached = sum(1 for page in pages.values() if page.cached)
+    failures = summarise_failures(page.problem for page in pages.values() if page.problem)
     logger.log(
         # Nothing read means grounding will blank every figure.
         logging.WARNING if urls and not with_content else logging.INFO,

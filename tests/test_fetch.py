@@ -266,15 +266,20 @@ def test_results_with_no_address_alone_fetch_nothing_and_warn_of_nothing(
     assert not any(record.levelno >= logging.WARNING for record in caplog.records)
 
 
-def test_every_result_sharing_an_address_gets_its_page(monkeypatch) -> None:
-    """``enrich`` itself still serves a repeat; the agent is what drops them."""
-    stub_client(monkeypatch, lambda url: make_response(url, PAGE))
+def test_results_sharing_an_address_share_one_fetch(monkeypatch, caplog) -> None:
+    """Fetched twice at once, a repeat is too quick for the page cache; each result
+    still gets the page, and the tally counts it once."""
+    handler, asked = answering(make_response("https://shop.example", PAGE))
+    stub_client(monkeypatch, handler)
     same = [SearchResult(title=title, url="https://shop.example") for title in ("a", "b")]
 
-    enriched = enrich(same, max_chars=1000)
+    with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
+        enriched = enrich(same, max_chars=1000)
 
+    assert asked == ["https://shop.example"]
     assert [result.title for result in enriched] == ["a", "b"]
     assert all("$129.99" in result.content for result in enriched)
+    assert "Got usable page text from 1 of 1 result(s)" in caplog.text
 
 
 # -- why the pages that yielded nothing yielded nothing --------------------------
