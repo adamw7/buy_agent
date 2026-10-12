@@ -295,6 +295,22 @@ def test_fetching_can_be_turned_off(
     assert not any("enriched" in call for call in calls)
 
 
+def test_a_page_the_search_repeats_is_fetched_once(agent_factory, extracted_products) -> None:
+    """Fetched twice at once, a repeat is too quick for the page cache; a hit with no
+    address is nobody's repeat, so both of those stay."""
+    repeated = [
+        SearchResult(title="Sony", url="https://shop.example/a"),
+        SearchResult(title="Sony again", url="https://shop.example/a"),
+        SearchResult(title="no link", url=""),
+        SearchResult(title="no link either", url=""),
+    ]
+    agent, calls = agent_factory(FakeLLM(products=extracted_products), repeated)
+
+    agent.run("headphones")
+
+    assert [call["enriched"] for call in calls if "enriched" in call] == [3]
+
+
 @pytest.fixture
 def ollama_request(monkeypatch):
     """Capture the request the Ollama provider puts a run's settings into."""

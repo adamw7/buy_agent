@@ -303,7 +303,6 @@ def _read_capped(response: httpx.Response, url: str) -> str:
             logger.debug("Read the first %d bytes of %s and stopped", read, url)
             break
     markup = b"".join(chunks)
-    chunks.clear()
     encoding = response.encoding or "utf-8"
     try:
         return markup.decode(encoding, errors="replace")
@@ -348,7 +347,8 @@ def enrich(
     wait: Callable[[float], None] | None = None,
 ) -> list[SearchResult]:
     """Attach condensed page content to each result, in parallel (ADR-0040, ADR-0053)."""
-    urls = [result.url for result in results]
+    # A hit with no address keeps its snippet; there is nothing to fetch for it.
+    urls = [result.url for result in results if result.url]
     logger.info("Fetching %d result page(s)", len(urls))
     cache = open_cache(PAGES, cache_ttl)
 
@@ -365,9 +365,10 @@ def enrich(
         )
         pages = list(pool.map(read, urls))
 
+    text = {url: page.text for url, page in zip(urls, pages, strict=True)}
     enriched = [
-        result.model_copy(update={"content": page.text})
-        for result, page in zip(results, pages, strict=True)
+        result.model_copy(update={"content": text[result.url]}) if result.url else result
+        for result in results
     ]
     with_content = sum(1 for page in pages if page.text)
     cached = sum(1 for page in pages if page.cached)

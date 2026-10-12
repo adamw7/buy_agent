@@ -233,6 +233,22 @@ def test_a_tally_with_nothing_going_wrong_ends_at_the_count(monkeypatch, caplog)
     ] == ["Got usable page text from 1 of 1 result(s)"]
 
 
+def test_a_result_with_no_address_is_not_fetched_or_counted(monkeypatch, caplog) -> None:
+    """It keeps its snippet; it is no page that "cannot be fetched"."""
+    handler, asked = answering(make_response("https://good.example", PAGE))
+    stub_client(monkeypatch, handler)
+    linkless = SearchResult(title="no link", snippet="Sony WH-CH720N, $129.99")
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.fetch"):
+        enriched = enrich([linkless, SearchResult(url="https://good.example")], max_chars=1000)
+
+    assert asked == ["https://good.example"]
+    assert enriched[0] == linkless
+    assert "$129.99" in enriched[1].content
+    assert "Got usable page text from 1 of 1 result(s)" in caplog.text
+    assert "cannot be fetched" not in caplog.text
+
+
 # -- why the pages that yielded nothing yielded nothing --------------------------
 
 
