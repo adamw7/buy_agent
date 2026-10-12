@@ -27,7 +27,6 @@ INSTALL = (
 TTL_SECONDS = 600
 _MAKE_KEY = "openssl ecparam -genkey -name prime256v1 -noout -out agent-key.pem"
 
-MERCHANT_AUDIENCE = "merchant"
 CREDENTIAL_PROVIDER_AUDIENCE = "credential-provider"
 
 
