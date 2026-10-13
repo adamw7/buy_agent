@@ -27,7 +27,7 @@ python -m benchmark.server               # ...or as a page comparing several mod
 
 ## The unit suites
 
-2376 Python tests and 369 UI tests. Neither touches the network or a model
+2377 Python tests and 369 UI tests. Neither touches the network or a model
 server:
 
 - the model is faked through `BuyAgent(llm=...)`, a class with one `answer`
@@ -63,8 +63,8 @@ Optional prerequisites skip, never fail:
 - One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
   and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `2356 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `2308 passed, 68 skipped`.
+So the SDK without PowerShell reads `2357 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `2309 passed, 68 skipped`.
 
 ### Across processes
 

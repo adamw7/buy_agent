@@ -618,6 +618,21 @@ def test_an_ollama_serving_nothing_that_answers_reports_none(pulled) -> None:
     assert "installed: none" in message
 
 
+def test_thinking_asked_of_a_model_without_it_is_not_an_embedding_model(pulled) -> None:
+    """Ollama refuses ``think`` on a model that cannot think in the words it refuses an
+    embedding model with, "does not support". Read as one, the hint told the shopper
+    their chat model could not answer a prompt and listed it among the ones that could;
+    what it needs is thinking turned off."""
+    pulled(["gemma3:4b", "nomic-embed-text"], capabilities={"gemma3:4b": [_COMPLETION]})
+    config = AgentConfig(provider="ollama", model="gemma3:4b", reasoning=True)
+    message = hint(config, ResponseError('"gemma3:4b" does not support thinking', 400))
+
+    assert "Turn thinking off" in message
+    assert "does not support thinking" in message, "Ollama's own words are quoted"
+    assert "cannot answer a prompt" not in message
+    assert "embedding" not in message
+
+
 # -- what counts as "the server is not there" ----------------------------------
 
 
