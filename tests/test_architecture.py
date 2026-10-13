@@ -61,7 +61,7 @@ _LAYERS: dict[str, tuple[str, ...]] = {
         "journal.py",
         "screenshots.py",
     ),
-    "settings": ("config.py", "logging_setup.py"),
+    "settings": ("config.py", "logging_setup.py", "version.py"),
     "domain": ("models.py", "money.py", "sources.py", "bounds.py", "structured.py"),
 }
 

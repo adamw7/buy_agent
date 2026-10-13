@@ -98,7 +98,10 @@ lines in `ui/angular.json` (don't add a branch floor); 75% mutation (ADR-0016).
 (ADR-0015); it reaches the host through `host.docker.internal`, which
 `$OLLAMA_HOST`, `$VLLM_HOST`, `$LITELLM_HOST` and `$TRTLLM_HOST` are set to. `ENTRYPOINT` is
 `python`. Only `release.yml` builds it (ADR-0030), and only from a tag whose
-commit `ci.yml` passed; both packages carry `LICENSE` (MIT, ADR-0082). `.dockerignore` must cover
+commit `ci.yml` passed; both packages carry `LICENSE` (MIT, ADR-0082). Both are
+stamped with their version in `buy_agent/_version.txt`, git-ignored and written
+by shell (`release.yml`, and the `Dockerfile` from its `VERSION`/`REVISION`
+build arguments), which `version.py` reads (ADR-0083). `.dockerignore` must cover
 everything `.gitignore` names (and `.env`), must not catch anything the
 `Dockerfile` copies, and must account for every top-level directory.
 
@@ -203,6 +206,7 @@ The order matters at three joints:
 | `mandates.py` | The AP2 seam; the only module that imports `ap2` (ADR-0046) |
 | `rails.py` | Everything that differs between one counterparty and another, one row each |
 | `config.py`, `logging_setup.py`, `__main__.py` | Config, the report, the CLI |
+| `version.py` | Which build is running: a release's stamp, else `dev` and the checkout's commit, read off `.git`'s files (ADR-0083) |
 | `api.py` | Request options in, ranked products out -- the web-facing half worth testing |
 | `server.py` | A stdlib HTTP server: the JSON API, the event stream, the built UI |
 

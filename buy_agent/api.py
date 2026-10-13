@@ -40,6 +40,7 @@ from buy_agent.ranking import ORDERINGS, RankingWeights, SortBy, rank_products, 
 from buy_agent.screenshots import ScreenshotError
 from buy_agent.search import BACKENDS, SearchError, backend_options
 from buy_agent.sources import Source, format_sources, parse_sources
+from buy_agent.version import current
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -342,6 +343,8 @@ def defaults_payload(*, screenshots: bool = False) -> dict[str, Any]:
         # The report's own words: "price" alone cannot say cheapest from dearest.
         "sort_labels": {name: phrase.capitalize() for name, phrase in ORDERINGS.items()},
         "limits": limits_payload(),
+        # Which build answered, for a bug report to quote (ADR-0083).
+        "version": current().label,
     }
 
 

@@ -148,6 +148,7 @@ export function defaults(overrides: Partial<AgentDefaults> = {}): AgentDefaults 
     sort_options: ['score', 'price', 'rating'],
     sort_labels: { score: 'Best score first', price: 'Cheapest first', rating: 'Best rated first' },
     limits: LIMITS,
+    version: '1.2.0+0123456789ab',
     ...overrides,
   };
 }

@@ -41,6 +41,7 @@ from buy_agent.providers import PROVIDERS, provider_for
 from buy_agent.rails import rail_for
 from buy_agent.screenshots import INSTALL, Camera, available
 from buy_agent.search import backend_for
+from buy_agent.version import current
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -206,7 +207,7 @@ def _install_relay() -> None:
 class BuyAgentHandler(BaseHTTPRequestHandler):
     """Routes ``/api`` to the agent and everything else to the built UI."""
 
-    server_version = "buy_agent"
+    server_version = f"buy_agent/{current().label}"
     protocol_version = "HTTP/1.1"
     timeout = _REQUEST_TIMEOUT
 
@@ -793,6 +794,9 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging.")
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {current().label}"
+    )
     return parser
 
 
