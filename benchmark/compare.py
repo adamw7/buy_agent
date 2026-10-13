@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 from buy_agent.agent import ModelUnavailableError, every_step_passes
 from buy_agent.chat import UnreadableAnswerError, release
 from buy_agent.config import AgentConfig
+from buy_agent.logging_setup import seconds_label
 from buy_agent.models import ProductList, SearchQuery
 from buy_agent.providers import PROVIDERS
 from benchmark import pipeline
@@ -366,14 +367,6 @@ def standings(runs: Iterable[CaseRun], cases: Sequence[Case]) -> list[Standing]:
 # -- what the page and ``--json`` are given --------------------------------------
 
 
-def seconds_label(seconds: float) -> str:
-    """As both doors write it: "4.2 s", "3 min 07 s"."""
-    if seconds < 60:
-        return f"{seconds:.1f} s"
-    minutes, rest = divmod(round(seconds), 60)
-    return f"{minutes} min {rest:02d} s"
-
-
 def finished_label(finished: str) -> str:
     """To the minute: "2026-10-02 09:05 UTC"."""
     try:
@@ -573,7 +566,6 @@ __all__ = [
     "scored_run",
     "scored_under",
     "scored_with",
-    "seconds_label",
     "settings_now",
     "standing_payload",
     "standings",

@@ -338,6 +338,12 @@ listed in `docs/testing.md`.
   `verify_standing`, `verify_opinions` and `attribute_sources`. The first five drop whole products
   and also call `record` with a `models.Removal`, which the run payload carries
   as `dropped` (ADR-0055). `tests/test_logging_contract.py` covers all of them.
+- **A run says which model it asked and where its time went** (ADR-0084).
+  `BuyAgent.run` names the model it opened (never one handed in) as `label` at
+  `base_url`, each model call's line says how long it took, and every run that
+  returns ends with one `Finished in` line: the whole, then each step. Steps are
+  timed in `agent.py` by `_Stopwatch`, never in their own modules, and a duration
+  is written by `logging_setup.seconds_label`, which the benchmark shares.
 - **The web is asked twice and the model once, and the clock is handed in.**
   `fetch.py` and `search.py` take a `wait` (`BuyAgent` passes `time.sleep`, and
   tests pass `None` to ask once) (ADR-0034, ADR-0053). A page answering 429/503

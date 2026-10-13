@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from buy_agent.agent import ModelUnavailableError
 from buy_agent.config import DEFAULT_PROVIDER, AgentConfig
-from buy_agent.logging_setup import configure_logging
+from buy_agent.logging_setup import configure_logging, seconds_label
 from buy_agent.providers import PROVIDERS
 from benchmark.baseline import Baseline, compared, read_baseline
 from benchmark.board import Board
@@ -21,7 +21,6 @@ from benchmark.compare import (
     Standing,
     describe,
     run_case,
-    seconds_label,
     standings,
     write_standings,
 )

@@ -25,6 +25,15 @@ def wrap_help(text: str, width: int) -> list[str]:
     at a hyphen, which splits a flag across two lines."""
     return textwrap.wrap(" ".join(text.split()), width, break_on_hyphens=False)
 
+
+def seconds_label(seconds: float) -> str:
+    """A duration as a run's log and the benchmark both write it: "4.2 s", "3 min 07 s".
+    Minutes from whatever would print as "60.0 s"."""
+    if round(seconds, 1) < 60:
+        return f"{seconds:.1f} s"
+    minutes, rest = divmod(round(seconds), 60)
+    return f"{minutes} min {rest:02d} s"
+
 #: A line per call, so quiet unless ``--verbose``; the OpenAI client logs as ``httpx2``.
 _NOISY_LIBRARIES = ("httpx", "httpx2", "openai", "ddgs")
 

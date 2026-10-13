@@ -24,11 +24,13 @@ MP4, which browsers do play.
 ```
 $ python -m buy_agent "wireless noise cancelling headphones under $200"
 
-18:12:17 INFO  buy_agent.agent  | Refined search query: wireless noise cancelling headphones under $200 price review
+18:12:15 INFO  buy_agent.agent  | Shopping for: wireless noise cancelling headphones under $200
+18:12:15 INFO  buy_agent.agent  | Asking gemma4:12b on Ollama at http://localhost:11434
+18:12:17 INFO  buy_agent.agent  | Refined search query in 2.1 s: wireless noise cancelling headphones under $200 price review
 18:12:19 INFO  buy_agent.search | Search returned 10 results
 18:12:19 INFO  buy_agent.fetch  | Fetching 10 result page(s)
 18:12:20 INFO  buy_agent.fetch  | Got usable page text from 10 of 10 result(s)
-18:13:24 INFO  buy_agent.agent  | Extracted 9 candidate(s)
+18:13:24 INFO  buy_agent.agent  | Extracted 9 candidate(s) in 1 min 04 s
 18:13:24 INFO  buy_agent.verif. | Dropped unsupported figures on 4 product(s)
 ==============================================================
 TOP 3 OF 9 PRODUCTS, BEST SCORE FIRST
@@ -40,6 +42,9 @@ TOP 3 OF 9 PRODUCTS, BEST SCORE FIRST
      url    : https://...
      says   : the noise cancelling is uncanny for the money
      says   : the case is too bulky for a coat pocket
+#2  ...
+==============================================================
+18:13:24 INFO  buy_agent.agent  | Finished in 1 min 09 s: query 2.1 s, search 1.9 s, fetch 1.2 s, extract 1 min 04 s
 ```
 
 [docs/architecture.md](docs/architecture.md) draws it as C4 diagrams,

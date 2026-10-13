@@ -92,6 +92,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0081](0081-reach-tensorrt-llm-as-a-fourth-model-server.md) | Reach TensorRT-LLM as a fourth model server, through vLLM's client | Accepted |
 | [0082](0082-package-only-a-commit-ci-passed.md) | Package only a commit CI passed, under a license both packages carry | Accepted |
 | [0083](0083-say-which-build-is-running.md) | Say which build is running, from a stamp a release writes | Accepted |
+| [0084](0084-say-which-model-a-run-asked-and-where-its-time-went.md) | Say which model a run asked and where its time went | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

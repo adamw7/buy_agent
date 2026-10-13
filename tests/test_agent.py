@@ -838,6 +838,162 @@ def test_a_run_stopped_before_ranking_reports_nothing(
     assert "TOP" not in caplog.text
 
 
+# -- saying which model it asked and where the time went (ADR-0084) ------------
+
+
+class Clock:
+    """``perf_counter`` for a run whose steps take as long as each stand-in says."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def passes(self, seconds: float) -> None:
+        self.now += seconds
+
+
+class SlowLLM(FakeLLM):
+    """A model that takes a while over each question: the extraction is the long one."""
+
+    def __init__(self, clock: Clock, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.clock = clock
+
+    def answer(self, messages, schema):
+        self.clock.passes(2.5 if schema is SearchQuery else 64.0)
+        return super().answer(messages, schema)
+
+
+@pytest.fixture
+def clock(monkeypatch) -> Clock:
+    """The run's clock, with a search taking a second and the fetching a second and a
+    half: each step its own figure, so one reported as another reads wrong."""
+    ticking = Clock()
+    monkeypatch.setattr("buy_agent.agent.perf_counter", ticking)
+    return ticking
+
+
+@pytest.fixture
+def timed_agent(monkeypatch, clock, search_results, extracted_products):
+    def build(*, found: list | None = None, **config_kwargs) -> BuyAgent:
+        def search(*_args, **_kwargs) -> list:
+            clock.passes(1.0)
+            return search_results if found is None else found
+
+        def enrich(results: list, **_kwargs) -> list:
+            clock.passes(1.5)
+            return results
+
+        monkeypatch.setattr("buy_agent.agent.search_web", search)
+        monkeypatch.setattr("buy_agent.agent.enrich", enrich)
+        llm = SlowLLM(clock, products=extracted_products)
+        return BuyAgent(AgentConfig(**config_kwargs), llm=llm)
+
+    return build
+
+
+def _said(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [record.getMessage() for record in caplog.records if record.name == "buy_agent.agent"]
+
+
+def test_each_model_call_says_how_long_it_took(timed_agent, caplog) -> None:
+    """The extraction is most of a run on a local model, and the log was silent through
+    it: a minute between two lines with nothing to say which step it went on."""
+    with caplog.at_level(logging.INFO, logger="buy_agent.agent"):
+        timed_agent().run("headphones")
+
+    said = _said(caplog)
+    assert "Refined search query in 2.5 s: fake refined query" in said
+    assert "Extracted 3 candidate(s) in 1 min 04 s" in said
+
+
+def test_a_run_ends_by_saying_where_its_time_went(timed_agent, caplog) -> None:
+    """The whole first, then each step it waited on, in the order they ran."""
+    with caplog.at_level(logging.INFO, logger="buy_agent.agent"):
+        timed_agent().run("headphones")
+
+    assert _said(caplog)[-1] == (
+        "Finished in 1 min 09 s: query 2.5 s, search 1.0 s, fetch 1.5 s, extract 1 min 04 s"
+    )
+
+
+def test_a_step_that_did_not_run_is_not_timed(timed_agent, caplog) -> None:
+    with caplog.at_level(logging.INFO, logger="buy_agent.agent"):
+        timed_agent(fetch_pages=False).run("headphones")
+
+    assert _said(caplog)[-1] == (
+        "Finished in 1 min 08 s: query 2.5 s, search 1.0 s, extract 1 min 04 s"
+    )
+
+
+def test_a_run_that_found_nothing_still_says_how_long_it_took(timed_agent, caplog) -> None:
+    """Most of a minute to find nothing is the case somebody asks about."""
+    with caplog.at_level(logging.INFO, logger="buy_agent.agent"):
+        assert timed_agent(found=[]).run("headphones") == []
+
+    assert _said(caplog)[-1] == "Finished in 3.5 s: query 2.5 s, search 1.0 s"
+
+
+def test_a_refinement_that_failed_is_timed_all_the_same(
+    timed_agent, clock, monkeypatch, caplog
+) -> None:
+    """The run goes on with the raw request, and the wait it cost is still a wait."""
+    agent = timed_agent(found=[])
+
+    class Unreadable:
+        @staticmethod
+        def invoke(_payload):
+            clock.passes(30.0)
+            raise ValueError("model returned garbage")
+
+    monkeypatch.setattr(agent, "query_chain", Unreadable())
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.agent"):
+        agent.run("headphones")
+
+    assert _said(caplog)[-1] == "Finished in 31.0 s: query 30.0 s, search 1.0 s"
+
+
+def test_a_failed_run_does_not_say_it_finished(timed_agent, monkeypatch, caplog) -> None:
+    """It raises, and the door that called it says what went wrong."""
+    agent = timed_agent()
+    monkeypatch.setattr(agent, "extraction_chain", _failing_chain(ConnectionError("refused")))
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.agent"), pytest.raises(
+        ModelUnavailableError
+    ):
+        agent.run("headphones")
+
+    assert not any(line.startswith("Finished") for line in _said(caplog))
+
+
+def test_a_run_names_the_model_it_opened_and_where(
+    ollama_request, monkeypatch, caplog
+) -> None:
+    """A log downloaded from a failed run, or pasted into a bug report, says which
+    model it was, which the settings left to their defaults never did."""
+    monkeypatch.setattr("buy_agent.agent.search_web", lambda *_args, **_kwargs: [])
+    config = AgentConfig(provider="ollama", model="qwen3:0.6b", base_url="http://gpu-box:11434")
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.agent"):
+        BuyAgent(config).run("headphones")
+
+    assert _said(caplog)[:2] == [
+        "Shopping for: headphones",
+        "Asking qwen3:0.6b on Ollama at http://gpu-box:11434",
+    ]
+
+
+def test_a_model_handed_in_is_its_caller_s_to_name(timed_agent, caplog) -> None:
+    """The config still names a model, but not the one answering."""
+    with caplog.at_level(logging.INFO, logger="buy_agent.agent"):
+        timed_agent().run("headphones")
+
+    assert not any(line.startswith("Asking") for line in _said(caplog))
+
+
 # -- the shopper's own bounds (ADR-0039) ---------------------------------------
 
 
