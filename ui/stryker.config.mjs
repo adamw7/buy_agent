@@ -4,13 +4,14 @@
 // would notice if it stopped working -- and ADR-0061 is why it is shaped like
 // this. `setup.cfg` is this file for the package.
 /** @type {import('@stryker-mutator/api/core').PartialStrykerOptions} */
-export default {
+const options = {
   // What the specs are run with, one mutant at a time. Stryker instruments the
   // sources with every mutant at once and switches one on per run, so a run is
   // the ordinary `ng test` with an environment variable set -- and 1410 of them,
-  // which is what makes this a job of its own. There is no cheaper runner here:
-  // Stryker's vitest runner drives vitest itself, and what compiles an Angular
-  // component is the builder rather than vitest.
+  // which is what makes this a workflow of its own, split into shards below.
+  // There is no cheaper runner here: Stryker's vitest runner drives vitest
+  // itself, and what compiles an Angular component is the builder rather than
+  // vitest.
   testRunner: 'command',
   commandRunner: { command: 'npx ng test --ts-config=tsconfig.mutation.json' },
 
@@ -45,3 +46,36 @@ export default {
   // says which half slipped. `high` and `low` only colour the HTML.
   thresholds: { break: null },
 };
+
+// The run split by file, a shard to a runner (ADR-0085): one runner trying every
+// mutant in turn reached three hours at 1410 mutants, and a job may not run past
+// six. A shard named here mutates its own files, and `rest` every other file
+// `mutate` takes -- so a new file is mutated by default and no file twice.
+// `.github/workflows/mutation-ui.yml` runs a job per shard and reports them as
+// one run, and `tests/test_conventions.py` holds the three lists together.
+const SHARDS = {
+  'search-form': ['src/app/search-form/search-form.ts'],
+  app: ['src/app/app.ts'],
+};
+const REST = 'rest';
+
+/** One shard's options, its reports named after it so that every shard's can sit
+    in one directory -- or, with no shard named, the whole run. */
+function forShard(name) {
+  if (!name) {
+    return options;
+  }
+  if (name !== REST && !Object.hasOwn(SHARDS, name)) {
+    const names = [...Object.keys(SHARDS), REST].join(', ');
+    throw new Error(`STRYKER_SHARD is ${name}, which is none of the shards: ${names}`);
+  }
+  const named = Object.values(SHARDS).flat();
+  return {
+    ...options,
+    mutate: name === REST ? [...options.mutate, ...named.map((path) => `!${path}`)] : SHARDS[name],
+    jsonReporter: { fileName: `reports/mutation/${name}.json` },
+    htmlReporter: { fileName: `reports/mutation/${name}.html` },
+  };
+}
+
+export default forShard(process.env.STRYKER_SHARD);

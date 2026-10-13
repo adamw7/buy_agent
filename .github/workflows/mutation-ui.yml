@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # A workflow of its own so mutmut's report never waits on Stryker's three hours.
+  # A workflow of its own so mutmut's report never waits on Stryker's hours.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
@@ -16,14 +16,22 @@ permissions:
 
 jobs:
   stryker:
-    name: Stryker (Node 24)
+    # A runner per shard of ui/stryker.config.mjs (ADR-0085): one runner trying all
+    # 1410 mutants in turn took three hours, and the 2026-10-10 run was cut off at
+    # 96% of them.
+    name: Stryker (${{ matrix.shard }}, Node 24)
     runs-on: ubuntu-latest
-    # About 1410 mutants and three hours (the 2026-10-10 run was cut off at 96%
-    # after 180 minutes); five hours guards a hung mutant, under the hosted six.
+    # The largest shard is half the run, about an hour and a half; five hours guards
+    # a hung mutant, under the hosted six.
     timeout-minutes: 300
+    strategy:
+      # A shard that fails leaves the others to finish, and the report names it.
+      fail-fast: false
+      matrix:
+        # The config's SHARDS and then `rest`, as tests/test_conventions.py holds.
+        shard: [search-form, app, rest]
     defaults:
       run:
-        # pipefail, so the report's pipe fails with its left-hand side.
         shell: bash
         working-directory: ui
 
@@ -36,28 +44,53 @@ jobs:
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
+      - name: Install dependencies
+        run: npm ci
+
+      # Settings are in ui/stryker.config.mjs, which narrows the run to the shard's
+      # files and names its reports after it.
+      - name: Run mutation testing
+        env:
+          STRYKER_SHARD: ${{ matrix.shard }}
+        run: npx stryker run
+
+      - name: Upload the shard's report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-report-ui-${{ matrix.shard }}
+          path: ui/reports/mutation/
+
+  report:
+    # One report over every shard, published however they ended: a shard that left no
+    # results is named in it and fails the job, and the report's floor fails it too.
+    name: Report
+    needs: stryker
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        # pipefail, so the report's pipe fails with its left-hand side.
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v7
+
       # For the stdlib report script, which decides whether the run passed.
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
 
-      - name: Install dependencies
-        run: npm ci
-
-      # Settings are in ui/stryker.config.mjs; the report's floor fails the job.
-      - name: Run mutation testing
-        run: npx stryker run
+      # Every shard's json and html in one directory, each named after its shard.
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: mutation-report-ui-*
+          path: ui/reports/mutation/
+          merge-multiple: true
 
       - name: Report
-        if: always()
-        working-directory: ${{ github.workspace }}
         run: |
-          python scripts/mutation_report.py ui/reports/mutation/mutation.json \
+          python scripts/mutation_report.py ui/reports/mutation/search-form.json \
+            ui/reports/mutation/app.json ui/reports/mutation/rest.json \
             | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload the report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: mutation-report-ui
-          path: ui/reports/mutation/
