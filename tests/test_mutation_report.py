@@ -202,7 +202,7 @@ def test_only_the_thickest_clusters_of_survivors_are_listed(tmp_path: Path) -> N
     lines, _passed = report(read_stryker(json.dumps(many)), STRYKER)
 
     assert sum(line.startswith("- `src/app/") for line in lines) == 25
-    assert "- ... and 5 more, in the run's artifact" in lines
+    assert "- ... and 5 more, in the run's artifacts" in lines
 
 
 def test_a_run_that_caught_everything_says_so_rather_than_listing_nothing() -> None:
@@ -272,3 +272,70 @@ def test_a_missing_results_file_is_told_apart_from_a_failed_run(
 def test_the_usage_line_says_what_the_argument_is(capsys) -> None:
     assert main([]) == 2
     assert "usage:" in capsys.readouterr().err
+
+
+def shards_of(tmp_path: Path, report_json: dict[str, object]) -> list[str]:
+    """A Stryker report split a file to a shard, as the Saturday workflow runs one
+    (ADR-0085), each written where its shard's job leaves it."""
+    files = report_json["files"]
+    assert isinstance(files, dict)
+    return [
+        write(tmp_path, json.dumps({**report_json, "files": {path: mutated}}), f"{index}.json")
+        for index, (path, mutated) in enumerate(files.items())
+    ]
+
+
+def test_a_run_split_into_shards_is_reported_as_the_one_run_it_is(
+    tmp_path: Path, capsys
+) -> None:
+    """The score is over the front end, not over whichever shard the reader opens:
+    every shard's mutants are added together before anything is counted."""
+    whole = write_stryker(tmp_path, STRYKER_REPORT)
+    assert main([whole]) == 1
+    expected = capsys.readouterr().out
+
+    assert main(shards_of(tmp_path, STRYKER_REPORT)) == 1
+    assert capsys.readouterr().out == expected
+
+
+def test_a_shard_that_reported_nothing_is_named_and_fails_the_run(
+    tmp_path: Path, capsys
+) -> None:
+    """A shard that died leaves a score of the others that can clear the floor on its
+    own. It is published, since its survivors are still worth reading, but under a line
+    naming what is missing, and the run fails whatever the rest came to."""
+    caught_everything = {
+        "schemaVersion": "1.0",
+        "files": {"src/app/save.ts": {"mutants": [{"mutatorName": "X", "status": "Killed"}]}},
+    }
+    absent = str(tmp_path / "app.json")
+
+    assert main([write_stryker(tmp_path, caught_everything), absent]) == 2
+    published = capsys.readouterr()
+    lines = published.out.splitlines()
+    assert lines[2].startswith(f"**Incomplete:** nothing was reported at `{absent}`")
+    assert "which clears the 60% floor" in published.out
+    assert f"no Stryker results at {absent}" in published.err
+
+
+def test_a_file_two_shards_both_report_is_refused_rather_than_counted_twice(
+    tmp_path: Path, capsys
+) -> None:
+    """Shards split the run by file, so one file in two of them is a split that
+    overlaps -- and a score that counts its mutants twice is a score of nothing."""
+    first, second = shards_of(tmp_path, STRYKER_REPORT)
+    again = write(tmp_path, Path(first).read_text(encoding="utf-8"), "again.json")
+
+    assert main([first, second, again]) == 2
+    published = capsys.readouterr()
+    assert not published.out
+    assert "src/app/app.ts reported by more than one results file" in published.err
+
+
+def test_one_tester_s_results_are_reported_at_a_time(tmp_path: Path, capsys) -> None:
+    """The two halves are floored apart, so a listing beside a JSON report is a mistake
+    in the workflow and not a run to add up."""
+    listing = write(tmp_path, RESULTS)
+
+    assert main([write_stryker(tmp_path, STRYKER_REPORT), listing]) == 2
+    assert "one tester's results at a time" in capsys.readouterr().err

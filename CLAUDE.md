@@ -69,6 +69,7 @@ npm install ; npm test ; npm run test:coverage ; npm run build
 npm run lint ; npm run format:check          # `npm run format` fixes formatting
 npm start                                     # :4200, proxying /api to :8000
 npx stryker run                               # UI mutation testing, ~3 hours
+$env:STRYKER_SHARD = 'app' ; npx stryker run  # one shard of it, as CI runs it (ADR-0085)
 ```
 
 `ui/` is its own Angular 22 workspace (Node 22.22.3+, 24.15+ or 26+). The Python

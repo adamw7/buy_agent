@@ -63,8 +63,8 @@ Optional prerequisites skip, never fail:
 - One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
   and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `2344 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `2296 passed, 68 skipped`.
+So the SDK without PowerShell reads `2354 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `2306 passed, 68 skipped`.
 
 ### Across processes
 
@@ -431,8 +431,8 @@ strips it.
 
 [Stryker](https://stryker-mutator.io/) runs over `ui/src/app` in
 `.github/workflows/mutation-ui.yml` at `23 6 * * 6` and on demand (ADR-0061). It
-runs the real `ng test` once per mutant -- about 1410 mutants and three hours
-on four cores:
+runs the real `ng test` once per mutant -- 1410 mutants and three hours on four
+cores:
 
 ```powershell
 cd ui
@@ -441,11 +441,18 @@ cd ..
 python scripts/mutation_report.py ui/reports/mutation/mutation.json
 ```
 
-`ui/stryker.config.mjs` says what is mutated and what is excluded by name
-(`agent.types.ts`, `testing.ts`, `app.config.ts`). `ui/tsconfig.mutation.json`
-turns off only the template checks, declaring no `compilerOptions`.
-`scripts/mutation_report.py` holds one `Tool` row per tester, each with its
-statuses and floor.
+The workflow splits that by file into shards, a runner each, and a `Report` job adds
+them back up as one run (ADR-0085): `search-form` (704 mutants), `app` (388) and
+`rest`, every other file (318), so the run takes about an hour and a half. Set
+`$env:STRYKER_SHARD` to a shard's name and `npx stryker run` mutates that shard alone,
+writing `reports/mutation/<shard>.json`; the report script takes every shard's file at
+once, names any that is missing, and refuses a file two shards both reported.
+
+`ui/stryker.config.mjs` says what is mutated, what is excluded by name
+(`agent.types.ts`, `testing.ts`, `app.config.ts`) and how the run is split.
+`ui/tsconfig.mutation.json` turns off only the template checks, declaring no
+`compilerOptions`. `scripts/mutation_report.py` holds one `Tool` row per tester, each
+with its statuses and floor.
 
 ## The dependency audit
 

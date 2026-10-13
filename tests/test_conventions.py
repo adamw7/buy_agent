@@ -2078,8 +2078,9 @@ def test_the_front_end_has_its_own_mutation_run_and_its_own_slot() -> None:
 
 def test_no_two_scheduled_runs_are_waiting_on_the_same_runners() -> None:
     """Five schedules now, and the reason each is off the hour is the reason no two
-    of them are at the same time: a run of the front end's is three hours of `ng
-    test`, and a job queueing behind it reports three hours late (ADR-0061)."""
+    of them are at the same time: a run of the front end's is three runners' worth of
+    `ng test` for an hour and a half, and a job queueing behind it reports that much
+    late (ADR-0061, ADR-0085)."""
     scheduled = {
         workflow.name: cron(workflow)[1::-1]
         for workflow in workflows()
@@ -2113,6 +2114,66 @@ def test_every_file_the_mutation_run_leaves_out_is_one_that_is_there() -> None:
     assert named, "nothing is left out by name; this rule has outlived itself"
     for glob in named:
         assert (_ROOT / "ui" / glob).is_file(), f"{glob} is left out of the run and is not there"
+
+
+#: One shard of the front end's run and the files it names, as ``SHARDS`` writes it:
+#: ``  'search-form': ['src/app/search-form/search-form.ts'],``.
+_SHARD = re.compile(r"^  '?([\w-]+)'?: \[([^\]]*)\],$", re.M)
+
+
+def stryker_shards() -> dict[str, list[str]]:
+    """The shards the config splits the run into and the files each names, ending with
+    the one that takes every other file and names none (ADR-0085)."""
+    written = _STRYKER.read_text(encoding="utf-8")
+    named = re.search(r"^const SHARDS = \{\n(.*?)^\};$", written, re.S | re.M)
+    rest = re.search(r"^const REST = '([\w-]+)';$", written, re.M)
+    assert named and rest, "the Stryker config does not split the run into shards"
+
+    shards = {
+        shard: re.findall(r"'([^']+)'", files) for shard, files in _SHARD.findall(named.group(1))
+    }
+    assert shards, "the Stryker config names no shard but the rest"
+    return {**shards, rest.group(1): []}
+
+
+def reported_results(workflow: Path) -> list[str]:
+    """Every results file a workflow hands the report script, a continued line and all."""
+    joined = workflow.read_text(encoding="utf-8").replace("\\\n", " ")
+    match = re.search(r"scripts/mutation_report\.py ([^|\n]+)", joined)
+    assert match, f"{workflow.name} publishes no report"
+    return match.group(1).split()
+
+
+def test_each_shard_of_the_front_end_s_run_is_a_job_and_a_results_file() -> None:
+    """A run split into shards, a runner each, is only the front end's run while every
+    shard has its job and the report reads every shard's results back (ADR-0085): one
+    with no job leaves its files unmutated, and one the report never opens is a score
+    nobody hears about -- either way the floor is held over less than it says."""
+    shards = list(stryker_shards())
+    workflow = _MUTATION_UI.read_text(encoding="utf-8")
+    config = _STRYKER.read_text(encoding="utf-8")
+    matrix = re.search(r"^\s+shard: \[([^\]]*)\]$", workflow, re.M)
+    named = re.search(r"jsonReporter: \{ fileName: `([^`]+)` \}", config)
+    assert matrix, f"{_MUTATION_UI.name} runs no job per shard"
+    assert named and "${name}" in named.group(1), "a shard's results are not named after it"
+
+    jobs = [shard.strip() for shard in matrix.group(1).split(",")]
+    assert jobs == shards, f"{_MUTATION_UI.name} runs {jobs}, and the config splits into {shards}"
+    results = [f"ui/{named.group(1).replace('${name}', shard)}" for shard in shards]
+    assert reported_results(_MUTATION_UI) == results, f"the report does not read {results}"
+
+
+def test_every_file_a_shard_names_is_one_the_whole_run_mutates_once() -> None:
+    """A shard narrows the run and never widens it: each file it names is there, is one
+    the whole run mutates, and is named by no other shard. The last shard takes every
+    file the others do not, so none is left out -- and the report refuses a file two
+    shards both reported rather than count it twice."""
+    named = [path for files in stryker_shards().values() for path in files]
+
+    assert len(named) == len(set(named)), "a file is named by two shards"
+    for path in named:
+        assert (_ROOT / "ui" / path).is_file(), f"{path} is named by a shard and is not there"
+        assert mutated_by_stryker(path), f"{path} is named by a shard and not mutated by the run"
 
 
 def test_the_mutation_run_compiles_the_front_end_with_the_checks_the_build_uses() -> None:
