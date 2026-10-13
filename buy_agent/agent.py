@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from time import sleep
+from contextlib import contextmanager
+from time import perf_counter, sleep
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 from buy_agent.cache import remember_answers
@@ -19,14 +20,14 @@ from buy_agent.extraction import (
 )
 from buy_agent.fetch import enrich
 from buy_agent.journal import Journal, open_journal
-from buy_agent.logging_setup import log_top_products
+from buy_agent.logging_setup import log_top_products, seconds_label
 from buy_agent.models import and_list, comparable_price, nothing_recorded
 from buy_agent.ranking import rank_products
 from buy_agent.search import search_web
 from buy_agent.verification import ground
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterator, Sequence
 
     from buy_agent.chat import Chain, ChatModel
     from buy_agent.models import Product, RankedProduct, Recorder
@@ -85,6 +86,33 @@ def _first_line(exc: Exception) -> str:
     return said.splitlines()[0] if said else type(exc).__name__
 
 
+class _Stopwatch:
+    """Where one run's time went: the whole of it, and each step timed, in the order
+    the steps ran (ADR-0084)."""
+
+    def __init__(self) -> None:
+        self.started = perf_counter()
+        self.took: dict[str, float] = {}
+
+    @contextmanager
+    def timing(self, step: str) -> Iterator[None]:
+        started = perf_counter()
+        try:
+            yield
+        finally:
+            # A refinement that failed took its time too, and the run goes on.
+            self.took[step] = perf_counter() - started
+
+    def label(self, step: str) -> str:
+        return seconds_label(self.took[step])
+
+    def summary(self) -> str:
+        """The whole so far, then each step. Not ``__str__``: a handler formats its
+        record later, and would read the clock then."""
+        steps = ", ".join(f"{step} {self.label(step)}" for step in self.took)
+        return f"{seconds_label(perf_counter() - self.started)}: {steps}"
+
+
 class BuyAgent:
     """Finds, ranks and logs products for a shopper (ADR-0002, ADR-0028)."""
 
@@ -126,23 +154,47 @@ class BuyAgent:
             raise ValueError("Nothing to shop for: the request is empty.")
 
         logger.info("Shopping for: %s", request)
-        query = self._refine_query(request)
+        if self._opened is not None:
+            # A model handed in is its caller's to name: the benchmark's scripted one
+            # runs under a config naming a model nobody asks.
+            config = self.config
+            logger.info(
+                "Asking %s on %s at %s", config.model, config.model_server.label, config.base_url
+            )
+        watch = _Stopwatch()
+        ranked = self._shop(request, watch, sort_by=sort_by, checkpoint=checkpoint, record=record)
+        logger.info("Finished in %s", watch.summary())
+        return ranked
+
+    def _shop(
+        self,
+        request: str,
+        watch: _Stopwatch,
+        *,
+        sort_by: SortBy,
+        checkpoint: Checkpoint,
+        record: Recorder,
+    ) -> list[RankedProduct]:
+        """The run itself, each step it waits on timed by ``watch``."""
+        query = self._refine_query(request, watch)
         checkpoint("search")
-        results = self._search(query)
+        with watch.timing("search"):
+            results = self._search(query)
         if not results:
             logger.warning("Search returned nothing for %r%s", query, self._empty_search_note())
             return []
 
         if self.config.fetch_pages:
             checkpoint("fetch")
-            results = enrich(
-                results, max_chars=self.config.page_chars,
-                opinion_chars=self.config.opinion_chars, timeout=self.config.fetch_timeout,
-                cache_ttl=self.config.cache_ttl, wait=sleep,
-            )
+            with watch.timing("fetch"):
+                results = enrich(
+                    results, max_chars=self.config.page_chars,
+                    opinion_chars=self.config.opinion_chars, timeout=self.config.fetch_timeout,
+                    cache_ttl=self.config.cache_ttl, wait=sleep,
+                )
 
         checkpoint("extract")
-        products = self._extract_products(request, results, record)
+        products = self._extract_products(request, results, watch, record)
         if not products:
             logger.warning("No products could be extracted from the search results.")
             return []
@@ -260,10 +312,11 @@ class BuyAgent:
             f"language, like {DEFAULT_REGION} or pl-pl."
         )
 
-    def _refine_query(self, request: str) -> str:
+    def _refine_query(self, request: str, watch: _Stopwatch) -> str:
         """Ask the LLM for a better search query, falling back to the raw request."""
         try:
-            refined = self._invoke(self.query_chain, {"request": request})
+            with watch.timing("query"):
+                refined = self._invoke(self.query_chain, {"request": request})
         except ModelUnavailableError:
             raise
         # Any failure here is recoverable: the raw request still searches.
@@ -279,13 +332,14 @@ class BuyAgent:
         query = refined.query.strip()
         if not query:
             return request
-        logger.info("Refined search query: %s", query)
+        logger.info("Refined search query in %s: %s", watch.label("query"), query)
         return query
 
     def _extract_products(
         self,
         request: str,
         results: Sequence[SearchResult],
+        watch: _Stopwatch,
         record: Recorder = nothing_recorded,
     ) -> list[Product]:
         """Read products out of the results, then keep only what the sources back."""
@@ -296,7 +350,8 @@ class BuyAgent:
             "limit": self.config.num_products,
         }
         try:
-            extracted = self._invoke(self.extraction_chain, payload)
+            with watch.timing("extract"):
+                extracted = self._invoke(self.extraction_chain, payload)
         except UnreadableAnswerError as exc:
             # Here, not in ``_invoke``: the query step recovers, this one cannot.
             logger.debug("The model's answer could not be read", exc_info=True)
@@ -304,7 +359,7 @@ class BuyAgent:
             raise ModelUnavailableError(server.hint(self.config, exc)) from exc
 
         products = [item.to_product() for item in extracted.products]
-        logger.info("Extracted %d candidate(s)", len(products))
+        logger.info("Extracted %d candidate(s) in %s", len(products), watch.label("extract"))
         grounded = ground(clean_products(products, record=record), results, record=record)
         return deduplicate(grounded, self.config.num_products, record=record)
 

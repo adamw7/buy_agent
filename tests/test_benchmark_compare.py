@@ -34,7 +34,6 @@ from benchmark.compare import (
     run_payload,
     scored_run,
     scored_under,
-    seconds_label,
     settings_now,
     standing_payload,
     standings,
@@ -456,20 +455,6 @@ def test_a_case_nobody_asked_about_puts_nobody_on_the_board() -> None:
 
 
 # -- what the page and --json are given ----------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("seconds", "label"),
-    [
-        (0.04, "0.0 s"),
-        (12.34, "12.3 s"),
-        (59.9, "59.9 s"),
-        (60.0, "1 min 00 s"),
-        (187.4, "3 min 07 s"),
-    ],
-)
-def test_a_duration_is_written_the_same_way_everywhere(seconds: float, label: str) -> None:
-    assert seconds_label(seconds) == label
 
 
 def test_a_finish_time_is_written_to_the_minute_in_utc() -> None:

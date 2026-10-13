@@ -249,7 +249,7 @@ config:
     rankSpacing: 40
 ---
 graph LR
-    agent("<b>BuyAgent</b><br/><i>[Component: agent.py]</i><br/>Orchestrates the fixed<br/>pipeline, hands each step the<br/>checkpoint, the wait and the<br/>recorder, and translates<br/>transport failures into an<br/>actionable message")
+    agent("<b>BuyAgent</b><br/><i>[Component: agent.py]</i><br/>Orchestrates the fixed<br/>pipeline, hands each step the<br/>checkpoint, the wait and the<br/>recorder, times the steps it<br/>waits on, and translates<br/>transport failures into an<br/>actionable message")
     extraction("<b>Extraction</b><br/><i>[Component: extraction.py]</i><br/>Both prompts and both<br/>chains, plus name cleaning<br/>and merging of variant names")
     search("<b>Search</b><br/><i>[Component: search.py]</i><br/>Which backend a search is<br/>asked through, one row each:<br/>where it listens, its key, how<br/>it is asked and what it answers.<br/>Asks once more where the<br/>backend failed, and raises<br/>SearchError when that one<br/>does too")
     sources("<b>Sources</b><br/><i>[Component: sources.py]</i><br/>Reads a trusted source down<br/>to a domain and a term,<br/>narrows the query to it, and<br/>says whether a result came<br/>from it")

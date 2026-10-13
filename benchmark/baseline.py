@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from benchmark.compare import seconds_label
+from buy_agent.logging_setup import seconds_label
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

@@ -18,6 +18,7 @@ from buy_agent.logging_setup import (
     log_alert,
     log_changes,
     log_top_products,
+    seconds_label,
 )
 from buy_agent.alerts import Alert
 from buy_agent.chat import release
@@ -686,3 +687,23 @@ def test_the_alert_is_part_of_the_report(report) -> None:
         "PRICE ALERT NOT MET: Nothing found is.",
     ]
     assert all(getattr(record, "report", False) for record in report.records)
+
+
+# -- how long something took (ADR-0084) -----------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("seconds", "label"),
+    [
+        (0.04, "0.0 s"),
+        (12.34, "12.3 s"),
+        (59.9, "59.9 s"),
+        # It would print as "60.0 s", which is a minute.
+        (59.96, "1 min 00 s"),
+        (60.0, "1 min 00 s"),
+        (187.4, "3 min 07 s"),
+    ],
+)
+def test_a_duration_is_written_the_same_way_everywhere(seconds: float, label: str) -> None:
+    """A run's log and the benchmark's standings both write one this way."""
+    assert seconds_label(seconds) == label

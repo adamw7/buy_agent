@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 from buy_agent.agent import BuyAgent, ModelUnavailableError
 from buy_agent.api import ApiError
 from buy_agent.config import DEFAULT_PROVIDER
-from buy_agent.logging_setup import configure_logging
+from buy_agent.logging_setup import configure_logging, seconds_label
 from buy_agent.providers import PROVIDERS, provider_for, provider_options
 from buy_agent.server import (
     BuyAgentHandler,
@@ -32,7 +32,6 @@ from benchmark.compare import (
     case_payload,
     metrics_payload,
     run_case,
-    seconds_label,
     standings_payload,
 )
 
