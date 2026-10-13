@@ -27,7 +27,7 @@ python -m benchmark.server               # ...or as a page comparing several mod
 
 ## The unit suites
 
-3282 Python tests and 367 UI tests. Neither touches the network or a model
+2374 Python tests and 369 UI tests. Neither touches the network or a model
 server:
 
 - the model is faked through `BuyAgent(llm=...)`, a class with one `answer`
@@ -271,11 +271,17 @@ python -m pytest integration
 
 The model is real and the web is `benchmark/corpus.py`'s ten pages, condensed by
 the real `fetch.condense` on the real budgets so the prompt is production-shaped
-and production-sized. One session-scoped run is shared by all 32 tests, which
-assert what holds whatever the model said: every name, figure, quote and link is
-in the sources, currencies travel with prices, nothing is listed twice, the
-ranking is ordered. Two smoke tests check that something was extracted and
-quoted, so the rest are not vacuous.
+and production-sized. One session-scoped run of the pipeline is shared by 24 of the
+31 tests; the other seven ask Ollama for themselves -- a listing, a query, and what a
+stopped server or a model not pulled raises. Of the 24, eleven score the run as the
+benchmark does (below), and twelve assert what holds whatever the model said: every
+name, figure, quote and link is in the sources, currencies travel with prices,
+nothing is listed twice, the ranking is ordered. A smoke test checks that something
+was extracted, so none of the twelve is vacuous but the two about quotes: nothing
+requires a quote, since `qwen3:0.6b` quotes one product on a good night and none on
+a bad one at the same prompt. On a bad night those two pass with nothing to check,
+and the scorecard's `quotes` reads 0, against a floor of 0; what the model does quote
+is held to `faithful`'s.
 
 The same run is scored as the benchmark scores one -- the scorecard, the query and
 the time each question took -- and the session ends by printing it, pass or fail,

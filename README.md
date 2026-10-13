@@ -495,9 +495,9 @@ foreign `Origin` or a `Host` that merely resolves here is refused. `curl` still
 works; another name needs `--allowed-host buy.lan`
 ([ADR-0018](docs/adr/0018-guard-the-loopback-server-against-other-pages.md)).
 
-Under Settings, **Model server** picks Ollama, vLLM or LiteLLM, and **Model**
-lists what that server is serving, marking a configured model `not served` and
-one that cannot chat `embedding only`
+Under Settings, **Model server** picks Ollama, vLLM, LiteLLM or TensorRT-LLM,
+and **Model** lists what that server is serving, marking a configured model
+`not served` and one that cannot chat `embedding only`
 ([ADR-0032](docs/adr/0032-say-which-models-can-answer-a-prompt.md)). A value the
 server would refuse is refused on the page first, on the server's own ranges
 ([ADR-0033](docs/adr/0033-let-the-form-refuse-what-the-server-would.md)). A
