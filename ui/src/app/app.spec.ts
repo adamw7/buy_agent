@@ -323,6 +323,17 @@ describe('App', () => {
     expect(page.querySelector('.server')!.textContent).toContain('Ollama · 1 model');
   });
 
+  it('says which build answered, as the server wrote it', async () => {
+    const page = (await render()).nativeElement as HTMLElement;
+    expect(page.querySelector('footer')!.textContent).toBe('buy_agent 1.2.0+0123456789ab');
+  });
+
+  it('says nothing about a build before the server has answered', async () => {
+    agent.defaultsResponse = new Subject<AgentDefaults>();
+    const page = (await render()).nativeElement as HTMLElement;
+    expect(page.querySelector('footer')).toBeNull();
+  });
+
   it('fills the model dropdown with what that server is serving', async () => {
     agent.modelsResponse = of({
       ...STATUS,

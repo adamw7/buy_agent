@@ -59,6 +59,18 @@ starts both and asks each for `/api/config` and the page before publishing
 ([ADR-0082](adr/0082-package-only-a-commit-ci-passed.md)). A commit whose CI
 run was cancelled by a later push needs CI run on its tag first.
 
+Both say which build they are
+([ADR-0083](adr/0083-say-which-build-is-running.md)): `release.yml` stamps the
+archive with the release's number and commit, and passes both to the image as
+the `VERSION` and `REVISION` build arguments, so `--version`, `/api/config`, the
+page's footer and the `Server` header all read `1.2.0+<commit>`. A local
+`docker build` says `dev`. The image also carries the
+`org.opencontainers.image` labels `version`, `revision`, `source` and `created`:
+
+```powershell
+docker inspect --format '{{json .Config.Labels}}' ghcr.io/adamw7/buy_agent:1.2.0
+```
+
 ### What you can verify
 
 Before the image is pushed, the workflow scans its OS layer with

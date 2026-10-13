@@ -229,6 +229,8 @@ export interface AgentDefaults {
   sort_labels: Record<SortBy, string>;
   /** Each number's range, keyed as sent (`results`, `top`, ...); absent is unbounded. */
   limits: Record<string, Limit>;
+  /** Which build answered (`1.2.0+0123456789ab`, `dev`), never a setting (ADR-0083). */
+  version: string;
 }
 
 /** The server's verdict on a Trusted sources field, asked before a run. */

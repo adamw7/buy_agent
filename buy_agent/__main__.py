@@ -27,6 +27,7 @@ from buy_agent.rails import RAILS
 from buy_agent.ranking import ORDERINGS, SortBy, scale_of
 from buy_agent.search import BACKENDS, SearchError
 from buy_agent.sources import parse_named_sources, parse_sources
+from buy_agent.version import current
 
 logger = logging.getLogger("buy_agent")
 
@@ -359,6 +360,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Also write all results, not only the top ones, to this JSON file.",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging.")
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {current().label}"
+    )
     return parser
 
 

@@ -34,6 +34,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY LICENSE ./
 COPY buy_agent/ ./buy_agent/
 
+# Which build this is, as `buy_agent.version` reads it (ADR-0083). release.yml
+# passes the release's number and commit; a local build says `dev`.
+ARG VERSION=dev
+ARG REVISION=
+RUN printf '%s\n%s\n' "$VERSION" "$REVISION" > buy_agent/_version.txt
+
 # Where `server.DEFAULT_UI_DIR` looks, so the container needs no --ui-dir.
 COPY --from=ui /ui/dist/ui/browser/ ./ui/dist/ui/browser/
 

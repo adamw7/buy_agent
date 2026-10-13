@@ -17,3 +17,5 @@ htmlcov/
 mutants/
 mutation-results.txt
 *.log
+# The release stamp (ADR-0083): release.yml and the Dockerfile write it.
+buy_agent/_version.txt

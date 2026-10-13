@@ -221,3 +221,8 @@
     }
   }
 </main>
+
+<!-- Which build answered, in Python's words, for a bug report to quote (ADR-0083). -->
+@if (defaults()?.version; as version) {
+  <footer class="build">buy_agent {{ version }}</footer>
+}

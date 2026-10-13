@@ -26,6 +26,8 @@ ui/.stryker-tmp/
 .mypy_cache/
 mutation-results.txt
 *.log
+# A stamp left by hand; the image writes its own from build arguments.
+buy_agent/_version.txt
 
 # Settings come from the environment the container runs in, never a file.
 .env

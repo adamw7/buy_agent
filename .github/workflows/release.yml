@@ -100,6 +100,9 @@ jobs:
           name="buy-agent-${TAG#v}"
           echo "NAME=$name" >> "$GITHUB_ENV"
 
+          # Which build this is, as buy_agent.version reads it (ADR-0083).
+          printf '%s\n%s\n' "${TAG#v}" "$(git rev-parse HEAD)" > buy_agent/_version.txt
+
           mkdir -p "dist/$name/$UI_DIST"
           cp -r buy_agent "dist/$name/"
           cp -r "$UI_DIST/." "dist/$name/$UI_DIST/"
@@ -129,15 +132,18 @@ jobs:
           done
 
           status=0
-          curl -fsS "http://127.0.0.1:$PORT/api/config" > /dev/null || status=1
+          curl -fsS "http://127.0.0.1:$PORT/api/config" > config.json || status=1
           curl -fsS "http://127.0.0.1:$PORT/" > /dev/null || status=1
           kill "$server" 2>/dev/null || true
+          # The stamp landed: the server says the release's number, not `dev`.
+          python -c 'import json, sys; sys.exit(not json.load(open("config.json"))["version"].startswith(sys.argv[1] + "+"))' \
+            "${TAG#v}" || { echo "the archive does not say it is ${TAG#v}" >&2; status=1; }
 
           if [ "$status" -ne 0 ]; then
             echo "the packaged server did not answer:" >&2
             cat server.log >&2
           fi
-          rm -f server.log
+          rm -f server.log config.json
           exit "$status"
 
       - name: Pack it
@@ -197,7 +203,18 @@ jobs:
           echo "IMAGE=$image" >> "$GITHUB_ENV"
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
-          docker build -t "$image:$version" .
+          revision="$(git rev-parse HEAD)"
+
+          # Which build this is, to the server (ADR-0083) and to the registry:
+          # `source` is also what links the ghcr package to this repository.
+          docker build -t "$image:$version" \
+            --build-arg VERSION="$version" \
+            --build-arg REVISION="$revision" \
+            --label org.opencontainers.image.version="$version" \
+            --label org.opencontainers.image.revision="$revision" \
+            --label org.opencontainers.image.source="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --label org.opencontainers.image.created="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            .
 
       # Smoke-test the image before publishing it.
       - name: Check the image serves
@@ -212,8 +229,12 @@ jobs:
           done
 
           status=0
-          curl -fsS http://127.0.0.1:8000/api/config > /dev/null || status=1
+          curl -fsS http://127.0.0.1:8000/api/config > config.json || status=1
           curl -fsS http://127.0.0.1:8000/ > /dev/null || status=1
+          # The build arguments landed: the server says the release's number.
+          python3 -c 'import json, sys; sys.exit(not json.load(open("config.json"))["version"].startswith(sys.argv[1] + "+"))' \
+            "$VERSION" || { echo "the image does not say it is $VERSION" >&2; status=1; }
+          rm -f config.json
           if [ "$status" -ne 0 ]; then
             echo "the image did not serve:" >&2
             docker logs buy-agent-smoke >&2

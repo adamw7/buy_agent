@@ -213,3 +213,12 @@ main {
 .alert.met {
   border-left-color: var(--good);
 }
+
+.build {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 0 20px 24px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 12px;
+}
