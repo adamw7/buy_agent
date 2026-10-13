@@ -593,7 +593,6 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         return True
 
     # ``format`` is the base class's parameter name.
-    # pylint: disable-next=redefined-builtin
     def log_message(self, format: str, *args: Any) -> None:
         logger.debug("%s - %s", self.address_string(), format % args)
 

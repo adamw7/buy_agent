@@ -3063,6 +3063,17 @@ def test_the_linter_is_configured_in_the_spelling_it_demands() -> None:
             )
 
 
+def test_every_message_the_linter_is_told_to_print_fails_the_run() -> None:
+    """The messages `.pylintrc` enables are informational, and pylint's exit code ignores
+    those unless `fail-on` names them: `useless-suppression` printed a stale pragma in
+    `server.py` under a green run, which ADR-0048 says fails it."""
+    enabled = {name.strip(",") for name in ini_values(_PYLINTRC, "MESSAGES CONTROL", "enable")}
+    failing = {name.strip(",") for name in ini_values(_PYLINTRC, "MAIN", "fail-on")}
+
+    assert "useless-suppression" in enabled, "the check this holds the run to is gone"
+    assert enabled <= failing, f"printed and passed: {', '.join(sorted(enabled - failing))}"
+
+
 @pytest.mark.parametrize("path", package_modules(), ids=lambda path: path.name)
 def test_every_suppression_says_why(path: Path) -> None:
     """The rule every heuristic in this package already follows, applied to the linter's

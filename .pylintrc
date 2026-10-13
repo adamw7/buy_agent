@@ -10,6 +10,17 @@ extension-pkg-allow-list = lxml.etree
 # signs with (ADR-0046), and Playwright (ADR-0065). Unresolvable on most checkouts.
 ignored-modules = ap2, jwcrypto, cryptography, playwright
 
+# Every message enabled below is informational, and those leave the exit code at 0:
+# without this they are printed and passed, as a stale pragma in `server.py` was when
+# pylint 4.1.3 stopped needing it (ADR-0048).
+fail-on =
+    useless-suppression,
+    use-symbolic-message-instead,
+    bad-inline-option,
+    deprecated-pragma,
+    file-ignored,
+    raw-checker-failed,
+
 # Fifteen of the twenty-five optional checkers, each a rule the package already
 # holds; what they found was fixed, not configured around (ADR-0049). Left out:
 # `magic_value` (the numbers are argued for beside them), `broad_try_clause`
