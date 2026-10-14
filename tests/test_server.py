@@ -291,6 +291,23 @@ def test_a_body_that_is_not_an_object_is_rejected(server: str) -> None:
     assert status == 400
 
 
+def test_a_body_nested_past_what_the_decoder_follows_is_the_clients_mistake(
+    server: str, caplog
+) -> None:
+    """``json`` raises ``RecursionError`` there, not ``ValueError``, so it reached the
+    catch-all: a 500 saying "Unexpected failure", with a traceback in the log, for a
+    body this server can read no more of than one that is not JSON at all. As deep as
+    the cap allows: 3.14 decodes by the stack it has, and decodes 30,000 levels."""
+    body = b"[" * _MAX_BODY_BYTES
+
+    with caplog.at_level(logging.ERROR, logger="buy_agent"):
+        status, payload = post(f"{server}/api/search", body)
+
+    assert status == 400
+    assert payload["error"].startswith("Body is not valid JSON")
+    assert not caplog.records, "a refused body is no failure of the server's"
+
+
 def test_head_does_not_start_a_search(server: str) -> None:
     """A monitor probing the stream endpoint must not spend a minute of Ollama. Read off
     the raw reply, since a HEAD answered 200 raises nothing for an ``except`` to check

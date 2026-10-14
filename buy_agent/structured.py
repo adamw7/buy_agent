@@ -46,6 +46,9 @@ _MAX_NAME = 120
 _MAX_DEPTH = 8
 _CODE = re.compile(r"[A-Z]{3}")
 _WHITESPACE = re.compile(r"\s+")
+#: A comma before the cents, as some shops declare a figure against schema.org's rule
+#: ("129,99", "1.299,99"): a group of thousands is never one or two digits.
+_DECIMAL_COMMA = re.compile(r"(?:\d{1,3}(?:\.\d{3})+|\d+),\d{1,2}")
 
 
 def declared(scripts: Iterable[str]) -> list[str]:
@@ -196,8 +199,17 @@ def _number(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
         return None
     try:
-        number = float(value.strip().replace(",", "") if isinstance(value, str) else value)
+        number = float(_pointed(value.strip()) if isinstance(value, str) else value)
     # JSON's integers are unbounded, and one past a float's range overflows instead.
     except (ValueError, OverflowError):
         return None
     return number if isfinite(number) else None
+
+
+def _pointed(text: str) -> str:
+    """A declared figure with a decimal point: a decimal comma is read as one, its dots
+    then grouping thousands, and any other comma groups thousands ("1,299.00"). Read
+    as a thousands comma, "129,99" was a price a hundred times the page's."""
+    if _DECIMAL_COMMA.fullmatch(text):
+        return text.replace(".", "").replace(",", ".")
+    return text.replace(",", "")

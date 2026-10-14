@@ -203,6 +203,13 @@ def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
             f"Pull it with:  ollama pull {config.model}  "
             f"(installed: {_listed(config)})"
         )
+    # Before the embedding model's "does not support chat": Ollama refuses thinking asked
+    # of a model without it in the same words, and that model answers once it is off.
+    if "does not support thinking" in lowered:
+        return (
+            f"Ollama's {config.model!r} cannot think ({exc}), and this run asked it to. "
+            f"Turn thinking off, or ask for a model that thinks."
+        )
     if "does not support" in lowered:
         return (
             f"Ollama has {config.model!r}, but it cannot answer a prompt ({exc}). "

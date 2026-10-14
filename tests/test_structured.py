@@ -348,3 +348,38 @@ def test_a_price_with_a_thousands_comma_is_read_whole() -> None:
     assert declared([script({"@type": "Product", "name": "Laptop", "offers": offer})]) == [
         "Laptop: 1299.00 USD"
     ]
+
+
+def test_a_price_with_a_decimal_comma_is_read_as_the_page_prints_it() -> None:
+    """Against schema.org's rule, some shops declare "129,99". Read as a thousands comma
+    it was 12999.00, a price a hundred times the page's that grounding then accepted,
+    since the line written is page text; the comma groups only before three digits."""
+    for price, line in (
+        ("129,99", "Kettle: 129.99 EUR"),
+        ("129,9", "Kettle: 129.90 EUR"),
+        ("1.299,99", "Kettle: 1299.99 EUR"),
+        ("1.299.999,50", "Kettle: 1299999.50 EUR"),
+        ("1,299", "Kettle: 1299.00 EUR"),
+        ("12.50", "Kettle: 12.50 EUR"),
+    ):
+        offer = {"@type": "Offer", "price": price, "priceCurrency": "EUR"}
+        assert declared([script({"@type": "Product", "name": "Kettle", "offers": offer})]) == [
+            line
+        ], price
+
+    offer = {"@type": "Offer", "price": "129,99", "priceCurrency": "EUR"}
+    [written] = declared([script({"@type": "Product", "name": "Kettle", "offers": offer})])
+    haystack = build_haystack([SearchResult(url="https://shop.example/kettle", content=written)])
+
+    assert mentions_number(haystack, 129.99)
+    assert not mentions_number(haystack, 12999)
+
+
+def test_a_rating_with_a_decimal_comma_is_read_too() -> None:
+    """Read as a thousands comma, "4,6" was a 46 that no five-point scale holds, and the
+    page's rating was dropped."""
+    rating = {"ratingValue": "4,6", "bestRating": "5", "reviewCount": "1,024"}
+
+    assert declared([script({"@type": "Product", "name": "Kettle", "aggregateRating": rating})]) == [
+        "Kettle: rated 4.6/5 from 1024 reviews"
+    ]

@@ -546,7 +546,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             raise ApiError("The request body did not arrive in time.", 408) from exc
         try:
             payload = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        # Nested past what the decoder will follow is a body nobody can read either.
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
             raise ApiError(f"Body is not valid JSON: {exc}") from exc
         if not isinstance(payload, dict):
             raise ApiError("Body must be a JSON object.")
@@ -592,7 +593,6 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         return True
 
     # ``format`` is the base class's parameter name.
-    # pylint: disable-next=redefined-builtin
     def log_message(self, format: str, *args: Any) -> None:
         logger.debug("%s - %s", self.address_string(), format % args)
 
