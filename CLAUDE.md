@@ -91,7 +91,9 @@ for pushes and PRs. Windows joins on the Saturday schedule and on
 `workflow_dispatch` (ADR-0037): dispatch it for a branch that touches paths,
 encodings, sockets or `start.ps1`. The scheduled workflows (audit, integration,
 both mutation runs) and `release.yml` are described in `docs/testing.md` and
-`docs/docker.md`; only dependency review gates a PR. Floors: 99% branch coverage
+`docs/docker.md`; only dependency review gates a PR. `automerge.yml`
+squash-merges a same-repo, non-draft PR once `ci.yml` and `audit.yml` are green
+on its head (ADR-0086); label it `no-automerge` to keep it open. Floors: 99% branch coverage
 over the package, `benchmark/` and `scripts/` (ADR-0064); 98% statements and
 lines in `ui/angular.json` (don't add a branch floor); 75% mutation (ADR-0016).
 

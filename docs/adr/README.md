@@ -94,6 +94,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0083](0083-say-which-build-is-running.md) | Say which build is running, from a stamp a release writes | Accepted |
 | [0084](0084-say-which-model-a-run-asked-and-where-its-time-went.md) | Say which model a run asked and where its time went | Accepted |
 | [0085](0085-split-the-front-ends-mutation-run-by-file.md) | Split the front end's mutation run by file, a runner to each shard | Accepted |
+| [0086](0086-merge-a-pull-request-once-its-head-is-green.md) | Merge a pull request once its head is green | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written
