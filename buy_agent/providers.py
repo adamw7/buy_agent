@@ -33,6 +33,10 @@ _LIST_TIMEOUT = 5.0
 #: The Ollama capability needed to answer a prompt (ADR-0032).
 _COMPLETION = "completion"
 
+#: Why an answer stopped, in Ollama's ``done_reason`` and the OpenAI API's
+#: ``finish_reason`` alike, when the server's length limit stopped it.
+_CUT_OFF = "length"
+
 #: Turns a row's failure into a remedy sentence.
 Hint: TypeAlias = "Callable[[AgentConfig, Exception], str]"
 
@@ -105,7 +109,9 @@ class _OllamaChat:
             options=options,
             think=self.reasoning,
         )
-        return read_answer(response.message.content or "", schema)
+        return read_answer(
+            response.message.content or "", schema, cut_off=response.done_reason == _CUT_OFF
+        )
 
     def close(self) -> None:
         self.client.close()
@@ -243,8 +249,12 @@ class _OpenAIChat:
             extra_body=self.extra_body,
         )
         # No choice at all is an answer with nothing to read, not an ``IndexError``.
-        content = response.choices[0].message.content if response.choices else None
-        return read_answer(content or "", schema)
+        if not response.choices:
+            return read_answer("", schema)
+        choice = response.choices[0]
+        return read_answer(
+            choice.message.content or "", schema, cut_off=choice.finish_reason == _CUT_OFF
+        )
 
     def close(self) -> None:
         self.client.close()
@@ -432,11 +442,18 @@ def _too_slow_hint(config: AgentConfig, exc: Exception) -> str:
     )
 
 
-def _unreadable_hint(config: AgentConfig, exc: Exception) -> str:
-    """Something other than the JSON asked for (ADR-0019)."""
+def _unreadable_hint(config: AgentConfig, exc: UnreadableAnswerError) -> str:
+    """Something other than the JSON asked for (ADR-0019): certainly out of room when
+    the server said it stopped at its limit, and perhaps when it said nothing."""
     server = config.model_server
     said = str(exc).strip()
     detail = said.splitlines()[0] if said else type(exc).__name__
+    if exc.cut_off:
+        return (
+            f"{server.label} at {config.base_url} stopped at its length limit before "
+            f"the model {config.model!r} finished the JSON this asks for ({detail}). "
+            f"It ran out of room: {server.more_room}."
+        )
     return (
         f"{server.label} at {config.base_url} answered with something that is not "
         f"the JSON this asks for ({detail}). The model {config.model!r} may have run "

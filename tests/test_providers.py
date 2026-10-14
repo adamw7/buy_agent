@@ -112,7 +112,7 @@ def chatting(monkeypatch):
     """Stand in for ollama's ``Client`` being asked a question, capturing it."""
     sent: dict = {}
 
-    def install(answered: str = '{"query": "a refined query"}') -> dict:
+    def install(answered: str = '{"query": "a refined query"}', *, stopped: str = "stop") -> dict:
         class FakeClient:
             def __init__(self, base_url: str, **kwargs) -> None:
                 sent["base_url"] = base_url
@@ -123,7 +123,9 @@ def chatting(monkeypatch):
             @staticmethod
             def chat(**kwargs):
                 sent.update(kwargs)
-                return SimpleNamespace(message=SimpleNamespace(content=answered))
+                return SimpleNamespace(
+                    message=SimpleNamespace(content=answered), done_reason=stopped
+                )
 
             @staticmethod
             def close() -> None:
@@ -141,7 +143,10 @@ def completing(monkeypatch):
     sent: dict = {}
 
     def install(
-        answered: str = '{"query": "a refined query"}', *, choices: list | None = None
+        answered: str = '{"query": "a refined query"}',
+        *,
+        choices: list | None = None,
+        stopped: str = "stop",
     ) -> dict:
         class FakeOpenAI:
             def __init__(self, **kwargs) -> None:
@@ -156,7 +161,9 @@ def completing(monkeypatch):
             sent.update(kwargs)
             if choices is not None:
                 return SimpleNamespace(choices=choices)
-            choice = SimpleNamespace(message=SimpleNamespace(content=answered))
+            choice = SimpleNamespace(
+                message=SimpleNamespace(content=answered), finish_reason=stopped
+            )
             return SimpleNamespace(choices=[choice])
 
         monkeypatch.setattr("buy_agent.providers.openai.OpenAI", FakeOpenAI)
@@ -327,6 +334,23 @@ def test_a_server_that_answers_with_nothing_says_so(
 
     with pytest.raises(UnreadableAnswerError, match="nothing at all"):
         asked(AgentConfig(provider=provider), {})
+
+
+@pytest.mark.parametrize("provider", _EVERY)
+@pytest.mark.parametrize(("stopped", "cut_off"), [("length", True), ("stop", False)])
+def test_an_unreadable_answer_carries_whether_the_server_cut_it_off(
+    chatting, completing, provider: str, stopped: str, cut_off: bool
+) -> None:
+    """Ollama's ``done_reason`` and the OpenAI API's ``finish_reason`` both say when the
+    length limit stopped an answer, which is the difference between too little room
+    and a wrong answer (ADR-0019)."""
+    chatting('{"query": "head', stopped=stopped)
+    completing('{"query": "head', stopped=stopped)
+
+    with pytest.raises(UnreadableAnswerError) as raised:
+        asked(AgentConfig(provider=provider), {})
+
+    assert raised.value.cut_off is cut_off
 
 
 @pytest.mark.parametrize("provider", _OPENAI_STYLE)
@@ -523,6 +547,25 @@ def test_an_unreadable_answer_quotes_one_line_of_it() -> None:
 
     assert "For troubleshooting" not in message
     assert "Invalid json output: {" in message
+
+
+@pytest.mark.parametrize("provider", _EVERY)
+def test_an_answer_the_server_cut_off_says_it_ran_out_of_room(provider: str) -> None:
+    """The server said so, so the hint does too, without a "may"."""
+    config = AgentConfig(provider=provider)
+    message = hint(config, UnreadableAnswerError("Invalid JSON answer: {", cut_off=True))
+
+    assert "stopped at its length limit" in message
+    assert "may have" not in message
+    assert config.model_server.more_room in message
+
+
+def test_an_answer_the_server_finished_is_not_said_to_be_cut_off() -> None:
+    """Without the server's word, running out of room stays a possibility, not a fact."""
+    message = hint(OLLAMA_CONFIG, UnreadableAnswerError("Invalid JSON answer: {"))
+
+    assert "length limit" not in message
+    assert "may have run out of room" in message
 
 
 def test_an_unreadable_answer_that_says_nothing_is_named_by_its_kind() -> None:
