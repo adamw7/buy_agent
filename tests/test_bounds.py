@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from buy_agent.bounds import Noticed, notice
@@ -53,3 +55,37 @@ def test_the_ends_of_each_scale_are_still_bounds(request_: str, bound: str, figu
     seen = only(request_)
 
     assert (seen.bound, seen.figure) == (bound, figure)
+
+
+@pytest.mark.parametrize(
+    ("request_", "figure"),
+    [
+        ("headphones under 1500", "1500"),
+        ("headphones under $1,299.99", "1299.99"),
+        ("espresso machine under 1.299,99 €", "1299.99"),
+        ("laptop under 1 500 zł", "1500"),
+        ("laptop under 1\u00a0299,50 €", "1299.5"),
+    ],
+)
+def test_a_figure_is_read_whole_in_each_convention(request_: str, figure: str) -> None:
+    """Never part of one: "1500" is no budget of 150."""
+    assert only(request_).figure == figure
+
+
+@pytest.mark.parametrize("request_", ["headphones with .5+ stars", "headphones x4.5+ stars"])
+def test_no_reading_starts_inside_a_figure(request_: str) -> None:
+    """Half a star was offered as five, read from after the dot."""
+    assert notice(request_) == []
+
+
+@pytest.mark.parametrize("unit", ["1.", "1,", "1\u00a0"])
+def test_a_request_as_long_as_a_request_line_is_read_at_once(unit: str) -> None:
+    """``GET /api/bounds`` takes a request line of up to 64 KiB, and a regular expression
+    holds the interpreter while it reads: 4,000 characters of "1.1.1" took a minute and
+    a half, and every other request to the server waited with it."""
+    request = (unit * 65536)[:65536] + " or less"
+
+    started = time.perf_counter()
+    notice(request)
+
+    assert time.perf_counter() - started < 2
