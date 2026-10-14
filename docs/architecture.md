@@ -250,7 +250,7 @@ config:
 ---
 graph LR
     agent("<b>BuyAgent</b><br/><i>[Component: agent.py]</i><br/>Orchestrates the fixed<br/>pipeline, hands each step the<br/>checkpoint, the wait and the<br/>recorder, times the steps it<br/>waits on, and translates<br/>transport failures into an<br/>actionable message")
-    extraction("<b>Extraction</b><br/><i>[Component: extraction.py]</i><br/>Both prompts and both<br/>chains, plus name cleaning<br/>and merging of variant names")
+    extraction("<b>Extraction</b><br/><i>[Component: extraction.py]</i><br/>Both prompts, plus<br/>name cleaning<br/>and merging of variant names")
     search("<b>Search</b><br/><i>[Component: search.py]</i><br/>Which backend a search is<br/>asked through, one row each:<br/>where it listens, its key, how<br/>it is asked and what it answers.<br/>Asks once more where the<br/>backend failed, and raises<br/>SearchError when that one<br/>does too")
     sources("<b>Sources</b><br/><i>[Component: sources.py]</i><br/>Reads a trusted source down<br/>to a domain and a term,<br/>narrows the query to it, and<br/>says whether a result came<br/>from it")
     fetch("<b>Fetch</b><br/><i>[Component: fetch.py]</i><br/>Fetches result pages in<br/>parallel, writes what a page<br/>declares in JSON-LD as lines<br/>of its own (structured.py), and<br/>keeps the lines quoting a figure<br/>or a listing's stock and the<br/>lines passing judgement, each on<br/>a budget of its own; asks a page<br/>that said to come back once<br/>more; tallies how the rest<br/>failed")
@@ -272,7 +272,7 @@ graph LR
     agent ==>|"8. rank"| ranking
     agent ==>|"9. log the top N"| logsetup
 
-    extraction -->|"its chains, through<br/>chat.py<br/>[JSON schema, HTTP]"| ollama
+    extraction -->|"its prompts, through<br/>chat.py<br/>[JSON schema, HTTP]"| ollama
     search -->|"[HTTPS, or HTTP<br/>to a SearXNG]"| ddg
     fetch -->|"[HTTPS]"| shops
 
@@ -347,7 +347,7 @@ graph TB
     config -.->|"search_backend"| search
     config -.->|"model_server: the<br/>model, address and<br/>key per provider"| providers
     agent ==>|"3. enrich"| fetch
-    agent -->|"invokes the chains<br/>Extraction built"| chat
+    agent -->|"binds Extraction's prompts<br/>into chains and invokes them"| chat
     agent -.->|"builds the chat model,<br/>names the failure"| providers
     agent -.->|"reuses an answer the<br/>model gave before"| cache
     chat -->|"a prompt, a schema, one<br/>answer, from the server<br/>the provider built"| providers

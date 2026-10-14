@@ -79,9 +79,18 @@ class Provider:
     installed: Callable[[AgentConfig], list[InstalledModel]]
     #: What "the server is not there" raises through this row's client.
     transport_errors: tuple[type[Exception], ...]
-    hint: Hint
+    #: This row's own failures; ``hint`` decides the shared ones first.
+    own_hint: Hint
     #: How to give a model more room: the tail of the unreadable-answer hint (ADR-0019).
     more_room: str
+
+    def hint(self, config: AgentConfig, exc: Exception) -> str:
+        """The remedy for ``exc``: the failures every row shares, then the row's own."""
+        if isinstance(exc, UnreadableAnswerError):
+            return _unreadable_hint(self, config, exc)
+        if isinstance(exc, _TIMEOUTS):
+            return _too_slow_hint(self, config, exc)
+        return self.own_hint(config, exc)
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,28 +269,39 @@ class _OpenAIChat:
         self.client.close()
 
 
-def _openai_chat_model(config: AgentConfig, extra_body: dict[str, Any]) -> ChatModel:
-    """The OpenAI client for this config, asked once (ADR-0051)."""
-    return _OpenAIChat(
-        client=openai.OpenAI(
-            base_url=config.base_url,
-            api_key=config.api_key or _NO_KEY,
-            timeout=config.model_timeout,
-            max_retries=0,
-        ),
-        model=config.model,
-        temperature=config.temperature,
-        extra_body=extra_body,
-    )
+def _openai_chat_model(
+    thinking: Callable[[bool], dict[str, Any]],
+) -> Callable[[AgentConfig], ChatModel]:
+    """A row's ``chat_model``: the OpenAI client, asked once (ADR-0051), with
+    ``reasoning`` sent in the row's own words, or nothing sent for ``None`` (ADR-0019)."""
+
+    def chat_model(config: AgentConfig) -> ChatModel:
+        extra_body = {} if config.reasoning is None else thinking(config.reasoning)
+        return _OpenAIChat(
+            client=openai.OpenAI(
+                base_url=config.base_url,
+                api_key=config.api_key or _NO_KEY,
+                timeout=config.model_timeout,
+                max_retries=0,
+            ),
+            model=config.model,
+            temperature=config.temperature,
+            extra_body=extra_body,
+        )
+
+    return chat_model
 
 
-def _templated_chat_model(config: AgentConfig) -> ChatModel:
-    """``reasoning`` as ``enable_thinking``, read by the chat templates of the thinking
-    models vLLM and ``trtllm-serve`` render (ADR-0019, ADR-0081)."""
-    extra_body: dict[str, Any] = {}
-    if config.reasoning is not None:
-        extra_body["chat_template_kwargs"] = {"enable_thinking": config.reasoning}
-    return _openai_chat_model(config, extra_body)
+#: ``reasoning`` as ``enable_thinking``, read by the chat templates of the thinking
+#: models vLLM and ``trtllm-serve`` render (ADR-0019, ADR-0081).
+_templated_chat_model = _openai_chat_model(
+    lambda on: {"chat_template_kwargs": {"enable_thinking": on}}
+)
+
+#: ``reasoning`` as ``reasoning_effort`` (ADR-0019, ADR-0068).
+_litellm_chat_model = _openai_chat_model(
+    lambda on: {"reasoning_effort": "medium" if on else "none"}
+)
 
 
 def _authorised(config: AgentConfig) -> dict[str, str]:
@@ -302,37 +322,30 @@ def _openai_models(config: AgentConfig) -> list[InstalledModel]:
     ]
 
 
-def _one_model_hint(label: str, serve: str, key: str) -> Hint:
+def _one_model_hint(config: AgentConfig, exc: Exception, serve: str, key: str) -> str:
     """The hint of a server started for one model by ``serve``: a refused key, a model
     it is not serving, and nothing answering (ADR-0028, ADR-0081)."""
-
-    def hint(config: AgentConfig, exc: Exception) -> str:
-        if isinstance(exc, openai.AuthenticationError):
-            return f"{label} at {config.base_url} refused the API key ({exc}). {key}"
-        lowered = _answered_by(exc, openai.APIStatusError)
-        if "does not exist" in lowered or "not found" in lowered:
-            return (
-                f"{label} at {config.base_url} is not serving {config.model!r}. "
-                f"A {label} process serves one model, chosen when it starts, so either "
-                f"ask for what it has (serving: {_listed(config)}) or restart it "
-                f"with:  {serve} {config.model}"
-            )
-        return _unreachable_hint(config, exc, f"{serve} {config.model}")
-
-    return hint
+    label = config.model_server.label
+    if isinstance(exc, openai.AuthenticationError):
+        return f"{label} at {config.base_url} refused the API key ({exc}). {key}"
+    lowered = _answered_by(exc, openai.APIStatusError)
+    if "does not exist" in lowered or "not found" in lowered:
+        return (
+            f"{label} at {config.base_url} is not serving {config.model!r}. "
+            f"A {label} process serves one model, chosen when it starts, so either "
+            f"ask for what it has (serving: {_listed(config)}) or restart it "
+            f"with:  {serve} {config.model}"
+        )
+    return _unreachable_hint(config, exc, f"{serve} {config.model}")
 
 
-_vllm_hint = _one_model_hint(
-    "vLLM",
-    "vllm serve",
-    "Set $VLLM_API_KEY to the key it was started with:  vllm serve ... --api-key <key>",
-)
-
-_trtllm_served = _one_model_hint(
-    "TensorRT-LLM",
-    "trtllm-serve",
-    "Set $TRTLLM_API_KEY to the key whatever stands in front of it expects.",
-)
+def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
+    return _one_model_hint(
+        config,
+        exc,
+        "vllm serve",
+        "Set $VLLM_API_KEY to the key it was started with:  vllm serve ... --api-key <key>",
+    )
 
 
 def _trtllm_hint(config: AgentConfig, exc: Exception) -> str:
@@ -344,15 +357,12 @@ def _trtllm_hint(config: AgentConfig, exc: Exception) -> str:
             f"'guided_decoding_backend: xgrammar' in a YAML file and start it with:  "
             f"trtllm-serve {config.model} --extra_llm_api_options <that file>"
         )
-    return _trtllm_served(config, exc)
-
-
-def _litellm_chat_model(config: AgentConfig) -> ChatModel:
-    """``reasoning`` maps to ``reasoning_effort`` (ADR-0019, ADR-0068)."""
-    if config.reasoning is None:
-        return _openai_chat_model(config, {})
-    effort = "medium" if config.reasoning else "none"
-    return _openai_chat_model(config, {"reasoning_effort": effort})
+    return _one_model_hint(
+        config,
+        exc,
+        "trtllm-serve",
+        "Set $TRTLLM_API_KEY to the key whatever stands in front of it expects.",
+    )
 
 
 def _litellm_installed(config: AgentConfig) -> list[InstalledModel]:
@@ -417,21 +427,7 @@ def _answered_by(exc: Exception, client_error: type[Exception]) -> str:
     return str(exc).lower() if isinstance(exc, client_error) else ""
 
 
-def _hint(specific: Hint) -> Hint:
-    """A row's ``hint``: the shared failures first, then the row's own."""
-
-    def hint(config: AgentConfig, exc: Exception) -> str:
-        if isinstance(exc, UnreadableAnswerError):
-            return _unreadable_hint(config, exc)
-        if isinstance(exc, _TIMEOUTS):
-            return _too_slow_hint(config, exc)
-        return specific(config, exc)
-
-    return hint
-
-
-def _too_slow_hint(config: AgentConfig, exc: Exception) -> str:
-    server = config.model_server
+def _too_slow_hint(server: Provider, config: AgentConfig, exc: Exception) -> str:
     smaller = "a smaller context window" if server.takes_num_ctx else "a shorter prompt"
     # A timeout often stringifies to nothing.
     detail = str(exc) or type(exc).__name__
@@ -442,10 +438,9 @@ def _too_slow_hint(config: AgentConfig, exc: Exception) -> str:
     )
 
 
-def _unreadable_hint(config: AgentConfig, exc: UnreadableAnswerError) -> str:
+def _unreadable_hint(server: Provider, config: AgentConfig, exc: UnreadableAnswerError) -> str:
     """Something other than the JSON asked for (ADR-0019): certainly out of room when
     the server said it stopped at its limit, and perhaps when it said nothing."""
-    server = config.model_server
     said = str(exc).strip()
     detail = said.splitlines()[0] if said else type(exc).__name__
     if exc.cut_off:
@@ -495,7 +490,7 @@ OLLAMA = Provider(
     # A refused connection arrives as ``ConnectionError``, timeouts and dropped streams
     # as raw ``httpx`` errors, an unencodable host (``192.168.1..5``) as ``UnicodeError``.
     transport_errors=(ResponseError, RequestError, OSError, httpx.HTTPError, UnicodeError),
-    hint=_hint(_ollama_hint),
+    own_hint=_ollama_hint,
     more_room="give it more room with a larger context window, or turn thinking off",
 )
 
@@ -512,7 +507,7 @@ VLLM = Provider(
     chat_model=_templated_chat_model,
     installed=_openai_models,
     transport_errors=_OPENAI_TRANSPORT,
-    hint=_hint(_vllm_hint),
+    own_hint=_vllm_hint,
     # vLLM's own flag, not ours, so fine to name at either door.
     more_room="ask for fewer products, or restart it with a larger --max-model-len",
 )
@@ -530,7 +525,7 @@ LITELLM = Provider(
     chat_model=_litellm_chat_model,
     installed=_litellm_installed,
     transport_errors=_OPENAI_TRANSPORT,
-    hint=_hint(_litellm_hint),
+    own_hint=_litellm_hint,
     more_room=(
         "ask for fewer products, or give the model the proxy routes to a larger "
         "context window where that server is started"
@@ -551,7 +546,7 @@ TRTLLM = Provider(
     chat_model=_templated_chat_model,
     installed=_openai_models,
     transport_errors=_OPENAI_TRANSPORT,
-    hint=_hint(_trtllm_hint),
+    own_hint=_trtllm_hint,
     # Without a guided-decoding backend it answers in free text, which lands here too.
     more_room=(
         "ask for fewer products, or restart it with a larger --max_seq_len, and with "

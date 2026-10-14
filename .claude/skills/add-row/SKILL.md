@@ -14,7 +14,7 @@ else.
 
 - Answer every field the dataclass docstring describes. A `Provider` has `name`,
   `label`, `model`, `base_url`, `api_key`, `takes_num_ctx`, `chat_model`,
-  `installed`, `transport_errors` and `hint`; a `Rail` has `name`, `label`,
+  `installed`, `transport_errors` and `own_hint`; a `Rail` has `name`, `label`,
   `endpoint`, `needs_endpoint`, `needs_key`, `moves_money`, `checkout`, `settle`,
   `transport_errors` and `hint`; a `Backend` has `name`, `label`, `endpoint`,
   `api_key`, `needs_key`, `find`, `transport_errors` and `hint`.
@@ -29,9 +29,9 @@ else.
   wrapped by none, for a host it cannot IDNA-encode (`192.168.1..5`). A row that
   builds its URL per call with `httpx` (a search backend, a rail) lists
   `httpx.InvalidURL` too, which is outside httpx's root.
-- `hint` covers only this backend's own failures. Shared sentences live in
-  `_too_slow_hint`/`_unreachable_hint`, and `_hint` decides the failures every
-  provider shares. A hint names the **setting**, never the flag
+- `hint` covers only this backend's own failures (`own_hint` on a `Provider`).
+  Shared sentences live in `_too_slow_hint`/`_unreachable_hint`, and
+  `Provider.hint` decides the failures every provider shares. A hint names the **setting**, never the flag
   (`test_no_sentence_below_the_two_doors_tells_a_reader_to_type_a_flag`).
 
 ## 2. What must not happen
