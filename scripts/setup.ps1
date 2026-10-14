@@ -6,9 +6,8 @@
 .DESCRIPTION
     What .claude/hooks/session-start.sh does for a remote session: a .venv with
     requirements-dev.txt and the AP2 SDK (without which the coverage floor fails),
-    and ui\ installed as ci.yml installs it -- and, for the browser tests, Playwright
-    and its headless Chromium (ADR-0087). scripts/start.ps1 sets up a *run*, not
-    the gate.
+    and ui\ installed as ci.yml installs it. scripts/start.ps1 sets up a *run*,
+    not the gate.
 
     Python and Node are checked against ci.yml's pins, never installed: an older
     Node is refused, an older Python named and used. Each step is skipped where
@@ -103,7 +102,7 @@ try {
     # Session-start.sh's stamp: a requirements file newer than it means reinstall.
     $stamp = Join-Path $venv '.setup-installed'
     $requirements = @(Get-Item 'requirements.txt', 'requirements-dev.txt',
-        'requirements-ap2-deps.txt', 'requirements-ap2.txt', 'requirements-screenshots.txt')
+        'requirements-ap2-deps.txt', 'requirements-ap2.txt')
     if (-not (Stale $stamp $requirements)) {
         Note 'installed, and no requirements file has moved since'
     } else {
@@ -120,22 +119,13 @@ try {
             '-m', 'pip', 'install', '--quiet', '--disable-pip-version-check',
             '--no-deps', '-r', 'requirements-ap2.txt'
         ) 'could not install requirements-ap2.txt'
-        Run $python @(
-            '-m', 'pip', 'install', '--quiet', '--disable-pip-version-check',
-            '-r', 'requirements-screenshots.txt'
-        ) 'could not install requirements-screenshots.txt'
-        Note 'requirements-dev.txt, the AP2 SDK and Playwright are installed'
+        Note 'requirements-dev.txt and the AP2 SDK are installed'
     }
     $asked = @('-c', 'from buy_agent.mandates import available; print(available())')
     if ((Run $python $asked 'could not ask whether the AP2 SDK is installed') -ne 'True') {
         throw 'the AP2 SDK will not import, and without it the coverage floor fails; the pip output is above'
     }
     Set-Content -LiteralPath $stamp -Value '' -Encoding ascii
-
-    # Every time: it downloads nothing for a browser it already has.
-    Step 'Chromium, for the browser tests'
-    Run $python @('-m', 'playwright', 'install', '--only-shell', 'chromium') `
-        'could not install Chromium for Playwright'
 
     Step "Node (ci.yml pins $wantNode)"
     if (-not ((Have 'node') -and (Have 'npm'))) {
@@ -187,7 +177,7 @@ try {
     } else {
         Note 'no ollama: neither suite needs one, but running the agent does -- https://ollama.com/download'
     }
-    Note 'Playwright is installed, so the web UI can photograph each page: see README.md'
+    Note 'a picture of each page in the web UI: see README.md, "A picture of each page"'
 
     Step 'Done'
     Note 'activate the venv with  .venv\Scripts\Activate.ps1'

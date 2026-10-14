@@ -109,65 +109,9 @@ jobs:
       - name: Build
         run: npm run build
 
-      # The build the browser job opens, so it is the one these tests passed (ADR-0087).
-      - name: Keep the build
-        uses: actions/upload-artifact@v7
-        with:
-          name: ui-build-${{ matrix.os }}
-          path: ui/dist/ui/browser
-          if-no-files-found: error
-          retention-days: 1
-
       # Last for the same reason; includes the CSP's template rule (ADR-0066).
       - name: Run eslint
         run: npm run lint
 
       - name: Check formatting
         run: npm run format:check
-
-  browser:
-    # The ui job's build in Chromium, behind the real server and its CSP: what jsdom
-    # never runs and only a browser refuses (ADR-0087).
-    name: browser (Chromium, ${{ matrix.os }})
-    needs: ui
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
-    defaults:
-      run:
-        shell: bash
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: ui-build-${{ matrix.os }}
-          path: ui/dist/ui/browser
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.14"
-          cache: pip
-          cache-dependency-path: |
-            requirements-dev.txt
-            requirements.txt
-            requirements-screenshots.txt
-
-      - name: Install dependencies
-        run: pip install -r requirements-dev.txt
-
-      - name: Install Playwright
-        run: pip install -r requirements-screenshots.txt
-
-      # The headless shell screenshots.INSTALL names, with the libraries Linux lacks.
-      - name: Install Chromium
-        run: python -m playwright install --only-shell --with-deps chromium
-
-      # Outside testpaths, like integration/; a missing browser fails rather than skips.
-      - name: Run browser tests
-        run: python -m pytest browser
-        env:
-          BUY_AGENT_REQUIRE_BROWSER: "1"

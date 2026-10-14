@@ -1,17 +1,17 @@
 ---
 name: preflight
-description: Run the full gate CI applies -- both unit suites, both coverage floors, the linter, the type checker and the built page in a browser -- before committing or pushing. Use when asked to check, verify, or validate a change, when finishing work on a branch, or before opening a pull request. Not for a single failing test, which is faster run directly.
+description: Run the full gate CI applies -- both test suites, both coverage floors, the linter and the type checker -- before committing or pushing. Use when asked to check, verify, or validate a change, when finishing work on a branch, or before opening a pull request. Not for a single failing test, which is faster run directly.
 ---
 
 # Preflight
 
-`.github/workflows/ci.yml` runs three jobs on Linux for every push to `main` and
+`.github/workflows/ci.yml` runs two jobs on Linux for every push to `main` and
 every pull request, and on Windows weekly (ADR-0037). `scripts/preflight.ps1` runs
-all three, step for step in `ci.yml`'s order, each stopping at its first failure:
+both, step for step in `ci.yml`'s order, each stopping at its first failure:
 
 ```powershell
-.\scripts\preflight.ps1               # all three
-.\scripts\preflight.ps1 -Only python  # ...or some, for a change that touched one
+.\scripts\preflight.ps1               # both halves
+.\scripts\preflight.ps1 -Only python  # ...or one, for a change that touched one
 ```
 
 Run it from the repository root; it finds `.venv` itself. `scripts/setup.ps1`
@@ -58,29 +58,17 @@ npm run format:check
   check that sees an inline handler the CSP would refuse.
 - `npm run format` fixes what `format:check` refuses.
 
-## Browser
-
-```powershell
-python -m pytest browser
-```
-
-- The build `npm run build` just made, opened in headless Chromium behind the real
-  server and its CSP, with the agent stood in for (ADR-0087). It fails on anything
-  the page reports as an error: an inline handler or script the CSP refuses, a
-  stylesheet or script served as the wrong type, a broken event stream.
-- It skips without a build or without Playwright; `scripts/setup.ps1` installs
-  both Playwright and the headless Chromium. CI sets `BUY_AGENT_REQUIRE_BROWSER`, so
-  there it fails instead.
-- `testpaths = tests`, so a bare `pytest` never reaches it.
-
 ## What this does *not* cover
 
 - `pytest integration` needs Ollama and `ollama pull qwen3:0.6b`. Run it when a
   change touches the prompts, the schema or the decoding.
 - `python -m mutmut run` and `npx stryker run` (ADR-0061) are weekly; narrow
   Stryker's `mutate` to the file in hand.
-- The browser tests load the page and run one search; a new off-origin request or
-  an inline handler on a path they never reach still needs the page loaded by hand.
+- CSP, MIME-type and critical-CSS breakage needs a browser, which `browser.yml`
+  opens on Sundays (ADR-0087). After touching `_SECURITY_HEADERS`,
+  `_CONTENT_TYPES`, `ui/angular.json` or the event stream, run `python -m pytest
+  browser` on a fresh build (it needs `requirements-screenshots.txt` and
+  Chromium), or dispatch the workflow on the branch.
 - The pictures in `docs/` and the recordings in `demo/` are not regenerated.
 
 ## If it fails

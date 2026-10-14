@@ -1,0 +1,71 @@
+name: Browser tests
+
+on:
+  schedule:
+    # 04:29 UTC on Sundays (ADR-0087), off the hour and clear of Saturday's runs.
+    - cron: "29 4 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    # The build in Chromium, behind the real server and its CSP: what jsdom never runs
+    # and only a browser refuses. Windows too, whose registry is the MIME-type trap.
+    name: browser (Chromium, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # Windows spends three minutes installing Chromium; the tests take seconds.
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24.21.0"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # As ci.yml installs and builds it, so the page opened is the page it builds.
+      - name: Build the UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            requirements-dev.txt
+            requirements.txt
+            requirements-screenshots.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Install Playwright
+        run: pip install -r requirements-screenshots.txt
+
+      # The headless shell screenshots.INSTALL names, with the libraries Linux lacks.
+      - name: Install Chromium
+        run: python -m playwright install --only-shell --with-deps chromium
+
+      # Outside testpaths, like integration/; a missing browser fails rather than skips.
+      - name: Run browser tests
+        run: python -m pytest browser
+        env:
+          BUY_AGENT_REQUIRE_BROWSER: "1"

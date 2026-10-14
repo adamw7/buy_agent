@@ -28,7 +28,7 @@ python -m benchmark.server               # ...or as a page comparing several mod
 
 ## The unit suites
 
-2413 Python tests and 369 UI tests. Neither touches the network or a model
+2418 Python tests and 369 UI tests. Neither touches the network or a model
 server:
 
 - the model is faked through `BuyAgent(llm=...)`, a class with one `answer`
@@ -64,8 +64,8 @@ Optional prerequisites skip, never fail:
 - One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
   and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `2393 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `2345 passed, 68 skipped`.
+So the SDK without PowerShell reads `2398 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `2350 passed, 68 skipped`.
 
 ### Across processes
 
@@ -169,8 +169,9 @@ Coverage cannot see rules that hold *between* files, so
 - everything a release publishes is scanned before it is pushed and attested,
   and only a job that attests can mint a token naming the run (ADR-0069);
 - ADRs are indexed, skills name real paths, and every Markdown link resolves;
-- `ci.yml`'s browser job runs the browser tests a bare run leaves out, refuses to
-  pass by skipping them, and opens the build the `ui` job tested (ADR-0087);
+- `browser.yml` runs the browser tests a bare run leaves out on Sundays and on
+  both platforms, builds the page first, refuses to pass by skipping, and never
+  gates a pull request (ADR-0087);
 - the tsconfig strictness stays on, every `computed` a template iterates declares
   its type (Stryker's instrumentation widens an inferred one, ADR-0061), and every
   CSS token read is declared, with a dark value and no fallback;
@@ -311,6 +312,8 @@ loopback, and neither ever runs the *build*: what Angular wrote, served under th
 server's own CSP. `browser/` does (ADR-0087):
 
 ```powershell
+pip install -r requirements-screenshots.txt
+python -m playwright install --only-shell chromium
 cd ui; npm run build; cd ..
 python -m pytest browser
 ```
@@ -318,7 +321,7 @@ python -m pytest browser
 Each test serves the build through `create_server` on a loopback port, with the
 agent stood in for, and opens it in Playwright's headless Chromium -- the library
 `requirements-screenshots.txt` pins and the browser `screenshots.INSTALL` names,
-both of which `scripts/setup.ps1` installs. A test fails on any error the page
+which the camera uses too. A test fails on any error the page
 reports, the one place a refused inline script, handler or stylesheet shows. One
 checks that `styles.css`'s tokens apply, one runs a search through the event stream
 and holds the cards to the run's order, and one fails a search and reads the
@@ -328,10 +331,13 @@ sent as `error`, all of which every unit test passed.
 
 Like `integration/`, the directory is outside `testpaths`, so a bare `pytest` never
 reaches it and `tests/` still starts no browser. Without a build or a browser it
-skips; `ci.yml`'s `browser` job sets `BUY_AGENT_REQUIRE_BROWSER`, so there it fails
-instead. That job waits for the `ui` job and opens the build it kept, on Linux for
-every push and pull request and on Windows weekly. Nothing there sleeps: a test
-waits with Playwright's `expect`.
+skips; `.github/workflows/browser.yml` sets `BUY_AGENT_REQUIRE_BROWSER`, so there it
+fails instead. That workflow builds the UI as `ci.yml` does and runs the tests on
+Linux and Windows at `29 4 * * 0` -- Sundays -- and on demand, never on a pull
+request. So a change that breaks the page merges green and is reported on the
+Sunday after: run the tests, or dispatch the workflow on the branch, after touching
+`_SECURITY_HEADERS`, `_CONTENT_TYPES`, `ui/angular.json` or the event stream.
+Nothing there sleeps: a test waits with Playwright's `expect`.
 
 ## The benchmark
 

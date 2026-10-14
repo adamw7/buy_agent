@@ -31,7 +31,7 @@ packaging. Run everything from the repo root.
 
 ```powershell
 .\scripts\setup.ps1                           # full contributor setup (ADR-0067)
-.\scripts\preflight.ps1                       # the gate ci.yml applies; -Only python|ui|browser
+.\scripts\preflight.ps1                       # the gate ci.yml applies; -Only python|ui
 pip install -r requirements-dev.txt          # runtime deps: requirements.txt
 
 python -m pytest                              # whole suite (~8s)
@@ -40,7 +40,7 @@ python -m pytest -n 3 --cov                   # three workers, with the floor (A
 python -m pylint buy_agent                    # from the root (ADR-0048)
 python -m mypy buy_agent                      # from the root (ADR-0063)
 ollama pull qwen3:0.6b ; python -m pytest integration   # against a real model
-python -m pytest browser                      # the build in Chromium (ADR-0087)
+python -m pytest browser                      # the build in Chromium, after npm run build (ADR-0087)
 python -m benchmark --scripted perfect        # score the pipeline, no model needed
 python -m benchmark --model qwen3:0.6b --model gemma4:12b   # compare models, every case
 python -m benchmark --baseline before.json    # what moved since an earlier --json
@@ -86,13 +86,16 @@ If `ui/dist/ui/browser` is missing, the API still works and the page returns a
 503 saying how to build it (`_unbuilt_remedy`, as HTML for browsers and JSON
 otherwise), naming `--ui-dir` when `_workspace_for` finds no workspace.
 
-**CI.** `ci.yml` runs Python 3.14 (pytest with coverage, pylint, mypy), Node
-24.21.0 (`test:coverage`, `build`, `lint`, `format:check`) and then that build in
-Chromium (`pytest browser`, ADR-0087) under `bash`, on Linux for pushes and PRs. Windows joins on the Saturday schedule and on
+**CI.** `ci.yml` runs Python 3.14 (pytest with coverage, pylint, mypy) and Node
+24.21.0 (`test:coverage`, `build`, `lint`, `format:check`) under `bash`, on Linux
+for pushes and PRs. Windows joins on the Saturday schedule and on
 `workflow_dispatch` (ADR-0037): dispatch it for a branch that touches paths,
-encodings, sockets or `start.ps1`. The scheduled workflows (audit, integration,
-both mutation runs) and `release.yml` are described in `docs/testing.md` and
-`docs/docker.md`; only dependency review gates a PR. `automerge.yml`
+encodings, sockets or `start.ps1`. `browser.yml` opens the build in Chromium on
+Linux and Windows on Sundays (ADR-0087): dispatch it for a branch that touches the
+CSP, `_CONTENT_TYPES`, `ui/angular.json` or the event stream. The scheduled
+workflows (audit, integration, browser, both mutation runs) and `release.yml` are
+described in `docs/testing.md` and `docs/docker.md`; only dependency review gates
+a PR. `automerge.yml`
 squash-merges a same-repo, non-draft PR once `ci.yml` and `audit.yml` are green
 on its head (ADR-0086); label it `no-automerge` to keep it open. Floors: 99% branch coverage
 over the package, `benchmark/` and `scripts/` (ADR-0064); 98% statements and
@@ -604,8 +607,8 @@ rules a change must obey:
 - **`browser/`** opens the build in headless Chromium, served by `create_server`
   with the agent stood in for, outside `testpaths` (ADR-0087). A test there fails
   on any error the page reports, waits with Playwright's `expect` and never
-  sleeps. It skips without a build or a browser, and CI's
-  `$BUY_AGENT_REQUIRE_BROWSER` makes that a failure.
+  sleeps. It skips without a build or a browser, and `browser.yml`'s Sunday run
+  sets `$BUY_AGENT_REQUIRE_BROWSER` to make that a failure.
 - **Server tests bind loopback** and use `serve_forever(0.01)`. `raw()` reads
   until the declared body has arrived.
 - **Nothing sleeps** but `tests/test_server.py` (`StubAgent.delay`). Change the

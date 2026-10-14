@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-#: Set by ci.yml's browser job, and by nobody else.
+#: Set by the Sunday workflow, browser.yml, and by nobody else.
 REQUIRE_ENV_VAR = "BUY_AGENT_REQUIRE_BROWSER"
 
 __all__ = ["REQUIRE_ENV_VAR"]

@@ -1,4 +1,4 @@
-# ADR-0087: Open the build in a browser before a merge
+# ADR-0087: Open the build in a browser every Sunday
 
 - **Status:** Accepted
 - **Date:** 2026-10-14
@@ -33,6 +33,11 @@ Each of the four was broken on purpose and run through everything the gate has:
 
 Every unit test passed every time, and the release's `curl` would have published each.
 
+The tests were first a third job in `ci.yml`, opening the build the `ui` job kept. Run
+that way on a branch, they passed on both platforms, and cost every pull request a job
+after the `ui` job's -- about forty seconds on Linux, fifteen of them installing
+Chromium -- for four rules that rarely move. Windows spent three minutes installing it.
+
 ## Decision
 
 **`browser/` holds tests that open the build in a real Chromium**, served by the real
@@ -46,43 +51,44 @@ stream and one that fails, and hold the cards to the order the run ranked them i
 still starts no browser, a bare `pytest` stays the seconds it is, and the camera is
 still reached there only through `launch=` and a `Photographer`.
 
-**`ci.yml` runs them in a third job, `browser`, on every push and pull request.** It
-waits for the `ui` job and opens the build that job kept, so the page tested in a
-browser is the one whose specs, lint and type check just passed. It sets up Python,
-installs `requirements-dev.txt` and `requirements-screenshots.txt`, and the headless
-shell `screenshots.INSTALL` names, with `--with-deps` for the libraries a Linux runner
-lacks. Windows joins weekly, as every job does (ADR-0037). `BUY_AGENT_REQUIRE_BROWSER`
-turns a missing build or browser from a skip into a failure there, as
-`BUY_AGENT_REQUIRE_OLLAMA` does nightly. `scripts/preflight.ps1` runs them after the
-UI's steps, and `scripts/setup.ps1` installs Playwright and Chromium.
+**`.github/workflows/browser.yml` runs them on Sundays, and on demand, never on a pull
+request.** It builds the UI from the lockfile as `ci.yml` does, sets up Python, installs
+`requirements-dev.txt` and `requirements-screenshots.txt`, and the headless shell
+`screenshots.INSTALL` names, with `--with-deps` for the libraries a Linux runner lacks.
+It runs on Linux and on Windows, whose registry is the MIME-type trap.
+`BUY_AGENT_REQUIRE_BROWSER` turns a missing build or browser from a skip into a failure
+there, as `BUY_AGENT_REQUIRE_OLLAMA` does nightly. They are not part of the gate, so
+`scripts/preflight.ps1` and `scripts/setup.ps1` neither run nor install them.
 
 ## Consequences
 
-A pull request waits on a third job after the second: installing Python, Playwright
-and Chromium (with its system libraries on Linux), then three seconds of tests. A Playwright release Renovate
-proposes now runs against a browser before it merges, which ADR-0065 named as the gap
-the camera had; the camera itself is still photographed by nobody, since these tests
-leave `create_server`'s `camera` unset.
+A pull request waits on nothing new. The cost is when a break is seen: a change that
+trips one of these rules merges green and is reported on the Sunday after, up to a week
+late. A branch that touches `_SECURITY_HEADERS`, `_CONTENT_TYPES`, `ui/angular.json` or
+the event stream should run `python -m pytest browser` on a fresh build, or dispatch
+`browser.yml` on itself, before it merges -- the advice `CLAUDE.md` gives for Windows
+and paths (ADR-0037). A Playwright release Renovate proposes is first run against a
+browser on the Sunday after it lands, which narrows rather than closes the gap ADR-0065
+named; the camera itself is still photographed by nobody, since these tests leave
+`create_server`'s `camera` unset.
 
 What it obliges:
 
-- **`ci.yml` sets up Python and Node in two jobs each.**
-  `test_ci_sets_up_one_python_and_one_node` now holds every declaration to the same
-  version rather than the file to one line, because the setup script, the session hook
-  and the Dockerfile's test read the first.
-- **The mypy cache is keyed on what the job running mypy installs**, not on the whole
-  workflow: Playwright is installed only where the browser tests run
-  (`test_mypys_cache_is_keyed_on_everything_that_moves_its_answers`).
 - **`browser/` is a top-level tree like `integration/`**: left out of the image by
   `.dockerignore`, copied by mutmut's `also_copy`, named by the architecture rule on the
   trees that import the package, exempt from the coverage floor in `_UNMEASURED`, and
   held to the suite's rules -- nothing sleeps, so a test waits with Playwright's
   `expect`, and the environment changes only through `monkeypatch`.
-- **The job is held to its purpose** by
+- **The run is held to its purpose** by
   `test_a_normal_run_cannot_collect_the_tests_that_open_a_browser`,
-  `test_ci_runs_the_browser_tests_a_normal_run_leaves_out`,
-  `test_the_browser_job_refuses_to_pass_by_skipping` and
-  `test_the_browser_job_opens_the_build_the_ui_job_tested`.
+  `test_the_sunday_run_runs_the_browser_tests_a_normal_run_leaves_out`,
+  `test_the_sunday_run_refuses_to_pass_by_skipping`,
+  `test_the_sunday_run_builds_the_page_before_opening_it`,
+  `test_the_browser_run_is_on_sundays_and_on_both_platforms` and
+  `test_the_nightly_run_is_never_a_gate_on_a_pull_request`, which now names it.
+- **It is a workflow like the others**: the Python and Node `ci.yml` pins, a read-only
+  token, and a pip cache keyed on every file it installs from, which the rules over
+  every workflow already check.
 
 What it does not cover: a path the two searches never reach -- paying, a re-sort, a
 picture -- can still add an inline handler only a browser refuses, and axe's contrast
