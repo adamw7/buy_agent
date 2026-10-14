@@ -1728,6 +1728,14 @@ def test_the_browser_job_refuses_to_pass_by_skipping() -> None:
     assert re.search(rf'^\s+{browser.REQUIRE_ENV_VAR}: "1"$', browser_job(), re.M)
 
 
+def test_the_browser_job_does_not_run_on_a_pull_request() -> None:
+    """A pull request does not wait on a browser install, but every other run opens the
+    build, so the condition names that one event and no other (ADR-0088)."""
+    assert re.search(
+        r"^    if: github\.event_name != 'pull_request'$", browser_job(), re.M
+    ), "the browser job runs on pull requests, or its condition names more than them"
+
+
 def test_the_browser_job_opens_the_build_the_ui_job_tested() -> None:
     """Not a build of its own: the one whose specs, lint and type check just passed,
     put where the server serves it from."""

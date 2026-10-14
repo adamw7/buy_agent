@@ -88,7 +88,8 @@ otherwise), naming `--ui-dir` when `_workspace_for` finds no workspace.
 
 **CI.** `ci.yml` runs Python 3.14 (pytest with coverage, pylint, mypy), Node
 24.21.0 (`test:coverage`, `build`, `lint`, `format:check`) and then that build in
-Chromium (`pytest browser`, ADR-0087) under `bash`, on Linux for pushes and PRs. Windows joins on the Saturday schedule and on
+Chromium (`pytest browser`, ADR-0087) under `bash`, on Linux for pushes and PRs,
+but the browser job skips PRs and runs after a merge (ADR-0088). Windows joins on the Saturday schedule and on
 `workflow_dispatch` (ADR-0037): dispatch it for a branch that touches paths,
 encodings, sockets or `start.ps1`. The scheduled workflows (audit, integration,
 both mutation runs) and `release.yml` are described in `docs/testing.md` and
@@ -158,8 +159,8 @@ responsibility or boundary moves. `docs/adr/` is the decision log, indexed by
 `docs/adr/README.md`; a new ADR is the file plus its index row, starting from
 `docs/adr/0000-template.md`. To contradict an accepted record, write a new one
 that supersedes it. Never reuse a number or rewrite an accepted record. Every
-record is Accepted but ADR-0020 and ADR-0065, which ADR-0037 and ADR-0087
-supersede.
+record is Accepted but ADR-0020, ADR-0065 and ADR-0087, which ADR-0037, ADR-0087
+and ADR-0088 supersede.
 
 `.claude/skills/` holds checklists over these rules: `add-option` (a new
 setting), `add-row` (a model server, rail or search backend), `add-adr` (the

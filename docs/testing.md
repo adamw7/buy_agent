@@ -170,7 +170,8 @@ Coverage cannot see rules that hold *between* files, so
   and only a job that attests can mint a token naming the run (ADR-0069);
 - ADRs are indexed, skills name real paths, and every Markdown link resolves;
 - `ci.yml`'s browser job runs the browser tests a bare run leaves out, refuses to
-  pass by skipping them, and opens the build the `ui` job tested (ADR-0087);
+  pass by skipping them, opens the build the `ui` job tested (ADR-0087), and does
+  not run on a pull request (ADR-0088);
 - the tsconfig strictness stays on, every `computed` a template iterates declares
   its type (Stryker's instrumentation widens an inferred one, ADR-0061), and every
   CSS token read is declared, with a dark value and no fallback;
@@ -330,7 +331,8 @@ Like `integration/`, the directory is outside `testpaths`, so a bare `pytest` ne
 reaches it and `tests/` still starts no browser. Without a build or a browser it
 skips; `ci.yml`'s `browser` job sets `BUY_AGENT_REQUIRE_BROWSER`, so there it fails
 instead. That job waits for the `ui` job and opens the build it kept, on Linux for
-every push and pull request and on Windows weekly. Nothing there sleeps: a test
+every push to `main` and on Windows weekly. It skips pull requests (ADR-0088), so
+run it locally, or dispatch `ci.yml`, before pushing a change only a browser checks. Nothing there sleeps: a test
 waits with Playwright's `expect`.
 
 ## The benchmark

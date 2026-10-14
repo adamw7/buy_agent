@@ -130,6 +130,8 @@ jobs:
     # never runs and only a browser refuses (ADR-0087).
     name: browser (Chromium, ${{ matrix.os }})
     needs: ui
+    # After a merge, not before it: a pull request does not wait on it (ADR-0088).
+    if: github.event_name != 'pull_request'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

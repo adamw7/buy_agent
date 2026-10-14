@@ -1,6 +1,6 @@
 # ADR-0087: Open the build in a browser before a merge
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0088](0088-open-the-build-in-a-browser-after-a-merge.md)
 - **Date:** 2026-10-14
 
 ## Context
