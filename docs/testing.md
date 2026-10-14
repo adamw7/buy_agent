@@ -481,3 +481,13 @@ an exemption naming a missing file. pip-audit has no severity threshold; npm use
 `actions/dependency-review-action` checks only what the change adds, at the same
 `high`. An unfixable advisory is suppressed with `--ignore-vuln` and a sentence
 saying why, never `|| true`.
+
+## Merging
+
+`.github/workflows/automerge.yml` wakes when `ci.yml` or `audit.yml` finishes on a
+pull request, and squash-merges it once the latest run of each in its `REQUIRED`
+list has succeeded on the head commit (ADR-0086). Forks, drafts and pull
+requests labelled `no-automerge` are left alone. A pull request that touches
+`.github/workflows/` merges only when the `AUTOMERGE_TOKEN` secret (a token with
+the `workflows` scope) is set. Without that secret, the merge is followed by a
+dispatched `ci.yml` run on main, so `release.yml` finds a passing run there.
