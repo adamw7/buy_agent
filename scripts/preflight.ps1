@@ -3,13 +3,15 @@
     Runs the gate .github/workflows/ci.yml applies, on this machine.
 
 .DESCRIPTION
-    Both of ci.yml's jobs, step for step and in its order. A job stops at its
-    first failing step and the other runs anyway, as on runners. The commands are
+    All three of ci.yml's jobs, step for step and in its order. A job stops at
+    its first failing step and the others run anyway, as on runners. The browser
+    job opens the build the ui job made, as in ci.yml (ADR-0087). The commands are
     written out here and held to ci.yml by tests/test_conventions.py. Run
     scripts/setup.ps1 first.
 
 .PARAMETER Only
-    One job rather than both -- `python` or `ui` -- for a change that touched one.
+    Some jobs rather than all three -- `python`, `ui` or `browser` -- for a change
+    that touched one. `browser` alone opens whichever build ui\dist holds.
 
 .EXAMPLE
     .\scripts\preflight.ps1
@@ -22,7 +24,7 @@
 
 [CmdletBinding()]
 param(
-    [ValidateSet('python', 'ui')][string[]]$Only = @('python', 'ui')
+    [ValidateSet('python', 'ui', 'browser')][string[]]$Only = @('python', 'ui', 'browser')
 )
 
 Set-StrictMode -Version Latest
@@ -90,6 +92,17 @@ if ($Only -contains 'ui') {
             , @('run', 'build')
             , @('run', 'lint')
             , @('run', 'format:check')
+        )
+    }
+}
+
+if ($Only -contains 'browser') {
+    $python = Interpreter
+    if (-not $python) {
+        $failed += 'browser: there is no .venv -- run .\scripts\setup.ps1'
+    } else {
+        Job 'python' $root $python @(
+            , @('-m', 'pytest', 'browser')
         )
     }
 }

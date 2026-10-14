@@ -37,6 +37,7 @@ buy_agent/_version.txt
 demo/
 tests/
 integration/
+browser/
 benchmark/
 docs/
 scripts/
