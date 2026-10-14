@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+from itertools import permutations
 
+import pytest
 
 from buy_agent.extraction import (
     _MAX_NAME_LENGTH,
@@ -292,6 +294,53 @@ def test_the_surviving_name_is_the_one_the_merge_kept_not_the_first_seen() -> No
 
     assert [entry.name for entry in removed] == ["Sony WH-CH720N Wireless Headphones"]
     assert "Folded into Sony WH-CH720N," in removed[0].reason
+
+
+#: Each differs from the bare name by one descriptive word, and from the other by two.
+_VARIANTS = ("Sony WH-1000XM5 Wireless", "Sony WH-1000XM5 Black", "Sony WH-1000XM5")
+
+
+@pytest.mark.parametrize("order", list(permutations(_VARIANTS)))
+def test_a_product_is_reported_once_whatever_order_the_model_listed_it_in(order) -> None:
+    """A merge keeps the shorter name, which matches what the longer one did not:
+    "... Wireless" and "... Black" each fold into the bare name, never into each
+    other. One pass over the model's order kept the same headphones twice in two
+    orders of these six."""
+    kept = deduplicate([Product(name=name) for name in order], 10)
+
+    assert [product.name for product in kept] == ["Sony WH-1000XM5"]
+
+
+def test_deduplicating_twice_finds_nothing_more_to_merge() -> None:
+    once = deduplicate([Product(name=name) for name in _VARIANTS], 10)
+
+    assert deduplicate(once, 10) == once
+
+
+def test_a_name_folded_on_a_second_pass_is_said_once_and_keeps_its_listing() -> None:
+    """The bare name folds into the first variant, and only then matches the second:
+    each variant still leaves the report once, its price kept as an offer."""
+    kept: list[Product] = []
+    removed = taken(
+        lambda record: kept.extend(
+            deduplicate(
+                [
+                    Product(name="Sony WH-1000XM5 Wireless", price=348.0, currency="USD"),
+                    Product(name="Sony WH-1000XM5 Black", price=399.0, currency="USD"),
+                    Product(name="Sony WH-1000XM5", rating=4.6, review_count=1200),
+                ],
+                10,
+                record=record,
+            )
+        )
+    )
+
+    assert [product.name for product in kept] == ["Sony WH-1000XM5"]
+    assert sorted(entry.name for entry in removed) == [
+        "Sony WH-1000XM5 Black",
+        "Sony WH-1000XM5 Wireless",
+    ]
+    assert sorted(offer.price for offer in kept[0].offers) == [348.0, 399.0]
 
 
 # -- the offers a merge keeps (ADR-0058) ---------------------------------------

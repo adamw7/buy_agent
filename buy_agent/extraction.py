@@ -220,7 +220,18 @@ def _as_a_listing(product: Product) -> Product:
 def merge_variants(
     products: Sequence[Product], *, record: Recorder = nothing_recorded
 ) -> list[Product]:
-    """Fold together names that identify the same thing (ADR-0055)."""
+    """Fold together names that identify the same thing (ADR-0055), until no two left
+    do: a merge keeps the shorter name, which can match an entry the longer one did not
+    ("... Wireless" and "... Black" both fold into the bare name, never into each other),
+    so a single pass left a repeat wherever the model listed the longer names first."""
+    merged = list(products)
+    while len(folded := _fold_once(merged, record)) < len(merged):
+        merged = folded
+    return folded
+
+
+def _fold_once(products: Sequence[Product], record: Recorder) -> list[Product]:
+    """Each product folded into the first earlier entry naming the same thing."""
     merged: list[Product] = []
     for product in products:
         for index, existing in enumerate(merged):
