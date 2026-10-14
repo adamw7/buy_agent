@@ -134,7 +134,7 @@ def ollama(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             else:
                 script = "perfect" if behaviour == "mute" else behaviour
                 content = case.scripts[script].model_dump_json()
-            return SimpleNamespace(message=SimpleNamespace(content=content))
+            return SimpleNamespace(message=SimpleNamespace(content=content), done_reason="stop")
 
         @staticmethod
         def show(name: str) -> Any:

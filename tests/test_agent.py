@@ -376,7 +376,7 @@ def ollama_request(monkeypatch):
         def chat(**kwargs):
             sent.update(kwargs)
             return SimpleNamespace(
-                message=SimpleNamespace(content='{"query": "a refined query"}')
+                message=SimpleNamespace(content='{"query": "a refined query"}'), done_reason="stop"
             )
 
     monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
@@ -419,7 +419,7 @@ def ollama_calls(monkeypatch):
         def chat(self, **kwargs):
             asked.append(kwargs)
             return SimpleNamespace(
-                message=SimpleNamespace(content='{"query": "a refined query"}')
+                message=SimpleNamespace(content='{"query": "a refined query"}'), done_reason="stop"
             )
 
     monkeypatch.setattr("buy_agent.providers.Client", FakeClient)

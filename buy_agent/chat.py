@@ -27,7 +27,14 @@ _LONE_SURROGATE = re.compile("[\ud800-\udfff]")
 
 
 class UnreadableAnswerError(ValueError):
-    """The server answered with something other than the JSON asked for (ADR-0019)."""
+    """The server answered with something other than the JSON asked for (ADR-0019).
+
+    ``cut_off`` is the server's own word that it stopped at its length limit, so
+    the answer was unfinished rather than wrong."""
+
+    def __init__(self, message: str, *, cut_off: bool = False) -> None:
+        super().__init__(message)
+        self.cut_off = cut_off
 
 
 class ChatModel(Protocol):
@@ -82,10 +89,13 @@ def _sendable(text: str) -> str:
     return _LONE_SURROGATE.sub("\ufffd", text)
 
 
-def read_answer(content: str, schema: type[SchemaT]) -> SchemaT:
-    """Read a server's answer back as ``schema``, or say it could not be."""
+def read_answer(content: str, schema: type[SchemaT], *, cut_off: bool = False) -> SchemaT:
+    """Read a server's answer back as ``schema``, or say it could not be, and whether
+    the server said it stopped at its length limit."""
     try:
         return schema.model_validate_json(content)
     except ValidationError as exc:
         said = content.strip() or "nothing at all"
-        raise UnreadableAnswerError(f"Invalid JSON answer: {said[:_QUOTED]}") from exc
+        raise UnreadableAnswerError(
+            f"Invalid JSON answer: {said[:_QUOTED]}", cut_off=cut_off
+        ) from exc
