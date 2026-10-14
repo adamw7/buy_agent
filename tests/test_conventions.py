@@ -60,6 +60,7 @@ import buy_agent.models as models_module
 from buy_agent.ranking import ORDERINGS, SortBy
 from buy_agent.server import DEFAULT_UI_DIR
 from buy_agent.server import build_parser as build_server_parser
+import browser
 import integration
 from integration import LIVE_TIMEOUT_SECONDS, REQUIRE_ENV_VAR, SCORECARD_ENV_VAR, TINY_MODEL
 from scripts.mutation_report import MUTMUT, STRYKER, Tool, tool_for
@@ -988,11 +989,13 @@ def test_the_windows_run_is_scheduled_for_saturdays() -> None:
 
 def test_ci_sets_up_one_python_and_one_node() -> None:
     """The Dockerfile, `scripts/start.ps1` and docs/testing.md all pin themselves to the
-    version ci.yml sets up, and each reads it as the one this file names."""
+    version ci.yml sets up, and each reads it as the first this file names -- so the
+    browser job, which sets up both again (ADR-0087), sets up the same two."""
     source = _CI.read_text(encoding="utf-8")
 
     for key in ("python-version", "node-version"):
-        assert source.count(f"{key}: ") == 1, f"ci.yml sets up more than one {key}"
+        versions = set(re.findall(rf'^\s+{key}: "([^"]+)"', source, re.M))
+        assert len(versions) == 1, f"ci.yml sets up {key} {sorted(versions)}"
 
 
 def workflows() -> list[Path]:
@@ -1690,6 +1693,61 @@ def test_the_nightly_run_is_never_a_gate_on_a_pull_request() -> None:
         assert "pull_request" not in workflow.read_text(encoding="utf-8"), workflow.name
 
 
+# -- the browser tests ---------------------------------------------------------
+
+_BROWSER_TESTS = Path(browser.__file__).resolve().parent
+
+
+def test_a_normal_run_cannot_collect_the_tests_that_open_a_browser() -> None:
+    """`tests/` starts no browser, and a bare ``pytest`` stays the seconds it is
+    (ADR-0087): the browser tests are a directory beside it, as the live tests are."""
+    testpaths = ini_values(_PYTEST_INI, "pytest", "testpaths")
+
+    assert testpaths, "pytest.ini names no testpaths, so a bare run collects everything"
+    for path in testpaths:
+        assert not _BROWSER_TESTS.is_relative_to(_ROOT / path), path
+
+
+def browser_job() -> str:
+    jobs = workflow_jobs(_CI)
+    assert "browser" in jobs, "ci.yml has no browser job; this section has outlived it"
+    return jobs["browser"]
+
+
+def test_ci_runs_the_browser_tests_a_normal_run_leaves_out() -> None:
+    """Collected only by being named, so a job running a bare ``pytest`` would be the
+    unit suite again and the page never opened."""
+    named = _BROWSER_TESTS.relative_to(_ROOT).as_posix()
+
+    assert re.search(rf"^\s+run: python -m pytest {named}$", browser_job(), re.M)
+
+
+def test_the_browser_job_refuses_to_pass_by_skipping() -> None:
+    """A browser test with no Chromium skips, which is right on a developer's machine
+    and worthless in CI: a failed install would be a green job that opened nothing."""
+    assert re.search(rf'^\s+{browser.REQUIRE_ENV_VAR}: "1"$', browser_job(), re.M)
+
+
+def test_the_browser_job_opens_the_build_the_ui_job_tested() -> None:
+    """Not a build of its own: the one whose specs, lint and type check just passed,
+    put where the server serves it from."""
+    kept = re.search(
+        r"uses: actions/upload-artifact@\S+\n\s+with:\n\s+name: (.+)\n\s+path: (\S+)$",
+        workflow_jobs(_CI)["ui"],
+        re.M,
+    )
+    opened = re.search(
+        r"uses: actions/download-artifact@\S+\n\s+with:\n\s+name: (.+)\n\s+path: (\S+)$",
+        browser_job(),
+        re.M,
+    )
+    assert kept, "the ui job keeps no build"
+    assert opened, "the browser job fetches no build"
+    assert re.search(r"^    needs: ui$", browser_job(), re.M), "it may start before the build"
+    served = DEFAULT_UI_DIR.relative_to(_ROOT).as_posix()
+    assert kept.groups() == opened.groups() == (kept.group(1), served)
+
+
 # -- the release ---------------------------------------------------------------
 
 _RELEASE = _ROOT / ".github" / "workflows" / "release.yml"
@@ -1845,9 +1903,11 @@ _MAY_SLEEP = "test_server.py"
 
 
 def suite_modules() -> list[Path]:
-    """Every module of both Python suites, found rather than listed."""
+    """Every module of the Python suites, found rather than listed."""
     found = sorted(
-        module for suite in (_UNIT_TESTS, _LIVE_TESTS) for module in suite.rglob("*.py")
+        module
+        for suite in (_UNIT_TESTS, _LIVE_TESTS, _BROWSER_TESTS)
+        for module in suite.rglob("*.py")
     )
     assert found, "no test modules; this section has outlived its rules"
     return found
@@ -1949,6 +2009,8 @@ _UNMEASURED = {
     "tests": "is the suite doing the measuring",
     "integration": "is the other suite: outside `testpaths`, so a bare `pytest` never "
                    "reaches it, and run nightly against a real model",
+    "browser": "is the third suite: outside `testpaths` too, and run by ci.yml's browser "
+               "job against the build the ui job tested (ADR-0087)",
 }
 
 
@@ -3176,9 +3238,11 @@ def test_mypys_cache_is_keyed_on_everything_that_moves_its_answers() -> None:
     """mypy checks each cached entry against the file it was made from, so a key naming
     too little never changes an answer -- it keeps a cache restored after a pin or a
     setting has moved, and every run then re-analyses whatever moved, which is the nine
-    seconds the cache is there to save (ADR-0076). Renovate moves one pin at a time."""
+    seconds the cache is there to save (ADR-0076). Renovate moves one pin at a time. What
+    the job running mypy installs, which Playwright for the browser job is not (ADR-0087)."""
     keyed = mypy_cache_key_files()
-    installed = requirements_installed_by(_CI)
+    (checking,) = [job for job in workflow_jobs(_CI).values() if "python -m mypy" in job]
+    installed = requirements_including(_PIP_INSTALL.findall(checking))
 
     assert not installed - keyed, (
         f"ci.yml installs {sorted(installed - keyed)} and keys mypy's cache on {sorted(keyed)}"

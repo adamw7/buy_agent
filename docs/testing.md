@@ -1,7 +1,7 @@
 # Tests
 
-Two suites, one per language, and the checks around them. Everything the
-[README](../README.md) leaves out.
+Two unit suites, one per language, the build opened in a browser, and the checks
+around them. Everything the [README](../README.md) leaves out.
 
 ```powershell
 .\scripts\setup.ps1           # what every line below needs, the AP2 SDK included
@@ -19,6 +19,7 @@ cd ui; npm run test:coverage  # the same, with a coverage floor
 cd ui; npm run lint           # ESLint and angular-eslint, templates included
 
 python -m pytest integration  # against a real Ollama; see below
+python -m pytest browser      # the build in Chromium; see below
 
 python -m benchmark --scripted perfect   # the benchmark, with no model at all
 python -m benchmark                      # ...and against whatever is serving
@@ -27,7 +28,7 @@ python -m benchmark.server               # ...or as a page comparing several mod
 
 ## The unit suites
 
-2379 Python tests and 369 UI tests. Neither touches the network or a model
+2413 Python tests and 369 UI tests. Neither touches the network or a model
 server:
 
 - the model is faked through `BuyAgent(llm=...)`, a class with one `answer`
@@ -63,8 +64,8 @@ Optional prerequisites skip, never fail:
 - One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
   and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `2359 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `2311 passed, 68 skipped`.
+So the SDK without PowerShell reads `2393 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `2345 passed, 68 skipped`.
 
 ### Across processes
 
@@ -140,8 +141,9 @@ and a convention test holds the two lists together.
 - **`npm run format:check`**: Prettier; `npm run format` fixes it.
 - **Accessibility**: `ui/src/app/a11y.ts` runs `axe-core` over each component in
   `TestBed`, with rules enabled one at a time, each with its reason. An
-  inconclusive rule fails. Contrast and target size need a real browser and stay
-  out. `ui/README.md` has the detail.
+  inconclusive rule fails. Contrast and target size need a real browser, and stay
+  out of the browser tests too while the light theme fails contrast (ADR-0087).
+  `ui/README.md` has the detail.
 
 ### Coverage
 
@@ -167,6 +169,8 @@ Coverage cannot see rules that hold *between* files, so
 - everything a release publishes is scanned before it is pushed and attested,
   and only a job that attests can mint a token naming the run (ADR-0069);
 - ADRs are indexed, skills name real paths, and every Markdown link resolves;
+- `ci.yml`'s browser job runs the browser tests a bare run leaves out, refuses to
+  pass by skipping them, and opens the build the `ui` job tested (ADR-0087);
 - the tsconfig strictness stays on, every `computed` a template iterates declares
   its type (Stryker's instrumentation widens an inferred one, ADR-0061), and every
   CSS token read is declared, with a dark value and no fallback;
@@ -190,8 +194,8 @@ remove a whole product call `record` while the four that blank do not (ADR-0055)
 [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython) (ADR-0047):
 forty-three rules:
 
-- no cycles, and no imports from `tests/`, `integration/`, `benchmark/`, `demo/`
-  or `scripts/`;
+- no cycles, and no imports from `tests/`, `integration/`, `browser/`, `benchmark/`,
+  `demo/` or `scripts/`;
 - no subprocesses except Playwright's Chromium;
 - no async, with threading only in `fetch`, `providers`, `server` and
   `screenshots`;
@@ -299,6 +303,35 @@ minutes**. It uploads the scorecard as the `scorecard` artifact on a green night
 on a red one, and the summary page of every run shows it. Ollama and the model are
 deliberately unpinned: noticing a release that changes decoding is half of what the
 job is for.
+
+## The browser tests
+
+The unit suites run the UI's components in jsdom and the server's handlers over
+loopback, and neither ever runs the *build*: what Angular wrote, served under the
+server's own CSP. `browser/` does (ADR-0087):
+
+```powershell
+cd ui; npm run build; cd ..
+python -m pytest browser
+```
+
+Each test serves the build through `create_server` on a loopback port, with the
+agent stood in for, and opens it in Playwright's headless Chromium -- the library
+`requirements-screenshots.txt` pins and the browser `screenshots.INSTALL` names,
+both of which `scripts/setup.ps1` installs. A test fails on any error the page
+reports, the one place a refused inline script, handler or stylesheet shows. One
+checks that `styles.css`'s tokens apply, one runs a search through the event stream
+and holds the cards to the run's order, and one fails a search and reads the
+`failure` event's words on the page. Each was checked against the breakage it is
+for: `inlineCritical` on, `.js` or `.css` served as `text/plain`, and the failure
+sent as `error`, all of which every unit test passed.
+
+Like `integration/`, the directory is outside `testpaths`, so a bare `pytest` never
+reaches it and `tests/` still starts no browser. Without a build or a browser it
+skips; `ci.yml`'s `browser` job sets `BUY_AGENT_REQUIRE_BROWSER`, so there it fails
+instead. That job waits for the `ui` job and opens the build it kept, on Linux for
+every push and pull request and on Windows weekly. Nothing there sleeps: a test
+waits with Playwright's `expect`.
 
 ## The benchmark
 

@@ -73,7 +73,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0062](0062-audit-both-dependency-lists-on-a-schedule.md) | Audit both dependency lists on a schedule, and review what a pull request adds | Accepted |
 | [0063](0063-type-check-the-package-with-mypy.md) | Type-check the package, which was annotated and read by nothing | Accepted |
 | [0064](0064-measure-the-two-trees-beside-the-package.md) | Measure the two trees beside the package, without widening what three tools read | Accepted |
-| [0065](0065-photograph-each-products-page-from-a-server-bound-to-this-machine.md) | Photograph each product's page, from a server bound to this machine | Accepted |
+| [0065](0065-photograph-each-products-page-from-a-server-bound-to-this-machine.md) | Photograph each product's page, from a server bound to this machine | Superseded by [ADR-0087](0087-open-the-build-in-a-browser-before-a-merge.md) |
 | [0066](0066-lint-the-ui-templates-included.md) | Lint the UI, templates included, the way pylint reads the package | Accepted |
 | [0067](0067-script-the-contributor-setup-and-the-gate.md) | Script a contributor's setup and the gate, and check every text file out with LF | Accepted |
 | [0068](0068-reach-a-litellm-proxy-as-a-third-model-server.md) | Reach a LiteLLM proxy as a third model server, and never its SDK | Accepted |
@@ -95,6 +95,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0084](0084-say-which-model-a-run-asked-and-where-its-time-went.md) | Say which model a run asked and where its time went | Accepted |
 | [0085](0085-split-the-front-ends-mutation-run-by-file.md) | Split the front end's mutation run by file, a runner to each shard | Accepted |
 | [0086](0086-merge-a-pull-request-once-its-head-is-green.md) | Merge a pull request once its head is green | Accepted |
+| [0087](0087-open-the-build-in-a-browser-before-a-merge.md) | Open the build in a browser before a merge | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

@@ -1,6 +1,6 @@
 # ADR-0065: Photograph each product's page, from a server bound to this machine
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0087](0087-open-the-build-in-a-browser-before-a-merge.md)
 - **Date:** 2026-09-22
 
 ## Context

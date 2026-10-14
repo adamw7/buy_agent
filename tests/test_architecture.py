@@ -277,16 +277,17 @@ def test_the_re_export_surface_imports_only_what_it_re_exports() -> None:
 
 
 def test_the_package_imports_none_of_the_trees_that_import_it() -> None:
-    """``tests/``, ``integration/``, ``benchmark/``, ``demo/`` and ``scripts/`` all import
-    ``buy_agent``, and nothing there is a dependency of it."""
+    """``tests/``, ``integration/``, ``browser/``, ``benchmark/``, ``demo/`` and
+    ``scripts/`` all import ``buy_agent``, and nothing there is a dependency of it."""
     imports_none_of(
         EVERY_MODULE,
         "*tests*",
         "*integration*",
+        "*browser*",
         "*benchmark*",
         "*demo*",
         "*scripts*",
-        because="what ships is the package; those five are what is left behind",
+        because="what ships is the package; those six are what is left behind",
     )
 
 

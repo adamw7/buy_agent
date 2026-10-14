@@ -31,7 +31,7 @@ packaging. Run everything from the repo root.
 
 ```powershell
 .\scripts\setup.ps1                           # full contributor setup (ADR-0067)
-.\scripts\preflight.ps1                       # the gate ci.yml applies; -Only python|ui
+.\scripts\preflight.ps1                       # the gate ci.yml applies; -Only python|ui|browser
 pip install -r requirements-dev.txt          # runtime deps: requirements.txt
 
 python -m pytest                              # whole suite (~8s)
@@ -40,6 +40,7 @@ python -m pytest -n 3 --cov                   # three workers, with the floor (A
 python -m pylint buy_agent                    # from the root (ADR-0048)
 python -m mypy buy_agent                      # from the root (ADR-0063)
 ollama pull qwen3:0.6b ; python -m pytest integration   # against a real model
+python -m pytest browser                      # the build in Chromium (ADR-0087)
 python -m benchmark --scripted perfect        # score the pipeline, no model needed
 python -m benchmark --model qwen3:0.6b --model gemma4:12b   # compare models, every case
 python -m benchmark --baseline before.json    # what moved since an earlier --json
@@ -85,9 +86,9 @@ If `ui/dist/ui/browser` is missing, the API still works and the page returns a
 503 saying how to build it (`_unbuilt_remedy`, as HTML for browsers and JSON
 otherwise), naming `--ui-dir` when `_workspace_for` finds no workspace.
 
-**CI.** `ci.yml` runs Python 3.14 (pytest with coverage, pylint, mypy) and Node
-24.21.0 (`test:coverage`, `build`, `lint`, `format:check`) under `bash`, on Linux
-for pushes and PRs. Windows joins on the Saturday schedule and on
+**CI.** `ci.yml` runs Python 3.14 (pytest with coverage, pylint, mypy), Node
+24.21.0 (`test:coverage`, `build`, `lint`, `format:check`) and then that build in
+Chromium (`pytest browser`, ADR-0087) under `bash`, on Linux for pushes and PRs. Windows joins on the Saturday schedule and on
 `workflow_dispatch` (ADR-0037): dispatch it for a branch that touches paths,
 encodings, sockets or `start.ps1`. The scheduled workflows (audit, integration,
 both mutation runs) and `release.yml` are described in `docs/testing.md` and
@@ -157,7 +158,8 @@ responsibility or boundary moves. `docs/adr/` is the decision log, indexed by
 `docs/adr/README.md`; a new ADR is the file plus its index row, starting from
 `docs/adr/0000-template.md`. To contradict an accepted record, write a new one
 that supersedes it. Never reuse a number or rewrite an accepted record. Every
-record is Accepted but ADR-0020, which ADR-0037 supersedes.
+record is Accepted but ADR-0020 and ADR-0065, which ADR-0037 and ADR-0087
+supersede.
 
 `.claude/skills/` holds checklists over these rules: `add-option` (a new
 setting), `add-row` (a model server, rail or search backend), `add-adr` (the
@@ -509,9 +511,10 @@ everything else goes to the built app, with `index.html` as the fallback.
   platform-specific inputs (ADR-0020).
 - **The CSP coupling.** `_SECURITY_HEADERS` sets CSP to `'self'`, with
   `'unsafe-inline'` for styles only. `optimization.styles.inlineCritical` is off
-  in `ui/angular.json` because its inline `onload` would be blocked and the page
-  left unstyled. Anything adding inline handlers, inline scripts or cross-origin
-  requests breaks the same way, and only a browser shows it. ESLint refuses
+  in `ui/angular.json` because the inline script it writes would be blocked and
+  the page left unstyled. Anything adding inline handlers, inline scripts or
+  cross-origin requests breaks the same way, and only a browser shows it:
+  `browser/` fails on any error the page reports (ADR-0087). ESLint refuses
   `on*` attributes and `javascript:` URLs in templates (ADR-0066).
 
 ### The components
@@ -580,7 +583,7 @@ rules a change must obey:
 - **Seams:** `BuyAgent(config, llm=...)` with `tests/conftest.py`'s `FakeLLM`
   (one `answer` method). A chain stand-in has `invoke`.
   `create_server(agent_factory=..., allowed_hosts=..., camera=...)`.
-  `Photographer` stands in for the camera. No test starts a browser:
+  `Photographer` stands in for the camera. No test in `tests/` starts a browser:
   `screenshots.Camera` takes `launch=`. Components are tested in jsdom with
   `TestBed`, and `AgentService` against a fake `EventSource`.
 - **Network patch points:** `buy_agent.agent.search_web`,
@@ -598,6 +601,11 @@ rules a change must obey:
   `$BUY_AGENT_AP2_KEY`, `$BUY_AGENT_AP2_MANDATE` and `$BUY_AGENT_MERCHANT_URL`.
 - **Payment tests sign real mandates** and verify them with the SDK's verifier.
   CI installs the SDK.
+- **`browser/`** opens the build in headless Chromium, served by `create_server`
+  with the agent stood in for, outside `testpaths` (ADR-0087). A test there fails
+  on any error the page reports, waits with Playwright's `expect` and never
+  sleeps. It skips without a build or a browser, and CI's
+  `$BUY_AGENT_REQUIRE_BROWSER` makes that a failure.
 - **Server tests bind loopback** and use `serve_forever(0.01)`. `raw()` reads
   until the declared body has arrived.
 - **Nothing sleeps** but `tests/test_server.py` (`StubAgent.delay`). Change the
