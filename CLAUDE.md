@@ -223,13 +223,13 @@ listed in `docs/testing.md`.
 
 - **A model server is one row in one table, reached one way.**
   `providers.PROVIDERS` holds each server whole: defaults from its own env vars,
-  its client, schema declaration, listing, transport errors, hint sentences,
+  its client, schema declaration, listing, transport errors, hint sentences (`own_hint`),
   `takes_num_ctx`, `takes_cpu_only` and `more_room` (ADR-0029, ADR-0068, ADR-0081).
   `AgentConfig.model_server` is the *only* place a provider name becomes
   behaviour: no `if provider == ...` above the table, no module-level wrappers.
   Listings answer `InstalledModel`s, so embedding-only models are marked, not
   hidden (ADR-0032), and carry the server's digest where it lists one (ADR-0075). Shared hints go in `_too_slow_hint`/`_unreachable_hint`, and
-  shared failures are decided once in `_hint`. A hint naming a *model* requires
+  shared failures are decided once in `Provider.hint`, before the row's `own_hint`. A hint naming a *model* requires
   the row's own client to have raised it (`_answered_by`); otherwise the address
   is what's wrong. `chat.release` calls a chat model's `close`, `BuyAgent.close`
   decides when, and both doors build one agent per request and release it.

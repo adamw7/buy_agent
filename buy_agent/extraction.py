@@ -7,14 +7,12 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
-from buy_agent.chat import Chain, Prompt
+from buy_agent.chat import Prompt
 from buy_agent.models import (
     MAX_OPINIONS,
     QUALIFIERS,
     Offer,
-    ProductList,
     Removal,
-    SearchQuery,
     distinct_quotes,
     nothing_recorded,
 )
@@ -22,7 +20,6 @@ from buy_agent.models import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from buy_agent.chat import ChatModel
     from buy_agent.models import Opinion, Product, Recorder
     from buy_agent.search import SearchResult
 
@@ -123,14 +120,6 @@ GENERIC_WORDS = frozenset(
 
 #: Shared, so merging and grounding agree.
 NAME_TOKENS = re.compile(r"[a-z0-9]+")
-
-
-def build_query_chain(llm: ChatModel) -> Chain[SearchQuery]:
-    return Chain(QUERY_PROMPT, llm, SearchQuery)
-
-
-def build_extraction_chain(llm: ChatModel) -> Chain[ProductList]:
-    return Chain(EXTRACTION_PROMPT, llm, ProductList)
 
 
 def format_results(results: Sequence[SearchResult]) -> str:

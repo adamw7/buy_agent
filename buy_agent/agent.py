@@ -8,12 +8,12 @@ from time import perf_counter, sleep
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 from buy_agent.cache import remember_answers
-from buy_agent.chat import UnreadableAnswerError, release
+from buy_agent.chat import Chain, UnreadableAnswerError, release
 from buy_agent.config import DEFAULT_REGION, AgentConfig
 from buy_agent.constraints import Constraints
 from buy_agent.extraction import (
-    build_extraction_chain,
-    build_query_chain,
+    EXTRACTION_PROMPT,
+    QUERY_PROMPT,
     clean_products,
     deduplicate,
     format_results,
@@ -21,7 +21,13 @@ from buy_agent.extraction import (
 from buy_agent.fetch import enrich
 from buy_agent.journal import Journal, open_journal
 from buy_agent.logging_setup import log_top_products, seconds_label
-from buy_agent.models import and_list, comparable_price, nothing_recorded
+from buy_agent.models import (
+    ProductList,
+    SearchQuery,
+    and_list,
+    comparable_price,
+    nothing_recorded,
+)
 from buy_agent.ranking import rank_products
 from buy_agent.search import search_web
 from buy_agent.verification import ground
@@ -29,7 +35,7 @@ from buy_agent.verification import ground
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
-    from buy_agent.chat import Chain, ChatModel
+    from buy_agent.chat import ChatModel
     from buy_agent.models import Product, RankedProduct, Recorder
     from buy_agent.ranking import SortBy
     from buy_agent.search import SearchResult
@@ -127,8 +133,8 @@ class BuyAgent:
         )
         #: Only a model this agent opened, never one handed in.
         self._opened = None if llm else self.llm
-        self.query_chain = build_query_chain(self.llm)
-        self.extraction_chain = build_extraction_chain(self.llm)
+        self.query_chain = Chain(QUERY_PROMPT, self.llm, SearchQuery)
+        self.extraction_chain = Chain(EXTRACTION_PROMPT, self.llm, ProductList)
 
     def close(self) -> None:
         release(self._opened)
