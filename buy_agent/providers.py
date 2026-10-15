@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -12,12 +13,11 @@ from urllib.parse import urlsplit
 
 import httpx
 import openai
-from ollama import Client, RequestError, ResponseError
 
 from buy_agent.chat import ChatModel, SchemaT, UnreadableAnswerError, read_answer
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterator, Sequence
 
     from openai.types.chat import ChatCompletionMessageParam
 
@@ -49,7 +49,7 @@ _OPENAI_TRANSPORT = (openai.OpenAIError, OSError, httpx.HTTPError, UnicodeError)
 #: Concurrent ``ollama show`` probes.
 _PROBES = 8
 
-#: Where Ollama's client puts an address that names no host or no port.
+#: Where Ollama puts an address that names no host or no port.
 _OLLAMA_HOST = "127.0.0.1"
 _OLLAMA_PORT = 11434
 
@@ -93,11 +93,127 @@ class Provider:
         return self.own_hint(config, exc)
 
 
+class OllamaError(Exception):
+    """What Ollama answered in place of a reply: its own words, and the HTTP status."""
+
+    def __init__(self, error: str, status_code: int) -> None:
+        super().__init__(error)
+        self.error = error
+        self.status_code = status_code
+
+    def __str__(self) -> str:
+        return f"{self.error} (status code: {self.status_code})"
+
+
+@dataclass(frozen=True, slots=True)
+class OllamaReply:
+    """One chat answer: its text, and why it stopped."""
+
+    content: str
+    done_reason: str
+
+
+class OllamaClient:
+    """Ollama's own API over httpx, and only the calls made of it here (ADR-0088)."""
+
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        timeout: float | None,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        self._base_url = base_url
+        # As Ollama's Python client did: a proxy in front of it may redirect.
+        self._http = httpx.Client(
+            timeout=timeout,
+            transport=transport,
+            follow_redirects=True,
+            headers={"Accept": "application/json"},
+        )
+
+    def chat(
+        self,
+        *,
+        model: str,
+        messages: list[Message],
+        schema: dict[str, Any],
+        options: dict[str, Any],
+        think: bool | None,
+    ) -> OllamaReply:
+        body: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "format": schema,
+            "options": options,
+            "stream": False,
+        }
+        # ``None`` sends nothing: a model that cannot think must not be told to.
+        if think is not None:
+            body["think"] = think
+        answer = self._post("/api/chat", body)
+        message = answer.get("message") or {}
+        return OllamaReply(str(message.get("content") or ""), str(answer.get("done_reason") or ""))
+
+    def show(self, name: str) -> list[str] | None:
+        """What the model can do, or ``None`` where this Ollama does not say."""
+        capabilities = self._post("/api/show", {"model": name}).get("capabilities")
+        return None if capabilities is None else [str(each) for each in capabilities]
+
+    def tags(self) -> list[dict[str, Any]]:
+        """Every tag pulled, as Ollama lists it."""
+        response = self._http.get(_ollama_url(self._base_url, "/api/tags"))
+        return list(_read(response).get("models") or [])
+
+    def pull(self, name: str) -> Iterator[dict[str, Any]]:
+        """A pull's progress, one JSON line at a time, as the registry sends it."""
+        url = _ollama_url(self._base_url, "/api/pull")
+        with self._http.stream("POST", url, json={"model": name, "stream": True}) as response:
+            if response.is_error:
+                response.read()
+                _read(response)
+            for line in response.iter_lines():
+                if not line.strip():
+                    continue
+                progress = _decoded(line, response.status_code)
+                if "error" in progress:
+                    raise OllamaError(str(progress["error"]), response.status_code)
+                yield progress
+
+    def close(self) -> None:
+        self._http.close()
+
+    def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        return _read(self._http.post(_ollama_url(self._base_url, path), json=body))
+
+
+def _read(response: httpx.Response) -> dict[str, Any]:
+    """An answer's JSON, or the ``OllamaError`` it stands for."""
+    if response.is_error:
+        try:
+            error = str(json.loads(response.text).get("error") or "")
+        except (ValueError, AttributeError):
+            error = response.text
+        raise OllamaError(error.strip() or response.reason_phrase, response.status_code)
+    return _decoded(response.text, response.status_code)
+
+
+def _decoded(text: str, status_code: int) -> dict[str, Any]:
+    """One JSON object, or an ``OllamaError``: whatever answered was not Ollama."""
+    try:
+        decoded = json.loads(text)
+    except ValueError:
+        decoded = None
+    if not isinstance(decoded, dict):
+        raise OllamaError(f"answered with no JSON object: {text[:80]!r}", status_code)
+    return decoded
+
+
 @dataclass(frozen=True, slots=True)
 class _OllamaChat:
-    """Ollama's own client, asked for one schema-shaped answer (ADR-0004)."""
+    """Ollama, asked for one schema-shaped answer (ADR-0004)."""
 
-    client: Client
+    client: OllamaClient
     model: str
     temperature: float
     num_ctx: int | None
@@ -114,13 +230,11 @@ class _OllamaChat:
         response = self.client.chat(
             model=self.model,
             messages=list(messages),
-            format=schema.model_json_schema(),
+            schema=schema.model_json_schema(),
             options=options,
             think=self.reasoning,
         )
-        return read_answer(
-            response.message.content or "", schema, cut_off=response.done_reason == _CUT_OFF
-        )
+        return read_answer(response.content, schema, cut_off=response.done_reason == _CUT_OFF)
 
     def close(self) -> None:
         self.client.close()
@@ -128,7 +242,7 @@ class _OllamaChat:
 
 def _ollama_chat_model(config: AgentConfig) -> ChatModel:
     return _OllamaChat(
-        client=Client(config.base_url, timeout=config.model_timeout),
+        client=OllamaClient(config.base_url, timeout=config.model_timeout),
         model=config.model,
         temperature=config.temperature,
         num_ctx=config.num_ctx,
@@ -143,7 +257,7 @@ def _ollama_installed(config: AgentConfig) -> list[InstalledModel]:
     tags = _ollama_tags(config)
     if not tags:
         return []
-    client = Client(config.base_url, timeout=_LIST_TIMEOUT)
+    client = OllamaClient(config.base_url, timeout=_LIST_TIMEOUT)
     try:
         probed = _probe(client, list(tags), deadline)
     finally:
@@ -180,7 +294,7 @@ def _ollama_url(base_url: str, path: str) -> str:
     return f"http://{host}:{split.port or _OLLAMA_PORT}{split.path.rstrip('/')}{path}"
 
 
-def _probe(client: Client, names: list[str], deadline: float) -> list[InstalledModel]:
+def _probe(client: OllamaClient, names: list[str], deadline: float) -> list[InstalledModel]:
     """Probe every tag's capabilities within one deadline."""
     pool = ThreadPoolExecutor(max_workers=min(len(names), _PROBES))
     try:
@@ -195,9 +309,9 @@ def _probe(client: Client, names: list[str], deadline: float) -> list[InstalledM
         pool.shutdown(wait=False, cancel_futures=True)
 
 
-def _ollama_capability(client: Client, name: str) -> InstalledModel:
+def _ollama_capability(client: OllamaClient, name: str) -> InstalledModel:
     try:
-        capabilities = client.show(name).capabilities
+        capabilities = client.show(name)
     # Any failure here means "cannot say", not "cannot run".
     # pylint: disable-next=broad-exception-caught
     except Exception:
@@ -206,7 +320,7 @@ def _ollama_capability(client: Client, name: str) -> InstalledModel:
 
 
 def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
-    lowered = _answered_by(exc, ResponseError)
+    lowered = _answered_by(exc, OllamaError)
     if "invalid model name" in lowered:
         return (
             f"Ollama cannot read {config.model!r} as a model name ({exc}). "
@@ -248,7 +362,7 @@ class _OpenAIChat:
     def answer(self, messages: Sequence[Message], schema: type[SchemaT]) -> SchemaT:
         response = self.client.chat.completions.create(
             model=self.model,
-            # Our plain dicts are the client's ``TypedDict`` at run time (ADR-0038).
+            # Our plain dicts are the client's ``TypedDict`` at run time (ADR-0088).
             messages=cast("list[ChatCompletionMessageParam]", list(messages)),
             temperature=self.temperature,
             response_format={
@@ -487,9 +601,9 @@ OLLAMA = Provider(
     takes_cpu_only=True,
     chat_model=_ollama_chat_model,
     installed=_ollama_installed,
-    # A refused connection arrives as ``ConnectionError``, timeouts and dropped streams
-    # as raw ``httpx`` errors, an unencodable host (``192.168.1..5``) as ``UnicodeError``.
-    transport_errors=(ResponseError, RequestError, OSError, httpx.HTTPError, UnicodeError),
+    # Refusals, timeouts and dropped streams arrive as raw ``httpx`` errors, an
+    # unencodable host (``192.168.1..5``) as ``UnicodeError``.
+    transport_errors=(OllamaError, OSError, httpx.HTTPError, UnicodeError),
     own_hint=_ollama_hint,
     more_room="give it more room with a larger context window, or turn thinking off",
 )

@@ -216,7 +216,7 @@ def test_every_logger_a_model_client_brings_is_quietened_or_held_down(basic_conf
     transport's loggers are only created with one."""
     for provider in PROVIDERS:
         release(provider_for(provider).chat_model(AgentConfig(provider=provider)))
-    stack = installed_with({"ollama", "openai"})
+    stack = installed_with({"httpx", "openai"})
     # By name: every library in these stacks logs under its distribution's own.
     brought = {
         module

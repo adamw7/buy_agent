@@ -10,11 +10,11 @@ from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
-from ollama import ResponseError
 
 from buy_agent.agent import ModelUnavailableError
 from buy_agent.chat import UnreadableAnswerError
 from buy_agent.models import Product, ProductList, RankedProduct, ScoreParts, SearchQuery
+from buy_agent.providers import OllamaError, OllamaReply
 from benchmark import __main__ as benchmark_main
 from benchmark import pipeline
 from benchmark.baseline import against, read_baseline
@@ -120,31 +120,31 @@ def ollama(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             asked["base_url"] = base_url
             self.chatted = False
 
-        def chat(self, *, model: str, messages: list, format: dict, **options: Any) -> Any:
+        def chat(self, *, model: str, messages: list, schema: dict, **options: Any) -> Any:
             self.chatted = True
-            asked["chats"].append({"model": model, "schema": format["title"], **options})
+            asked["chats"].append({"model": model, "schema": schema["title"], **options})
             behaviour = asked["behaves"].get(model, "perfect")
             if isinstance(behaviour, Exception):
                 raise behaviour
             case = next(case for case in CASES.values() if case.request in messages[-1]["content"])
-            if format["title"] == SearchQuery.__name__:
+            if schema["title"] == SearchQuery.__name__:
                 content = "not json" if behaviour == "mute" else json.dumps({"query": case.refined})
             elif behaviour == "unreadable":
                 content = '{"products": [{"name": "Sony'
             else:
                 script = "perfect" if behaviour == "mute" else behaviour
                 content = case.scripts[script].model_dump_json()
-            return SimpleNamespace(message=SimpleNamespace(content=content), done_reason="stop")
+            return OllamaReply(content, "stop")
 
         @staticmethod
         def show(name: str) -> Any:
-            return SimpleNamespace(capabilities=["embedding" if "embed" in name else "completion"])
+            return ["embedding" if "embed" in name else "completion"]
 
         def close(self) -> None:
             # A run's model, not the client a listing opens and closes for itself.
             asked["closed"] += self.chatted
 
-    monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
+    monkeypatch.setattr("buy_agent.providers.OllamaClient", FakeClient)
     monkeypatch.setattr("buy_agent.providers.httpx.get", get)
     return asked
 
@@ -297,7 +297,7 @@ def test_an_unreadable_answer_is_this_cases_result(ollama: dict[str, Any]) -> No
 
 def test_a_model_that_cannot_be_asked_is_no_result_at_all(ollama: dict[str, Any]) -> None:
     """Not pulled, not running, too slow: nothing about the case was learned."""
-    ollama["behaves"]["missing:1b"] = ResponseError("model 'missing:1b' not found", 404)
+    ollama["behaves"]["missing:1b"] = OllamaError("model 'missing:1b' not found", 404)
 
     ollama["tags"] = ["tiny:1b"]
 
@@ -890,7 +890,7 @@ def test_the_command_line_lists_a_query_check_that_failed(
 def test_the_command_line_skips_a_model_it_cannot_ask_and_scores_the_rest(
     ollama: dict[str, Any], capsys: pytest.CaptureFixture
 ) -> None:
-    ollama["behaves"]["missing:1b"] = ResponseError("model 'missing:1b' not found", 404)
+    ollama["behaves"]["missing:1b"] = OllamaError("model 'missing:1b' not found", 404)
 
     code = benchmark_main.main(["--model", "missing:1b", "--model", "tiny:1b", "--case", "laptops"])
     captured = capsys.readouterr()

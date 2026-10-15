@@ -1,6 +1,6 @@
 # ADR-0038: Call each model server's own client, and drop LangChain
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0088](0088-speak-ollamas-api-over-httpx.md)
 - **Date:** 2026-09-05
 
 ## Context

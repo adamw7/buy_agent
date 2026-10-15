@@ -46,7 +46,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0035](0035-re-sort-a-finished-run-without-running-it-again.md) | Re-sort a finished run without running it again | Accepted |
 | [0036](0036-score-the-agent-against-a-fixed-answer-key.md) | Score the agent against a fixed answer key, beside the invariants | Accepted |
 | [0037](0037-run-windows-weekly-rather-than-on-every-push.md) | Run the Windows half of CI weekly rather than on every push | Accepted |
-| [0038](0038-own-the-model-call-instead-of-a-framework.md) | Call each model server's own client, and drop LangChain | Accepted |
+| [0038](0038-own-the-model-call-instead-of-a-framework.md) | Call each model server's own client, and drop LangChain | Superseded by [ADR-0088](0088-speak-ollamas-api-over-httpx.md) |
 | [0039](0039-enforce-the-shoppers-bounds-in-python.md) | Let the shopper set bounds, and enforce them after grounding | Accepted |
 | [0040](0040-cache-the-page-text-on-disk.md) | Cache the page text on disk, and cache the text rather than the excerpt | Accepted |
 | [0041](0041-report-what-a-score-is-made-of.md) | Report what a score is made of, and name the parts that were assumed | Accepted |
@@ -96,6 +96,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0085](0085-split-the-front-ends-mutation-run-by-file.md) | Split the front end's mutation run by file, a runner to each shard | Accepted |
 | [0086](0086-merge-a-pull-request-once-its-head-is-green.md) | Merge a pull request once its head is green | Accepted |
 | [0087](0087-open-the-build-in-a-browser-before-a-merge.md) | Open the build in a browser before a merge | Accepted |
+| [0088](0088-speak-ollamas-api-over-httpx.md) | Speak Ollama's API over httpx, and drop its client | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written
