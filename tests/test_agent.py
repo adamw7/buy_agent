@@ -8,12 +8,12 @@ from time import sleep
 from types import SimpleNamespace
 
 import pytest
-from ollama import ResponseError
 
 from buy_agent.agent import BuyAgent, ModelUnavailableError, _asks_the_same_question
 from buy_agent.cache import DEFAULT_TTL
 from buy_agent.config import AgentConfig
 from buy_agent.models import ExtractedProduct, ProductList, SearchQuery
+from buy_agent.providers import OllamaError, OllamaReply
 from buy_agent.ranking import RankingWeights
 from buy_agent.search import SearchError, SearchResult
 from buy_agent.sources import parse_sources
@@ -375,11 +375,9 @@ def ollama_request(monkeypatch):
         @staticmethod
         def chat(**kwargs):
             sent.update(kwargs)
-            return SimpleNamespace(
-                message=SimpleNamespace(content='{"query": "a refined query"}'), done_reason="stop"
-            )
+            return OllamaReply('{"query": "a refined query"}', "stop")
 
-    monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
+    monkeypatch.setattr("buy_agent.providers.OllamaClient", FakeClient)
     return sent
 
 
@@ -418,11 +416,9 @@ def ollama_calls(monkeypatch):
 
         def chat(self, **kwargs):
             asked.append(kwargs)
-            return SimpleNamespace(
-                message=SimpleNamespace(content='{"query": "a refined query"}'), done_reason="stop"
-            )
+            return OllamaReply('{"query": "a refined query"}', "stop")
 
-    monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
+    monkeypatch.setattr("buy_agent.providers.OllamaClient", FakeClient)
     return asked
 
 
@@ -495,13 +491,13 @@ def installed_models(monkeypatch):
 
             @staticmethod
             def show(_name: str):
-                return SimpleNamespace(capabilities=["completion"])
+                return ["completion"]
 
             def close(self) -> None:
                 """The listing lets go of the client it opened."""
 
         monkeypatch.setattr("buy_agent.providers.httpx.get", get)
-        monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
+        monkeypatch.setattr("buy_agent.providers.OllamaClient", FakeClient)
 
     return install
 
@@ -511,7 +507,7 @@ def test_the_missing_model_error_names_what_is_installed(
 ) -> None:
     """Half of these failures are a typo in the tag, so show the real ones."""
     installed_models(["lfm2.5:latest", "qwen3:8b"])
-    llm = FakeLLM(raises=ResponseError("model 'llama3.2' not found", 404))
+    llm = FakeLLM(raises=OllamaError("model 'llama3.2' not found", 404))
     agent, _ = agent_factory(llm, search_results, model="llama3.2")
 
     with pytest.raises(ModelUnavailableError, match="lfm2.5:latest, qwen3:8b"):
@@ -581,7 +577,7 @@ def test_closing_an_agent_closes_the_client_it_opened(
         def close(self) -> None:
             closed.append(why)
 
-    monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
+    monkeypatch.setattr("buy_agent.providers.OllamaClient", FakeClient)
 
     BuyAgent(AgentConfig(provider="ollama", cache_ttl=cache_ttl)).close()
 

@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import importlib
+import json
 import threading
 from types import SimpleNamespace
 
 import httpx
 import openai
 import pytest
-from ollama import ResponseError
 
 import buy_agent.providers as providers_module
 from buy_agent.chat import UnreadableAnswerError
@@ -109,7 +109,7 @@ def serving(monkeypatch):
 
 @pytest.fixture
 def chatting(monkeypatch):
-    """Stand in for ollama's ``Client`` being asked a question, capturing it."""
+    """Stand in for ``OllamaClient`` being asked a question, capturing it."""
     sent: dict = {}
 
     def install(answered: str = '{"query": "a refined query"}', *, stopped: str = "stop") -> dict:
@@ -123,15 +123,13 @@ def chatting(monkeypatch):
             @staticmethod
             def chat(**kwargs):
                 sent.update(kwargs)
-                return SimpleNamespace(
-                    message=SimpleNamespace(content=answered), done_reason=stopped
-                )
+                return providers_module.OllamaReply(answered, stopped)
 
             @staticmethod
             def close() -> None:
                 sent["closed"] = True
 
-        monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
+        monkeypatch.setattr("buy_agent.providers.OllamaClient", FakeClient)
         return sent
 
     return install
@@ -213,8 +211,8 @@ def pulled(monkeypatch):
             def show(self, name: str):
                 asked["shown"].append(name)
                 if capabilities is not None and name not in reported:
-                    raise ResponseError(f"model {name!r} not found", 404)
-                return SimpleNamespace(capabilities=reported.get(name, [_COMPLETION]))
+                    raise providers_module.OllamaError(f"model {name!r} not found", 404)
+                return reported.get(name, [_COMPLETION])
 
             # The listing opens a client of its own, so it closes one of its own --
             # recorded rather than ignored, ``test_the_listing_lets_go_of_what_it
@@ -223,7 +221,7 @@ def pulled(monkeypatch):
                 asked["closed"] = asked.get("closed", 0) + 1
 
         monkeypatch.setattr("buy_agent.providers.httpx.get", get)
-        monkeypatch.setattr("buy_agent.providers.Client", FakeClient)
+        monkeypatch.setattr("buy_agent.providers.OllamaClient", FakeClient)
         return asked
 
     return install
@@ -412,7 +410,7 @@ def test_a_tag_listed_twice_on_two_builds_is_offered_once_with_no_build(pulled) 
 @pytest.mark.parametrize("base_url", ["localhost:11434", "http://localhost:11434/"])
 def test_the_address_is_asked_however_it_was_written(pulled, base_url: str) -> None:
     """``$OLLAMA_HOST`` is written every way -- with the scheme and without it, with a
-    trailing slash and without -- and ollama's client takes all of them for the chat."""
+    trailing slash and without -- and the chat takes all of them too."""
     asked = pulled(["gemma4:12b"])
 
     listed(AgentConfig(provider="ollama", base_url=base_url))
@@ -644,7 +642,7 @@ def test_a_name_ollama_cannot_parse_is_not_a_server_to_start(pulled) -> None:
     and a pull is no better, since ``ollama pull`` refuses the same string."""
     pulled(["gemma4:12b"])
     config = AgentConfig(provider="ollama", model="[object Object]")
-    message = hint(config, ResponseError("invalid model name", 400))
+    message = hint(config, providers_module.OllamaError("invalid model name", 400))
 
     assert "cannot read '[object Object]' as a model name" in message
     assert "installed: gemma4:12b" in message
@@ -656,7 +654,7 @@ def test_an_ollama_serving_nothing_that_answers_reports_none(pulled) -> None:
     """The empty case of that narrowing: tags are pulled, none of them can chat."""
     pulled(["nomic-embed-text"], capabilities={"nomic-embed-text": [_EMBEDDING]})
     config = AgentConfig(provider="ollama", model="nomic-embed-text")
-    message = hint(config, ResponseError('"nomic-embed-text" does not support chat', 400))
+    message = hint(config, providers_module.OllamaError('"nomic-embed-text" does not support chat', 400))
 
     assert "installed: none" in message
 
@@ -668,7 +666,7 @@ def test_thinking_asked_of_a_model_without_it_is_not_an_embedding_model(pulled) 
     what it needs is thinking turned off."""
     pulled(["gemma3:4b", "nomic-embed-text"], capabilities={"gemma3:4b": [_COMPLETION]})
     config = AgentConfig(provider="ollama", model="gemma3:4b", reasoning=True)
-    message = hint(config, ResponseError('"gemma3:4b" does not support thinking', 400))
+    message = hint(config, providers_module.OllamaError('"gemma3:4b" does not support thinking', 400))
 
     assert "Turn thinking off" in message
     assert "does not support thinking" in message, "Ollama's own words are quoted"
@@ -742,7 +740,7 @@ def test_the_listing_budget_covers_the_listing_and_not_each_tag(monkeypatch) -> 
             started.set()
             release.wait(timeout=5.0)
             finished.set()
-            return SimpleNamespace(capabilities=[_COMPLETION])
+            return [_COMPLETION]
 
         def close(self) -> None:
             pass
@@ -754,7 +752,7 @@ def test_the_listing_budget_covers_the_listing_and_not_each_tag(monkeypatch) -> 
         )
 
     monkeypatch.setattr("buy_agent.providers.httpx.get", tags)
-    monkeypatch.setattr("buy_agent.providers.Client", Slow)
+    monkeypatch.setattr("buy_agent.providers.OllamaClient", Slow)
     monkeypatch.setattr(providers_module, "_LIST_TIMEOUT", 0.05)
     try:
         models = providers_module._ollama_installed(AgentConfig())
@@ -1044,3 +1042,172 @@ def test_the_trtllm_defaults_are_read_from_its_own_variables(reloaded_providers)
 
     assert (config.model, config.base_url) == ("meta-llama/Llama-3.1-8B", "http://gpu:9000/v1")
     assert AgentConfig(provider="vllm").base_url != "http://gpu:9000/v1", "vLLM's are its own"
+
+
+# -- Ollama's own API, spoken over httpx (ADR-0088) -----------------------------
+
+
+def ollama_answering(*answers: httpx.Response) -> tuple[providers_module.OllamaClient, list]:
+    """An ``OllamaClient`` whose server answers ``answers`` in turn, recording each request."""
+    requests: list[httpx.Request] = []
+    queued = list(answers)
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return queued.pop(0)
+
+    client = providers_module.OllamaClient(
+        "gpu-box.lan", timeout=5.0, transport=httpx.MockTransport(handle)
+    )
+    return client, requests
+
+
+def test_a_chat_is_one_post_saying_everything_the_run_set() -> None:
+    reply = {"message": {"role": "assistant", "content": "{}"}, "done_reason": "length"}
+    client, requests = ollama_answering(httpx.Response(200, json=reply))
+
+    answered = client.chat(
+        model="gemma4:12b",
+        messages=[{"role": "user", "content": "hi"}],
+        schema={"title": "SearchQuery"},
+        options={"temperature": 0.0},
+        think=False,
+    )
+
+    (request,) = requests
+    assert (request.method, str(request.url)) == ("POST", "http://gpu-box.lan:11434/api/chat")
+    assert json.loads(request.content) == {
+        "model": "gemma4:12b",
+        "messages": [{"role": "user", "content": "hi"}],
+        "format": {"title": "SearchQuery"},
+        "options": {"temperature": 0.0},
+        "stream": False,
+        "think": False,
+    }
+    assert answered == providers_module.OllamaReply("{}", "length")
+
+
+def test_a_chat_that_leaves_thinking_alone_sends_no_think() -> None:
+    """``None`` means "send nothing": Ollama refuses ``think`` of a model without it."""
+    client, requests = ollama_answering(httpx.Response(200, json={"message": {}}))
+
+    answered = client.chat(model="m", messages=[], schema={}, options={}, think=None)
+
+    assert "think" not in json.loads(requests[0].content)
+    assert answered == providers_module.OllamaReply("", "")
+
+
+@pytest.mark.parametrize(
+    ("answered", "capabilities"),
+    [
+        pytest.param({"capabilities": ["completion", 7]}, ["completion", "7"], id="said"),
+        pytest.param({"modelfile": ""}, None, id="an Ollama too old to say"),
+    ],
+)
+def test_show_answers_what_the_model_can_do(answered: dict, capabilities: list | None) -> None:
+    client, requests = ollama_answering(httpx.Response(200, json=answered))
+
+    assert client.show("gemma4:12b") == capabilities
+    assert json.loads(requests[0].content) == {"model": "gemma4:12b"}
+
+
+def test_the_tags_are_listed_as_ollama_writes_them() -> None:
+    entries = [{"model": "gemma4:12b", "digest": "sha256:aa"}]
+    client, requests = ollama_answering(
+        httpx.Response(200, json={"models": entries}), httpx.Response(200, json={})
+    )
+
+    assert client.tags() == entries
+    assert client.tags() == [], "an Ollama with nothing pulled may leave the list out"
+    assert str(requests[0].url) == "http://gpu-box.lan:11434/api/tags"
+
+
+def test_a_pull_streams_each_line_and_skips_the_blank_ones() -> None:
+    lines = b'{"status": "pulling manifest"}\n\n{"status": "success"}\n'
+    client, requests = ollama_answering(httpx.Response(200, content=lines))
+
+    assert list(client.pull("qwen3:0.6b")) == [
+        {"status": "pulling manifest"},
+        {"status": "success"},
+    ]
+    assert json.loads(requests[0].content) == {"model": "qwen3:0.6b", "stream": True}
+
+
+@pytest.mark.parametrize(
+    ("answer", "error", "status_code"),
+    [
+        pytest.param(
+            httpx.Response(500, json={"error": "pull model manifest: file does not exist"}),
+            "pull model manifest: file does not exist",
+            500,
+            id="refused before streaming",
+        ),
+        pytest.param(
+            httpx.Response(200, content=b'{"status": "pulling"}\n{"error": "disk full"}\n'),
+            "disk full",
+            200,
+            id="refused mid-stream",
+        ),
+    ],
+)
+def test_a_refused_pull_is_an_ollama_error(
+    answer: httpx.Response, error: str, status_code: int
+) -> None:
+    client, _ = ollama_answering(answer)
+
+    with pytest.raises(providers_module.OllamaError) as raised:
+        list(client.pull("nope:1b"))
+
+    assert (raised.value.error, raised.value.status_code) == (error, status_code)
+
+
+@pytest.mark.parametrize(
+    ("answer", "message"),
+    [
+        pytest.param(
+            httpx.Response(404, json={"error": "model 'x' not found"}),
+            "model 'x' not found (status code: 404)",
+            id="Ollama's own words",
+        ),
+        pytest.param(
+            httpx.Response(502, text="Bad gateway from the proxy"),
+            "Bad gateway from the proxy (status code: 502)",
+            id="a body that is not JSON",
+        ),
+        pytest.param(
+            httpx.Response(400, json=["not", "an", "object"]),
+            '["not","an","object"] (status code: 400)',
+            id="JSON that is not an object",
+        ),
+        pytest.param(
+            httpx.Response(503, text=""),
+            "Service Unavailable (status code: 503)",
+            id="nothing said at all",
+        ),
+        pytest.param(
+            httpx.Response(200, text="<html>a captive portal</html>"),
+            "answered with no JSON object: '<html>a captive portal</html>' (status code: 200)",
+            id="a success that is not Ollama",
+        ),
+    ],
+)
+def test_whatever_answers_in_place_of_a_reply_is_an_ollama_error(
+    answer: httpx.Response, message: str
+) -> None:
+    """Each is one of the provider's transport errors, so a run fails with a hint."""
+    client, _ = ollama_answering(answer)
+
+    with pytest.raises(providers_module.OllamaError) as raised:
+        client.show("x")
+
+    assert str(raised.value) == message
+    assert isinstance(raised.value, providers_module.OLLAMA.transport_errors)
+
+
+def test_the_client_lets_go_of_its_connections() -> None:
+    client, _ = ollama_answering()
+
+    client.close()
+
+    with pytest.raises(RuntimeError, match="closed"):
+        client.tags()

@@ -9,15 +9,13 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from ollama import Client, ResponseError
-
-from buy_agent.providers import OLLAMA
+from buy_agent.providers import OLLAMA, OllamaClient, OllamaError
 
 #: Transport failures that mean "the server is not there": the tuple ``BuyAgent._invoke``
 #: catches, read off the provider's own row rather than written down again -- what a
 #: stopped Ollama raises is that row's to say (ADR-0029), and it is wider than it looks.
 UNREACHABLE = tuple(
-    failure for failure in OLLAMA.transport_errors if failure is not ResponseError
+    failure for failure in OLLAMA.transport_errors if failure is not OllamaError
 )
 
 #: What a status reads as in the report, in the order the summary lists them.
@@ -55,7 +53,11 @@ def short(digest: str) -> str:
 
 def digests(client: Any) -> dict[str, str]:
     """Every tag Ollama has pulled, and the digest it holds for each."""
-    return {model.model: model.digest or "" for model in client.list().models if model.model}
+    return {
+        str(entry["model"]): str(entry.get("digest") or "")
+        for entry in client.tags()
+        if entry.get("model")
+    }
 
 
 def tagged(name: str) -> str:
@@ -67,9 +69,10 @@ def tagged(name: str) -> str:
 def stream(client: Any, model: str) -> Iterator[str]:
     """The distinct statuses of a streaming pull, as they arrive."""
     previous = ""
-    for progress in client.pull(model, stream=True):
-        if progress.status and progress.status != previous:
-            previous = progress.status
+    for progress in client.pull(model):
+        line = str(progress.get("status") or "")
+        if line and line != previous:
+            previous = line
             yield previous
 
 
@@ -90,7 +93,7 @@ def update(
         try:
             for line in stream(client, name):
                 echo(f"  {line}")
-        except ResponseError as exc:
+        except OllamaError as exc:
             # ``str`` on one of these appends the HTTP status, which is noise next to a
             # message the registry already wrote for a human.
             errors[name] = exc.error.strip() or f"HTTP {exc.status_code}"
@@ -132,6 +135,11 @@ def hint(base_url: str, exc: Exception) -> str:
     return f"Ollama did not answer at {base_url} ({exc}).\nStart it with:  ollama serve"
 
 
+def _connect(base_url: str) -> OllamaClient:
+    # No deadline: a pull is gigabytes, and its stream says when it is done.
+    return OllamaClient(base_url, timeout=None)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m scripts.update_ollama",
@@ -151,7 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str], client_factory: Callable[[str], Any] = Client) -> int:
+def main(argv: Sequence[str], client_factory: Callable[[str], Any] = _connect) -> int:
     args = build_parser().parse_args(argv)
     try:
         outcomes = update(client_factory(args.base_url), args.models)

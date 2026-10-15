@@ -10,7 +10,7 @@ are extracted, ranked, and the top 3 logged. The model is local, served by
 Ollama, vLLM, TensorRT-LLM, or whatever a LiteLLM proxy routes to.
 `AgentConfig.provider` chooses, and `buy_agent/providers.py` is the only module
 that knows the difference (ADR-0028, ADR-0068, ADR-0081). There is no framework: `buy_agent/chat.py` is the
-whole model seam (ADR-0038). `ui/` is an Angular front end served by
+whole model seam (ADR-0088). `ui/` is an Angular front end served by
 `buy_agent.server`. Two things are optional, off by default and need extra
 installs: *buying* what was found, authorised by signed
 [AP2](https://ap2-protocol.org) mandates (ADR-0046), and a screenshot of each
@@ -158,8 +158,8 @@ responsibility or boundary moves. `docs/adr/` is the decision log, indexed by
 `docs/adr/README.md`; a new ADR is the file plus its index row, starting from
 `docs/adr/0000-template.md`. To contradict an accepted record, write a new one
 that supersedes it. Never reuse a number or rewrite an accepted record. Every
-record is Accepted but ADR-0020 and ADR-0065, which ADR-0037 and ADR-0087
-supersede.
+record is Accepted but ADR-0020, ADR-0038 and ADR-0065, which ADR-0037, ADR-0088
+and ADR-0087 supersede.
 
 `.claude/skills/` holds checklists over these rules: `add-option` (a new
 setting), `add-row` (a model server, rail or search backend), `add-adr` (the
@@ -190,7 +190,7 @@ The order matters at three joints:
 | Module | Responsibility |
 | --- | --- |
 | `agent.py` | `BuyAgent.run()` -- orchestrates the pipeline, translates model-server errors |
-| `chat.py` | The whole model-facing seam: a prompt, a chain, an answer read back as its schema (ADR-0038) |
+| `chat.py` | The whole model-facing seam: a prompt, a chain, an answer read back as its schema (ADR-0088) |
 | `extraction.py` | Both prompts, both chains, name cleaning, deduplication |
 | `fetch.py` | Streams result pages up to a ceiling, keeps the lines quoting a figure, a listing's standing or a judgement, and tallies how the rest failed |
 | `structured.py` | What a page declares in schema.org JSON-LD, written as the lines a shop prints (ADR-0078) -- no HTML, no I/O |
@@ -591,9 +591,10 @@ rules a change must obey:
   `buy_agent.search.httpx.get`, `buy_agent.fetch.httpx.Client`, and
   `rails.httpx.post`. `search_web` is patched only on `agent`, which is why the
   source fan-out lives there.
-- **Model clients:** patch `providers.Client` (Ollama chat and `show`),
+- **Model clients:** patch `providers.OllamaClient` (Ollama chat and `show`),
   `providers.openai.OpenAI`, and `providers.httpx.get` (all listings). Assert on
-  the *request*. Never patch `ollama.Client` or `DDGS.text`.
+  the *request*. `OllamaClient` itself is tested against `httpx.MockTransport`
+  (ADR-0088). Never patch `DDGS.text`.
 - **Table rows** are compared by identity only through their module
   (`providers_module.OLLAMA`), because tests reload those modules.
 - **No test in `tests/`** touches the network, a model server or the real cache.

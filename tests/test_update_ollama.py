@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
 import pytest
-from ollama import RequestError, ResponseError
 
+from buy_agent.providers import OllamaClient, OllamaError
 from scripts.update_ollama import (
+    _connect,
     Outcome,
     describe,
     digests,
@@ -21,22 +23,6 @@ from scripts.update_ollama import (
     tagged,
     update,
 )
-
-
-class FakeModel:
-    def __init__(self, model: str, digest: str) -> None:
-        self.model = model
-        self.digest = digest
-
-
-class FakeListing:
-    def __init__(self, models: list[FakeModel]) -> None:
-        self.models = models
-
-
-class FakeProgress:
-    def __init__(self, status: str) -> None:
-        self.status = status
 
 
 class FakeClient:
@@ -54,21 +40,21 @@ class FakeClient:
         self.pulled: list[str] = []
         self.listings = 0
 
-    def list(self) -> FakeListing:
+    def tags(self) -> list[dict[str, str]]:
         self.listings += 1
-        return FakeListing([FakeModel(tag, digest) for tag, digest in self.installed.items()])
+        return [{"model": tag, "digest": digest} for tag, digest in self.installed.items()]
 
-    def pull(self, model: str, *, stream: bool = False) -> Any:
+    def pull(self, model: str) -> Any:
         self.pulled.append(model)
         if model in self.fails:
             raise self.fails[model]
         self.installed[model] = self.pulls.get(model, self.installed.get(model, "sha256:new"))
         return iter(
             [
-                FakeProgress("pulling manifest"),
-                FakeProgress("pulling manifest"),
-                FakeProgress(""),
-                FakeProgress("success"),
+                {"status": "pulling manifest"},
+                {"status": "pulling manifest", "completed": 1},
+                {},
+                {"status": "success"},
             ]
         )
 
@@ -164,7 +150,7 @@ def test_a_refused_pull_is_recorded_and_the_rest_still_run() -> None:
     """One unknown tag should not cost the models named after it their update."""
     client = FakeClient(
         {"llama3.2:latest": "sha256:aaa", "nope:1b": "sha256:bbb"},
-        fails={"nope:1b": ResponseError("model not found", 404)},
+        fails={"nope:1b": OllamaError("model not found", 404)},
     )
     outcomes = {outcome.model: outcome for outcome in update(client, echo=lambda line: None)}
     assert client.pulled == ["llama3.2:latest", "nope:1b"]
@@ -174,7 +160,7 @@ def test_a_refused_pull_is_recorded_and_the_rest_still_run() -> None:
 
 def test_a_refusal_with_nothing_to_say_falls_back_to_its_status() -> None:
     """An empty message would print ``failed --`` and leave the reader guessing."""
-    client = FakeClient({"nope:1b": "sha256:bbb"}, fails={"nope:1b": ResponseError("", 500)})
+    client = FakeClient({"nope:1b": "sha256:bbb"}, fails={"nope:1b": OllamaError("", 500)})
     (outcome,) = update(client, echo=lambda line: None)
     assert outcome.error == "HTTP 500"
 
@@ -188,8 +174,8 @@ def test_the_digests_are_read_once_either_side_rather_than_per_model() -> None:
 
 def test_a_server_that_is_not_there_reaches_the_caller() -> None:
     """A transport failure is not one model's problem; the pulls after it are pointless."""
-    client = FakeClient({"llama3.2:latest": "sha256:aaa"}, fails={"llama3.2:latest": RequestError("gone")})
-    with pytest.raises(RequestError):
+    client = FakeClient({"llama3.2:latest": "sha256:aaa"}, fails={"llama3.2:latest": httpx.ConnectError("gone")})
+    with pytest.raises(httpx.ConnectError):
         update(client, echo=lambda line: None)
 
 
@@ -256,7 +242,7 @@ def test_a_run_that_updated_everything_prints_the_report_and_succeeds(
 
 
 def test_a_run_with_a_refused_pull_says_so_and_fails() -> None:
-    client = FakeClient({"nope:1b": "sha256:bbb"}, fails={"nope:1b": ResponseError("model not found")})
+    client = FakeClient({"nope:1b": "sha256:bbb"}, fails={"nope:1b": OllamaError("model not found", 404)})
     assert main([], lambda base_url: client) == 1
 
 
@@ -283,7 +269,7 @@ def test_a_server_that_is_not_answering_is_reported_as_something_to_start(
     """The same failure the agent translates, and for the same reason."""
 
     def factory(base_url: str) -> FakeClient:
-        raise RequestError("connection refused")
+        raise httpx.ConnectError("connection refused")
 
     assert main([], factory) == 1
     assert "ollama serve" in capsys.readouterr().err
@@ -298,5 +284,15 @@ def test_an_ollama_with_nothing_pulled_says_what_to_pull(
 
 
 def test_the_hint_names_the_server_that_did_not_answer() -> None:
-    message = hint("http://10.0.0.5:11434", RequestError("connection refused"))
+    message = hint("http://10.0.0.5:11434", httpx.ConnectError("connection refused"))
     assert "http://10.0.0.5:11434" in message and "connection refused" in message
+
+
+def test_a_pull_is_given_as_long_as_it_takes() -> None:
+    """Gigabytes arrive slower than any deadline a chat would set."""
+    client = _connect("http://10.0.0.5:11434")
+    try:
+        assert isinstance(client, OllamaClient)
+        assert client._http.timeout == httpx.Timeout(None)
+    finally:
+        client.close()

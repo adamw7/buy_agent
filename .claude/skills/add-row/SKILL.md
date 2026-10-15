@@ -65,7 +65,7 @@ twins).
 
 ## 4. Tests
 
-- Patch clients where the module imports them: `providers.Client`,
+- Patch clients where the module imports them: `providers.OllamaClient`,
   `providers.openai.OpenAI`, `providers.httpx.get`, `rails.httpx.post`,
   `search.DDGS`, `search.httpx.get`.
 - Build the row you mean rather than reading an environment-derived field off a

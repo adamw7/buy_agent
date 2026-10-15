@@ -1,5 +1,5 @@
 """The seam between a prompt and a model's answer, replacing LangChain (ADR-0002,
-ADR-0038)."""
+ADR-0088)."""
 
 from __future__ import annotations
 
