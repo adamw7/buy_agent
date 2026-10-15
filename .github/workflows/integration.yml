@@ -16,7 +16,7 @@ permissions:
 jobs:
   integration:
     # Linux only: the question is whether a real model honours the schema.
-    name: pytest integration (Python 3.14, qwen3:0.6b on CPU)
+    name: pytest integration (Python 3.15, qwen3:0.6b on CPU)
     runs-on: ubuntu-latest
     # Install, pull and inference on four CPU cores, inside five minutes (ADR-0026).
     timeout-minutes: 5
@@ -37,7 +37,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: "3.15"
           cache: pip
           cache-dependency-path: |
             requirements-dev.txt

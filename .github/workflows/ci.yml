@@ -22,7 +22,7 @@ jobs:
   test:
     # Linux gates every push and pull request; Windows joins weekly and on dispatch
     # (ADR-0037).
-    name: pytest (Python 3.14, ${{ matrix.os }})
+    name: pytest (Python 3.15, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -38,7 +38,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: "3.15"
           cache: pip
           # Every file the install steps hand pip, so no cache outlives a bump.
           cache-dependency-path: |
@@ -149,7 +149,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: "3.15"
           cache: pip
           cache-dependency-path: |
             requirements-dev.txt
