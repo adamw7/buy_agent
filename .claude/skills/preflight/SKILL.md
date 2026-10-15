@@ -17,7 +17,7 @@ all three, step for step in `ci.yml`'s order, each stopping at its first failure
 Run it from the repository root; it finds `.venv` itself. `scripts/setup.ps1`
 installs everything it needs, the AP2 SDK included (ADR-0067).
 
-## Python (Python 3.14)
+## Python (Python 3.15)
 
 ```powershell
 python -m pytest -n 3 --cov

@@ -55,7 +55,7 @@ jobs:
 
   archive:
     # Linux only: the archive is the same bytes from any runner.
-    name: Archive (Node 24.21.0, Python 3.14)
+    name: Archive (Node 24.21.0, Python 3.15)
     needs: tested
     runs-on: ubuntu-latest
     permissions:
@@ -85,7 +85,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: "3.15"
           cache: pip
           cache-dependency-path: requirements.txt
 

@@ -33,7 +33,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: "3.15"
           cache: pip
           # The audited files are resolved, not installed, so only this one is cached.
           cache-dependency-path: requirements-audit.txt

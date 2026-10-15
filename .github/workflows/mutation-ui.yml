@@ -80,7 +80,7 @@ jobs:
       # For the stdlib report script, which decides whether the run passed.
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       # Every shard's json and html in one directory, each named after its shard.
       - uses: actions/download-artifact@v8

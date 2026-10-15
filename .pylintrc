@@ -46,7 +46,7 @@ load-plugins =
     pylint.extensions.comparison_placement,
     pylint.extensions.dict_init_mutate,
     pylint.extensions.for_any_all,
-    # No `_name` from another package, and no `typing` alias 3.14 has a builtin for.
+    # No `_name` from another package, and no `typing` alias 3.15 has a builtin for.
     pylint.extensions.private_import,
     pylint.extensions.typing
 

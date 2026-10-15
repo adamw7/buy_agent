@@ -86,7 +86,7 @@ If `ui/dist/ui/browser` is missing, the API still works and the page returns a
 503 saying how to build it (`_unbuilt_remedy`, as HTML for browsers and JSON
 otherwise), naming `--ui-dir` when `_workspace_for` finds no workspace.
 
-**CI.** `ci.yml` runs Python 3.14 (pytest with coverage, pylint, mypy), Node
+**CI.** `ci.yml` runs Python 3.15 (pytest with coverage, pylint, mypy), Node
 24.21.0 (`test:coverage`, `build`, `lint`, `format:check`) and then that build in
 Chromium (`pytest browser`, ADR-0087) under `bash`, on Linux for pushes and PRs. Windows joins on the Saturday schedule and on
 `workflow_dispatch` (ADR-0037): dispatch it for a branch that touches paths,

@@ -84,7 +84,7 @@ try {
         Note '.venv is already there'
     } else {
         if (-not (Have 'python')) {
-            throw 'python is not on PATH -- install Python 3.14 from https://www.python.org/downloads/'
+            throw 'python is not on PATH -- install Python 3.15 from https://www.python.org/downloads/'
         }
         Run 'python' @('-m', 'venv', '.venv') 'could not create .venv'
     }

@@ -16,7 +16,7 @@ COPY ui/ ./
 RUN npm run build
 
 # -- stage 2: the server, on the Python CI tests with -------------------------
-FROM python:3.14-slim AS runtime
+FROM python:3.15-slim AS runtime
 
 # The terms the image is published under, said where a registry reads them.
 LABEL org.opencontainers.image.licenses="MIT"

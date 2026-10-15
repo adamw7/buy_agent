@@ -53,7 +53,7 @@ TOP 3 OF 9 PRODUCTS, BEST SCORE FIRST
 
 ## Setup
 
-Everything runs locally; no API keys, no accounts. Python 3.14 and, for the web
+Everything runs locally; no API keys, no accounts. Python 3.15 and, for the web
 UI, Node 24.21.0 or later.
 
 ```powershell
