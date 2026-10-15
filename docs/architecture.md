@@ -175,7 +175,9 @@ benchmark's board, written the journal's way. Neither of the last two expires.
 
 The `Dockerfile` ships the shop's containers as one image, without the AP2 SDK,
 the camera or the benchmark. The model server stays outside it
-([ADR-0015](adr/0015-package-the-web-tier-as-a-container.md)).
+([ADR-0015](adr/0015-package-the-web-tier-as-a-container.md)). The image and the
+release archive are stamped with the version they are, which both doors report
+([ADR-0083](adr/0083-say-which-build-is-running.md)).
 
 ### The benchmark
 
@@ -333,6 +335,7 @@ graph TB
         chat("<b>Chat</b><br/><i>[Component: chat.py]</i><br/>A prompt with the run's<br/>values in it, a chain binding<br/>one to a schema, and the<br/>answer read back as that<br/>schema -- or refused")
         journal("<b>Journal</b><br/><i>[Component: journal.py]</i><br/>What past runs of this same<br/>search reported -- a name, a<br/>price and a currency each --<br/>so this one can say what is<br/>cheaper, dearer, new or gone.<br/>Bounded by a count and never<br/>by an age, and one setting off")
         providers("<b>Providers</b><br/><i>[Component: providers.py]</i><br/>Everything that differs<br/>between Ollama, vLLM, a<br/>LiteLLM proxy and<br/>TensorRT-LLM, one row each:<br/>the model, address and key it<br/>defaults to, the client and<br/>how it declares a schema, the<br/>listing, which of the two<br/>settings it takes per request,<br/>the errors that mean &quot;not<br/>there&quot;, and what to say")
+        version("<b>Version</b><br/><i>[Component: version.py]</i><br/>Which build is running: a<br/>release's stamp, else dev and<br/>the commit read off .git's<br/>own files, never by<br/>spawning git")
         cache("<b>Cache</b><br/><i>[Component: cache.py]</i><br/>What a run can reuse: the<br/>text of a fetched page, and<br/>the answer a model gave about<br/>it. Kept for a day, and<br/>bounded by size as well as<br/>age. Best-effort: every<br/>failure is a miss, never a<br/>failed run")
     end
 
@@ -343,6 +346,7 @@ graph TB
     doors -.->|"build it: a flag<br/>or a request key per<br/>api.OPTIONS row"| config
     doors -.->|"offer what the request<br/>asks for in words"| boundsc
     doors -.->|"write this run down and<br/>say what moved, keyed by<br/>what was asked, not how"| journal
+    doors -.->|"--version, /api/config's<br/>version, the Server<br/>header"| version
     config -.->|"configures"| agent
     config -.->|"search_backend"| search
     config -.->|"model_server: the<br/>model, address and<br/>key per provider"| providers
@@ -361,7 +365,7 @@ graph TB
     classDef component fill:#85bbf0,stroke:#4f86c0,color:#000
     classDef external fill:#6b6b6b,stroke:#4d4d4d,color:#fff
     class doors,store container
-    class config,boundsc,agent,search,fetch,chat,journal,providers,cache component
+    class config,boundsc,agent,search,fetch,chat,journal,providers,version,cache component
     class ollama external
     style pipeline fill:none,stroke:#8c8c8c,stroke-width:1px,stroke-dasharray:6 4
 ```
@@ -370,7 +374,8 @@ Each table is reached one way: `AgentConfig` names the row (`model_server`,
 `search_backend`, and `rail_used` for paying), and nothing above it branches on
 a name (ADR-0029, ADR-0046, ADR-0057). The cache wraps the chat model only for a
 deterministic run, while the journal is keyed by what was asked and never by the
-model (ADR-0044, ADR-0060).
+model (ADR-0044, ADR-0060). The version is read once and touches nothing a run
+does: it is there so a bug report can say which build wrote it (ADR-0083).
 
 ### The types every step speaks
 
@@ -474,7 +479,7 @@ graph TB
 
     subgraph spa["Web UI [Container: Angular]"]
         form("<b>SearchForm</b><br/><i>[Component: search-form]</i><br/>The request and every option,<br/>seeded from /api/config,<br/>and refused here first")
-        app("<b>App</b><br/><i>[Component: app.ts]</i><br/>Holds the run's state in<br/>signals; splits the answer<br/>into the top N and the rest,<br/>and folds under it what<br/>moved since the last run<br/>and what the run took out")
+        app("<b>App</b><br/><i>[Component: app.ts]</i><br/>Holds the run's state in<br/>signals; splits the answer<br/>into the top N and the rest,<br/>and folds under it what<br/>moved since the last run<br/>and what the run took out;<br/>names the build in its<br/>footer")
         log("<b>ProgressLog</b><br/><i>[Component: progress-log]</i><br/>The agent's own log lines,<br/>as they arrive, and a<br/>transcript to download for<br/>a run that failed or was<br/>stopped")
         card("<b>ProductCard</b><br/><i>[Component: product-card]</i><br/>One ranked product, drawn<br/>from the labels the API<br/>sent: the shares its score<br/>was blended from, each<br/>listing's price, a picture<br/>of its page, and two clicks<br/>to buy it")
         agentsvc("<b>AgentService</b><br/><i>[Component: agent.ts]</i><br/>HttpClient for the JSON<br/>endpoints; wraps<br/>EventSource as an<br/>Observable, so<br/>unsubscribing is the<br/>Stop button")
@@ -566,7 +571,7 @@ graph TB
         handler("<b>BenchmarkHandler</b><br/><i>[Component: server.py]</i><br/>The shop's handler,<br/>subclassed: it refuses what<br/>the shop's does, then routes<br/>to the benchmark's endpoints<br/>in place of the shop's")
         bench("<b>Bench</b><br/><i>[Component: server.py]</i><br/>One comparison at a time,<br/>on a thread of its own:<br/>closing the page does not<br/>stop it, and Stop ends it<br/>at the next step")
         compare("<b>Comparison</b><br/><i>[Component: compare.py]</i><br/>A contender is a model on<br/>a server or a script. Times<br/>each question, keeps an<br/>unreadable answer as a 0,<br/>raises for a model that<br/>cannot be asked, and ranks<br/>the standings")
-        cases("<b>Cases</b><br/><i>[Component: cases.py and<br/>a module per case]</i><br/>headphones, laptops,<br/>espresso: a request, its<br/>pages, the key to what they<br/>print, and a perfect and<br/>a sloppy script")
+        cases("<b>Cases</b><br/><i>[Component: cases.py,<br/>corpus.py, answers.py,<br/>scripted.py, laptops.py,<br/>espresso.py]</i><br/>headphones, laptops,<br/>espresso: a request, its<br/>pages, the key to what they<br/>print, and a perfect and<br/>a sloppy script")
         runner("<b>Runner</b><br/><i>[Component: runner.py]</i><br/>Runs BuyAgent over a case's<br/>own pages: search_web and<br/>enrich swapped out on agent,<br/>the text condensed by the<br/>real fetch.condense")
         scoring("<b>Scoring</b><br/><i>[Component: scoring.py,<br/>query.py]</i><br/>Eight shares in [0, 1]<br/>against the case's key --<br/>figures and verdicts, product<br/>by product -- weighed pair by<br/>pair; the query judged apart,<br/>as checks with sentences")
         scoredunder("<b>Scored under</b><br/><i>[Component: pipeline.py]</i><br/>A fingerprint of the code<br/>between the pages and the<br/>scorecard, and the settings<br/>that reach the model")
@@ -680,6 +685,7 @@ sequenceDiagram
     H->>W: start the run, attach the log relay
     W->>J: open this search's journal, holding its last run
     W->>A: run(request, sort_by, checkpoint, record)
+    A-->>UI: event: log (the model it asks, at which address)
     A->>O: refine the query
     O-->>A: search query
     A-->>UI: event: log
@@ -692,6 +698,7 @@ sequenceDiagram
     A->>A: clean → ground → deduplicate → bounds → rank
     A->>W: record each candidate a step took out
     A-->>UI: event: log (top 3 report)
+    A-->>UI: event: log (Finished in ..., then each step)
     A-->>W: ranked products
     W->>J: write this run down, compare it with the last
     J-->>W: what is cheaper, dearer, new or gone
@@ -700,6 +707,10 @@ sequenceDiagram
     UI-->>S: the shortlist, best first
     Note over UI,W: A quiet stretch sends a ping event every 15s. A failed run sends a failure event carrying its HTTP status. A frame that cannot be written stops the run at its next checkpoint.
 ```
+
+Every run that returns names the model it asked and ends with how long it took,
+the whole and then each step, timed in `agent.py` and written by
+`logging_setup.seconds_label`, which the benchmark shares (ADR-0084).
 
 Where a run is deterministic, the page text and the model's answers come off
 disk for as long as `cache_ttl` allows, rather than off the web and the model
