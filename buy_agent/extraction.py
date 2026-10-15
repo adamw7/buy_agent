@@ -1,5 +1,5 @@
 """The two LLM steps (query, then products) and the clean-up after them (ADR-0004,
-ADR-0088)."""
+ADR-0089)."""
 
 from __future__ import annotations
 

@@ -184,8 +184,8 @@ python -m buy_agent "espresso machine" --provider litellm --model local_model
 
 The defaults are `$LITELLM_MODEL` (`local_model`, a placeholder for an alias in
 your proxy's `model_list`), `$LITELLM_HOST` (`http://localhost:4000/v1`) and
-`$LITELLM_API_KEY`. The proxy is reached with the `openai` client, so the
-LiteLLM SDK is not a dependency. `--num-ctx` and `--cpu-only` are not sent, and
+`$LITELLM_API_KEY`. The proxy is reached over its OpenAI-style API with
+`httpx`, so the LiteLLM SDK is not a dependency. `--num-ctx` and `--cpu-only` are not sent, and
 `--think` becomes `reasoning_effort`. Whether a request leaves the machine is up
 to the proxy's `config.yaml`
 ([ADR-0068](docs/adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md)).

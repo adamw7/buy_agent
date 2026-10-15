@@ -9,13 +9,14 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from buy_agent.providers import OLLAMA, OllamaClient, OllamaError
+from buy_agent.chat import ServerError
+from buy_agent.providers import OLLAMA, OllamaClient
 
 #: Transport failures that mean "the server is not there": the tuple ``BuyAgent._invoke``
 #: catches, read off the provider's own row rather than written down again -- what a
 #: stopped Ollama raises is that row's to say (ADR-0029), and it is wider than it looks.
 UNREACHABLE = tuple(
-    failure for failure in OLLAMA.transport_errors if failure is not OllamaError
+    failure for failure in OLLAMA.transport_errors if failure is not ServerError
 )
 
 #: What a status reads as in the report, in the order the summary lists them.
@@ -93,7 +94,7 @@ def update(
         try:
             for line in stream(client, name):
                 echo(f"  {line}")
-        except OllamaError as exc:
+        except ServerError as exc:
             # ``str`` on one of these appends the HTTP status, which is noise next to a
             # message the registry already wrote for a human.
             errors[name] = exc.error.strip() or f"HTTP {exc.status_code}"

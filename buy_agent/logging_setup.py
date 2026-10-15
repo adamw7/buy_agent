@@ -34,11 +34,11 @@ def seconds_label(seconds: float) -> str:
     minutes, rest = divmod(round(seconds), 60)
     return f"{minutes} min {rest:02d} s"
 
-#: A line per call, so quiet unless ``--verbose``; the OpenAI client logs as ``httpx2``.
-_NOISY_LIBRARIES = ("httpx", "httpx2", "openai", "ddgs")
+#: A line per call, so quiet unless ``--verbose``.
+_NOISY_LIBRARIES = ("httpx", "ddgs")
 
 #: Held at INFO even with ``--verbose``: a dozen DEBUG lines per request.
-_TRACE_LIBRARIES = ("httpcore", "httpcore2")
+_TRACE_LIBRARIES = ("httpcore",)
 
 _FORMAT = "%(asctime)s %(levelname)-7s %(name)s | %(message)s"
 _DATEFMT = "%H:%M:%S"

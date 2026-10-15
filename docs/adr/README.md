@@ -96,7 +96,8 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0085](0085-split-the-front-ends-mutation-run-by-file.md) | Split the front end's mutation run by file, a runner to each shard | Accepted |
 | [0086](0086-merge-a-pull-request-once-its-head-is-green.md) | Merge a pull request once its head is green | Accepted |
 | [0087](0087-open-the-build-in-a-browser-before-a-merge.md) | Open the build in a browser before a merge | Accepted |
-| [0088](0088-speak-ollamas-api-over-httpx.md) | Speak Ollama's API over httpx, and drop its client | Accepted |
+| [0088](0088-speak-ollamas-api-over-httpx.md) | Speak Ollama's API over httpx, and drop its client | Superseded by [ADR-0089](0089-speak-every-model-servers-api-over-httpx.md) |
+| [0089](0089-speak-every-model-servers-api-over-httpx.md) | Speak every model server's API over httpx, and drop the openai client | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

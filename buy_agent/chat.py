@@ -1,5 +1,5 @@
 """The seam between a prompt and a model's answer, replacing LangChain (ADR-0002,
-ADR-0088)."""
+ADR-0089)."""
 
 from __future__ import annotations
 
@@ -35,6 +35,20 @@ class UnreadableAnswerError(ValueError):
     def __init__(self, message: str, *, cut_off: bool = False) -> None:
         super().__init__(message)
         self.cut_off = cut_off
+
+
+class ServerError(Exception):
+    """What a model server answered in place of a reply: its own words, and the HTTP
+    status (ADR-0089). It is here rather than in ``providers`` so that reloading that
+    table leaves every client failing with the one class."""
+
+    def __init__(self, error: str, status_code: int) -> None:
+        super().__init__(error)
+        self.error = error
+        self.status_code = status_code
+
+    def __str__(self) -> str:
+        return f"{self.error} (status code: {self.status_code})"
 
 
 class ChatModel(Protocol):

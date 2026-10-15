@@ -8,24 +8,18 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, TypeAlias, cast
+from typing import TYPE_CHECKING, Any, TypeAlias
 from urllib.parse import urlsplit
 
 import httpx
-import openai
 
-from buy_agent.chat import ChatModel, SchemaT, UnreadableAnswerError, read_answer
+from buy_agent.chat import ChatModel, SchemaT, ServerError, UnreadableAnswerError, read_answer
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
-    from openai.types.chat import ChatCompletionMessageParam
-
     from buy_agent.chat import Message
     from buy_agent.config import AgentConfig
-
-#: The OpenAI client refuses to send no key, and keyless servers ignore this one.
-_NO_KEY = "EMPTY"
 
 #: The budget for a whole model listing (ADR-0032, ADR-0051).
 _LIST_TIMEOUT = 5.0
@@ -40,11 +34,7 @@ _CUT_OFF = "length"
 #: Turns a row's failure into a remedy sentence.
 Hint: TypeAlias = "Callable[[AgentConfig, Exception], str]"
 
-_TIMEOUTS = (httpx.TimeoutException, openai.APITimeoutError)
-
-#: What "the server is not there" raises through the OpenAI client, for every row that
-#: speaks its API. ``openai.OpenAIError`` leaves the socket's ``UnicodeError`` unwrapped.
-_OPENAI_TRANSPORT = (openai.OpenAIError, OSError, httpx.HTTPError, UnicodeError)
+_TIMEOUTS = (httpx.TimeoutException,)
 
 #: Concurrent ``ollama show`` probes.
 _PROBES = 8
@@ -93,16 +83,10 @@ class Provider:
         return self.own_hint(config, exc)
 
 
-class OllamaError(Exception):
-    """What Ollama answered in place of a reply: its own words, and the HTTP status."""
-
-    def __init__(self, error: str, status_code: int) -> None:
-        super().__init__(error)
-        self.error = error
-        self.status_code = status_code
-
-    def __str__(self) -> str:
-        return f"{self.error} (status code: {self.status_code})"
+#: What "the server is not there" raises through this module's clients, for every row.
+#: Refusals, timeouts and dropped streams arrive as raw ``httpx`` errors, an
+#: unencodable host (``192.168.1..5``) as ``UnicodeError``.
+_TRANSPORT = (ServerError, OSError, httpx.HTTPError, UnicodeError)
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +98,7 @@ class OllamaReply:
 
 
 class OllamaClient:
-    """Ollama's own API over httpx, and only the calls made of it here (ADR-0088)."""
+    """Ollama's own API over httpx, and only the calls made of it here (ADR-0089)."""
 
     def __init__(
         self,
@@ -177,7 +161,7 @@ class OllamaClient:
                     continue
                 progress = _decoded(line, response.status_code)
                 if "error" in progress:
-                    raise OllamaError(str(progress["error"]), response.status_code)
+                    raise ServerError(str(progress["error"]), response.status_code)
                 yield progress
 
     def close(self) -> None:
@@ -188,24 +172,37 @@ class OllamaClient:
 
 
 def _read(response: httpx.Response) -> dict[str, Any]:
-    """An answer's JSON, or the ``OllamaError`` it stands for."""
+    """An answer's JSON, or the ``ServerError`` it stands for."""
     if response.is_error:
-        try:
-            error = str(json.loads(response.text).get("error") or "")
-        except (ValueError, AttributeError):
-            error = response.text
-        raise OllamaError(error.strip() or response.reason_phrase, response.status_code)
+        said = _said(response.text).strip()
+        raise ServerError(said or response.reason_phrase, response.status_code)
     return _decoded(response.text, response.status_code)
 
 
+def _said(text: str) -> str:
+    """A refusal's own words: Ollama's ``error``, the OpenAI API's ``error.message``,
+    vLLM's top-level ``message``, else the body as it came."""
+    try:
+        body = json.loads(text)
+    except ValueError:
+        return text
+    if not isinstance(body, dict):
+        return text
+    said = body.get("error")
+    if isinstance(said, dict):
+        said = said.get("message")
+    said = said or body.get("message") or body.get("detail")
+    return str(said) if said else text
+
+
 def _decoded(text: str, status_code: int) -> dict[str, Any]:
-    """One JSON object, or an ``OllamaError``: whatever answered was not Ollama."""
+    """One JSON object, or a ``ServerError``: whatever answered was not a model server."""
     try:
         decoded = json.loads(text)
     except ValueError:
         decoded = None
     if not isinstance(decoded, dict):
-        raise OllamaError(f"answered with no JSON object: {text[:80]!r}", status_code)
+        raise ServerError(f"answered with no JSON object: {text[:80]!r}", status_code)
     return decoded
 
 
@@ -320,7 +317,7 @@ def _ollama_capability(client: OllamaClient, name: str) -> InstalledModel:
 
 
 def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
-    lowered = _answered_by(exc, OllamaError)
+    lowered = _answered_by(exc)
     if "invalid model name" in lowered:
         return (
             f"Ollama cannot read {config.model!r} as a model name ({exc}). "
@@ -350,34 +347,77 @@ def _ollama_hint(config: AgentConfig, exc: Exception) -> str:
 
 
 @dataclass(frozen=True, slots=True)
+class Completion:
+    """One OpenAI-style answer's first choice: its text, and why it stopped."""
+
+    content: str
+    finish_reason: str
+
+
+class OpenAIClient:
+    """The OpenAI chat API over httpx, as vLLM, LiteLLM and TensorRT-LLM serve it: one
+    ``POST /chat/completions``, never retried (ADR-0051, ADR-0089)."""
+
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        api_key: str,
+        timeout: float | None,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        self._url = f"{base_url.rstrip('/')}/chat/completions"
+        self._http = httpx.Client(
+            timeout=timeout,
+            transport=transport,
+            follow_redirects=True,
+            headers={"Accept": "application/json", **_bearer(api_key)},
+        )
+
+    def complete(self, body: dict[str, Any]) -> Completion | None:
+        """The first choice, or ``None`` when the server answered with none."""
+        choices = _read(self._http.post(self._url, json=body)).get("choices")
+        if not choices or not isinstance(choices, list) or not isinstance(choices[0], dict):
+            return None
+        message = choices[0].get("message") or {}
+        return Completion(
+            str(message.get("content") or ""), str(choices[0].get("finish_reason") or "")
+        )
+
+    def close(self) -> None:
+        self._http.close()
+
+
+@dataclass(frozen=True, slots=True)
 class _OpenAIChat:
     """An OpenAI-compatible chat API (vLLM, LiteLLM, TensorRT-LLM) asked for one
     schema-shaped answer (ADR-0004, ADR-0028, ADR-0068, ADR-0081)."""
 
-    client: openai.OpenAI
+    client: OpenAIClient
     model: str
     temperature: float
     extra_body: dict[str, Any]
 
     def answer(self, messages: Sequence[Message], schema: type[SchemaT]) -> SchemaT:
-        response = self.client.chat.completions.create(
-            model=self.model,
-            # Our plain dicts are the client's ``TypedDict`` at run time (ADR-0088).
-            messages=cast("list[ChatCompletionMessageParam]", list(messages)),
-            temperature=self.temperature,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {"name": schema.__name__, "schema": schema.model_json_schema()},
-            },
-            extra_body=self.extra_body,
+        choice = self.client.complete(
+            {
+                "model": self.model,
+                "messages": list(messages),
+                "temperature": self.temperature,
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": schema.__name__,
+                        "schema": schema.model_json_schema(),
+                    },
+                },
+                **self.extra_body,
+            }
         )
         # No choice at all is an answer with nothing to read, not an ``IndexError``.
-        if not response.choices:
+        if choice is None:
             return read_answer("", schema)
-        choice = response.choices[0]
-        return read_answer(
-            choice.message.content or "", schema, cut_off=choice.finish_reason == _CUT_OFF
-        )
+        return read_answer(choice.content, schema, cut_off=choice.finish_reason == _CUT_OFF)
 
     def close(self) -> None:
         self.client.close()
@@ -386,17 +426,14 @@ class _OpenAIChat:
 def _openai_chat_model(
     thinking: Callable[[bool], dict[str, Any]],
 ) -> Callable[[AgentConfig], ChatModel]:
-    """A row's ``chat_model``: the OpenAI client, asked once (ADR-0051), with
+    """A row's ``chat_model``: an ``OpenAIClient``, asked once (ADR-0051), with
     ``reasoning`` sent in the row's own words, or nothing sent for ``None`` (ADR-0019)."""
 
     def chat_model(config: AgentConfig) -> ChatModel:
         extra_body = {} if config.reasoning is None else thinking(config.reasoning)
         return _OpenAIChat(
-            client=openai.OpenAI(
-                base_url=config.base_url,
-                api_key=config.api_key or _NO_KEY,
-                timeout=config.model_timeout,
-                max_retries=0,
+            client=OpenAIClient(
+                config.base_url, api_key=config.api_key, timeout=config.model_timeout
             ),
             model=config.model,
             temperature=config.temperature,
@@ -419,7 +456,12 @@ _litellm_chat_model = _openai_chat_model(
 
 
 def _authorised(config: AgentConfig) -> dict[str, str]:
-    return {"Authorization": f"Bearer {config.api_key}"} if config.api_key else {}
+    return _bearer(config.api_key)
+
+
+def _bearer(api_key: str) -> dict[str, str]:
+    """The key as an OpenAI-style server reads it; a keyless one is sent none."""
+    return {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
 
 def _openai_models(config: AgentConfig) -> list[InstalledModel]:
@@ -440,9 +482,9 @@ def _one_model_hint(config: AgentConfig, exc: Exception, serve: str, key: str) -
     """The hint of a server started for one model by ``serve``: a refused key, a model
     it is not serving, and nothing answering (ADR-0028, ADR-0081)."""
     label = config.model_server.label
-    if isinstance(exc, openai.AuthenticationError):
+    if _refused_key(exc):
         return f"{label} at {config.base_url} refused the API key ({exc}). {key}"
-    lowered = _answered_by(exc, openai.APIStatusError)
+    lowered = _answered_by(exc)
     if "does not exist" in lowered or "not found" in lowered:
         return (
             f"{label} at {config.base_url} is not serving {config.model!r}. "
@@ -464,7 +506,7 @@ def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
 
 def _trtllm_hint(config: AgentConfig, exc: Exception) -> str:
     """``trtllm-serve`` constrains decoding only when started with a backend for it."""
-    if "guided" in _answered_by(exc, openai.APIStatusError):
+    if "guided" in _answered_by(exc):
         return (
             f"TensorRT-LLM at {config.base_url} would not decode against the JSON schema "
             f"this sends ({exc}). Restart it with guided decoding on: put "
@@ -503,12 +545,12 @@ def _litellm_installed(config: AgentConfig) -> list[InstalledModel]:
 
 def _litellm_hint(config: AgentConfig, exc: Exception) -> str:
     proxy = f"The LiteLLM proxy at {config.base_url}"
-    if isinstance(exc, openai.AuthenticationError) or _no_key_store(exc):
+    if _refused_key(exc) or _no_key_store(exc):
         return (
             f"{proxy} refused the API key ({exc}). "
             "Set $LITELLM_API_KEY to its master key or to a virtual key it issued."
         )
-    lowered = _answered_by(exc, openai.APIStatusError)
+    lowered = _answered_by(exc)
     # The proxy's own words for an unknown alias; a "not found" is relayed from behind.
     if "invalid model name" in lowered:
         return (
@@ -528,17 +570,22 @@ def _no_key_store(exc: Exception) -> bool:
     """A database-less proxy refuses a non-master key with 400 "No connected db."."""
     if isinstance(exc, httpx.HTTPStatusError):
         said = exc.response.text
-    elif isinstance(exc, openai.APIStatusError):
-        said = str(exc)
+    elif isinstance(exc, ServerError):
+        said = exc.error
     else:
         return False
     return "no connected db" in said.lower()
 
 
-def _answered_by(exc: Exception, client_error: type[Exception]) -> str:
-    """What the server itself answered, lower-cased, or "" if the row's client did not
-    raise it: a bare 404 from something else must not earn a model remedy."""
-    return str(exc).lower() if isinstance(exc, client_error) else ""
+def _answered_by(exc: Exception) -> str:
+    """What the server itself answered, lower-cased, or "" if this module's client did
+    not raise it: a bare 404 from something else must not earn a model remedy."""
+    return str(exc).lower() if isinstance(exc, ServerError) else ""
+
+
+def _refused_key(exc: Exception) -> bool:
+    """A 401 from the server itself, which is what a wrong or missing key earns."""
+    return isinstance(exc, ServerError) and exc.status_code == 401
 
 
 def _too_slow_hint(server: Provider, config: AgentConfig, exc: Exception) -> str:
@@ -601,9 +648,7 @@ OLLAMA = Provider(
     takes_cpu_only=True,
     chat_model=_ollama_chat_model,
     installed=_ollama_installed,
-    # Refusals, timeouts and dropped streams arrive as raw ``httpx`` errors, an
-    # unencodable host (``192.168.1..5``) as ``UnicodeError``.
-    transport_errors=(OllamaError, OSError, httpx.HTTPError, UnicodeError),
+    transport_errors=_TRANSPORT,
     own_hint=_ollama_hint,
     more_room="give it more room with a larger context window, or turn thinking off",
 )
@@ -620,7 +665,7 @@ VLLM = Provider(
     takes_cpu_only=False,
     chat_model=_templated_chat_model,
     installed=_openai_models,
-    transport_errors=_OPENAI_TRANSPORT,
+    transport_errors=_TRANSPORT,
     own_hint=_vllm_hint,
     # vLLM's own flag, not ours, so fine to name at either door.
     more_room="ask for fewer products, or restart it with a larger --max-model-len",
@@ -638,7 +683,7 @@ LITELLM = Provider(
     takes_cpu_only=False,
     chat_model=_litellm_chat_model,
     installed=_litellm_installed,
-    transport_errors=_OPENAI_TRANSPORT,
+    transport_errors=_TRANSPORT,
     own_hint=_litellm_hint,
     more_room=(
         "ask for fewer products, or give the model the proxy routes to a larger "
@@ -659,7 +704,7 @@ TRTLLM = Provider(
     takes_cpu_only=False,
     chat_model=_templated_chat_model,
     installed=_openai_models,
-    transport_errors=_OPENAI_TRANSPORT,
+    transport_errors=_TRANSPORT,
     own_hint=_trtllm_hint,
     # Without a guided-decoding backend it answers in free text, which lands here too.
     more_room=(

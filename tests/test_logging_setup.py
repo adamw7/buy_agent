@@ -148,9 +148,8 @@ def test_the_format_names_the_logger_and_the_message(basic_config) -> None:
 def test_the_http_clients_are_quietened_so_they_cannot_drown_out_the_report(
     basic_config, library: str
 ) -> None:
-    """httpx logs every single Ollama call at INFO, and the OpenAI client logs a line per
-    retry -- so a stopped vLLM prints its own retries above the one message that says
-    what to do about it."""
+    """httpx logs every single model call at INFO, so a run would print a line per
+    question above the one message that says what it found."""
     logging.getLogger(library).setLevel(logging.NOTSET)
 
     configure_logging()
@@ -208,15 +207,15 @@ def installed_with(roots: set[str]) -> set[str]:
 
 
 def test_every_logger_a_model_client_brings_is_quietened_or_held_down(basic_config) -> None:
-    """Read off the clients rather than off the two lists: openai's 3.x line sends
-    through `httpx2`, which logs under a name of its own, so every vLLM and LiteLLM
-    call printed "HTTP Request: POST .../chat/completions" above the report and a
-    dozen `httpcore2` lines apiece at `--verbose` -- while the tests above, which read
-    those lists back, went on passing. Each row builds its client first, since the
+    """Read off the clients rather than off the two lists: when the OpenAI-style rows
+    went through the `openai` package, its 3.x line sent through `httpx2`, which logs
+    under a name of its own, so every vLLM and LiteLLM call printed "HTTP Request: POST
+    .../chat/completions" above the report and a dozen `httpcore2` lines apiece at
+    `--verbose` -- while the tests above, which read those lists back, went on passing. Each row builds its client first, since the
     transport's loggers are only created with one."""
     for provider in PROVIDERS:
         release(provider_for(provider).chat_model(AgentConfig(provider=provider)))
-    stack = installed_with({"httpx", "openai"})
+    stack = installed_with({"httpx"})
     # By name: every library in these stacks logs under its distribution's own.
     brought = {
         module
@@ -227,7 +226,7 @@ def test_every_logger_a_model_client_brings_is_quietened_or_held_down(basic_conf
 
     configure_logging()
 
-    assert {"httpx", "httpx2"} <= brought, "the clients bring no HTTP library; test is stale"
+    assert {"httpx", "httpcore"} <= brought, "the clients bring no HTTP library; test is stale"
     assert brought <= quietened, (
         f"{sorted(brought - quietened)} log on every request and nothing quietens them"
     )

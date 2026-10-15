@@ -370,6 +370,8 @@ def test_only_providers_imports_a_model_client() -> None:
     in ``providers.PROVIDERS``, and its clients are the difference at its widest."""
     imports_none_of(
         every_module_but("providers.py"),
+        # Neither is a dependency any more (ADR-0089); held here so neither returns
+        # anywhere a model server's row would not see it.
         "ollama*",
         "openai*",
         because="a model server is one row in one table, reached one way",
@@ -522,7 +524,7 @@ def test_the_steps_and_the_orchestrator_declare_no_schema() -> None:
     those into ``None``. ``extraction.py`` holds "both prompts, both chains" and binds them
     to those schemas by name. And reading an answer back as its schema is ``chat.py``'s,
     whose ``read_answer`` turns pydantic's ``ValidationError`` into
-    ``UnreadableAnswerError`` (ADR-0088). A step that imported pydantic would be declaring
+    ``UnreadableAnswerError`` (ADR-0089). A step that imported pydantic would be declaring
     a schema outside the module whose tests say what one may hold, or catching a failure
     the seam had already translated."""
     imports_none_of(
@@ -727,7 +729,7 @@ def test_nothing_that_decides_the_answer_asks_the_model() -> None:
 
 
 def test_the_model_seam_knows_nothing_about_products() -> None:
-    """ADR-0088, which the layer table can no longer state on its own: the seams may name
+    """ADR-0089, which the layer table can no longer state on its own: the seams may name
     the domain types, ``journal.py`` writing products down (ADR-0060), so the edge the
     model seam is held to is this one. ``chat.py`` is "a prompt, a chain, an answer read
     back as its schema" -- the schema is the caller's, which is what lets a stand-in for

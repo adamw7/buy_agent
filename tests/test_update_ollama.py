@@ -7,7 +7,8 @@ from typing import Any
 import httpx
 import pytest
 
-from buy_agent.providers import OllamaClient, OllamaError
+from buy_agent.chat import ServerError
+from buy_agent.providers import OllamaClient
 from scripts.update_ollama import (
     _connect,
     Outcome,
@@ -150,7 +151,7 @@ def test_a_refused_pull_is_recorded_and_the_rest_still_run() -> None:
     """One unknown tag should not cost the models named after it their update."""
     client = FakeClient(
         {"llama3.2:latest": "sha256:aaa", "nope:1b": "sha256:bbb"},
-        fails={"nope:1b": OllamaError("model not found", 404)},
+        fails={"nope:1b": ServerError("model not found", 404)},
     )
     outcomes = {outcome.model: outcome for outcome in update(client, echo=lambda line: None)}
     assert client.pulled == ["llama3.2:latest", "nope:1b"]
@@ -160,7 +161,7 @@ def test_a_refused_pull_is_recorded_and_the_rest_still_run() -> None:
 
 def test_a_refusal_with_nothing_to_say_falls_back_to_its_status() -> None:
     """An empty message would print ``failed --`` and leave the reader guessing."""
-    client = FakeClient({"nope:1b": "sha256:bbb"}, fails={"nope:1b": OllamaError("", 500)})
+    client = FakeClient({"nope:1b": "sha256:bbb"}, fails={"nope:1b": ServerError("", 500)})
     (outcome,) = update(client, echo=lambda line: None)
     assert outcome.error == "HTTP 500"
 
@@ -242,7 +243,7 @@ def test_a_run_that_updated_everything_prints_the_report_and_succeeds(
 
 
 def test_a_run_with_a_refused_pull_says_so_and_fails() -> None:
-    client = FakeClient({"nope:1b": "sha256:bbb"}, fails={"nope:1b": OllamaError("model not found", 404)})
+    client = FakeClient({"nope:1b": "sha256:bbb"}, fails={"nope:1b": ServerError("model not found", 404)})
     assert main([], lambda base_url: client) == 1
 
 

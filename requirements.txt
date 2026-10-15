@@ -1,8 +1,7 @@
 # Every package buy_agent imports, pinned to the version tested -- which
-# tests/test_conventions.py holds both ways. No framework for the model calls:
-# Ollama is spoken to over httpx, the other servers through openai (ADR-0088).
+# tests/test_conventions.py holds both ways. No framework and no client library for
+# the model calls: every model server is spoken to over httpx (ADR-0089).
 # The optional AP2 SDK is in requirements-ap2.txt.
-openai==3.31.0
 ddgs==9.16.0
 pydantic==2.14.1
 httpx==0.28.1

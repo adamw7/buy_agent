@@ -1,6 +1,6 @@
 # ADR-0088: Speak Ollama's API over httpx, and drop its client
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0089](0089-speak-every-model-servers-api-over-httpx.md)
 - **Date:** 2026-10-15
 
 ## Context

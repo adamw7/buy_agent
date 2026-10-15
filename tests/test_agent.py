@@ -13,7 +13,8 @@ from buy_agent.agent import BuyAgent, ModelUnavailableError, _asks_the_same_ques
 from buy_agent.cache import DEFAULT_TTL
 from buy_agent.config import AgentConfig
 from buy_agent.models import ExtractedProduct, ProductList, SearchQuery
-from buy_agent.providers import OllamaError, OllamaReply
+from buy_agent.chat import ServerError
+from buy_agent.providers import OllamaReply
 from buy_agent.ranking import RankingWeights
 from buy_agent.search import SearchError, SearchResult
 from buy_agent.sources import parse_sources
@@ -507,7 +508,7 @@ def test_the_missing_model_error_names_what_is_installed(
 ) -> None:
     """Half of these failures are a typo in the tag, so show the real ones."""
     installed_models(["lfm2.5:latest", "qwen3:8b"])
-    llm = FakeLLM(raises=OllamaError("model 'llama3.2' not found", 404))
+    llm = FakeLLM(raises=ServerError("model 'llama3.2' not found", 404))
     agent, _ = agent_factory(llm, search_results, model="llama3.2")
 
     with pytest.raises(ModelUnavailableError, match="lfm2.5:latest, qwen3:8b"):

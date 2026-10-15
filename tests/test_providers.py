@@ -8,11 +8,10 @@ import threading
 from types import SimpleNamespace
 
 import httpx
-import openai
 import pytest
 
 import buy_agent.providers as providers_module
-from buy_agent.chat import UnreadableAnswerError
+from buy_agent.chat import ServerError, UnreadableAnswerError
 from buy_agent.config import AgentConfig
 from buy_agent.models import SearchQuery
 
@@ -29,7 +28,7 @@ _COMPLETION = "completion"
 _EMBEDDING = "embedding"
 VLLM_CONFIG = AgentConfig(provider="vllm", model="Qwen/Qwen3-8B")
 
-#: Every server, every one reached through the OpenAI client, and every one rendering the
+#: Every server, every one reached through ``OpenAIClient``, and every one rendering the
 #: thinking switch into its chat template -- read off the table, so a new row is tried
 #: wherever it belongs without editing each list. Names only: the rows themselves would
 #: go stale on a reload.
@@ -45,8 +44,8 @@ _TEMPLATED = [
     if row.chat_model is providers_module.VLLM.chat_model
 ]
 
-#: The OpenAI client's errors all carry the request that failed, so building one
-#: takes a request. Which request is irrelevant here -- nothing sends it.
+#: httpx's status errors carry the request that failed, so building one takes a
+#: request. Which request is irrelevant here -- nothing sends it.
 _REQUEST = httpx.Request("POST", "http://localhost:8000/v1/chat/completions")
 
 
@@ -137,7 +136,7 @@ def chatting(monkeypatch):
 
 @pytest.fixture
 def completing(monkeypatch):
-    """Stand in for the OpenAI client vLLM is reached through, capturing the call."""
+    """Stand in for the ``OpenAIClient`` vLLM is reached through, capturing the call."""
     sent: dict = {}
 
     def install(
@@ -147,24 +146,21 @@ def completing(monkeypatch):
         stopped: str = "stop",
     ) -> dict:
         class FakeOpenAI:
-            def __init__(self, **kwargs) -> None:
-                sent["client"] = kwargs
-                self.chat = SimpleNamespace(completions=SimpleNamespace(create=create))
+            def __init__(self, base_url: str, **kwargs) -> None:
+                sent["client"] = {"base_url": base_url, **kwargs}
+
+            @staticmethod
+            def complete(body: dict):
+                sent.update(body)
+                if choices is not None:
+                    return choices[0] if choices else None
+                return providers_module.Completion(answered, stopped)
 
             @staticmethod
             def close() -> None:
                 sent["closed"] = True
 
-        def create(**kwargs):
-            sent.update(kwargs)
-            if choices is not None:
-                return SimpleNamespace(choices=choices)
-            choice = SimpleNamespace(
-                message=SimpleNamespace(content=answered), finish_reason=stopped
-            )
-            return SimpleNamespace(choices=[choice])
-
-        monkeypatch.setattr("buy_agent.providers.openai.OpenAI", FakeOpenAI)
+        monkeypatch.setattr("buy_agent.providers.OpenAIClient", FakeOpenAI)
         return sent
 
     return install
@@ -211,7 +207,7 @@ def pulled(monkeypatch):
             def show(self, name: str):
                 asked["shown"].append(name)
                 if capabilities is not None and name not in reported:
-                    raise providers_module.OllamaError(f"model {name!r} not found", 404)
+                    raise ServerError(f"model {name!r} not found", 404)
                 return reported.get(name, [_COMPLETION])
 
             # The listing opens a client of its own, so it closes one of its own --
@@ -280,7 +276,6 @@ def test_an_openai_style_server_is_pointed_at_the_api_it_serves(
     sent = asked(config, completing())
 
     assert sent["client"]["base_url"] == "http://gpu.internal:8000/v1"
-    assert sent["client"]["max_retries"] == 0, "the model is asked once (ADR-0051)"
     assert sent["model"] == "Qwen/Qwen3-8B"
     assert sent["temperature"] == 0.2
 
@@ -310,7 +305,7 @@ def test_vllm_carries_the_thinking_switch_its_templates_read(
     ``trtllm-serve`` render look for, and ADR-0019's default of off has to reach them."""
     sent = asked(AgentConfig(provider=provider, reasoning=reasoning), completing())
 
-    assert sent["extra_body"] == {"chat_template_kwargs": {"enable_thinking": reasoning}}
+    assert sent["chat_template_kwargs"] == {"enable_thinking": reasoning}
 
 
 @pytest.mark.parametrize("provider", _TEMPLATED)
@@ -318,7 +313,7 @@ def test_vllm_sends_nothing_when_thinking_is_left_alone(completing, provider: st
     """The tri-state's third value: send nothing, and let the template decide."""
     sent = asked(AgentConfig(provider=provider, reasoning=None), completing())
 
-    assert sent["extra_body"] == {}
+    assert "chat_template_kwargs" not in sent
 
 
 @pytest.mark.parametrize("provider", _EVERY)
@@ -501,7 +496,7 @@ def test_the_listing_is_asked_of_the_api_root_the_config_names(serving, provider
 def test_a_stopped_vllm_is_told_to_serve_the_model_it_was_asked_for() -> None:
     """Unlike Ollama's, this command needs the model in it: a vLLM is started for
     one model, so "start it" and "start it with this" are the same sentence."""
-    message = hint(VLLM_CONFIG, openai.APIConnectionError(request=_REQUEST))
+    message = hint(VLLM_CONFIG, httpx.ConnectError("Connection error."))
 
     assert "vllm serve Qwen/Qwen3-8B" in message
     assert VLLM_CONFIG.base_url in message
@@ -509,12 +504,11 @@ def test_a_stopped_vllm_is_told_to_serve_the_model_it_was_asked_for() -> None:
 
 
 def test_a_refused_vllm_key_quotes_the_refusal() -> None:
-    response = httpx.Response(401, request=_REQUEST)
-    refused = openai.AuthenticationError("Invalid API key: sk-...", response=response, body=None)
+    refused = ServerError("Invalid API key: sk-...", 401)
 
     message = hint(VLLM_CONFIG, refused)
 
-    assert "refused the API key (Invalid API key: sk-...)" in message
+    assert "refused the API key (Invalid API key: sk-..." in message
     assert "$VLLM_API_KEY" in message
 
 
@@ -577,7 +571,7 @@ def test_an_unreadable_answer_that_says_nothing_is_named_by_its_kind() -> None:
 def test_a_refused_key_says_which_variable_sets_one() -> None:
     """The one failure that is neither "not running" nor "not serving that", and
     the only one whose fix is an environment variable rather than a command."""
-    message = hint(VLLM_CONFIG, _status_error(openai.AuthenticationError, 401))
+    message = hint(VLLM_CONFIG, _status_error(401))
 
     assert "$VLLM_API_KEY" in message
     assert "--api-key" in message
@@ -587,8 +581,7 @@ def test_a_model_vllm_reports_as_not_found_is_one_it_is_not_serving(serving) -> 
     """The other way a vLLM words a model it does not have; this one as plain as Ollama's
     for a tag it has not pulled."""
     serving(["Qwen/Qwen3-0.6B"])
-    response = httpx.Response(404, request=_REQUEST)
-    refused = openai.NotFoundError("Model Qwen/Qwen3-8B not found", response=response, body=None)
+    refused = ServerError("Model Qwen/Qwen3-8B not found", 404)
 
     message = hint(VLLM_CONFIG, refused)
 
@@ -607,7 +600,7 @@ def test_a_one_model_server_that_cannot_be_listed_still_says_how_to_restart_it(
     serving([], error=httpx.ConnectError("refused"))
     config = AgentConfig(provider=provider, model="Qwen/Qwen3-8B")
 
-    message = hint(config, _status_error(openai.NotFoundError, 404))
+    message = hint(config, _status_error(404))
 
     assert "serving: unknown" in message
     assert f"{command} Qwen/Qwen3-8B" in message
@@ -642,7 +635,7 @@ def test_a_name_ollama_cannot_parse_is_not_a_server_to_start(pulled) -> None:
     and a pull is no better, since ``ollama pull`` refuses the same string."""
     pulled(["gemma4:12b"])
     config = AgentConfig(provider="ollama", model="[object Object]")
-    message = hint(config, providers_module.OllamaError("invalid model name", 400))
+    message = hint(config, ServerError("invalid model name", 400))
 
     assert "cannot read '[object Object]' as a model name" in message
     assert "installed: gemma4:12b" in message
@@ -654,7 +647,7 @@ def test_an_ollama_serving_nothing_that_answers_reports_none(pulled) -> None:
     """The empty case of that narrowing: tags are pulled, none of them can chat."""
     pulled(["nomic-embed-text"], capabilities={"nomic-embed-text": [_EMBEDDING]})
     config = AgentConfig(provider="ollama", model="nomic-embed-text")
-    message = hint(config, providers_module.OllamaError('"nomic-embed-text" does not support chat', 400))
+    message = hint(config, ServerError('"nomic-embed-text" does not support chat', 400))
 
     assert "installed: none" in message
 
@@ -666,7 +659,7 @@ def test_thinking_asked_of_a_model_without_it_is_not_an_embedding_model(pulled) 
     what it needs is thinking turned off."""
     pulled(["gemma3:4b", "nomic-embed-text"], capabilities={"gemma3:4b": [_COMPLETION]})
     config = AgentConfig(provider="ollama", model="gemma3:4b", reasoning=True)
-    message = hint(config, providers_module.OllamaError('"gemma3:4b" does not support thinking', 400))
+    message = hint(config, ServerError('"gemma3:4b" does not support thinking', 400))
 
     assert "Turn thinking off" in message
     assert "does not support thinking" in message, "Ollama's own words are quoted"
@@ -681,7 +674,7 @@ def test_thinking_asked_of_a_model_without_it_is_not_an_embedding_model(pulled) 
 @pytest.mark.parametrize(
     "failure",
     [
-        openai.APIConnectionError(request=_REQUEST),
+        httpx.ConnectError("Connection error."),
         httpx.ConnectError("refused"),
         ConnectionRefusedError("refused"),
         # The socket's own, for a host it cannot encode (``192.168.1..5``).
@@ -720,10 +713,9 @@ def test_the_key_is_read_from_the_environment(reloaded_providers, provider: str)
     assert AgentConfig(provider=provider).api_key == "s3cret"
 
 
-def _status_error(kind: type[openai.APIStatusError], status: int) -> openai.APIStatusError:
-    """One of the OpenAI client's status errors, built the way the client builds it."""
-    response = httpx.Response(status, request=_REQUEST)
-    return kind("The model `Qwen/Qwen3-8B` does not exist.", response=response, body=None)
+def _status_error(status: int) -> Exception:
+    """What a vLLM answers for a model it is not serving, at ``status``."""
+    return ServerError("The model `Qwen/Qwen3-8B` does not exist.", status)
 
 
 def test_the_listing_budget_covers_the_listing_and_not_each_tag(monkeypatch) -> None:
@@ -803,7 +795,7 @@ LITELLM_CONFIG = AgentConfig(provider="litellm", model="local_model")
         (False, {"reasoning_effort": "none"}),
     ],
 )
-def test_a_proxy_is_asked_through_the_openai_client(
+def test_a_proxy_is_asked_through_the_openai_style_client(
     completing, reasoning: bool | None, extra_body: dict
 ) -> None:
     """vLLM's client, asked once, with thinking in LiteLLM's own spelling and neither
@@ -814,15 +806,10 @@ def test_a_proxy_is_asked_through_the_openai_client(
 
     sent = asked(config, completing())
 
-    assert sent["client"] == {
-        "base_url": "http://localhost:4000/v1",
-        "api_key": "EMPTY",
-        "timeout": 9,
-        "max_retries": 0,
-    }
+    assert sent["client"] == {"base_url": "http://localhost:4000/v1", "api_key": "", "timeout": 9}
     assert sent["model"] == "local_model"
     assert sent["response_format"]["json_schema"]["schema"] == SearchQuery.model_json_schema()
-    assert sent["extra_body"] == extra_body
+    assert {key: sent[key] for key in sent if key == "reasoning_effort"} == extra_body
 
 
 def _proxy(monkeypatch, info: Exception | list[dict], models: tuple[str, ...] = ()) -> list:
@@ -894,23 +881,23 @@ def test_a_proxy_that_will_not_say_falls_back_to_the_plain_listing(
     assert asked_for[-1] == ("http://localhost:4000/v1/models", {}, providers_module._LIST_TIMEOUT)
 
 
-def _answered(kind: type[openai.APIStatusError], status: int, said: str) -> Exception:
-    return kind(said, response=httpx.Response(status, request=_REQUEST), body=None)
+def _answered(status: int, said: str) -> Exception:
+    return ServerError(said, status)
 
 
 @pytest.mark.parametrize(
     ("exc", "says", "never"),
     [
-        (openai.APIConnectionError(request=_REQUEST), "litellm --config config.yaml", "model_list"),
-        (_answered(openai.AuthenticationError, 401, "no"), "$LITELLM_API_KEY", "litellm --config"),
+        (httpx.ConnectError("Connection error."), "litellm --config config.yaml", "model_list"),
+        (_answered(401, "no"), "$LITELLM_API_KEY", "litellm --config"),
         (
-            _answered(openai.BadRequestError, 400, "Invalid model name passed in model=x"),
+            _answered(400, "Invalid model name passed in model=x"),
             "(routing: embedder), or add it to the model_list",
             "litellm --config",
         ),
         (
             # A key a proxy with no database cannot look up, answered with a 400.
-            _answered(openai.BadRequestError, 400, "No connected db."),
+            _answered(400, "No connected db."),
             "$LITELLM_API_KEY",
             "answered, but",
         ),
@@ -926,21 +913,19 @@ def _answered(kind: type[openai.APIStatusError], status: int, said: str) -> Exce
         ),
         (
             # The routed server's own miss, relayed: the alias is the proxy's.
-            _answered(
-                openai.NotFoundError,
-                404,
+            _answered(404,
                 "litellm.NotFoundError: Ollama_chatException - model 'qwen3' not found",
             ),
             "answered, but the model behind 'local_model' failed (litellm.NotFoundError",
             "model_list",
         ),
         (
-            _answered(openai.RateLimitError, 429, "rpm limit reached"),
-            "answered, but the model behind 'local_model' failed (rpm limit reached)",
+            _answered(429, "rpm limit reached"),
+            "answered, but the model behind 'local_model' failed (rpm limit reached",
             "Could not reach",
         ),
         (
-            # A 404 the OpenAI client did not raise is not the proxy's answer.
+            # A 404 the chat client did not raise is not the proxy's answer.
             httpx.HTTPStatusError("404", request=_REQUEST, response=httpx.Response(404)),
             "Could not reach LiteLLM",
             "model_list",
@@ -980,24 +965,23 @@ TRTLLM_CONFIG = AgentConfig(provider="trtllm", model="Qwen/Qwen3-8B")
 def test_a_trtllm_started_without_guided_decoding_is_told_how_to_turn_it_on() -> None:
     """Without a backend for it, ``trtllm-serve`` cannot honour ``response_format`` --
     the one failure of this row that vLLM's never has."""
-    refused = _answered(
-        openai.BadRequestError, 400, "Guided decoding is not enabled for this server"
+    refused = _answered(400, "Guided decoding is not enabled for this server"
     )
 
     message = hint(TRTLLM_CONFIG, refused)
 
     assert "guided_decoding_backend: xgrammar" in message
     assert "trtllm-serve Qwen/Qwen3-8B --extra_llm_api_options" in message
-    assert "(Guided decoding is not enabled for this server)" in message
+    assert "(Guided decoding is not enabled for this server" in message
 
 
 @pytest.mark.parametrize(
     ("exc", "says"),
     [
-        (openai.APIConnectionError(request=_REQUEST), "Start it with:  trtllm-serve Qwen/Qwen3-8B"),
-        (_status_error(openai.AuthenticationError, 401), "Set $TRTLLM_API_KEY"),
+        (httpx.ConnectError("Connection error."), "Start it with:  trtllm-serve Qwen/Qwen3-8B"),
+        (_status_error(401), "Set $TRTLLM_API_KEY"),
         (
-            _status_error(openai.NotFoundError, 404),
+            _status_error(404),
             "A TensorRT-LLM process serves one model",
         ),
         (httpx.ReadTimeout("slow"), "or a shorter prompt."),
@@ -1155,7 +1139,7 @@ def test_a_refused_pull_is_an_ollama_error(
 ) -> None:
     client, _ = ollama_answering(answer)
 
-    with pytest.raises(providers_module.OllamaError) as raised:
+    with pytest.raises(providers_module.ServerError) as raised:
         list(client.pull("nope:1b"))
 
     assert (raised.value.error, raised.value.status_code) == (error, status_code)
@@ -1197,7 +1181,7 @@ def test_whatever_answers_in_place_of_a_reply_is_an_ollama_error(
     """Each is one of the provider's transport errors, so a run fails with a hint."""
     client, _ = ollama_answering(answer)
 
-    with pytest.raises(providers_module.OllamaError) as raised:
+    with pytest.raises(providers_module.ServerError) as raised:
         client.show("x")
 
     assert str(raised.value) == message
@@ -1211,3 +1195,101 @@ def test_the_client_lets_go_of_its_connections() -> None:
 
     with pytest.raises(RuntimeError, match="closed"):
         client.tags()
+
+
+# -- the OpenAI chat API, spoken over httpx (ADR-0089) --------------------------
+
+
+def openai_answering(
+    *answers: httpx.Response, api_key: str = ""
+) -> tuple[providers_module.OpenAIClient, list]:
+    """An ``OpenAIClient`` whose server answers ``answers`` in turn, recording each request."""
+    requests: list[httpx.Request] = []
+    queued = list(answers)
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return queued.pop(0)
+
+    client = providers_module.OpenAIClient(
+        "http://gpu.internal:8000/v1/",
+        api_key=api_key,
+        timeout=5.0,
+        transport=httpx.MockTransport(handle),
+    )
+    return client, requests
+
+
+def test_a_completion_is_one_post_of_the_body_it_was_handed() -> None:
+    choice = {"message": {"role": "assistant", "content": "{}"}, "finish_reason": "length"}
+    client, requests = openai_answering(httpx.Response(200, json={"choices": [choice]}))
+
+    answered = client.complete({"model": "Qwen/Qwen3-8B", "temperature": 0.0})
+
+    (request,) = requests
+    assert (request.method, str(request.url)) == (
+        "POST",
+        "http://gpu.internal:8000/v1/chat/completions",
+    )
+    assert json.loads(request.content) == {"model": "Qwen/Qwen3-8B", "temperature": 0.0}
+    assert "authorization" not in request.headers, "a keyless server is sent no key"
+    assert answered == providers_module.Completion("{}", "length")
+
+
+def test_a_key_is_sent_as_a_bearer_token() -> None:
+    client, requests = openai_answering(
+        httpx.Response(200, json={"choices": [{}]}), api_key="s3cret"
+    )
+
+    assert client.complete({}) == providers_module.Completion("", "")
+    assert requests[0].headers["authorization"] == "Bearer s3cret"
+
+
+@pytest.mark.parametrize(
+    "answered",
+    [
+        pytest.param({}, id="no choices"),
+        pytest.param({"choices": []}, id="an empty list"),
+        pytest.param({"choices": "none"}, id="not a list"),
+        pytest.param({"choices": ["text"]}, id="a choice that is not an object"),
+    ],
+)
+def test_an_answer_with_no_choice_in_it_is_none(answered: dict) -> None:
+    client, _ = openai_answering(httpx.Response(200, json=answered))
+
+    assert client.complete({}) is None
+
+
+@pytest.mark.parametrize(
+    ("body", "said"),
+    [
+        pytest.param(
+            {"error": {"message": "Invalid model name passed in model=x"}},
+            "Invalid model name passed in model=x",
+            id="the OpenAI API's error.message",
+        ),
+        pytest.param(
+            {"object": "error", "message": "The model `x` does not exist.", "code": 404},
+            "The model `x` does not exist.",
+            id="vLLM's top-level message",
+        ),
+        pytest.param({"detail": "Not Found"}, "Not Found", id="a framework's detail"),
+        pytest.param({"code": 404}, '{"code":404}', id="nothing it would say"),
+    ],
+)
+def test_a_refusal_is_read_in_the_servers_own_words(body: dict, said: str) -> None:
+    client, _ = openai_answering(httpx.Response(404, json=body))
+
+    with pytest.raises(ServerError) as raised:
+        client.complete({})
+
+    assert (raised.value.error, raised.value.status_code) == (said, 404)
+
+
+def test_the_openai_style_client_lets_go_of_its_connections() -> None:
+    client, _ = openai_answering()
+
+    client.close()
+
+    with pytest.raises(RuntimeError, match="closed"):
+        client.complete({})

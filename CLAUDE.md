@@ -10,7 +10,7 @@ are extracted, ranked, and the top 3 logged. The model is local, served by
 Ollama, vLLM, TensorRT-LLM, or whatever a LiteLLM proxy routes to.
 `AgentConfig.provider` chooses, and `buy_agent/providers.py` is the only module
 that knows the difference (ADR-0028, ADR-0068, ADR-0081). There is no framework: `buy_agent/chat.py` is the
-whole model seam (ADR-0088). `ui/` is an Angular front end served by
+whole model seam (ADR-0089). `ui/` is an Angular front end served by
 `buy_agent.server`. Two things are optional, off by default and need extra
 installs: *buying* what was found, authorised by signed
 [AP2](https://ap2-protocol.org) mandates (ADR-0046), and a screenshot of each
@@ -147,8 +147,8 @@ use `conftest.SOURCE_ROOT`, and no test reads declarations (such as
   model (`gemma4:12b`) thinks, and the ~4.3k-token extraction prompt plus the
   JSON output would not fit in 4096 (ADR-0019, ADR-0050). `num_ctx` and
   `cpu_only` are Ollama-only (`Provider.takes_num_ctx`/`takes_cpu_only`), and
-  both front ends say so. `model_timeout` is set on each client, and OpenAI
-  clients get `max_retries=0` (ADR-0051). `cpu_only` and `model_timeout` are not
+  both front ends say so. `model_timeout` is set on each client, and neither
+  client retries (ADR-0051). `cpu_only` and `model_timeout` are not
   part of the answer-cache fingerprint.
 
 ## Architecture
@@ -158,8 +158,8 @@ responsibility or boundary moves. `docs/adr/` is the decision log, indexed by
 `docs/adr/README.md`; a new ADR is the file plus its index row, starting from
 `docs/adr/0000-template.md`. To contradict an accepted record, write a new one
 that supersedes it. Never reuse a number or rewrite an accepted record. Every
-record is Accepted but ADR-0020, ADR-0038 and ADR-0065, which ADR-0037, ADR-0088
-and ADR-0087 supersede.
+record is Accepted but ADR-0020, ADR-0038, ADR-0065 and ADR-0088, which ADR-0037,
+ADR-0088, ADR-0087 and ADR-0089 supersede.
 
 `.claude/skills/` holds checklists over these rules: `add-option` (a new
 setting), `add-row` (a model server, rail or search backend), `add-adr` (the
@@ -190,7 +190,7 @@ The order matters at three joints:
 | Module | Responsibility |
 | --- | --- |
 | `agent.py` | `BuyAgent.run()` -- orchestrates the pipeline, translates model-server errors |
-| `chat.py` | The whole model-facing seam: a prompt, a chain, an answer read back as its schema (ADR-0088) |
+| `chat.py` | The whole model-facing seam: a prompt, a chain, an answer read back as its schema (ADR-0089) |
 | `extraction.py` | Both prompts, both chains, name cleaning, deduplication |
 | `fetch.py` | Streams result pages up to a ceiling, keeps the lines quoting a figure, a listing's standing or a judgement, and tallies how the rest failed |
 | `structured.py` | What a page declares in schema.org JSON-LD, written as the lines a shop prints (ADR-0078) -- no HTML, no I/O |
@@ -377,8 +377,9 @@ nothing readable. They map through `api.PAY_STATUS` and are caught in
 
 Only query refinement is recoverable: it falls back to the raw request but lets
 `ModelUnavailableError` through. `_invoke` catches
-`config.model_server.transport_errors` (Ollama's tuple includes `httpx.HTTPError`,
-OpenAI-style rows use `openai.OpenAIError`). Every row that dials an address, and
+`config.model_server.transport_errors`, which is `providers._TRANSPORT` for every
+row: `chat.ServerError` for what a server answered in place of a reply, and
+`httpx.HTTPError` for the rest (ADR-0089). Every row that dials an address, and
 `fetch`, also counts `UnicodeError`, which the socket raises unwrapped for a host
 it cannot encode. `chat.UnreadableAnswerError` is a `ValueError`, so
 `_extract_products` turns it into a `ModelUnavailableError` with the provider's
@@ -592,9 +593,9 @@ rules a change must obey:
   `rails.httpx.post`. `search_web` is patched only on `agent`, which is why the
   source fan-out lives there.
 - **Model clients:** patch `providers.OllamaClient` (Ollama chat and `show`),
-  `providers.openai.OpenAI`, and `providers.httpx.get` (all listings). Assert on
-  the *request*. `OllamaClient` itself is tested against `httpx.MockTransport`
-  (ADR-0088). Never patch `DDGS.text`.
+  `providers.OpenAIClient` (the other rows' chat), and `providers.httpx.get` (all
+  listings). Assert on the *request*. Both clients are themselves tested against
+  `httpx.MockTransport` (ADR-0089). Never patch `DDGS.text`.
 - **Table rows** are compared by identity only through their module
   (`providers_module.OLLAMA`), because tests reload those modules.
 - **No test in `tests/`** touches the network, a model server or the real cache.
