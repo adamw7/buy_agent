@@ -7,7 +7,7 @@
  * recording has no dead air in it beyond the pacing `demo/server.py` puts there
  * on purpose.
  *
- *   node demo/record.mjs --url http://127.0.0.1:8000 --out demo/buy-agent-demo.mpg
+ *   node demo/record.mjs --url http://127.0.0.1:8000 --out demo/recordings/buy-agent-demo.mpg
  *
  * `--script` names the same fabricated web `demo/server.py` was started with,
  * and is what the typed request and the shop pages are read out of -- so the
@@ -42,7 +42,7 @@ const { chromium } = playwright();
 const args = parseArgs();
 
 const url = args.url ?? 'http://127.0.0.1:8000';
-const out = resolve(args.out ?? 'demo/buy-agent-demo.mpg');
+const out = resolve(args.out ?? 'demo/recordings/buy-agent-demo.mpg');
 const followLink = 'follow-link' in args;
 const sound = 'sound' in args;
 const size = { width: 1280, height: 720 };

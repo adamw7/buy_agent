@@ -2,7 +2,7 @@
  * Film the benchmark's page comparing models on a CPU, narrated, as an MP4.
  *
  *   python -m benchmark.server                                   # in one terminal
- *   node demo/benchmark.mjs --models qwen3:0.6b --out demo/benchmark-on-cpu.mp4
+ *   node demo/benchmark.mjs --models qwen3:0.6b --out demo/recordings/benchmark-on-cpu.mp4
  *
  * The models are real and served by Ollama; nothing is scripted but the two
  * reference answers the page offers anyway. What the recording claims about the
@@ -39,7 +39,7 @@ const { chromium } = playwright();
 const args = parseArgs();
 const url = (args.url || 'http://127.0.0.1:8100').replace(/\/$/, '');
 const ollama = (args.ollama || 'http://localhost:11434').replace(/\/$/, '');
-const out = resolve(args.out || 'demo/benchmark-on-cpu.mp4');
+const out = resolve(args.out || 'demo/recordings/benchmark-on-cpu.mp4');
 const models = (args.models || 'qwen3:0.6b')
   .split(',')
   .map((name) => name.trim())
