@@ -68,7 +68,7 @@ async function ask(base, path, options = {}) {
 // -- what is said, and how it sounds --------------------------------------------
 
 /**
- * How a model's name is said: "qwen3:0.6b" as "Kwen 3, 0.6 billion".
+ * How a model's name is said: "qwen3:0.6b" as "Kwen 3, 600 million".
  *
  * Read letter by letter, a tag is noise; the families below are the ones a TTS
  * engine gets wrong, spelled the way they are said.
@@ -89,8 +89,18 @@ function spoken(model) {
     .replace(/[-_.]/g, ' ')
     .replace(/([a-z])(\d)/gi, '$1 $2');
   const billions = tag.match(/^(\d+(?:\.\d+)?)b$/i);
-  if (billions) return `${words}, ${billions[1]} billion`;
+  if (billions) return `${words}, ${spokenBillions(Number(billions[1]))}`;
   return tag && tag !== 'latest' ? `${words}, ${tag.replace(/[-_]/g, ' ')}` : words;
+}
+
+/**
+ * A size in billions of parameters, as it is said. A voice reading "0.6 billion"
+ * drops the "0." and says "six billion", so under a billion is counted in
+ * millions, and a decimal point is said as "point".
+ */
+function spokenBillions(count) {
+  if (count < 1) return `${Math.round(count * 1000)} million`;
+  return `${String(count).replace('.', ' point ')} billion`;
 }
 
 /** A duration as the page writes it ("52.3 s", "3 min 07 s"), as it is said. */
