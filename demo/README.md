@@ -1,7 +1,7 @@
 # The recorded UI demos
 
 Three runs of the UI, recorded in Chromium at 1280x720 and 25fps as MPEG program
-streams, and one of the benchmark's page as an MP4, plus a local counterparty for
+streams, and one of the benchmark's page as an MP4, all in `recordings/`, plus a local counterparty for
 the `http` payment rail (see the end).
 
 | Video | The shopper asks for | Ends on | Sound |
@@ -101,15 +101,15 @@ cd ui ; npm install ; npm run build ; cd ..     # server.DEFAULT_UI_DIR wants th
 
 python -m demo.server --script laptops --pace 0.6 --port 8000    # in one terminal
 node demo/record.mjs --url http://127.0.0.1:8000 --script laptops --follow-link `
-    --out demo/laptops-under-1000.mpg
+    --out demo/recordings/laptops-under-1000.mpg
 
 python -m demo.server --script books --pace 0.6 --port 8000      # the other one
 node demo/record.mjs --url http://127.0.0.1:8000 --script books `
-    --out demo/wwii-books-1944-45.mpg
+    --out demo/recordings/wwii-books-1944-45.mpg
 
 python -m demo.server --script books --pace 0.45 --port 8000     # and the third
 node demo/record.mjs --url http://127.0.0.1:8000 --script books --sound `
-    --out demo/wwii-books-1944-45-with-sound.mpg
+    --out demo/recordings/wwii-books-1944-45-with-sound.mpg
 ```
 
 Pass the same `--script` to both: the server searches that fabricated web, and
@@ -138,7 +138,7 @@ $env:CUDA_VISIBLE_DEVICES = "-1" ; $env:LLAMA_ARG_NO_REPACK = "1"
 ollama serve                                           # one terminal: no GPU
 $env:BUY_AGENT_CACHE_DIR = "$env:TEMP\benchmark-demo"   # another: an empty board
 python -m benchmark.server
-node demo/benchmark.mjs --models qwen3:0.6b --out demo/benchmark-on-cpu.mp4
+node demo/benchmark.mjs --models qwen3:0.6b --out demo/recordings/benchmark-on-cpu.mp4
 ```
 
 It is a demo of the models running **on the CPU only**, and it checks rather
@@ -204,7 +204,7 @@ Standings card down to the bottom of its table, which leaves out the recorder's
 `ollama ps` box and the board's path beneath the table:
 
 ```powershell
-ffmpeg -ss 171.6 -i demo/benchmark-on-cpu.mp4 -frames:v 1 `
+ffmpeg -ss 171.6 -i demo/recordings/benchmark-on-cpu.mp4 -frames:v 1 `
     -vf "format=rgb24,crop=1098:322:91:267" -pred mixed docs/benchmark.png
 ```
 

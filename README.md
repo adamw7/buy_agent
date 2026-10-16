@@ -12,12 +12,12 @@ pages say about them, ranks them, and logs the best 3.
 ![The top 3 of a run: price, rating, seller, quotes and what each score is made of](docs/results.png)
 
 Three runs of that page are recorded in `demo/`:
-[`wwii-books-1944-45.mpg`](demo/wwii-books-1944-45.mpg),
-[`wwii-books-1944-45-with-sound.mpg`](demo/wwii-books-1944-45-with-sound.mpg)
+[`wwii-books-1944-45.mpg`](demo/recordings/wwii-books-1944-45.mpg),
+[`wwii-books-1944-45-with-sound.mpg`](demo/recordings/wwii-books-1944-45-with-sound.mpg)
 (each log line where the pipeline catches the model out gets a note) and
-[`laptops-under-1000.mpg`](demo/laptops-under-1000.mpg). They are MPEG program
+[`laptops-under-1000.mpg`](demo/recordings/laptops-under-1000.mpg). They are MPEG program
 streams, which browsers download rather than play. A fourth,
-[`benchmark-on-cpu.mp4`](demo/benchmark-on-cpu.mp4), records
+[`benchmark-on-cpu.mp4`](demo/recordings/benchmark-on-cpu.mp4), records
 [the benchmark](#the-benchmark)'s page scoring a real model on a CPU, and is an
 MP4, which browsers do play.
 
@@ -630,7 +630,7 @@ web, so every model reads the same pages
 
 ![The benchmark's standings: qwen3:0.6b, run on a CPU, between the two reference answers](docs/benchmark.png)
 
-That is a frame of [`demo/benchmark-on-cpu.mp4`](demo/benchmark-on-cpu.mp4): 4 min
+That is a frame of [`demo/recordings/benchmark-on-cpu.mp4`](demo/recordings/benchmark-on-cpu.mp4): 4 min
 7 s of the benchmark's page scoring a real `qwen3:0.6b` in Ollama on four Xeon
 cores and no GPU, narrated and captioned. The recorder polls `ollama ps`
 throughout and refuses to write a take in which any model had memory on a GPU
