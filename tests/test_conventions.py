@@ -2337,6 +2337,18 @@ def test_the_module_that_reloads_providers_binds_nothing_a_reload_replaces() -> 
         )
 
 
+def test_no_test_binds_a_failure_a_reload_replaces() -> None:
+    """A failure is caught by identity: one bound before the reload is raised past the
+    ``except`` of a row built after it, which only an order other than the file's shows."""
+    for source in sorted((_ROOT / "tests").glob("*.py")):
+        for name in names_imported_from(source, "buy_agent.providers"):
+            attribute = getattr(providers_module, name)
+            assert not (isinstance(attribute, type) and issubclass(attribute, BaseException)), (
+                f"{source.name} imports {name} by name, and a reload of providers replaces"
+                " it -- read it off the module, or off the module under test, instead"
+            )
+
+
 def files_read() -> list[Path]:
     """The paths these tests open, off the ``_NAME`` constants declared above."""
     return [
