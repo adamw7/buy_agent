@@ -7,8 +7,9 @@ from typing import Any
 import httpx
 import pytest
 
-from buy_agent.providers import OllamaClient, OllamaError
+from buy_agent.providers import OllamaClient
 from scripts.update_ollama import (
+    OllamaError,
     _connect,
     Outcome,
     describe,

@@ -14,7 +14,8 @@ import pytest
 from buy_agent.agent import ModelUnavailableError
 from buy_agent.chat import UnreadableAnswerError
 from buy_agent.models import Product, ProductList, RankedProduct, ScoreParts, SearchQuery
-from buy_agent.providers import OllamaError, OllamaReply
+import buy_agent.providers as providers_module
+from buy_agent.providers import OllamaReply
 from benchmark import __main__ as benchmark_main
 from benchmark import pipeline
 from benchmark.baseline import against, read_baseline
@@ -297,7 +298,7 @@ def test_an_unreadable_answer_is_this_cases_result(ollama: dict[str, Any]) -> No
 
 def test_a_model_that_cannot_be_asked_is_no_result_at_all(ollama: dict[str, Any]) -> None:
     """Not pulled, not running, too slow: nothing about the case was learned."""
-    ollama["behaves"]["missing:1b"] = OllamaError("model 'missing:1b' not found", 404)
+    ollama["behaves"]["missing:1b"] = providers_module.OllamaError("model 'missing:1b' not found", 404)
 
     ollama["tags"] = ["tiny:1b"]
 
@@ -890,7 +891,7 @@ def test_the_command_line_lists_a_query_check_that_failed(
 def test_the_command_line_skips_a_model_it_cannot_ask_and_scores_the_rest(
     ollama: dict[str, Any], capsys: pytest.CaptureFixture
 ) -> None:
-    ollama["behaves"]["missing:1b"] = OllamaError("model 'missing:1b' not found", 404)
+    ollama["behaves"]["missing:1b"] = providers_module.OllamaError("model 'missing:1b' not found", 404)
 
     code = benchmark_main.main(["--model", "missing:1b", "--model", "tiny:1b", "--case", "laptops"])
     captured = capsys.readouterr()

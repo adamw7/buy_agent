@@ -181,6 +181,9 @@ Coverage cannot see rules that hold *between* files, so
   the real one, since nothing imports `demo/` to find out;
 - no test is switched off, nothing sleeps but `tests/test_server.py`, and the
   environment changes only through `monkeypatch`;
+- no test binds by name a failure `providers` defines, since `test_providers.py`
+  reloads that module and an `except` built after the reload no longer catches the
+  class bound before it, which only an order other than the files' shows;
 - every module logs under the package's name in deferred form, leaving stdout to
   the report.
 
