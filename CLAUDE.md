@@ -263,7 +263,10 @@ listed in `docs/testing.md`.
 - **`ExtractedProduct` uses sentinels, `Product` uses `None`.** Use `-1`/`""`
   rather than nullable fields, because Ollama compiles the schema into a grammar
   and a required `number` makes `"N/A"` impossible (ADR-0004). New extraction
-  fields stay non-nullable and are converted in `to_product()`.
+  fields stay non-nullable and are converted in `to_product()`. `ProductList`
+  asks the grammar for one product at least, through `json_schema_extra` and
+  never a validator, so an empty answer still reads as nothing found; and
+  `EXTRACTION_PROMPT` asks for no qualifier, only the figures (ADR-0089).
 - **Never rank on an unverified number, never link to an unverified page, and
   never quote what nobody said.** `verification.ground()` drops products whose
   name is absent from the sources and blanks unbacked figures (ADR-0006). Only
@@ -632,7 +635,9 @@ rules a change must obey:
   scored: a new metric joins a pair in `scoring.PAIRS` or stands alone, with any
   level luck reaches in `scoring.CHANCE` (ADR-0074). A module that comes to decide
   what a run reports or how it is scored joins `pipeline.MODULES`, and a setting
-  that comes to change what a model answers joins `pipeline.settings` (ADR-0075). The
+  that comes to change what a model answers joins `pipeline.settings` (ADR-0075). A
+  change to a prompt or the extraction schema is scored on every case before and
+  after, quoting both runs: the nightly gates only `headphones` (ADR-0089). The
   floors are a tripwire: raise one only in its own commit, quoting runs. A
   contender is reached only through its provider row. See `docs/testing.md`.
 - **Scripts.** `scripts/start.ps1`, `setup.ps1` and `preflight.ps1` must match

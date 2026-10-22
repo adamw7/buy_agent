@@ -151,8 +151,15 @@ class Offer(BaseModel):
 class ProductList(BaseModel):
     """Ollama's structured output needs a JSON object at the root."""
 
+    # One product at least is asked of the grammar, not of the reader: a small model
+    # closes the list on a figure it cannot write as a number ("279,00 €"), so whether
+    # nothing was found is Python's call, and an empty answer still reads (ADR-0089).
     products: Annotated[
-        list[ExtractedProduct], Field(description="The products found in the search results.")
+        list[ExtractedProduct],
+        Field(
+            description="The products found in the search results.",
+            json_schema_extra={"minItems": 1},
+        ),
     ] = []
 
 
