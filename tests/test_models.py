@@ -6,6 +6,7 @@ from typing import get_args
 
 import pytest
 
+from buy_agent.chat import read_answer
 from buy_agent.models import (
     _MAX_OPINION_LENGTH,
     STANDING_PHRASES,
@@ -14,6 +15,7 @@ from buy_agent.models import (
     ExtractedProduct,
     Offer,
     Product,
+    ProductList,
     dominant_currency,
 )
 from tests.conftest import said
@@ -37,6 +39,22 @@ def test_a_single_review_is_still_a_review_count() -> None:
     converted = ExtractedProduct(name="Thing", rating=4.2, review_count=1).to_product()
 
     assert converted.review_count == 1
+
+
+def test_the_grammar_is_asked_for_one_product_at_least() -> None:
+    """Under a grammar, a small model that cannot write a figure as a JSON number
+    ("279,00 €") closes the list before its first product and reports nothing. Asked for
+    one at least, it reports what the pages hold, and grounding judges it (ADR-0089)."""
+    products = ProductList.model_json_schema()["properties"]["products"]
+
+    assert products["minItems"] == 1
+
+
+def test_an_empty_list_still_reads_as_nothing_found() -> None:
+    """The ask is the grammar's, not the reader's: a server that ignores ``minItems``
+    and answers none ran a search that found nothing, not one that answered unreadably
+    (ADR-0089)."""
+    assert read_answer('{"products": []}', ProductList).products == []
 
 
 def test_the_seller_and_the_notes_survive_conversion() -> None:
