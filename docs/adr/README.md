@@ -98,7 +98,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0087](0087-open-the-build-in-a-browser-before-a-merge.md) | Open the build in a browser before a merge | Accepted |
 | [0088](0088-speak-ollamas-api-over-httpx.md) | Speak Ollama's API over httpx, and drop its client | Accepted |
 | [0089](0089-ask-for-one-product-at-least-and-leave-stock-to-the-schema.md) | Ask for one product at least, and leave stock to the schema | Accepted |
-| [0090](0090-check-a-quote-where-the-page-is-talking-about-the-product.md) | Check a quote where the page is talking about the product | Accepted |
+| [0090](0090-keep-a-quote-only-where-a-page-judges-the-product-it-is-filed-under.md) | Keep a quote only where a page judges the product it is filed under | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

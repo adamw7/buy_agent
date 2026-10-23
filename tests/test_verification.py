@@ -13,6 +13,7 @@ from buy_agent.verification import (
     build_haystack,
     drop_ungrounded,
     ground,
+    judges,
     mentions_name,
     mentions_number,
     mentions_rating,
@@ -324,6 +325,7 @@ ROUNDUP = SearchResult(
             "1. Sony WH-CH720N - best overall",
             "Reviewers found the noise cancelling uncanny for the money.",
             "2. Anker Q45 - best value",
+            "The Anker Q45 is $99, rated 4.4 out of 5 from 31,200 reviews.",
             "Reviewers found the noise cancelling merely average on a train.",
             "The Sony WH-CH720N and the Anker Q45 both fold flat into a bag.",
             "Owners agree that either one survives a year of commuting.",
@@ -379,6 +381,34 @@ def test_a_judgement_above_every_product_is_about_none_of_them() -> None:
 
     assert not kept_on_the_roundup("Sony WH-CH720N", preamble)
     assert not kept_on_the_roundup("Anker Q45", preamble)
+
+
+def test_a_products_own_figure_line_is_not_a_quote() -> None:
+    """Printed under the Anker's name, and no opinion of it: its rating and its count,
+    which grounding checks as figures (ADR-0090)."""
+    assert not kept_on_the_roundup(
+        "Anker Q45", "The Anker Q45 is $99, rated 4.4 out of 5 from 31,200 reviews."
+    )
+
+
+@pytest.mark.parametrize(
+    ("quote", "judging"),
+    [
+        ("The JLab JBuds Lux ANC is rated 4.1 out of 5 from 8,900 reviews.", False),
+        ("Rated 4.7 out of 5", False),
+        ("4.5 stars", False),
+        ("Reviews (3,200)", False),
+        ("12,480 verified customer reviews", False),
+        # Judging, whatever figure it prints beside.
+        ("Over 3,000 owners report the battery lasts a week.", True),
+        ("Testers found it worth the money at 4.5 stars.", True),
+        # A price is how an editor's pick is said; only ratings and counts restate.
+        ("The Sony WH-1000XM5 remains our overall pick at $328.", True),
+        ("The Anker Q45 is $99.", True),
+    ],
+)
+def test_a_quote_restating_a_rating_or_a_count_judges_nothing(quote: str, judging: bool) -> None:
+    assert judges(quote) is judging
 
 
 def test_a_quote_off_a_page_about_one_product_is_that_products() -> None:

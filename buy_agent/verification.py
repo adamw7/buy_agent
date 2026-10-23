@@ -8,7 +8,13 @@ import re
 from typing import TYPE_CHECKING
 
 from buy_agent.extraction import GENERIC_WORDS, NAME_TOKENS, SUPERLATIVES
-from buy_agent.models import QUALIFIERS, STANDING_PHRASES, Removal, nothing_recorded
+from buy_agent.models import (
+    JUDGEMENT,
+    QUALIFIERS,
+    STANDING_PHRASES,
+    Removal,
+    nothing_recorded,
+)
 from buy_agent.money import plain_figures
 
 if TYPE_CHECKING:
@@ -40,6 +46,12 @@ _COUNTED = (
 _COUNT_AFTER = rf"\s+(?:\w+\s+){{0,2}}{_COUNTED}\b"
 #: The same gap :data:`_RATING_BEFORE` leaves, for "Reviews (3,200)".
 _COUNT_BEFORE = rf"{_COUNTED}\b[^\d]{{0,12}}"
+
+#: Any rating or count of reviews, as :func:`mentions_rating` and
+#: :func:`mentions_review_count` read one: what a quote restating figures prints.
+_STATED_FIGURE = re.compile(
+    rf"\d{_RATING_AFTER}|{_RATING_BEFORE}\d|\d{_COUNT_AFTER}|{_COUNT_BEFORE}\d", re.IGNORECASE
+)
 
 
 def build_haystack(results: Sequence[SearchResult]) -> str:
@@ -267,6 +279,12 @@ def quotes_sources(haystack_words: str, quote: str) -> bool:
     return sum(f" {run} " in padded for run in runs) / len(runs) >= _QUOTE_COVERAGE
 
 
+def judges(quote: str) -> bool:
+    """Whether ``quote`` passes judgement, rather than restating a rating or a count of
+    reviews that grounding checks as a figure (ADR-0090)."""
+    return bool(JUDGEMENT.search(quote)) or not _STATED_FIGURE.search(plain_figures(quote))
+
+
 def said_of(text: str, quote: str, name: str, names: Sequence[str]) -> bool:
     """Whether ``text`` prints ``quote`` where it is talking about ``name``: the nearest
     line naming any of ``names``, at or above the line holding most of the quote, names
@@ -284,8 +302,8 @@ def said_of(text: str, quote: str, name: str, names: Sequence[str]) -> bool:
 def verify_opinions(
     products: Sequence[Product], results: Sequence[SearchResult]
 ) -> list[Product]:
-    """Keep the quotes a page about this product printed, where it was talking about
-    this product, with that page (ADR-0024, ADR-0042, ADR-0090)."""
+    """Keep the quotes that judge, which a page about this product printed where it was
+    talking about this product, with that page (ADR-0024, ADR-0042, ADR-0090)."""
     pages = [(url, text, running_words(text)) for url, text in _page_haystacks(results)]
     names = [product.name for product in products]
     verified: list[Product] = []
@@ -297,6 +315,8 @@ def verify_opinions(
         ]
         kept: list[Opinion] = []
         for opinion in product.opinions:
+            if not judges(opinion.text):
+                continue
             # The first page printing it about this product; its URL may be ``None``.
             for url, text, words in mine:
                 if quotes_sources(words, opinion.text) and said_of(
@@ -311,5 +331,5 @@ def verify_opinions(
         verified.append(product.model_copy(update={"opinions": kept}))
 
     if dropped:
-        logger.info("Dropped %d opinion(s) no page printed about that product", dropped)
+        logger.info("Dropped %d opinion(s) no page passed on that product", dropped)
     return verified
