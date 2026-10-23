@@ -59,7 +59,7 @@ What it costs:
   another: "The Sony is worth the money if you fly monthly." under the Anker's line on
   FlightGear, and its like in the other two cases. The same verdict can still move to
   the product named above it, so 12 borrowings remain. Counting a short name as a
-  mention was tried and is worse both ways, 79 of the 86 and 16 of the 241: the
+  mention was tried and is worse both ways, 79 of the 86 and 15 of the 241: the
   Bose's "merely mediocre next to the Sony" hands the lines after it to the Sony.
 - **A product the run did not report is invisible.** The walk up stops at a run
   product's name, so a verdict under a product the model never reported counts for the
