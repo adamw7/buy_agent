@@ -55,7 +55,7 @@ jobs:
 
   archive:
     # Linux only: the archive is the same bytes from any runner.
-    name: Archive (Node 24.22.1, Python 3.15)
+    name: Archive
     needs: tested
     runs-on: ubuntu-latest
     permissions:
@@ -79,13 +79,13 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "24.22.1"
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.15"
+          python-version-file: .python-version
           cache: pip
           cache-dependency-path: requirements.txt
 

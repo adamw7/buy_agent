@@ -19,7 +19,7 @@ jobs:
     # A runner per shard of ui/stryker.config.mjs (ADR-0085): one runner trying all
     # 1410 mutants in turn took three hours, and the 2026-10-10 run was cut off at
     # 96% of them.
-    name: Stryker (${{ matrix.shard }}, Node 24)
+    name: Stryker (${{ matrix.shard }})
     runs-on: ubuntu-latest
     # The largest shard is half the run, about an hour and a half; five hours guards
     # a hung mutant, under the hosted six.
@@ -40,7 +40,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "24.22.1"
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
@@ -80,7 +80,7 @@ jobs:
       # For the stdlib report script, which decides whether the run passed.
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.15"
+          python-version-file: .python-version
 
       # Every shard's json and html in one directory, each named after its shard.
       - uses: actions/download-artifact@v8

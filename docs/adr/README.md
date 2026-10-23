@@ -75,7 +75,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0064](0064-measure-the-two-trees-beside-the-package.md) | Measure the two trees beside the package, without widening what three tools read | Accepted |
 | [0065](0065-photograph-each-products-page-from-a-server-bound-to-this-machine.md) | Photograph each product's page, from a server bound to this machine | Superseded by [ADR-0087](0087-open-the-build-in-a-browser-before-a-merge.md) |
 | [0066](0066-lint-the-ui-templates-included.md) | Lint the UI, templates included, the way pylint reads the package | Accepted |
-| [0067](0067-script-the-contributor-setup-and-the-gate.md) | Script a contributor's setup and the gate, and check every text file out with LF | Accepted |
+| [0067](0067-script-the-contributor-setup-and-the-gate.md) | Script a contributor's setup and the gate, and check every text file out with LF | Superseded by [ADR-0091](0091-pin-each-toolchain-once-and-let-ci-run-the-gate-script.md) |
 | [0068](0068-reach-a-litellm-proxy-as-a-third-model-server.md) | Reach a LiteLLM proxy as a third model server, and never its SDK | Accepted |
 | [0069](0069-scan-and-attest-what-a-release-publishes.md) | Scan and attest what a release publishes | Accepted |
 | [0070](0070-compare-local-models-and-give-the-comparison-a-page.md) | Compare local models over several cases, and give the comparison a page of its own | Accepted |
@@ -99,6 +99,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0088](0088-speak-ollamas-api-over-httpx.md) | Speak Ollama's API over httpx, and drop its client | Accepted |
 | [0089](0089-ask-for-one-product-at-least-and-leave-stock-to-the-schema.md) | Ask for one product at least, and leave stock to the schema | Accepted |
 | [0090](0090-keep-a-quote-only-where-a-page-judges-the-product-it-is-filed-under.md) | Keep a quote only where a page judges the product it is filed under | Accepted |
+| [0091](0091-pin-each-toolchain-once-and-let-ci-run-the-gate-script.md) | Pin each toolchain once, and let CI run the gate script | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

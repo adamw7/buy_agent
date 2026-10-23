@@ -3,10 +3,10 @@
     Runs the gate .github/workflows/ci.yml applies, on this machine.
 
 .DESCRIPTION
-    All three of ci.yml's jobs, step for step and in its order. A job stops at
-    its first failing step and the others run anyway, as on runners. The browser
-    job opens the build the ui job made, as in ci.yml (ADR-0087). The commands are
-    written out here and held to ci.yml by tests/test_conventions.py. Run
+    The checks of all three of ci.yml's jobs, which each run this script with
+    -Only, so a pull request meets this list and no copy of it (ADR-0091). A job
+    stops at its first failing step and the others run anyway. The browser job
+    opens the build the ui job made, as in ci.yml (ADR-0087). Run
     scripts/setup.ps1 first.
 
 .PARAMETER Only
@@ -42,11 +42,18 @@ function Note([string]$text) {
 }
 
 function Interpreter {
-    # The venv's python, spelt the way whichever platform made it spells it.
-    @('.venv\Scripts\python.exe', '.venv/bin/python') |
+    # The venv's python, spelt the way whichever platform made it spells it; else the
+    # one on PATH, which is where a runner installs.
+    $venv = @('.venv\Scripts\python.exe', '.venv/bin/python') |
         ForEach-Object { Join-Path $root $_ } |
         Where-Object { Test-Path -LiteralPath $_ } |
         Select-Object -First 1
+    if ($venv) { return $venv }
+    $onPath = Get-Command 'python' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($onPath) {
+        Note "there is no .venv, so this runs $($onPath.Source)"
+        return $onPath.Source
+    }
 }
 
 function Job([string]$name, [string]$directory, [string]$exe, [string[][]]$steps) {
@@ -73,7 +80,7 @@ $failed = @()
 if ($Only -contains 'python') {
     $python = Interpreter
     if (-not $python) {
-        $failed += 'python: there is no .venv -- run .\scripts\setup.ps1'
+        $failed += 'python: no .venv and none on PATH -- run .\scripts\setup.ps1'
     } else {
         Job 'python' $root $python @(
             , @('-m', 'pytest', '-n', '3', '--cov')
@@ -99,7 +106,7 @@ if ($Only -contains 'ui') {
 if ($Only -contains 'browser') {
     $python = Interpreter
     if (-not $python) {
-        $failed += 'browser: there is no .venv -- run .\scripts\setup.ps1'
+        $failed += 'browser: no .venv and no python on PATH -- run .\scripts\setup.ps1'
     } else {
         Job 'python' $root $python @(
             , @('-m', 'pytest', 'browser')

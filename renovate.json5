@@ -13,40 +13,15 @@
     'dockerfile',
     'npm',
     'pip_requirements',
-    'custom.regex',
+    // The toolchains every workflow and script reads: .nvmrc and .python-version.
+    'nvm',
+    'pyenv',
   ],
 
   // The default pattern misses this name (two words after "requirements").
   pip_requirements: {
     managerFilePatterns: ['/(^|/)requirements-ap2-deps\\.txt$/'],
   },
-
-  customManagers: [
-    {
-      // Versions quoted in prose, which tests/test_conventions.py holds to ci.yml.
-      customType: 'regex',
-      description: 'Node where the start script and the preflight skill name it',
-      managerFilePatterns: [
-        'scripts/start.ps1',
-        '.claude/skills/preflight/SKILL.md',
-      ],
-      matchStrings: ['Node (?<currentValue>\\d+\\.\\d+\\.\\d+)'],
-      depNameTemplate: 'node',
-      datasourceTemplate: 'node-version',
-      versioningTemplate: 'node',
-    },
-    {
-      customType: 'regex',
-      description: 'Python where the start script and the preflight skill name it',
-      managerFilePatterns: [
-        'scripts/start.ps1',
-        '.claude/skills/preflight/SKILL.md',
-      ],
-      matchStrings: ['Python (?<currentValue>\\d+\\.\\d+)'],
-      depNameTemplate: 'python',
-      datasourceTemplate: 'python-version',
-    },
-  ],
 
   packageRules: [
     {
@@ -66,8 +41,8 @@
       dependencyDashboardApproval: true,
     },
     {
-      // Every Node pin moves together; a convention test holds them to ci.yml.
-      // CLAUDE.md is left out: the pattern would catch Angular's 22.22.3+ floor.
+      // .nvmrc and the Dockerfile's base image move together; a convention test
+      // holds the image to the file.
       matchDepNames: ['node'],
       groupName: 'Node',
       commitMessageTopic: 'Node',

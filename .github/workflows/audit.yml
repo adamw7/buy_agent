@@ -33,7 +33,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.15"
+          python-version-file: .python-version
           cache: pip
           # The audited files are resolved, not installed, so only this one is cached.
           cache-dependency-path: requirements-audit.txt
@@ -55,7 +55,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "24.22.1"
+          node-version-file: .nvmrc
 
       # Reads the lockfile, so no npm ci. `high`, since the lockfile is mostly
       # build-time transitives. Runs even if the step above failed.

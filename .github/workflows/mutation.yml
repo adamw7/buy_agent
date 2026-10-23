@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   mutmut:
-    name: mutmut (Python 3.15)
+    name: mutmut
     runs-on: ubuntu-latest
     # A run is a couple of minutes; the hour guards a hung mutant.
     timeout-minutes: 60
@@ -29,7 +29,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.15"
+          python-version-file: .python-version
           cache: pip
           cache-dependency-path: |
             requirements-mutation.txt
