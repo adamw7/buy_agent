@@ -31,6 +31,9 @@ $root = Split-Path -Parent $PSScriptRoot
 $python = Join-Path $root '.venv\Scripts\python.exe'
 $built = Join-Path $root 'ui\dist\ui\browser\index.html'
 $url = 'http://127.0.0.1:8000'
+# The two toolchains this does not install, named at the versions the workflows pin.
+$wantPython = (Get-Content -LiteralPath (Join-Path $root '.python-version') -TotalCount 1).Trim()
+$wantNode = (Get-Content -LiteralPath (Join-Path $root '.nvmrc') -TotalCount 1).Trim()
 
 function Step([string]$text) {
     Write-Host ''
@@ -84,7 +87,7 @@ try {
         Note '.venv is already there'
     } else {
         if (-not (Have 'python')) {
-            throw 'python is not on PATH -- install Python 3.15 from https://www.python.org/downloads/'
+            throw "python is not on PATH -- install Python $wantPython from https://www.python.org/downloads/"
         }
         Run 'python' @('-m', 'venv', '.venv') 'could not create .venv'
     }
@@ -187,7 +190,7 @@ try {
         } else {
             Note 'npm is not on PATH, so the page will be a 503 -- the API still answers'
         }
-        Note 'install Node 24.22.1+ from https://nodejs.org and run this again for the page'
+        Note "install Node $wantNode+ from https://nodejs.org and run this again for the page"
     } else {
         Push-Location $ui
         try {

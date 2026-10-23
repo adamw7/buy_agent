@@ -53,8 +53,9 @@ TOP 3 OF 9 PRODUCTS, BEST SCORE FIRST
 
 ## Setup
 
-Everything runs locally; no API keys, no accounts. Python 3.15 and, for the web
-UI, Node 24.22.1 or later.
+Everything runs locally; no API keys, no accounts. Python at the version in
+[`.python-version`](.python-version) and, for the web UI, Node at the one in
+[`.nvmrc`](.nvmrc) or later.
 
 ```powershell
 # 1. Ollama, with a model pulled

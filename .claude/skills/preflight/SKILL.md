@@ -6,8 +6,9 @@ description: Run the full gate CI applies -- both unit suites, both coverage flo
 # Preflight
 
 `.github/workflows/ci.yml` runs three jobs on Linux for every push to `main` and
-every pull request, and on Windows weekly (ADR-0037). `scripts/preflight.ps1` runs
-all three, step for step in `ci.yml`'s order, each stopping at its first failure:
+every pull request, and on Windows weekly (ADR-0037), and each job's checks are
+`scripts/preflight.ps1 -Only <job>` (ADR-0091). Run here, the script does all
+three, each stopping at its first failure:
 
 ```powershell
 .\scripts\preflight.ps1               # all three
@@ -15,9 +16,10 @@ all three, step for step in `ci.yml`'s order, each stopping at its first failure
 ```
 
 Run it from the repository root; it finds `.venv` itself. `scripts/setup.ps1`
-installs everything it needs, the AP2 SDK included (ADR-0067).
+installs everything it needs, the AP2 SDK included (ADR-0067), and checks Python
+and Node against `.python-version` and `.nvmrc`, which every workflow sets up.
 
-## Python (Python 3.15)
+## Python
 
 ```powershell
 python -m pytest -n 3 --cov
@@ -40,7 +42,7 @@ python -m mypy buy_agent
 - pylint (ADR-0048, ADR-0049) and mypy (ADR-0063) must report nothing at all. Fix
   the line or the declaration, or suppress on the line with a reason.
 
-## UI (Node 24.22.1)
+## UI
 
 ```powershell
 cd ui

@@ -427,11 +427,9 @@ def main(argv: list[str] | None = None) -> int:
     configure_logging(verbose=args.verbose)
 
     settings = {option.field: getattr(args, option.key) for option in OPTIONS}
-    # What the table cannot say: the ``--num-ctx`` sentinel, the sources, and never
-    # searching fewer pages than the report shows.
+    # What the table cannot say: the ``--num-ctx`` sentinel and the sources.
     settings["num_ctx"] = _DEFAULTS.num_ctx if args.num_ctx is None else args.num_ctx
     settings["sources"] = parse_sources(args.source) if args.source else _DEFAULTS.sources
-    settings["search_results"] = max(args.results, args.top)
 
     config = _configured(parser, **settings)
     if not config.pay and (idle := _idle_paying_flags(args)):

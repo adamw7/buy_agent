@@ -1,6 +1,6 @@
 # ADR-0067: Script a contributor's setup and the gate, and check every text file out with LF
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0091](0091-pin-each-toolchain-once-and-let-ci-run-the-gate-script.md)
 - **Date:** 2026-09-24
 
 ## Context

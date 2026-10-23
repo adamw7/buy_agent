@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 import httpx
 import openai
 
-from buy_agent.chat import ChatModel, SchemaT, UnreadableAnswerError, read_answer
+from buy_agent.chat import ChatModel, SchemaT, UnreadableAnswerError, first_line, read_answer
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -555,8 +555,7 @@ def _too_slow_hint(server: Provider, config: AgentConfig, exc: Exception) -> str
 def _unreadable_hint(server: Provider, config: AgentConfig, exc: UnreadableAnswerError) -> str:
     """Something other than the JSON asked for (ADR-0019): certainly out of room when
     the server said it stopped at its limit, and perhaps when it said nothing."""
-    said = str(exc).strip()
-    detail = said.splitlines()[0] if said else type(exc).__name__
+    detail = first_line(exc)
     if exc.cut_off:
         return (
             f"{server.label} at {config.base_url} stopped at its length limit before "

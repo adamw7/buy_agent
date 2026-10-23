@@ -782,16 +782,14 @@ def base_image_tag(image: str) -> str:
     return match.group(1)
 
 
-def workflow_version(workflow: Path, key: str) -> str:
-    """A version a workflow sets up, e.g. ``node-version: "22.22.3"``."""
-    match = re.search(rf'^\s+{key}: "([^"]+)"', workflow.read_text(encoding="utf-8"), re.M)
-    assert match, f"no {key} in {workflow.name}"
-    return match.group(1)
+#: The one file each toolchain's version is written in, read by every workflow and
+#: script that sets one up or checks it (ADR-0091).
+_PINS = {"python": _ROOT / ".python-version", "node": _ROOT / ".nvmrc"}
 
 
-def ci_version(key: str) -> str:
-    """A version `.github/workflows/ci.yml` sets up."""
-    return workflow_version(_CI, key)
+def pinned(toolchain: str) -> str:
+    """The version a pin file holds, e.g. ``3.15`` for ``python``."""
+    return _PINS[toolchain].read_text(encoding="utf-8").strip()
 
 
 def server_default(dest: str) -> object:
@@ -799,11 +797,11 @@ def server_default(dest: str) -> object:
     return {action.dest: action for action in build_server_parser()._actions}[dest].default
 
 
-def test_the_image_pins_the_versions_ci_tests_against() -> None:
-    """Two toolchains, now in a third place: an image built on another Python or
-    another Node is running code no job has run."""
-    assert base_image_tag("python").startswith(ci_version("python-version"))
-    assert base_image_tag("node").startswith(ci_version("node-version"))
+def test_the_image_is_built_on_the_pinned_toolchains() -> None:
+    """The one copy of each pin the pin files cannot be: ``FROM`` takes no file. An image
+    built on another Python or another Node is running code no job has run."""
+    for toolchain in _PINS:
+        assert base_image_tag(toolchain).partition("-")[0] == pinned(toolchain), toolchain
 
 
 def test_the_image_puts_the_built_ui_where_the_server_looks() -> None:
@@ -987,17 +985,6 @@ def test_the_windows_run_is_scheduled_for_saturdays() -> None:
     assert (hour, minute) != cron(_MUTATION)[1::-1], "both weekly runs at one time"
 
 
-def test_ci_sets_up_one_python_and_one_node() -> None:
-    """The Dockerfile, `scripts/start.ps1` and docs/testing.md all pin themselves to the
-    version ci.yml sets up, and each reads it as the first this file names -- so the
-    browser job, which sets up both again (ADR-0087), sets up the same two."""
-    source = _CI.read_text(encoding="utf-8")
-
-    for key in ("python-version", "node-version"):
-        versions = set(re.findall(rf'^\s+{key}: "([^"]+)"', source, re.M))
-        assert len(versions) == 1, f"ci.yml sets up {key} {sorted(versions)}"
-
-
 def workflows() -> list[Path]:
     """Every workflow in ``.github/workflows``, found rather than listed."""
     found = sorted((_ROOT / ".github" / "workflows").glob("*.yml"))
@@ -1005,26 +992,26 @@ def workflows() -> list[Path]:
     return found
 
 
-@pytest.mark.parametrize("workflow", workflows(), ids=lambda path: path.stem)
-def test_every_workflow_sets_up_the_python_the_tests_run_on(workflow: Path) -> None:
-    """One Python across the repository, checked per workflow rather than per rule."""
-    for version in re.findall(
-        r'^\s+python-version: "([^"]+)"', workflow.read_text(encoding="utf-8"), re.M
-    ):
-        assert version == ci_version("python-version"), workflow.name
+#: Each toolchain's setup action, and the input that hands it a pin file.
+_SETUPS = {"python": "actions/setup-python", "node": "actions/setup-node"}
 
 
 @pytest.mark.parametrize("workflow", workflows(), ids=lambda path: path.stem)
-def test_every_workflow_builds_the_ui_with_the_node_ci_builds_it_with(workflow: Path) -> None:
-    """And the same rule for the other toolchain, which a second workflow now
-    builds with: `.github/workflows/release.yml` packages the build it ships, so
-    on another Node it would publish an app assembled by a compiler nothing has
-    tested against -- and the Angular CLI refuses an older one outright, which is
-    a red release rather than a quiet difference only after somebody notices."""
-    for version in re.findall(
-        r'^\s+node-version: "([^"]+)"', workflow.read_text(encoding="utf-8"), re.M
-    ):
-        assert version == ci_version("node-version"), workflow.name
+def test_every_workflow_sets_up_the_toolchains_the_pin_files_name(workflow: Path) -> None:
+    """One Python and one Node across the repository, each written down once (ADR-0091).
+    `release.yml` packages the build it ships, so on another Node it would publish an
+    app assembled by a compiler nothing has tested against; and a version written into
+    a workflow is the copy the next bump misses."""
+    source = workflow.read_text(encoding="utf-8")
+
+    for toolchain, action in _SETUPS.items():
+        reading = f"{toolchain}-version-file: {_PINS[toolchain].name}\n"
+        assert source.count(reading) == source.count(f"uses: {action}@"), (
+            f"{workflow.name} sets {toolchain} up without reading {_PINS[toolchain].name}"
+        )
+        assert not re.search(rf"^\s+{toolchain}-version:", source, re.M), (
+            f"{workflow.name} writes a {toolchain} version down"
+        )
 
 
 #: ``pip install [--flag ...] -r <file>``, wherever a workflow runs one.
@@ -1304,16 +1291,6 @@ def test_the_startup_script_looks_for_the_build_the_server_serves() -> None:
     assert probed.name == "index.html", "a build is a directory; a page is what proves it"
 
 
-def test_the_startup_script_names_the_toolchains_ci_pins() -> None:
-    """The two things it will not install, it says where to get -- and a version named
-    there is a fourth copy of what ci.yml sets up, the Dockerfile pins and
-    docs/testing.md quotes."""
-    source = start_script()
-
-    assert f"Python {ci_version('python-version')}" in source
-    assert f"Node {ci_version('node-version')}" in source
-
-
 #: The flags the startup script adds to every pip command of its own and
 #: ``mandates.INSTALL`` does not: one quietens a step whose output is noise
 #: beside the rest of the console, the other a message about pip itself.
@@ -1442,19 +1419,6 @@ def test_the_session_hook_installs_the_ui_the_way_ci_does() -> None:
     assert set(runs) == set(ui_installs_in_ci())
 
 
-def test_the_session_hook_reads_both_toolchain_pins_out_of_ci() -> None:
-    """`ci.yml` is the one pin the Dockerfile, the startup script and docs/testing.md
-    already chase, and a hook writing either version down again is a fifth copy -- one
-    that quietly sets a session up on a toolchain no job has run."""
-    source = session_hook()
-
-    for key in ("node-version", "python-version"):
-        assert key in source, f"the session hook never reads {key} out of ci.yml"
-        assert ci_version(key) not in source, (
-            f"{ci_version(key)} is ci.yml's to say, not the session hook's"
-        )
-
-
 # -- the contributor's scripts -------------------------------------------------
 
 _SETUP = _ROOT / "scripts" / "setup.ps1"
@@ -1463,16 +1427,6 @@ _PREFLIGHT = _ROOT / "scripts" / "preflight.ps1"
 
 def setup_script() -> str:
     return _SETUP.read_text(encoding="utf-8")
-
-
-def ci_checks() -> list[str]:
-    """Every step of ci.yml that checks rather than installs, in the order it runs."""
-    steps = re.findall(
-        r"^      - name: (.+)\n        run: (.+)$", _CI.read_text(encoding="utf-8"), re.M
-    )
-    checks = [command for name, command in steps if not name.startswith("Install")]
-    assert checks, "no checking step in ci.yml; this rule has outlived itself"
-    return checks
 
 
 def ci_pip_installs() -> list[list[str]]:
@@ -1519,20 +1473,43 @@ def test_the_setup_script_installs_the_ui_the_way_ci_does() -> None:
         assert f"Run 'npm' @('{verb}'" in setup_script(), f"the setup script never runs npm {verb}"
 
 
-def test_the_setup_script_reads_both_toolchain_pins_out_of_ci() -> None:
-    """The session hook's rule, one shell over: a version written into the script is a
-    sixth copy of ci.yml's pin, and the one a new joiner's machine is checked against."""
-    source = setup_script()
+#: What checks a toolchain on somebody's machine, and so needs its version as it runs.
+_CHECKS_A_TOOLCHAIN = (_START, _SETUP, _HOOK)
 
-    for key in ("node-version", "python-version"):
-        assert f"Pinned '{key}'" in source, f"the setup script never reads {key} out of ci.yml"
-        assert ci_version(key) not in source, (
-            f"{ci_version(key)} is ci.yml's to say, not the setup script's"
-        )
+#: Where a person is told which Python and which Node to have.
+_NAMES_A_TOOLCHAIN = (
+    *_CHECKS_A_TOOLCHAIN,
+    _ROOT / ".claude" / "skills" / "preflight" / "SKILL.md",
+    _ROOT / "README.md",
+    _ROOT / "CLAUDE.md",
+)
+
+
+@pytest.mark.parametrize("path", _CHECKS_A_TOOLCHAIN, ids=lambda path: path.name)
+def test_every_script_that_checks_a_toolchain_reads_its_pin_file(path: Path) -> None:
+    """The script names the version it wants and compares it with the one it finds, so it
+    reads the version where every workflow does (ADR-0091): PowerShell names the file as a
+    literal, and the hook hands it to its ``pinned``."""
+    source = path.read_text(encoding="utf-8")
+
+    for pin in _PINS.values():
+        read = f"'{pin.name}'" if path.suffix == ".ps1" else f"pinned {pin.name}"
+        assert read in source, f"{path.name} never reads {pin.name}"
+
+
+@pytest.mark.parametrize("path", _NAMES_A_TOOLCHAIN, ids=lambda path: path.name)
+def test_nothing_that_names_a_toolchain_writes_its_version_down(path: Path) -> None:
+    """A version copied into a script or a page is one the next bump misses: it goes on
+    naming a toolchain no job has run (ADR-0091). Python's is matched as a person writes
+    it, since ``3.15`` alone is a fragment of other numbers."""
+    written = path.read_text(encoding="utf-8")
+
+    assert f"Python {pinned('python')}" not in written
+    assert pinned("node") not in written
 
 
 def preflight_steps() -> list[str]:
-    """Every step ``scripts/preflight.ps1`` runs, as ci.yml writes the same command."""
+    """Every step ``scripts/preflight.ps1`` runs, as a person would type it."""
     source = _PREFLIGHT.read_text(encoding="utf-8")
     return [
         f"{program} {' '.join(re.findall(r"'([^']*)'", step))}"
@@ -1541,10 +1518,47 @@ def preflight_steps() -> list[str]:
     ]
 
 
-def test_the_preflight_script_runs_what_ci_runs() -> None:
-    """Step for step and in ci.yml's order: a check missing from it is a green local run
-    and a red pull request, and one it adds is a red local run nobody else sees."""
-    assert preflight_steps() == ci_checks()
+def preflight_jobs() -> list[str]:
+    """The jobs ``scripts/preflight.ps1`` takes for ``-Only``, in its own order."""
+    match = re.search(r"\[ValidateSet\(([^)]*)\)\]", _PREFLIGHT.read_text(encoding="utf-8"))
+    assert match, "preflight.ps1 no longer names the jobs it runs"
+    return re.findall(r"'(\w+)'", match.group(1))
+
+
+#: How a job of ci.yml runs its checks: the preflight script, told which job it is.
+_GATE = re.compile(r"\S*scripts/preflight\.ps1 -Only (\w+)")
+
+#: What ci.yml may run beside it: the installs that put the script's tools in place.
+_INSTALL = re.compile(r"pip install |npm ci$|python -m playwright install ")
+
+
+def commands_run_by(text: str) -> list[str]:
+    """Every command a workflow hands a shell, one-line ``run:`` and block alike."""
+    one_line = re.findall(r"^\s+run: (?!\|$)(.+)$", text, re.M)
+    blocks = re.findall(r"^( +)run: \|\n((?:\1  .*\n)+)", text, re.M)
+    return one_line + [line.strip() for _, block in blocks for line in block.splitlines()]
+
+
+def test_ci_runs_its_checks_through_the_preflight_script() -> None:
+    """Each job of ci.yml hands the script its own ``-Only``, and the three are every job
+    the script has, in its order: a check is written once, there, so the gate a
+    contributor runs is the one a pull request meets rather than a copy held to it
+    (ADR-0091)."""
+    handed = [_GATE.findall(job) for job in workflow_jobs(_CI).values()]
+
+    assert handed == [[job] for job in preflight_jobs()]
+
+
+def test_ci_runs_nothing_beside_the_script_but_what_installs_its_tools() -> None:
+    """A check run outside the script is the copy ADR-0091 removed: a red pull request
+    that a green local gate cannot reproduce."""
+    commands = commands_run_by(_CI.read_text(encoding="utf-8"))
+
+    assert commands, "ci.yml runs nothing; this rule has outlived it"
+    for command in commands:
+        assert _GATE.fullmatch(command) or _INSTALL.match(command), (
+            f"ci.yml runs {command!r} outside scripts/preflight.ps1"
+        )
 
 
 def test_the_preflight_skill_runs_the_preflight_script() -> None:
@@ -1715,11 +1729,12 @@ def browser_job() -> str:
 
 
 def test_ci_runs_the_browser_tests_a_normal_run_leaves_out() -> None:
-    """Collected only by being named, so a job running a bare ``pytest`` would be the
-    unit suite again and the page never opened."""
+    """Collected only by being named, so a gate running a bare ``pytest`` for its browser
+    job would be the unit suite again and the page never opened."""
     named = _BROWSER_TESTS.relative_to(_ROOT).as_posix()
 
-    assert re.search(rf"^\s+run: python -m pytest {named}$", browser_job(), re.M)
+    assert _GATE.findall(browser_job()) == ["browser"]
+    assert f"python -m pytest {named}" in preflight_steps()
 
 
 def test_the_browser_job_refuses_to_pass_by_skipping() -> None:
@@ -2831,21 +2846,12 @@ def test_the_option_skill_names_the_tables_a_new_setting_joins() -> None:
 
 
 def test_the_preflight_skill_runs_what_ci_runs() -> None:
-    """`.claude/skills/preflight` claims to be the CI gate, locally."""
+    """`.claude/skills/preflight` claims to be the CI gate, locally, and says what each of
+    the script's steps is for."""
     written = (_SKILLS / "preflight" / "SKILL.md").read_text(encoding="utf-8")
 
-    for command in ci_checks():
-        assert command in written, f"preflight does not run `{command}`, which ci.yml does"
-
-
-def test_the_preflight_skill_names_the_toolchains_ci_pins() -> None:
-    """It says which Python and which Node it is the gate for, and a version named
-    there is another copy of ci.yml's pin -- the one the startup script, the
-    Dockerfile and docs/testing.md already chase."""
-    written = (_SKILLS / "preflight" / "SKILL.md").read_text(encoding="utf-8")
-
-    assert f"Python {ci_version('python-version')}" in written
-    assert f"Node {ci_version('node-version')}" in written
+    for command in preflight_steps():
+        assert command in written, f"preflight does not name `{command}`, which the gate runs"
 
 
 def test_every_skill_is_one_the_project_documents() -> None:
@@ -3107,12 +3113,12 @@ _MESSAGE_CODE = re.compile(r"^[CEFIRW]\d{4},?$")
 
 def test_the_linter_checks_what_coverage_measures() -> None:
     """Three tools now read the same package, and each says so in its own file:
-    `.coveragerc` names it in `source`, `setup.cfg` mutates it, and `ci.yml` lints it.
+    `.coveragerc` names it in `source`, `setup.cfg` mutates it, and the gate lints it.
     `source` and not what `.coveragerc` measures, which is wider by the two trees
     beside the package (ADR-0064)."""
-    linted = _PYLINT_RUN.findall(_CI.read_text(encoding="utf-8"))
+    linted = _PYLINT_RUN.findall("\n".join(preflight_steps()))
 
-    assert linted, "ci.yml no longer runs pylint; this rule has outlived it"
+    assert linted, "the gate no longer runs pylint; this rule has outlived it"
     for target in linted:
         assert target.split() == ini_values(_COVERAGERC, "run", "source")
 
@@ -3204,10 +3210,10 @@ def unreadable_to_pylint() -> set[str]:
 
 def test_the_type_checker_checks_what_the_linter_lints() -> None:
     """A fourth tool reads the same package, and says so in its own file: `.coveragerc`
-    names it in `source`, `setup.cfg` mutates it, and `ci.yml` lints *and* checks it."""
-    checked = _MYPY_RUN.findall(_CI.read_text(encoding="utf-8"))
+    names it in `source`, `setup.cfg` mutates it, and the gate lints *and* checks it."""
+    checked = _MYPY_RUN.findall("\n".join(preflight_steps()))
 
-    assert checked, "ci.yml no longer runs mypy; this rule has outlived it (ADR-0063)"
+    assert checked, "the gate no longer runs mypy; this rule has outlived it (ADR-0063)"
     for target in checked:
         assert target.split() == ini_values(_COVERAGERC, "run", "source")
 
@@ -3253,7 +3259,8 @@ def test_mypys_cache_is_keyed_on_everything_that_moves_its_answers() -> None:
     seconds the cache is there to save (ADR-0076). Renovate moves one pin at a time. What
     the job running mypy installs, which Playwright for the browser job is not (ADR-0087)."""
     keyed = mypy_cache_key_files()
-    (checking,) = [job for job in workflow_jobs(_CI).values() if "python -m mypy" in job]
+    # The job whose gate is the script's Python one, which runs mypy.
+    (checking,) = [job for job in workflow_jobs(_CI).values() if _GATE.findall(job) == ["python"]]
     installed = requirements_including(_PIP_INSTALL.findall(checking))
 
     assert not installed - keyed, (

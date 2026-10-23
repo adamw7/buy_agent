@@ -10,10 +10,10 @@
     and its headless Chromium (ADR-0087). scripts/start.ps1 sets up a *run*, not
     the gate.
 
-    Python and Node are checked against ci.yml's pins, never installed: an older
-    Node is refused, an older Python named and used. Each step is skipped where
-    done, so it is also what to run after a pull. Ends by naming
-    scripts/preflight.ps1.
+    Python and Node are checked against .python-version and .nvmrc, never
+    installed: an older Node is refused, an older Python named and used. Each
+    step is skipped where done, so it is also what to run after a pull. Ends by
+    naming scripts/preflight.ps1.
 
 .EXAMPLE
     .\scripts\setup.ps1
@@ -25,7 +25,6 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-$ci = Join-Path $root '.github\workflows\ci.yml'
 $venv = Join-Path $root '.venv'
 
 function Step([string]$text) {
@@ -53,12 +52,9 @@ function Stale([string]$made, [System.IO.FileInfo[]]$from) {
     [bool]($from | Where-Object { $_.LastWriteTime -gt $since } | Select-Object -First 1)
 }
 
-function Pinned([string]$key) {
-    # The version ci.yml sets up under $key, read and never written here.
-    $found = Select-String -LiteralPath $ci -Pattern "^\s+${key}:\s*`"([0-9.]+)`"" |
-        Select-Object -First 1
-    if (-not $found) { throw "ci.yml pins no $key; this script has outlived its rule" }
-    $found.Matches[0].Groups[1].Value
+function Pinned([string]$file) {
+    # The version $file pins for every workflow, read and never written here.
+    (Get-Content -LiteralPath (Join-Path $root $file) -TotalCount 1).Trim()
 }
 
 function Interpreter {
@@ -76,10 +72,10 @@ function AtLeast([string]$have, [string]$want) {
 
 Push-Location $root
 try {
-    $wantPython = Pinned 'python-version'
-    $wantNode = Pinned 'node-version'
+    $wantPython = Pinned '.python-version'
+    $wantNode = Pinned '.nvmrc'
 
-    Step "Python (ci.yml pins $wantPython)"
+    Step "Python (.python-version pins $wantPython)"
     $python = Interpreter
     if ($python) {
         Note '.venv is already there'
@@ -95,7 +91,7 @@ try {
     if (AtLeast $havePython $wantPython) {
         Note ".venv runs Python $havePython"
     } else {
-        Note ".venv runs Python $havePython, under the $wantPython ci.yml pins -- using it anyway;"
+        Note ".venv runs Python $havePython, under the $wantPython .python-version pins -- using it anyway;"
         Note "delete .venv and run this again with Python $wantPython on PATH to match CI"
     }
 
@@ -137,13 +133,13 @@ try {
     Run $python @('-m', 'playwright', 'install', '--only-shell', 'chromium') `
         'could not install Chromium for Playwright'
 
-    Step "Node (ci.yml pins $wantNode)"
+    Step "Node (.nvmrc pins $wantNode)"
     if (-not ((Have 'node') -and (Have 'npm'))) {
         throw "node and npm are not both on PATH -- install Node $wantNode or later from https://nodejs.org"
     }
     $haveNode = (Run 'node' @('--version') 'could not ask node its version').TrimStart('v')
     if (-not (AtLeast $haveNode $wantNode)) {
-        throw "node $haveNode is under the $wantNode ci.yml pins, and the Angular CLI refuses it -- " +
+        throw "node $haveNode is under the $wantNode .nvmrc pins, and the Angular CLI refuses it -- " +
             "install Node $wantNode or later from https://nodejs.org"
     }
     Note "node $haveNode"

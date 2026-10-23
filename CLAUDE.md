@@ -86,10 +86,13 @@ If `ui/dist/ui/browser` is missing, the API still works and the page returns a
 503 saying how to build it (`_unbuilt_remedy`, as HTML for browsers and JSON
 otherwise), naming `--ui-dir` when `_workspace_for` finds no workspace.
 
-**CI.** `ci.yml` runs Python 3.15 (pytest with coverage, pylint, mypy), Node
-24.22.1 (`test:coverage`, `build`, `lint`, `format:check`) and then that build in
-Chromium (`pytest browser`, ADR-0087) under `bash`, on Linux for pushes and PRs. Windows joins on the Saturday schedule and on
-`workflow_dispatch` (ADR-0037): dispatch it for a branch that touches paths,
+**CI.** Each `ci.yml` job installs, then runs `scripts/preflight.ps1 -Only <job>`,
+so its checks are written once, in the script (ADR-0091): `python` (pytest with
+coverage, pylint, mypy), `ui` (`test:coverage`, `build`, `lint`, `format:check`)
+and then that build in Chromium (`browser`, ADR-0087), on Linux for pushes and PRs.
+Every workflow sets up the Python in `.python-version` and the Node in `.nvmrc`;
+only the `Dockerfile`'s base images repeat them. Windows joins on the Saturday
+schedule and on `workflow_dispatch` (ADR-0037): dispatch it for a branch that touches paths,
 encodings, sockets or `start.ps1`. The scheduled workflows (audit, integration,
 both mutation runs) and `release.yml` are described in `docs/testing.md` and
 `docs/docker.md`; only dependency review gates a PR. `automerge.yml`
@@ -158,13 +161,13 @@ responsibility or boundary moves. `docs/adr/` is the decision log, indexed by
 `docs/adr/README.md`; a new ADR is the file plus its index row, starting from
 `docs/adr/0000-template.md`. To contradict an accepted record, write a new one
 that supersedes it. Never reuse a number or rewrite an accepted record. Every
-record is Accepted but ADR-0020, ADR-0038 and ADR-0065, which ADR-0037, ADR-0088
-and ADR-0087 supersede.
+record is Accepted but ADR-0020, ADR-0038, ADR-0065 and ADR-0067, which ADR-0037,
+ADR-0088, ADR-0087 and ADR-0091 supersede.
 
 `.claude/skills/` holds checklists over these rules: `add-option` (a new
 setting), `add-row` (a model server, rail or search backend), `add-adr` (the
 next record) and `preflight` (the CI gate). `.claude/hooks/session-start.sh`
-sets up remote web sessions from the versions in `ci.yml`, is a no-op when done
+sets up remote web sessions from `.nvmrc` and `.python-version`, is a no-op when done
 or not remote, only warns on failure, and is tested by
 `tests/test_session_hook.py`.
 
@@ -403,7 +406,8 @@ values in the same words (ADR-0071). A new option is a row there plus its help i
 `__main__._written()`, which also holds where a flag differs from its row (a
 `metavar`, the raw `$BUY_AGENT_*` default, `--num-ctx`'s `None`). The
 exceptions: `sources` is a list, `sort_by` is not a config field, and
-`search_results = max(results, top)`. Four keys are named unlike their field:
+`search_results` is no row: unset, `__post_init__` makes it
+`max(num_products, top_n)`. Four keys are named unlike their field:
 `results` (`num_products`), `top` (`top_n`), `fetch` (`fetch_pages`) and
 `think` (`reasoning`, whose `None` means "send nothing").
 
@@ -645,8 +649,8 @@ rules a change must obey:
   after, quoting both runs: the nightly gates only `headphones` (ADR-0089). The
   floors are a tripwire: raise one only in its own commit, quoting runs. A
   contender is reached only through its provider row. See `docs/testing.md`.
-- **Scripts.** `scripts/start.ps1`, `setup.ps1` and `preflight.ps1` must match
-  `ci.yml`'s installs and checks; `tests/test_start_script.py` and
+- **Scripts.** `scripts/start.ps1` and `setup.ps1` must match `ci.yml`'s installs,
+  and `ci.yml` checks through `preflight.ps1`; `tests/test_start_script.py` and
   `tests/test_setup_scripts.py` test them. `.gitattributes` is
   `* text=auto eol=lf` with the binary kinds named.
 

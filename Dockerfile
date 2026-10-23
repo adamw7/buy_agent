@@ -3,7 +3,7 @@
 #   docker build -t buy-agent .
 #   docker run --rm -p 8000:8000 --add-host=host.docker.internal:host-gateway buy-agent
 
-# -- stage 1: build the UI, on the Node CI builds with ------------------------
+# -- stage 1: build the UI, on the Node .nvmrc pins ---------------------------
 FROM node:24.22.1-bookworm-slim AS ui
 
 WORKDIR /ui
@@ -15,7 +15,7 @@ RUN npm ci
 COPY ui/ ./
 RUN npm run build
 
-# -- stage 2: the server, on the Python CI tests with -------------------------
+# -- stage 2: the server, on the Python .python-version pins ------------------
 FROM python:3.15-slim AS runtime
 
 # The terms the image is published under, said where a registry reads them.

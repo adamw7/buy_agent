@@ -113,8 +113,6 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, SortBy]:
         for option in OPTIONS
     }
     settings["sources"] = _read_sources(data, defaults.sources)
-    # Searching fewer pages than we report would cap the report.
-    settings["search_results"] = max(settings["num_products"], settings["top_n"])
     sort_by = _read(data, "sort_by", "score", _among(SORT_OPTIONS))
     return _configured(**settings), cast(SortBy, sort_by)
 

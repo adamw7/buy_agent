@@ -5,7 +5,7 @@ around them. Everything the [README](../README.md) leaves out.
 
 ```powershell
 .\scripts\setup.ps1           # what every line below needs, the AP2 SDK included
-.\scripts\preflight.ps1       # everything ci.yml checks, both halves, in its order
+.\scripts\preflight.ps1       # everything ci.yml checks: its jobs run this script
 
 python -m pytest              # whole suite
 python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
@@ -28,7 +28,7 @@ python -m benchmark.server               # ...or as a page comparing several mod
 
 ## The unit suites
 
-2413 Python tests and 369 UI tests. Neither touches the network or a model
+2476 Python tests and 369 UI tests. Neither touches the network or a model
 server:
 
 - the model is faked through `BuyAgent(llm=...)`, a class with one `answer`
@@ -64,8 +64,8 @@ Optional prerequisites skip, never fail:
 - One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
   and skips on a machine that cannot.
 
-So the SDK without PowerShell reads `2452 passed, 20 skipped`, and
-`requirements-dev.txt` alone reads `2404 passed, 68 skipped`.
+So the SDK without PowerShell reads `2456 passed, 20 skipped`, and
+`requirements-dev.txt` alone reads `2408 passed, 68 skipped`.
 
 ### Across processes
 
@@ -81,7 +81,7 @@ threads each, and every worker collects the whole suite for itself before runnin
 any of it, so a fourth costs more than it brings: timed side by side on twelve
 runners, three workers beat two and four on every one, and took the step from
 15-32 seconds serially to 11-21. A machine with more cores still runs three,
-because `preflight.ps1` runs what `ci.yml` runs.
+because `ci.yml` runs its checks through `preflight.ps1` (ADR-0091).
 
 Nothing in `pytest.ini` asks for workers, so `python -m pytest`, a single test,
 `integration/` and mutmut all run in one process as before. A test that passes
@@ -164,8 +164,12 @@ Coverage cannot see rules that hold *between* files, so
   off the server, and `ui/src/app/agent.types.ts` mirrors every payload
   (ADR-0033, ADR-0071);
 - the `Dockerfile`, `.dockerignore`, workflows, release, nightly, mutation and
-  audit settings agree with each other and with CI's pins, and every model
-  server's variables are named wherever they are listed by hand (ADR-0081);
+  audit settings agree with each other, and every model server's variables are
+  named wherever they are listed by hand (ADR-0081);
+- every workflow sets Python and Node up from `.python-version` and `.nvmrc`, the
+  scripts read them, and no script or page writes either version down; `ci.yml`
+  runs its checks through `scripts/preflight.ps1`, and nothing beside it but
+  installs (ADR-0091);
 - everything a release publishes is scanned before it is pushed and attested,
   and only a job that attests can mint a token naming the run (ADR-0069);
 - ADRs are indexed, skills name real paths, and every Markdown link resolves;
@@ -260,8 +264,9 @@ paying variables are set, using `mandates.INSTALL`.
 dot-sources its functions, runs every program through `Run` against a stubbed
 clock and web request, and reads back JSON.
 `tests/test_setup_scripts.py` does the same for `scripts/setup.ps1` and
-`scripts/preflight.ps1`; what they install and check is held against `ci.yml` in
-`tests/test_conventions.py` (ADR-0067).
+`scripts/preflight.ps1`. What `setup.ps1` installs is held against `ci.yml` in
+`tests/test_conventions.py` (ADR-0067), and what `preflight.ps1` checks is what
+`ci.yml` runs, since each of its jobs runs the script (ADR-0091).
 
 ## Integration tests
 

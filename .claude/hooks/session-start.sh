@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Remote sessions only: put ci.yml's Node on PATH (the image's is too old for the
+# Remote sessions only: put the pinned Node on PATH (the image's is too old for the
 # Angular CLI), run npm ci in ui/, and build .venv as ci.yml's Python job does.
-# Versions are read out of ci.yml, never written down again here.
+# Versions are read out of .nvmrc and .python-version, never written down again here.
 set -euo pipefail
 
 [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || exit 0
@@ -12,16 +12,16 @@ say() { printf '%s\n' "$*" >&2; }
 # Sort -V puts the lower version first, so this is "have is at least want".
 at_least() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ]; }
 
-want=$(sed -n 's/.*node-version:[[:space:]]*"\([0-9][0-9.]*\)".*/\1/p' \
-       "$root/.github/workflows/ci.yml" | head -1)
-want_py=$(sed -n 's/.*python-version:[[:space:]]*"\([0-9][0-9.]*\)".*/\1/p' \
-          "$root/.github/workflows/ci.yml" | head -1)
+# The version a pin file holds, or nothing where there is no such file.
+pinned() { [ -f "$root/$1" ] && tr -d '[:space:]' < "$root/$1" || true; }
+want=$(pinned .nvmrc)
+want_py=$(pinned .python-version)
 
 # A return, not an exit, so the Python half still runs.
 node_bin=""
 install_node() {
   if [ -z "$want" ]; then
-    say "session-start: no node-version pin in ci.yml; leaving Node alone."
+    say "session-start: no Node pinned in .nvmrc; leaving Node alone."
     return 1
   fi
 
@@ -141,7 +141,7 @@ install_python() {
 
   # No portable Python to fetch, so one under the pin is used with a warning.
   if [ -n "$want_py" ] && ! at_least "$want_py" "$have_py"; then
-    say "session-start: python $have_py is the newest on PATH and under ci.yml's $want_py pin; using it anyway."
+    say "session-start: python $have_py is the newest on PATH and under the $want_py .python-version pins; using it anyway."
   fi
 
   # A venv older than the chosen interpreter is rebuilt, stamp and all.
@@ -204,12 +204,12 @@ keep_on_path "$venv_bin"
 
 python_line="there is no .venv, so $py"
 if [ -n "$venv_bin" ] && [ -x "$venv_bin/python" ]; then
-  python_line=$(printf '.venv runs Python %s (ci.yml pins %s), and %s' \
+  python_line=$(printf '.venv runs Python %s (.python-version pins %s), and %s' \
     "$("$venv_bin/python" -c 'import platform; print(platform.python_version())' 2>/dev/null \
        || echo 'an interpreter it cannot run')" "${want_py:-nothing}" "$py")
 fi
 
 # Stdout is what the session reads.
-printf 'Node %s is on PATH (ci.yml pins v%s), and %s. The %s.\n' \
+printf 'Node %s is on PATH (.nvmrc pins v%s), and %s. The %s.\n' \
        "$(node --version 2>/dev/null || echo 'is unavailable')" "$want" "$ui" \
        "$python_line"

@@ -2,9 +2,10 @@
 runs a program (ADR-0067).
 
 Read through the probe ``tests/test_start_script.py`` reads ``scripts/start.ps1``
-with, which parses a script into an AST and runs none of its body. What either
-script *installs* and *checks* is a rule between it and ``ci.yml``, and lives in
-``tests/test_conventions.py`` with the others.
+with, which parses a script into an AST and runs none of its body. What the setup
+*installs* is a rule between it and ``ci.yml``, and lives in
+``tests/test_conventions.py`` with the others; what the preflight *checks* is what
+``ci.yml`` runs, its jobs running it (ADR-0091).
 """
 
 from __future__ import annotations
