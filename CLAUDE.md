@@ -277,11 +277,14 @@ listed in `docs/testing.md`.
   `SearchResult`. `attribute_sources()` links each product to the first searched
   page mentioning it and keeps the model's URL only if it was searched
   (ADR-0017).
-- **A quote is checked as running text, on the page it came from, and carries
-  that page** (ADR-0024, ADR-0025, ADR-0042). `fetch.py` sweeps twice, for
+- **A quote is checked as running text, on the page it came from, where that
+  page is talking about the product, and carries that page** (ADR-0024,
+  ADR-0025, ADR-0042, ADR-0090). `fetch.py` sweeps twice, for
   figures (`page_chars`) and judgement (`opinion_chars`). `verify_opinions()`
   checks overlapping five-word runs, most of which must be found, against one
-  page at a time that `mentions_name` says is about the product. `_OPINION` is a
+  page at a time that `mentions_name` says is about the product, and `said_of`
+  then wants the nearest line at or above the quote naming any of the run's
+  products to name this one. A page's line breaks must reach it. `_OPINION` is a
   vocabulary of judgement, never of subject matter. `Product.opinions` are
   `Opinion(words, url)`; the model is never asked for the page, and a `url` of
   `None` means the search result had no URL.

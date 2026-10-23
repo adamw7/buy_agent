@@ -1,5 +1,5 @@
 """Check extracted products against their source text (ADR-0006, ADR-0017, ADR-0024,
-ADR-0025)."""
+ADR-0025, ADR-0090)."""
 
 from __future__ import annotations
 
@@ -249,35 +249,59 @@ def running_words(text: str) -> str:
     return " ".join(NAME_TOKENS.findall(plain_figures(text).lower()))
 
 
+def _runs(words: list[str]) -> list[str]:
+    """Overlapping runs of :data:`_QUOTE_WINDOW` words, or the whole of a shorter quote."""
+    return [
+        " ".join(words[start : start + _QUOTE_WINDOW])
+        for start in range(max(1, len(words) - _QUOTE_WINDOW + 1))
+    ]
+
+
 def quotes_sources(haystack_words: str, quote: str) -> bool:
     """Whether ``quote`` reads as running text out of ``haystack_words``."""
     words = running_words(quote).split()
     if not words:
         return False
     padded = f" {haystack_words} "
-    runs = [
-        " ".join(words[start : start + _QUOTE_WINDOW])
-        for start in range(max(1, len(words) - _QUOTE_WINDOW + 1))
-    ]
+    runs = _runs(words)
     return sum(f" {run} " in padded for run in runs) / len(runs) >= _QUOTE_COVERAGE
+
+
+def said_of(text: str, quote: str, name: str, names: Sequence[str]) -> bool:
+    """Whether ``text`` prints ``quote`` where it is talking about ``name``: the nearest
+    line naming any of ``names``, at or above the line holding most of the quote, names
+    this one (ADR-0090)."""
+    lines = text.split("\n")
+    runs = _runs(running_words(quote).split())
+    held = [sum(f" {run} " in f" {running_words(line)} " for run in runs) for line in lines]
+    for line in reversed(lines[: held.index(max(held)) + 1]):
+        named = [other for other in names if mentions_name(line, other)]
+        if named:
+            return name in named
+    return False
 
 
 def verify_opinions(
     products: Sequence[Product], results: Sequence[SearchResult]
 ) -> list[Product]:
-    """Keep the quotes a page about this product printed, with that page (ADR-0024,
-    ADR-0042)."""
+    """Keep the quotes a page about this product printed, where it was talking about
+    this product, with that page (ADR-0024, ADR-0042, ADR-0090)."""
     pages = [(url, text, running_words(text)) for url, text in _page_haystacks(results)]
+    names = [product.name for product in products]
     verified: list[Product] = []
     dropped = 0
 
     for product in products:
-        mine = [(url, words) for url, text, words in pages if mentions_name(text, product.name)]
+        mine = [
+            (url, text, words) for url, text, words in pages if mentions_name(text, product.name)
+        ]
         kept: list[Opinion] = []
         for opinion in product.opinions:
-            # The first page printing it; its URL may be ``None``.
-            for url, words in mine:
-                if quotes_sources(words, opinion.text):
+            # The first page printing it about this product; its URL may be ``None``.
+            for url, text, words in mine:
+                if quotes_sources(words, opinion.text) and said_of(
+                    text, opinion.text, product.name, names
+                ):
                     kept.append(opinion.model_copy(update={"url": url}))
                     break
 
@@ -287,5 +311,5 @@ def verify_opinions(
         verified.append(product.model_copy(update={"opinions": kept}))
 
     if dropped:
-        logger.info("Dropped %d opinion(s) the sources never printed", dropped)
+        logger.info("Dropped %d opinion(s) no page printed about that product", dropped)
     return verified

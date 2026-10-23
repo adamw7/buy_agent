@@ -427,7 +427,10 @@ matter ([ADR-0024](docs/adr/0024-read-and-quote-what-the-sources-say.md)).
 
 A quote must appear as running text -- most of its overlapping five-word runs --
 on a page that names the product, or it is dropped
-([ADR-0025](docs/adr/0025-check-a-quote-against-the-page-it-came-from.md)). Each
+([ADR-0025](docs/adr/0025-check-a-quote-against-the-page-it-came-from.md)). On a
+roundup it must also sit under the product: the nearest line at or above it naming any
+product the run reported must name this one
+([ADR-0090](docs/adr/0090-check-a-quote-where-the-page-is-talking-about-the-product.md)). Each
 quote links the page that printed it
 ([ADR-0042](docs/adr/0042-keep-the-page-a-quote-came-from.md)). Quotes are not
 scored.
@@ -704,9 +707,11 @@ import graph
 - **A figure can be real but attached to the wrong product.** Grounding checks
   that a number is in the sources, not whose it is. The benchmark's
   `attribution` metric measures this.
-- **A quote is tied to a page, not a product on it.** A review of eight
-  headphones names all eight. The quote's `source` link shows the page. The
-  benchmark's `faithful` metric measures this.
+- **A quote is tied to the part of a page under a product's full name.** A
+  verdict naming its product short ("The Sony is worth it") belongs to whichever
+  product was named above it, and so does one under a product the model never
+  reported. The quote's `source` link shows the page. The benchmark's `faithful`
+  metric measures this.
 - **A model number can be one off.** Grounding reads a name's words against a 0.6
   bar, so a model's "WH-1000XM4" survives pages about the XM5. The benchmark
   counts it as a product nobody wrote about.
