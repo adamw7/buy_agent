@@ -13,11 +13,13 @@ from buy_agent.verification import (
     build_haystack,
     drop_ungrounded,
     ground,
+    judges,
     mentions_name,
     mentions_number,
     mentions_rating,
     mentions_review_count,
     mentions_standing,
+    said_of,
     verify_numbers,
     verify_opinions,
     verify_standing,
@@ -309,6 +311,111 @@ def test_a_quote_is_never_linked_to_a_page_about_another_product() -> None:
     kept = quoted_from("Great sound, and it ships in black", name="Anker Q45")
 
     assert kept[0].url == "https://audiosite.example/q45"
+
+
+# -- and the part of the page about the product (ADR-0090) ---------------------
+
+ROUNDUP = SearchResult(
+    title="Best noise cancelling headphones",
+    snippet="Our picks, tested on a long-haul flight.",
+    url="https://roundup.example/best",
+    content="\n".join(
+        [
+            "Reviewers found the cabin quieter with anything on this list.",
+            "1. Sony WH-CH720N - best overall",
+            "Reviewers found the noise cancelling uncanny for the money.",
+            "2. Anker Q45 - best value",
+            "The Anker Q45 is $99, rated 4.4 out of 5 from 31,200 reviews.",
+            "Reviewers found the noise cancelling merely average on a train.",
+            "The Sony WH-CH720N and the Anker Q45 both fold flat into a bag.",
+            "Owners agree that either one survives a year of commuting.",
+        ]
+    ),
+)
+
+ROUNDUP_RUN = [Product(name="Sony WH-CH720N"), Product(name="Anker Q45")]
+
+
+def kept_on_the_roundup(name: str, quote: str) -> bool:
+    products = [
+        product.model_copy(update={"opinions": said(quote)}) if product.name == name else product
+        for product in ROUNDUP_RUN
+    ]
+    [checked] = [
+        product for product in verify_opinions(products, [ROUNDUP]) if product.name == name
+    ]
+    return bool(checked.opinions)
+
+
+def test_a_verdict_counts_for_the_product_the_page_is_talking_about() -> None:
+    """A roundup names both, so the page is about both; each verdict is still about
+    one of them."""
+    sonys = "Reviewers found the noise cancelling uncanny for the money."
+    ankers = "Reviewers found the noise cancelling merely average on a train."
+
+    assert kept_on_the_roundup("Sony WH-CH720N", sonys)
+    assert not kept_on_the_roundup("Anker Q45", sonys)
+    assert kept_on_the_roundup("Anker Q45", ankers)
+    assert not kept_on_the_roundup("Sony WH-CH720N", ankers)
+
+
+def test_a_quote_is_placed_by_the_line_holding_most_of_it() -> None:
+    """The Anker's verdict opens with the words the Sony's does; its line is the one
+    holding most of it, in the Anker's part of the page."""
+    ankers = "Reviewers found the noise cancelling merely average on a train."
+
+    assert said_of(ROUNDUP.content, ankers, "Anker Q45", [p.name for p in ROUNDUP_RUN])
+
+
+def test_a_line_naming_both_starts_a_part_about_both() -> None:
+    both = "Owners agree that either one survives a year of commuting."
+
+    assert kept_on_the_roundup("Sony WH-CH720N", both)
+    assert kept_on_the_roundup("Anker Q45", both)
+
+
+def test_a_judgement_above_every_product_is_about_none_of_them() -> None:
+    """Before the page names anything it is talking about the list, not a product on
+    it."""
+    preamble = "Reviewers found the cabin quieter with anything on this list."
+
+    assert not kept_on_the_roundup("Sony WH-CH720N", preamble)
+    assert not kept_on_the_roundup("Anker Q45", preamble)
+
+
+def test_a_products_own_figure_line_is_not_a_quote() -> None:
+    """Printed under the Anker's name, and no opinion of it: its rating and its count,
+    which grounding checks as figures (ADR-0090)."""
+    assert not kept_on_the_roundup(
+        "Anker Q45", "The Anker Q45 is $99, rated 4.4 out of 5 from 31,200 reviews."
+    )
+
+
+@pytest.mark.parametrize(
+    ("quote", "judging"),
+    [
+        ("The JLab JBuds Lux ANC is rated 4.1 out of 5 from 8,900 reviews.", False),
+        ("Rated 4.7 out of 5", False),
+        ("4.5 stars", False),
+        ("Reviews (3,200)", False),
+        ("12,480 verified customer reviews", False),
+        # Judging, whatever figure it prints beside.
+        ("Over 3,000 owners report the battery lasts a week.", True),
+        ("Testers found it worth the money at 4.5 stars.", True),
+        # A price is how an editor's pick is said; only ratings and counts restate.
+        ("The Sony WH-1000XM5 remains our overall pick at $328.", True),
+        ("The Anker Q45 is $99.", True),
+    ],
+)
+def test_a_quote_restating_a_rating_or_a_count_judges_nothing(quote: str, judging: bool) -> None:
+    assert judges(quote) is judging
+
+
+def test_a_quote_off_a_page_about_one_product_is_that_products() -> None:
+    """A review names its product in its title, so the whole page is its part."""
+    assert opinions_after("reviewers found the noise cancelling uncanny for the money") == [
+        "reviewers found the noise cancelling uncanny for the money"
+    ]
 
 
 @pytest.mark.parametrize(

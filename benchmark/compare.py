@@ -18,19 +18,30 @@ from buy_agent.config import AgentConfig
 from buy_agent.logging_setup import seconds_label
 from buy_agent.models import ProductList, SearchQuery
 from buy_agent.providers import PROVIDERS
+from buy_agent.verification import running_words
 from benchmark import pipeline
 from benchmark.cases import CASES, SCRIPTS
 from benchmark.query import QueryVerdict, judge_query
 from benchmark.runner import run_benchmark
-from benchmark.scoring import FLOORS, MEANINGS, METRICS, Scorecard, match_products
+from benchmark.scoring import (
+    FLOORS,
+    MEANINGS,
+    METRICS,
+    Scorecard,
+    match_products,
+    page_words,
+    quotes_a_verdict,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
     from pathlib import Path
 
     from buy_agent.agent import Checkpoint
     from buy_agent.chat import ChatModel, Message, SchemaT
-    from buy_agent.models import RankedProduct
+    from buy_agent.models import Opinion, RankedProduct
+    from buy_agent.search import SearchResult
+    from benchmark.answers import Expected
     from benchmark.cases import Case
     from benchmark.runner import Report
 
@@ -124,6 +135,20 @@ class Stopwatch:
         return answer
 
 
+class Quoted(BaseModel):
+    """One quote a run reported, and what the key makes of it (ADR-0073)."""
+
+    text: str
+    #: What ``faithful`` counts: a verdict on the product it was reported for.
+    faithful: bool
+    #: Where it is not, what it is instead: so a job under the floor names its quotes.
+    instead: str = ""
+
+    @property
+    def line(self) -> str:
+        return f'"{self.text}"' + ("" if self.faithful else f"   [{self.instead}]")
+
+
 class Reported(BaseModel):
     """One product as a run reported it, and what the key makes of it."""
 
@@ -136,6 +161,8 @@ class Reported(BaseModel):
     matches: str | None = None
     #: :data:`~benchmark.scoring.REAL`, ``REPEATED`` or ``INVENTED``.
     verdict: str
+    #: Empty for a run kept before quotes were.
+    opinions: list[Quoted] = []
 
     @property
     def line(self) -> str:
@@ -225,7 +252,7 @@ def scored_run(
         counts=card.counts,
         invented=card.invented,
         repeated=card.repeated,
-        products=reported(report.ranked, case),
+        products=reported(report.ranked, case, report.pages),
     )
 
 
@@ -280,8 +307,13 @@ def scored_under(run: CaseRun) -> list[str]:
     return reasons
 
 
-def reported(ranked: Sequence[RankedProduct], case: Case) -> list[Reported]:
+def reported(
+    ranked: Sequence[RankedProduct], case: Case, results: Sequence[SearchResult]
+) -> list[Reported]:
+    """What the run reported, read against ``case``'s key and the ``results`` it was
+    shown."""
     products = [entry.product for entry in ranked]
+    pages = page_words(results)
     return [
         Reported(
             rank=entry.rank,
@@ -291,11 +323,37 @@ def reported(ranked: Sequence[RankedProduct], case: Case) -> list[Reported]:
             quotes=len(entry.product.opinions),
             matches=expected.name if expected else None,
             verdict=verdict,
+            opinions=[
+                _quoted(opinion, expected, case, pages) for opinion in entry.product.opinions
+            ],
         )
         for entry, (expected, verdict) in zip(
             ranked, match_products(products, case.key), strict=True
         )
     ]
+
+
+def _quoted(
+    opinion: Opinion, expected: Expected | None, case: Case, pages: Mapping[str, str]
+) -> Quoted:
+    """As ``faithful`` reads it, and where it does not count, whose line it is."""
+    if expected is not None and quotes_a_verdict(opinion.text, expected, pages):
+        return Quoted(text=opinion.text, faithful=True)
+    words = running_words(opinion.text)
+
+    def holds(line: str) -> bool:
+        return bool(words) and f" {words} " in f" {running_words(line)} "
+
+    judged = [entry for entry in case.key if any(holds(line) for line in entry.verdicts)]
+    if expected in judged:
+        instead = "its own verdict, off no page about it the run was shown"
+    elif judged:
+        instead = f"a verdict on the {judged[0].name}"
+    elif any(holds(line) for line in case.about_nobody):
+        instead = "a judgement on no product"
+    else:
+        instead = "no line the key lists"
+    return Quoted(text=opinion.text, faithful=False, instead=instead)
 
 
 @dataclass(frozen=True, slots=True)
@@ -531,11 +589,12 @@ def describe(run: CaseRun, case: Case) -> str:
         lines.append(f"  build        {build_label(run.build)}")
     if run.products:
         lines.append("")
-        lines += [
-            f"  {product.rank}. {product.line}"
-            + ("" if product.verdict == "real" else f"   [{product.verdict}]")
-            for product in run.products
-        ]
+        for product in run.products:
+            lines.append(
+                f"  {product.rank}. {product.line}"
+                + ("" if product.verdict == "real" else f"   [{product.verdict}]")
+            )
+            lines += [f"       {quote.line}" for quote in product.opinions]
     return "\n".join(lines)
 
 
@@ -552,6 +611,7 @@ __all__ = [
     "STEPS",
     "CaseRun",
     "Contender",
+    "Quoted",
     "Reported",
     "Standing",
     "Stopwatch",

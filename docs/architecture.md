@@ -305,7 +305,9 @@ Extraction and verification must see the same text, which is why
   INFO, since a run that read nothing otherwise looks like a bad model.
 - **Step 5** holds quotes to a stricter bar than figures: most overlapping
   five-word runs must be found, on one page that mentions the product
-  (ADR-0024, ADR-0025), and that page is kept on the quote (ADR-0042). It also
+  (ADR-0024, ADR-0025), under the product's own name on that page, and never a
+  rating or a count restated without a judgement (ADR-0090). That page is kept
+  on the quote (ADR-0042). It also
   links each product to the first searched page mentioning it (ADR-0017).
 - **Step 7** enforces the shopper's bounds. Unknown figures pass, and so do
   prices outside the run's one currency, which is never converted (ADR-0039,

@@ -234,9 +234,9 @@ def quoted(product: str, *quotes: str) -> Product:
 def test_a_verdict_on_another_product_on_the_same_page_is_not_faithful(
     served: tuple[SearchResult, ...],
 ) -> None:
-    """The mistake the prompt forbids and the pipeline cannot see: AudioSite names the
-    Bose, so ``verify_opinions`` keeps the Sony's verdict on it, and a key of pages
-    would have too (ADR-0073)."""
+    """The mistake the prompt forbids: AudioSite names the Bose, so a key of pages would
+    keep the Sony's verdict on it (ADR-0073). ``verify_opinions`` now drops it too
+    (ADR-0090); the scorer counts it whatever grounding did."""
     sonys = "In our tests the noise cancelling was still the best of anything at this price."
 
     card = score_run([quoted("Bose QuietComfort Ultra", sonys)], served)

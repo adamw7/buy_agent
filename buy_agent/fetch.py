@@ -15,7 +15,7 @@ import httpx
 from lxml import html as lxml_html
 
 from buy_agent.cache import PAGES, DiskCache, open_cache
-from buy_agent.models import STANDING_PHRASES
+from buy_agent.models import JUDGEMENT, STANDING_PHRASES
 from buy_agent.money import SCANNED_CODES, SIGNS, WORDS
 from buy_agent.structured import declared
 
@@ -49,27 +49,6 @@ _RATING = re.compile(
     re.IGNORECASE,
 )
 
-#: Lines that judge a product rather than price it.
-_OPINION = re.compile(
-    r"""
-      # Plural only: a singular "pro" is half the products on the page
-      # ("AirPods Pro"), while "pros and cons" is nobody's model name.
-      \b(?:pros|cons|downsides?|drawbacks?|upsides?|complaints?|verdict)\b
-    | \b(?:we|i|reviewers?|testers?|owners?|users?|buyers?|critics?)\s+
-      (?:\w+\s+){0,2}?
-      (?:like[ds]?|love[ds]?|hate[ds]?|found|felt|prefer(?:red)?|praise[ds]?
-        |complain(?:ed|ing)?|noticed|report(?:ed)?|recommend(?:ed)?|wish(?:ed)?)\b
-    | \b(?:in\s+(?:our|my)\s+tests?|hands[-\s]on|bottom\s+line|tested\s+by)\b
-    | \b(?:comfortable|uncomfortable|impressive|disappointing|excellent|superb
-        |mediocre|flimsy|sturdy|durable|underwhelming|outstanding|punchy|muddy
-        |boomy|tinny|harsh|roomy|cramped)\b
-    | \bbest\s+(?:for|value|overall)\b
-    | \bworth\s+(?:it|the)\b
-    | \bvalue\s+for\s+money\b
-    | \b(?:highly\s+)?recommend(?:ed|s)?\b
-    """,
-    re.IGNORECASE | re.VERBOSE,
-)
 #: Lines saying whether a listing is in stock or what state it comes in (ADR-0079).
 _STANDING = re.compile("|".join(STANDING_PHRASES.values()), re.IGNORECASE)
 
@@ -197,7 +176,7 @@ def quotes_a_figure(segment: str) -> bool:
 
 
 def reads_like_an_opinion(segment: str) -> bool:
-    return bool(_OPINION.search(segment))
+    return bool(JUDGEMENT.search(segment))
 
 
 def fetch_page(

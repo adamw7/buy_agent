@@ -13,7 +13,14 @@ import pytest
 
 from buy_agent.agent import ModelUnavailableError
 from buy_agent.chat import UnreadableAnswerError
-from buy_agent.models import Product, ProductList, RankedProduct, ScoreParts, SearchQuery
+from buy_agent.models import (
+    Opinion,
+    Product,
+    ProductList,
+    RankedProduct,
+    ScoreParts,
+    SearchQuery,
+)
 import buy_agent.providers as providers_module
 from buy_agent.providers import OllamaReply
 from benchmark import __main__ as benchmark_main
@@ -379,6 +386,7 @@ def test_what_a_run_reported_is_read_against_the_key_in_its_order() -> None:
             ranked("AudioSite", 3),
         ],
         HEADPHONES,
+        [],
     )
 
     assert [(item.rank, item.matches, item.verdict) for item in found] == [
@@ -389,6 +397,43 @@ def test_what_a_run_reported_is_read_against_the_key_in_its_order() -> None:
     assert found[0].price == "99.00"
     assert found[0].rating == "unrated"
     assert found[0].line == "Soundcore Space Q45 -- 99.00, unrated, 0 quote(s)"
+
+
+def test_each_quote_a_run_reported_says_whose_line_the_key_makes_it() -> None:
+    """So a run under the faithful floor names the quotes that put it there."""
+    own = "In our tests the noise cancelling was still the best of anything at this price."
+    quotes = [
+        own,
+        "Owners praised the folding hinge and the case.",
+        "Buyers found the January sales the best value of the year.",
+        "The Sony WH-1000XM5 costs $328 at most shops.",
+    ]
+    parts = ScoreParts(rating=0.5, popularity=0.5, price=0.5, total=0.5)
+    sony = Product(name="Sony WH-1000XM5", opinions=[Opinion(text=quote) for quote in quotes])
+    ranked = [RankedProduct(product=sony, breakdown=parts, rank=1)]
+    shown = [
+        result.model_copy(update={"content": HEADPHONES.page_text[result.url]})
+        for result in HEADPHONES.pages
+    ]
+
+    [found] = reported(ranked, HEADPHONES, shown)
+    [unshown] = reported(ranked, HEADPHONES, [])
+
+    assert [(quote.text, quote.faithful, quote.instead) for quote in found.opinions] == [
+        (own, True, ""),
+        (quotes[1], False, "a verdict on the Bose QuietComfort Ultra"),
+        (quotes[2], False, "a judgement on no product"),
+        (quotes[3], False, "no line the key lists"),
+    ]
+    assert unshown.opinions[0].instead == "its own verdict, off no page about it the run was shown"
+    run = kept(TINY).model_copy(update={"products": [found]})
+    assert describe(run, HEADPHONES).endswith(
+        "  1. Sony WH-1000XM5 -- price unknown, unrated, 4 quote(s)\n"
+        f'       "{own}"\n'
+        f'       "{quotes[1]}"   [a verdict on the Bose QuietComfort Ultra]\n'
+        f'       "{quotes[2]}"   [a judgement on no product]\n'
+        f'       "{quotes[3]}"   [no line the key lists]'
+    )
 
 
 # -- the standings -------------------------------------------------------------

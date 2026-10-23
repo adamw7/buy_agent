@@ -45,6 +45,29 @@ STANDING_PHRASES: dict[str, str] = {
     "refurbished": r"\brefurbished\b|\brenewed\b|\breconditioned\b",
 }
 
+#: How a page judges a product rather than prices it: the lines ``fetch`` keeps as
+#: opinions, and what a quote restating a rating or a count needs to be one (ADR-0024,
+#: ADR-0090).
+JUDGEMENT = re.compile(
+    r"""
+      # Plural only: a singular "pro" is half the products on the page
+      # ("AirPods Pro"), while "pros and cons" is nobody's model name.
+      \b(?:pros|cons|downsides?|drawbacks?|upsides?|complaints?|verdict)\b
+    | \b(?:we|i|reviewers?|testers?|owners?|users?|buyers?|critics?)\s+
+      (?:\w+\s+){0,2}?
+      (?:like[ds]?|love[ds]?|hate[ds]?|found|felt|prefer(?:red)?|praise[ds]?
+        |complain(?:ed|ing)?|noticed|report(?:ed)?|recommend(?:ed)?|wish(?:ed)?)\b
+    | \b(?:in\s+(?:our|my)\s+tests?|hands[-\s]on|bottom\s+line|tested\s+by)\b
+    | \b(?:comfortable|uncomfortable|impressive|disappointing|excellent|superb
+        |mediocre|flimsy|sturdy|durable|underwhelming|outstanding|punchy|muddy
+        |boomy|tinny|harsh|roomy|cramped)\b
+    | \bbest\s+(?:for|value|overall)\b
+    | \bworth\s+(?:it|the)\b
+    | \bvalue\s+for\s+money\b
+    | \b(?:highly\s+)?recommend(?:ed|s)?\b
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
 #: What a model may write for each standing, folded; anything else is unknown.
 _STANDING_SPELLINGS: dict[str, str] = {
     spelling: standing
