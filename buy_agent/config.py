@@ -79,7 +79,8 @@ class AgentConfig:
     model_timeout: float = 600.0
     reasoning: bool | None = False
     cpu_only: bool = False
-    search_results: int = 10
+    #: 0 is as many as the report needs: never fewer pages than products found or shown.
+    search_results: int = 0
     num_products: int = 10
     top_n: int = 3
     max_price: float | None = None
@@ -121,6 +122,7 @@ class AgentConfig:
         self.model = self.model or server.model
         self.base_url = self.base_url or server.base_url
         self.api_key = self.api_key or server.api_key
+        self.search_results = self.search_results or max(self.num_products, self.top_n)
         self.region = parse_region(self.region)
         self.currency = parse_currency(self.currency)
         backend_for(self.backend)

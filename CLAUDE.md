@@ -403,7 +403,8 @@ values in the same words (ADR-0071). A new option is a row there plus its help i
 `__main__._written()`, which also holds where a flag differs from its row (a
 `metavar`, the raw `$BUY_AGENT_*` default, `--num-ctx`'s `None`). The
 exceptions: `sources` is a list, `sort_by` is not a config field, and
-`search_results = max(results, top)`. Four keys are named unlike their field:
+`search_results` is no row: unset, `__post_init__` makes it
+`max(num_products, top_n)`. Four keys are named unlike their field:
 `results` (`num_products`), `top` (`top_n`), `fetch` (`fetch_pages`) and
 `think` (`reasoning`, whose `None` means "send nothing").
 

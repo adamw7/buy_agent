@@ -87,3 +87,14 @@ def test_a_backend_nothing_can_search_is_refused_where_the_config_is_built() -> 
     """A minute into a run is the wrong place to find out (ADR-0057)."""
     with pytest.raises(ValueError, match="Unknown search backend 'bing'"):
         AgentConfig(backend="bing")
+
+
+# -- how many pages a run searches ----------------------------------------------
+
+
+def test_a_run_searches_at_least_as_many_pages_as_it_reports() -> None:
+    """Searching fewer pages than the run finds or shows would cap the report, so an unset
+    width is the larger of the two -- for both doors and a Python caller alike."""
+    assert AgentConfig(num_products=3, top_n=8).search_results == 8
+    assert AgentConfig(num_products=12, top_n=3).search_results == 12
+    assert AgentConfig(num_products=12, search_results=4).search_results == 4

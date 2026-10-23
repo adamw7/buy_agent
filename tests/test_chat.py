@@ -9,6 +9,7 @@ import pytest
 from buy_agent.chat import (
     Chain,
     Prompt,
+    first_line,
 )
 from buy_agent.models import SearchQuery
 
@@ -27,6 +28,12 @@ class Recording:
         self.messages = list(messages)
         self.schema = schema
         return self.answered
+
+
+def test_a_failure_is_told_by_its_first_line_or_else_by_its_type() -> None:
+    """One line for a hint or a warning, and never an empty pair of brackets."""
+    assert first_line(ValueError("the first\nthe second")) == "the first"
+    assert first_line(TimeoutError()) == "TimeoutError"
 
 
 def test_a_prompt_fills_both_turns_in() -> None:

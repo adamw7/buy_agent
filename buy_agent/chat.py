@@ -57,6 +57,12 @@ def release(held: object) -> None:
         held.close()
 
 
+def first_line(exc: Exception) -> str:
+    """A failure's first line, or its type where it says nothing."""
+    said = str(exc).strip()
+    return said.splitlines()[0] if said else type(exc).__name__
+
+
 @dataclass(frozen=True, slots=True)
 class Prompt:
     """A system instruction and a human turn, each with ``{name}`` holes in it."""

@@ -8,7 +8,7 @@ from time import perf_counter, sleep
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 from buy_agent.cache import remember_answers
-from buy_agent.chat import Chain, UnreadableAnswerError, release
+from buy_agent.chat import Chain, UnreadableAnswerError, first_line, release
 from buy_agent.config import DEFAULT_REGION, AgentConfig
 from buy_agent.constraints import Constraints
 from buy_agent.extraction import (
@@ -84,12 +84,6 @@ def journal_for(request: str, config: AgentConfig) -> Journal:
         },
         keeping=config.journal,
     )
-
-
-def _first_line(exc: Exception) -> str:
-    """A failure's first line, or its type where it says nothing."""
-    said = str(exc).strip()
-    return said.splitlines()[0] if said else type(exc).__name__
 
 
 class _Stopwatch:
@@ -330,7 +324,7 @@ class BuyAgent:
         except Exception as exc:
             # One line both doors show; the traceback is for -v.
             logger.warning(
-                "Query refinement failed (%s); using the raw request", _first_line(exc)
+                "Query refinement failed (%s); using the raw request", first_line(exc)
             )
             logger.debug("Why query refinement failed", exc_info=True)
             return request
