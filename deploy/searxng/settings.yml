@@ -1,0 +1,14 @@
+# What compose.yaml's SearXNG needs beyond its own defaults: the JSON answer the
+# `searxng` search backend asks for, and no rate limiter in front of the one client it
+# has, which would want a Valkey beside it (ADR-0057, ADR-0092). Its secret comes from
+# $SEARXNG_SECRET, which compose.yaml sets.
+use_default_settings: true
+
+server:
+  limiter: false
+  image_proxy: false
+
+search:
+  formats:
+    - html
+    - json

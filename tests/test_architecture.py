@@ -39,7 +39,9 @@ _OPTIONS = CheckOptions(ignore_type_checking_imports=True)
 #: run is assembled from, and the domain types are what everything passes around.
 _LAYERS: dict[str, tuple[str, ...]] = {
     "entry points": ("__main__.py", "server.py"),
-    "web": ("api.py",),
+    # ``deployment.py`` is what a server reachable from more than one machine adds on top
+    # of the payloads: who may ask, what it may reach, how much at once (ADR-0092).
+    "web": ("api.py", "deployment.py"),
     "orchestration": ("agent.py",),
     "pipeline": (
         "extraction.py",
@@ -76,7 +78,8 @@ _MAY_DEPEND_ON: dict[str, tuple[str, ...]] = {
         "settings",
         "domain",
     ),
-    "web": ("orchestration", "pipeline", "paying", "seams", "settings", "domain"),
+    # The one edge inside: a deployment's policy carries the seal ``api.py`` signs with.
+    "web": ("web", "orchestration", "pipeline", "paying", "seams", "settings", "domain"),
     "orchestration": ("pipeline", "seams", "settings", "domain"),
     "pipeline": ("pipeline", "seams", "domain"),
     "paying": ("paying", "domain"),
@@ -308,18 +311,20 @@ def test_the_package_starts_no_process() -> None:
     )
 
 
-def test_nothing_here_awaits_and_the_threads_are_the_four_that_wait() -> None:
+def test_nothing_here_awaits_and_the_threads_are_the_five_that_wait() -> None:
     """A run is a minute of waiting on somebody else, and every one of those waits is a
     thread: the server ADR-0010 settled is a ``ThreadingHTTPServer``, and an ``async def``
     anywhere below it would want an event loop under the whole package before anybody
     could await it -- including the CLI, the tests and the Python caller who imported
-    ``BuyAgent`` for the six names ``__init__`` re-exports. The four that wait are
+    ``BuyAgent`` for the six names ``__init__`` re-exports. The five that wait are
     ``fetch.py``, which reads the result pages in a pool, ``providers.py``, whose listing
     asks ``ollama show`` once per tag, ``server.py``, which runs a request in a worker
-    thread and routes its log lines by the context that thread began in, and
-    ``screenshots.py``, whose browser belongs to the one thread that launched it and is
-    handed every picture to take (ADR-0065). Playwright runs a loop of its own under its
-    synchronous API, inside that thread, and nothing here awaits it."""
+    thread and routes its log lines by the context that thread began in,
+    ``deployment.py``, whose stop waits for the server's threads to finish what they are
+    answering and whose counts they share (ADR-0092), and ``screenshots.py``, whose
+    browser belongs to the one thread that launched it and is handed every picture to
+    take (ADR-0065). Playwright runs a loop of its own under its synchronous API, inside
+    that thread, and nothing here awaits it."""
     imports_none_of(
         EVERY_MODULE,
         "asyncio*",
@@ -328,12 +333,14 @@ def test_nothing_here_awaits_and_the_threads_are_the_four_that_wait() -> None:
         because="nothing here awaits, so nothing here needs a loop underneath it",
     )
     imports_none_of(
-        every_module_but("fetch.py", "providers.py", "server.py", "screenshots.py"),
+        every_module_but(
+            "fetch.py", "providers.py", "server.py", "deployment.py", "screenshots.py"
+        ),
         "threading*",
         "concurrent*",
         "queue*",
         "contextvars*",
-        because="four modules wait on somebody else; the rest are handed the answer",
+        because="five modules wait on somebody else; the rest are handed the answer",
     )
 
 

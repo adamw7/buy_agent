@@ -1,0 +1,46 @@
+name: CodeQL
+
+on:
+  # Weekly and on demand, so no pull request waits on it (ADR-0092); Sundays 03:23
+  # UTC, off the hour and off the other schedules.
+  schedule:
+    - cron: "23 3 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    # Both languages read as written: neither needs building for CodeQL to follow it.
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Filing what it finds as code-scanning alerts on the Security tab.
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript]
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Nothing here pushes, so the token is not left on disk for later steps.
+          persist-credentials: false
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-extended
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}

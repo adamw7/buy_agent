@@ -35,6 +35,44 @@ LIMITS: dict[str, tuple[int, int]] = {
     "spend_limit": (1, 10_000_000),
 }
 
+_ON = frozenset({"1", "true", "yes", "on"})
+
+
+def _switched(value: str) -> bool:
+    return value.strip().lower() in _ON
+
+
+@dataclass(frozen=True, slots=True)
+class ServerEnvironment:
+    """The web server's own settings, off the environment it is deployed in, each the
+    default of its flag (ADR-0092): an image's command line is the one place an operator
+    cannot reach. Blank is unset, and the server's own default stands."""
+
+    host: str = ""
+    port: str = ""
+    allowed_hosts: tuple[str, ...] = ()
+    max_runs: str = ""
+    behind_proxy: bool = False
+    access_log: bool = False
+    log_format: str = ""
+    #: Asked of every request but the probes when set. A secret: no flag, no field.
+    token: str = field(default="", repr=False)
+
+
+def server_environment() -> ServerEnvironment:
+    """Read when the server starts, not when this module is imported."""
+    return ServerEnvironment(
+        host=os.getenv("BUY_AGENT_HOST", "").strip(),
+        port=os.getenv("BUY_AGENT_PORT", "").strip(),
+        allowed_hosts=tuple(os.getenv("BUY_AGENT_ALLOWED_HOSTS", "").replace(",", " ").split()),
+        max_runs=os.getenv("BUY_AGENT_MAX_RUNS", "").strip(),
+        behind_proxy=_switched(os.getenv("BUY_AGENT_BEHIND_PROXY", "")),
+        access_log=_switched(os.getenv("BUY_AGENT_ACCESS_LOG", "")),
+        log_format=os.getenv("BUY_AGENT_LOG_FORMAT", "").strip(),
+        token=os.getenv("BUY_AGENT_API_TOKEN", "").strip(),
+    )
+
+
 DEFAULT_REGION = "us-en"
 #: Country then language, e.g. ``us-en``, ``hk-tzh`` (ADR-0031).
 REGION = re.compile(r"[a-z]{2}-[a-z]{2,3}")

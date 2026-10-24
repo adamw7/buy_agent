@@ -1,0 +1,12 @@
+# What the nightly zizmor run is told beyond its own defaults (ADR-0092).
+rules:
+  dangerous-triggers:
+    ignore:
+      # Runs main's copy of itself, checks nothing out, and merges only a head of this
+      # repository whose required workflows passed (ADR-0086).
+      - automerge.yml
+  unpinned-uses:
+    config:
+      policies:
+        # A tag at least; Renovate pins each to a digest (renovate.json5).
+        "*": ref-pin

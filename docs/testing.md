@@ -172,6 +172,10 @@ Coverage cannot see rules that hold *between* files, so
   installs (ADR-0091);
 - everything a release publishes is scanned before it is pushed and attested,
   and only a job that attests can mint a token naming the run (ADR-0069);
+- the image installs `requirements.lock`, which pins what `requirements.txt` pins
+  and constrains every install of `requirements-dev.txt`; `compose.yaml` refuses to
+  start without a token, gives the server longer to stop than it drains for, and
+  points the `searxng` row at a SearXNG that answers JSON (ADR-0092);
 - ADRs are indexed, skills name real paths, and every Markdown link resolves;
 - `ci.yml`'s browser job runs the browser tests a bare run leaves out, refuses to
   pass by skipping them, and opens the build the `ui` job tested (ADR-0087);
@@ -204,8 +208,8 @@ forty-three rules:
 - no cycles, and no imports from `tests/`, `integration/`, `browser/`, `benchmark/`,
   `demo/` or `scripts/`;
 - no subprocesses except Playwright's Chromium;
-- no async, with threading only in `fetch`, `providers`, `server` and
-  `screenshots`;
+- no async, with threading only in `fetch`, `providers`, `server`, `deployment`
+  and `screenshots`;
 - downward-only layers (entry points, web, orchestration, pipeline, paying,
   seams, settings, domain);
 - one module per seam (`ap2`, model clients, search libraries, the HTML parser,
@@ -513,7 +517,17 @@ python -m pip_audit -r requirements.txt -r requirements-dev.txt `
   -r requirements-mutation.txt -r requirements-ap2-deps.txt `
   -r requirements-audit.txt
 cd ui; npm audit --audit-level=high
+zizmor --config .github/zizmor.yml .github/workflows    # from the root
 ```
+
+`requirements-dev.txt` installs under `-c requirements.lock`, so the audit resolves
+the versions the image ships. zizmor reads the workflows themselves: a checkout
+leaving its token on disk, a cache a release reads, an action a moved tag or a
+known advisory reaches. `.github/zizmor.yml` names its one exception, automerge's
+`workflow_run`, and why. `.github/workflows/codeql.yml` runs CodeQL's
+`security-extended` queries over the Python and the TypeScript every Sunday at
+`23 3 * * 0`. Neither runs on a pull request, so neither makes one wait
+(ADR-0092).
 
 `requirements-ap2.txt` is exempt: it is installed `--no-deps`, so its metadata
 pins describe nothing installed. A convention test fails a list nothing reads and

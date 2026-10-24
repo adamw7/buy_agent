@@ -58,6 +58,7 @@ python -m buy_agent "headphones" --pay          # dry-run rail: signs, charges n
 pip install -r requirements-screenshots.txt ; python -m playwright install --only-shell chromium
 
 python -m buy_agent.server                    # UI + API on :8000
+$env:BUY_AGENT_API_TOKEN = '<random>' ; docker compose up -d --build   # deployed (ADR-0092)
 .\scripts\start.ps1                           # everything from cold (ADR-0023)
 python -m scripts.update_ollama               # re-pull Ollama's models, report what moved
 python -m mutmut run                          # needs requirements-mutation.txt
@@ -95,7 +96,10 @@ only the `Dockerfile`'s base images repeat them. Windows joins on the Saturday
 schedule and on `workflow_dispatch` (ADR-0037): dispatch it for a branch that touches paths,
 encodings, sockets or `start.ps1`. The scheduled workflows (audit, integration,
 both mutation runs) and `release.yml` are described in `docs/testing.md` and
-`docs/docker.md`; only dependency review gates a PR. `automerge.yml`
+`docs/docker.md`; only dependency review gates a PR. zizmor reads the workflows
+nightly in `audit.yml` and CodeQL runs weekly (`codeql.yml`), so neither holds a PR
+up; every checkout sets `persist-credentials: false` and `release.yml` caches
+nothing (ADR-0092). `automerge.yml`
 squash-merges a same-repo, non-draft PR once `ci.yml` and `audit.yml` are green
 on its head (ADR-0086); label it `no-automerge` to keep it open. Floors: 99% branch coverage
 over the package, `benchmark/` and `scripts/` (ADR-0064); 98% statements and
@@ -110,7 +114,14 @@ stamped with their version in `buy_agent/_version.txt`, git-ignored and written
 by shell (`release.yml`, and the `Dockerfile` from its `VERSION`/`REVISION`
 build arguments), which `version.py` reads (ADR-0083). `.dockerignore` must cover
 everything `.gitignore` names (and `.env`), must not catch anything the
-`Dockerfile` copies, and must account for every top-level directory.
+`Dockerfile` copies, and must account for every top-level directory. The image
+installs `requirements.lock` `--no-deps` (`uv pip compile --universal`, no hashes,
+so `requirements-dev.txt` can constrain every other install with it; regenerate it
+with the command in its header whenever `requirements.txt` moves). It binds through
+`ENV BUY_AGENT_HOST=0.0.0.0` rather than a flag, keeps its caches in a volume at
+`/var/cache/buy-agent`, checks `/healthz`, and is pushed for amd64 and arm64.
+`compose.yaml` runs it with Ollama and SearXNG and will not start without the token
+(ADR-0092).
 
 **Mutation runs** test a copy of the tree. Files the suite reads from outside
 `buy_agent` are listed in `setup.cfg`'s `also_copy`, tests reading source rules
@@ -119,6 +130,13 @@ use `conftest.SOURCE_ROOT`, and no test reads declarations (such as
 
 ## Settings and their environment
 
+- **The server's own settings come from the environment where it is deployed**
+  (ADR-0092). `config.server_environment()` reads `$BUY_AGENT_HOST`, `_PORT`,
+  `_ALLOWED_HOSTS`, `_MAX_RUNS`, `_BEHIND_PROXY`, `_ACCESS_LOG` and `_LOG_FORMAT` at
+  start-up, each the default of its `server.build_parser` flag, so a bad value is a
+  usage error. `$BUY_AGENT_API_TOKEN` is a secret: it has no flag, is kept out of every
+  `repr`, and is refused under `deployment.MIN_TOKEN` characters. None of these is a
+  run setting, so none goes in `api.OPTIONS`.
 - `$BUY_AGENT_CACHE_DIR` sets where `pages/` (ADR-0040), `answers/` (ADR-0044),
   `runs/` and the benchmark's `benchmark/board.json` (ADR-0070) live. It has no
   flag and no form field. `cache_ttl` covers both cache kinds, and 0 means always
@@ -216,6 +234,7 @@ The order matters at three joints:
 | `config.py`, `logging_setup.py`, `__main__.py` | Config, the report, the CLI |
 | `version.py` | Which build is running: a release's stamp, else `dev` and the checkout's commit, read off `.git`'s files (ADR-0083) |
 | `api.py` | Request options in, ranked products out -- the web-facing half worth testing |
+| `deployment.py` | What a server other machines reach adds: token, fixed addresses, caps, drain, metrics -- no HTTP (ADR-0092) |
 | `server.py` | A stdlib HTTP server: the JSON API, the event stream, the built UI |
 
 The import graph (layers, one module per seam, where HTTP, threads, env reads
@@ -360,6 +379,10 @@ listed in `docs/testing.md`.
   returns ends with one `Finished in` line: the whole, then each step. Steps are
   timed in `agent.py` by `_Stopwatch`, never in their own modules, and a duration
   is written by `logging_setup.seconds_label`, which the benchmark shares.
+- **A page is fetched only off the public web** (ADR-0092). `fetch.on_the_public_web`
+  refuses non-global IPs, single-label names, private suffixes and numeric spellings,
+  for the first URL in `_markup` and every redirect through `refuse_private`, the
+  client's request hook. A new place a URL from the web is read goes through it.
 - **The web is asked twice and the model once, and the clock is handed in.**
   `fetch.py` and `search.py` take a `wait` (`BuyAgent` passes `time.sleep`, and
   tests pass `None` to ask once) (ADR-0034, ADR-0053). A page answering 429/503
@@ -472,6 +495,9 @@ everything else goes to the built app, with `index.html` as the fallback.
 | `POST /api/rank` | A finished run's products in another order -- runs no pipeline |
 | `POST /api/pay` | One product bought, given the witnessed approval -- runs no pipeline |
 | `GET /api/search/stream` | One run, as SSE: `log` lines, then `result` or `failure` |
+| `GET /healthz` | Liveness: no token, any `Host` (ADR-0092) |
+| `GET /readyz` | 503 while stopping or while the model server it started with is down |
+| `GET /metrics` | Prometheus text, any `Host`, behind the token |
 
 - **Runs are streamed** (ADR-0011). `_LogRelay` routes records by context, and
   `fetch.enrich` starts its pool workers with `_as_the_caller`. A `ping` goes out
@@ -494,7 +520,8 @@ everything else goes to the built app, with `index.html` as the fallback.
 - **Re-sorting is a request, not a re-run** (ADR-0035). `rank_again` is only
   `rank_products`, and the products travel in the body. `api.results_payload` is
   the one shaping of a run's products (API, `--json`, Download). A re-sort
-  reports no `dropped`, `changes` or `alert` of its own, so the page keeps the run's.
+  reports no `dropped`, `changes` or `alert` of its own, so the page keeps the run's,
+  and the page sends the run's `seal` with a re-sort and a payment (ADR-0092).
 - **A blank value means "use the default"** in `parse_options` and in the UI's
   `toQuery`.
 - **The form refuses first, on Python's rules** (ADR-0033). `limits` bind
@@ -505,6 +532,22 @@ everything else goes to the built app, with `index.html` as the fallback.
   cross-site `Sec-Fetch-Site`, a foreign `Origin`, and a `Host` outside
   `allowed_hosts`. Typed addresses go through `_bound_host` (IPv6 brackets), and
   `_family_for` picks `AF_INET6`.
+- **Other machines change three things** (ADR-0092), each in `deployment.Policy`.
+  With a token, `_refused` asks for it after the `Origin`/`Host` checks, as a bearer
+  or a Basic password, and `_PROBES` and `/metrics` come before those checks. When
+  bound beyond loopback or `--behind-proxy`, `policy.fixed_addresses` refuses a
+  `base_url` or `merchant_url` that is not the row's own (`refuse_foreign_address`,
+  `_pay`). And `--behind-proxy` reads `X-Forwarded-Host`/`-For` through `_forwarded`,
+  and nothing else does.
+- **A run's products come back sealed** (ADR-0092). `api.Sealer` signs the set,
+  keyed off the token (else per process), and `rank_again` and `pay_now` refuse a
+  `seal` that does not match with a 409 on `products`. Anything else that takes
+  products back from a client checks it too.
+- **A server counts what it answers and stops by draining** (ADR-0092).
+  `deployment.Traffic` caps runs (`admit_run`, a `_Busy` 503 with `Retry-After`)
+  and connections, and feeds `/metrics`. `serve_until_interrupted` takes SIGTERM
+  and Ctrl-C alike, then `Server.drain` waits `DRAIN_SECONDS` at most. Each request
+  gets a `request_id`, which a 500 names in place of its exception.
 - **The server never asks itself for a model.** `server._reaches` detects an
   address that lands on this server (`:8000` is vLLM's and TensorRT-LLM's default). `/api/models`
   explains, and a run is refused on `base_url`.
@@ -611,7 +654,8 @@ rules a change must obey:
   (`providers_module.OLLAMA`), because tests reload those modules.
 - **No test in `tests/`** touches the network, a model server or the real cache.
   Autouse fixtures point `$BUY_AGENT_CACHE_DIR` at a scratch directory and unset
-  `$BUY_AGENT_AP2_KEY`, `$BUY_AGENT_AP2_MANDATE` and `$BUY_AGENT_MERCHANT_URL`.
+  `$BUY_AGENT_AP2_KEY`, `$BUY_AGENT_AP2_MANDATE`, `$BUY_AGENT_MERCHANT_URL` and every
+  variable `config.server_environment` reads.
 - **Payment tests sign real mandates** and verify them with the SDK's verifier.
   CI installs the SDK.
 - **`browser/`** opens the build in headless Chromium, served by `create_server`

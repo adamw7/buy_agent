@@ -30,6 +30,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Nothing here pushes, so the token is not left on disk for later steps.
+          persist-credentials: false
 
       - uses: actions/setup-python@v7
         with:
@@ -64,6 +67,15 @@ jobs:
         working-directory: ui
         run: npm audit --audit-level=high
 
+      # The workflows themselves: a token left on disk, a cache a release reads, an
+      # action a moved tag or a known advisory reaches (ADR-0092). Nightly, like the
+      # rest, so no pull request waits on it. The token is for looking actions up.
+      - name: Audit the workflows
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: zizmor --config .github/zizmor.yml .github/workflows
+
   review:
     # Gates a merge on what the branch adds, at the threshold above; neither tool
     # reads the other's, so tests/test_conventions.py holds them together.
@@ -73,6 +85,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Nothing here pushes, so the token is not left on disk for later steps.
+          persist-credentials: false
 
       - uses: actions/dependency-review-action@v5
         with:

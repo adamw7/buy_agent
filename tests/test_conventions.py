@@ -58,6 +58,7 @@ from buy_agent.models import Offer, Product, Removal
 from tests.conftest import SOURCE_ROOT, needs_ap2, payable_product, ranked_product, said
 import buy_agent.models as models_module
 from buy_agent.ranking import ORDERINGS, SortBy
+from buy_agent.deployment import DRAIN_SECONDS
 from buy_agent.server import DEFAULT_UI_DIR
 from buy_agent.server import build_parser as build_server_parser
 import browser
@@ -776,8 +777,9 @@ def dockerfile() -> str:
 
 
 def base_image_tag(image: str) -> str:
-    """The tag one stage's ``FROM <image>:<tag>`` pins, e.g. ``3.13-slim``."""
-    match = re.search(rf"^FROM {image}:(\S+)", dockerfile(), re.M)
+    """The tag one stage's ``FROM <image>:<tag>`` pins, e.g. ``3.13-slim``, built on
+    whichever platform the line names."""
+    match = re.search(rf"^FROM (?:--platform=\S+ )?{image}:(\S+)", dockerfile(), re.M)
     assert match, f"no stage builds on {image} in the Dockerfile"
     return match.group(1)
 
@@ -817,13 +819,81 @@ def test_the_image_publishes_the_port_it_binds_on_every_interface() -> None:
     """Loopback inside a container is the container's own: a published port would
     reach nothing, and an EXPOSE of another port would document a lie."""
     assert re.search(rf"^EXPOSE {server_default('port')}$", dockerfile(), re.M)
-    assert '"--host", "0.0.0.0"' in dockerfile(), "the default command binds loopback"
+    # A variable, not a flag, so `docker run -e` can change it (ADR-0092).
+    assert re.search(r"^ENV BUY_AGENT_HOST=0\.0\.0\.0$", dockerfile(), re.M), (
+        "the image binds loopback"
+    )
+    assert "--host" not in dockerfile(), "a flag would outrank the variable"
 
 
 def test_the_image_installs_the_runtime_dependencies_only() -> None:
-    """pytest and coverage in an image are weight, and a wider surface to patch."""
+    """pytest and coverage in an image are weight, and a wider surface to patch. And
+    exactly the lock, nothing resolved on the day (ADR-0092)."""
     assert "requirements-dev.txt" not in dockerfile()
-    assert re.search(r"^RUN pip install .* -r requirements\.txt$", dockerfile(), re.M)
+    assert re.search(
+        r"^RUN pip install .*--no-deps -r requirements\.lock( && pip check)?$", dockerfile(), re.M
+    )
+
+
+_LOCK = _ROOT / "requirements.lock"
+#: ``name==version``, before any marker or comment.
+_PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s;]+)", re.M)
+
+
+def pins(path: Path) -> dict[str, str]:
+    """Every exact pin a requirements file holds, by normalised name."""
+    return {
+        re.sub(r"[-_.]+", "-", name).lower(): version
+        for name, version in _PIN.findall(path.read_text(encoding="utf-8"))
+    }
+
+
+def test_the_lock_pins_what_requirements_txt_pins() -> None:
+    """The image installs the lock and CI installs under it, so a pin moved in
+    requirements.txt and not in the lock is a version nothing tests and nothing ships.
+    Regenerate it with the command its header names (ADR-0092)."""
+    direct = pins(_ROOT / "requirements.txt")
+    locked = pins(_LOCK)
+
+    assert direct, "requirements.txt pins nothing"
+    assert {name: locked.get(name) for name in direct} == direct
+    command = _LOCK.read_text(encoding="utf-8").splitlines()[1]
+    assert "pip compile requirements.txt" in command, "the header names how to regenerate it"
+
+
+_COMPOSE = _ROOT / "compose.yaml"
+
+
+def test_compose_gives_a_stopping_server_room_to_finish() -> None:
+    """Docker's own ten seconds would kill a drain the server gives twenty-five."""
+    match = re.search(r"^\s+stop_grace_period: (\d+)s$", _COMPOSE.read_text(encoding="utf-8"), re.M)
+    assert match, "compose.yaml gives the server Docker's default to stop in"
+
+    assert int(match.group(1)) > DRAIN_SECONDS
+
+
+def test_compose_will_not_start_a_reachable_server_without_a_token() -> None:
+    """It publishes the port on every interface; ``:?`` refuses to start it unset."""
+    assert "BUY_AGENT_API_TOKEN: ${BUY_AGENT_API_TOKEN:?" in _COMPOSE.read_text(encoding="utf-8")
+
+
+def test_compose_s_search_engine_answers_in_the_shape_its_row_asks_for() -> None:
+    """SearXNG answers HTML only unless told otherwise, and the ``searxng`` row asks for
+    JSON (ADR-0057): every search would fail as one the engine refused."""
+    settings = (_ROOT / "deploy" / "searxng" / "settings.yml").read_text(encoding="utf-8")
+    compose = _COMPOSE.read_text(encoding="utf-8")
+
+    assert re.search(r"^  formats:\n(?:    - \w+\n)*    - json$", settings, re.M)
+    assert "./deploy/searxng/settings.yml:" in compose
+    assert "BUY_AGENT_BACKEND: searxng" in compose
+
+
+def test_every_install_of_the_tools_is_held_to_the_lock() -> None:
+    """``requirements-dev.txt`` is what CI, the setup script and the session hook all
+    install, so constraining it there holds every one of them to what the image runs."""
+    lines = (_ROOT / "requirements-dev.txt").read_text(encoding="utf-8").splitlines()
+
+    assert "-c requirements.lock" in lines
 
 
 # -- what the build is shown ---------------------------------------------------
@@ -1079,8 +1149,10 @@ def test_every_pip_cache_is_keyed_on_every_file_it_installs_from(workflow: Path)
     installed = requirements_installed_by(workflow)
     keyed = cache_key_files(workflow)
 
-    if "cache: pip" in workflow.read_text(encoding="utf-8"):
-        assert installed and keyed, f"{workflow.name} caches pip and neither reads"
+    # A workflow that publishes caches nothing (ADR-0092), so it has no key to keep.
+    if "cache: pip" not in workflow.read_text(encoding="utf-8"):
+        return
+    assert installed and keyed, f"{workflow.name} caches pip and neither reads"
     assert not installed - keyed, (
         f"{workflow.name} installs {sorted(installed - keyed)} and keys its pip cache "
         f"on {sorted(keyed)}"
@@ -1102,8 +1174,11 @@ def test_every_workflow_starts_from_a_read_only_token(workflow: Path) -> None:
 
 
 def action_versions(workflow: Path) -> dict[str, str]:
-    """The ref each ``uses: owner/action@ref`` step of a workflow pins."""
-    steps = re.findall(r"uses: (\S+?)@(\S+)$", workflow.read_text(encoding="utf-8"), re.M)
+    """The ref each ``uses: owner/action@ref`` step of a workflow pins, a digest pin's
+    ``# v7`` comment aside."""
+    steps = re.findall(
+        r"uses: (\S+?)@(\S+)(?:\s+#.*)?$", workflow.read_text(encoding="utf-8"), re.M
+    )
     versions: dict[str, str] = {}
 
     for action, ref in steps:
@@ -1821,12 +1896,16 @@ def test_only_a_job_that_attests_can_mint_a_token_naming_the_run() -> None:
     assert attesting, "nothing attests; this test has outlived its rule"
 
 
+#: How an image leaves for the registry: pushed after a build, or by the build itself.
+_PUSH = re.compile(r"docker push|docker buildx build --push")
+
+
 def test_everything_a_release_publishes_is_attested() -> None:
     """The archive and the image are what leaves the repository; a job that uploads
     or pushes one without attesting it publishes something nobody can trace to the
     run that made it."""
     for job, body in workflow_jobs(_RELEASE).items():
-        if "gh release upload" in body or "docker push" in body:
+        if "gh release upload" in body or _PUSH.search(body):
             assert "uses: actions/attest-build-provenance@" in body, job
 
 
@@ -1834,7 +1913,9 @@ def test_the_image_is_scanned_and_listed_before_it_is_pushed() -> None:
     """A scan after the push reports on an image already published, which is a red
     job and a bad image in the registry rather than one or the other."""
     image = workflow_jobs(_RELEASE)["image"]
-    push = image.index("docker push")
+    pushed = _PUSH.search(image)
+    assert pushed, "the image job pushes nothing"
+    push = pushed.start()
 
     for step in ("uses: anchore/scan-action@", "uses: anchore/sbom-action@"):
         assert step in image, f"the image job has no {step}"

@@ -1,0 +1,93 @@
+# The web tier with the model server it asks and a search engine that needs no key, on
+# one machine (ADR-0092). docs/docker.md says what each setting is for.
+#
+#   export BUY_AGENT_API_TOKEN="$(openssl rand -hex 24)"
+#   docker compose up -d --build                 # http://<this machine>:8000
+#   docker compose -f compose.yaml -f compose.gpu.yaml up -d --build   # with a GPU
+#
+# The first start pulls the model, which takes as long as its size does.
+name: buy-agent
+
+services:
+  buy-agent:
+    build: .
+    image: buy-agent:local
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+      searxng:
+        condition: service_started
+    ports:
+      - "${BUY_AGENT_PUBLISH:-8000}:8000"
+    environment:
+      # Reachable from other machines, so it asks for this on every request but the probes.
+      BUY_AGENT_API_TOKEN: ${BUY_AGENT_API_TOKEN:?set BUY_AGENT_API_TOKEN to a long random string}
+      # The names browsers reach it by, comma-separated; empty answers any.
+      BUY_AGENT_ALLOWED_HOSTS: ${BUY_AGENT_ALLOWED_HOSTS:-}
+      # Set to 1 when a proxy in front of it sets X-Forwarded-Host and X-Forwarded-For.
+      BUY_AGENT_BEHIND_PROXY: ${BUY_AGENT_BEHIND_PROXY:-0}
+      BUY_AGENT_MAX_RUNS: ${BUY_AGENT_MAX_RUNS:-4}
+      BUY_AGENT_ACCESS_LOG: "1"
+      BUY_AGENT_LOG_FORMAT: json
+      BUY_AGENT_BACKEND: searxng
+      SEARXNG_HOST: http://searxng:8080
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma4:12b}
+    volumes:
+      - cache:/var/cache/buy-agent
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Room to finish the searches in flight: the server waits 25s for them.
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:0.40.10
+    volumes:
+      - models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  # Pulls the model once, before the web tier starts; a no-op once it is there.
+  ollama-pull:
+    image: ollama/ollama:0.40.10
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-gemma4:12b}"]
+    restart: "no"
+
+  searxng:
+    image: searxng/searxng:2026.10.19-81371861f
+    environment:
+      # Its own HMAC key, never published: the token is a long random string already.
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-${BUY_AGENT_API_TOKEN}}
+      # IPv4: the image listens on "::", which a host without IPv6 refuses.
+      GRANIAN_HOST: 0.0.0.0
+    volumes:
+      # Where the entrypoint looks; present, it is read and never rewritten.
+      - ./deploy/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  cache:
+  models:

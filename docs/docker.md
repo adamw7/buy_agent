@@ -31,15 +31,71 @@ docker run --rm buy-agent -m buy_agent "espresso machine" --top 5
 docker run --rm -v "${PWD}:/out" buy-agent -m buy_agent "running shoes" --json /out/results.json
 ```
 
-It runs as a non-root user and writes nothing, so `--json` needs a mounted
-directory. Only a release builds the image; the [tests](testing.md) run on the
-host.
+It runs as a non-root user and writes only its caches and run journal, to a
+volume at `/var/cache/buy-agent` (`$BUY_AGENT_CACHE_DIR`), so the rest can be
+read-only and `--json` needs a mounted directory. It stops on `docker stop`,
+finishing the requests in flight for up to 25 seconds first; Docker's own default
+is ten, so give it `--stop-timeout 30`. Only a release builds the image; the
+[tests](testing.md) run on the host.
+
+## Deploying it for more than one machine
+
+Bound to every interface, the server is reachable by anyone who can reach the
+port, so it asks for a token and calls only the addresses it was started with
+([ADR-0092](adr/0092-deploy-the-server-for-more-than-one-machine.md)).
+`compose.yaml` runs it beside Ollama, a one-off job that pulls the model, and a
+SearXNG that needs no key:
+
+```bash
+export BUY_AGENT_API_TOKEN="$(openssl rand -hex 24)"
+docker compose up -d --build                                       # :8000
+docker compose -f compose.yaml -f compose.gpu.yaml up -d --build   # with a GPU
+```
+
+A browser asks for a name and a password on the first page: any name, and the
+token as the password. A script sends `Authorization: Bearer <token>`. The
+settings, each also a flag of `python -m buy_agent.server`:
+
+| Variable | What it does |
+| --- | --- |
+| `BUY_AGENT_API_TOKEN` | Asked of every request but `/healthz` and `/readyz`; 16 characters at least. No flag. |
+| `BUY_AGENT_HOST`, `BUY_AGENT_PORT` | Where it listens; the image sets `0.0.0.0`. |
+| `BUY_AGENT_ALLOWED_HOSTS` | The names browsers reach it by, comma-separated; the `Host` check against DNS rebinding. |
+| `BUY_AGENT_BEHIND_PROXY` | `1` behind a proxy that sets `X-Forwarded-Host` and `X-Forwarded-For`, which it then reads. |
+| `BUY_AGENT_MAX_RUNS` | Searches at once (default 4); the next is a 503 with `Retry-After`. |
+| `BUY_AGENT_ACCESS_LOG` | `1` for a line per request: client, path, status, time, request id. |
+| `BUY_AGENT_LOG_FORMAT` | `json` for one object per line, for a log collector. |
+
+Once other machines can reach it -- bound beyond loopback, or behind a proxy -- it
+asks only the model server and the merchant it was started with: a typed model
+address or payment endpoint that is not its own is refused on its box. It never
+fetches a page on a private network, a redirect to one included. That check reads
+the address as written, so run it on a network that cannot reach anything it
+should not. A re-sort or a payment must hand back the `seal` its run came with.
+
+TLS is the proxy's job. nginx in front of it wants
+`proxy_set_header X-Forwarded-Host $host;`, `proxy_set_header X-Forwarded-For
+$proxy_add_x_forwarded_for;` and `proxy_read_timeout 15m;` for the event stream,
+which says `X-Accel-Buffering: no` itself. For an orchestrator:
+
+| Path | Answers |
+| --- | --- |
+| `/healthz` | 200 while the process serves: liveness, and the image's `HEALTHCHECK`. |
+| `/readyz` | 200 while its model server answers; 503 while stopping or while it does not. |
+| `/metrics` | Requests, runs by outcome, run time and open connections, in Prometheus's text format, behind the token. |
+
+Each answer carries an `X-Request-Id`, the caller's when it sent one. A 500 names
+that id and nothing else; the log has the traceback under it.
 
 ## The published image
 
 `.github/workflows/release.yml` builds and pushes the image when a release is
-published ([ADR-0030](adr/0030-publish-a-release-as-an-archive-and-an-image.md)).
-`latest` follows full releases only:
+published ([ADR-0030](adr/0030-publish-a-release-as-an-archive-and-an-image.md)),
+for amd64 and arm64 under one tag. The UI stage is built once, on the runner's
+platform, and the amd64 image is the one the smoke test and the scan below
+checked. It installs `requirements.lock`, the versions CI tested
+([ADR-0092](adr/0092-deploy-the-server-for-more-than-one-machine.md)). `latest`
+follows full releases only:
 
 ```powershell
 docker run --rm -p 8000:8000 ghcr.io/adamw7/buy_agent:latest

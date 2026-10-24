@@ -130,6 +130,8 @@ export interface SearchResult {
   compared_with: string | null;
   /** `null` unless the run was given one, and from a re-sort; the page keeps the run's. */
   alert: PriceAlert | null;
+  /** Handed back by a re-sort and a payment: the server takes only what it sealed (ADR-0092). */
+  seal: string | null;
 }
 
 export type SortBy = 'score' | 'price' | 'rating';
@@ -321,6 +323,8 @@ export interface RankOptions {
   currency?: string;
   /** The currency the run was counted in where the set voted, for the same reason. */
   scale?: string;
+  /** The run's seal, without which the server re-sorts nothing (ADR-0092). */
+  seal?: string;
 }
 
 /** What a payment sends: the run's products, which to buy, and the approval shown. */
@@ -333,6 +337,8 @@ export interface PayOptions {
   spend_limit?: number | null;
   currency?: string;
   scale?: string;
+  /** The run's seal, without which the server pays for nothing (ADR-0092). */
+  seal?: string;
 }
 
 /** What a streamed run emits: progress, then exactly one ending. */

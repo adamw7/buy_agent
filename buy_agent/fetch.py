@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
 from collections import Counter
@@ -83,6 +84,18 @@ _UNREACHABLE = "could not be reached"
 _TRANSFER_FAILED = "failed mid-transfer"
 _NOT_HTML = "did not answer with HTML"
 _NOTHING_KEPT = "quoted no prices and no verdicts"
+_PRIVATE = "pointed inside a private network"
+
+#: Names only a private network answers to, beside a name of one label (``ollama``):
+#: a search result is a page on the public web, and these never are (ADR-0092).
+_PRIVATE_SUFFIXES = (".localhost", ".local", ".internal", ".lan", ".home.arpa", ".intranet")
+#: A label an address may be spelt in that ``ipaddress`` does not read: ``0x7f``, ``0177``.
+_NUMERIC_LABEL = re.compile(r"0x[0-9a-f]*|[0-9]+", re.IGNORECASE)
+
+
+class PrivateAddress(httpx.InvalidURL):
+    """A page, or a redirect from one, at an address on a private network: refused
+    before it is asked, so a result cannot reach what the machine running this can."""
 
 #: Two are outside httpx's root: ``InvalidURL``, and the ``UnicodeError`` the socket
 #: raises for a host it cannot IDNA-encode (``shop..example``).
@@ -90,6 +103,7 @@ _CANNOT_FETCH = (httpx.HTTPError, httpx.InvalidURL, UnicodeError)
 
 #: Asked in order, so a ConnectTimeout counts as a timeout.
 _FAILURE_PHRASES: tuple[tuple[tuple[type[Exception], ...], str], ...] = (
+    ((PrivateAddress,), _PRIVATE),
     ((httpx.TimeoutException,), _TIMED_OUT),
     ((httpx.TooManyRedirects,), _LOOPED),
     ((httpx.InvalidURL, httpx.UnsupportedProtocol, UnicodeError), _UNFETCHABLE),
@@ -225,7 +239,35 @@ def read_page(
     return PageText(text)
 
 
+def on_the_public_web(host: str) -> bool:
+    """Whether a host could be a page on the public web: not an address on a private
+    network or this machine, however it is spelt, and not a name only one answers to. A
+    public name resolving to a private address is not caught here (ADR-0092)."""
+    name = host.strip().rstrip(".").lower()
+    try:
+        return ipaddress.ip_address(name).is_global
+    except ValueError:
+        pass
+    labels = name.split(".")
+    if len(labels) < 2 or name.endswith(_PRIVATE_SUFFIXES) or name == "localhost":
+        return False
+    # ``0x7f.1`` and ``2130706433`` are 127.0.0.1 to a resolver, if not to ``ipaddress``.
+    return not all(_NUMERIC_LABEL.fullmatch(label) for label in labels)
+
+
+def refuse_private(request: httpx.Request) -> None:
+    """An httpx request hook, so every redirect is asked too, not only the first URL."""
+    if not on_the_public_web(request.url.host):
+        raise PrivateAddress(f"{request.url.host} is not on the public web")
+
+
 def _markup(client: httpx.Client, url: str) -> PageText:
+    try:
+        host = httpx.URL(url).host
+    except httpx.InvalidURL:
+        host = ""
+    if host and not on_the_public_web(host):
+        raise PrivateAddress(f"{host} is not on the public web")
     with client.stream("GET", url) as response:
         response.raise_for_status()
         content_type = response.headers.get("content-type", "html")
@@ -335,6 +377,7 @@ def enrich(
         timeout=timeout,
         follow_redirects=True,
         headers={"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9"},
+        event_hooks={"request": [refuse_private]},
     ) as client, ThreadPoolExecutor(
         max_workers=workers, initializer=_as_the_caller, initargs=(copy_context(),)
     ) as pool:

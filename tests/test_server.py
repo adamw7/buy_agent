@@ -25,7 +25,8 @@ import pytest
 import buy_agent.providers as providers_module
 import buy_agent.server as server_module
 from buy_agent.agent import every_step_passes
-from buy_agent.api import results_payload
+from buy_agent.api import Sealer, results_payload
+from buy_agent.deployment import Policy
 from buy_agent.models import Product, nothing_recorded
 from tests.conftest import Photographer, payable_product, ranked_product
 from buy_agent.providers import VLLM
@@ -35,6 +36,7 @@ from buy_agent.server import (
     _MAX_BODY_BYTES,
     _SECURITY_HEADERS,
     BuyAgentHandler,
+    Server,
     _bound_host,
     _family_for,
     _relay,
@@ -45,6 +47,16 @@ from buy_agent.server import (
     create_server,
     main,
 )
+
+#: What the live servers here seal a run's products with, so a test can seal its own.
+SEALER = Sealer(b"the tests' own seal")
+
+
+def sealed(body: dict[str, Any]) -> dict[str, Any]:
+    """A re-sort or payment body carrying the seal the server would have handed out."""
+    products = [Product.model_validate(entry) for entry in body["products"]]
+    return {**body, "seal": SEALER.seal(products)}
+
 
 RANKED = [
     ranked_product(Product(name="Sony WH-1000XM5", price=328.0, rating=4.7), score=0.9, rank=1),
@@ -111,8 +123,21 @@ def serving(
     ui_dir: Path,
     allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS,
     camera: Any = None,
+    policy: Policy | None = None,
 ) -> Iterator[str]:
     """Run a server on a loopback port for the duration of the block."""
+    with served(ui_dir, allowed_hosts, camera, policy) as (base, _httpd):
+        yield base
+
+
+@contextmanager
+def served(
+    ui_dir: Path,
+    allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS,
+    camera: Any = None,
+    policy: Policy | None = None,
+) -> Iterator[tuple[str, Server]]:
+    """:func:`serving`, with the server itself, for a test that reads its traffic."""
     httpd = create_server(
         "127.0.0.1",
         0,
@@ -120,6 +145,7 @@ def serving(
         agent_factory=StubAgent,
         allowed_hosts=allowed_hosts,
         camera=camera,
+        policy=policy or Policy(sealer=SEALER),
     )
     # 0.01 rather than the default 0.5s poll: otherwise shutdown costs half a
     # second per test.
@@ -127,7 +153,7 @@ def serving(
     thread.start()
     host, port = httpd.server_address[:2]
     try:
-        yield f"http://{host}:{port}"
+        yield f"http://{host}:{port}", httpd
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -402,8 +428,9 @@ def test_a_body_over_the_cap_is_refused_without_being_read(server: str) -> None:
 def test_a_body_exactly_at_the_cap_is_read(server: str) -> None:
     """The cap is the most a body may be, not the first size refused: a finished run
     posted back for a re-sort can be large, and one byte of padding should not tip it."""
-    padding = _MAX_BODY_BYTES - len(b'{"products": [], "x": ""}')
-    body = b'{"products": [], "x": "' + b"x" * padding + b'"}'
+    seal = SEALER.seal([]).encode()
+    shell = b'{"products": [], "seal": "' + seal + b'", "x": ""}'
+    body = shell[:-2] + b"x" * (_MAX_BODY_BYTES - len(shell)) + b'"}'
     assert len(body) == _MAX_BODY_BYTES
 
     status, answer = post(f"{server}/api/rank", body)
@@ -792,12 +819,17 @@ def test_an_address_reaches_this_server_on_its_port_and_a_host_bound_to_it(
     assert server_module._reaches(address, host, port) is reaches
 
 
-def test_an_unexpected_failure_still_ends_the_stream(server: str) -> None:
-    """The stream reports; it never leaves the browser waiting on a dead run."""
+def test_an_unexpected_failure_still_ends_the_stream(server: str, caplog) -> None:
+    """The stream reports; it never leaves the browser waiting on a dead run. What went
+    wrong is the log's, under the reference the reader is given (ADR-0092)."""
     StubAgent.result = RuntimeError("something nobody predicted")
-    name, data = events(f"{server}/api/search/stream?request=headphones")[-1]
+    with caplog.at_level(logging.ERROR, logger="buy_agent.server"):
+        name, data = events(f"{server}/api/search/stream?request=headphones")[-1]
     assert (name, data["status"]) == ("failure", 500)
-    assert "something nobody predicted" in data["error"]
+    assert "something nobody predicted" not in data["error"]
+    assert data["reference"] in data["error"]
+    assert data["reference"] in caplog.text
+    assert "something nobody predicted" in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -1075,6 +1107,9 @@ class FakeHttpd:
     def server_close(self) -> None:
         self.closed = True
 
+    def drain(self) -> None:
+        self.drained = True
+
 
 def test_an_unbuilt_ui_is_warned_about_at_startup(monkeypatch, tmp_path: Path, caplog) -> None:
     """The API still works, so this is a warning and not a refusal to start."""
@@ -1186,7 +1221,7 @@ def test_the_server_is_as_talkative_as_it_was_asked_to_be(
     configured: list[bool] = []
     monkeypatch.setattr(server_module, "create_server", lambda *a, **k: FakeHttpd())
     monkeypatch.setattr(
-        server_module, "configure_logging", lambda *, verbose: configured.append(verbose)
+        server_module, "configure_logging", lambda *, verbose, **_: configured.append(verbose)
     )
 
     main(["--ui-dir", str(tmp_path), *flags])
@@ -1347,7 +1382,7 @@ PAY_BODY = {
 def test_an_approval_that_does_not_match_is_a_409(server: str) -> None:
     body = {**PAY_BODY, "approved": {**PAY_BODY["approved"], "price": 1.0}}
 
-    status, answer = post(f"{server}/api/pay", body)
+    status, answer = post(f"{server}/api/pay", sealed(body))
 
     assert status == 409
     assert answer["field"] == "approved"
@@ -1561,7 +1596,9 @@ def test_a_re_sort_over_the_wire_carries_the_standing_back(server: str) -> None:
     gone = payable_product(name="Bose QC", availability="out of stock")
     products = results_payload([ranked_product(gone, score=0.5, rank=1)])
 
-    status, payload = post(f"{server}/api/rank", {"products": products, "sort_by": "price"})
+    status, payload = post(
+        f"{server}/api/rank", sealed({"products": products, "sort_by": "price"})
+    )
 
     assert status == 200
     assert payload["products"][0]["availability"] == "out of stock"
@@ -1585,12 +1622,478 @@ def test_paying_for_an_out_of_stock_listing_is_refused_on_the_products(server: s
 
     status, payload = post(
         f"{server}/api/pay",
-        {
-            "products": products,
-            "rank": 1,
-            "approved": {"title": gone.name, "price": gone.price, "currency": "USD"},
-        },
+        sealed(
+            {
+                "products": products,
+                "rank": 1,
+                "approved": {"title": gone.name, "price": gone.price, "currency": "USD"},
+            }
+        ),
     )
 
     assert (status, payload["field"]) == (400, "products")
     assert "out of stock" in payload["error"]
+
+
+# -- deployed for more than one machine (ADR-0092) -------------------------------
+
+TOKEN = "a token long enough to keep"
+
+
+def asked(
+    url: str, payload: Any = None, **headers: str
+) -> tuple[int, dict[str, str], Any]:
+    """A GET, or a POST of ``payload``, with headers of the test's choosing."""
+    data = None if payload is None else json.dumps(payload).encode()
+    if data is not None:
+        headers.setdefault("Content-Type", "application/json")
+    request = urllib.request.Request(url, data=data, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status, dict(response.headers), _decode(response)
+    except urllib.error.HTTPError as error:
+        return error.code, dict(error.headers), _decode(error)
+
+
+def test_a_token_is_asked_of_the_page_and_the_api_and_a_browser_is_told_how(
+    tmp_path: Path,
+) -> None:
+    """The page too: a browser asks its reader on the first answer and then sends the
+    password with every request after it, the stream's included."""
+    (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
+    with serving(tmp_path, policy=Policy(token=TOKEN, sealer=SEALER)) as base:
+        page = asked(f"{base}/")
+        config = asked(f"{base}/api/config")
+        given = asked(f"{base}/api/config", Authorization=f"Bearer {TOKEN}")
+        wrong = asked(f"{base}/api/config", Authorization="Bearer guess")
+
+    assert page[0] == config[0] == wrong[0] == 401
+    assert config[1]["WWW-Authenticate"] == 'Basic realm="buy_agent", charset="UTF-8"'
+    assert "access token" in config[2]["error"]
+    assert given[0] == 200
+
+
+def test_a_posted_body_is_refused_unread_without_the_token(tmp_path: Path) -> None:
+    with serving(tmp_path, policy=Policy(token=TOKEN, sealer=SEALER)) as base:
+        smuggled(
+            base,
+            b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 2\r\n\r\n{}",
+            "401",
+            "the refused body was parsed as a request",
+        )
+
+
+def test_the_probes_need_no_token_and_no_page(tmp_path: Path, monkeypatch) -> None:
+    """An orchestrator's probe carries neither, and asks by whatever address it has."""
+    monkeypatch.setattr(
+        server_module, "installed_models", lambda *_a, **_k: {"reachable": True, "label": "x"}
+    )
+    with serving(tmp_path, policy=Policy(token=TOKEN, sealer=SEALER)) as base:
+        alive = asked(f"{base}/healthz", Host="10.1.2.3:8000")
+        ready = asked(f"{base}/readyz", Host="10.1.2.3:8000", Origin="https://elsewhere.example")
+
+    assert alive[0] == 200
+    assert alive[2]["status"] == "ok"
+    assert ready[:1] == (200,)
+    assert ready[2] == {"ready": True}
+
+
+def test_a_server_whose_model_server_is_down_is_not_ready(server: str, monkeypatch) -> None:
+    listed: list[tuple[Any, ...]] = []
+
+    def listing(*args: Any, **_kwargs: Any) -> dict[str, Any]:
+        listed.append(args)
+        return {"reachable": False, "label": "Ollama"}
+
+    monkeypatch.setattr(server_module, "installed_models", listing)
+
+    status, _headers, answer = asked(f"{server}/readyz")
+
+    assert status == 503
+    assert answer == {"ready": False, "reason": "Ollama is not answering."}
+    assert listed == [(server_module.DEFAULT_PROVIDER, "")], "the one it was started with"
+
+
+def test_a_stopping_server_is_not_ready_and_closes_each_connection(tmp_path: Path) -> None:
+    with served(tmp_path) as (base, httpd):
+        httpd.traffic.draining = True
+        status, headers, answer = asked(f"{base}/readyz")
+
+    assert status == 503
+    assert answer["reason"] == "This server is shutting down."
+    assert headers["Connection"] == "close"
+
+
+def test_the_metrics_are_answered_to_any_host_and_behind_the_token(tmp_path: Path) -> None:
+    with serving(tmp_path, policy=Policy(token=TOKEN, sealer=SEALER)) as base:
+        refused = asked(f"{base}/metrics", Host="10.1.2.3:8000")
+        given = asked(f"{base}/metrics", Host="10.1.2.3:8000", Authorization=f"Bearer {TOKEN}")
+
+    assert refused[0] == 401
+    assert given[0] == 200
+    assert given[1]["Content-Type"].startswith("text/plain; version=0.0.4")
+    assert 'buy_agent_requests_total{code="4xx"} 1' in given[2]
+
+
+def test_a_run_past_the_cap_is_a_503_that_says_when_to_come_back(tmp_path: Path) -> None:
+    with served(tmp_path, policy=Policy(max_runs=1, sealer=SEALER)) as (base, httpd):
+        assert httpd.traffic.admit_run() is None, "a run already going"
+        status, headers, answer = asked(f"{base}/api/search", {"request": "headphones"})
+        _, _, metrics = asked(f"{base}/metrics")
+
+    assert status == 503
+    assert headers["Retry-After"] == "30"
+    assert "already running 1 search" in answer["error"]
+    assert "request" not in StubAgent.captured, "nothing was run"
+    assert 'buy_agent_runs_total{outcome="refused"} 1' in metrics
+
+
+def test_each_run_is_counted_by_how_it_ended(server: str) -> None:
+    post(f"{server}/api/search", {"request": "headphones"})
+    StubAgent.result = RuntimeError("boom")
+    post(f"{server}/api/search", {"request": "headphones"})
+
+    _, _, metrics = asked(f"{server}/metrics")
+
+    assert 'buy_agent_runs_total{outcome="finished"} 1' in metrics
+    assert 'buy_agent_runs_total{outcome="failed"} 1' in metrics
+    assert "buy_agent_runs_in_flight 0" in metrics
+
+
+def test_a_run_comes_back_sealed_and_its_seal_re_sorts_it(server: str) -> None:
+    """The round trip the page makes, through JSON both ways: the products as the run
+    answered them, and the seal it handed out with them."""
+    _, ran = post(f"{server}/api/search", {"request": "headphones"})
+
+    status, again = post(
+        f"{server}/api/rank",
+        {"products": ran["products"], "sort_by": "price", "seal": ran["seal"]},
+    )
+
+    assert ran["seal"] == SEALER.seal([entry.product for entry in RANKED])
+    assert status == 200
+    assert again["seal"] == ran["seal"], "the same set, in another order"
+
+
+@pytest.mark.parametrize("path", ["/api/rank", "/api/pay"])
+def test_products_the_server_never_sealed_are_refused(server: str, path: str) -> None:
+    """A client could otherwise pay, within whatever a mandate allows, for a product it
+    made up: the products travel in the body (ADR-0035)."""
+    body = {**PAY_BODY, "seal": SEALER.seal([])}
+
+    status, answer = post(f"{server}{path}", body)
+
+    assert (status, answer["field"]) == (409, "products")
+    assert "Search again" in answer["error"]
+
+
+@pytest.fixture
+def fixed(tmp_path: Path) -> Iterator[str]:
+    """A server other machines reach: it asks only what it was started with."""
+    StubAgent.captured = {}
+    StubAgent.result = RANKED
+    StubAgent.delay = 0.0
+    with serving(tmp_path, policy=Policy(fixed_addresses=True, sealer=SEALER)) as base:
+        yield base
+
+
+def test_a_reachable_server_asks_no_model_server_it_was_not_started_with(fixed: str) -> None:
+    status, answer = post(
+        f"{fixed}/api/search", {"request": "headphones", "base_url": "http://10.0.0.5:11434"}
+    )
+
+    assert (status, answer["field"]) == (400, "base_url")
+    assert "asks only the Ollama it was started with" in answer["error"]
+    assert "request" not in StubAgent.captured
+
+
+def test_its_own_model_server_is_asked_however_it_is_written(fixed: str) -> None:
+    own = providers_module.OLLAMA.base_url
+
+    status, _answer = post(f"{fixed}/api/search", {"request": "headphones", "base_url": own + "/"})
+
+    assert status == 200
+
+
+def test_a_reachable_server_lists_no_model_server_it_was_not_started_with(
+    fixed: str, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        providers_module.httpx, "get", lambda *_a, **_k: pytest.fail("an address was asked")
+    )
+
+    status, answer = get(f"{fixed}/api/models?provider=ollama&base_url=http://10.0.0.5:11434")
+
+    assert status == 200
+    assert answer["reachable"] is False
+    assert "asks only the Ollama it was started with" in answer["hint"]
+
+
+def test_a_reachable_server_pays_no_merchant_it_was_not_started_with(fixed: str) -> None:
+    body = sealed({**PAY_BODY, "rail": "http", "merchant_url": "http://10.0.0.5/pay"})
+
+    status, answer = post(f"{fixed}/api/pay", body)
+
+    assert (status, answer["field"]) == (400, "merchant_url")
+    assert "it was started with none" in answer["error"]
+
+
+def test_its_own_merchant_is_paid_through(fixed: str) -> None:
+    """Past the address, the payment is ``pay_now``'s, approval check and all."""
+    body = sealed({**PAY_BODY, "approved": {**PAY_BODY["approved"], "price": 1.0}})
+
+    status, answer = post(f"{fixed}/api/pay", body)
+
+    assert (status, answer["field"]) == (409, "approved")
+
+
+def test_behind_a_proxy_the_host_is_the_one_the_browser_addressed(tmp_path: Path) -> None:
+    """The proxy's own address reaches the socket; the name the page was opened at is
+    in the header the proxy sets."""
+    named = frozenset({"shop.example"})
+    behind = Policy(behind_proxy=True, sealer=SEALER)
+    with serving(tmp_path, allowed_hosts=named, policy=behind) as base:
+        forwarded = asked(f"{base}/api/config", **{"X-Forwarded-Host": "shop.example, proxy"})
+        posted = asked(
+            f"{base}/api/rank",
+            {"products": [], "seal": SEALER.seal([])},
+            Origin="https://shop.example",
+            **{"X-Forwarded-Host": "shop.example"},
+        )
+        direct = asked(f"{base}/api/config")
+    with serving(tmp_path, allowed_hosts=named) as base:
+        unproxied = asked(f"{base}/api/config", **{"X-Forwarded-Host": "shop.example"})
+
+    assert (forwarded[0], posted[0]) == (200, 200)
+    assert direct[0] == 403
+    assert unproxied[0] == 403, "anyone can write the header where no proxy does"
+
+
+def test_the_access_log_says_who_asked_what_and_how_it_went(tmp_path: Path, caplog) -> None:
+    logging_policy = Policy(access_log=True, behind_proxy=True, sealer=SEALER)
+    with caplog.at_level(logging.INFO, logger="buy_agent.access"):
+        with serving(tmp_path, policy=logging_policy) as base:
+            status, headers, _ = asked(
+                f"{base}/api/config?secret=1",
+                **{"X-Request-Id": "abc-123", "X-Forwarded-For": "203.0.113.9, 10.0.0.1"},
+            )
+            made = asked(f"{base}/api/config")[1]["X-Request-Id"]
+
+    lines = [record for record in caplog.records if record.name == "buy_agent.access"]
+    assert status == 200
+    assert headers["X-Request-Id"] == "abc-123"
+    assert len(made) == 32
+    assert '203.0.113.9 "GET /api/config" 200' in lines[0].getMessage()
+    assert "abc-123" in lines[0].getMessage()
+    assert "secret" not in lines[0].getMessage(), "a query can hold what the shopper typed"
+    assert (lines[0].status, lines[0].path, lines[0].request_id) == (  # type: ignore[attr-defined]
+        200, "/api/config", "abc-123"
+    )
+
+
+def test_no_access_log_unless_asked(server: str, caplog) -> None:
+    with caplog.at_level(logging.INFO, logger="buy_agent.access"):
+        get(f"{server}/api/config")
+
+    assert not [record for record in caplog.records if record.name == "buy_agent.access"]
+
+
+def test_the_stream_tells_a_proxy_not_to_hold_it_back(server: str) -> None:
+    reply = raw(server, b"GET /api/search/stream?request=x HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+
+    assert "X-Accel-Buffering: no" in reply
+
+
+def test_a_connection_past_the_cap_is_closed_unanswered(server: str, monkeypatch) -> None:
+    monkeypatch.setattr("buy_agent.deployment.MAX_CONNECTIONS", 0)
+
+    reply = raw(server, b"GET /api/config HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+
+    assert reply == ""
+
+
+def test_a_stop_waits_for_the_request_in_flight(tmp_path: Path, caplog) -> None:
+    StubAgent.captured = {}
+    StubAgent.result = RANKED
+    StubAgent.delay = 0.3
+    answers: list[int] = []
+    with served(tmp_path) as (base, httpd):
+        asking = threading.Thread(
+            target=lambda: answers.append(post(f"{base}/api/search", {"request": "x"})[0])
+        )
+        asking.start()
+        while not httpd.traffic.runs:
+            time.sleep(0.01)
+        with caplog.at_level(logging.INFO, logger="buy_agent.server"):
+            httpd.drain(10)
+        asking.join()
+
+    assert answers == [200]
+    assert "Finishing 1 request(s) in flight" in caplog.text
+    assert "unanswered" not in caplog.text
+
+
+def test_a_stop_gives_up_at_its_deadline_and_says_so(tmp_path: Path, caplog) -> None:
+    httpd = create_server("127.0.0.1", 0, ui_dir=tmp_path)
+    httpd.traffic.begin()
+    try:
+        with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
+            httpd.drain(0)
+    finally:
+        httpd.server_close()
+
+    assert "Stopped with 1 request(s) still unanswered" in caplog.text
+
+
+def test_a_second_ctrl_c_stops_the_wait(tmp_path: Path, caplog, monkeypatch) -> None:
+    httpd = create_server("127.0.0.1", 0, ui_dir=tmp_path)
+    httpd.traffic.begin()
+
+    def interrupted(_seconds: float) -> int:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(httpd.traffic, "drain", interrupted)
+    try:
+        with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
+            httpd.drain()
+    finally:
+        httpd.server_close()
+
+    assert "Stopped with 1 request(s) still unanswered" in caplog.text
+
+
+def test_sigterm_stops_the_server_cleanly(caplog) -> None:
+    """What ``docker stop`` and an orchestrator send: 0, having drained."""
+    httpd = FakeHttpd(on_serve=server_module.Terminated())
+
+    with caplog.at_level(logging.INFO, logger="buy_agent.server"):
+        assert server_module.serve_until_interrupted(httpd) == 0  # type: ignore[arg-type]
+
+    assert httpd.closed and httpd.drained
+    assert "Asked to stop." in caplog.text
+
+
+def test_ctrl_c_drains_too(caplog) -> None:
+    httpd = FakeHttpd(on_serve=KeyboardInterrupt())
+
+    assert server_module.serve_until_interrupted(httpd) == 130  # type: ignore[arg-type]
+
+    assert httpd.drained
+
+
+@pytest.fixture
+def started(monkeypatch, tmp_path: Path) -> dict[str, Any]:
+    """What ``main`` builds the server with, without binding one."""
+    built: dict[str, Any] = {"cameras": []}
+
+    def remember(*args: Any, **kwargs: Any) -> FakeHttpd:
+        built.update(args=args, **kwargs)
+        return FakeHttpd()
+
+    monkeypatch.setattr(server_module, "create_server", remember)
+    monkeypatch.setattr(server_module, "camera_for", lambda host: built["cameras"].append(host))
+    built["ui_dir"] = ["--ui-dir", str(tmp_path)]
+    return built
+
+
+def test_the_server_is_deployed_from_its_environment(monkeypatch, started) -> None:
+    """An image's command line is the one place an operator cannot reach."""
+    monkeypatch.setenv("BUY_AGENT_HOST", "localhost")
+    monkeypatch.setenv("BUY_AGENT_PORT", "8123")
+    monkeypatch.setenv("BUY_AGENT_ALLOWED_HOSTS", "a.example, b.example")
+    monkeypatch.setenv("BUY_AGENT_MAX_RUNS", "2")
+    monkeypatch.setenv("BUY_AGENT_ACCESS_LOG", "yes")
+
+    assert main([*started["ui_dir"], "--allowed-host", "c.example"]) == 0
+
+    assert started["args"] == ("localhost", 8123)
+    assert started["allowed_hosts"] == _LOOPBACK_HOSTS | {"a.example", "b.example", "c.example"}
+    policy = started["policy"]
+    assert (policy.max_runs, policy.access_log, policy.behind_proxy) == (2, True, False)
+    assert policy.fixed_addresses is False, "loopback, and nobody's proxy"
+
+
+def test_a_public_bind_asks_only_its_own_addresses_and_warns_without_a_token(
+    started, caplog
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
+        main([*started["ui_dir"], "--host", "0.0.0.0"])
+
+    assert started["policy"].fixed_addresses is True
+    assert "no $BUY_AGENT_API_TOKEN" in caplog.text
+
+
+def test_a_token_is_asked_for_and_keys_the_seal(monkeypatch, started, caplog) -> None:
+    """Keyed off the token, replicas behind one address agree on a run's seal."""
+    monkeypatch.setenv("BUY_AGENT_API_TOKEN", TOKEN)
+
+    with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
+        main([*started["ui_dir"], "--host", "0.0.0.0"])
+
+    policy = started["policy"]
+    assert policy.token == TOKEN
+    assert policy.sealer == Sealer.keyed_by(TOKEN)
+    assert "API_TOKEN" not in caplog.text
+
+
+def test_a_token_too_short_to_keep_anybody_out_is_refused(monkeypatch, started, caplog) -> None:
+    monkeypatch.setenv("BUY_AGENT_API_TOKEN", "hunter2")
+
+    with caplog.at_level(logging.ERROR, logger="buy_agent.server"):
+        assert main(started["ui_dir"]) == 1
+
+    assert "$BUY_AGENT_API_TOKEN is 7 characters long" in caplog.text
+    assert "args" not in started, "nothing was bound"
+
+
+def test_behind_a_proxy_it_takes_no_pictures_and_asks_only_its_own(started) -> None:
+    """A loopback bind behind a proxy is anybody's, and so would its camera be."""
+    main([*started["ui_dir"], "--behind-proxy"])
+
+    assert started["cameras"] == []
+    assert started["camera"] is None
+    assert (started["policy"].behind_proxy, started["policy"].fixed_addresses) == (True, True)
+
+
+def test_json_lines_are_asked_for_by_the_environment(monkeypatch, started) -> None:
+    configured: list[dict[str, Any]] = []
+    monkeypatch.setenv("BUY_AGENT_LOG_FORMAT", "json")
+    monkeypatch.setattr(server_module, "configure_logging", lambda **kwargs: configured.append(kwargs))
+
+    main(started["ui_dir"])
+
+    assert configured == [{"verbose": False, "json_lines": True}]
+
+
+@pytest.mark.parametrize(
+    ("variable", "value", "says"),
+    [
+        ("BUY_AGENT_LOG_FORMAT", "yaml", "must be one of text, json; got 'yaml'"),
+        ("BUY_AGENT_MAX_RUNS", "0", "must be between 1 and 64; got 0"),
+        ("BUY_AGENT_MAX_RUNS", "lots", "must be a whole number; got 'lots'"),
+        ("BUY_AGENT_PORT", "http", "must be a whole number; got 'http'"),
+    ],
+)
+def test_a_misspelt_variable_is_a_usage_error(
+    monkeypatch, capsys, variable: str, value: str, says: str
+) -> None:
+    """argparse reads a string default as if it were typed, refusal and all."""
+    monkeypatch.setenv(variable, value)
+
+    with pytest.raises(SystemExit) as exit_code:
+        main([])
+
+    assert exit_code.value.code == 2
+    assert says in capsys.readouterr().err
+
+
+def test_a_stop_with_nothing_in_flight_says_nothing(tmp_path: Path, caplog) -> None:
+    httpd = create_server("127.0.0.1", 0, ui_dir=tmp_path)
+    try:
+        with caplog.at_level(logging.INFO, logger="buy_agent.server"):
+            httpd.drain()
+    finally:
+        httpd.server_close()
+
+    assert caplog.text == ""
+    assert httpd.traffic.draining

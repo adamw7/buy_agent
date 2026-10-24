@@ -96,6 +96,9 @@ Alternatives: [Running against vLLM](#running-against-vllm) skips step 1;
 [Running in Docker](docs/docker.md) needs neither toolchain; a published release
 carries the built UI as an archive and a `ghcr.io` image
 ([ADR-0030](docs/adr/0030-publish-a-release-as-an-archive-and-an-image.md)).
+[`compose.yaml`](docs/docker.md#deploying-it-for-more-than-one-machine) runs the
+image beside Ollama and SearXNG for other machines to reach, behind a token
+([ADR-0092](docs/adr/0092-deploy-the-server-for-more-than-one-machine.md)).
 `python -m scripts.update_ollama` re-pulls Ollama's models and reports which
 moved ([docs/models.md](docs/models.md)).
 
@@ -542,6 +545,14 @@ curl -X POST http://127.0.0.1:8000/api/search `
 | `POST /api/rank` | A finished run's products in another order |
 | `POST /api/pay` | One of those products bought, given the approval the page witnessed |
 | `GET /api/search/stream` | One run, as an event stream |
+| `GET /healthz` | That the server is up, to anybody, with no token |
+| `GET /readyz` | 503 while it stops or while its model server does not answer |
+| `GET /metrics` | Requests, runs and connections in Prometheus's format, behind the token |
+
+A re-sort or a payment sends back the `seal` its run came with: the server takes
+only the products it answered with. With `$BUY_AGENT_API_TOKEN` set, every request
+but the probes carries it, as `Authorization: Bearer <token>` or as the password a
+browser asks for (ADR-0092).
 
 ### The dev server
 

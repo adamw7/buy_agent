@@ -1,4 +1,4 @@
-# Everything the build does not need: it copies `ui/`, `requirements.txt`,
+# Everything the build does not need: it copies `ui/`, `requirements.lock`,
 # `LICENSE` and `buy_agent/` only.
 
 .git/
@@ -35,6 +35,12 @@ buy_agent/_version.txt
 
 # Not run in the image.
 demo/
+# What runs beside it, not in it (ADR-0092).
+deploy/
+compose.yaml
+compose.gpu.yaml
+# Installed from the lock instead.
+requirements.txt
 tests/
 integration/
 browser/

@@ -2,9 +2,13 @@
 #
 #   docker build -t buy-agent .
 #   docker run --rm -p 8000:8000 --add-host=host.docker.internal:host-gateway buy-agent
+#
+# compose.yaml runs it beside a model server and a search engine (ADR-0092).
 
 # -- stage 1: build the UI, on the Node .nvmrc pins ---------------------------
-FROM node:24.22.1-bookworm-slim AS ui
+# On the builder's own platform: the bundle is the same bytes for every image, and an
+# arm64 image needs no emulated Node to build it.
+FROM --platform=$BUILDPLATFORM node:24.22.1-bookworm-slim AS ui
 
 WORKDIR /ui
 
@@ -28,8 +32,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+# The lock, not requirements.txt: every package at the version CI installed it at,
+# and nothing pip would otherwise resolve on the day of the build (ADR-0092).
+COPY requirements.lock ./
+RUN pip install --no-cache-dir --no-deps -r requirements.lock && pip check
 
 COPY LICENSE ./
 COPY buy_agent/ ./buy_agent/
@@ -43,8 +49,14 @@ RUN printf '%s\n%s\n' "$VERSION" "$REVISION" > buy_agent/_version.txt
 # Where `server.DEFAULT_UI_DIR` looks, so the container needs no --ui-dir.
 COPY --from=ui /ui/dist/ui/browser/ ./ui/dist/ui/browser/
 
-RUN useradd --create-home --uid 1000 shopper
+# The page cache, the answer cache and the run journal, in a volume of their own so a
+# restart keeps them and the rest of the filesystem can be read-only (ADR-0092).
+ENV BUY_AGENT_CACHE_DIR=/var/cache/buy-agent
+RUN useradd --create-home --uid 1000 shopper \
+    && mkdir -p /var/cache/buy-agent \
+    && chown shopper /var/cache/buy-agent
 USER shopper
+VOLUME ["/var/cache/buy-agent"]
 
 # Every provider's address on the host (on Linux, via --add-host).
 ENV OLLAMA_HOST=http://host.docker.internal:11434 \
@@ -52,12 +64,18 @@ ENV OLLAMA_HOST=http://host.docker.internal:11434 \
     LITELLM_HOST=http://host.docker.internal:4000/v1 \
     TRTLLM_HOST=http://host.docker.internal:8000/v1
 
+# Every interface: loopback inside a container is the container's own. A variable
+# rather than a flag, so `docker run -e` and compose can change it (ADR-0092).
+ENV BUY_AGENT_HOST=0.0.0.0
+
 EXPOSE 8000
 
+# /healthz asks for no token and no Host, so naming either does not fail the check.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/config', timeout=4)"]
+    CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + (os.environ.get('BUY_AGENT_PORT') or '8000') + '/healthz', timeout=4)"]
 
 # `python` as the entrypoint keeps the CLI reachable:
 #   docker run --rm buy-agent -m buy_agent "espresso machine"
+# The server stops on SIGTERM, finishing what it is answering first (ADR-0092).
 ENTRYPOINT ["python"]
-CMD ["-m", "buy_agent.server", "--host", "0.0.0.0"]
+CMD ["-m", "buy_agent.server"]

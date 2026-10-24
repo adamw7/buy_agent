@@ -24,7 +24,9 @@ from buy_agent.fetch import (
     enrich,
     fetch_page,
     html_to_text,
+    on_the_public_web,
     quotes_a_figure,
+    refuse_private,
     summarise_failures,
 )
 from buy_agent.search import SearchResult
@@ -863,3 +865,85 @@ def test_an_empty_declaration_reads_as_none() -> None:
     markup = '<script type="application/ld+json"></script><p>Price $10</p>'
 
     assert html_to_text(markup) == "Price $10"
+
+
+# -- the public web, and nothing behind it (ADR-0092) ---------------------------
+
+
+@pytest.mark.parametrize(
+    "host",
+    ["shop.example", "www.amazon.co.uk", "8.8.8.8", "2606:4700:4700::1111", "bad.cafe",
+     "xn--bcher-kva.example", "shop.example."],
+)
+def test_a_page_on_the_public_web_is_fetched(host: str) -> None:
+    assert on_the_public_web(host)
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "127.0.0.1", "10.0.0.5", "192.168.1.1", "169.254.169.254", "::1",
+        "::ffff:127.0.0.1", "fd00::1", "0.0.0.0", "localhost", "LOCALHOST.",
+        "ollama", "searxng", "app.localhost", "printer.local", "metadata.google.internal",
+        "nas.lan", "router.home.arpa", "wiki.intranet", "2130706433", "0x7f.1",
+        "0177.0.0.1", "127.1", "",
+    ],
+)
+def test_an_address_behind_the_public_web_is_not(host: str) -> None:
+    """A search result names a page anybody can open; one naming this machine, its
+    network or the cloud's metadata service is a page somebody wants this server to
+    read for them -- however the address is spelt."""
+    assert not on_the_public_web(host)
+
+
+def test_a_result_pointing_inside_a_private_network_is_never_asked() -> None:
+    asked: list[str] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        asked.append(str(request.url))
+        return httpx.Response(200, text=PAGE, headers={"content-type": "text/html"})
+
+    with httpx.Client(transport=httpx.MockTransport(answer)) as client:
+        page = fetch_page(client, "http://169.254.169.254/latest/meta-data/", max_chars=100)
+
+    assert asked == []
+    assert page.problem == "pointed inside a private network"
+
+
+def test_a_redirect_into_a_private_network_is_never_followed() -> None:
+    """The first address was public; the hook asks again at every hop."""
+    asked: list[str] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        asked.append(str(request.url))
+        return httpx.Response(302, headers={"location": "http://10.0.0.5/admin"})
+
+    with httpx.Client(
+        transport=httpx.MockTransport(answer),
+        follow_redirects=True,
+        event_hooks={"request": [refuse_private]},
+    ) as client:
+        page = fetch_page(client, "https://shop.example/deal", max_chars=100)
+
+    assert asked == ["https://shop.example/deal"]
+    assert page.problem == "pointed inside a private network"
+
+
+def test_an_address_httpx_cannot_read_is_left_for_the_request_to_refuse() -> None:
+    """Not this check's to word: the request fails as it always did."""
+    with httpx.Client(transport=httpx.MockTransport(lambda _r: httpx.Response(200))) as client:
+        page = fetch_page(client, "http://[::1/", max_chars=100)
+
+    assert page.problem == "had an address that cannot be fetched"
+
+
+def test_every_page_a_run_reads_is_asked_through_the_hook(monkeypatch) -> None:
+    captured: dict = {}
+    monkeypatch.setattr(
+        "buy_agent.fetch.httpx.Client",
+        fake_client(lambda url: make_response(url, PAGE), captured),
+    )
+
+    enrich([SearchResult(url="https://shop.example")], max_chars=100)
+
+    assert captured["event_hooks"] == {"request": [fetch_module.refuse_private]}
