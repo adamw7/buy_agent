@@ -528,7 +528,7 @@ A fix that a parent package has not picked up yet is an exact pin in
 
 - `vite` 8.3.5, for the `launch-editor` advisories against 8.3.0 to 8.3.2
   (GHSA-r825-w8mm-5pxw and two others). It goes once a stable `@angular/build`
-  pins vite 8.3.3 or later; 22.2.3 still pins 8.3.0, and 22.3.0-next.2 pins 8.3.4.
+  pins vite 8.3.3 or later; 22.2.4 still pins 8.3.0, and 22.3.0-next.3 pins 8.3.4.
 
 ## Merging
 
