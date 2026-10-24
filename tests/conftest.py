@@ -74,6 +74,27 @@ def pay_with_nothing_of_the_developers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("BUY_AGENT_MERCHANT_URL", raising=False)
 
 
+#: The server's deployment, read off the environment it starts in (ADR-0092).
+_SERVER_ENVIRONMENT = (
+    "BUY_AGENT_HOST",
+    "BUY_AGENT_PORT",
+    "BUY_AGENT_ALLOWED_HOSTS",
+    "BUY_AGENT_MAX_RUNS",
+    "BUY_AGENT_BEHIND_PROXY",
+    "BUY_AGENT_ACCESS_LOG",
+    "BUY_AGENT_LOG_FORMAT",
+    "BUY_AGENT_API_TOKEN",
+)
+
+
+@pytest.fixture(autouse=True)
+def serve_as_nobody_deployed_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unset every variable a deployed server reads, so a developer's shell that set one
+    to try the container cannot change what a test of the server sees."""
+    for name in _SERVER_ENVIRONMENT:
+        monkeypatch.delenv(name, raising=False)
+
+
 #: Every logger ``configure_logging`` sets a level on, which is every logger a test can
 #: leave changed for the ones after it.
 _LEVELS_CONFIGURE_LOGGING_SETS = ("", "buy_agent", *_NOISY_LIBRARIES, *_TRACE_LIBRARIES)

@@ -10,6 +10,7 @@ import pytest
 from buy_agent.agent import every_step_passes, journal_for
 from buy_agent.api import (
     ApiError,
+    Sealer,
     bounds_payload,
     defaults_payload,
     installed_models,
@@ -839,3 +840,53 @@ def test_the_alert_is_not_part_of_what_the_journal_keys_a_search_by() -> None:
         journal_for("headphones", AgentConfig(alert_below=100)).key
         == journal_for("headphones", AgentConfig()).key
     )
+
+
+# -- a run's seal (ADR-0092) -----------------------------------------------------
+
+
+def _sealing_products() -> list[Product]:
+    return [
+        Product(name="Sony WH-1000XM5", price=328.0, currency="USD", rating=4.7),
+        Product(name="Anker Q30", price=79.0, currency="USD", offers=[Offer(price=79.0)]),
+    ]
+
+
+def test_a_seal_is_of_the_set_and_not_its_order() -> None:
+    sealer = Sealer(b"key")
+    products = _sealing_products()
+
+    assert sealer.seal(products) == sealer.seal(reversed(products))
+    assert sealer.seal(products) != sealer.seal(products[:1])
+    assert sealer.seal(products) != Sealer(b"other").seal(products)
+
+
+def test_a_seal_survives_the_round_trip_the_page_makes() -> None:
+    """Out as the run payload, through JSON, back as ``products``: a float the page
+    writes as a whole number is still the same price."""
+    sealer = Sealer(b"key")
+    ranked = rank_products(_sealing_products())
+    shipped = json.loads(json.dumps(results_payload(ranked)).replace("328.0", "328"))
+
+    sealer.check([Product.model_validate(entry) for entry in shipped], sealer.seal(
+        entry.product for entry in ranked
+    ))
+
+
+def test_replicas_sharing_a_token_agree_on_a_seal_and_others_do_not() -> None:
+    assert Sealer.keyed_by("a token long enough") == Sealer.keyed_by("a token long enough")
+    assert Sealer.keyed_by("") != Sealer.keyed_by("")
+    assert "key" not in repr(Sealer(b"key")).replace("Sealer(", "")
+
+
+@pytest.mark.parametrize("seal", ["", "0" * 64, "ü"], ids=["none", "wrong", "not-ascii"])
+def test_a_seal_this_server_did_not_make_is_refused(seal: str) -> None:
+    with pytest.raises(ApiError) as refused:
+        Sealer(b"key").check(_sealing_products(), seal)
+
+    assert (refused.value.status, refused.value.field) == (409, "products")
+
+
+def test_a_run_without_a_sealer_hands_out_no_seal() -> None:
+    """The CLI's ``--json`` and a Python caller: nothing comes back to be checked."""
+    assert rank_again({"products": [], "sort_by": "price"})["seal"] is None

@@ -37,6 +37,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Nothing here pushes, so the token is not left on disk for later steps.
+          persist-credentials: false
 
       - uses: actions/setup-node@v7
         with:
@@ -76,6 +79,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Nothing here pushes, so the token is not left on disk for later steps.
+          persist-credentials: false
 
       # For the stdlib report script, which decides whether the run passed.
       - uses: actions/setup-python@v7

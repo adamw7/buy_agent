@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import re
 import sys
@@ -258,11 +259,11 @@ def split_streams(monkeypatch, capsys):
     kept = (package.handlers[:], root.handlers[:], root.level)
     monkeypatch.setattr(logging, "basicConfig", lambda **kwargs: None)
 
-    def configure():
+    def configure(**options):
         root.handlers = [logging.StreamHandler(sys.stderr)]
         root.setLevel(logging.INFO)  # what the stubbed basicConfig would have set
         package.handlers = []
-        configure_logging()
+        configure_logging(**options)
         return capsys
 
     yield configure
@@ -707,3 +708,52 @@ def test_the_alert_is_part_of_the_report(report) -> None:
 def test_a_duration_is_written_the_same_way_everywhere(seconds: float, label: str) -> None:
     """A run's log and the benchmark's standings both write one this way."""
     assert seconds_label(seconds) == label
+
+
+# -- one JSON object a line, for a deployed server (ADR-0092) --------------------
+
+
+def test_json_lines_are_one_object_a_line_on_stderr(split_streams) -> None:
+    """For a log collector: the fields it indexes on, and nothing to parse out of prose."""
+    streams = split_streams(json_lines=True)
+
+    logging.getLogger("buy_agent.access").info(
+        "answered", extra={"request_id": "abc", "status": 200, "path": "/api/config"}
+    )
+
+    entry = json.loads(streams.readouterr().err)
+    assert entry["message"] == "answered"
+    assert (entry["level"], entry["logger"]) == ("INFO", "buy_agent.access")
+    assert (entry["request_id"], entry["status"], entry["path"]) == ("abc", 200, "/api/config")
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z", entry["time"])
+    assert "client" not in entry, "a field the record does not carry is left out"
+
+
+def test_a_json_line_carries_its_traceback(split_streams) -> None:
+    streams = split_streams(json_lines=True)
+
+    try:
+        raise RuntimeError("on fire")
+    except RuntimeError:
+        logging.getLogger("buy_agent.server").exception("Unexpected failure")
+
+    entry = json.loads(streams.readouterr().err)
+    assert "RuntimeError: on fire" in entry["exception"]
+
+
+def test_the_report_stays_plain_text_beside_json_lines(split_streams) -> None:
+    """The report is the answer, read by a person or redirected to a file."""
+    streams = split_streams(json_lines=True)
+
+    log_top_products(ranked(Product(name="Sony WH-1000XM5")), 1)
+
+    assert "TOP 1 OF 1 PRODUCTS" in streams.readouterr().out
+
+
+def test_asking_for_text_again_puts_the_clock_back(split_streams) -> None:
+    split_streams(json_lines=True)
+    streams = split_streams()
+
+    logging.getLogger("buy_agent.agent").info("Fetching")
+
+    assert re.match(r"\d\d:\d\d:\d\d INFO    buy_agent.agent \| Fetching", streams.readouterr().err)

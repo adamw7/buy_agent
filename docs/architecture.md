@@ -478,6 +478,7 @@ config:
 ---
 graph TB
     browserUser(["<b>Shopper</b><br/><i>[Person]</i>"])
+    operator(["<b>Orchestrator</b><br/><i>[Docker, Kubernetes, Prometheus]</i>"])
 
     subgraph spa["Web UI [Container: Angular]"]
         form("<b>SearchForm</b><br/><i>[Component: search-form]</i><br/>The request and every option,<br/>seeded from /api/config,<br/>and refused here first")
@@ -491,6 +492,7 @@ graph TB
         handler("<b>BuyAgentHandler</b><br/><i>[Component: server.py]</i><br/>Admits the request, then<br/>routes /api to the API and<br/>everything else to the<br/>built app, falling back<br/>to index.html")
         guard("<b>_refused</b><br/><i>[Component: server.py]</i><br/>Refuses a request another<br/>site's page made, and a<br/>Host that merely resolves<br/>here -- loopback is not a<br/>boundary the browser<br/>respects")
         relay("<b>_LogRelay</b><br/><i>[Component: server.py]</i><br/>A handler on the package<br/>logger: fans the pipeline's<br/>records out by the context<br/>a run is watched through,<br/>so two runs never see each<br/>other's progress, and a step<br/>with threads of its own<br/>still reaches its stream")
+        deploy("<b>Policy and Traffic</b><br/><i>[Component: deployment.py]</i><br/>What other machines add:<br/>the token, the addresses it<br/>may ask, the caps on runs<br/>and connections, the drain<br/>on SIGTERM, /metrics")
         api("<b>API</b><br/><i>[Component: api.py]</i><br/>OPTIONS, the settings both<br/>doors read. Coerces a<br/>request into an AgentConfig,<br/>runs the pipeline, collects<br/>what it took out and what<br/>moved, shapes products as<br/>JSON, maps each failure to<br/>a status (400 / 502 / 503);<br/>re-ranks or pays for a<br/>finished run without<br/>running one")
     end
 
@@ -510,6 +512,9 @@ graph TB
     card -->|"GET /api/screenshot,<br/>from an img [JPEG]"| handler
 
     handler -->|"before any routing"| guard
+    guard -->|"the token"| deploy
+    handler -->|"admit_run, the counts,<br/>the drain"| deploy
+    operator -->|"/healthz, /readyz,<br/>/metrics, SIGTERM"| handler
     handler -->|"parse_options, run_search,<br/>rank_again, pay_now,<br/>screenshot, the readings"| api
     handler -->|"reads the queue<br/>for this run"| relay
     cli -.->|"a flag per OPTIONS row;<br/>--json is results_payload"| api
@@ -520,9 +525,9 @@ graph TB
     classDef person fill:#08427b,stroke:#052e56,color:#fff
     classDef container fill:#2e74c0,stroke:#1d5390,color:#fff
     classDef component fill:#85bbf0,stroke:#4f86c0,color:#000
-    class browserUser person
+    class browserUser,operator person
     class cli,agentpipeline,paying,camera container
-    class app,form,log,card,agentsvc,handler,guard,relay,api component
+    class app,form,log,card,agentsvc,handler,guard,relay,deploy,api component
     style spa fill:none,stroke:#8c8c8c,stroke-width:1px,stroke-dasharray:6 4
     style srv fill:none,stroke:#8c8c8c,stroke-width:1px,stroke-dasharray:6 4
 ```
@@ -552,6 +557,11 @@ Deliberate details:
   values in the same words (ADR-0033, ADR-0071).
 - **Loopback is not a boundary the browser respects**, so `_refused` turns away
   cross-site requests and foreign `Host`s before routing (ADR-0018).
+- **Other machines are a boundary of their own** (ADR-0092). The probes answer
+  before any check, and everything else asks for the token once one is set.
+  Bound beyond loopback, the server asks only the model server and merchant it
+  was started with. A re-sort or a payment must bring back the run's `seal`, runs
+  past `--max-runs` are a 503, and SIGTERM drains what is in flight.
 
 ## Level 3 -- Components of the benchmark
 

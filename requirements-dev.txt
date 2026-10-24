@@ -3,6 +3,8 @@
 # processes and the plugin measuring coverage across them (ADR-0076), pylint
 # (ADR-0048) and mypy (ADR-0063).
 -r requirements.txt
+# What those pull in, at the versions the image installs (ADR-0092).
+-c requirements.lock
 pytest==9.1.1
 coverage==7.16.2
 archunitpython==1.8.1

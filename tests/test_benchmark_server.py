@@ -554,8 +554,14 @@ def test_a_failure_nobody_planned_for_is_a_500_not_a_dropped_connection(
         got = call(f"{base}/api/state")[:2]
         posted = call(f"{base}/api/stop", {})[:2]
 
-    expected = (500, {"error": "Unexpected failure: the board is on fire"})
-    assert (got, posted) == (expected, expected)
+    # The client is told where in the log to look, and the log says what happened
+    # (ADR-0092): a server's own exception is no business of whoever asked it.
+    for status, answer in (got, posted):
+        assert status == 500
+        assert answer["error"].startswith("Unexpected failure;")
+        assert answer["reference"] in answer["error"]
+        assert "on fire" not in answer["error"]
+    assert "the board is on fire" in caplog.text
 
 
 def test_a_target_that_will_not_parse_is_refused_not_dropped(page: tuple[str, Bench]) -> None:
@@ -713,6 +719,9 @@ class FakeHttpd:
 
     def server_close(self) -> None:
         self.closed = True
+
+    def drain(self) -> None:
+        self.drained = True
 
 
 @pytest.fixture

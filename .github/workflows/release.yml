@@ -75,19 +75,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          # Nothing here pushes, so the token is not left on disk for later steps.
+          persist-credentials: false
           ref: ${{ env.TAG }}
 
+      # No cache: one a pull request's run could have written would end up in what is
+      # published (ADR-0092).
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
+          # On by default where package.json names its package manager, as ui's does.
+          package-manager-cache: false
 
       - uses: actions/setup-python@v7
         with:
           python-version-file: .python-version
-          cache: pip
-          cache-dependency-path: requirements.txt
 
       - name: Build the UI
         working-directory: ui
@@ -190,10 +192,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          # Nothing here pushes, so the token is not left on disk for later steps.
+          persist-credentials: false
           ref: ${{ env.TAG }}
 
       - name: Log in to ghcr.io
         run: echo "${{ github.token }}" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      # arm64 as well as amd64 (ADR-0092): the Python stage of the other one runs
+      # emulated, and the UI stage is built once, on the runner's own platform.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
 
       - name: Build the image
         run: |
@@ -206,15 +215,21 @@ jobs:
           revision="$(git rev-parse HEAD)"
 
           # Which build this is, to the server (ADR-0083) and to the registry:
-          # `source` is also what links the ghcr package to this repository.
-          docker build -t "$image:$version" \
-            --build-arg VERSION="$version" \
-            --build-arg REVISION="$revision" \
-            --label org.opencontainers.image.version="$version" \
-            --label org.opencontainers.image.revision="$revision" \
-            --label org.opencontainers.image.source="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            --label org.opencontainers.image.created="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            .
+          # `source` is also what links the ghcr package to this repository. Kept for
+          # the push, which must describe the build these steps checked.
+          {
+            echo "--build-arg VERSION=$version"
+            echo "--build-arg REVISION=$revision"
+            echo "--label org.opencontainers.image.version=$version"
+            echo "--label org.opencontainers.image.revision=$revision"
+            echo "--label org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+            echo "--label org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > build-args.txt
+
+          # The runner's own platform, loaded so the steps below can start, scan and
+          # list it; the push builds both platforms from the same builder's cache.
+          # shellcheck disable=SC2046 # one argument per line, none with a space in it
+          docker buildx build --load -t "$image:$version" $(cat build-args.txt) .
 
       # Smoke-test the image before publishing it.
       - name: Check the image serves
@@ -265,21 +280,24 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
 
-      # `latest` follows full releases only, never a manual re-run.
+      # `latest` follows full releases only, never a manual re-run. Both platforms
+      # under one tag: the amd64 half is the image checked above, out of the cache.
       - name: Push it
         env:
           PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
-          docker push "$IMAGE:$VERSION"
-
+          tags=(-t "$IMAGE:$VERSION")
           if [ "$PRERELEASE" = "false" ]; then
-            docker tag "$IMAGE:$VERSION" "$IMAGE:latest"
-            docker push "$IMAGE:latest"
+            tags+=(-t "$IMAGE:latest")
           fi
 
-          # The registry's digest is what an attestation names, not a tag.
-          ref="$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$VERSION")"
-          echo "DIGEST=${ref#*@}" >> "$GITHUB_ENV"
+          # shellcheck disable=SC2046 # one argument per line, none with a space in it
+          docker buildx build --push --platform linux/amd64,linux/arm64 "${tags[@]}" \
+            --metadata-file metadata.json $(cat build-args.txt) .
+
+          # The registry's digest is what an attestation names, not a tag: here the
+          # index's, which names both platforms.
+          echo "DIGEST=$(jq -r '."containerimage.digest"' metadata.json)" >> "$GITHUB_ENV"
 
       # After the push, because the digest exists only once the registry has it.
       - name: Attest the image

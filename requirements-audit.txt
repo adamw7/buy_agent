@@ -1,2 +1,4 @@
-# The nightly audit's only install (ADR-0062); pip-audit resolves each file itself.
+# The nightly audit's only install (ADR-0062); pip-audit resolves each file itself, and
+# zizmor reads the workflows (ADR-0092).
 pip-audit==2.10.1
+zizmor==1.31.1

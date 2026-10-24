@@ -100,6 +100,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0089](0089-ask-for-one-product-at-least-and-leave-stock-to-the-schema.md) | Ask for one product at least, and leave stock to the schema | Accepted |
 | [0090](0090-keep-a-quote-only-where-a-page-judges-the-product-it-is-filed-under.md) | Keep a quote only where a page judges the product it is filed under | Accepted |
 | [0091](0091-pin-each-toolchain-once-and-let-ci-run-the-gate-script.md) | Pin each toolchain once, and let CI run the gate script | Accepted |
+| [0092](0092-deploy-the-server-for-more-than-one-machine.md) | Deploy the server for more than one machine | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

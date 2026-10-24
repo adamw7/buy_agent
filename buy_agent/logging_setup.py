@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import textwrap
+import time
 from typing import TYPE_CHECKING
 
 from buy_agent.ranking import CRITERIA, ORDERINGS, RankingWeights
@@ -50,12 +52,39 @@ _REPORT_HANDLER = "buy_agent-report"
 _RULE = "=" * 62
 
 
-def configure_logging(*, verbose: bool = False) -> None:
-    """Send agent logs to stderr and the report to stdout."""
+#: What a record may carry beside its message that a JSON line keeps as a field of its own.
+_JSON_FIELDS = ("request_id", "client", "method", "path", "status", "duration_ms")
+
+
+class JsonLines(logging.Formatter):
+    """One JSON object a line, for a log collector rather than a person (ADR-0092)."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        moment = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created))
+        entry: dict[str, object] = {
+            "time": f"{moment}.{int(record.msecs):03d}Z",
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        for name in _JSON_FIELDS:
+            value = getattr(record, name, None)
+            if value is not None:
+                entry[name] = value
+        if record.exc_info:
+            entry["exception"] = self.formatException(record.exc_info)
+        return json.dumps(entry, default=str)
+
+
+def configure_logging(*, verbose: bool = False, json_lines: bool = False) -> None:
+    """Send agent logs to stderr and the report to stdout; ``json_lines`` writes the
+    stderr half as :class:`JsonLines`."""
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(level=level, format=_FORMAT, datefmt=_DATEFMT)
     # ``basicConfig`` is a no-op once the root has a handler, level included.
     logging.getLogger().setLevel(level)
+    for console in _consoles():
+        console.setFormatter(JsonLines() if json_lines else logging.Formatter(_FORMAT, _DATEFMT))
     _split_report_from_progress()
     for plumbing in _TRACE_LIBRARIES:
         logging.getLogger(plumbing).setLevel(logging.INFO)
@@ -76,9 +105,18 @@ def _split_report_from_progress() -> None:
     handler.addFilter(_is_report)
     package.addHandler(handler)
     # Off the stderr console only; other handlers still get the report.
-    for console in logging.getLogger().handlers:
-        if getattr(console, "stream", None) is sys.stderr and _not_report not in console.filters:
+    for console in _consoles():
+        if _not_report not in console.filters:
             console.addFilter(_not_report)
+
+
+def _consoles() -> list[logging.Handler]:
+    """The root's handlers writing to stderr: ``basicConfig``'s, which progress goes to."""
+    return [
+        handler
+        for handler in logging.getLogger().handlers
+        if getattr(handler, "stream", None) is sys.stderr
+    ]
 
 
 def _is_report(record: logging.LogRecord) -> bool:

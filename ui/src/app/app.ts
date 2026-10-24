@@ -364,6 +364,7 @@ export class App {
         // The run's own scale, so the set does not vote again (ADR-0056).
         currency: this.ranWith()?.currency,
         scale: found.scale ?? undefined,
+        seal: found.seal ?? undefined,
       })
       .subscribe({
         next: (result) => {
@@ -420,6 +421,7 @@ export class App {
         // The run's own, as a re-sort sends them.
         currency: settings.currency,
         scale: found.scale ?? undefined,
+        seal: found.seal ?? undefined,
       })
       .subscribe({
         next: ({ receipt }) => {

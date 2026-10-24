@@ -68,6 +68,7 @@ const RESULT: SearchResult = {
   changes: [],
   compared_with: null,
   alert: null,
+  seal: 'sealed by the server',
 };
 
 const RECEIPT = receipt({
@@ -111,6 +112,8 @@ class FakeAgent {
       changes: [],
       compared_with: null,
       alert: null,
+      // The same set, so the same seal (ADR-0092).
+      seal: options.seal ?? null,
     });
 
   defaults() {
@@ -1119,6 +1122,8 @@ describe('App results', () => {
     expect(agent.ranked[0].sort_by).toBe('price');
     expect(agent.ranked[0].products).toHaveLength(3);
     expect(agent.ranked[0].top).toBe(2);
+    // Without it the server re-sorts nothing (ADR-0092).
+    expect(agent.ranked[0].seal).toBe('sealed by the server');
     expect(agent.searched).toHaveLength(searches);
 
     const page = fixture.nativeElement as HTMLElement;
@@ -2014,6 +2019,25 @@ describe('App paying', () => {
 
     expect(hint).toContain('The most one payment may be, in EUR.');
     expect(agent.paid[0]).toMatchObject({ currency: 'EUR', scale: 'EUR' });
+  });
+
+  it("hands the run's seal back with a payment, and after a re-sort too", async () => {
+    /* The server pays only for products it sealed (ADR-0092); a re-sort answers the same
+       seal, since it is the same set, and the page pays with the one it holds. */
+    const fixture = await render();
+    await setPaying(fixture, 'pay', true);
+    await ran(agent, 'kettle', RESULT, fixture);
+    const resort = (fixture.nativeElement as HTMLElement).querySelector<HTMLSelectElement>(
+      'select[name="resort"]',
+    )!;
+    resort.value = 'price';
+    resort.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+
+    await buyTheTopOne(fixture);
+
+    expect(agent.ranked[0].seal).toBe('sealed by the server');
+    expect(agent.paid[0]).toMatchObject({ seal: 'sealed by the server' });
   });
 
   it('says a payment failed beside the products and not in the run banner', async () => {

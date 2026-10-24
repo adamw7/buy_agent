@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import importlib
+from dataclasses import asdict
 
 import pytest
 
 import buy_agent.config as config_module
 import buy_agent.providers as providers_module
-from buy_agent.config import AgentConfig
+from buy_agent.config import AgentConfig, ServerEnvironment, server_environment
 
 # The rows are reached through the module rather than imported by name, because
 # tests/test_providers.py reloads it: a reload re-runs the module over its own globals, so
@@ -98,3 +99,48 @@ def test_a_run_searches_at_least_as_many_pages_as_it_reports() -> None:
     assert AgentConfig(num_products=3, top_n=8).search_results == 8
     assert AgentConfig(num_products=12, top_n=3).search_results == 12
     assert AgentConfig(num_products=12, search_results=4).search_results == 4
+
+
+def test_a_server_nobody_deployed_reads_nothing_off_its_environment() -> None:
+    # Field by field: a reload elsewhere in the suite makes the class a new one.
+    assert asdict(server_environment()) == asdict(ServerEnvironment())
+
+
+def test_a_deployed_server_reads_its_settings_when_it_starts(monkeypatch) -> None:
+    """At the call, not at import: the image sets them before the process starts, and a
+    test after it."""
+    for name, value in {
+        "BUY_AGENT_HOST": " 0.0.0.0 ",
+        "BUY_AGENT_PORT": "8080",
+        "BUY_AGENT_ALLOWED_HOSTS": "shop.example,  buy.example\tother.example",
+        "BUY_AGENT_MAX_RUNS": "2",
+        "BUY_AGENT_BEHIND_PROXY": "TRUE",
+        "BUY_AGENT_ACCESS_LOG": "on",
+        "BUY_AGENT_LOG_FORMAT": "json",
+        "BUY_AGENT_API_TOKEN": " a token long enough to keep ",
+    }.items():
+        monkeypatch.setenv(name, value)
+
+    assert asdict(server_environment()) == asdict(ServerEnvironment(
+        host="0.0.0.0",
+        port="8080",
+        allowed_hosts=("shop.example", "buy.example", "other.example"),
+        max_runs="2",
+        behind_proxy=True,
+        access_log=True,
+        log_format="json",
+        token="a token long enough to keep",
+    ))
+
+
+@pytest.mark.parametrize("value", ["", "0", "no", "off", "false", "enabled"])
+def test_a_switch_is_on_only_when_it_says_so(monkeypatch, value: str) -> None:
+    monkeypatch.setenv("BUY_AGENT_BEHIND_PROXY", value)
+
+    assert server_environment().behind_proxy is False
+
+
+def test_the_token_is_kept_out_of_a_logged_environment(monkeypatch) -> None:
+    monkeypatch.setenv("BUY_AGENT_API_TOKEN", "a token long enough to keep")
+
+    assert "long enough" not in repr(server_environment())

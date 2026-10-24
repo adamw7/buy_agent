@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import dataclasses
+import hmac
+import json
 import logging
-from collections.abc import Callable, Mapping
+import secrets
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeVar, cast, get_args
 from urllib.parse import urlparse
@@ -87,6 +91,8 @@ class _Reported:
     sort_by: str
     weights: RankingWeights
     currency: str | None = None
+    #: What a re-sort or a payment over HTTP hands back (ADR-0092).
+    seal: str | None = None
 
 
 class ApiError(Exception):
@@ -99,6 +105,48 @@ class ApiError(Exception):
 
     def payload(self) -> dict[str, Any]:
         return {"error": str(self), "field": self.field}
+
+
+#: What a seal is keyed by beside a token, so that replicas sharing one agree on it.
+_SEAL_CONTEXT = b"buy_agent: the products a run answered with"
+
+_UNSEALED = (
+    "These are not the products a search on this server answered with -- it may have "
+    "restarted since -- so nothing was re-sorted or paid for. Search again first."
+)
+
+
+@dataclass(frozen=True, slots=True)
+class Sealer:
+    """Signs the products a run answered with, so a re-sort or a payment sent back over
+    HTTP is taken for those products and no others (ADR-0092). They travel in the body
+    (ADR-0035); the seal is what says this server is where they came from."""
+
+    key: bytes = dataclasses.field(repr=False)
+
+    @classmethod
+    def keyed_by(cls, token: str = "") -> Sealer:
+        """Off the server's token, which replicas share; else afresh for this process."""
+        if not token:
+            return cls(secrets.token_bytes(32))
+        return cls(hmac.digest(token.encode("utf-8"), _SEAL_CONTEXT, "sha256"))
+
+    def seal(self, products: Iterable[Product]) -> str:
+        return hmac.new(self.key, _canonical(products), "sha256").hexdigest()
+
+    def check(self, products: Sequence[Product], seal: str) -> None:
+        """Refuse products this server did not answer with, in any order."""
+        given = seal.encode("utf-8")
+        if not hmac.compare_digest(self.seal(products).encode("utf-8"), given):
+            raise ApiError(_UNSEALED, 409, field="products")
+
+
+def _canonical(products: Iterable[Product]) -> bytes:
+    """The set rather than the order, so a re-sort answers the seal it was handed."""
+    entries = sorted(
+        json.dumps(product.model_dump(mode="json"), sort_keys=True) for product in products
+    )
+    return json.dumps(entries).encode("utf-8")
 
 
 def _status_for(exc: Exception, table: Mapping[type[Exception], int]) -> int:
@@ -131,8 +179,10 @@ def run_search(
     sort_by: SortBy = "score",
     agent_factory: AgentFactory = BuyAgent,
     checkpoint: Checkpoint = every_step_passes,
+    sealer: Sealer | None = None,
 ) -> dict[str, Any]:
-    """Run the pipeline and shape the answer as JSON-ready data (ADR-0034)."""
+    """Run the pipeline and shape the answer as JSON-ready data (ADR-0034); ``sealer``
+    signs its products for a re-sort or a payment over HTTP (ADR-0092)."""
     agent = None
     removals: list[Removal] = []
     # Opened before the run, so it holds the previous one (ADR-0060).
@@ -151,10 +201,11 @@ def run_search(
     finally:
         release(agent)
 
+    seal = sealer.seal(entry.product for entry in ranked) if sealer else None
     return _run_payload(
         request,
         ranked,
-        _Reported(config.top_n, sort_by, config.weights, config.currency or None),
+        _Reported(config.top_n, sort_by, config.weights, config.currency or None, seal),
         removals=removals,
         changes=journal.against([entry.product for entry in ranked]),
         compared_with=journal.compared_with(),
@@ -170,8 +221,9 @@ def alert_for(ranked: Sequence[RankedProduct], config: AgentConfig) -> Alert | N
     return price_alert(ranked, config.alert_below, _counted_in(ranked, config.currency or None))
 
 
-def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Re-sort a finished run's products without running it again (ADR-0035)."""
+def rank_again(data: Mapping[str, Any], *, sealer: Sealer | None = None) -> dict[str, Any]:
+    """Re-sort a finished run's products without running it again (ADR-0035); with a
+    ``sealer``, only products it sealed (ADR-0092)."""
     defaults = AgentConfig()
     request = _read(data, "request", "", str)
     sort_by = _read(data, "sort_by", "score", _among(SORT_OPTIONS))
@@ -180,12 +232,15 @@ def rank_again(data: Mapping[str, Any]) -> dict[str, Any]:
     # The run's own scale, so the set does not vote again (ADR-0056).
     currency = _read(data, "currency", "", parse_currency)
     scale = currency or _read(data, "scale", "", _as_code)
+    products = _read_products(data)
+    if sealer:
+        sealer.check(products, _read(data, "seal", "", str))
     ranked = rank_products(
-        _read_products(data), weights=weights, sort_by=cast(SortBy, sort_by),
-        currency=scale or None,
+        products, weights=weights, sort_by=cast(SortBy, sort_by), currency=scale or None
     )
+    seal = sealer.seal(products) if sealer else None
     # No pipeline ran, so no removals, changes or alert of its own.
-    return _run_payload(request, ranked, _Reported(top_n, sort_by, weights, scale or None))
+    return _run_payload(request, ranked, _Reported(top_n, sort_by, weights, scale or None, seal))
 
 
 def mandate_support() -> bool:
@@ -197,13 +252,16 @@ def mandate_support() -> bool:
     return mandates.available()
 
 
-def pay_now(data: Mapping[str, Any]) -> dict[str, Any]:
-    """Buy one product of a finished run, given proof of approval (ADR-0046)."""
+def pay_now(data: Mapping[str, Any], *, sealer: Sealer | None = None) -> dict[str, Any]:
+    """Buy one product of a finished run, given proof of approval (ADR-0046); with a
+    ``sealer``, only one of the products it sealed (ADR-0092)."""
     # Always paying, so a missing endpoint is a 400 on its box rather than a 502 later.
     config, _sort_by = parse_options({**data, "pay": True})
     products = _read_products(data)
     if not products:
         raise ApiError("There are no products to pay for.", field="products")
+    if sealer:
+        sealer.check(products, _read(data, "seal", "", str))
     product = products[_rank(data, len(products))]
     scale = _read(data, "scale", "", _as_code)
     try:
@@ -263,7 +321,7 @@ def _run_payload(
     compared_with: str | None = None,
     alert: Alert | None = None,
 ) -> dict[str, Any]:
-    """A finished run or re-sort (ADR-0055, ADR-0060, ADR-0080)."""
+    """A finished run or re-sort (ADR-0055, ADR-0060, ADR-0080, ADR-0092)."""
     scale = _counted_in(ranked, reported.currency)
     return {
         "request": request.strip(),
@@ -278,6 +336,8 @@ def _run_payload(
         "changes": [change.model_dump() for change in changes],
         "compared_with": compared_with,
         "alert": alert.payload() if alert else None,
+        # Handed back by a re-sort or a payment over HTTP (ADR-0092).
+        "seal": reported.seal,
     }
 
 

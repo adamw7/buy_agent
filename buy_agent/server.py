@@ -1,5 +1,10 @@
 """A local HTTP server for the UI in ``ui/`` and its JSON API (ADR-0010, ADR-0011,
-ADR-0018, ADR-0033, ADR-0034, ADR-0035, ADR-0065)."""
+ADR-0018, ADR-0033, ADR-0034, ADR-0035, ADR-0065), deployable for more than one
+machine (ADR-0092)."""
+
+# The one stdlib server (ADR-0010) is one module: its routes, its stream, its static
+# files and its command line. What a deployment adds beyond those is deployment.py's.
+# pylint: disable=too-many-lines
 
 from __future__ import annotations
 
@@ -25,6 +30,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from buy_agent.agent import BuyAgent, Checkpoint, every_step_passes
 from buy_agent.api import (
     ApiError,
+    Sealer,
     bounds_payload,
     defaults_payload,
     installed_models,
@@ -35,7 +41,28 @@ from buy_agent.api import (
     screenshot,
     sources_payload,
 )
-from buy_agent.config import DEFAULT_BACKEND, DEFAULT_PROVIDER, DEFAULT_RAIL
+from buy_agent.config import (
+    DEFAULT_BACKEND,
+    DEFAULT_PROVIDER,
+    DEFAULT_RAIL,
+    ServerEnvironment,
+    server_environment,
+)
+from buy_agent.deployment import (
+    DEFAULT_MAX_RUNS,
+    DRAIN_SECONDS,
+    MAX_CONNECTIONS,
+    MAX_RUNS,
+    MIN_TOKEN,
+    Policy,
+    Terminated,
+    Traffic,
+    authorised,
+    fixed_address,
+    request_id,
+    same_address,
+    stopped_by_sigterm,
+)
 from buy_agent.logging_setup import configure_logging, wrap_help
 from buy_agent.providers import PROVIDERS, provider_for
 from buy_agent.rails import rail_for
@@ -47,8 +74,11 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
     from buy_agent.api import AgentFactory
+    from buy_agent.config import AgentConfig
 
 logger = logging.getLogger(__name__)
+#: One line per request answered, when the server is asked for them (ADR-0092).
+access_logger = logging.getLogger("buy_agent.access")
 
 #: Where ``ng build`` leaves the app.
 DEFAULT_UI_DIR = Path(__file__).resolve().parent.parent / "ui" / "dist" / "ui" / "browser"
@@ -73,6 +103,18 @@ _REQUEST_TIMEOUT = 30.0
 
 #: Checked at the door: ``bind`` raises ``OverflowError``, which ``main`` would miss.
 _PORTS = (0, 65535)
+
+#: The paths a machine asks rather than a page: answered before any page's headers are
+#: read, and the probes before any token is (ADR-0092).
+_LIVENESS = "/healthz"
+_READINESS = "/readyz"
+_METRICS = "/metrics"
+_PROBES = frozenset({_LIVENESS, _READINESS})
+_METRICS_TYPE = "text/plain; version=0.0.4; charset=utf-8"
+#: Seconds a refused run is told to wait.
+_RETRY_AFTER = "30"
+_CHALLENGE = 'Basic realm="buy_agent", charset="UTF-8"'
+_LOG_FORMATS = ("text", "json")
 
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 #: A bind on every interface, which a loopback name reaches too.
@@ -140,8 +182,12 @@ p {{ color: #5c6470; }}
 """
 
 
-def _unexpected(exc: Exception) -> dict[str, Any]:
-    return {"error": f"Unexpected failure: {exc}"}
+def _unexpected(reference: str) -> dict[str, Any]:
+    """What a client is told of a failure it did not cause: the log has the rest."""
+    return {
+        "error": f"Unexpected failure; the server's log has it under {reference}.",
+        "reference": reference,
+    }
 
 
 def _no_such_endpoint(path: str) -> dict[str, Any]:
@@ -158,6 +204,19 @@ def _stop_when(stopped: threading.Event) -> Checkpoint:
             raise _Stopped(step)
 
     return checkpoint
+
+
+#: A laptop's policy, for a handler built without one: the benchmark's, which seals
+#: nothing, and a test's.
+_LAPTOP = Policy()
+
+
+class _Busy(ApiError):
+    """A run refused because the server has as many as it takes, or is stopping: a 503
+    that says when to come back (ADR-0092)."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, 503)
 
 
 #: Where the watched run's log lines go; ``None`` when nobody is streaming.
@@ -210,6 +269,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     server_version = f"buy_agent/{current().label}"
     protocol_version = "HTTP/1.1"
     timeout = _REQUEST_TIMEOUT
+    #: Set once a request line is read, so its answer can be counted and logged.
+    request_id = ""
 
     def __init__(
         self,
@@ -218,6 +279,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         agent_factory: AgentFactory,
         allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS,
         camera: Camera | None = None,
+        policy: Policy | None = None,
         **kwargs: Any,
     ) -> None:
         self.ui_dir = ui_dir
@@ -226,16 +288,45 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         self.allowed_hosts = allowed_hosts
         #: None takes no pictures (ADR-0065).
         self.camera = camera
+        self.policy = policy or _LAPTOP
+        self._began: float | None = None
+        self._status = 0
         super().__init__(*args, **kwargs)
 
-    # -- who is allowed to ask (ADR-0018) ----------------------------------------
+    @property
+    def traffic(self) -> Traffic:
+        return cast("Server", self.server).traffic
+
+    # -- who is allowed to ask (ADR-0018, ADR-0092) ------------------------------
 
     def _refused(self) -> bool:
-        """Refuse a request not from this server's own page; say whether it was."""
-        if self._origin_admits() and self._host_admits():
+        """Refuse a request not from this server's own page, or without the token the
+        server asks for; say whether it was. The probes are a machine's to ask, and
+        ``/metrics`` too, behind the token."""
+        path = urlparse(self.path).path
+        if path in _PROBES:
             return False
-        self._refuse()
+        if path != _METRICS and not (self._origin_admits() and self._host_admits()):
+            self._refuse()
+            return True
+        if authorised(self.headers.get("Authorization", ""), self.policy.token):
+            return False
+        self._challenge()
         return True
+
+    def _challenge(self) -> None:
+        # Any body is unread, so the connection closes.
+        self.close_connection = True
+        logger.warning(
+            "Refused a %s %s from %s without the access token",
+            self.command, urlparse(self.path).path, self.address_string(),
+        )
+        self._send_json(
+            401,
+            {"error": "This server asks for its access token: send it as a bearer token, "
+                      "or as the password when the browser asks."},
+            headers=(("WWW-Authenticate", _CHALLENGE),),
+        )
 
     def _origin_admits(self) -> bool:
         if self.headers.get("Sec-Fetch-Site", "").strip().lower() == _CROSS_SITE:
@@ -250,14 +341,28 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             # An unclosed IPv6 bracket: refused rather than dropped unanswered.
             return False
         # Origin equal to Host is our own page: another page cannot forge both.
-        if netloc and netloc == self.headers.get("Host", "").strip().lower():
+        if netloc and netloc == self._host().strip().lower():
             return True
         return _hostname(netloc) in _LOOPBACK_HOSTS
 
     def _host_admits(self) -> bool:
         if self.allowed_hosts is None:
             return True
-        return _hostname(self.headers.get("Host", "")) in self.allowed_hosts
+        return _hostname(self._host()) in self.allowed_hosts
+
+    def _host(self) -> str:
+        """The authority the browser addressed: the proxy's word for it behind one."""
+        return self._forwarded("X-Forwarded-Host") or self.headers.get("Host", "")
+
+    def _forwarded(self, name: str) -> str:
+        """The first entry of a proxy's header, behind a proxy; blank anywhere else,
+        where any client could have written it."""
+        if not self.policy.behind_proxy:
+            return ""
+        return self.headers.get(name, "").partition(",")[0].strip()
+
+    def address_string(self) -> str:
+        return self._forwarded("X-Forwarded-For") or super().address_string()
 
     def _refuse(self) -> None:
         self.close_connection = True
@@ -273,11 +378,48 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
     # -- routing -------------------------------------------------------------------
 
+    def handle_one_request(self) -> None:
+        """One request, counted from its request line to its answer (ADR-0092)."""
+        self._began = None
+        self._status = 0
+        try:
+            super().handle_one_request()
+        finally:
+            if self._began is not None:
+                self._answered()
+
+    def _answered(self) -> None:
+        self.traffic.end(self._status)
+        if not self.policy.access_log:
+            return
+        path = urlparse(self.path).path
+        took = round((time.monotonic() - (self._began or 0.0)) * 1000)
+        access_logger.info(
+            '%s "%s %s" %s %dms %s',
+            self.address_string(), self.command, path, self._status or "-", took,
+            self.request_id,
+            extra={
+                "request_id": self.request_id, "client": self.address_string(),
+                "method": self.command, "path": path, "status": self._status,
+                "duration_ms": took,
+            },
+        )
+
+    def send_response(self, code: int, message: str | None = None) -> None:
+        self._status = code
+        super().send_response(code, message)
+
     def parse_request(self) -> bool:
         """Refuse, for every verb, a target that will not parse (``GET http://[x/``),
         which would otherwise raise before any catch-all and close unanswered."""
         if not super().parse_request():
             return False
+        self.request_id = request_id(self.headers.get("X-Request-Id", ""))
+        self._began = time.monotonic()
+        self.traffic.begin()
+        if self.traffic.draining:
+            # Stopping: this answer is the connection's last.
+            self.close_connection = True
         try:
             urlparse(self.path)
         except ValueError:
@@ -303,8 +445,13 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         }
 
     def post_routes(self) -> dict[str, Callable[[dict[str, Any]], dict[str, Any]]]:
-        """Each ``POST`` endpoint; only a search runs anything (ADR-0035)."""
-        return {"/api/search": self._search, "/api/rank": rank_again, "/api/pay": pay_now}
+        """Each ``POST`` endpoint; only a search runs anything (ADR-0035), and a re-sort
+        or a payment takes only the products this server sealed (ADR-0092)."""
+        return {
+            "/api/search": self._search,
+            "/api/rank": partial(rank_again, sealer=self.policy.sealer),
+            "/api/pay": self._pay,
+        }
 
     # The base class dispatches on the verb's name.
     # pylint: disable-next=invalid-name
@@ -318,6 +465,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             self._stream_search(params)
             return
         try:
+            if self._answered_machine(url.path):
+                return
             route = self.get_routes().get(url.path)
             if route is not None:
                 self._send_answer(route(params))
@@ -351,13 +500,39 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             self._send_failure(url.path, exc)
 
     def _send_failure(self, path: str, exc: Exception) -> None:
-        """An ``ApiError`` with its status, anything else a 500: never a socket closed
-        unanswered, which reads as a server that is down."""
+        """An ``ApiError`` with its status, anything else a 500 that names where in the
+        log it is and nothing else of the server's: never a socket closed unanswered,
+        which reads as a server that is down."""
         if isinstance(exc, ApiError):
-            self._send_json(exc.status, exc.payload())
+            retry = (("Retry-After", _RETRY_AFTER),) if isinstance(exc, _Busy) else ()
+            self._send_json(exc.status, exc.payload(), headers=retry)
             return
-        logger.exception("Unexpected failure answering %s", path)
-        self._send_json(500, _unexpected(exc))
+        logger.exception("Unexpected failure answering %s (%s)", path, self.request_id)
+        self._send_json(500, _unexpected(self.request_id))
+
+    # -- what a machine asks (ADR-0092) --------------------------------------------
+
+    def _answered_machine(self, path: str) -> bool:
+        """Answer a probe or ``/metrics``; say whether ``path`` was one."""
+        if path == _LIVENESS:
+            self._send_json(200, {"status": "ok", "version": current().label})
+        elif path == _READINESS:
+            self._send_json(*self._readiness())
+        elif path == _METRICS:
+            self._send_bytes(200, self.traffic.metrics().encode("utf-8"), _METRICS_TYPE)
+        else:
+            return False
+        return True
+
+    def _readiness(self) -> tuple[int, dict[str, Any]]:
+        """Ready while not stopping and while the model server it was started with
+        answers: a run started now would get as far as asking it."""
+        if self.traffic.draining:
+            return 503, {"ready": False, "reason": "This server is shutting down."}
+        listed = installed_models(DEFAULT_PROVIDER, "")
+        if not listed["reachable"]:
+            return 503, {"ready": False, "reason": f"{listed['label']} is not answering."}
+        return 200, {"ready": True}
 
     # The base class dispatches on the verb's name.
     # pylint: disable-next=invalid-name
@@ -375,11 +550,14 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     def _models(self, params: dict[str, str]) -> dict[str, Any]:
         provider = params.get("provider") or DEFAULT_PROVIDER
         server = PROVIDERS.get(provider)
-        base_url = params.get("base_url") or (server.base_url if server else "")
-        # Never asked: this page would answer, as a model server that is not running.
-        unaskable = (
-            partial(_own_address, address=base_url) if self._answered_here(base_url) else None
-        )
+        own = server.base_url if server else ""
+        base_url = params.get("base_url") or own
+        unaskable: Callable[[str], str] | None = None
+        if self._answered_here(base_url):
+            # Never asked: this page would answer, as a model server that is not running.
+            unaskable = partial(_own_address, address=base_url)
+        elif server and self.policy.fixed_addresses and not same_address(base_url, own):
+            unaskable = partial(fixed_address, address=own)
         return installed_models(provider, base_url, unaskable=unaskable)
 
     def _answered_here(self, address: str) -> bool:
@@ -392,16 +570,48 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         if self._answered_here(address):
             raise ApiError(_own_address(label, address), field="base_url")
 
+    def refuse_foreign_address(self, config: AgentConfig) -> None:
+        """Refuse, where other machines reach this server, to ask a model server it was
+        not started with: it would reach whatever address anybody typed (ADR-0092)."""
+        own = config.model_server.base_url
+        if self.policy.fixed_addresses and not same_address(config.base_url, own):
+            raise ApiError(
+                fixed_address(config.model_server.label, own), field="base_url"
+            )
+
     def _search(
         self, data: dict[str, Any], *, checkpoint: Checkpoint = every_step_passes
     ) -> dict[str, Any]:
         config, sort_by = parse_options(data)
         self.refuse_own_address(config.model_server.label, config.base_url)
+        self.refuse_foreign_address(config)
         request = str(data.get("request") or "")
-        return run_search(
-            request, config, sort_by=sort_by, agent_factory=self.agent_factory,
-            checkpoint=checkpoint,
-        )
+        refusal = self.traffic.admit_run()
+        if refusal:
+            raise _Busy(refusal)
+        began, outcome = time.monotonic(), "failed"
+        try:
+            answer = run_search(
+                request, config, sort_by=sort_by, agent_factory=self.agent_factory,
+                checkpoint=checkpoint, sealer=self.policy.sealer,
+            )
+            outcome = "finished"
+            return answer
+        except _Stopped:
+            outcome = "stopped"
+            raise
+        finally:
+            self.traffic.end_run(outcome, time.monotonic() - began)
+
+    def _pay(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Pay as :func:`pay_now` does; where other machines reach this server, only
+        through the merchant it was started with (ADR-0092)."""
+        if self.policy.fixed_addresses:
+            config, _sort_by = parse_options({**data, "pay": True})
+            own = config.rail_used.endpoint
+            if not same_address(config.merchant_url, own):
+                raise ApiError(fixed_address("merchant", own), field="merchant_url")
+        return pay_now(data, sealer=self.policy.sealer)
 
     def _stream_search(self, params: dict[str, str]) -> None:
         """Run a search on a worker thread, relaying its log lines (ADR-0034)."""
@@ -409,6 +619,8 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache, no-transform")
+            # nginx holds a response back until it ends unless told otherwise.
+            self.send_header("X-Accel-Buffering", "no")
             self.send_header("Connection", "close")
             self._send_security_headers()
             self.end_headers()
@@ -442,9 +654,11 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
                 outcome["error"] = (exc.status, exc.payload())
             # The status line is spent, so this is a ``failure`` event.
             # pylint: disable-next=broad-exception-caught
-            except Exception as exc:
-                logger.exception("Unexpected failure during a streamed search")
-                outcome["error"] = (500, _unexpected(exc))
+            except Exception:
+                logger.exception(
+                    "Unexpected failure during a streamed search (%s)", self.request_id
+                )
+                outcome["error"] = (500, _unexpected(self.request_id))
             finally:
                 _relay.detach()
                 sink.put(done)
@@ -553,13 +767,18 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             raise ApiError("Body must be a JSON object.")
         return payload
 
-    def _send_json(self, status: int, payload: dict[str, Any]) -> None:
+    def _send_json(
+        self, status: int, payload: dict[str, Any], *,
+        headers: Sequence[tuple[str, str]] = (),
+    ) -> None:
         body = json.dumps(payload).encode("utf-8")
-        self._send_bytes(status, body, "application/json; charset=utf-8")
+        self._send_bytes(status, body, "application/json; charset=utf-8", headers=headers)
 
     def _send_security_headers(self) -> None:
         for name, value in _SECURITY_HEADERS:
             self.send_header(name, value)
+        if self.request_id:
+            self.send_header("X-Request-Id", self.request_id)
 
     def _send_bytes(
         self, status: int, body: bytes, content_type: str, *,
@@ -688,18 +907,56 @@ def _family_for(host: str) -> int:
     return socket.AF_INET6 if ":" in host else socket.AF_INET
 
 
-class _HTTPServer(ThreadingHTTPServer):
-    """``ThreadingHTTPServer`` over whichever family its address needs."""
+class Server(ThreadingHTTPServer):
+    """``ThreadingHTTPServer`` over whichever family its address needs, counting what it
+    answers so it can cap it and stop without cutting it off (ADR-0092)."""
 
-    def __init__(self, server_address: tuple[str, int], handler: Any) -> None:
+    #: Not joined on close, which waits on every thread for as long as each takes: a
+    #: stop drains for a while instead (:meth:`drain`).
+    block_on_close = False
+
+    def __init__(
+        self, server_address: tuple[str, int], handler: Any, traffic: Traffic | None = None
+    ) -> None:
         # Read by the base class to open the socket.
         self.address_family = _family_for(server_address[0])
+        self.traffic = traffic or Traffic()
         super().__init__(server_address, handler)
 
+    def verify_request(self, request: Any, client_address: Any) -> bool:
+        """Close a connection unanswered once as many are open as a server takes."""
+        if self.traffic.connect():
+            return True
+        logger.debug("Closed a connection from %s: %d are open", client_address, MAX_CONNECTIONS)
+        return False
 
-def bind(host: str, port: int, handler: Any) -> ThreadingHTTPServer:
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.traffic.disconnect()
+
+    def drain(self, seconds: float = DRAIN_SECONDS) -> None:
+        """Wait for the requests in flight to be answered, ``seconds`` at most; a second
+        Ctrl-C stops waiting."""
+        if self.traffic.requests:
+            logger.info(
+                "Finishing %d request(s) in flight, for %.0fs at most",
+                self.traffic.requests, seconds,
+            )
+        try:
+            unanswered = self.traffic.drain(seconds)
+        except KeyboardInterrupt:
+            unanswered = self.traffic.requests
+        if unanswered:
+            logger.warning("Stopped with %d request(s) still unanswered", unanswered)
+
+
+def bind(
+    host: str, port: int, handler: Any, *, max_runs: int = DEFAULT_MAX_RUNS
+) -> Server:
     """A threading server for ``handler`` on ``host``; shared with the benchmark."""
-    return _HTTPServer((host, port), handler)
+    return Server((host, port), handler, Traffic(max_runs))
 
 
 def create_server(
@@ -710,13 +967,15 @@ def create_server(
     agent_factory: AgentFactory = BuyAgent,
     allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS,
     camera: Camera | None = None,
-) -> ThreadingHTTPServer:
+    policy: Policy | None = None,
+) -> Server:
     """Build the HTTP server without starting it."""
+    policy = policy or Policy()
     handler = partial(
         BuyAgentHandler, ui_dir=ui_dir or DEFAULT_UI_DIR, agent_factory=agent_factory,
-        allowed_hosts=allowed_hosts, camera=camera,
+        allowed_hosts=allowed_hosts, camera=camera, policy=policy,
     )
-    return bind(host, port, handler)
+    return bind(host, port, handler, max_runs=policy.max_runs)
 
 
 def camera_for(host: str) -> Camera | None:
@@ -756,7 +1015,32 @@ class _Help(argparse.HelpFormatter):
         return wrap_help(text, width)
 
 
-def build_parser() -> argparse.ArgumentParser:
+def max_runs_number(text: str) -> int:
+    """``--max-runs`` as argparse takes it: a count in range, else a usage error."""
+    minimum, maximum = MAX_RUNS
+    try:
+        runs = int(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"must be a whole number; got {text!r}") from exc
+    if not minimum <= runs <= maximum:
+        raise argparse.ArgumentTypeError(f"must be between {minimum} and {maximum}; got {runs}")
+    return runs
+
+
+def log_format(text: str) -> str:
+    """``--log-format`` as argparse takes it, so a misspelt variable is refused too:
+    ``choices`` is never asked of a default."""
+    if text not in _LOG_FORMATS:
+        raise argparse.ArgumentTypeError(
+            f"must be one of {', '.join(_LOG_FORMATS)}; got {text!r}"
+        )
+    return text
+
+
+def build_parser(deployed: ServerEnvironment | None = None) -> argparse.ArgumentParser:
+    """The server's flags, each defaulting to its ``$BUY_AGENT_*`` where that is set
+    (ADR-0092): argparse reads a string default as if it were typed, refusals included."""
+    env = deployed or server_environment()
     parser = argparse.ArgumentParser(
         prog="buy_agent.server",
         description="Serve the buy_agent UI and its JSON API on localhost.",
@@ -764,16 +1048,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--host",
-        default=DEFAULT_HOST,
-        help=f"Interface to bind (default: {DEFAULT_HOST}, this machine only). Binding "
-        "anywhere else answers any Host header unless --allowed-host names one.",
+        default=env.host or DEFAULT_HOST,
+        help=f"Interface to bind (default: {DEFAULT_HOST}, this machine only, or "
+        "$BUY_AGENT_HOST). Binding anywhere else answers any Host header unless "
+        "--allowed-host names one, and asks only the model server and the merchant "
+        "it was started with.",
     )
     parser.add_argument(
         "--port",
         type=port_number,
-        default=DEFAULT_PORT,
-        help=f"Port to bind (default: {DEFAULT_PORT}; 0 takes whichever one is free "
-        "and says which at startup).",
+        default=env.port or DEFAULT_PORT,
+        help=f"Port to bind (default: {DEFAULT_PORT}, or $BUY_AGENT_PORT; 0 takes "
+        "whichever one is free and says which at startup).",
     )
     parser.add_argument(
         "--ui-dir",
@@ -784,14 +1070,47 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--allowed-host",
         action="append",
-        default=[],
+        default=list(env.allowed_hosts),
         metavar="HOST",
         help=(
             "Extra Host header to answer, repeatable, so that a name pointed at "
             "this machine cannot pass itself off as this server. A loopback bind "
             "answers the loopback names as well; a public one answers these and "
-            "nothing else, and any Host at all where none were named."
+            "nothing else, and any Host at all where none were named. "
+            "$BUY_AGENT_ALLOWED_HOSTS names more, separated by commas."
         ),
+    )
+    parser.add_argument(
+        "--max-runs",
+        type=max_runs_number,
+        default=env.max_runs or DEFAULT_MAX_RUNS,
+        metavar="N",
+        help=f"Searches to run at once; one more is refused with a 503 saying when "
+        f"to come back (default: {DEFAULT_MAX_RUNS}, or $BUY_AGENT_MAX_RUNS).",
+    )
+    parser.add_argument(
+        "--behind-proxy",
+        action="store_true",
+        default=env.behind_proxy,
+        help="Take the host a browser addressed and the client's address from "
+        "X-Forwarded-Host and X-Forwarded-For, which only a proxy that sets both "
+        "itself can be trusted with; it also asks only the model server and the "
+        "merchant it was started with (default: off, or $BUY_AGENT_BEHIND_PROXY).",
+    )
+    parser.add_argument(
+        "--access-log",
+        action="store_true",
+        default=env.access_log,
+        help="Log a line for every request answered: its client, path, status, time "
+        "and request id (default: off, or $BUY_AGENT_ACCESS_LOG).",
+    )
+    parser.add_argument(
+        "--log-format",
+        type=log_format,
+        default=env.log_format or "text",
+        metavar="{text,json}",
+        help="text for a person, json for a log collector, one object a line "
+        "(default: text, or $BUY_AGENT_LOG_FORMAT).",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging.")
     parser.add_argument(
@@ -801,8 +1120,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    configure_logging(verbose=args.verbose)
+    deployed = server_environment()
+    args = build_parser(deployed).parse_args(argv)
+    configure_logging(verbose=args.verbose, json_lines=args.log_format == "json")
     _install_relay()
     try:
         provider_for(DEFAULT_PROVIDER)
@@ -811,6 +1131,13 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         # A misspelt ``$BUY_AGENT_*`` now, not as a 500 per page load.
         logger.error("%s", exc)
+        return 1
+    if deployed.token and len(deployed.token) < MIN_TOKEN:
+        logger.error(
+            "$BUY_AGENT_API_TOKEN is %d characters long: give it %d at least, since "
+            "anyone who guesses it can search and pay through this server.",
+            len(deployed.token), MIN_TOKEN,
+        )
         return 1
 
     allowed = allowed_hosts_for(args.host, args.allowed_host)
@@ -821,10 +1148,28 @@ def main(argv: list[str] | None = None) -> int:
             "you reach it by to close that.",
             args.host,
         )
-    camera = camera_for(args.host)
+    # Other machines reach it either way: through the bind, or through the proxy.
+    exposed = args.behind_proxy or _bound_host(args.host) not in _LOOPBACK_HOSTS
+    if exposed and not deployed.token:
+        logger.warning(
+            "Reachable from other machines with no $BUY_AGENT_API_TOKEN: anyone who "
+            "can reach it can search, and pay however it is set up to. Set one to ask "
+            "for it."
+        )
+    policy = Policy(
+        token=deployed.token,
+        fixed_addresses=exposed,
+        behind_proxy=args.behind_proxy,
+        access_log=args.access_log,
+        max_runs=args.max_runs,
+        sealer=Sealer.keyed_by(deployed.token),
+    )
+    # Behind a proxy a loopback bind is anybody's, and so would be its camera (ADR-0065).
+    camera = None if args.behind_proxy else camera_for(args.host)
     try:
         httpd = create_server(
-            args.host, args.port, ui_dir=args.ui_dir, allowed_hosts=allowed, camera=camera
+            args.host, args.port, ui_dir=args.ui_dir, allowed_hosts=allowed, camera=camera,
+            policy=policy,
         )
     except OSError as exc:
         logger.error(
@@ -848,16 +1193,23 @@ def main(argv: list[str] | None = None) -> int:
         logging.getLogger("buy_agent").removeHandler(_relay)
 
 
-def serve_until_interrupted(httpd: ThreadingHTTPServer) -> int:
-    """Serve until Ctrl-C, then close: 130, as every entry point answers one."""
+def serve_until_interrupted(httpd: Server) -> int:
+    """Serve until Ctrl-C or SIGTERM, then finish what is in flight, for a while, and
+    close: 130 for Ctrl-C, as every entry point answers one, and 0 for a stop that was
+    asked for (ADR-0092)."""
+    code = 0
     try:
-        httpd.serve_forever()
+        with stopped_by_sigterm():
+            httpd.serve_forever()
     except KeyboardInterrupt:
         logger.warning("Interrupted.")
-        return 130
+        code = 130
+    except Terminated:
+        logger.info("Asked to stop.")
     finally:
         httpd.server_close()
-    return 0
+        httpd.drain()
+    return code
 
 
 if __name__ == "__main__":
