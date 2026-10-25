@@ -1,7 +1,7 @@
 # Running in Docker
 
-The image carries the built UI and the Python side, so it needs neither
-toolchain -- only a model server, which stays on the host
+The image carries the built UI and the Python side, so it needs neither toolchain
+-- only a model server, which stays on the host
 ([ADR-0015](adr/0015-package-the-web-tier-as-a-container.md)):
 
 ```powershell
@@ -17,9 +17,9 @@ docker run --rm -p 8000:8000 --add-host=host.docker.internal:host-gateway buy-ag
 ```
 
 `OLLAMA_HOST`, `VLLM_HOST` (`host.docker.internal:8000/v1`), `LITELLM_HOST`
-(`host.docker.internal:4000/v1`) and `TRTLLM_HOST` (`host.docker.internal:8000/v1`)
-are preset, so another server needs only its provider named
-([ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md),
+(`host.docker.internal:4000/v1`) and `TRTLLM_HOST`
+(`host.docker.internal:8000/v1`) are preset, so another server needs only its
+provider named ([ADR-0028](adr/0028-serve-the-model-from-ollama-or-vllm.md),
 [ADR-0068](adr/0068-reach-a-litellm-proxy-as-a-third-model-server.md),
 [ADR-0081](adr/0081-reach-tensorrt-llm-as-a-fourth-model-server.md)). The
 entrypoint is `python`, so the CLI is there too:
@@ -31,12 +31,12 @@ docker run --rm buy-agent -m buy_agent "espresso machine" --top 5
 docker run --rm -v "${PWD}:/out" buy-agent -m buy_agent "running shoes" --json /out/results.json
 ```
 
-It runs as a non-root user and writes only its caches and run journal, to a
-volume at `/var/cache/buy-agent` (`$BUY_AGENT_CACHE_DIR`), so the rest can be
-read-only and `--json` needs a mounted directory. It stops on `docker stop`,
-finishing the requests in flight for up to 25 seconds first; Docker's own default
-is ten, so give it `--stop-timeout 30`. Only a release builds the image; the
-[tests](testing.md) run on the host.
+It runs as a non-root user and writes only its caches and run journal, to a volume
+at `/var/cache/buy-agent` (`$BUY_AGENT_CACHE_DIR`), so the rest can be read-only
+and `--json` needs a mounted directory. On `docker stop` it finishes the requests
+in flight for up to 25 seconds; Docker's default is ten, so give it
+`--stop-timeout 30`. Only a release builds the image; the [tests](testing.md) run
+on the host.
 
 ## Deploying it for more than one machine
 
@@ -66,12 +66,12 @@ settings, each also a flag of `python -m buy_agent.server`:
 | `BUY_AGENT_ACCESS_LOG` | `1` for a line per request: client, path, status, time, request id. |
 | `BUY_AGENT_LOG_FORMAT` | `json` for one object per line, for a log collector. |
 
-Once other machines can reach it -- bound beyond loopback, or behind a proxy -- it
-asks only the model server and the merchant it was started with: a typed model
-address or payment endpoint that is not its own is refused on its box. It never
-fetches a page on a private network, a redirect to one included. That check reads
-the address as written, so run it on a network that cannot reach anything it
-should not. A re-sort or a payment must hand back the `seal` its run came with.
+Once other machines can reach it (bound beyond loopback, or behind a proxy), it
+asks only the model server and the merchant it was started with, refusing a typed
+model address or payment endpoint that is not its own on its box. It never fetches
+a page on a private network, a redirect to one included; that check reads the
+address as written, so run it on a network that cannot reach anything it should
+not. A re-sort or a payment must hand back the `seal` its run came with.
 
 TLS is the proxy's job. nginx in front of it wants
 `proxy_set_header X-Forwarded-Host $host;`, `proxy_set_header X-Forwarded-For
@@ -91,7 +91,7 @@ that id and nothing else; the log has the traceback under it.
 
 `.github/workflows/release.yml` builds and pushes the image when a release is
 published ([ADR-0030](adr/0030-publish-a-release-as-an-archive-and-an-image.md)),
-for amd64 and arm64 under one tag. The UI stage is built once, on the runner's
+for amd64 and arm64 under one tag; the UI stage is built once, on the runner's
 platform, and the amd64 image is the one the smoke test and the scan below
 checked. It installs `requirements.lock`, the versions CI tested
 ([ADR-0092](adr/0092-deploy-the-server-for-more-than-one-machine.md)). `latest`
@@ -110,18 +110,18 @@ pip install -r requirements.txt
 python -m buy_agent.server                       # http://127.0.0.1:8000
 ```
 
-The workflow builds neither unless `ci.yml` passed on the tag's commit, then
+The workflow builds neither unless `ci.yml` passed on the tag's commit (so a
+commit whose CI run a later push cancelled needs CI run on its tag first), then
 starts both and asks each for `/api/config` and the page before publishing
-([ADR-0082](adr/0082-package-only-a-commit-ci-passed.md)). A commit whose CI
-run was cancelled by a later push needs CI run on its tag first.
+([ADR-0082](adr/0082-package-only-a-commit-ci-passed.md)).
 
 Both say which build they are
 ([ADR-0083](adr/0083-say-which-build-is-running.md)): `release.yml` stamps the
-archive with the release's number and commit, and passes both to the image as
-the `VERSION` and `REVISION` build arguments, so `--version`, `/api/config`, the
-page's footer and the `Server` header all read `1.2.0+<commit>`. A local
-`docker build` says `dev`. The image also carries the
-`org.opencontainers.image` labels `version`, `revision`, `source` and `created`:
+archive with the release's number and commit and passes both to the image as the
+`VERSION` and `REVISION` build arguments, so `--version`, `/api/config`, the
+page's footer and the `Server` header all read `1.2.0+<commit>`; a local
+`docker build` says `dev`. The image also carries the `org.opencontainers.image`
+labels `version`, `revision`, `source` and `created`:
 
 ```powershell
 docker inspect --format '{{json .Config.Labels}}' ghcr.io/adamw7/buy_agent:1.2.0
@@ -131,25 +131,25 @@ docker inspect --format '{{json .Config.Labels}}' ghcr.io/adamw7/buy_agent:1.2.0
 
 Before the image is pushed, the workflow scans its OS layer with
 [Grype](https://github.com/anchore/grype) and fails on a HIGH or CRITICAL finding
-that has a fix. Its Python packages are `requirements.txt`, which the nightly
-`pip-audit` reads instead. Findings with no fix are reported but do not fail a
-release, since a rebuild could not remove them
+that has a fix; findings with no fix are reported but do not fail a release, as a
+rebuild could not remove them. Its Python packages are `requirements.txt`, which
+the nightly `pip-audit` reads instead
 ([ADR-0069](adr/0069-scan-and-attest-what-a-release-publishes.md)).
 
-Both packages carry build provenance: a signed statement of which workflow run,
-on which commit, produced them. `SHA256SUMS.txt` only shows the download arrived
-intact. Anyone who could replace the archive could replace the sums too. Check
-provenance with the GitHub CLI:
+Both packages carry build provenance, a signed statement of which workflow run, on
+which commit, produced them. `SHA256SUMS.txt` only shows the download arrived
+intact, since anyone who could replace the archive could replace the sums too.
+Check provenance with the GitHub CLI:
 
 ```powershell
 gh attestation verify buy-agent-1.2.0.tar.gz --repo adamw7/buy_agent
 gh attestation verify oci://ghcr.io/adamw7/buy_agent:1.2.0 --repo adamw7/buy_agent
 ```
 
-Each release also has `buy-agent-<version>.spdx.json`, an SBOM listing every
-package in the image, the Debian ones and the resolved Python ones. It answers
-"which `lxml` did 1.2.0 ship" without rebuilding anything, and can be re-scanned
-later against newer advisories:
+Each release also has `buy-agent-<version>.spdx.json`, an SBOM of every package
+in the image, the Debian ones and the resolved Python ones. It answers "which
+`lxml` did 1.2.0 ship" without rebuilding anything, and can be re-scanned later
+against newer advisories:
 
 ```powershell
 grype sbom:buy-agent-1.2.0.spdx.json
