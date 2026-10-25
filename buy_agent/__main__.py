@@ -321,47 +321,28 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=_Help,
     )
-    parser.add_argument("request", help="What you want to buy, in plain words.")
+    add = parser.add_argument
+    add("request", help="What you want to buy, in plain words.")
     for option in OPTIONS:
-        parser.add_argument(
-            f"--{option.key.replace('_', '-')}", **_flag_for(option, _written()[option.key])
-        )
-    parser.add_argument(
-        "--sort-by",
-        choices=get_args(SortBy),
-        default="score",
+        add(f"--{option.key.replace('_', '-')}", **_flag_for(option, _written()[option.key]))
+    add("--sort-by", choices=get_args(SortBy), default="score",
         help="How to order the report: "
-        + ", ".join(f"{name} for {phrase}" for name, phrase in ORDERINGS.items())
-        + " (default: score, a blend of rating, reviews and price).",
-    )
-    parser.add_argument(
-        "--source",
-        action="append",
-        metavar="SITE",
-        # ``--source ""`` is a mistake here, not "unset".
-        type=_flag(_source),
+             + ", ".join(f"{name} for {phrase}" for name, phrase in ORDERINGS.items())
+             + " (default: score, a blend of rating, reviews and price).")
+    # ``--source ""`` is a mistake here, not "unset".
+    add("--source", action="append", metavar="SITE", type=_flag(_source),
         help="Take the facts from this source only; repeat for several. A site "
-        "(rtings.com), a section of one (rtings.com/headphones) or a YouTube "
-        "handle (@mkbhd). Without it the whole web is searched.",
-    )
-    parser.add_argument(
-        "--compare",
-        action="store_true",
+             "(rtings.com), a section of one (rtings.com/headphones) or a YouTube "
+             "handle (@mkbhd). Without it the whole web is searched.")
+    add("--compare", action="store_true",
         help="Report what changed since the last run of this same search: what is "
-        "cheaper, what is dearer, what is new and what has gone. Reads what --journal "
-        "wrote, and a search whose settings differ -- another region, another budget "
-        "-- is a different question and has a history of its own.",
-    )
-    parser.add_argument(
-        "--json",
-        type=_json_file,
-        metavar="FILE",
-        help="Also write all results, not only the top ones, to this JSON file.",
-    )
-    parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging.")
-    parser.add_argument(
-        "--version", action="version", version=f"%(prog)s {current().label}"
-    )
+             "cheaper, what is dearer, what is new and what has gone. Reads what --journal "
+             "wrote, and a search whose settings differ -- another region, another budget "
+             "-- is a different question and has a history of its own.")
+    add("--json", type=_json_file, metavar="FILE",
+        help="Also write all results, not only the top ones, to this JSON file.")
+    add("-v", "--verbose", action="store_true", help="Debug logging.")
+    add("--version", action="version", version=f"%(prog)s {current().label}")
     return parser
 
 

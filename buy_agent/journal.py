@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from buy_agent.cache import default_dir, file_for, write_atomically
+from buy_agent.cache import default_dir, file_for, unlink, write_atomically
 from buy_agent.models import Product, dedup_key, price_label
 from buy_agent.money import amount_label
 
@@ -241,15 +241,7 @@ def _forget_the_least_recent(directory: Path, searches: int) -> int:
             dated.append((path.stat().st_mtime, path))
         except OSError:  # another run replacing it right now
             continue
-    forgotten = sum(_unlink(path) for _, path in sorted(dated)[: max(0, len(dated) - searches)])
+    forgotten = sum(unlink(path) for _, path in sorted(dated)[: max(0, len(dated) - searches)])
     if forgotten:
         logger.debug("Forgot %d search(es) nobody has run lately, out of %s", forgotten, directory)
     return forgotten
-
-
-def _unlink(path: Path) -> bool:
-    try:
-        path.unlink()
-    except OSError:
-        return False
-    return True

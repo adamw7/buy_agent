@@ -245,14 +245,8 @@ def scored_run(
     """A finished run as it is kept; the nightly builds its own this way (ADR-0072)."""
     card = report.scorecard
     return _kept(
-        contender,
-        case,
-        config,
-        watched,
-        counts=card.counts,
-        invented=card.invented,
-        repeated=card.repeated,
-        products=reported(report.ranked, case, report.pages),
+        contender, case, config, watched, counts=card.counts, invented=card.invented,
+        repeated=card.repeated, products=reported(report.ranked, case, report.pages),
     )
 
 
@@ -608,28 +602,8 @@ def summary_markdown(run: CaseRun, case: Case) -> str:
 
 
 __all__ = [
-    "STEPS",
-    "CaseRun",
-    "Contender",
-    "Quoted",
-    "Reported",
-    "Standing",
-    "Stopwatch",
-    "build_label",
-    "case_payload",
-    "describe",
-    "finished_label",
-    "metrics_payload",
-    "reported",
-    "run_case",
-    "run_payload",
-    "scored_run",
-    "scored_under",
-    "scored_with",
-    "settings_now",
-    "standing_payload",
-    "standings",
-    "standings_payload",
-    "summary_markdown",
-    "write_standings",
+    "STEPS", "CaseRun", "Contender", "Quoted", "Reported", "Standing", "Stopwatch", "build_label",
+    "case_payload", "describe", "finished_label", "metrics_payload", "reported", "run_case",
+    "run_payload", "scored_run", "scored_under", "scored_with", "settings_now", "standing_payload",
+    "standings", "standings_payload", "summary_markdown", "write_standings",
 ]

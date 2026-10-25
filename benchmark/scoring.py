@@ -335,22 +335,7 @@ def score_run(
 
 
 __all__ = [
-    "CHANCE",
-    "FLOORS",
-    "INVENTED",
-    "MATCH_COVERAGE",
-    "MEANINGS",
-    "METRICS",
-    "PAIRS",
-    "REAL",
-    "REPEATED",
-    "Scorecard",
-    "best_match",
-    "figure_verdicts",
-    "identifies",
-    "match_products",
-    "model_numbers",
-    "page_words",
-    "quotes_a_verdict",
-    "score_run",
+    "CHANCE", "FLOORS", "INVENTED", "MATCH_COVERAGE", "MEANINGS", "METRICS", "PAIRS", "REAL",
+    "REPEATED", "Scorecard", "best_match", "figure_verdicts", "identifies", "match_products",
+    "model_numbers", "page_words", "quotes_a_verdict", "score_run",
 ]

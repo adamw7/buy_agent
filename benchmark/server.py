@@ -320,25 +320,14 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python -m benchmark.server",
         description="Serve the benchmark's page: compare local models on this agent's cases.",
     )
-    parser.add_argument(
-        "--host",
-        default=DEFAULT_HOST,
-        help=f"Interface to bind (default: {DEFAULT_HOST}, this machine only).",
-    )
-    parser.add_argument(
-        "--port",
-        type=port_number,
-        default=DEFAULT_PORT,
-        help=f"Port to bind (default: {DEFAULT_PORT}; 0 takes whichever one is free).",
-    )
-    parser.add_argument(
-        "--allowed-host",
-        action="append",
-        default=[],
-        metavar="HOST",
-        help="Extra Host header to answer, repeatable, as the shop's server takes it.",
-    )
-    parser.add_argument("-v", "--verbose", action="store_true", help="Show each run's log.")
+    add = parser.add_argument
+    add("--host", default=DEFAULT_HOST,
+        help=f"Interface to bind (default: {DEFAULT_HOST}, this machine only).")
+    add("--port", type=port_number, default=DEFAULT_PORT,
+        help=f"Port to bind (default: {DEFAULT_PORT}; 0 takes whichever one is free).")
+    add("--allowed-host", action="append", default=[], metavar="HOST",
+        help="Extra Host header to answer, repeatable, as the shop's server takes it.")
+    add("-v", "--verbose", action="store_true", help="Show each run's log.")
     return parser
 
 

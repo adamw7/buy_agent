@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING
 
 from buy_agent import agent as agent_module
@@ -51,14 +52,9 @@ def serving_the_corpus(
         opinion_chars: int = 400,
         **_: object,
     ) -> list:
+        condensed = partial(condense, max_chars=max_chars, opinion_chars=opinion_chars)
         served[:] = [
-            result.model_copy(
-                update={
-                    "content": condense(
-                        page_text[result.url], max_chars=max_chars, opinion_chars=opinion_chars
-                    )
-                }
-            )
+            result.model_copy(update={"content": condensed(page_text[result.url])})
             for result in results
         ]
         return list(served)
@@ -96,16 +92,9 @@ def run_benchmark(
     finally:
         # Releases only a model the agent opened itself, never one handed in.
         agent.close()
-    return Report(
-        scorecard=score_run(
-            [entry.product for entry in ranked],
-            served,
-            key=case.key,
-            slots=config.num_products,
-        ),
-        ranked=ranked,
-        pages=tuple(served),
-    )
+    products = [entry.product for entry in ranked]
+    card = score_run(products, served, key=case.key, slots=config.num_products)
+    return Report(scorecard=card, ranked=ranked, pages=tuple(served))
 
 
 __all__ = ["Report", "run_benchmark", "serving_the_corpus"]

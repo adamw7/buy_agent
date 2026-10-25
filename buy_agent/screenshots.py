@@ -8,7 +8,8 @@ from __future__ import annotations
 import logging
 import queue
 import threading
-from typing import TYPE_CHECKING, Any, Protocol
+from concurrent.futures import Future
+from typing import TYPE_CHECKING, Any, NamedTuple, Protocol
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -121,29 +122,11 @@ class Chromium:
             self._playwright.stop()
 
 
-class _Job:
-    """One picture asked for, and the thread waiting on it."""
+class _Job(NamedTuple):
+    """One picture asked for, and where the thread waiting on it is told."""
 
-    def __init__(self, url: str) -> None:
-        self.url = url
-        self._settled = threading.Event()
-        self._picture = b""
-        self._error: ScreenshotError | None = None
-
-    def done(self, picture: bytes) -> None:
-        self._picture = picture
-        self._settled.set()
-
-    def fail(self, error: ScreenshotError) -> None:
-        self._error = error
-        self._settled.set()
-
-    def wait(self, seconds: float) -> bytes:
-        if not self._settled.wait(seconds):
-            raise ScreenshotError(f"No picture of {self.url} after {seconds:.0f} seconds")
-        if self._error is not None:
-            raise self._error
-        return self._picture
+    url: str
+    picture: Future[bytes]
 
 
 class Camera:
@@ -165,7 +148,7 @@ class Camera:
 
     def shoot(self, url: str) -> bytes:
         """A JPEG of the page at ``url``, after any queued ahead of it."""
-        job = _Job(url)
+        job = _Job(url, Future())
         with self._lock:
             self._jobs.put(job)
             if self._worker is None:
@@ -173,7 +156,10 @@ class Camera:
                     target=self._work, name="buy_agent-camera", daemon=True
                 )
                 self._worker.start()
-        return job.wait(self._wait)
+        try:
+            return job.picture.result(timeout=self._wait)
+        except TimeoutError as exc:
+            raise ScreenshotError(f"No picture of {url} after {self._wait:.0f} seconds") from exc
 
     def close(self) -> None:
         with self._lock:
@@ -214,15 +200,16 @@ class Camera:
         try:
             if browser is None:
                 browser = self._launch()
-            job.done(browser.shoot(job.url))
+            job.picture.set_result(browser.shoot(job.url))
         except ScreenshotError as exc:
             logger.debug("%s", exc)
-            job.fail(exc)
+            job.picture.set_exception(exc)
         # An unexpected failure: discard this browser; the next job launches another.
         # pylint: disable-next=broad-exception-caught
         except Exception as exc:
             logger.warning("The screenshot browser failed: %s", _first_line(exc))
-            job.fail(ScreenshotError(f"Could not photograph {job.url}: {_first_line(exc)}"))
+            failure = ScreenshotError(f"Could not photograph {job.url}: {_first_line(exc)}")
+            job.picture.set_exception(failure)
             if browser is not None:
                 _let_go(browser)
             return None

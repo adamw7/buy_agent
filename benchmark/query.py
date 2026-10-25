@@ -48,6 +48,11 @@ class QueryVerdict(BaseModel):
         return sum(check.passed for check in self.checks) / len(self.checks)
 
 
+def _check(passed: bool, held: str, broken: str) -> QueryCheck:
+    """One check, in the sentence for how it came out."""
+    return QueryCheck(check=held if passed else broken, passed=passed)
+
+
 def _keeps(spelling: str, words: str, raw: str) -> bool:
     """Whether a query keeps one spelling of a constraint: as words where the spelling
     is words ("1,500" and "$1500" both keep "1500"), else as written ("€")."""
@@ -83,16 +88,6 @@ def judge_query(query: str | None, request: str, key: QueryKey) -> QueryVerdict:
         for brand in key.brands
         if f" {running_words(brand)} " in padded and f" {running_words(brand)} " not in asked
     ]
-    checks.append(
-        QueryCheck(
-            check=(
-                f"Names a brand the shopper did not: {', '.join(named)}"
-                if named
-                else "Names no brand the shopper did not"
-            ),
-            passed=not named,
-        )
-    )
 
     given = set(asked.split())
     added = [
@@ -103,28 +98,15 @@ def judge_query(query: str | None, request: str, key: QueryKey) -> QueryVerdict:
         # The cents of a round price: "$1,500.00" is the words "1500" and "00".
         and word.strip("0")
     ]
-    checks.append(
-        QueryCheck(
-            check=(
-                f"Adds a figure the shopper did not give: {', '.join(added)}"
-                if added
-                else "Adds no figure the shopper did not give"
-            ),
-            passed=not added,
-        )
-    )
-
     count = len(query.split())
-    checks.append(
-        QueryCheck(
-            check=(
-                f"Reads as one query ({count} words)"
-                if count <= MAX_WORDS
-                else f"Reads as an explanation, not a query ({count} words)"
-            ),
-            passed=count <= MAX_WORDS,
-        )
-    )
+    checks += [
+        _check(not named, "Names no brand the shopper did not",
+               f"Names a brand the shopper did not: {', '.join(named)}"),
+        _check(not added, "Adds no figure the shopper did not give",
+               f"Adds a figure the shopper did not give: {', '.join(added)}"),
+        _check(count <= MAX_WORDS, f"Reads as one query ({count} words)",
+               f"Reads as an explanation, not a query ({count} words)"),
+    ]
     return QueryVerdict(query=query, checks=checks)
 
 
