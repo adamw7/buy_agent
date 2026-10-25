@@ -37,7 +37,6 @@ from buy_agent.payment import (
     Cart,
     PaymentError,
     RailUnreachableError,
-    Receipt,
     cart_for,
     merchant_for,
     pay_for,
@@ -165,12 +164,8 @@ def parse_options(data: Mapping[str, Any]) -> tuple[AgentConfig, SortBy]:
     }
     settings["sources"] = _read_sources(data, defaults.sources)
     sort_by = _read(data, "sort_by", "score", _among(SORT_OPTIONS))
-    return _configured(**settings), cast(SortBy, sort_by)
-
-
-def _configured(**settings: Any) -> AgentConfig:
     try:
-        return AgentConfig(**settings)
+        return AgentConfig(**settings), cast(SortBy, sort_by)
     except ValueError as exc:
         raise ApiError(str(exc), field="merchant_url") from exc
 
@@ -240,17 +235,9 @@ def run_search(
             str(exc), _status_for(exc, _STATUS)
         ) from exc
 
-    ranked = finished.ranked
-    seal = sealer.seal(entry.product for entry in ranked) if sealer else None
-    return _run_payload(
-        request,
-        ranked,
-        _Reported(config.top_n, sort_by, config.weights, config.currency or None, seal),
-        removals=finished.removals,
-        changes=finished.changes,
-        compared_with=finished.compared_with,
-        alert=finished.alert,
-    )
+    seal = sealer.seal(entry.product for entry in finished.ranked) if sealer else None
+    reported = _Reported(config.top_n, sort_by, config.weights, config.currency or None, seal)
+    return _run_payload(request, finished, reported)
 
 
 def alert_for(ranked: Sequence[RankedProduct], config: AgentConfig) -> Alert | None:
@@ -280,7 +267,8 @@ def rank_again(data: Mapping[str, Any], *, sealer: Sealer | None = None) -> dict
     )
     seal = sealer.seal(products) if sealer else None
     # No pipeline ran, so no removals, changes or alert of its own.
-    return _run_payload(request, ranked, _Reported(top_n, sort_by, weights, scale or None, seal))
+    finished = Finished(ranked, [], [], None, None)
+    return _run_payload(request, finished, _Reported(top_n, sort_by, weights, scale or None, seal))
 
 
 def mandate_support() -> bool:
@@ -311,11 +299,7 @@ def pay_now(data: Mapping[str, Any], *, sealer: Sealer | None = None) -> dict[st
         receipt = pay_for(cart, config)
     except PaymentError as exc:
         raise ApiError(str(exc), _status_for(exc, PAY_STATUS), field=exc.field) from exc
-    return {"receipt": receipt_payload(receipt)}
-
-
-def receipt_payload(receipt: Receipt) -> dict[str, Any]:
-    return receipt.model_dump()
+    return {"receipt": receipt.model_dump()}
 
 
 def _rank(data: Mapping[str, Any], count: int) -> int:
@@ -351,31 +335,22 @@ def _same_price(approved: Mapping[str, Any], price: float) -> bool:
         return False
 
 
-def _run_payload(
-    request: str,
-    ranked: Sequence[RankedProduct],
-    reported: _Reported,
-    *,
-    removals: Sequence[Removal] = (),
-    changes: Sequence[Change] = (),
-    compared_with: str | None = None,
-    alert: Alert | None = None,
-) -> dict[str, Any]:
+def _run_payload(request: str, finished: Finished, reported: _Reported) -> dict[str, Any]:
     """A finished run or re-sort (ADR-0055, ADR-0060, ADR-0080, ADR-0092)."""
-    scale = _counted_in(ranked, reported.currency)
+    scale = _counted_in(finished.ranked, reported.currency)
     return {
         "request": request.strip(),
-        "count": len(ranked),
+        "count": len(finished.ranked),
         "top_n": reported.top_n,
         "sort_by": reported.sort_by,
         "weights": reported.weights.fractions,
-        "products": results_payload(ranked, scale),
+        "products": results_payload(finished.ranked, scale),
         # Handed back by a re-sort or a payment, so the set is not voted on again.
         "scale": scale,
-        "dropped": [removal.model_dump() for removal in removals],
-        "changes": [change.model_dump() for change in changes],
-        "compared_with": compared_with,
-        "alert": alert.payload() if alert else None,
+        "dropped": [removal.model_dump() for removal in finished.removals],
+        "changes": [change.model_dump() for change in finished.changes],
+        "compared_with": finished.compared_with,
+        "alert": finished.alert.payload() if finished.alert else None,
         # Handed back by a re-sort or a payment over HTTP (ADR-0092).
         "seal": reported.seal,
     }
@@ -612,11 +587,6 @@ def _as_bool(text: str) -> bool:
     raise _Unnamed(f"must be true or false; got {text!r}")
 
 
-def number_kind(kind: Callable[[str], object]) -> str:
-    """What a number setting holds, in the words both doors refuse anything else with."""
-    return "a whole number" if kind is int else "a number"
-
-
 def _as_number(
     kind: Callable[[str], _Number],
     # Not ``_Number``: the int bounds of a float setting would force ints.
@@ -627,7 +597,8 @@ def _as_number(
         try:
             number = kind(text)
         except ValueError as exc:
-            raise _Unnamed(f"must be {number_kind(kind)}; got {text!r}") from exc
+            held = "a whole number" if kind is int else "a number"
+            raise _Unnamed(f"must be {held}; got {text!r}") from exc
         if not minimum <= number <= maximum:
             raise _Unnamed(f"must be between {minimum} and {maximum}; got {number}")
         return number

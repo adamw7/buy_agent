@@ -20,7 +20,7 @@ from buy_agent.cache import (
 )
 from buy_agent.chat import UnreadableAnswerError
 from buy_agent.models import SearchQuery
-from tests.conftest import FakeLLM
+from tests.conftest import FakeLLM, raising
 
 URL = "https://example.com/headphones"
 
@@ -97,7 +97,7 @@ def test_a_write_that_fails_says_so_for_the_reader_who_asked(
 ) -> None:
     """Not an error -- the run goes on and simply fetches again next time -- but a cache
     that never fills is worth being able to see, at DEBUG and naming where."""
-    monkeypatch.setattr("buy_agent.cache.os.replace", _raising(OSError("disk full")))
+    monkeypatch.setattr("buy_agent.cache.os.replace", raising(OSError("disk full")))
 
     with caplog.at_level(logging.DEBUG, logger="buy_agent.cache"):
         cache.put(URL, "text")
@@ -250,15 +250,6 @@ def _age(cache: DiskCache, url: str, *, seconds: float) -> None:
     os.utime(entry, (stamp, stamp))
 
 
-def _raising(exc: Exception):
-    """A stand-in that fails however it is called."""
-
-    def fail(*_args: object, **_kwargs: object):
-        raise exc
-
-    return fail
-
-
 # -- remembering what a model answered -----------------------------------------
 
 
@@ -397,7 +388,7 @@ def test_a_cache_that_cannot_be_tidied_is_not_a_failure(
     is still a cache (ADR-0052)."""
     cache = _filled(tmp_path, "https://a", "https://b")
     one = _entry(cache, "https://b").stat().st_size
-    monkeypatch.setattr(Path, "unlink", _raising(OSError("read-only filesystem")))
+    monkeypatch.setattr(Path, "unlink", raising(OSError("read-only filesystem")))
 
     tight = DiskCache(tmp_path, ttl=3600, max_bytes=one)
 

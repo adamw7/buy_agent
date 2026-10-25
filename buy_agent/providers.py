@@ -117,11 +117,7 @@ class OllamaClient:
     """Ollama's own API over httpx, and only the calls made of it here (ADR-0088)."""
 
     def __init__(
-        self,
-        base_url: str,
-        *,
-        timeout: float | None,
-        transport: httpx.BaseTransport | None = None,
+        self, base_url: str, *, timeout: float | None, transport: httpx.BaseTransport | None = None
     ) -> None:
         self._base_url = base_url
         # As Ollama's Python client did: a proxy in front of it may redirect.
@@ -133,13 +129,8 @@ class OllamaClient:
         )
 
     def chat(
-        self,
-        *,
-        model: str,
-        messages: list[Message],
-        schema: dict[str, Any],
-        options: dict[str, Any],
-        think: bool | None,
+        self, *, model: str, messages: list[Message], schema: dict[str, Any],
+        options: dict[str, Any], think: bool | None,
     ) -> OllamaReply:
         body: dict[str, Any] = {
             "model": model,
@@ -461,12 +452,8 @@ def _one_model_hint(config: AgentConfig, exc: Exception, serve: str, key: str) -
 
 
 def _vllm_hint(config: AgentConfig, exc: Exception) -> str:
-    return _one_model_hint(
-        config,
-        exc,
-        "vllm serve",
-        "Set $VLLM_API_KEY to the key it was started with:  vllm serve ... --api-key <key>",
-    )
+    key = "Set $VLLM_API_KEY to the key it was started with:  vllm serve ... --api-key <key>"
+    return _one_model_hint(config, exc, "vllm serve", key)
 
 
 def _trtllm_hint(config: AgentConfig, exc: Exception) -> str:
@@ -478,12 +465,8 @@ def _trtllm_hint(config: AgentConfig, exc: Exception) -> str:
             f"'guided_decoding_backend: xgrammar' in a YAML file and start it with:  "
             f"trtllm-serve {config.model} --extra_llm_api_options <that file>"
         )
-    return _one_model_hint(
-        config,
-        exc,
-        "trtllm-serve",
-        "Set $TRTLLM_API_KEY to the key whatever stands in front of it expects.",
-    )
+    key = "Set $TRTLLM_API_KEY to the key whatever stands in front of it expects."
+    return _one_model_hint(config, exc, "trtllm-serve", key)
 
 
 def _litellm_installed(config: AgentConfig) -> list[InstalledModel]:

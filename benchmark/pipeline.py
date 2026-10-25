@@ -33,20 +33,8 @@ if TYPE_CHECKING:
 #: The modules between the pages and the scorecard; the cases have fingerprints of
 #: their own.
 MODULES: tuple[ModuleType, ...] = (
-    agent,
-    chat,
-    constraints,
-    extraction,
-    fetch,
-    models,
-    money,
-    providers,
-    ranking,
-    structured,
-    verification,
-    runner,
-    scoring,
-    query,
+    agent, chat, constraints, extraction, fetch, models, money, providers, ranking, structured,
+    verification, runner, scoring, query,
 )
 
 _DOCUMENTED = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)

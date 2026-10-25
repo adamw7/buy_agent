@@ -142,17 +142,10 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python -m scripts.update_ollama",
         description="Re-pull Ollama's models so each tag is the registry's latest build.",
     )
-    parser.add_argument(
-        "models",
-        nargs="*",
-        metavar="MODEL",
-        help="Model tags to pull; default is every model Ollama has already pulled.",
-    )
-    parser.add_argument(
-        "--base-url",
-        default=OLLAMA.base_url,
-        help=f"Ollama server (default: {OLLAMA.base_url})",
-    )
+    add = parser.add_argument
+    add("models", nargs="*", metavar="MODEL",
+        help="Model tags to pull; default is every model Ollama has already pulled.")
+    add("--base-url", default=OLLAMA.base_url, help=f"Ollama server (default: {OLLAMA.base_url})")
     return parser
 
 

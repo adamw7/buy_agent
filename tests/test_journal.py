@@ -17,6 +17,7 @@ from buy_agent.journal import (
     open_journal,
 )
 from buy_agent.models import Product, price_label
+from tests.conftest import raising
 
 
 def priced(name: str, price: float | None, currency: str | None = "USD") -> Product:
@@ -258,8 +259,8 @@ def test_a_temporary_file_that_cannot_be_removed_is_not_an_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Both halves of the failure path fail, and the run still has its answer."""
-    monkeypatch.setattr("buy_agent.cache.os.replace", _raising(OSError("nope")))
-    monkeypatch.setattr(Path, "unlink", _raising(OSError("nor that")))
+    monkeypatch.setattr("buy_agent.cache.os.replace", raising(OSError("nope")))
+    monkeypatch.setattr(Path, "unlink", raising(OSError("nor that")))
 
     journal(tmp_path).against([priced("Sage Bambino", 349.0)])  # no raise
 
@@ -288,7 +289,7 @@ def test_a_search_another_run_is_replacing_right_now_is_stepped_over(
     assert _forget_the_least_recent(tmp_path, 1) == 0
 
     monkeypatch.undo()
-    monkeypatch.setattr(Path, "unlink", _raising(OSError("gone already")))
+    monkeypatch.setattr(Path, "unlink", raising(OSError("gone already")))
 
     assert _forget_the_least_recent(tmp_path, 1) == 0
     assert len(list(tmp_path.glob("*.json"))) == 3
@@ -324,15 +325,6 @@ def test_one_search_being_replaced_does_not_stop_the_rest_being_forgotten(
 def _raise_gone() -> float:
     """What a file another run has already replaced answers with."""
     raise OSError("gone already")
-
-
-def _raising(exc: Exception):
-    """A stand-in that fails however it is called."""
-
-    def fail(*_args: object, **_kwargs: object):
-        raise exc
-
-    return fail
 
 
 def test_a_listings_standing_is_not_written_down() -> None:

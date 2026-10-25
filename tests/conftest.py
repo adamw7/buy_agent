@@ -8,7 +8,7 @@ import re
 import shutil
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import pytest
 
@@ -27,7 +27,7 @@ from buy_agent.screenshots import ScreenshotError
 from buy_agent.search import SearchResult
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 
 #: This repository as it is written, which is not always the tree the suite is running in.
@@ -180,6 +180,15 @@ def enrolled_key(
     path.write_bytes(key.export_to_pem(private_key=True, password=None))
     monkeypatch.setenv(mandates.KEY_PATH, str(path))
     return key
+
+
+def raising(exc: Exception) -> Callable[..., NoReturn]:
+    """A stand-in that fails however it is called."""
+
+    def fail(*_args: object, **_kwargs: object) -> NoReturn:
+        raise exc
+
+    return fail
 
 
 def unencodable(host: str) -> UnicodeError:

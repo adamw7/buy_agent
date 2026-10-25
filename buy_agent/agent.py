@@ -246,10 +246,8 @@ class BuyAgent:
         pooled: dict[str, SearchResult] = {}
         for source in sources:
             found = self._ask_the_web(source.site_query(query), share)
-            covered: dict[bool, list[SearchResult]] = {True: [], False: []}
-            for result in found:
-                covered[source.covers(result.url)].append(result)
-            kept, outside = covered[True], covered[False]
+            kept = [result for result in found if source.covers(result.url)]
+            outside = [result for result in found if not source.covers(result.url)]
             if outside:
                 # Names at DEBUG: with no fallback to the wider web (ADR-0027), an
                 # over-strict ``covers`` needs them to diagnose.

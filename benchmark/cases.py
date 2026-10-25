@@ -70,17 +70,9 @@ class Case:
             "pages": [[page.title, page.url, page.snippet] for page in self.pages],
             "text": dict(self.page_text),
             "key": [
-                [
-                    entry.name,
-                    entry.price,
-                    entry.rating,
-                    entry.review_count,
-                    entry.currency,
-                    sorted(entry.prices),
-                    sorted(entry.ratings),
-                    sorted(entry.pages),
-                    sorted(entry.verdicts),
-                ]
+                [entry.name, entry.price, entry.rating, entry.review_count, entry.currency,
+                 sorted(entry.prices), sorted(entry.ratings), sorted(entry.pages),
+                 sorted(entry.verdicts)]
                 for entry in self.key
             ],
             "slots": self.num_products,

@@ -51,18 +51,13 @@ def price_alert(
     )
     buyable = [(price, product) for price, product in priced if _buyable(product)]
     met = [(price, product) for price, product in buyable if price <= below]
-    gone = [product for price, product in priced if price <= below and not _buyable(product)]
+    gone = [product.name for price, product in priced if price <= below and not _buyable(product)]
     # Under the line on a figure alone: said, as an out-of-stock one is, and never met.
-    bare = sorted(
-        (
-            (price, product)
-            for product in products
-            if product.currency is None
-            and (price := product.price) is not None
-            and price <= below
-        ),
-        key=lambda pair: pair[0],
-    )
+    bare = [
+        product.name
+        for product in sorted(products, key=lambda product: product.price or 0.0)
+        if product.currency is None and product.price is not None and product.price <= below
+    ]
 
     if met:
         listed = and_list([f"{product.name} at {_at(price, product)}" for price, product in met])
@@ -84,24 +79,19 @@ def price_alert(
         detail = f"Nothing found is at or under {line}: no page printed a currency."
     else:
         detail = f"Nothing found is at or under {line}: no page printed a price."
-    if gone:
-        were = "is" if len(gone) == 1 else "are"
-        detail += (
-            f" {and_list([product.name for product in gone])} {were} at or under it, "
-            f"but out of stock where it was priced."
-        )
-    if bare:
-        were = "is" if len(bare) == 1 else "are"
-        detail += (
-            f" {and_list([product.name for _price, product in bare])} {were} priced at "
-            f"or under it, but with no currency printed."
-        )
+    detail += _also(gone, "at or under it, but out of stock where it was priced")
+    detail += _also(bare, "priced at or under it, but with no currency printed")
     return Alert(
         below=below,
         below_label=line,
         met=[product.name for _price, product in met],
         detail=detail,
     )
+
+
+def _also(names: list[str], said: str) -> str:
+    """A sentence after the verdict naming ``names``, or nothing for none."""
+    return f" {and_list(names)} {'is' if len(names) == 1 else 'are'} {said}." if names else ""
 
 
 def _buyable(product: Product) -> bool:

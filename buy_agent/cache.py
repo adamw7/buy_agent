@@ -44,6 +44,16 @@ def file_for(directory: Path, key: str) -> Path:
     return directory / f"{hashlib.sha256(key.encode('utf-8')).hexdigest()}.json"
 
 
+def unlink(path: Path) -> bool:
+    """Delete ``path``, saying whether it went: another run may be replacing it, or have
+    deleted it first."""
+    try:
+        path.unlink()
+    except OSError:
+        return False
+    return True
+
+
 def write_atomically(directory: Path, destination: Path, text: str) -> OSError | None:
     """Write ``text`` via a temporary file and a rename; return the failure, never
     raise it: each caller words it its own way."""
@@ -123,14 +133,11 @@ class DiskCache:
             return 0
         evicted = 0
         for _, size, path in sorted(live):
-            try:
-                path.unlink()
-            except OSError:  # another run got there first
-                continue
-            evicted += 1
-            total -= size
-            if total <= self.max_bytes:
-                break
+            if unlink(path):
+                evicted += 1
+                total -= size
+                if total <= self.max_bytes:
+                    break
         logger.debug(
             "Dropped %d cached entr%s from %s to stay under %d bytes",
             evicted,

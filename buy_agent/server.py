@@ -89,6 +89,12 @@ DEFAULT_PORT = 8000
 
 #: Silence before an SSE ``ping``, so proxies keep a quiet stream open.
 _KEEPALIVE_SECONDS = 15.0
+#: An event stream's own headers; nginx holds a response back until it ends otherwise.
+_STREAM_HEADERS = (
+    ("Content-Type", "text/event-stream"),
+    ("Cache-Control", "no-cache, no-transform"),
+    ("X-Accel-Buffering", "no"),
+)
 _MAX_BODY_BYTES = 64 * 1024
 _SCREENSHOT_CACHE = "private, max-age=3600"
 
@@ -615,18 +621,11 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
 
     def _stream_search(self, params: dict[str, str]) -> None:
         """Run a search on a worker thread, relaying its log lines (ADR-0034)."""
+        self.close_connection = True
         try:
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
-            self.send_header("Cache-Control", "no-cache, no-transform")
-            # nginx holds a response back until it ends unless told otherwise.
-            self.send_header("X-Accel-Buffering", "no")
-            self.send_header("Connection", "close")
-            self._send_security_headers()
-            self.end_headers()
+            self._send_head(200, _STREAM_HEADERS)
         except OSError:
             return
-        self.close_connection = True
         stopped = threading.Event()
         for event, data in self._search_events(params, stopped):
             if not self._send_event(event, data):
@@ -774,26 +773,24 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         body = json.dumps(payload).encode("utf-8")
         self._send_bytes(status, body, "application/json; charset=utf-8", headers=headers)
 
-    def _send_security_headers(self) -> None:
-        for name, value in _SECURITY_HEADERS:
+    def _send_head(self, status: int, headers: Sequence[tuple[str, str]]) -> None:
+        """A status line, ``headers``, then the ones every answer carries."""
+        self.send_response(status)
+        for name, value in (*headers, *_SECURITY_HEADERS):
             self.send_header(name, value)
         if self.request_id:
             self.send_header("X-Request-Id", self.request_id)
+        if self.close_connection:
+            self.send_header("Connection", "close")
+        self.end_headers()
 
     def _send_bytes(
         self, status: int, body: bytes, content_type: str, *,
         headers: Sequence[tuple[str, str]] = (),
     ) -> None:
         try:
-            self.send_response(status)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(body)))
-            for name, value in headers:
-                self.send_header(name, value)
-            self._send_security_headers()
-            if self.close_connection:
-                self.send_header("Connection", "close")
-            self.end_headers()
+            length = (("Content-Type", content_type), ("Content-Length", str(len(body))))
+            self._send_head(status, (*length, *headers))
             if self.command != "HEAD":
                 self.wfile.write(body)
         except OSError:
@@ -1044,76 +1041,41 @@ def build_parser(deployed: ServerEnvironment | None = None) -> argparse.Argument
         description="Serve the buy_agent UI and its JSON API on localhost.",
         formatter_class=_Help,
     )
-    parser.add_argument(
-        "--host",
-        default=env.host or DEFAULT_HOST,
+    add = parser.add_argument
+    add("--host", default=env.host or DEFAULT_HOST,
         help=f"Interface to bind (default: {DEFAULT_HOST}, this machine only, or "
-        "$BUY_AGENT_HOST). Binding anywhere else answers any Host header unless "
-        "--allowed-host names one, and asks only the model server and the merchant "
-        "it was started with.",
-    )
-    parser.add_argument(
-        "--port",
-        type=port_number,
-        default=env.port or DEFAULT_PORT,
+             "$BUY_AGENT_HOST). Binding anywhere else answers any Host header unless "
+             "--allowed-host names one, and asks only the model server and the merchant "
+             "it was started with.")
+    add("--port", type=port_number, default=env.port or DEFAULT_PORT,
         help=f"Port to bind (default: {DEFAULT_PORT}, or $BUY_AGENT_PORT; 0 takes "
-        "whichever one is free and says which at startup).",
-    )
-    parser.add_argument(
-        "--ui-dir",
-        type=Path,
-        default=DEFAULT_UI_DIR,
-        help="Directory holding the built Angular app (default: ui/dist/ui/browser).",
-    )
-    parser.add_argument(
-        "--allowed-host",
-        action="append",
-        default=list(env.allowed_hosts),
-        metavar="HOST",
-        help=(
-            "Extra Host header to answer, repeatable, so that a name pointed at "
-            "this machine cannot pass itself off as this server. A loopback bind "
-            "answers the loopback names as well; a public one answers these and "
-            "nothing else, and any Host at all where none were named. "
-            "$BUY_AGENT_ALLOWED_HOSTS names more, separated by commas."
-        ),
-    )
-    parser.add_argument(
-        "--max-runs",
-        type=whole_number(MAX_RUNS),
-        default=env.max_runs or DEFAULT_MAX_RUNS,
-        metavar="N",
-        help=f"Searches to run at once; one more is refused with a 503 saying when "
-        f"to come back (default: {DEFAULT_MAX_RUNS}, or $BUY_AGENT_MAX_RUNS).",
-    )
-    parser.add_argument(
-        "--behind-proxy",
-        action="store_true",
-        default=env.behind_proxy,
+             "whichever one is free and says which at startup).")
+    add("--ui-dir", type=Path, default=DEFAULT_UI_DIR,
+        help="Directory holding the built Angular app (default: ui/dist/ui/browser).")
+    add("--allowed-host", action="append", default=list(env.allowed_hosts), metavar="HOST",
+        help="Extra Host header to answer, repeatable, so that a name pointed at this "
+             "machine cannot pass itself off as this server. A loopback bind answers the "
+             "loopback names as well; a public one answers these and nothing else, and "
+             "any Host at all where none were named. $BUY_AGENT_ALLOWED_HOSTS names more, "
+             "separated by commas.")
+    add("--max-runs", type=whole_number(MAX_RUNS),
+        default=env.max_runs or DEFAULT_MAX_RUNS, metavar="N",
+        help=f"Searches to run at once; one more is refused with a 503 saying when to "
+             f"come back (default: {DEFAULT_MAX_RUNS}, or $BUY_AGENT_MAX_RUNS).")
+    add("--behind-proxy", action="store_true", default=env.behind_proxy,
         help="Take the host a browser addressed and the client's address from "
-        "X-Forwarded-Host and X-Forwarded-For, which only a proxy that sets both "
-        "itself can be trusted with; it also asks only the model server and the "
-        "merchant it was started with (default: off, or $BUY_AGENT_BEHIND_PROXY).",
-    )
-    parser.add_argument(
-        "--access-log",
-        action="store_true",
-        default=env.access_log,
+             "X-Forwarded-Host and X-Forwarded-For, which only a proxy that sets both "
+             "itself can be trusted with; it also asks only the model server and the "
+             "merchant it was started with (default: off, or $BUY_AGENT_BEHIND_PROXY).")
+    add("--access-log", action="store_true", default=env.access_log,
         help="Log a line for every request answered: its client, path, status, time "
-        "and request id (default: off, or $BUY_AGENT_ACCESS_LOG).",
-    )
-    parser.add_argument(
-        "--log-format",
-        type=log_format,
-        default=env.log_format or "text",
+             "and request id (default: off, or $BUY_AGENT_ACCESS_LOG).")
+    add("--log-format", type=log_format, default=env.log_format or "text",
         metavar="{text,json}",
         help="text for a person, json for a log collector, one object a line "
-        "(default: text, or $BUY_AGENT_LOG_FORMAT).",
-    )
-    parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging.")
-    parser.add_argument(
-        "--version", action="version", version=f"%(prog)s {current().label}"
-    )
+             "(default: text, or $BUY_AGENT_LOG_FORMAT).")
+    add("-v", "--verbose", action="store_true", help="Debug logging.")
+    add("--version", action="version", version=f"%(prog)s {current().label}")
     return parser
 
 
