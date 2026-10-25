@@ -19,27 +19,14 @@ DEFAULT_RAIL = os.getenv("BUY_AGENT_RAIL", "dry-run")
 #: DuckDuckGo, needing no key (ADR-0057).
 DEFAULT_BACKEND = os.getenv("BUY_AGENT_BACKEND", "ddg")
 
-#: The range each numeric setting is held to, by the field it bounds.
-LIMITS: dict[str, tuple[int, int]] = {
-    "num_products": (1, 50),
-    "top_n": (1, 50),
-    "temperature": (0, 2),
-    "num_ctx": (1, 1_000_000),
-    "model_timeout": (1, 3600),
-    "max_price": (1, 10_000_000),
-    "alert_below": (1, 10_000_000),
-    "min_rating": (0, 5),
-    "min_reviews": (0, 10_000_000),
-    # 0 is off; past 30 days a stored price is no evidence (ADR-0040).
-    "cache_ttl": (0, 2_592_000),
-    "spend_limit": (1, 10_000_000),
-}
-
-_ON = frozenset({"1", "true", "yes", "on"})
+#: How a switch is spelt on and off, in the environment and in a request.
+SWITCHED_ON = frozenset({"1", "true", "yes", "on"})
+SWITCHED_OFF = frozenset({"0", "false", "no", "off"})
 
 
 def _switched(value: str) -> bool:
-    return value.strip().lower() in _ON
+    """The environment's switches are on as spelt, and off however else they are."""
+    return value.strip().lower() in SWITCHED_ON
 
 
 @dataclass(frozen=True, slots=True)

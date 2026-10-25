@@ -17,7 +17,7 @@ import openai
 from buy_agent.chat import ChatModel, SchemaT, UnreadableAnswerError, first_line, read_answer
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Sequence
+    from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 
     from openai.types.chat import ChatCompletionMessageParam
 
@@ -266,12 +266,19 @@ def _ollama_installed(config: AgentConfig) -> list[InstalledModel]:
 
 
 def _ollama_tags(config: AgentConfig) -> dict[str, str]:
-    """The tags Ollama holds, each with its digest ("" where none, or where one tag is
-    listed twice with two, since which of them answers is not said)."""
+    """The tags Ollama holds, asked without :class:`OllamaClient`: a 404 from whatever
+    else answers at the address is an address that is wrong, never a model that is
+    missing (``_answered_by``)."""
     response = httpx.get(_ollama_url(config.base_url, "/api/tags"), timeout=_LIST_TIMEOUT)
     response.raise_for_status()
+    return tag_digests(response.json().get("models", []))
+
+
+def tag_digests(entries: Iterable[Mapping[str, Any]]) -> dict[str, str]:
+    """The tags an ``/api/tags`` listing names, each with its digest ("" where none, or
+    where one tag is listed twice with two, since which of them answers is not said)."""
     tags: dict[str, str] = {}
-    for entry in response.json().get("models", []):
+    for entry in entries:
         name = entry.get("model") or entry.get("name")
         digest = str(entry.get("digest") or "")
         # A runner's own alias ("llamacpp:<digest>") is a tag nobody pulled.

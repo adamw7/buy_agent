@@ -810,7 +810,7 @@ describe('SearchForm', () => {
   });
 
   it('takes the bounds from the server rather than from the markup', async () => {
-    /* A range written into the template is a second copy of `config.LIMITS`, and
+    /* A range written into the template is a second copy of `api.LIMITS`, and
        the one nobody would notice going stale. */
     const bounds = (name: string) => {
       const field = element<HTMLInputElement>(`input[name="${name}"]`);

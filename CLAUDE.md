@@ -254,7 +254,8 @@ listed in `docs/testing.md`.
   shared failures are decided once in `Provider.hint`, before the row's `own_hint`. A hint naming a *model* requires
   the row's own client to have raised it (`_answered_by`); otherwise the address
   is what's wrong. `chat.release` calls a chat model's `close`, `BuyAgent.close`
-  decides when, and both doors build one agent per request and release it.
+  decides when, and `api.run_agent` builds one agent per request for both doors and
+  releases it.
 - **A payment rail is one row in one table too, and the default one spends
   nothing.** `rails.RAILS` holds, per row: address, whether it needs one and an
   enrolled key, `moves_money`, how checkouts and authorisations work, transport
@@ -356,7 +357,7 @@ listed in `docs/testing.md`.
   `bounds.notice` reads "under $200", "at least 4 stars" and "over 500 reviews"
   in plain Python, each anchored on its unit. The CLI logs a line naming the
   flag, and `GET /api/bounds` pre-fills an empty box once, as a hint.
-  `bounds.py` doesn't know `config.LIMITS`. Nothing may apply one.
+  `bounds.py` doesn't know the settings' ranges. Nothing may apply one.
 - **The report says what it is ordered by.** `ranking.ORDERINGS` holds a phrase
   per `SortBy` ("cheapest first"), which the report heading, `sort_labels` and
   `--sort-by`'s help all read. A new criterion needs a phrase.
@@ -439,8 +440,8 @@ exceptions: `sources` is a list, `sort_by` is not a config field, and
 too. Other programs' flags (`vllm serve --max-model-len`) are fine, and so are
 docstrings. A convention test enforces it.
 
-- **Numbers:** the range lives in `config.LIMITS`. `--json`'s `type` refuses a
-  missing directory.
+- **Numbers:** the range lives on the number's `api.OPTIONS` row, and `api.LIMITS`
+  reads them by field. `--json`'s `type` refuses a missing directory.
 - **`region`:** `config.parse_region` is the only shape check (ADR-0031).
   `_empty_search_note` composes `_region_note` and `_sources_note` for an empty
   search.

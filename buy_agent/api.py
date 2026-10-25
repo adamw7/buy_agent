@@ -24,7 +24,13 @@ from buy_agent.agent import (
 from buy_agent.alerts import price_alert
 from buy_agent.bounds import Noticed, notice
 from buy_agent.chat import release
-from buy_agent.config import LIMITS, AgentConfig, parse_currency, parse_region
+from buy_agent.config import (
+    SWITCHED_OFF,
+    SWITCHED_ON,
+    AgentConfig,
+    parse_currency,
+    parse_region,
+)
 from buy_agent.models import Offer, Product, Removal, dominant_currency
 from buy_agent.money import CODES, amount_label, code_for
 from buy_agent.payment import (
@@ -69,9 +75,6 @@ PROVIDER_OPTIONS: tuple[str, ...] = tuple(PROVIDERS)
 RAIL_OPTIONS: tuple[str, ...] = tuple(RAILS)
 BACKEND_OPTIONS: tuple[str, ...] = tuple(BACKENDS)
 CURRENCY_OPTIONS: tuple[str, ...] = tuple(sorted(CODES))
-
-_TRUE = frozenset({"true", "1", "yes", "on"})
-_FALSE = frozenset({"false", "0", "no", "off"})
 
 #: The HTTP status of each of the agent's three failure modes (ADR-0009).
 _STATUS: dict[type[Exception], int] = {
@@ -172,6 +175,48 @@ def _configured(**settings: Any) -> AgentConfig:
         raise ApiError(str(exc), field="merchant_url") from exc
 
 
+@dataclass(frozen=True, slots=True)
+class Finished:
+    """A run that returned, and what both doors report beside its ranking: what it took
+    out (ADR-0055), what moved since the last run of it (ADR-0060) and its price alert
+    (ADR-0080)."""
+
+    ranked: list[RankedProduct]
+    removals: list[Removal]
+    changes: list[Change]
+    compared_with: str | None
+    alert: Alert | None
+
+
+def run_agent(
+    request: str,
+    config: AgentConfig,
+    *,
+    sort_by: SortBy = "score",
+    agent_factory: AgentFactory = BuyAgent,
+    checkpoint: Checkpoint = every_step_passes,
+) -> Finished:
+    """One run, as both doors make it: one agent built and let go of, between opening
+    the search's journal and asking it what moved. Raises what :meth:`BuyAgent.run`
+    raises, for each door to report in its own way (ADR-0009)."""
+    removals: list[Removal] = []
+    # Opened before the run, so it holds the previous one (ADR-0060).
+    journal = journal_for(request, config)
+    agent = None
+    try:
+        agent = agent_factory(config)
+        ranked = agent.run(
+            request, sort_by=sort_by, checkpoint=checkpoint, record=removals.append
+        )
+    finally:
+        release(agent)
+    # Always recorded, so the next run has something to compare with.
+    changes = journal.against([entry.product for entry in ranked])
+    return Finished(
+        ranked, removals, changes, journal.compared_with(), alert_for(ranked, config)
+    )
+
+
 def run_search(
     request: str,
     config: AgentConfig,
@@ -183,14 +228,10 @@ def run_search(
 ) -> dict[str, Any]:
     """Run the pipeline and shape the answer as JSON-ready data (ADR-0034); ``sealer``
     signs its products for a re-sort or a payment over HTTP (ADR-0092)."""
-    agent = None
-    removals: list[Removal] = []
-    # Opened before the run, so it holds the previous one (ADR-0060).
-    journal = journal_for(request, config)
     try:
-        agent = agent_factory(config)
-        ranked = agent.run(
-            request, sort_by=sort_by, checkpoint=checkpoint, record=removals.append
+        finished = run_agent(
+            request, config, sort_by=sort_by, agent_factory=agent_factory,
+            checkpoint=checkpoint,
         )
     # Built from ``_STATUS``, which pylint cannot read exceptions out of.
     except tuple(_STATUS) as exc:  # pylint: disable=catching-non-exception
@@ -198,18 +239,17 @@ def run_search(
         raise ApiError(  # pylint: disable=bad-exception-cause
             str(exc), _status_for(exc, _STATUS)
         ) from exc
-    finally:
-        release(agent)
 
+    ranked = finished.ranked
     seal = sealer.seal(entry.product for entry in ranked) if sealer else None
     return _run_payload(
         request,
         ranked,
         _Reported(config.top_n, sort_by, config.weights, config.currency or None, seal),
-        removals=removals,
-        changes=journal.against([entry.product for entry in ranked]),
-        compared_with=journal.compared_with(),
-        alert=alert_for(ranked, config),
+        removals=finished.removals,
+        changes=finished.changes,
+        compared_with=finished.compared_with,
+        alert=finished.alert,
     )
 
 
@@ -227,7 +267,7 @@ def rank_again(data: Mapping[str, Any], *, sealer: Sealer | None = None) -> dict
     defaults = AgentConfig()
     request = _read(data, "request", "", str)
     sort_by = _read(data, "sort_by", "score", _among(SORT_OPTIONS))
-    top_n = _read(data, "top", defaults.top_n, _bounded(int, "top_n"))
+    top_n = _read(data, "top", defaults.top_n, _as_number(int, *LIMITS["top_n"]))
     weights = RankingWeights()
     # The run's own scale, so the set does not vote again (ADR-0056).
     currency = _read(data, "currency", "", parse_currency)
@@ -409,9 +449,9 @@ def defaults_payload(*, screenshots: bool = False) -> dict[str, Any]:
 def limits_payload() -> dict[str, dict[str, int]]:
     """Each number's range, by request key (ADR-0033)."""
     return {
-        option.key: dict(zip(("min", "max"), LIMITS[option.field], strict=True))
+        option.key: dict(zip(("min", "max"), option.limits, strict=True))
         for option in OPTIONS
-        if option.field in LIMITS
+        if option.limits
     }
 
 
@@ -565,9 +605,9 @@ def _among(options: tuple[str, ...]) -> Callable[[str], str]:
 
 def _as_bool(text: str) -> bool:
     lowered = text.lower()
-    if lowered in _TRUE:
+    if lowered in SWITCHED_ON:
         return True
-    if lowered in _FALSE:
+    if lowered in SWITCHED_OFF:
         return False
     raise _Unnamed(f"must be true or false; got {text!r}")
 
@@ -595,10 +635,6 @@ def _as_number(
     return parse
 
 
-def _bounded(kind: Callable[[str], _Number], field: str) -> Callable[[str], _Number]:
-    return _as_number(kind, *LIMITS[field])
-
-
 # -- the settings a request carries --------------------------------------------
 
 
@@ -615,6 +651,8 @@ class Option:
     blank: bool = False
     #: The table rows it names, for the CLI's ``choices``.
     choices: tuple[str, ...] | None = None
+    #: A number's range, in whole numbers, which the form binds its box to (ADR-0033).
+    limits: tuple[int, int] | None = None
 
     def __post_init__(self) -> None:
         if not self.field:
@@ -629,8 +667,10 @@ class Option:
         return "" if self.blank else getattr(defaults, self.field)
 
 
-def _number(key: str, kind: Callable[[str], Any], field: str = "") -> Option:
-    return Option(key, _bounded(kind, field or key), field)
+def _number(
+    key: str, kind: Callable[[str], Any], limits: tuple[int, int], field: str = ""
+) -> Option:
+    return Option(key, _as_number(kind, *limits), field, limits=limits)
 
 
 def _row(key: str, options: tuple[str, ...]) -> Option:
@@ -642,28 +682,34 @@ OPTIONS: tuple[Option, ...] = (
     _row("provider", PROVIDER_OPTIONS),
     Option("model", str, blank=True),
     Option("base_url", str, blank=True),
-    _number("results", int, "num_products"),
-    _number("top", int, "top_n"),
+    _number("results", int, (1, 50), "num_products"),
+    _number("top", int, (1, 50), "top_n"),
     Option("region", parse_region),
     _row("backend", BACKEND_OPTIONS),
     # Blank means "whatever the pages quote" (ADR-0056).
     Option("currency", parse_currency),
     # Blank is "no bound" (ADR-0039).
-    _number("max_price", float),
-    _number("min_rating", float),
-    _number("min_reviews", int),
+    _number("max_price", float, (1, 10_000_000)),
+    _number("min_rating", float, (0, 5)),
+    _number("min_reviews", int, (0, 10_000_000)),
     # Told, never applied (ADR-0080).
-    _number("alert_below", float),
-    _number("cache_ttl", float),
+    _number("alert_below", float, (1, 10_000_000)),
+    # 0 is off; past 30 days a stored price is no evidence (ADR-0040).
+    _number("cache_ttl", float, (0, 2_592_000)),
     Option("journal", _as_bool),
     Option("pay", _as_bool),
     _row("rail", RAIL_OPTIONS),
     Option("merchant_url", str, blank=True),
-    _number("spend_limit", float),
-    _number("temperature", float),
-    _number("num_ctx", int),
-    _number("model_timeout", float),
+    _number("spend_limit", float, (1, 10_000_000)),
+    _number("temperature", float, (0, 2)),
+    _number("num_ctx", int, (1, 1_000_000)),
+    _number("model_timeout", float, (1, 3600)),
     Option("think", _as_bool, "reasoning"),
     Option("cpu_only", _as_bool),
     Option("fetch", _as_bool, "fetch_pages"),
 )
+
+#: Each number's range, by the field it bounds, off its ``OPTIONS`` row.
+LIMITS: dict[str, tuple[int, int]] = {
+    option.field: option.limits for option in OPTIONS if option.limits
+}

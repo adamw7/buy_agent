@@ -39,7 +39,7 @@ def fake_agent(monkeypatch):
         def __init__(self, config):
             captured["config"] = config
 
-        def run(self, request, *, sort_by="score"):
+        def run(self, request, *, sort_by="score", checkpoint=None, record=None):
             captured["request"] = request
             captured["sort_by"] = sort_by
             if isinstance(captured.get("result"), BaseException):

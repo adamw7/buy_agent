@@ -9,6 +9,7 @@ import pytest
 
 from buy_agent.agent import every_step_passes, journal_for
 from buy_agent.api import (
+    LIMITS,
     ApiError,
     Sealer,
     bounds_payload,
@@ -19,13 +20,15 @@ from buy_agent.api import (
     product_payload,
     rank_again,
     results_payload,
+    run_agent,
     run_search,
     screenshot,
 )
-from buy_agent.config import LIMITS, AgentConfig
+from buy_agent.config import AgentConfig
 from buy_agent.models import Offer, Product, nothing_recorded
 from buy_agent.ranking import RankingWeights, rank_products
 from buy_agent.providers import LITELLM, TRTLLM
+from buy_agent.search import SearchError
 from buy_agent.sources import Source
 from tests.conftest import (
     enrolled_key,
@@ -271,6 +274,19 @@ def posted(**overrides) -> dict:
         "top": 1,
         **overrides,
     }
+
+
+def test_a_failed_run_is_handed_back_as_it_was_raised_for_each_door_to_report() -> None:
+    """The CLI exits 1 on it and the API answers a status, so the run both share
+    translates nothing -- and lets go of its agent all the same."""
+    captured = agent_returning(SearchError("DuckDuckGo is rate-limiting this"))
+    closed: list[bool] = []
+    captured["factory"].close = lambda _self: closed.append(True)
+
+    with pytest.raises(SearchError, match="rate-limiting"):
+        run_agent("headphones", AgentConfig(), agent_factory=captured["factory"])
+
+    assert closed == [True]
 
 
 def test_a_run_lets_go_of_its_agent_once_the_answer_is_shaped() -> None:

@@ -996,16 +996,26 @@ def camera_for(host: str) -> Camera | None:
     return Camera()
 
 
-def port_number(text: str) -> int:
-    """``--port`` as argparse takes it: a bindable port, else a usage error."""
-    minimum, maximum = _PORTS
-    try:
-        port = int(text)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(f"must be a whole number; got {text!r}") from exc
-    if not minimum <= port <= maximum:
-        raise argparse.ArgumentTypeError(f"must be between {minimum} and {maximum}; got {port}")
-    return port
+def whole_number(limits: tuple[int, int]) -> Callable[[str], int]:
+    """A flag ``type`` taking a whole number within ``limits``, else a usage error."""
+    minimum, maximum = limits
+
+    def typed(text: str) -> int:
+        try:
+            number = int(text)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(f"must be a whole number; got {text!r}") from exc
+        if not minimum <= number <= maximum:
+            raise argparse.ArgumentTypeError(
+                f"must be between {minimum} and {maximum}; got {number}"
+            )
+        return number
+
+    return typed
+
+
+#: ``--port`` as argparse takes it: a bindable port. Shared with the benchmark.
+port_number = whole_number(_PORTS)
 
 
 class _Help(argparse.HelpFormatter):
@@ -1013,18 +1023,6 @@ class _Help(argparse.HelpFormatter):
 
     def _split_lines(self, text: str, width: int) -> list[str]:
         return wrap_help(text, width)
-
-
-def max_runs_number(text: str) -> int:
-    """``--max-runs`` as argparse takes it: a count in range, else a usage error."""
-    minimum, maximum = MAX_RUNS
-    try:
-        runs = int(text)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(f"must be a whole number; got {text!r}") from exc
-    if not minimum <= runs <= maximum:
-        raise argparse.ArgumentTypeError(f"must be between {minimum} and {maximum}; got {runs}")
-    return runs
 
 
 def log_format(text: str) -> str:
@@ -1082,7 +1080,7 @@ def build_parser(deployed: ServerEnvironment | None = None) -> argparse.Argument
     )
     parser.add_argument(
         "--max-runs",
-        type=max_runs_number,
+        type=whole_number(MAX_RUNS),
         default=env.max_runs or DEFAULT_MAX_RUNS,
         metavar="N",
         help=f"Searches to run at once; one more is refused with a 503 saying when "
