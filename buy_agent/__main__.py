@@ -11,11 +11,10 @@ from pathlib import Path
 from typing import Any, get_args
 
 from buy_agent import mandates, payment
-from buy_agent.agent import BuyAgent, ModelUnavailableError, journal_for
+from buy_agent.agent import BuyAgent, ModelUnavailableError
 from buy_agent.alerts import Alert
-from buy_agent.api import OPTIONS, Option, alert_for, results_payload, takeable
+from buy_agent.api import OPTIONS, Option, results_payload, run_agent, takeable
 from buy_agent.bounds import notice
-from buy_agent.chat import release
 from buy_agent.config import DEFAULT_BACKEND, DEFAULT_PROVIDER, DEFAULT_RAIL, AgentConfig
 from buy_agent.journal import MAX_RUNS, RUNS
 from buy_agent.logging_setup import configure_logging, log_alert, log_changes, wrap_help
@@ -465,27 +464,19 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     _offer_noticed_bounds(args.request, config)
-    # Opened before the run, so it holds the previous one (ADR-0060).
-    journal = journal_for(args.request, config)
 
-    agent = None
     try:
-        agent = BuyAgent(config)
-        ranked = agent.run(args.request, sort_by=args.sort_by)
+        finished = run_agent(args.request, config, sort_by=args.sort_by, agent_factory=BuyAgent)
     except (ModelUnavailableError, SearchError, ValueError) as exc:
         logger.error("%s", exc)
         return 1
     except KeyboardInterrupt:
         logger.warning("Interrupted.")
         return 130
-    finally:
-        release(agent)
 
-    # Always recorded, so the next run has something to compare with.
-    changes = journal.against([entry.product for entry in ranked])
+    ranked, alert = finished.ranked, finished.alert
     if args.compare:
-        log_changes(changes, journal.compared_with())
-    alert = alert_for(ranked, config)
+        log_changes(finished.changes, finished.compared_with)
     if alert is not None:
         log_alert(alert)
 

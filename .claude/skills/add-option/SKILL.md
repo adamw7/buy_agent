@@ -12,8 +12,6 @@ Work down this list in order.
 ## 1. `buy_agent/config.py` -- the field itself
 
 - Add the field to `AgentConfig` with its default.
-- **Numeric** -> a row in `LIMITS`, keyed by the field name, in whole numbers.
-  The default must sit inside it.
 - **Shaped or a closed set** (`region`, `currency`) -> a `parse_<field>` here,
   called from `__post_init__`. Read an existing table (`money.CODES`,
   `search.BACKENDS`) rather than listing it again, and name what would have
@@ -31,8 +29,8 @@ Work down this list in order.
 - One row in `OPTIONS`, in the order `--help` lists it. `parse_options`,
   `defaults_payload`, `limits_payload` and the CLI's flags all read it. Missing
   or empty means the default, never zero.
-- Numeric -> `_number("<key>", int|float)`, adding the field when it is not the
-  key; the range follows from the `LIMITS` row.
+- Numeric -> `_number("<key>", int|float, (<min>, <max>))`, the range in whole
+  numbers and the default inside it, adding the field when it is not the key.
 - A table row -> `_row("<key>", <TABLE>_OPTIONS)`. Shaped -> `Option("<key>",
   parse_<field>)`, which keeps the rule's own message. Boolean -> `Option("<key>",
   _as_bool)`, which the CLI makes a `--x` and `--no-x` pair.

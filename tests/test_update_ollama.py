@@ -66,6 +66,18 @@ def test_a_listing_is_read_as_tag_to_digest() -> None:
     assert digests(client) == {"llama3.2:latest": "sha256:aaa", "qwen2.5:7b": "sha256:bbb"}
 
 
+def test_a_runners_own_alias_is_not_a_model_to_pull() -> None:
+    """Ollama 0.40 lists the weights it converted under the runner's alias as well
+    ("llamacpp:<digest>"), and the registry has nothing by that name: updating every
+    model would have asked it for one."""
+    converted = "c97eb11d70b1" + "0" * 52
+    client = FakeClient({"qwen3.5:9b": "sha256:aaa", f"llamacpp:{converted}": converted})
+
+    update(client, echo=lambda _line: None)
+
+    assert client.pulled == ["qwen3.5:9b"]
+
+
 def test_a_model_ollama_reports_without_a_name_is_not_a_model() -> None:
     """``list_models`` drops these too -- there is nothing to pull for a blank tag."""
     client = FakeClient()

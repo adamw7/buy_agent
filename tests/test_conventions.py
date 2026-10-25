@@ -24,6 +24,7 @@ from buy_agent.__main__ import main as cli_main
 from buy_agent.agent import BuyAgent
 from buy_agent.api import (
     BACKEND_OPTIONS,
+    LIMITS,
     OPTIONS,
     PAY_STATUS,
     PROVIDER_OPTIONS,
@@ -44,7 +45,7 @@ from buy_agent.api import (
     sources_payload,
 )
 from buy_agent.bounds import Bound
-from buy_agent.config import LIMITS, AgentConfig, parse_currency, parse_region
+from buy_agent.config import AgentConfig, parse_currency, parse_region
 from buy_agent.journal import Change
 import buy_agent.fetch as fetch_module
 import buy_agent.mandates as mandates_module
@@ -97,7 +98,8 @@ RANKED = ranked_product(
 
 
 def caught_by_main() -> set[str]:
-    """The exception names ``__main__.main`` lists in its ``except`` tuple."""
+    """The exception names ``__main__.main`` lists in the ``except`` tuple around its
+    ``run_agent``."""
     tree = ast.parse((_PACKAGE / "__main__.py").read_text(encoding="utf-8"))
     main = next(
         node
@@ -109,7 +111,7 @@ def caught_by_main() -> set[str]:
         for node in ast.walk(main)
         if isinstance(node, ast.Try)
         and any(
-            isinstance(call.func, ast.Attribute) and call.func.attr == "run"
+            isinstance(call.func, ast.Name) and call.func.id == "run_agent"
             for call in ast.walk(node)
             if isinstance(call, ast.Call)
         )
@@ -371,7 +373,7 @@ def test_every_number_the_form_bounds_is_one_the_defaults_name() -> None:
 
 def test_the_form_takes_its_bounds_from_the_server_rather_than_the_markup() -> None:
     """A `min="1" max="50"` written into the template is a second copy of
-    ``config.LIMITS`` -- one no test of either suite would see go stale, since
+    ``api.LIMITS`` -- one no test of either suite would see go stale, since
     both ends stay perfectly valid while they disagree."""
     written = re.findall(r'\b(?:min|max)="[^"]*"', _FORM_HTML.read_text(encoding="utf-8"))
 

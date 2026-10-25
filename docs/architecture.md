@@ -517,7 +517,7 @@ graph TB
     operator -->|"/healthz, /readyz,<br/>/metrics, SIGTERM"| handler
     handler -->|"parse_options, run_search,<br/>rank_again, pay_now,<br/>screenshot, the readings"| api
     handler -->|"reads the queue<br/>for this run"| relay
-    cli -.->|"a flag per OPTIONS row;<br/>--json is results_payload"| api
+    cli -.->|"a flag per OPTIONS row,<br/>run_agent; --json is<br/>results_payload"| api
     api -->|"agent_factory(config)<br/>.run(), then what moved<br/>[worker thread]"| agentpipeline
     api -->|"cart_for,<br/>then pay_for"| paying
     api -->|"camera.shoot(url)"| camera

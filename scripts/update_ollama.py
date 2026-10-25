@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from buy_agent.providers import OLLAMA, OllamaClient, OllamaError
+from buy_agent.providers import OLLAMA, OllamaClient, OllamaError, tag_digests
 
 #: Transport failures that mean "the server is not there": the tuple ``BuyAgent._invoke``
 #: catches, read off the provider's own row rather than written down again -- what a
@@ -52,12 +52,9 @@ def short(digest: str) -> str:
 
 
 def digests(client: Any) -> dict[str, str]:
-    """Every tag Ollama has pulled, and the digest it holds for each."""
-    return {
-        str(entry["model"]): str(entry.get("digest") or "")
-        for entry in client.tags()
-        if entry.get("model")
-    }
+    """Every tag Ollama has pulled, and the digest it holds for each, read as the model
+    picker reads them."""
+    return tag_digests(client.tags())
 
 
 def tagged(name: str) -> str:

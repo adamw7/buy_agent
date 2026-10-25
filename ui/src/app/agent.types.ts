@@ -155,7 +155,7 @@ export interface BackendOption {
   configured: boolean;
 }
 
-/** What one number field may hold, as `config.LIMITS` declares it. */
+/** What one number field may hold, as its `api.OPTIONS` row declares it. */
 export interface Limit {
   min: number;
   max: number;
