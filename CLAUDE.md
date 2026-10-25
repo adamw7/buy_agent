@@ -1,196 +1,163 @@
 # CLAUDE.md
 
-Guidance for Claude Code (claude.ai/code) in this repository.
+The rules a change here must obey. The reasons are in `docs/adr/`; the long forms
+in `README.md` (tour), `docs/testing.md` (suites, floors, workflows, benchmark,
+mutation, audit, and what the convention and architecture tests check),
+`docs/docker.md`, `docs/architecture.md` (C4), `docs/models.md`, `ui/README.md`
+and `demo/README.md`. Prefer a convention test over restating an ADR, and a
+pointer over restating a doc.
 
 ## What this is
 
-A shopping agent: a plain-language request ("wireless headphones under $200")
-goes in, the web is searched, up to 10 products and what pages say about them
-are extracted, ranked, and the top 3 logged. The model is local, served by
-Ollama, vLLM, TensorRT-LLM, or whatever a LiteLLM proxy routes to.
-`AgentConfig.provider` chooses, and `buy_agent/providers.py` is the only module
-that knows the difference (ADR-0028, ADR-0068, ADR-0081). There is no framework: `buy_agent/chat.py` is the
-whole model seam (ADR-0088). `ui/` is an Angular front end served by
-`buy_agent.server`. Two things are optional, off by default and need extra
-installs: *buying* what was found, authorised by signed
-[AP2](https://ap2-protocol.org) mandates (ADR-0046), and a screenshot of each
-product page from a loopback-bound server with Playwright (ADR-0065).
-
-This file holds the rules a change must obey. The reasons are in `docs/adr/`,
-and the long forms elsewhere: `README.md` (tour), `docs/models.md`,
-`docs/docker.md` (the container and the release), `docs/testing.md` (suites,
-floors, workflows, benchmark, mutation, audit, and what the convention and
-architecture tests check), `docs/architecture.md` (C4), `ui/README.md`
-(components), `demo/README.md` (recordings, local merchant). Prefer adding a
-convention test over restating an ADR, and prefer a pointer over restating a doc.
+A shopping agent: a plain-language request ("wireless headphones under $200") is
+searched for; up to 10 products and what pages say about them are extracted and
+ranked, and the top 3 logged. The model is local (Ollama, vLLM, TensorRT-LLM or a
+LiteLLM proxy), picked by `AgentConfig.provider`; only `buy_agent/providers.py`
+knows the difference (ADR-0028, ADR-0068, ADR-0081). No framework:
+`buy_agent/chat.py` is the whole model seam (ADR-0088). `ui/` is an Angular front
+end served by `buy_agent.server`. Optional, off by default, with extra installs:
+*buying* under signed [AP2](https://ap2-protocol.org) mandates (ADR-0046), and a
+Playwright screenshot of each product page from a loopback-bound server
+(ADR-0065).
 
 ## Commands
 
-Dependencies go in a stdlib `.venv`. There is no `pyproject.toml` and no
-packaging. Run everything from the repo root.
+Dependencies go in a stdlib `.venv`; no `pyproject.toml`, no packaging. Run
+everything from the repo root.
 
 ```powershell
 .\scripts\setup.ps1                           # full contributor setup (ADR-0067)
 .\scripts\preflight.ps1                       # the gate ci.yml applies; -Only python|ui|browser
 pip install -r requirements-dev.txt          # runtime deps: requirements.txt
-
 python -m pytest                              # whole suite (~8s)
-python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
 python -m pytest -n 3 --cov                   # three workers, with the floor (ADR-0076)
-python -m pylint buy_agent                    # from the root (ADR-0048)
-python -m mypy buy_agent                      # from the root (ADR-0063)
+python -m pylint buy_agent ; python -m mypy buy_agent   # from the root (ADR-0048, ADR-0063)
 ollama pull qwen3:0.6b ; python -m pytest integration   # against a real model
 python -m pytest browser                      # the build in Chromium (ADR-0087)
 python -m benchmark --scripted perfect        # score the pipeline, no model needed
-python -m benchmark --model qwen3:0.6b --model gemma4:12b   # compare models, every case
-python -m benchmark --baseline before.json    # what moved since an earlier --json
-python -m benchmark.server                    # the same comparison as a page on :8100
 
-python -m buy_agent "gaming laptop under $1500"
-python -m buy_agent "gaming laptop" --provider vllm      # or litellm, trtllm
-python -m buy_agent "headphones" --max-price 200 --min-rating 4.5
-python -m buy_agent "espresso machine" --compare         # what moved since last run
-python -m buy_agent "wireless earbuds" --source rtings.com --source @mkbhd
-
-pip install -r requirements-ap2-deps.txt        # what the AP2 SDK imports
-pip install --no-deps -r requirements-ap2.txt   # the SDK itself, for paying only
+python -m buy_agent "gaming laptop under $1500" --provider vllm   # or ollama, litellm, trtllm
+pip install -r requirements-ap2-deps.txt ; pip install --no-deps -r requirements-ap2.txt   # paying
 python -m buy_agent "headphones" --pay          # dry-run rail: signs, charges nobody
 pip install -r requirements-screenshots.txt ; python -m playwright install --only-shell chromium
-
 python -m buy_agent.server                    # UI + API on :8000
 $env:BUY_AGENT_API_TOKEN = '<random>' ; docker compose up -d --build   # deployed (ADR-0092)
 .\scripts\start.ps1                           # everything from cold (ADR-0023)
-python -m scripts.update_ollama               # re-pull Ollama's models, report what moved
 python -m mutmut run                          # needs requirements-mutation.txt
-python scripts/mutation_report.py mutation-results.txt
-```
 
-```powershell
 cd ui
 npm install ; npm test ; npm run test:coverage ; npm run build
 npm run lint ; npm run format:check          # `npm run format` fixes formatting
 npm start                                     # :4200, proxying /api to :8000
-npx stryker run                               # UI mutation testing, ~3 hours
-$env:STRYKER_SHARD = 'app' ; npx stryker run  # one shard of it, as CI runs it (ADR-0085)
+$env:STRYKER_SHARD = 'app' ; npx stryker run  # one UI mutation shard (ADR-0085); unset, ~3 hours
 ```
 
-`ui/` is its own Angular 22 workspace (Node 22.22.3+, 24.15+ or 26+). The Python
-side has no formatter. Every checker is a gate and must finish with **no
-messages at all**, including warnings and unused suppressions: pylint and mypy
-(`.pylintrc`, `setup.cfg [mypy]`), and ESLint and Prettier in `ui/`. Every
-`# pylint: disable` carries a sentence of why above it. `npm run build` is also
-the UI's type check (`strict`, `strictTemplates`, and `noUncheckedIndexedAccess`
-for app code only). Maps looked up by a payload key (`App.receipts`, the form's
-`limits` and `placeholders`) declare `| undefined` on themselves.
+`ui/` is its own Angular 22 workspace (Node 22.22.3+, 24.15+ or 26+); Python has
+no formatter. Every checker (pylint and mypy under `.pylintrc` and
+`setup.cfg [mypy]`, ESLint, Prettier) must print **nothing**, warnings and unused
+suppressions included, and every `# pylint: disable` has a sentence of why above
+it. `npm run build` is the UI's type check (`strict`, `strictTemplates`, and
+`noUncheckedIndexedAccess` for app code only), so maps looked up by a payload key
+(`App.receipts`, the form's `limits` and `placeholders`) declare `| undefined`.
+Without `ui/dist/ui/browser` the API still works and the page is a 503 saying how
+to build it (`_unbuilt_remedy`), naming `--ui-dir` when `_workspace_for` finds no
+workspace.
 
-If `ui/dist/ui/browser` is missing, the API still works and the page returns a
-503 saying how to build it (`_unbuilt_remedy`, as HTML for browsers and JSON
-otherwise), naming `--ui-dir` when `_workspace_for` finds no workspace.
+**CI.** Each `ci.yml` job (`python`, `ui`, then `browser`, ADR-0087) installs and
+runs `scripts/preflight.ps1 -Only <job>`, so checks are written once, in the
+script (ADR-0091). Linux runs on pushes and PRs; Windows joins on the Saturday
+schedule and `workflow_dispatch` (ADR-0037), which a branch touching paths,
+encodings, sockets or `start.ps1` should get. Workflows read `.python-version` and
+`.nvmrc`; only the `Dockerfile`'s base images repeat them. Of the scheduled
+workflows and `release.yml` (`docs/testing.md`, `docs/docker.md`), only dependency
+review gates a PR. Every checkout sets `persist-credentials: false`; `release.yml`
+caches nothing (ADR-0092). `automerge.yml` squash-merges a same-repo, non-draft PR
+once `ci.yml` and `audit.yml` pass on its head, unless labelled `no-automerge`
+(ADR-0086). Floors: 99% branch coverage over the package, `benchmark/` and
+`scripts/` (ADR-0064); 98% statements and lines in `ui/angular.json`, no branch
+floor; 75% mutation (ADR-0016).
 
-**CI.** Each `ci.yml` job installs, then runs `scripts/preflight.ps1 -Only <job>`,
-so its checks are written once, in the script (ADR-0091): `python` (pytest with
-coverage, pylint, mypy), `ui` (`test:coverage`, `build`, `lint`, `format:check`)
-and then that build in Chromium (`browser`, ADR-0087), on Linux for pushes and PRs.
-Every workflow sets up the Python in `.python-version` and the Node in `.nvmrc`;
-only the `Dockerfile`'s base images repeat them. Windows joins on the Saturday
-schedule and on `workflow_dispatch` (ADR-0037): dispatch it for a branch that touches paths,
-encodings, sockets or `start.ps1`. The scheduled workflows (audit, integration,
-both mutation runs) and `release.yml` are described in `docs/testing.md` and
-`docs/docker.md`; only dependency review gates a PR. zizmor reads the workflows
-nightly in `audit.yml` and CodeQL runs weekly (`codeql.yml`), so neither holds a PR
-up; every checkout sets `persist-credentials: false` and `release.yml` caches
-nothing (ADR-0092). `automerge.yml`
-squash-merges a same-repo, non-draft PR once `ci.yml` and `audit.yml` are green
-on its head (ADR-0086); label it `no-automerge` to keep it open. Floors: 99% branch coverage
-over the package, `benchmark/` and `scripts/` (ADR-0064); 98% statements and
-lines in `ui/angular.json` (don't add a branch floor); 75% mutation (ADR-0016).
+**The container** (`docs/docker.md`) runs no model server (ADR-0015):
+`$OLLAMA_HOST`, `$VLLM_HOST`, `$LITELLM_HOST` and `$TRTLLM_HOST` point at
+`host.docker.internal`, and `ENTRYPOINT` is `python`. Only `release.yml` builds
+it, from a tag whose commit `ci.yml` passed (ADR-0030, ADR-0082). Both packages
+carry `LICENSE` and the git-ignored `buy_agent/_version.txt`, written by shell
+(`release.yml`; the `Dockerfile` from its `VERSION`/`REVISION` build arguments)
+and read by `version.py` (ADR-0083). `.dockerignore` covers what `.gitignore`
+names plus `.env`, catches nothing the `Dockerfile` copies, and accounts for every
+top-level directory. The image installs `requirements.lock` `--no-deps` (no
+hashes, so it also constrains `requirements-dev.txt`; regenerate it by its
+header's command when `requirements.txt` moves), binds through
+`ENV BUY_AGENT_HOST=0.0.0.0`, caches in a volume at `/var/cache/buy-agent`, and
+checks `/healthz`. `compose.yaml` won't start without the token (ADR-0092).
 
-**The container** (`docs/docker.md`). No model server runs in the image
-(ADR-0015); it reaches the host through `host.docker.internal`, which
-`$OLLAMA_HOST`, `$VLLM_HOST`, `$LITELLM_HOST` and `$TRTLLM_HOST` are set to. `ENTRYPOINT` is
-`python`. Only `release.yml` builds it (ADR-0030), and only from a tag whose
-commit `ci.yml` passed; both packages carry `LICENSE` (MIT, ADR-0082). Both are
-stamped with their version in `buy_agent/_version.txt`, git-ignored and written
-by shell (`release.yml`, and the `Dockerfile` from its `VERSION`/`REVISION`
-build arguments), which `version.py` reads (ADR-0083). `.dockerignore` must cover
-everything `.gitignore` names (and `.env`), must not catch anything the
-`Dockerfile` copies, and must account for every top-level directory. The image
-installs `requirements.lock` `--no-deps` (`uv pip compile --universal`, no hashes,
-so `requirements-dev.txt` can constrain every other install with it; regenerate it
-with the command in its header whenever `requirements.txt` moves). It binds through
-`ENV BUY_AGENT_HOST=0.0.0.0` rather than a flag, keeps its caches in a volume at
-`/var/cache/buy-agent`, checks `/healthz`, and is pushed for amd64 and arm64.
-`compose.yaml` runs it with Ollama and SearXNG and will not start without the token
-(ADR-0092).
-
-**Mutation runs** test a copy of the tree. Files the suite reads from outside
-`buy_agent` are listed in `setup.cfg`'s `also_copy`, tests reading source rules
-use `conftest.SOURCE_ROOT`, and no test reads declarations (such as
-`__kwdefaults__`) off function objects, because mutmut's trampoline strips them.
+**Mutation runs** test a copy of the tree: files the suite reads from outside
+`buy_agent` go in `setup.cfg`'s `also_copy`, tests reading source use
+`conftest.SOURCE_ROOT`, and no test reads declarations (`__kwdefaults__`) off
+function objects, which mutmut's trampoline strips.
 
 ## Settings and their environment
 
-- **The server's own settings come from the environment where it is deployed**
-  (ADR-0092). `config.server_environment()` reads `$BUY_AGENT_HOST`, `_PORT`,
-  `_ALLOWED_HOSTS`, `_MAX_RUNS`, `_BEHIND_PROXY`, `_ACCESS_LOG` and `_LOG_FORMAT` at
-  start-up, each the default of its `server.build_parser` flag, so a bad value is a
-  usage error. `$BUY_AGENT_API_TOKEN` is a secret: it has no flag, is kept out of every
-  `repr`, and is refused under `deployment.MIN_TOKEN` characters. None of these is a
-  run setting, so none goes in `api.OPTIONS`.
-- `$BUY_AGENT_CACHE_DIR` sets where `pages/` (ADR-0040), `answers/` (ADR-0044),
-  `runs/` and the benchmark's `benchmark/board.json` (ADR-0070) live. It has no
-  flag and no form field. `cache_ttl` covers both cache kinds, and 0 means always
-  fetch fresh and always ask the model. Sampled runs (`temperature > 0`) are
-  never cached. `cache.MAX_BYTES` caps each kind, pruning oldest first (ADR-0052).
-- `runs/` is `journal.py`'s and **not** a cache: it never expires and is bounded
-  by `MAX_RUNS`/`MAX_SEARCHES`, least recently *run* first (ADR-0060). It stores
-  only name, price and currency per product, and shares `cache.write_atomically`
-  and `cache.file_for` rather than copying them. `agent.journal_for` is the only
-  place a config becomes a key, and the key is what was *asked* (request,
-  region, scale, backend, sources, bounds, count), never the model.
+- **The server's settings come from its environment** (ADR-0092):
+  `config.server_environment()` reads `$BUY_AGENT_HOST`, `_PORT`,
+  `_ALLOWED_HOSTS`, `_MAX_RUNS`, `_BEHIND_PROXY`, `_ACCESS_LOG` and `_LOG_FORMAT`
+  at start-up as the defaults of `server.build_parser`'s flags, so a bad value is
+  a usage error. `$BUY_AGENT_API_TOKEN` is a secret: no flag, in no `repr`,
+  refused under `deployment.MIN_TOKEN` characters. None is a run setting or an
+  `api.OPTIONS` row.
+- `$BUY_AGENT_CACHE_DIR` (no flag or form field) holds `pages/` (ADR-0040),
+  `answers/` (ADR-0044), `runs/` and `benchmark/board.json` (ADR-0070).
+  `cache_ttl` covers both caches (0: always fetch and ask afresh); sampled runs
+  (`temperature > 0`) are never cached; `cache.MAX_BYTES` caps each kind, oldest
+  pruned first (ADR-0052).
+- `runs/` is `journal.py`'s and **not** a cache (ADR-0060): it never expires, is
+  bounded by `MAX_RUNS`/`MAX_SEARCHES` (least recently *run* first), keeps only
+  name, price and currency per product, and shares `cache.write_atomically` and
+  `cache.file_for`. Only `agent.journal_for` makes a config a key: what was
+  *asked* (request, region, scale, backend, sources, bounds, count), never the
+  model.
 - `$BUY_AGENT_AP2_KEY` (the signing key, a secret) and `$BUY_AGENT_AP2_MANDATE`
-  (a pre-signed open mandate) have no flag. If the mandate is present, the run
-  is human-not-present (ADR-0046).
-- `$BUY_AGENT_BACKEND` plus `$SEARXNG_HOST`, `$BRAVE_HOST` and `$BRAVE_API_KEY`
-  are read on each row of `search.BACKENDS` (ADR-0057). A missing key fails at
-  the row with a sentence naming the variable, not at the config.
-- `$BUY_AGENT_PROVIDER` plus `$OLLAMA_MODEL`/`$OLLAMA_HOST`,
-  `$VLLM_MODEL`/`$VLLM_HOST`/`$VLLM_API_KEY` and
+  (a pre-signed open mandate, making the run human-not-present) have no flag
+  (ADR-0046).
+- `config` reads `$BUY_AGENT_PROVIDER`, `$BUY_AGENT_BACKEND` and
+  `$BUY_AGENT_RAIL` as the defaults; each row reads its own address and key.
+  `search.BACKENDS` rows read `$SEARXNG_HOST`, `$BRAVE_HOST` and `$BRAVE_API_KEY`
+  (ADR-0057), and a missing key fails at the row, naming the variable.
+  `providers.PROVIDERS` rows read `$OLLAMA_MODEL`/`$OLLAMA_HOST`,
+  `$VLLM_MODEL`/`$VLLM_HOST`/`$VLLM_API_KEY`,
   `$LITELLM_MODEL`/`$LITELLM_HOST`/`$LITELLM_API_KEY` and
-  `$TRTLLM_MODEL`/`$TRTLLM_HOST`/`$TRTLLM_API_KEY` are read on each row of
-  `providers.PROVIDERS` (ADR-0029). `model`, `base_url` and `api_key` default to
-  `""` and are resolved per provider in `__post_init__` (ADR-0012). API keys have
-  no flag or form field and are never in `defaults_payload` or
-  `provider_options()`. `$LITELLM_MODEL` defaults to the placeholder
-  `local_model` (ADR-0068). TensorRT-LLM shares vLLM's client, listing and
-  `_one_model_hint`, and its hint adds how to turn guided decoding on (ADR-0081).
-- `reasoning=False` and `num_ctx=16384` are the defaults because the default
-  model (`gemma4:12b`) thinks, and the ~4.3k-token extraction prompt plus the
-  JSON output would not fit in 4096 (ADR-0019, ADR-0050). `num_ctx` and
-  `cpu_only` are Ollama-only (`Provider.takes_num_ctx`/`takes_cpu_only`), and
-  both front ends say so. `model_timeout` is set on each client, and OpenAI
-  clients get `max_retries=0` (ADR-0051). `cpu_only` and `model_timeout` are not
-  part of the answer-cache fingerprint.
+  `$TRTLLM_MODEL`/`$TRTLLM_HOST`/`$TRTLLM_API_KEY` (ADR-0029).
+- `model`, `base_url` and `api_key` default to `""`, resolved per provider in
+  `__post_init__` (ADR-0012). API keys have no flag or form field and are never in
+  `defaults_payload` or `provider_options()`. `$LITELLM_MODEL` defaults to the
+  placeholder `local_model` (ADR-0068). TensorRT-LLM shares vLLM's client,
+  listing and `_one_model_hint`, its hint adding how to turn guided decoding on
+  (ADR-0081).
+- `reasoning=False` and `num_ctx=16384` are defaults because `gemma4:12b` thinks,
+  and the ~4.3k-token extraction prompt plus its JSON outgrow 4096 (ADR-0019,
+  ADR-0050). `num_ctx` and `cpu_only` are Ollama-only
+  (`Provider.takes_num_ctx`/`takes_cpu_only`), as both front ends say.
+  `model_timeout` is set on each client, and OpenAI clients get `max_retries=0`
+  (ADR-0051). `cpu_only` and `model_timeout` stay out of the answer-cache
+  fingerprint.
 
 ## Architecture
 
-`docs/architecture.md` has the C4 diagrams; keep it in step when a
-responsibility or boundary moves. `docs/adr/` is the decision log, indexed by
-`docs/adr/README.md`; a new ADR is the file plus its index row, starting from
-`docs/adr/0000-template.md`. To contradict an accepted record, write a new one
-that supersedes it. Never reuse a number or rewrite an accepted record. Every
-record is Accepted but ADR-0020, ADR-0038, ADR-0065 and ADR-0067, which ADR-0037,
-ADR-0088, ADR-0087 and ADR-0091 supersede.
+Keep `docs/architecture.md` (C4) in step when a responsibility or boundary moves.
+`docs/adr/` is the decision log: a new ADR is a file from
+`docs/adr/0000-template.md` plus its row in `docs/adr/README.md`. Contradict an
+accepted record by superseding it with a new one; never reuse a number or rewrite
+an accepted record. Every record is Accepted but ADR-0020, ADR-0038, ADR-0065 and
+ADR-0067, which ADR-0037, ADR-0088, ADR-0087 and ADR-0091 supersede.
 
-`.claude/skills/` holds checklists over these rules: `add-option` (a new
-setting), `add-row` (a model server, rail or search backend), `add-adr` (the
-next record) and `preflight` (the CI gate). `.claude/hooks/session-start.sh`
-sets up remote web sessions from `.nvmrc` and `.python-version`, is a no-op when done
-or not remote, only warns on failure, and is tested by
-`tests/test_session_hook.py`.
+`.claude/skills/` holds checklists over these rules: `add-option` (a setting),
+`add-row` (a model server, rail or search backend), `add-adr` (the next record)
+and `preflight` (the CI gate). `.claude/hooks/session-start.sh` sets up remote web
+sessions from `.nvmrc` and `.python-version`, is a no-op when done or not remote,
+only warns on failure, and is tested by `tests/test_session_hook.py`.
 
-The pipeline is deliberately **not** a tool-calling loop (ADR-0002). The LLM does
-the two steps small models are reliable at, and Python does the rest.
+The pipeline is deliberately **not** a tool-calling loop (ADR-0002): the LLM does
+the two steps small models are reliable at, and Python the rest.
 
 ```
 request -> refine query (LLM) -> search (once, or once per named source)
@@ -198,508 +165,446 @@ request -> refine query (LLM) -> search (once, or once per named source)
         -> clean_products -> ground -> deduplicate -> shopper's bounds -> rank -> log top 3
 ```
 
-The order matters at three joints:
-
-- `clean_products` runs before `ground`, so publisher suffixes don't fail the
-  name check.
-- `ground` runs before `deduplicate`, so a merge only combines backed figures.
-  `models.QUALIFIERS` plus `_fill_gaps` move grouped fields together.
-- The bounds come after `deduplicate` (which may supply the price) and before
-  ranking (ADR-0039). `Constraints.apply` re-reads the budget currency against
-  the set it leaves (ADR-0043).
+Three joints matter: `clean_products` before `ground`, so publisher suffixes
+don't fail the name check; `ground` before `deduplicate`, so a merge combines only
+backed figures (`models.QUALIFIERS` and `_fill_gaps` move grouped fields
+together); the bounds after `deduplicate`, which may supply the price, and before
+ranking (ADR-0039), with `Constraints.apply` re-reading the budget currency
+against the set it leaves (ADR-0043).
 
 | Module | Responsibility |
 | --- | --- |
-| `agent.py` | `BuyAgent.run()` -- orchestrates the pipeline, translates model-server errors |
-| `chat.py` | The whole model-facing seam: a prompt, a chain, an answer read back as its schema (ADR-0088) |
-| `extraction.py` | Both prompts, both chains, name cleaning, deduplication |
-| `fetch.py` | Streams result pages up to a ceiling, keeps the lines quoting a figure, a listing's standing or a judgement, and tallies how the rest failed |
-| `structured.py` | What a page declares in schema.org JSON-LD, written as the lines a shop prints (ADR-0078) -- no HTML, no I/O |
-| `cache.py` | What a run can reuse: page text (ADR-0040) and answers (ADR-0044) -- and nothing else |
-| `journal.py` | What past runs of this search reported and what moved since (ADR-0060) |
-| `verification.py` | Drops products, figures and quotes absent from the sources; links what is left |
-| `constraints.py` | The bounds the shopper set, applied before ranking |
-| `alerts.py` | Whether a finished run met the shopper's price alert (ADR-0080) -- told, never applied |
-| `bounds.py` | What the request itself asks for, read in Python and offered at both doors (ADR-0059) -- never applied |
-| `ranking.py` | Scoring and sorting, and what each score is made of; no LLM involved |
-| `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain), and which currency a set is counted in |
-| `money.py` | Every currency table (ADR-0054) |
-| `search.py` | Which backend a search is asked through, one row each -- and nothing else (ADR-0021, ADR-0057) |
+| `agent.py` | `BuyAgent.run()`: orchestrates the pipeline, translates model-server errors |
+| `chat.py` | The model seam: a prompt, a chain, an answer read back as its schema |
+| `extraction.py` | Both prompts and chains, name cleaning, deduplication |
+| `fetch.py` | Streams pages to a ceiling, keeps lines quoting a figure, a listing's standing or a judgement, tallies failures |
+| `structured.py` | A page's schema.org JSON-LD, written as lines a shop prints; no HTML, no I/O |
+| `cache.py` | What a run can reuse: page text and answers, nothing else |
+| `journal.py` | What past runs of this search reported, and what moved since |
+| `verification.py` | Drops products, figures and quotes the sources lack; links what is left |
+| `constraints.py` | The shopper's bounds, applied before ranking |
+| `alerts.py` | Whether a finished run met the price alert; told, never applied |
+| `bounds.py` | What the request itself asks for, offered at both doors, never applied |
+| `ranking.py` | Scoring and sorting, and what each score is made of; no LLM |
+| `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain); which currency a set is counted in |
+| `money.py` | Every currency table |
+| `search.py` | Which backend a search is asked through, one row each, nothing else |
 | `sources.py` | What a trusted source is: domain, term, `site:` query, `covers` |
-| `providers.py` | Everything that differs between Ollama, vLLM, a LiteLLM proxy and TensorRT-LLM, and nothing else |
-| `screenshots.py` | The browser seam; the only module that imports `playwright` (ADR-0065) |
-| `payment.py` | What may be bought and for how much: cart, spend limit, receipt -- and one failure |
-| `mandates.py` | The AP2 seam; the only module that imports `ap2` (ADR-0046) |
-| `rails.py` | Everything that differs between one counterparty and another, one row each |
+| `providers.py` | What differs between Ollama, vLLM, a LiteLLM proxy and TensorRT-LLM, nothing else |
+| `screenshots.py` | The browser seam; the only module importing `playwright` |
+| `payment.py` | What may be bought and for how much: cart, spend limit, receipt, one failure |
+| `mandates.py` | The AP2 seam; the only module importing `ap2` |
+| `rails.py` | What differs between one counterparty and another, one row each |
 | `config.py`, `logging_setup.py`, `__main__.py` | Config, the report, the CLI |
-| `version.py` | Which build is running: a release's stamp, else `dev` and the checkout's commit, read off `.git`'s files (ADR-0083) |
-| `api.py` | Request options in, ranked products out -- the web-facing half worth testing |
-| `deployment.py` | What a server other machines reach adds: token, fixed addresses, caps, drain, metrics -- no HTTP (ADR-0092) |
+| `version.py` | Which build is running: a release's stamp, else `dev` and the commit off `.git`'s files |
+| `api.py` | Request options in, ranked products out: the web-facing half worth testing |
+| `deployment.py` | What serving other machines adds: token, fixed addresses, caps, drain, metrics; no HTTP |
 | `server.py` | A stdlib HTTP server: the JSON API, the event stream, the built UI |
 
-The import graph (layers, one module per seam, where HTTP, threads, env reads
-and files are allowed) is held by `tests/test_architecture.py` (ADR-0047) and
-listed in `docs/testing.md`.
+`tests/test_architecture.py` holds the import graph (layers, one module per seam,
+where HTTP, threads, env reads and files may go; ADR-0047), listed in
+`docs/testing.md`.
 
 ### Conventions
 
 - **A model server is one row in one table, reached one way.**
-  `providers.PROVIDERS` holds each server whole: defaults from its own env vars,
-  its client, schema declaration, listing, transport errors, hint sentences (`own_hint`),
-  `takes_num_ctx`, `takes_cpu_only` and `more_room` (ADR-0029, ADR-0068, ADR-0081).
-  `AgentConfig.model_server` is the *only* place a provider name becomes
-  behaviour: no `if provider == ...` above the table, no module-level wrappers.
-  Listings answer `InstalledModel`s, so embedding-only models are marked, not
-  hidden (ADR-0032), and carry the server's digest where it lists one (ADR-0075). Shared hints go in `_too_slow_hint`/`_unreachable_hint`, and
-  shared failures are decided once in `Provider.hint`, before the row's `own_hint`. A hint naming a *model* requires
-  the row's own client to have raised it (`_answered_by`); otherwise the address
-  is what's wrong. `chat.release` calls a chat model's `close`, `BuyAgent.close`
-  decides when, and `api.run_agent` builds one agent per request for both doors and
-  releases it.
-- **A payment rail is one row in one table too, and the default one spends
-  nothing.** `rails.RAILS` holds, per row: address, whether it needs one and an
-  enrolled key, `moves_money`, how checkouts and authorisations work, transport
-  errors and hint. No real merchant is named anywhere (ADR-0046).
-  `AgentConfig.rail_used` is the only place a rail name becomes behaviour. The
-  default `dry-run` signs a verifiable chain and charges nobody.
-- **A search backend is one row in one table, and the default one needs
-  nothing.** `search.BACKENDS` is organised the same way (ADR-0057), and
-  `AgentConfig.search_backend` is the only place its name becomes behaviour. A
-  row is handed *itself*, not a config, so `search.py` imports nothing from
-  `config`. The retry (ADR-0053) is shared, while each row decides what "nothing
-  matched" means. A missing key is a `SearchError` from the row, and
+  `providers.PROVIDERS` holds each whole: env defaults, client, schema
+  declaration, listing, transport errors, `own_hint`, `takes_num_ctx`,
+  `takes_cpu_only`, `more_room` (ADR-0029, ADR-0068, ADR-0081). Only
+  `AgentConfig.model_server` turns a provider name into behaviour: no
+  `if provider == ...`, no module-level wrappers. Listings answer
+  `InstalledModel`s, marking (not hiding) embedding-only models (ADR-0032), with
+  the server's digest where listed (ADR-0075). Shared hints are
+  `_too_slow_hint`/`_unreachable_hint`; shared failures are decided once in
+  `Provider.hint`, before `own_hint`. A hint naming a *model* needs the row's own
+  client to have raised it (`_answered_by`), else blame the address.
+  `chat.release` calls a chat model's `close`, `BuyAgent.close` decides when, and
+  `api.run_agent` builds and releases one agent per request for both doors.
+- **A payment rail is one row, and the default spends nothing.** `rails.RAILS`
+  rows: address, whether one and an enrolled key are needed, `moves_money`,
+  checkout and authorisation, transport errors, hint. Only
+  `AgentConfig.rail_used` turns a name into behaviour. No real merchant is named
+  anywhere; `dry-run` signs a verifiable chain and charges nobody (ADR-0046).
+- **A search backend is one row, and the default needs nothing**
+  (`search.BACKENDS`, ADR-0021, ADR-0057); only `AgentConfig.search_backend`
+  turns a name into behaviour. A row is handed *itself*, so `search.py` imports
+  nothing from `config`. The retry is shared (ADR-0053); each row decides what
+  "nothing matched" means. A missing key is the row's `SearchError`;
   `Backend.configured` marks the picker.
-- **Never pay on an unverified number, and never on one this run cannot place.**
-  `payment._check` refuses a product whose price was blanked by grounding, whose
-  currency is unprinted, whose run scale is not `money.placeable`, whose price is
-  outside the run's currency (ADR-0043), that has no source page, or whose page
-  says it is out of stock (ADR-0079). That is the
-  deliberate opposite of the shopper's bounds, which *keep* what they can't
-  judge. The CLI prompt, the card's button (`cannot_pay`) and the payment all ask
-  this one function.
-- **The sources are whatever was searched, and the shopper may narrow them.**
-  With `sources` set, `BuyAgent._search` runs one search per source, filters
-  through `Source.covers()`, pools the results deduplicated by URL, and cuts back
-  to `search_results` (ADR-0027). The **domain** is what's enforced. Every spec
-  must name something (`_HOSTNAME`, `_HANDLE`). There is never a fallback to the
-  wider web. `sources.py` does no I/O.
-- **`ExtractedProduct` uses sentinels, `Product` uses `None`.** Use `-1`/`""`
-  rather than nullable fields, because Ollama compiles the schema into a grammar
-  and a required `number` makes `"N/A"` impossible (ADR-0004). New extraction
-  fields stay non-nullable and are converted in `to_product()`. `ProductList`
-  asks the grammar for one product at least, through `json_schema_extra` and
-  never a validator, so an empty answer still reads as nothing found; and
-  `EXTRACTION_PROMPT` asks for no qualifier, only the figures (ADR-0089).
-- **Never rank on an unverified number, never link to an unverified page, and
-  never quote what nobody said.** `verification.ground()` drops products whose
-  name is absent from the sources and blanks unbacked figures (ADR-0006). Only
-  price is checked as a bare number. A rating needs its scale ("4.3/5"), and a
-  review count needs somebody counted ("3,200 ratings"). A new figure a page
-  could print by accident needs its own `mentions_*`. Extraction and verification
-  must see the same text, which is why `fetch.enrich()` puts content on
-  `SearchResult`. `attribute_sources()` links each product to the first searched
-  page mentioning it and keeps the model's URL only if it was searched
-  (ADR-0017).
-- **A quote is a judgement, checked as running text, on the page it came from,
-  where that page is talking about the product, and carries that page**
-  (ADR-0024, ADR-0025, ADR-0042, ADR-0090). `fetch.py` sweeps twice, for
-  figures (`page_chars`) and judgement (`opinion_chars`). `verify_opinions()`
-  checks overlapping five-word runs, most of which must be found, against one
-  page at a time that `mentions_name` says is about the product, and `said_of`
-  then wants the nearest line at or above the quote naming any of the run's
-  products to name this one. A page's line breaks must reach it. `judges`
-  refuses a quote restating a rating or a review count that is not also in
-  `models.JUDGEMENT`, the one vocabulary of judgement (never of subject
-  matter), which `fetch` keeps lines in too. `Product.opinions` are
-  `Opinion(words, url)`; the model is never asked for the page, and a `url` of
-  `None` means the search result had no URL.
-- **A currency belongs to its price, and a review count to its rating**
-  (ADR-0022). `models.QUALIFIERS` pairs them, and a listing's `availability` and
-  `condition` qualify its price too (ADR-0079). `_fill_gaps`,
-  `verification.verify_numbers` and `ExtractedProduct.to_product` all move or
-  drop a qualifier with its figure. A new field that only qualifies another joins
-  that field's group. `opinions` is merged separately in `_merge_opinions`.
-- **A listing's stock and condition are said in one vocabulary** (ADR-0079).
-  `models.STANDING_PHRASES` has a row per `Availability` and `Condition` value;
-  `verify_standing` keeps one only where a page about the product prints it, `fetch`
-  keeps lines in it, and `structured` writes in it. "New" and "used" alone never
-  count. Ranking reads neither; `Product.listing_label` is the one wording.
-- **A page's declaration is page text** (ADR-0078). `fetch.html_to_text` puts
-  `structured.declared`'s lines first, and every line it writes must be one
-  grounding accepts. Nothing downstream knows a figure was declared.
-- **Every listing a product was priced at is kept, and the cart is for one of
-  them** (ADR-0058). `deduplicate` seeds one `models.Offer` per listing (after
-  `ground`), and `_combine` keeps all of them via `_merge_offers` (not
-  `_MERGEABLE_FIELDS`). Ranking, bounds and currency read only `Product.price`.
-  `payment.offer_for` picks the offer matching the headline price and currency.
-  `Product.offers_label` writes the spread.
-- **`GENERIC_WORDS` is shared, and edits to it pull in two directions.**
+- **Never pay on an unverified or unplaceable number.** `payment._check` refuses
+  a price grounding blanked, an unprinted currency, a scale not
+  `money.placeable`, a price outside the run's currency (ADR-0043), no source
+  page, or out of stock (ADR-0079) -- unlike the bounds, which *keep* what they
+  can't judge. The CLI prompt, the card's `cannot_pay` and the payment all ask
+  it.
+- **The sources are what was searched; the shopper may narrow them** (ADR-0027).
+  With `sources`, `BuyAgent._search` searches per source, filters by
+  `Source.covers()`, pools results deduplicated by URL, and cuts to
+  `search_results`. The **domain** is enforced; every spec names something
+  (`_HOSTNAME`, `_HANDLE`); nothing falls back to the wider web. `sources.py` does
+  no I/O.
+- **`ExtractedProduct` uses sentinels (`-1`/`""`), `Product` uses `None`**
+  (ADR-0004): extraction fields stay non-nullable, converted in `to_product()`.
+  `ProductList` asks for one product at least via `json_schema_extra`, never a
+  validator, so an empty answer still means nothing found; `EXTRACTION_PROMPT`
+  asks for figures, no qualifier (ADR-0089).
+- **Never rank on an unverified number, link an unverified page, or quote what
+  nobody said.** `verification.ground()` drops products no source names and
+  blanks unbacked figures (ADR-0006). Only price is a bare number: a rating needs
+  its scale ("4.3/5"), a review count a counter ("3,200 ratings"), and a figure a
+  page could print by accident its own `mentions_*`. Extraction and verification
+  read the same text, which `fetch.enrich()` puts on `SearchResult`.
+  `attribute_sources()` links each product to the first searched page naming it,
+  keeping the model's URL only if searched (ADR-0017).
+- **A quote is a judgement, found as running text on its own page, where that page
+  is about the product, and it carries that page** (ADR-0024, ADR-0025, ADR-0042,
+  ADR-0090). `fetch.py` sweeps for figures (`page_chars`) and judgement
+  (`opinion_chars`). `verify_opinions()` wants most overlapping five-word runs on
+  one page `mentions_name` ties to the product; `said_of` wants the nearest line
+  at or above the quote naming any of the run's products to name this one, so line
+  breaks must reach it. `judges` refuses a quote restating a rating or review
+  count unless it is also in `models.JUDGEMENT`, the one vocabulary of judgement
+  (never of subject matter), which `fetch` keeps lines in too. `Product.opinions`
+  are `Opinion(words, url)`; the model is never asked for the page; `url=None`
+  means the result had none.
+- **A qualifier moves with its figure**: currency with price, review count with
+  rating (ADR-0022), `availability` and `condition` with price (ADR-0079).
+  `models.QUALIFIERS` groups them for `_fill_gaps`,
+  `verification.verify_numbers` and `ExtractedProduct.to_product`; a new
+  qualifier joins its figure's group. `opinions` merge in `_merge_opinions`.
+- **Stock and condition have one vocabulary**, `models.STANDING_PHRASES`, a row
+  per `Availability`/`Condition` value (ADR-0079): `verify_standing` keeps one
+  only where a page about the product prints it, `fetch` keeps lines in it,
+  `structured` writes in it; "new" or "used" alone never counts. Ranking reads
+  neither; `Product.listing_label` is the one wording.
+- **A page's declaration is page text** (ADR-0078): `fetch.html_to_text` puts
+  `structured.declared`'s lines first, each one grounding accepts; nothing
+  downstream knows it was declared.
+- **Every listing a product was priced at is kept; the cart is for one**
+  (ADR-0058). `deduplicate` seeds a `models.Offer` per listing (after `ground`);
+  `_combine` keeps all via `_merge_offers`, not `_MERGEABLE_FIELDS`. Ranking,
+  bounds and currency read only `Product.price`; `payment.offer_for` picks the
+  offer matching the headline price and currency; `Product.offers_label` writes
+  the spread.
+- **`GENERIC_WORDS` is shared and pulls two ways** (ADR-0008):
   `verification.py` imports it, `NAME_TOKENS` and `SUPERLATIVES` from
-  `extraction.py` (ADR-0008). Adding a word merges more names *and* makes
-  `mentions_name` stricter against its 0.6 coverage bar, and `mentions_name`
-  decides realness, links and quotes. Compare token to token, never by
-  substring. Only add words that identify nothing ("wireless", "black").
-- **Missing data scores neutral, not zero -- and says that it did.**
-  `ranking.NEUTRAL` is 0.5 for an unknown rating, count or price (ADR-0007).
-  Price and rating sorts sink unknowns rather than dropping them, and bounds keep
-  them (ADR-0039). Prices are compared within one currency and never converted.
-  `models.dominant_currency` picks the set's currency: the shopper's `currency`
-  if named, else the vote (ADR-0056). `models.comparable_price` answers `None`
-  outside it (ADR-0043), and both `rank_products` and `Constraints` go through
-  it. `score_product` answers `ScoreParts` with `neutral` naming the assumed
-  criteria (ADR-0041), and runs report `RankingWeights.fractions` (ADR-0045).
-- **A currency is added in `money.py` only** (ADR-0054). Spellings are settled
-  in `money.code_for`. `SIGNS`, `WORDS` and `SCANNED_CODES` are *derived* from
-  the one table and read on either side of the figure. Words are case-folded and
-  codes read as written (so "Try" isn't TRY). The exemptions `UNPLACEABLE` (`¥`)
-  and `UNSCANNED` ("pounds") are tested from both sides.
-- **A bound written in the request is offered and never applied** (ADR-0059).
-  `bounds.notice` reads "under $200", "at least 4 stars" and "over 500 reviews"
-  in plain Python, each anchored on its unit. The CLI logs a line naming the
-  flag, and `GET /api/bounds` pre-fills an empty box once, as a hint.
-  `bounds.py` doesn't know the settings' ranges. Nothing may apply one.
-- **The report says what it is ordered by.** `ranking.ORDERINGS` holds a phrase
-  per `SortBy` ("cheapest first"), which the report heading, `sort_labels` and
-  `--sort-by`'s help all read. A new criterion needs a phrase.
-- **The report is output; the progress is narration.** `log_top_products` marks
-  its records for stdout (plain `_REPORT_FORMAT`). Everything else goes to stderr
-  with `_FORMAT`'s clock. Only the console handler filters, and
-  `configure_logging` sets the level itself. `_NOISY_LIBRARIES` are quiet until
-  verbose; `_TRACE_LIBRARIES` stay quiet even then.
-  `tests/test_logging_setup.py` holds every logger the clients create to one
-  list or the other.
-- **A heuristic that takes something away says how many at INFO and which at
-  DEBUG.** That is `clean_products`, `drop_ungrounded`, `merge_variants`,
-  `deduplicate`'s nameless drop, `Constraints.apply`, `verify_numbers`,
-  `verify_standing`, `verify_opinions` and `attribute_sources`. The first five drop whole products
-  and also call `record` with a `models.Removal`, which the run payload carries
-  as `dropped` (ADR-0055). `tests/test_logging_contract.py` covers all of them.
-- **A run says which model it asked and where its time went** (ADR-0084).
-  `BuyAgent.run` names the model it opened (never one handed in) as `label` at
-  `base_url`, each model call's line says how long it took, and every run that
-  returns ends with one `Finished in` line: the whole, then each step. Steps are
-  timed in `agent.py` by `_Stopwatch`, never in their own modules, and a duration
-  is written by `logging_setup.seconds_label`, which the benchmark shares.
-- **A page is fetched only off the public web** (ADR-0092). `fetch.on_the_public_web`
-  refuses non-global IPs, single-label names, private suffixes and numeric spellings,
-  for the first URL in `_markup` and every redirect through `refuse_private`, the
-  client's request hook. A new place a URL from the web is read goes through it.
-- **The web is asked twice and the model once, and the clock is handed in.**
-  `fetch.py` and `search.py` take a `wait` (`BuyAgent` passes `time.sleep`, and
-  tests pass `None` to ask once) (ADR-0034, ADR-0053). A page answering 429/503
-  is retried after a capped `Retry-After` (never parsed as a date), and so is any
-  search failure other than "matched nothing". The model is never retried
-  (ADR-0051). Every stand-in for `search_web`/`enrich` takes `wait`, as every
-  `BuyAgent` stand-in takes `checkpoint`.
-- **Model output is never trusted as judgement.** Filtering, scoring and
-  ordering belong in Python, where they're testable. `clean_products` filters
-  headlines the model reports as products.
+  `extraction.py`. A new word merges more names *and* makes `mentions_name`
+  (realness, links, quotes) stricter at its 0.6 coverage bar. Compare token to
+  token, never substring; add only words that identify nothing ("wireless",
+  "black").
+- **Missing data scores neutral, and says so.** `ranking.NEUTRAL` (0.5) stands in
+  for an unknown rating, count or price (ADR-0007); sorts sink unknowns, bounds
+  keep them (ADR-0039). Prices compare within one currency, never converted:
+  `models.dominant_currency` picks it (the shopper's `currency`, else a vote,
+  ADR-0056), and `models.comparable_price`, used by `rank_products` and
+  `Constraints`, is `None` outside it (ADR-0043). `score_product` answers
+  `ScoreParts`, `neutral` naming assumed criteria (ADR-0041); runs report
+  `RankingWeights.fractions` (ADR-0045).
+- **A currency is added in `money.py` only** (ADR-0054); `money.code_for` settles
+  spellings. `SIGNS`, `WORDS`, `SCANNED_CODES` derive from the one table, read
+  either side of the figure; words case-fold, codes read as written ("Try" isn't
+  TRY). The exemptions `UNPLACEABLE` (`¥`) and `UNSCANNED` ("pounds") are tested
+  both ways.
+- **A bound written in the request is offered, never applied** (ADR-0059).
+  `bounds.notice` reads "under $200", "at least 4 stars", "over 500 reviews" in
+  plain Python, anchored on the unit, blind to the settings' ranges. The CLI logs
+  a line naming the flag; `GET /api/bounds` pre-fills an empty box once, as a
+  hint.
+- **The report says its order:** `ranking.ORDERINGS` has a phrase per `SortBy`
+  ("cheapest first") for the heading, `sort_labels` and `--sort-by`'s help; a new
+  criterion needs one.
+- **The report is output, progress narration.** `log_top_products` marks its
+  records for stdout (`_REPORT_FORMAT`); the rest goes to stderr with `_FORMAT`'s
+  clock. Only the console handler filters; `configure_logging` sets the level.
+  `_NOISY_LIBRARIES` are quiet until verbose, `_TRACE_LIBRARIES` even then;
+  `tests/test_logging_setup.py` holds every client logger to one of the two.
+- **A heuristic that takes something away logs how many at INFO, which at DEBUG**
+  (`tests/test_logging_contract.py`): `clean_products`, `drop_ungrounded`,
+  `merge_variants`, `deduplicate`'s nameless drop and `Constraints.apply` (whole
+  products, each also `record`ing a `models.Removal`, the payload's `dropped`,
+  ADR-0055), and `verify_numbers`, `verify_standing`, `verify_opinions`,
+  `attribute_sources`.
+- **A run names its model and its time** (ADR-0084): `BuyAgent.run` names the
+  model it opened (never one handed in) as `label` at `base_url`, logs each model
+  call's time, and ends every returning run with one `Finished in` line, the
+  whole then each step. `agent.py`'s `_Stopwatch` times steps, never their
+  modules; `logging_setup.seconds_label`, shared with the benchmark, writes
+  durations.
+- **Pages come only off the public web** (ADR-0092): `fetch.on_the_public_web`
+  refuses non-global IPs, single-label names, private suffixes and numeric
+  spellings, for `_markup`'s first URL and each redirect (`refuse_private`, the
+  client's request hook). Any new reader of a web URL goes through it.
+- **The web is asked twice, the model once, with the clock handed in** (ADR-0034,
+  ADR-0053, ADR-0051). `fetch.py` and `search.py` take `wait` (`time.sleep` from
+  `BuyAgent`, `None` in tests to ask once). A 429/503 page is retried after a
+  capped `Retry-After` (never read as a date), as is any search failure but
+  "matched nothing"; the model is never retried. Every `search_web`/`enrich`
+  stand-in takes `wait`, as every `BuyAgent` stand-in takes `checkpoint`.
+- **Model output is never trusted as judgement:** filtering, scoring and ordering
+  are Python's, and testable; `clean_products` drops headlines posing as products.
 
 ### Failures
 
-`BuyAgent.run()` raises exactly `ValueError`, `ModelUnavailableError` and
-`SearchError` (ADR-0009). `__main__.main()` catches exactly those around the run
-and returns 1, and `api._STATUS` maps them to 400/503/502. A new failure mode must
-be handled in all three places. Other exit codes: 130 for Ctrl-C (including at
-the payment prompt), `NOTHING_FOUND` (3), `PAYMENT_FAILED` (4), `ABOVE_ALERT` (5,
-ADR-0080), and 2 for argparse. `main` has a separate `except OSError` for writing `--json`.
-
-Payment failures are *not* a fourth row. `payment.PaymentError` is the one thing
-paying raises: a plain one (400) means it declined, and its subclass
-`RailUnreachableError` (502) a counterparty that was unreachable or answered with
-nothing readable. They map through `api.PAY_STATUS` and are caught in
+`BuyAgent.run()` raises exactly `ValueError`, `ModelUnavailableError`,
+`SearchError` (ADR-0009): `__main__.main()` catches exactly those (exit 1) and
+`api._STATUS` maps them to 400/503/502. A new failure mode goes in all three.
+Other exits: 130 Ctrl-C (the payment prompt too), `NOTHING_FOUND` 3,
+`PAYMENT_FAILED` 4, `ABOVE_ALERT` 5 (ADR-0080), 2 argparse; `main` has its own
+`except OSError` for `--json`. Paying is *not* a fourth row: it raises only
+`payment.PaymentError` (400, declined) or its `RailUnreachableError` (502,
+counterparty unreachable or unreadable), via `api.PAY_STATUS`, caught in
 `__main__._bought`.
 
-Only query refinement is recoverable: it falls back to the raw request but lets
+Only query refinement recovers, falling back to the raw request but letting
 `ModelUnavailableError` through. `_invoke` catches
-`config.model_server.transport_errors` (Ollama's tuple includes `httpx.HTTPError`,
-OpenAI-style rows use `openai.OpenAIError`). Every row that dials an address, and
-`fetch`, also counts `UnicodeError`, which the socket raises unwrapped for a host
-it cannot encode. `chat.UnreadableAnswerError` is a `ValueError`, so
-`_extract_products` turns it into a `ModelUnavailableError` with the provider's
-hint about room (ADR-0019).
+`config.model_server.transport_errors` (Ollama's include `httpx.HTTPError`;
+OpenAI-style rows `openai.OpenAIError`); rows that dial an address, and `fetch`,
+add `UnicodeError`, raised unwrapped for a host the socket can't encode.
+`chat.UnreadableAnswerError` is a `ValueError`, which `_extract_products` makes a
+`ModelUnavailableError` with the provider's hint about room (ADR-0019).
 
 ### Options
 
-**A setting is one row in `api.OPTIONS`**, read by both doors: `parse_options`,
-`defaults_payload`, `limits_payload`, and the CLI, whose `build_parser` makes a
-flag of each row (`--<key>`, a `--x`/`--no-x` pair for a switch). A row's parser
-raises `ValueError`; `api._read` turns that into an `ApiError` marking the key's
-box, and `__main__._flag` into a usage error, so both doors refuse the same
-values in the same words (ADR-0071). A new option is a row there plus its help in
-`__main__._written()`, which also holds where a flag differs from its row (a
-`metavar`, the raw `$BUY_AGENT_*` default, `--num-ctx`'s `None`). The
-exceptions: `sources` is a list, `sort_by` is not a config field, and
-`search_results` is no row: unset, `__post_init__` makes it
-`max(num_products, top_n)`. Four keys are named unlike their field:
-`results` (`num_products`), `top` (`top_n`), `fetch` (`fetch_pages`) and
-`think` (`reasoning`, whose `None` means "send nothing").
+**A setting is one `api.OPTIONS` row**, read by `parse_options`,
+`defaults_payload`, `limits_payload` and the CLI's `build_parser` (`--<key>`, or
+`--x`/`--no-x` for a switch). A row's parser raises `ValueError`: `api._read`
+makes it an `ApiError` marking the key's box, `__main__._flag` a usage error, so
+both doors refuse the same values in the same words (ADR-0071). A new option is a
+row plus help in `__main__._written()`, which also holds a flag's departures from
+its row (`metavar`, the raw `$BUY_AGENT_*` default, `--num-ctx`'s `None`).
+`sources` is a list, `sort_by` no config field, `search_results` no row (unset,
+`__post_init__` makes it `max(num_products, top_n)`). Keys unlike their field:
+`results` (`num_products`), `top` (`top_n`), `fetch` (`fetch_pages`), `think`
+(`reasoning`; `None` sends nothing).
 
-**A sentence below either door names the setting, never the flag.** Hints from
-`providers`, `rails` and `AgentConfig.__post_init__` are shown in the browser
-too. Other programs' flags (`vllm serve --max-model-len`) are fine, and so are
-docstrings. A convention test enforces it.
+**Sentences below either door name the setting, never the flag**, since hints
+from `providers`, `rails` and `AgentConfig.__post_init__` reach the browser.
+Other programs' flags (`vllm serve --max-model-len`) and docstrings are fine; a
+convention test enforces it.
 
-- **Numbers:** the range lives on the number's `api.OPTIONS` row, and `api.LIMITS`
-  reads them by field. `--json`'s `type` refuses a missing directory.
-- **`region`:** `config.parse_region` is the only shape check (ADR-0031).
-  `_empty_search_note` composes `_region_note` and `_sources_note` for an empty
-  search.
+- **Numbers:** ranges live on the rows, read by field into `api.LIMITS`.
+  `--json`'s `type` refuses a missing directory.
+- **`region`:** only `config.parse_region` checks shape (ADR-0031);
+  `_empty_search_note` composes `_region_note` and `_sources_note`.
 - **`currency`:** `config.parse_currency` checks `money.placeable`, folding
-  spellings, and `--currency`'s help lists the codes. Blank means vote
-  (ADR-0056). A finished run carries the currency it was counted in as `scale`
-  (`ranking.scale_of`), and a re-sort and a payment are handed it back rather
-  than voting again: a vote over products in rank order can break a tie the
-  other way.
-- **`backend`, `provider` and `rail`** are checked against their table and
-  offered as picker rows (`backend_options()`, `ProviderOption`,
-  `rail_options()`). When `provider` changes, the front ends pass
-  `model`/`base_url` as `""` and the form refills them.
+  spellings; blank means a vote (ADR-0056); `--currency`'s help lists codes. A
+  finished run's `scale` (`ranking.scale_of`) is handed back to a re-sort or
+  payment, never re-voted: a vote in rank order can break a tie the other way.
+- **`backend`, `provider`, `rail`** are checked against their tables and offered
+  as picker rows (`backend_options()`, `ProviderOption`, `rail_options()`). On a
+  `provider` change the front ends send `model`/`base_url` as `""` and the form
+  refills them.
 - **`sources`** bypasses `api._read`: `_read_sources` takes an array or a
-  separated string. An empty value over the wire means the whole web, while the
-  CLI refuses a `--source` naming nothing.
-- **`alert_below`** is told and never applied (ADR-0080): `api.alert_for` asks
-  `alerts.price_alert` of a finished ranking for both doors. Only a placeable price
-  printed with its currency and not marked out of stock meets it (a bare one is named,
-  never met, as `payment._check` refuses it), it is not part of the journal's key, and
-  the CLI exits `ABOVE_ALERT` when it was given and not met.
-- **The three bounds** (`max_price`, `min_rating`, `min_reviews`) default to
-  `None`, meaning no bound. Unknown figures pass, and help text says so. The
-  placeholder is "No limit". `max_price` is in the run's currency.
-- **`journal`:** `--compare` is CLI-only, and the browser gets `changes` on
-  every run (ADR-0060).
-- **Paying:** `pay` is off by default. `rail` defaults to `DEFAULT_RAIL`
-  (`$BUY_AGENT_RAIL` overrides it), and `merchant_url` is resolved per rail. A
-  paying rail with no address raises `ValueError` in `__post_init__`, which the
-  API marks on `merchant_url` and the CLI reports as exit 2. `spend_limit` has
-  `max_price`'s range but refuses what it can't judge. The form hides the other
-  three until `pay` is ticked, and the CLI names idle ones
+  separated string. Empty over the wire is the whole web; the CLI refuses an
+  empty `--source`.
+- **`alert_below`** is told, never applied (ADR-0080): `api.alert_for` asks
+  `alerts.price_alert` of a finished ranking for both doors. Only a placeable
+  price printed with its currency and not out of stock meets it (a bare one is
+  named, never met, as `payment._check` refuses it). It is not in the journal's
+  key; the CLI exits `ABOVE_ALERT` when it is given and unmet.
+- **The bounds** (`max_price`, `min_rating`, `min_reviews`) default to `None`,
+  no bound; unknown figures pass, as help says; the placeholder is "No limit";
+  `max_price` is in the run's currency.
+- **`journal`:** `--compare` is CLI-only; the browser gets `changes` every run
+  (ADR-0060).
+- **Paying:** `pay` is off by default. `rail` defaults to `DEFAULT_RAIL`;
+  `merchant_url` resolves per rail, and a paying rail without one raises
+  `ValueError` in `__post_init__` (marked on `merchant_url`; exit 2).
+  `spend_limit` has `max_price`'s range but refuses what it can't judge. The form
+  hides the other three until `pay` is ticked; the CLI names idle ones
   (`_idle_paying_flags`).
-- **`weights`** is reachable only from Python.
+- **`weights`** is Python-only.
 
 `buy_agent/__init__.py` re-exports `BuyAgent`, `AgentConfig`, `Product`,
 `RankedProduct`, `RankingWeights` and `rank_products`.
 
 ## The UI and its server
 
-`buy_agent.server` is stdlib-only (ADR-0010). `/api` goes to `api.py`, and
-everything else goes to the built app, with `index.html` as the fallback.
+`buy_agent.server` is stdlib-only (ADR-0010): `/api` goes to `api.py`, the rest
+to the built app, falling back to `index.html`. `README.md` lists the endpoints.
 
-| Endpoint | Answers with |
-| --- | --- |
-| `GET /api/config` | The form's defaults |
-| `GET /api/models` | What a named server is serving, or why not and what to do |
-| `GET /api/sources` | Whether a Trusted sources field names sites (runs nothing) |
-| `GET /api/bounds` | What the request asks for, offered to the form, never applied |
-| `GET /api/screenshot` | A JPEG of a card's page, from a server with a camera |
-| `POST /api/search` | One run, as JSON |
-| `POST /api/rank` | A finished run's products in another order -- runs no pipeline |
-| `POST /api/pay` | One product bought, given the witnessed approval -- runs no pipeline |
-| `GET /api/search/stream` | One run, as SSE: `log` lines, then `result` or `failure` |
-| `GET /healthz` | Liveness: no token, any `Host` (ADR-0092) |
-| `GET /readyz` | 503 while stopping or while the model server it started with is down |
-| `GET /metrics` | Prometheus text, any `Host`, behind the token |
-
-- **Runs are streamed** (ADR-0011). `_LogRelay` routes records by context, and
-  `fetch.enrich` starts its pool workers with `_as_the_caller`. A `ping` goes out
-  every 15s, and each line carries its `%H:%M:%S` `time`.
-- **Closing the stream stops the run at the next step** (ADR-0034).
-  `BuyAgent.run` calls `checkpoint` before `search`, `fetch`, `extract` and
-  `rank`, and `server._stop_when` raises `_Stopped`. A stop is not a failure, so
-  it is kept out of `_STATUS`, `main` and `Raises`. New steps must announce
-  themselves.
-- **The failure event is `failure`, never `error`,** because `EventSource`
-  reconnects on `error`. `HEAD /api/search/stream` is 405.
-- **The browser decides nothing** (ADR-0012). Python supplies `cannot_pay`,
-  `pay_currency`/`pay_label`/`pay_merchant` (all null together), `price_label`,
-  `rating_label`, `offers_label`, `listing_label`, each model's `completion`, the provider `label`
-  and `hint`. `ui/src/app/agent.types.ts` mirrors every payload.
-- **Paying is witnessed** (ADR-0046). `POST /api/pay` gets the run, the product
-  and `approved` (an echo of title, `pay_label` and `pay_currency`). The server
-  builds the cart and the echo must match. An open mandate replaces the echo.
-  Receipts never carry the mandate chain, only a `reference` hash.
-- **Re-sorting is a request, not a re-run** (ADR-0035). `rank_again` is only
-  `rank_products`, and the products travel in the body. `api.results_payload` is
-  the one shaping of a run's products (API, `--json`, Download). A re-sort
-  reports no `dropped`, `changes` or `alert` of its own, so the page keeps the run's,
-  and the page sends the run's `seal` with a re-sort and a payment (ADR-0092).
-- **A blank value means "use the default"** in `parse_options` and in the UI's
-  `toQuery`.
-- **The form refuses first, on Python's rules** (ADR-0033). `limits` bind
-  `[min]`/`[max]`, and `GET /api/sources` answers `{"sources", "error"}` with a
-  200 either way. `ApiError.field` marks the box. Region is not pre-checked.
-- **Every request is admitted first** (ADR-0018). `_refused()` runs at the top
-  of `do_GET`, `do_POST` and `do_HEAD`; a new method needs it too. It refuses
-  cross-site `Sec-Fetch-Site`, a foreign `Origin`, and a `Host` outside
-  `allowed_hosts`. Typed addresses go through `_bound_host` (IPv6 brackets), and
-  `_family_for` picks `AF_INET6`.
-- **Other machines change three things** (ADR-0092), each in `deployment.Policy`.
-  With a token, `_refused` asks for it after the `Origin`/`Host` checks, as a bearer
-  or a Basic password, and `_PROBES` and `/metrics` come before those checks. When
-  bound beyond loopback or `--behind-proxy`, `policy.fixed_addresses` refuses a
-  `base_url` or `merchant_url` that is not the row's own (`refuse_foreign_address`,
-  `_pay`). And `--behind-proxy` reads `X-Forwarded-Host`/`-For` through `_forwarded`,
-  and nothing else does.
-- **A run's products come back sealed** (ADR-0092). `api.Sealer` signs the set,
-  keyed off the token (else per process), and `rank_again` and `pay_now` refuse a
-  `seal` that does not match with a 409 on `products`. Anything else that takes
-  products back from a client checks it too.
-- **A server counts what it answers and stops by draining** (ADR-0092).
-  `deployment.Traffic` caps runs (`admit_run`, a `_Busy` 503 with `Retry-After`)
-  and connections, and feeds `/metrics`. `serve_until_interrupted` takes SIGTERM
-  and Ctrl-C alike, then `Server.drain` waits `DRAIN_SECONDS` at most. Each request
-  gets a `request_id`, which a 500 names in place of its exception.
-- **The server never asks itself for a model.** `server._reaches` detects an
-  address that lands on this server (`:8000` is vLLM's and TensorRT-LLM's default). `/api/models`
-  explains, and a run is refused on `base_url`.
-- **Only a loopback-bound server with Playwright takes pictures** (ADR-0065),
-  via `server.camera_for`, and `defaults_payload.screenshots` says whether it
-  can. Nothing in the pipeline knows about pictures. Only `http`/`https` are
-  photographed, and a failure is a 502. `screenshots.Camera` is one browser on
-  one thread, launched lazily and closed after a minute idle.
-- **Every request is answered.** `do_GET`/`do_POST` end in `_send_failure`: an
-  `ApiError` with its status, anything else a 500. `server.main` refuses bad
-  `$BUY_AGENT_PROVIDER`/`RAIL`/`BACKEND` and an out-of-range `--port` before
-  binding. `_clashing_provider` hints only on `EADDRINUSE`.
-- **Platform traps.** `server._CONTENT_TYPES` spells out MIME types, because
-  Windows' registry can serve `.js` as `text/plain`. `_resolve` catches
-  `OSError`/`ValueError`, and tests make `resolve()` raise rather than rely on
-  platform-specific inputs (ADR-0020).
-- **The CSP coupling.** `_SECURITY_HEADERS` sets CSP to `'self'`, with
-  `'unsafe-inline'` for styles only. `optimization.styles.inlineCritical` is off
-  in `ui/angular.json` because the inline script it writes would be blocked and
-  the page left unstyled. Anything adding inline handlers, inline scripts or
-  cross-origin requests breaks the same way, and only a browser shows it:
-  `browser/` fails on any error the page reports (ADR-0087). ESLint refuses
-  `on*` attributes and `javascript:` URLs in templates (ADR-0066).
+- **Runs are streamed** (ADR-0011): `_LogRelay` routes records by context,
+  `fetch.enrich` starts pool workers with `_as_the_caller`, a `ping` goes every
+  15s, each line carries a `%H:%M:%S` `time`.
+- **Closing the stream stops the run at the next step** (ADR-0034):
+  `BuyAgent.run` calls `checkpoint` before `search`, `fetch`, `extract`, `rank`;
+  `server._stop_when` raises `_Stopped`. A stop is no failure: it stays out of
+  `_STATUS`, `main` and `Raises`. New steps must announce themselves.
+- **The failure event is `failure`, never `error`,** which `EventSource`
+  reconnects on. `HEAD /api/search/stream` is 405.
+- **The browser decides nothing** (ADR-0012): Python supplies `cannot_pay`,
+  `pay_currency`/`pay_label`/`pay_merchant` (null together), `price_label`,
+  `rating_label`, `offers_label`, `listing_label`, each model's `completion`, the
+  provider `label` and `hint`. `ui/src/app/agent.types.ts` mirrors every payload.
+- **Paying is witnessed** (ADR-0046): `POST /api/pay` takes the run, the product
+  and `approved` (an echo of title, `pay_label`, `pay_currency`), which must match
+  the cart the server builds; an open mandate replaces the echo. Receipts carry a
+  `reference` hash, never the mandate chain.
+- **Re-sorting is a request, not a re-run** (ADR-0035): `rank_again` is only
+  `rank_products` over products in the body. `api.results_payload` is the one
+  shaping of a run's products (API, `--json`, Download). A re-sort reports no
+  `dropped`, `changes` or `alert`, so the page keeps the run's, and sends the
+  run's `seal` with a re-sort or payment (ADR-0092).
+- **Blank means default**, in `parse_options` and the UI's `toQuery`.
+- **The form refuses first, on Python's rules** (ADR-0033): `limits` bind
+  `[min]`/`[max]`; `GET /api/sources` answers `{"sources", "error"}`, 200 either
+  way; `ApiError.field` marks the box. Region isn't pre-checked.
+- **Every request is admitted first** (ADR-0018): `_refused()` opens `do_GET`,
+  `do_POST`, `do_HEAD` and any new method, refusing cross-site `Sec-Fetch-Site`,
+  a foreign `Origin`, a `Host` outside `allowed_hosts`. Typed addresses go through
+  `_bound_host` (IPv6 brackets); `_family_for` picks `AF_INET6`.
+- **Other machines change three things**, each in `deployment.Policy` (ADR-0092).
+  With a token, `_refused` asks for it (bearer or Basic password) after the
+  `Origin`/`Host` checks, which `_PROBES` and `/metrics` precede. Bound beyond
+  loopback or `--behind-proxy`, `policy.fixed_addresses` refuses a `base_url` or
+  `merchant_url` not the row's own (`refuse_foreign_address`, `_pay`). Only
+  `--behind-proxy` reads `X-Forwarded-Host`/`-For`, in `_forwarded`.
+- **A run's products come back sealed** (ADR-0092): `api.Sealer` signs the set,
+  keyed off the token (else per process); `rank_again`, `pay_now` and anything
+  taking products back refuse a mismatched `seal`, 409 on `products`.
+- **A server counts and drains** (ADR-0092): `deployment.Traffic` caps runs
+  (`admit_run`; a `_Busy` 503 with `Retry-After`) and connections and feeds
+  `/metrics`; `serve_until_interrupted` takes SIGTERM like Ctrl-C, then
+  `Server.drain` waits up to `DRAIN_SECONDS`. A 500 names the `request_id`, not
+  the exception.
+- **The server never asks itself for a model:** `server._reaches` spots an
+  address landing here (`:8000` is vLLM's and TensorRT-LLM's default);
+  `/api/models` explains, and a run is refused on `base_url`.
+- **Only a loopback-bound server with Playwright takes pictures** (ADR-0065), via
+  `server.camera_for`, as `defaults_payload.screenshots` tells; the pipeline
+  knows nothing of them. Only `http`/`https`; a failure is a 502.
+  `screenshots.Camera` is one browser on one thread, launched lazily, closed after
+  a minute idle.
+- **Every request is answered:** `do_GET`/`do_POST` end in `_send_failure` (an
+  `ApiError`'s status, else 500). `server.main` refuses a bad
+  `$BUY_AGENT_PROVIDER`/`RAIL`/`BACKEND` or out-of-range `--port` before binding;
+  `_clashing_provider` hints only on `EADDRINUSE`.
+- **Platform traps:** `server._CONTENT_TYPES` spells out MIME types (Windows can
+  serve `.js` as `text/plain`); `_resolve` catches `OSError`/`ValueError`, and
+  tests make `resolve()` raise rather than rely on platform inputs (ADR-0020).
+- **The CSP coupling:** `_SECURITY_HEADERS` sets CSP `'self'`, `'unsafe-inline'`
+  for styles only, so `ui/angular.json` keeps
+  `optimization.styles.inlineCritical` off (its inline script would be blocked).
+  Inline handlers or scripts and cross-origin requests break alike, visible only
+  in a browser: `browser/` fails on any error the page reports (ADR-0087). ESLint
+  refuses `on*` attributes and `javascript:` URLs in templates (ADR-0066).
 
 ### The components
 
-`ui/README.md` describes each component and the reasons for it. These rules must
-hold:
+Reasons are in `ui/README.md`. These must hold:
 
-- No sentence about the model server is written in TS. `App.unreachable` is
-  Python's `hint`. `App.asking` holds the in-flight `ModelSource`. Re-ask on
-  load, on Check again, and after a contradicting run.
-- `progress-log` is presentation. Download log is offered only for failed or
-  stopped runs.
-- `App.reveal`/`showResults` scroll results into view (`nearest`). A failure
-  naming a field is not scrolled to.
+- No sentence about the model server is written in TS: `App.unreachable` is
+  Python's `hint`; `App.asking` holds the in-flight `ModelSource`. Re-ask on load,
+  on Check again, and after a contradicting run.
+- `progress-log` is presentation; Download log only for failed or stopped runs.
+  `App.reveal`/`showResults` scroll results into view (`nearest`), never to a
+  failure naming a field.
 - `dropped` (ADR-0055) and `changes`/`compared_with` (ADR-0060) are grouped and
-  counted but never re-worded, and they survive a re-sort. `movement` is for
-  colour and counting only.
+  counted, never re-worded, and survive a re-sort; `movement` only colours and
+  counts.
 - A screenshot frame is drawn only when `screenshots` is set and the product
-  links somewhere. It is `loading="lazy"`, reserves 640x400, and a failed image
-  drops the frame by address.
-- Buying takes two clicks, and the second restates the *cart* (`pay_label`,
-  `pay_merchant`, the rail, whether anyone is charged). Pay buttons, the rail and
-  the payment follow the form's paying settings as they stand (`payWith`), not
-  the run's: paying runs no pipeline. They are held to what a run is: while the
-  form marks a paying box, the card says so (`held`) where its button was, and a
-  payment refused on its endpoint is marked on that box, held against what the
-  payment sent, its rail and the switch. A spend limit refused is one cart over
-  it, and stays a sentence beside the cards. The spend limit's hint names the results' currency (`countedIn`), which a
-  payment is checked in, and an open confirmation closes when the switch, the
-  rail or `held` changes under it. A press moves the
-  keyboard to what replaced its block (`LANDING`): the cart and never the button
-  that buys, Pay again, the wait, the receipt. Focus the reader moved elsewhere
-  stays there.
-- Receipts are keyed by product name, never by index.
-- `pay`, the three bounds and `alert_below` are the settings not remembered in
-  `localStorage`, and a bound an older build stored is not restored (ADR-0077). Every storage
-  call is wrapped.
+  links somewhere: `loading="lazy"`, 640x400 reserved, dropped by address if it
+  fails.
+- Buying takes two clicks; the second restates the *cart* (`pay_label`,
+  `pay_merchant`, rail, whether anyone is charged). Pay buttons, rail and payment
+  follow the form's paying settings as they stand (`payWith`), not the run's, and
+  are held as a run is: while the form marks a paying box the card says so
+  (`held`) in its button's place, and a payment refused on its endpoint is marked
+  on that box, held against what it sent, its rail and the switch. A refused
+  spend limit is one cart over it, a sentence beside the cards. The spend limit's
+  hint names the results' currency (`countedIn`); an open confirmation closes
+  when the switch, rail or `held` changes under it. A press moves the keyboard to
+  its block's replacement (`LANDING`): the cart (never the buy button), Pay again,
+  the wait, the receipt; focus moved elsewhere stays.
+- Receipts are keyed by product name, never index.
+- `pay`, the bounds and `alert_below` are not remembered in `localStorage`, and
+  a bound an older build stored is not restored (ADR-0077). Every storage call is
+  wrapped.
 - A request-noticed bound fills its box once (`noticedNow`, `offered`) and marks
-  nothing. Its note sits above the box's hint, never in its place. A submit waits
-  for a reading still on its way (`reading`, `held`), and one that puts a figure
-  in a box sends nothing, focuses that box, scrolls its whole field into view and
-  says beside it that nothing was searched yet (`stoppedAt`). `App` answers a
-  failed reading as one that noticed nothing.
-- `problems()` gates `canSubmit` using server ranges and the last sources
-  answer. Disabled fields are neither checked nor sent, and a switched-off number
-  box shows empty so its placeholder is read. `notes()` adds the
-  server's `rejected` field while `submitted` still matches, and `moved` tells
-  `App` when to drop the banner. `options()` builds the payload. A mark is
-  `aria-invalid` plus `aria-describedby` from `problemId`. `numberTyped` reads
-  `validity.badInput`.
-- Number boxes are declared once in `numberFields`, keyed like
-  `limits_payload`. `settings` spreads `numberSettings(this.numberFields)`, and
-  `remembered` and `remembersBlank` are set per row. `payingFields`/`settingFields` partition it.
-- The model field marks rather than hides ("not served", "embedding only")
-  (ADR-0032).
-- A mark opens the Settings panel it's in, once per change of marks.
-- Each component is checked with `axe-core` via `ui/src/app/a11y.ts`, with rules
-  enabled one at a time, each with a reason. An inconclusive rule counts as a
-  failure. Colour is never the only carrier.
+  nothing; its note sits above the box's hint. A submit waits for a reading on its
+  way (`reading`, `held`); one that fills a box sends nothing, focuses the box,
+  scrolls its field into view and says beside it nothing was searched yet
+  (`stoppedAt`). `App` takes a failed reading as noticing nothing.
+- `problems()` gates `canSubmit` on server ranges and the last sources answer.
+  Disabled fields are neither checked nor sent; a switched-off number box shows
+  empty so its placeholder reads. `notes()` adds the server's `rejected` field
+  while `submitted` matches; `moved` tells `App` to drop the banner; `options()`
+  builds the payload. A mark is `aria-invalid` plus `aria-describedby` from
+  `problemId`; `numberTyped` reads `validity.badInput`.
+- `numberFields` declares number boxes once, keyed like `limits_payload`;
+  `settings` spreads `numberSettings(this.numberFields)`; `remembered` and
+  `remembersBlank` are per row; `payingFields`/`settingFields` partition it.
+- The model field marks, not hides ("not served", "embedding only", ADR-0032). A
+  mark opens its Settings panel, once per change of marks.
+- `ui/src/app/a11y.ts` runs `axe-core` over each component, rules enabled one at a
+  time, each with a reason; an inconclusive rule fails. Colour is never the only
+  carrier.
 
 ## Tests
 
-`docs/testing.md` is the long form and the one place counts are written. The
-rules a change must obey:
+`docs/testing.md` is the long form and the only place counts are written.
 
 - **Seams:** `BuyAgent(config, llm=...)` with `tests/conftest.py`'s `FakeLLM`
-  (one `answer` method). A chain stand-in has `invoke`.
-  `create_server(agent_factory=..., allowed_hosts=..., camera=...)`.
-  `Photographer` stands in for the camera. No test in `tests/` starts a browser:
-  `screenshots.Camera` takes `launch=`. Components are tested in jsdom with
-  `TestBed`, and `AgentService` against a fake `EventSource`.
-- **Network patch points:** `buy_agent.agent.search_web`,
-  `buy_agent.agent.enrich`, `buy_agent.search.DDGS`,
-  `buy_agent.search.httpx.get`, `buy_agent.fetch.httpx.Client`, and
-  `rails.httpx.post`. `search_web` is patched only on `agent`, which is why the
-  source fan-out lives there.
-- **Model clients:** patch `providers.OllamaClient` (Ollama chat and `show`),
-  `providers.openai.OpenAI`, and `providers.httpx.get` (all listings). Assert on
-  the *request*. `OllamaClient` itself is tested against `httpx.MockTransport`
-  (ADR-0088). Never patch `DDGS.text`.
-- **Table rows** are compared by identity only through their module
-  (`providers_module.OLLAMA`), because tests reload those modules.
-- **No test in `tests/`** touches the network, a model server or the real cache.
-  Autouse fixtures point `$BUY_AGENT_CACHE_DIR` at a scratch directory and unset
-  `$BUY_AGENT_AP2_KEY`, `$BUY_AGENT_AP2_MANDATE`, `$BUY_AGENT_MERCHANT_URL` and every
-  variable `config.server_environment` reads.
-- **Payment tests sign real mandates** and verify them with the SDK's verifier.
+  (one `answer` method); a chain stand-in has `invoke`;
+  `create_server(agent_factory=..., allowed_hosts=..., camera=...)`, with
+  `Photographer` as camera. `screenshots.Camera` takes `launch=`, so no test in
+  `tests/` starts a browser. Components run in jsdom with `TestBed`,
+  `AgentService` against a fake `EventSource`.
+- **Network patch points:** `buy_agent.agent.search_web` and
+  `buy_agent.agent.enrich` (only on `agent`, hence the source fan-out there),
+  `buy_agent.search.DDGS`, `buy_agent.search.httpx.get`,
+  `buy_agent.fetch.httpx.Client`, `rails.httpx.post`.
+- **Model clients:** patch `providers.OllamaClient` (chat and `show`),
+  `providers.openai.OpenAI`, `providers.httpx.get` (all listings), and assert on
+  the *request*; `OllamaClient` is tested on `httpx.MockTransport` (ADR-0088).
+  Never patch `DDGS.text`.
+- **Table rows** compare by identity only through their module
+  (`providers_module.OLLAMA`), as tests reload them.
+- **No test in `tests/`** reaches the network, a model server or the real cache:
+  autouse fixtures point `$BUY_AGENT_CACHE_DIR` at scratch and unset
+  `$BUY_AGENT_AP2_KEY`, `$BUY_AGENT_AP2_MANDATE`, `$BUY_AGENT_MERCHANT_URL` and
+  every variable `config.server_environment` reads.
+- **Payment tests sign real mandates** and verify them with the SDK's verifier;
   CI installs the SDK.
-- **`browser/`** opens the build in headless Chromium, served by `create_server`
-  with the agent stood in for, outside `testpaths` (ADR-0087). A test there fails
-  on any error the page reports, waits with Playwright's `expect` and never
-  sleeps. It skips without a build or a browser, and CI's
-  `$BUY_AGENT_REQUIRE_BROWSER` makes that a failure.
-- **Server tests bind loopback** and use `serve_forever(0.01)`. `raw()` reads
-  until the declared body has arrived.
-- **Nothing sleeps** but `tests/test_server.py` (`StubAgent.delay`). Change the
-  environment through `monkeypatch` only.
-- **The gate runs the suite in three workers** (`-n 3`, ADR-0076). A test leans
-  on no other test's state or order, and one whose code answers before its own
-  thread finishes waits for that thread, not for the answer.
-- **Optional prerequisites skip, never fail:** `needs_powershell` and
-  `needs_ap2` (in `tests/conftest.py`, `skipif` only). `needs_ap2` goes on the
-  parametrised case that reaches signing.
-- **Convention tests** (`tests/test_conventions.py`) assert the rules that hold
-  *between* modules and across the language boundary; **architecture tests**
-  (`tests/test_architecture.py`) hold the import graph. Both are listed in
-  `docs/testing.md`. Convention tests hold every path they name.
-- **`integration/`** holds the real-model tests, outside `testpaths` (ADR-0026).
-  Its shared run is scored as the benchmark scores one and printed and kept pass
-  or fail (`$BUY_AGENT_SCORECARD`, ADR-0072).
-- **The benchmark** (`benchmark/`, ADR-0036, ADR-0070): after editing a case,
-  its `PERFECT` must score exactly 1.000, its `SLOPPY` must hit its pinned
-  counts, every page mentioning a product must be one its entry lists, and every
-  judgement its pages pass must be one of an entry's verdicts or listed as about
-  nobody (ADR-0073). A share with nothing to count is shown and floored, never
-  scored: a new metric joins a pair in `scoring.PAIRS` or stands alone, with any
-  level luck reaches in `scoring.CHANCE` (ADR-0074). A module that comes to decide
-  what a run reports or how it is scored joins `pipeline.MODULES`, and a setting
-  that comes to change what a model answers joins `pipeline.settings` (ADR-0075). A
-  change to a prompt or the extraction schema is scored on every case before and
-  after, quoting both runs: the nightly gates only `headphones` (ADR-0089). The
-  floors are a tripwire: raise one only in its own commit, quoting runs. A
-  contender is reached only through its provider row. See `docs/testing.md`.
-- **Scripts.** `scripts/start.ps1` and `setup.ps1` must match `ci.yml`'s installs,
-  and `ci.yml` checks through `preflight.ps1`; `tests/test_start_script.py` and
-  `tests/test_setup_scripts.py` test them. `.gitattributes` is
-  `* text=auto eol=lf` with the binary kinds named.
+- **`browser/`** (outside `testpaths`, ADR-0087) serves the build via
+  `create_server`, agent stood in, to headless Chromium. Its tests fail on any
+  error the page reports and wait with Playwright's `expect`, never sleeping;
+  they skip without a build or browser, failing instead under CI's
+  `$BUY_AGENT_REQUIRE_BROWSER`.
+- **Server tests bind loopback** with `serve_forever(0.01)`; `raw()` reads until
+  the declared body has arrived.
+- **Nothing sleeps** but `tests/test_server.py` (`StubAgent.delay`); the
+  environment changes only through `monkeypatch`.
+- **Three workers** (`-n 3`, ADR-0076): no test leans on another's state or
+  order, and one whose code answers before its thread ends waits for the thread.
+- **Optional prerequisites skip, never fail:** `needs_powershell`, `needs_ap2`
+  (`tests/conftest.py`, `skipif` only), the latter on the parametrised case that
+  reaches signing.
+- **Convention tests** (`tests/test_conventions.py`) hold rules between modules
+  and across languages, and every path they name; **architecture tests**
+  (`tests/test_architecture.py`) the import graph. `docs/testing.md` lists both.
+- **`integration/`** (a real model, outside `testpaths`, ADR-0026) scores its
+  shared run as the benchmark does, printed and kept pass or fail
+  (`$BUY_AGENT_SCORECARD`, ADR-0072).
+- **The benchmark** (ADR-0036, ADR-0070). After editing a case, its `PERFECT`
+  scores exactly 1.000, its `SLOPPY` hits its pinned counts, every page mentioning
+  a product is one its entry lists, and every judgement its pages pass is an
+  entry's verdict or listed as about nobody (ADR-0073). A share with nothing to
+  count is shown and floored, never scored: a new metric joins a pair in
+  `scoring.PAIRS` or stands alone, any level luck reaches going in
+  `scoring.CHANCE` (ADR-0074). A module coming to decide what a run reports or
+  how it scores joins `pipeline.MODULES`; a setting coming to change what a model
+  answers joins `pipeline.settings` (ADR-0075). Score a prompt or
+  extraction-schema change on every case before and after, quoting both: the
+  nightly gates only `headphones` (ADR-0089). The floors are a tripwire, raised
+  only in their own commit, quoting runs. A contender is reached only through its
+  provider row.
+- **Scripts:** `scripts/start.ps1` and `setup.ps1` match `ci.yml`'s installs,
+  and `ci.yml` checks through `preflight.ps1` (`tests/test_start_script.py`,
+  `tests/test_setup_scripts.py`). `.gitattributes` is `* text=auto eol=lf`, binary
+  kinds named.
 
-`demo/` (see `demo/README.md`) is not imported, covered, mutated or shipped.
+`demo/` (`demo/README.md`) is not imported, covered, mutated or shipped.
 
 ## Environment
 

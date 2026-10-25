@@ -1,7 +1,7 @@
 # Tests
 
 Two unit suites, one per language, the build opened in a browser, and the checks
-around them. Everything the [README](../README.md) leaves out.
+around them: everything the [README](../README.md) leaves out.
 
 ```powershell
 .\scripts\setup.ps1           # what every line below needs, the AP2 SDK included
@@ -9,8 +9,7 @@ around them. Everything the [README](../README.md) leaves out.
 
 python -m pytest              # whole suite
 python -m pytest tests/test_ranking.py::test_cheaper_wins_when_rating_is_equal
-
-python -m pytest -n 3 --cov      # three workers, with coverage and its floor
+python -m pytest -n 3 --cov   # three workers, with coverage and its floor
 python -m pylint buy_agent    # the linter, from the repository root
 python -m mypy buy_agent      # the type checker, from the same place
 
@@ -20,10 +19,6 @@ cd ui; npm run lint           # ESLint and angular-eslint, templates included
 
 python -m pytest integration  # against a real Ollama; see below
 python -m pytest browser      # the build in Chromium; see below
-
-python -m benchmark --scripted perfect   # the benchmark, with no model at all
-python -m benchmark                      # ...and against whatever is serving
-python -m benchmark.server               # ...or as a page comparing several models
 ```
 
 ## The unit suites
@@ -56,39 +51,32 @@ Optional prerequisites skip, never fail:
 
 - **`needs_ap2`** (48 tests) asks `mandates.available()` once, and goes on the
   parametrised case that reaches signing rather than the whole function. Both
-  workflows install the SDK, so nothing skips where it matters, and the coverage
-  floor cannot be met without it.
+  workflows install the SDK, and the coverage floor cannot be met without it.
 - **`needs_powershell`** skips 16 of the 22 tests in `tests/test_start_script.py`
   and all 4 in `tests/test_setup_scripts.py` without `pwsh` or `powershell`.
 - `tests/test_session_hook.py` (6) skips on Windows.
-- One test in `tests/test_benchmark_server.py` binds the benchmark's page to `::1`,
-  and skips on a machine that cannot.
+- One test in `tests/test_benchmark_server.py` binds the benchmark's page to
+  `::1`, and skips on a machine that cannot.
 
 So the SDK without PowerShell reads `2456 passed, 20 skipped`, and
 `requirements-dev.txt` alone reads `2408 passed, 68 skipped`.
 
 ### Across processes
 
-The gate runs the suite as `python -m pytest -n 3 --cov` (ADR-0076):
-[pytest-xdist](https://pypi.org/project/pytest-xdist/) starts three workers and
-hands each a share of the tests, and
-[pytest-cov](https://pypi.org/project/pytest-cov/) measures every worker, combines
-them into `.coverage`, prints `.coveragerc`'s table and fails the run under its
-`fail_under`. `python -m coverage report` reads the same file afterwards.
+The gate runs `python -m pytest -n 3 --cov` (ADR-0076):
+[pytest-xdist](https://pypi.org/project/pytest-xdist/) shares the tests out to
+three workers, and [pytest-cov](https://pypi.org/project/pytest-cov/) measures
+each, combines them into `.coverage`, prints `.coveragerc`'s table and fails under
+its `fail_under`; `python -m coverage report` reads the same file afterwards.
+Three was measured on CI's runners (the ADR has the timings), and every machine
+runs three, since `ci.yml` runs its checks through `preflight.ps1` (ADR-0091).
 
-Three is measured, not guessed. A Linux runner's four CPUs are two cores of two
-threads each, and every worker collects the whole suite for itself before running
-any of it, so a fourth costs more than it brings: timed side by side on twelve
-runners, three workers beat two and four on every one, and took the step from
-15-32 seconds serially to 11-21. A machine with more cores still runs three,
-because `ci.yml` runs its checks through `preflight.ps1` (ADR-0091).
-
-Nothing in `pytest.ini` asks for workers, so `python -m pytest`, a single test,
-`integration/` and mutmut all run in one process as before. A test that passes
-alone and fails under `-n 3` leans on state another test left behind, or
-checks something its code does on a thread of its own after answering: the
-camera answers a picture's caller before it lets a crashed browser go, so the
-tests of that wait for the camera's thread rather than for the answer.
+`pytest.ini` asks for no workers, so `python -m pytest`, a single test,
+`integration/` and mutmut run in one process. A test that passes alone and fails
+under `-n 3` leans on state another test left behind, or checks something its
+code does on a thread of its own after answering: the camera answers a picture's
+caller before it lets a crashed browser go, so those tests wait for the camera's
+thread rather than for the answer.
 
 ### `pytest.ini`
 
@@ -107,48 +95,47 @@ tests of that wait for the camera's thread rather than for the answer.
 
 Both run after the tests in the Python job, over the package `.coveragerc` names
 in `source` and `setup.cfg` mutates, and both must report nothing at all. `ci.yml`
-restores `.mypy_cache` before mypy runs, keyed on the requirements files the job
-installs and on `setup.cfg`: mypy checks every entry against the file it was made
-from, so a stale entry is re-analysed rather than believed, and a warm cache turns
-nine seconds into one (ADR-0076).
+restores `.mypy_cache` before mypy, keyed on the requirements files the job
+installs and on `setup.cfg`; mypy re-analyses any entry whose file changed, and a
+warm cache turns nine seconds into one (ADR-0076).
 
-**Pylint** (ADR-0048). The tests are not linted: fixtures shadow their own names
+**Pylint** (ADR-0048) leaves the tests out, whose fixtures shadow their own names
 by design. `.pylintrc` turns off three checks (docstrings on every function, too
-few public methods, too many dataclass fields), each with its reason. Anything
-else is suppressed on its line with a sentence above it; a convention test fails
-a suppression with no reason and `useless-suppression` fails a stale one. Fifteen
+few public methods, too many dataclass fields), each with its reason; anything
+else is suppressed on its line with a sentence above it, a convention test fails a
+suppression with no reason, and `useless-suppression` fails a stale one. Fifteen
 of pylint's twenty-five optional checkers are loaded, each stating a rule the
 package already follows; the ten left out carry their reasons in the same file
 (ADR-0049).
 
-**Mypy** (ADR-0063), configured in `setup.cfg [mypy]`: default checks plus
+**Mypy** (ADR-0063) is configured in `setup.cfg [mypy]`: default checks plus
 `warn_unused_ignores`, not `strict`. The libraries neither tool can read (the AP2
-SDK and the two it signs with, Playwright and `lxml`) are listed once per tool,
-as `ignore_missing_imports` and as `ignored-modules`/`extension-pkg-allow-list`,
-and a convention test holds the two lists together.
+SDK and the two it signs with, Playwright and `lxml`) are listed once per tool, as
+`ignore_missing_imports` and as `ignored-modules`/`extension-pkg-allow-list`, and
+a convention test holds the two lists together.
 
 ### The UI's checks
 
 - **`npm run build` is the type check.** `ui/tsconfig.json` sets `strict` and
   `strictTemplates`; `ui/tsconfig.app.json` adds `noUncheckedIndexedAccess` for
-  shipped code only. Since the specs compile without it, the maps a template looks
-  up by payload key (`App.receipts`, the form's `limits` and `placeholders`)
-  declare `| undefined` themselves.
+  shipped code only, so, since the specs compile without it, the maps a template
+  looks up by payload key (`App.receipts`, the form's `limits` and
+  `placeholders`) declare `| undefined` themselves.
 - **`npm run lint`**: ESLint with `typescript-eslint` and `angular-eslint` over
   `src/`, templates and specs included, configured like `.pylintrc` (ADR-0066).
   `no-restricted-syntax` refuses `on*` attributes and `javascript:` URLs, which
   the CSP would block and jsdom would not.
 - **`npm run format:check`**: Prettier; `npm run format` fixes it.
 - **Accessibility**: `ui/src/app/a11y.ts` runs `axe-core` over each component in
-  `TestBed`, with rules enabled one at a time, each with its reason. An
-  inconclusive rule fails. Contrast and target size need a real browser, and stay
-  out of the browser tests too while the light theme fails contrast (ADR-0087).
-  `ui/README.md` has the detail.
+  `TestBed`, rules enabled one at a time with their reasons; an inconclusive rule
+  fails. Contrast and target size need a real browser, and stay out of the browser
+  tests too while the light theme fails contrast (ADR-0087). `ui/README.md` has
+  the detail.
 
 ### Coverage
 
 The Python floor is 99% of lines and branches (`.coveragerc`) over `buy_agent/`
-in `source` plus `benchmark/` and `scripts/` in `source_dirs`, which are measured
+in `source`, plus `benchmark/` and `scripts/` in `source_dirs`, which are measured
 but not mutated, linted or type-checked (ADR-0064). The UI's floor is 98% of
 statements and lines in `ui/angular.json`; there is no branch floor, because v8
 attributes template branches to unreachable positions.
@@ -158,24 +145,24 @@ attributes template branches to unreachable positions.
 Coverage cannot see rules that hold *between* files, so
 `tests/test_conventions.py` asserts them (ADR-0014):
 
-- the three failure modes are handled in all three places, and a sort criterion,
-  provider, rail and backend is offered everywhere;
+- the three failure modes are handled in all three places, and every sort
+  criterion, provider, rail and backend is offered everywhere;
 - both front ends refuse a number in the same words, the form takes its ranges
   off the server, and `ui/src/app/agent.types.ts` mirrors every payload
   (ADR-0033, ADR-0071);
 - the `Dockerfile`, `.dockerignore`, workflows, release, nightly, mutation and
-  audit settings agree with each other, and every model server's variables are
-  named wherever they are listed by hand (ADR-0081);
+  audit settings agree, and every model server's variables are named wherever
+  they are listed by hand (ADR-0081);
 - every workflow sets Python and Node up from `.python-version` and `.nvmrc`, the
   scripts read them, and no script or page writes either version down; `ci.yml`
-  runs its checks through `scripts/preflight.ps1`, and nothing beside it but
-  installs (ADR-0091);
+  runs its checks through `scripts/preflight.ps1` and does nothing beside it but
+  install (ADR-0091);
 - everything a release publishes is scanned before it is pushed and attested,
   and only a job that attests can mint a token naming the run (ADR-0069);
 - the image installs `requirements.lock`, which pins what `requirements.txt` pins
-  and constrains every install of `requirements-dev.txt`; `compose.yaml` refuses to
-  start without a token, gives the server longer to stop than it drains for, and
-  points the `searxng` row at a SearXNG that answers JSON (ADR-0092);
+  and constrains every install of `requirements-dev.txt`; `compose.yaml` refuses
+  to start without a token, gives the server longer to stop than it drains for,
+  and points the `searxng` row at a SearXNG that answers JSON (ADR-0092);
 - ADRs are indexed, skills name real paths, and every Markdown link resolves;
 - `ci.yml`'s browser job runs the browser tests a bare run leaves out, refuses to
   pass by skipping them, and opens the build the `ui` job tested (ADR-0087);
@@ -189,9 +176,9 @@ Coverage cannot see rules that hold *between* files, so
   the real one, since nothing imports `demo/` to find out;
 - no test is switched off, nothing sleeps but `tests/test_server.py`, and the
   environment changes only through `monkeypatch`;
-- no test binds by name a failure `providers` defines, since `test_providers.py`
-  reloads that module and an `except` built after the reload no longer catches the
-  class bound before it, which only an order other than the files' shows;
+- no test binds by name a failure `providers` defines: `test_providers.py` reloads
+  that module, and an `except` built after the reload no longer catches the class
+  bound before it, which only an order other than the files' shows;
 - every module logs under the package's name in deferred form, leaving stdout to
   the report.
 
@@ -202,11 +189,11 @@ remove a whole product call `record` while the four that blank do not (ADR-0055)
 ### Architecture tests
 
 `tests/test_architecture.py` asserts the import graph with
-[ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython) (ADR-0047):
+[ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython) (ADR-0047), in
 forty-three rules:
 
-- no cycles, and no imports from `tests/`, `integration/`, `browser/`, `benchmark/`,
-  `demo/` or `scripts/`;
+- no cycles, and no imports from `tests/`, `integration/`, `browser/`,
+  `benchmark/`, `demo/` or `scripts/`;
 - no subprocesses except Playwright's Chromium;
 - no async, with threading only in `fetch`, `providers`, `server`, `deployment`
   and `screenshots`;
@@ -221,8 +208,8 @@ forty-three rules:
 - stdlib network modules only in `server`, which imports nothing third-party;
 - the two doors don't import each other;
 - `providers` and `rails` are read only by `config` and the doors, and
-  `search_web` and `enrich` are imported only by `agent`, where the suite
-  patches them;
+  `search_web` and `enrich` are imported only by `agent`, where the suite patches
+  them;
 - `server` names no step, product, cart or history, since every payload is
   `api`'s;
 - `screenshots` is known only to `server` and `api`, and `bounds` only to the
@@ -236,16 +223,15 @@ forty-three rules:
 - decision modules never reach the model, fetch or search, and neither
   `extraction` nor `providers` knows the answer cache is there.
 
-Every rule uses
-`ignore_type_checking_imports=True`, since an import under `if TYPE_CHECKING:`
-never runs. A negated rule over nothing passes, so the helpers naming modules
-check each exists, and a forty-fourth test checks every module sits in exactly
-one layer. Edges inside a layer are skipped, which is why the two doors, the
-seams under the journal and the domain under `money.py` have rules of their own.
-An edge onto `__init__.py` is skipped by every rule, and `from buy_agent import
-mandates` is drawn as one, so a forty-fifth test reads those imports with `ast`
-and holds them to `_THROUGH_THE_PACKAGE`, each an edge the layer table names
-outright.
+Every rule uses `ignore_type_checking_imports=True`, since an import under
+`if TYPE_CHECKING:` never runs. A negated rule over nothing passes, so the helpers
+naming modules check each exists, and a forty-fourth test checks every module sits
+in exactly one layer. Edges inside a layer are skipped, which is why the two
+doors, the seams under the journal and the domain under `money.py` have rules of
+their own. Every rule also skips an edge onto `__init__.py`, which is how
+`from buy_agent import mandates` is drawn, so a forty-fifth test reads those
+imports with `ast` and holds them to `_THROUGH_THE_PACKAGE`, each an edge the
+layer table names outright.
 
 Two of those rules and five convention tests are
 [ArchUnit](https://www.archunit.org) rules from
@@ -254,23 +240,23 @@ raisable, only the guard exits, no disabled test, no sleeping, `monkeypatch` onl
 
 ### Windows
 
-`ci.yml` runs both jobs on Linux for pushes and pull requests, and adds Windows
-on the Saturday 04:09 UTC schedule and on `workflow_dispatch`, with `fail-fast`
-off (ADR-0020, ADR-0037), and a concurrency group that names the event. Dispatch
-a branch that touches paths, encodings, sockets, MIME types or `start.ps1`.
+`ci.yml` runs both jobs on Linux for pushes and pull requests, and adds Windows on
+the Saturday 04:09 UTC schedule and on `workflow_dispatch`, with `fail-fast` off
+(ADR-0020, ADR-0037) and a concurrency group that names the event. Dispatch a
+branch that touches paths, encodings, sockets, MIME types or `start.ps1`.
 
 ### The PowerShell scripts
 
 `scripts/start.ps1` reads its provider, model and address from one
-`AgentConfig()`, starts only Ollama, and installs the AP2 SDK only when the
-paying variables are set, using `mandates.INSTALL`.
+`AgentConfig()`, starts only Ollama, and installs the AP2 SDK, by
+`mandates.INSTALL`, only when the paying variables are set.
 `tests/test_start_script.py` parses it through `tests/start_script_probe.ps1`,
 dot-sources its functions, runs every program through `Run` against a stubbed
-clock and web request, and reads back JSON.
-`tests/test_setup_scripts.py` does the same for `scripts/setup.ps1` and
-`scripts/preflight.ps1`. What `setup.ps1` installs is held against `ci.yml` in
-`tests/test_conventions.py` (ADR-0067), and what `preflight.ps1` checks is what
-`ci.yml` runs, since each of its jobs runs the script (ADR-0091).
+clock and web request, and reads back JSON; `tests/test_setup_scripts.py` does the
+same for `scripts/setup.ps1` and `scripts/preflight.ps1`. What `setup.ps1`
+installs is held against `ci.yml` in `tests/test_conventions.py` (ADR-0067), and
+what `preflight.ps1` checks is what `ci.yml` runs, since each of its jobs runs the
+script (ADR-0091).
 
 ## Integration tests
 
@@ -285,23 +271,19 @@ ollama pull qwen3:0.6b
 python -m pytest integration
 ```
 
-The model is real and the web is `benchmark/corpus.py`'s ten pages, condensed by
-the real `fetch.condense` on the real budgets so the prompt is production-shaped
-and production-sized. One session-scoped run of the pipeline is shared by 24 of the
-31 tests; the other seven ask Ollama for themselves -- a listing, a query, and what a
-stopped server or a model not pulled raises. Of the 24, eleven score the run as the
-benchmark does (below), and twelve assert what holds whatever the model said: every
-name, figure, quote and link is in the sources, currencies travel with prices,
-nothing is listed twice, the ranking is ordered. A smoke test checks that something
-was extracted, so none of the twelve is vacuous but the two about quotes: nothing
-requires a quote, since `qwen3:0.6b` quotes one product on a good night and none on
-a bad one at the same prompt. On a bad night those two pass with nothing to check,
-and the scorecard's `quotes` reads 0, against a floor of 0; what the model does quote
-is held to `faithful`'s.
-
-The same run is scored as the benchmark scores one -- the scorecard, the query and
-the time each question took -- and the session ends by printing it, pass or fail,
-in `python -m benchmark`'s own words (ADR-0072).
+The model is real; the web is `benchmark/corpus.py`'s ten pages, condensed by the
+real `fetch.condense` on the real budgets, so the prompt is production-sized. One
+session-scoped run of the pipeline is shared by 24 of the 31 tests; the other
+seven ask Ollama for themselves (a listing, a query, and what a stopped server or
+a model not pulled raises). Of the 24, eleven score the run as the benchmark does,
+twelve assert what holds whatever the model said (every name, figure, quote and
+link is in the sources, currencies travel with prices, nothing is listed twice,
+the ranking is ordered), and a smoke test checks that something was extracted.
+Only the two about quotes can pass with nothing to check: `qwen3:0.6b` quotes one
+product on a good night and none on a bad one, so nothing requires a quote, the
+scorecard's `quotes` floor is 0, and what it does quote is held to `faithful`'s.
+The session ends by printing the run's scorecard, query and per-question times,
+pass or fail, in `python -m benchmark`'s own words (ADR-0072).
 
 | Variable | Effect |
 | --- | --- |
@@ -311,15 +293,14 @@ in `python -m benchmark`'s own words (ADR-0072).
 
 `.github/workflows/integration.yml` sets the second and the third, runs at
 `41 3 * * *` and on demand, never on a pull request, and caps itself at **five
-minutes**. It uploads the scorecard as the `scorecard` artifact on a green night as
-on a red one, and the summary page of every run shows it. Ollama and the model are
-deliberately unpinned: noticing a release that changes decoding is half of what the
-job is for.
+minutes**. It uploads the scorecard as the `scorecard` artifact, green night or
+red, and every run's summary page shows it. Ollama and the model are deliberately
+unpinned: noticing a release that changes decoding is half of what the job is for.
 
 ## The browser tests
 
 The unit suites run the UI's components in jsdom and the server's handlers over
-loopback, and neither ever runs the *build*: what Angular wrote, served under the
+loopback, and neither runs the *build*: what Angular wrote, served under the
 server's own CSP. `browser/` does (ADR-0087):
 
 ```powershell
@@ -328,22 +309,22 @@ python -m pytest browser
 ```
 
 Each test serves the build through `create_server` on a loopback port, with the
-agent stood in for, and opens it in Playwright's headless Chromium -- the library
+agent stood in for, and opens it in Playwright's headless Chromium (the library
 `requirements-screenshots.txt` pins and the browser `screenshots.INSTALL` names,
-both of which `scripts/setup.ps1` installs. A test fails on any error the page
+both installed by `scripts/setup.ps1`). A test fails on any error the page
 reports, the one place a refused inline script, handler or stylesheet shows. One
-checks that `styles.css`'s tokens apply, one runs a search through the event stream
-and holds the cards to the run's order, and one fails a search and reads the
-`failure` event's words on the page. Each was checked against the breakage it is
-for: `inlineCritical` on, `.js` or `.css` served as `text/plain`, and the failure
-sent as `error`, all of which every unit test passed.
+checks that `styles.css`'s tokens apply, one runs a search through the event
+stream and holds the cards to the run's order, and one fails a search and reads
+the `failure` event's words on the page. Each was checked against the breakage it
+is for (`inlineCritical` on, `.js` or `.css` served as `text/plain`, the failure
+sent as `error`), all of which every unit test passed.
 
-Like `integration/`, the directory is outside `testpaths`, so a bare `pytest` never
-reaches it and `tests/` still starts no browser. Without a build or a browser it
-skips; `ci.yml`'s `browser` job sets `BUY_AGENT_REQUIRE_BROWSER`, so there it fails
-instead. That job waits for the `ui` job and opens the build it kept, on Linux for
-every push and pull request and on Windows weekly. Nothing there sleeps: a test
-waits with Playwright's `expect`.
+Like `integration/`, the directory is outside `testpaths`, so a bare `pytest`
+never reaches it and `tests/` still starts no browser. Without a build or a
+browser it skips; `ci.yml`'s `browser` job sets `BUY_AGENT_REQUIRE_BROWSER`, so
+there it fails instead. That job waits for the `ui` job and opens the build it
+kept, on Linux for every push and pull request and on Windows weekly. Nothing
+there sleeps: a test waits with Playwright's `expect`.
 
 ## The benchmark
 
@@ -379,9 +360,9 @@ others) records, per product, the **sets** of `(price, currency)` and
 `(rating, review_count)` the pages print, so any printed figure counts and a
 mispairing does not (ADR-0022), and the **verdicts** the pages pass on it, line by
 line, so a quote counts only when it is one of them (ADR-0073). A reported name
-matches an entry by its words, as grounding matches one, except that two names each
-carrying a model number the other lacks are two products: "WH-1000XM4" is not the
-XM5. `benchmark/scoring.py` scores eight shares in `[0, 1]`:
+matches an entry by its words, as grounding matches one, except that two names
+each carrying a model number the other lacks are two products: "WH-1000XM4" is not
+the XM5. `benchmark/scoring.py` scores eight shares in `[0, 1]`:
 
 | Metric | What it counts |
 | --- | --- |
@@ -395,46 +376,45 @@ XM5. `benchmark/scoring.py` scores eight shares in `[0, 1]`:
 | `order` | Pairs ranked in the order the key's figures give -- the figures the run reported, where the key accepts them |
 
 Each pair is shown half by half, so a scorecard tells reporting nothing from
-reporting nonsense. The score weighs each pair by the weighted harmonic mean of its
-halves (`scoring.PAIRS`), counts a share with nothing to count as 0 whatever it
-shows, and pays `order` only above the half of its pairs a shuffle gets
+reporting nonsense. The score weighs each pair by the weighted harmonic mean of
+its halves (`scoring.PAIRS`), counts a share with nothing to count as 0 whatever
+it shows, and pays `order` only above the half of its pairs a shuffle gets
 (`scoring.CHANCE`), so silence and luck earn nothing (ADR-0074). The scorecard's
 `weighed as` line says what each part came to.
 
-`integration/test_benchmark.py` fails a metric under `benchmark.scoring.FLOORS`, on
-the headphones case alone. The floors are a **tripwire, not a target**; raise one
-only in its own commit, quoting runs. `order`'s 0.25 is still below the half a
+`integration/test_benchmark.py` fails a metric under `benchmark.scoring.FLOORS`,
+on the headphones case alone. The floors are a **tripwire, not a target**; raise
+one only in its own commit, quoting runs. `order`'s 0.25 is still below the half a
 shuffle gets, and the nightly's kept scorecards (ADR-0072) are the runs to quote
 when it is raised.
 
-The query step is scored apart, by `benchmark/query.py`: each constraint the
-request states kept (a case lists the spellings that keep it), no brand and no
-figure the shopper did not give, and twenty words or fewer. A query the model
-garbled is one failed check, since the agent then searches with the request.
+`benchmark/query.py` scores the query step apart: each constraint the request
+states kept (a case lists the spellings that keep it), no brand and no figure the
+shopper did not give, and twenty words or fewer. A garbled query is one failed
+check, since the agent then searches with the request.
 
 ### Comparing models
 
 A contender is a model on a server, reached through its provider row exactly as a
-run reaches one, or a scripted answer. Each runs over each case in turn, timed per
+run reaches one, or a scripted answer, run over each case in turn and timed per
 question. An answer the server cannot read is that case's result and scores 0; a
 model that cannot be asked at all (not running, not pulled, too slow) is reported
-in the server's own words and its other cases are skipped. The standings rank by
-cases run, then the mean score, the query, and the time taken. `python -m benchmark`
-prints each run's scorecard and then the standings, and exits 0 only when every run
-finished and cleared every floor.
+in the server's own words and its other cases skipped. The standings rank by cases
+run, then mean score, query and time taken. `python -m benchmark` prints each
+run's scorecard, then the standings, and exits 0 only when every run finished and
+cleared every floor.
 
-Every run is kept on a board, `$BUY_AGENT_CACHE_DIR/benchmark/board.json`, that both
-doors read afresh, so a model scored last week stands beside one scored today.
-`--no-save` keeps a run off it. A run scored against a case whose pages or key have
-changed since is left out, and **Clear the board** forgets them all. A run also
-records what it was scored under (`benchmark/pipeline.py`): a fingerprint of the
-code between the pages and the scorecard, read without its docstrings and comments;
-the settings that reach the model; and the digest its server lists for the tag. A kept run made under other code
-or settings is kept, ranked and marked **stale**, and a row whose runs span two builds
-says so (ADR-0075). `--json` writes the standings as the page reads them, values
-included, and `--baseline FILE` sets each run beside the same contender's run of the
-case in such a file, metric by metric -- which the board, keeping only the latest run,
-cannot.
+Every run is kept on a board, `$BUY_AGENT_CACHE_DIR/benchmark/board.json`, read
+afresh by both doors, so last week's model stands beside today's; `--no-save`
+keeps a run off it, a run against a case whose pages or key have since changed is
+left out, and **Clear the board** forgets them all. A run records what it was
+scored under (`benchmark/pipeline.py`): a fingerprint of the code between the
+pages and the scorecard, docstrings and comments aside, the settings that reach
+the model, and the digest its server lists for the tag. One made under other code
+or settings is kept, ranked and marked **stale**, and a row whose runs span two
+builds says so (ADR-0075). `--json` writes the standings as the page reads them;
+`--baseline FILE` sets each run beside the same contender's run of the case in
+such a file, metric by metric, which the board, keeping only the latest, cannot.
 
 `python -m benchmark.server` serves the page on `http://127.0.0.1:8100`: pick a
 server, tick the models it lists (an embedding model is shown and cannot be
@@ -450,19 +430,19 @@ without a model: every figure printed, every page an entry lists mentioning it a
 every page mentioning it listed, every verdict a line of a page about its product,
 every line the opinion sweep would take given to a product or listed as about
 nobody, each `PERFECT` scoring exactly 1.000, each `SLOPPY` hitting its pinned
-counts. **Editing a case's pages means re-running
-it.** `tests/test_benchmark.py` keeps the scorer's own rules,
-`tests/test_benchmark_compare.py` the comparison, the board and the command line,
-and `tests/test_benchmark_server.py` the page: its routes, and its script, which
-may load nothing inline, write no markup, and read only fields a payload carries.
+counts. **Editing a case's pages means re-running it.** `tests/test_benchmark.py`
+keeps the scorer's own rules, `tests/test_benchmark_compare.py` the comparison,
+the board and the command line, and `tests/test_benchmark_server.py` the page: its
+routes, and its script, which may load nothing inline, write no markup, and read
+only fields a payload carries.
 
 ## Mutation testing
 
 [mutmut](https://github.com/boxed/mutmut) runs over `buy_agent/` in
 `.github/workflows/mutation.yml` every Saturday at 05:17 and on demand, never on a
 pull request (ADR-0016). It fails only under 75%, and sits at about 84%; many
-survivors are equivalent (help text, log wording). Settings, including
-`also_copy`, are in `setup.cfg`:
+survivors are equivalent (help text, log wording). Settings, `also_copy` included,
+are in `setup.cfg`:
 
 ```powershell
 pip install -r requirements-mutation.txt
@@ -475,15 +455,15 @@ python -m mutmut browse                     # or read them one mutant at a time
 A run tests a copy in `mutants/` (ignored by git) whose modules are wrapped in
 mutmut's trampoline. So tests that read source use `conftest.SOURCE_ROOT`, files
 read from outside the package are listed in `also_copy`, and no test reads a
-declaration such as `__kwdefaults__` off a function object -- the trampoline
-strips it.
+declaration such as `__kwdefaults__` off a function object, which the trampoline
+strips.
 
 ### The front end's own run
 
 [Stryker](https://stryker-mutator.io/) runs over `ui/src/app` in
-`.github/workflows/mutation-ui.yml` at `23 6 * * 6` and on demand (ADR-0061). It
-runs the real `ng test` once per mutant -- 1410 mutants and three hours on four
-cores:
+`.github/workflows/mutation-ui.yml` at `23 6 * * 6` and on demand (ADR-0061),
+running the real `ng test` once per mutant: 1410 mutants and three hours on four
+cores.
 
 ```powershell
 cd ui
@@ -492,18 +472,19 @@ cd ..
 python scripts/mutation_report.py ui/reports/mutation/mutation.json
 ```
 
-The workflow splits that by file into shards, a runner each, and a `Report` job adds
-them back up as one run (ADR-0085): `search-form` (704 mutants), `app` (388) and
-`rest`, every other file (318), so the run takes about an hour and a half. Set
-`$env:STRYKER_SHARD` to a shard's name and `npx stryker run` mutates that shard alone,
-writing `reports/mutation/<shard>.json`; the report script takes every shard's file at
-once, names any that is missing, and refuses a file two shards both reported.
+The workflow splits that by file into shards, a runner each, and a `Report` job
+adds them back up as one run (ADR-0085): `search-form` (704 mutants), `app` (388)
+and `rest`, every other file (318), so the run takes about an hour and a half.
+With `$env:STRYKER_SHARD` set to a shard's name, `npx stryker run` mutates that
+shard alone into `reports/mutation/<shard>.json`; the report script takes every
+shard's file at once, names any that is missing, and refuses a file two shards
+both reported.
 
 `ui/stryker.config.mjs` says what is mutated, what is excluded by name
 (`agent.types.ts`, `testing.ts`, `app.config.ts`) and how the run is split.
 `ui/tsconfig.mutation.json` turns off only the template checks, declaring no
-`compilerOptions`. `scripts/mutation_report.py` holds one `Tool` row per tester, each
-with its statuses and floor.
+`compilerOptions`. `scripts/mutation_report.py` holds one `Tool` row per tester,
+each with its statuses and floor.
 
 ## The dependency audit
 
@@ -520,24 +501,24 @@ cd ui; npm audit --audit-level=high
 zizmor --config .github/zizmor.yml .github/workflows    # from the root
 ```
 
-`requirements-dev.txt` installs under `-c requirements.lock`, so the audit resolves
-the versions the image ships. zizmor reads the workflows themselves: a checkout
-leaving its token on disk, a cache a release reads, an action a moved tag or a
-known advisory reaches. `.github/zizmor.yml` names its one exception, automerge's
-`workflow_run`, and why. `.github/workflows/codeql.yml` runs CodeQL's
+`requirements-dev.txt` installs under `-c requirements.lock`, so the audit
+resolves the versions the image ships. zizmor reads the workflows themselves: a
+checkout leaving its token on disk, a cache a release reads, an action a moved tag
+or a known advisory reaches; `.github/zizmor.yml` names its one exception,
+automerge's `workflow_run`, and why. `.github/workflows/codeql.yml` runs CodeQL's
 `security-extended` queries over the Python and the TypeScript every Sunday at
 `23 3 * * 0`. Neither runs on a pull request, so neither makes one wait
 (ADR-0092).
 
-`requirements-ap2.txt` is exempt: it is installed `--no-deps`, so its metadata
-pins describe nothing installed. A convention test fails a list nothing reads and
-an exemption naming a missing file. pip-audit has no severity threshold; npm uses
+`requirements-ap2.txt` is exempt: installed `--no-deps`, its metadata pins
+describe nothing installed. A convention test fails a list nothing reads and an
+exemption naming a missing file. pip-audit has no severity threshold; npm uses
 `high`, since its lockfile is mostly build-time transitives. On pull requests,
 `actions/dependency-review-action` checks only what the change adds, at the same
 `high`. An unfixable advisory is suppressed with `--ignore-vuln` and a sentence
 saying why, never `|| true`.
 
-A fix that a parent package has not picked up yet is an exact pin in
+A fix a parent package has not picked up yet is an exact pin in
 `ui/package.json`'s `overrides`, listed here with what removes it:
 
 - `vite` 8.3.5, for the `launch-editor` advisories against 8.3.0 to 8.3.2
@@ -548,8 +529,8 @@ A fix that a parent package has not picked up yet is an exact pin in
 
 `.github/workflows/automerge.yml` wakes when `ci.yml` or `audit.yml` finishes on a
 pull request, and squash-merges it once the latest run of each in its `REQUIRED`
-list has succeeded on the head commit (ADR-0086). Forks, drafts and pull
-requests labelled `no-automerge` are left alone. A pull request that touches
-`.github/workflows/` merges only when the `AUTOMERGE_TOKEN` secret (a token with
-the `workflows` scope) is set. Without that secret, the merge is followed by a
-dispatched `ci.yml` run on main, so `release.yml` finds a passing run there.
+list has succeeded on the head commit (ADR-0086). Forks, drafts and pull requests
+labelled `no-automerge` are left alone. One touching `.github/workflows/` merges
+only when the `AUTOMERGE_TOKEN` secret (a token with the `workflows` scope) is
+set; without it, the merge is followed by a dispatched `ci.yml` run on main, so
+`release.yml` finds a passing run there.
