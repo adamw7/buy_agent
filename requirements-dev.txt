@@ -6,7 +6,7 @@
 # What those pull in, at the versions the image installs (ADR-0092).
 -c requirements.lock
 pytest==9.1.1
-coverage==7.16.2
+coverage==7.17.0
 archunitpython==1.8.1
 pytest-timeout==2.4.0
 pytest-xdist==3.8.0
