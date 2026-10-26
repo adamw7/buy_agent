@@ -44,6 +44,14 @@
 
   packageRules: [
     {
+      // requirements.txt is the lock's source, which the pip-compile manager bumps
+      // before regenerating the lock from it; pip_requirements bumping it as well
+      // runs the update twice, as Renovate's pip-compile docs warn.
+      matchManagers: ['pip_requirements'],
+      matchFileNames: ['requirements.txt'],
+      enabled: false,
+    },
+    {
       // @angular/build peer-depends on vitest ^4 until 22.2 is stable (#144).
       // A hold gates only a branch's creation, so closing a held pull request
       // means deleting its branch too (#199).

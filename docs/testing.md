@@ -159,8 +159,9 @@ Coverage cannot see rules that hold *between* files, so
   install (ADR-0091);
 - everything a release publishes is scanned before it is pushed and attested,
   and only a job that attests can mint a token naming the run (ADR-0069);
-- the image installs `requirements.lock`, which pins what `requirements.txt` pins
-  and constrains every install of `requirements-dev.txt`; `compose.yaml` refuses
+- the image installs `requirements.lock`, which pins what `requirements.txt` pins,
+  names in its header a command Renovate can parse to regenerate it, and
+  constrains every install of `requirements-dev.txt`; `compose.yaml` refuses
   to start without a token, gives the server longer to stop than it drains for,
   and points the `searxng` row at a SearXNG that answers JSON (ADR-0092);
 - ADRs are indexed, skills name real paths, and every Markdown link resolves;

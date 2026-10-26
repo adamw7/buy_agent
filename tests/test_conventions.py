@@ -10,6 +10,7 @@ import inspect
 import json
 import os
 import re
+import shlex
 import sys
 from configparser import ConfigParser
 from functools import cache
@@ -861,6 +862,22 @@ def test_the_lock_pins_what_requirements_txt_pins() -> None:
     assert {name: locked.get(name) for name in direct} == direct
     command = _LOCK.read_text(encoding="utf-8").splitlines()[1]
     assert "pip compile requirements.txt" in command, "the header names how to regenerate it"
+
+
+def test_renovate_can_read_the_lock_s_header() -> None:
+    """Renovate regenerates the lock by running the command its header names, and
+    skips a lock whose header its pip-compile manager cannot parse -- so a bump moves
+    the pin in requirements.txt alone, which pip then cannot install under the lock
+    (#368). That parser wants long options, each value joined by ``=``:
+    ``--python-version 3.15`` is refused, and so is ``-o``."""
+    header = _LOCK.read_text(encoding="utf-8").splitlines()[1]
+    command = shlex.split(header.removeprefix("#"))
+
+    assert command[:3] == ["uv", "pip", "compile"]
+    arguments = command[3:]
+    assert [arg for arg in arguments if not arg.startswith("-")] == ["requirements.txt"]
+    assert all(arg.startswith("--") for arg in arguments if arg.startswith("-")), header
+    assert f"--output-file={_LOCK.name}" in arguments
 
 
 _COMPOSE = _ROOT / "compose.yaml"
