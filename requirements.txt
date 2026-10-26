@@ -3,7 +3,7 @@
 # Ollama is spoken to over httpx, the other servers through openai (ADR-0088).
 # The optional AP2 SDK is in requirements-ap2.txt.
 openai==3.36.1
-ddgs==9.16.0
+ddgs==9.16.1
 pydantic==2.14.1
 httpx==0.28.1
 lxml==6.1.3
