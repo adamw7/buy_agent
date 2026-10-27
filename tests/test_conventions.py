@@ -880,6 +880,16 @@ def test_renovate_can_read_the_lock_s_header() -> None:
     assert f"--output-file={_LOCK.name}" in arguments
 
 
+def test_renovate_regenerates_the_locks_it_moves_a_pin_under() -> None:
+    """The runner Renovate is run from sets ``updateLockFiles: false`` for every
+    repository, which Renovate reads as ``skipArtifactsUpdate`` and obeys at debug
+    level: no lock regenerated and no artifact error posted, so #368 and #374 each
+    reached CI as a pin pip could not install. This repository turns it back on."""
+    config = (_ROOT / "renovate.json5").read_text(encoding="utf-8")
+
+    assert re.search(r"^  skipArtifactsUpdate: false,$", config, re.M)
+
+
 _COMPOSE = _ROOT / "compose.yaml"
 
 
