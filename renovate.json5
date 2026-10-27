@@ -12,6 +12,11 @@
   // The dashboard records what is pending, even when nothing is raised.
   dependencyDashboard: true,
 
+  // The runner's own config sets `updateLockFiles: false`, which Renovate reads as
+  // skipping every lock file without a word: a bump moved a pin in requirements.txt
+  // alone and pip refused it (#368, #374), and ui/package-lock.json is skipped alike.
+  skipArtifactsUpdate: false,
+
   // Every pin is exact and deprecations are errors, so moving a pin is tested.
   enabledManagers: [
     'github-actions',

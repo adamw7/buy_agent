@@ -1907,7 +1907,13 @@ def test_the_stream_tells_a_proxy_not_to_hold_it_back(server: str) -> None:
 def test_a_connection_past_the_cap_is_closed_unanswered(server: str, monkeypatch) -> None:
     monkeypatch.setattr("buy_agent.deployment.MAX_CONNECTIONS", 0)
 
-    reply = raw(server, b"GET /api/config HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+    try:
+        reply = raw(server, b"GET /api/config HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+    except (ConnectionAbortedError, ConnectionResetError):
+        # A socket closed with the request still unread may be reset rather than
+        # ended, and Windows then aborts the read (WinError 10053) instead of
+        # answering it with nothing.
+        reply = ""
 
     assert reply == ""
 
