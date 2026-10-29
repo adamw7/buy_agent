@@ -2,7 +2,7 @@
 # tests/test_conventions.py holds both ways. No framework for the model calls:
 # Ollama is spoken to over httpx, the other servers through openai (ADR-0088).
 # The optional AP2 SDK is in requirements-ap2.txt.
-openai==3.37.0
+openai==3.41.0
 ddgs==9.16.1
 pydantic==2.14.1
 httpx==0.28.1
