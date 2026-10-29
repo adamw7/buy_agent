@@ -164,6 +164,11 @@ Coverage cannot see rules that hold *between* files, so
   constrains every install of `requirements-dev.txt`; `compose.yaml` refuses
   to start without a token, gives the server longer to stop than it drains for,
   and points the `searxng` row at a SearXNG that answers JSON (ADR-0092);
+- `deploy/kustomization.yaml` applies every manifest beside it; no pod is told where
+  its Services are; the token is a Secret's required key; the probes ask what the
+  server answers without one; the image's numeric user runs the pod and owns its
+  cache, mounted where the image keeps it; and the cluster runs compose's images,
+  which Renovate reads in both (ADR-0093);
 - ADRs are indexed, skills name real paths, and every Markdown link resolves;
 - `ci.yml`'s browser job runs the browser tests a bare run leaves out, refuses to
   pass by skipping them, and opens the build the `ui` job tested (ADR-0087);

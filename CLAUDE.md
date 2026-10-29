@@ -42,6 +42,7 @@ python -m buy_agent "headphones" --pay          # dry-run rail: signs, charges n
 pip install -r requirements-screenshots.txt ; python -m playwright install --only-shell chromium
 python -m buy_agent.server                    # UI + API on :8000
 $env:BUY_AGENT_API_TOKEN = '<random>' ; docker compose up -d --build   # deployed (ADR-0092)
+kubectl apply -k deploy                       # on Kubernetes, after its Secret (ADR-0093)
 .\scripts\start.ps1                           # everything from cold (ADR-0023)
 python -m mutmut run                          # needs requirements-mutation.txt
 
@@ -90,6 +91,12 @@ hashes, so it also constrains `requirements-dev.txt`; regenerate it by its
 header's command when `requirements.txt` moves), binds through
 `ENV BUY_AGENT_HOST=0.0.0.0`, caches in a volume at `/var/cache/buy-agent`, and
 checks `/healthz`. `compose.yaml` won't start without the token (ADR-0092).
+`deploy/kustomization.yaml` runs the same on Kubernetes (ADR-0093): every pod sets
+`enableServiceLinks: false` (a Service named `buy-agent` sets `$BUY_AGENT_PORT` to
+`tcp://...`), the image's `USER` is a number for `runAsNonRoot`, the grace period
+exceeds `DRAIN_SECONDS`, an init container pulls the model (a Job is immutable
+under the generated ConfigMap's hash), and its Ollama and SearXNG are compose's,
+digest for digest.
 
 **Mutation runs** test a copy of the tree: files the suite reads from outside
 `buy_agent` go in `setup.cfg`'s `also_copy`, tests reading source use

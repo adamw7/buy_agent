@@ -95,7 +95,9 @@ as an archive and a `ghcr.io` image
 ([ADR-0030](docs/adr/0030-publish-a-release-as-an-archive-and-an-image.md));
 [`compose.yaml`](docs/docker.md#deploying-it-for-more-than-one-machine) runs the
 image beside Ollama and SearXNG for other machines, behind a token
-([ADR-0092](docs/adr/0092-deploy-the-server-for-more-than-one-machine.md)).
+([ADR-0092](docs/adr/0092-deploy-the-server-for-more-than-one-machine.md)), and
+[`deploy/`](docs/docker.md#on-kubernetes) runs the same on Kubernetes
+([ADR-0093](docs/adr/0093-run-on-kubernetes-what-compose-runs.md)).
 `python -m scripts.update_ollama` re-pulls Ollama's models and reports which
 moved ([docs/models.md](docs/models.md)).
 

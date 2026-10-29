@@ -1,0 +1,16 @@
+# Hands one NVIDIA GPU to the model server, as compose.gpu.yaml does; turned on by the
+# `components` line in deploy/kustomization.yaml. Needs the NVIDIA device plugin, or
+# the GPU Operator, on the cluster.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - target:
+      kind: Deployment
+      name: ollama
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/resources
+        value:
+          limits:
+            nvidia.com/gpu: 1

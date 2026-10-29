@@ -1,0 +1,134 @@
+# The web tier: one replica, since its caches and run journal are on a volume one node
+# mounts at a time, replaced rather than rolled for the same reason.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: buy-agent-cache
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      # Two caches of 256 MiB at most each, and a journal bounded by count.
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: buy-agent
+  labels:
+    app.kubernetes.io/name: buy-agent
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: buy-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: buy-agent
+    spec:
+      # A Service named buy-agent would set $BUY_AGENT_PORT to tcp://<address>:8000,
+      # which the server refuses as a port.
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      # Room to finish the searches in flight: the server waits 25s for them.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        # The image's own user, for the model puller too, whose image runs as root.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        # Makes the cache volume writable by that user, whoever provisioned it.
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      # Starts the server once its model is there, pulling it if Ollama lacks it and
+      # retrying until Ollama answers. A changed model is pulled on the next start.
+      initContainers:
+        - name: pull-model
+          image: ollama/ollama:0.40.11@sha256:dea72d1e22270fe095b68fdf756d2b489d615643c5a2eaebbc5f569181e322d8
+          command: [sh, -c, 'ollama show "$OLLAMA_MODEL" >/dev/null 2>&1 || exec ollama pull "$OLLAMA_MODEL"']
+          env:
+            - name: OLLAMA_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: buy-agent
+                  key: OLLAMA_HOST
+            - name: OLLAMA_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: buy-agent
+                  key: OLLAMA_MODEL
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      containers:
+        - name: buy-agent
+          image: ghcr.io/adamw7/buy_agent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            # Reachable from other machines, so it asks for this on every request but
+            # the probes. The pod does not start without it.
+            - name: BUY_AGENT_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: buy-agent
+                  key: api-token
+          envFrom:
+            - configMapRef:
+                name: buy-agent
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            # 503 while stopping or while the model server does not answer.
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            # Over the five seconds it gives the model server to list its models.
+            timeoutSeconds: 10
+          resources:
+            # About 80 MiB idle; each search in flight adds the pages it reads.
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: cache
+              mountPath: /var/cache/buy-agent
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: cache
+          persistentVolumeClaim:
+            claimName: buy-agent-cache
+        - name: tmp
+          emptyDir:
+            medium: Memory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: buy-agent
+spec:
+  selector:
+    app.kubernetes.io/name: buy-agent
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

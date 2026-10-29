@@ -87,6 +87,63 @@ which says `X-Accel-Buffering: no` itself. For an orchestrator:
 Each answer carries an `X-Request-Id`, the caller's when it sent one. A 500 names
 that id and nothing else; the log has the traceback under it.
 
+## On Kubernetes
+
+`deploy/kustomization.yaml` runs what `compose.yaml` runs, on a cluster: the web
+tier, Ollama and SearXNG
+([ADR-0093](adr/0093-run-on-kubernetes-what-compose-runs.md)). The manifests hold no
+secret, so create the namespace and the token first:
+
+```bash
+kubectl create namespace buy-agent
+kubectl -n buy-agent create secret generic buy-agent \
+  --from-literal=api-token="$(openssl rand -hex 24)"
+kubectl apply -k deploy
+kubectl -n buy-agent rollout status deploy/buy-agent --timeout=30m
+kubectl -n buy-agent port-forward svc/buy-agent 8000:8000     # http://127.0.0.1:8000
+```
+
+The web tier's pod pulls its model before the server starts, unless Ollama already
+has it, so the first start takes as long as the download. The settings in the table
+above are `configMapGenerator` literals in the kustomization, with `OLLAMA_MODEL`
+naming the model. Change one and apply again, and the server restarts with it.
+
+The image is `ghcr.io/adamw7/buy_agent:latest`; `newTag` in the kustomization pins a
+release. 3.0 predates `/healthz` and `/readyz` and fails both probes, so use a later
+release or an image built from this checkout.
+
+What the manifests set up:
+
+- **One replica of each, replaced rather than rolled.** The caches and run journal
+  (1 GiB) and the models (20 GiB) are `ReadWriteOnce` claims from the cluster's
+  default StorageClass. A new image or setting stops the server before the next one
+  starts.
+- **The web tier** runs as the image's user, 1000, with a read-only root, no
+  capabilities and no service-account token. It is live while `/healthz` answers,
+  ready while `/readyz` does, and has 30 seconds to drain. While Ollama does not
+  answer it is not ready, and the Service sends nothing to it.
+- **No pod is told where the Services beside it are** (`enableServiceLinks: false`).
+  Otherwise, beside a Service named `buy-agent`, Kubernetes sets
+  `BUY_AGENT_PORT=tcp://<address>:8000`, which the server refuses as its port and
+  says why. Set it the same way in manifests of your own.
+- **A GPU:** uncomment the `components` line, which needs the NVIDIA device plugin
+  on the cluster.
+
+What is left to the cluster:
+
+- **TLS and a public name.** Put the `buy-agent` Service behind your ingress or
+  gateway. Set `BUY_AGENT_ALLOWED_HOSTS` to the name it answers by, and
+  `BUY_AGENT_BEHIND_PROXY=1` if it sets `X-Forwarded-Host` and `X-Forwarded-For`.
+  Give the event stream a 15-minute read timeout, which ingress-nginx sets with
+  `nginx.ingress.kubernetes.io/proxy-read-timeout: "900"`.
+- **What the web tier may reach.** A public name that resolves to a private address
+  passes the fetch check, so a NetworkPolicy should keep the web tier to DNS, Ollama,
+  SearXNG and the public internet, if the cluster's network plugin enforces one.
+- **Another model server.** Set `BUY_AGENT_PROVIDER` and its address in the
+  literals, and drop the Ollama manifest and the `pull-model` init container in an
+  overlay of your own.
+- **Scraping `/metrics`,** which asks for the token as a bearer.
+
 ## The published image
 
 `.github/workflows/release.yml` builds and pushes the image when a release is

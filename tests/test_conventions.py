@@ -61,6 +61,7 @@ from tests.conftest import SOURCE_ROOT, needs_ap2, payable_product, ranked_produ
 import buy_agent.models as models_module
 from buy_agent.ranking import ORDERINGS, SortBy
 from buy_agent.deployment import DRAIN_SECONDS
+import buy_agent.server as server_module
 from buy_agent.server import DEFAULT_UI_DIR
 from buy_agent.server import build_parser as build_server_parser
 import browser
@@ -915,6 +916,115 @@ def test_compose_s_search_engine_answers_in_the_shape_its_row_asks_for() -> None
     assert re.search(r"^  formats:\n(?:    - \w+\n)*    - json$", settings, re.M)
     assert "./deploy/searxng/settings.yml:" in compose
     assert "BUY_AGENT_BACKEND: searxng" in compose
+
+
+# -- the same on Kubernetes (ADR-0093) -----------------------------------------
+
+_KUSTOMIZATION = _ROOT / "deploy" / "kustomization.yaml"
+_MANIFESTS = _ROOT / "deploy" / "k8s"
+_WEB_TIER = _MANIFESTS / "buy-agent.yaml"
+
+
+def manifests() -> dict[str, str]:
+    """Every manifest the kustomization applies, by its path under ``deploy/``."""
+    kustomization = _KUSTOMIZATION.read_text(encoding="utf-8")
+    listed = re.search(r"^resources:\n((?:  - \S+\n)+)", kustomization, re.M)
+    assert listed, "deploy/kustomization.yaml applies nothing"
+    paths = re.findall(r"  - (\S+)", listed.group(1))
+    return {path: (_ROOT / "deploy" / path).read_text(encoding="utf-8") for path in paths}
+
+
+def test_the_kustomization_applies_every_manifest_beside_it() -> None:
+    """A file left out is a resource nobody applies, and the rest refer to it by name."""
+    applied = {f"k8s/{path.name}" for path in _MANIFESTS.glob("*.yaml")}
+
+    assert set(manifests()) == applied
+
+
+def test_kubernetes_gives_a_stopping_server_room_to_finish() -> None:
+    """The kubelet kills a pod its grace period after SIGTERM; the drain must end first."""
+    match = re.search(
+        r"^\s+terminationGracePeriodSeconds: (\d+)$", _WEB_TIER.read_text(encoding="utf-8"), re.M
+    )
+    assert match, "the web tier takes whatever grace period the cluster defaults to"
+
+    assert int(match.group(1)) > DRAIN_SECONDS
+
+
+def test_no_pod_is_told_where_the_services_beside_it_are() -> None:
+    """A Service named buy-agent sets ``$BUY_AGENT_PORT`` to ``tcp://<address>:8000`` in
+    every pod of its namespace, which the server refuses as its port (ADR-0093)."""
+    for path, manifest in manifests().items():
+        pods = len(re.findall(r"^\s+containers:$", manifest, re.M))
+
+        assert len(re.findall(r"^\s+enableServiceLinks: false$", manifest, re.M)) == pods, path
+
+
+def test_kubernetes_will_not_start_a_reachable_server_without_a_token() -> None:
+    """A required key of a Secret: the pod waits for it rather than serving without."""
+    manifest = _WEB_TIER.read_text(encoding="utf-8")
+
+    assert re.search(
+        r"- name: BUY_AGENT_API_TOKEN\n\s+valueFrom:\n\s+secretKeyRef:\n", manifest
+    ), "the token is not read off a Secret"
+    assert "optional: true" not in manifest
+
+
+def test_kubernetes_probes_the_paths_the_server_answers_without_a_token() -> None:
+    """Any other path asks for the token, and a probe sends none."""
+    manifest = _WEB_TIER.read_text(encoding="utf-8")
+
+    for probe, path in (
+        ("livenessProbe", server_module._LIVENESS),
+        ("readinessProbe", server_module._READINESS),
+    ):
+        asked = rf"^\s+{probe}:\n(?:\s+#.*\n)*\s+httpGet:\n\s+path: {path}$"
+
+        assert re.search(asked, manifest, re.M), probe
+
+
+def test_kubernetes_runs_the_image_as_the_user_it_was_built_for() -> None:
+    """``runAsNonRoot`` refuses an image whose ``USER`` is a name, since a name cannot be
+    checked; the pod's user owns the cache volume, and runs the model puller too."""
+    built = re.search(r"^RUN useradd --create-home --uid (\d+) ", dockerfile(), re.M)
+    user = re.search(r"^USER (\d+):(\d+)$", dockerfile(), re.M)
+    assert built and user, "the image names its user, not its number"
+    manifest = _WEB_TIER.read_text(encoding="utf-8")
+
+    assert user.group(1) == built.group(1)
+    for key, number in (("runAsUser", 1), ("runAsGroup", 2), ("fsGroup", 2)):
+        assert re.search(rf"^\s+{key}: {user.group(number)}$", manifest, re.M), key
+    assert re.search(r"^\s+runAsNonRoot: true$", manifest, re.M)
+
+
+def test_kubernetes_mounts_the_cache_where_the_image_keeps_it() -> None:
+    """Its root is read-only, so a cache anywhere else is a write that fails every run."""
+    cache = re.search(r"^ENV BUY_AGENT_CACHE_DIR=(\S+)$", dockerfile(), re.M)
+    assert cache, "the image sets no cache directory"
+    manifest = _WEB_TIER.read_text(encoding="utf-8")
+
+    assert re.search(rf"^\s+mountPath: {re.escape(cache.group(1))}$", manifest, re.M)
+    assert re.search(r"^\s+readOnlyRootFilesystem: true$", manifest, re.M)
+
+
+def test_kubernetes_runs_the_images_compose_runs() -> None:
+    """Renovate moves each by digest in both, so they agree unless one is edited by hand."""
+    pinned = r"image: (\S+@sha256:[0-9a-f]{64})"
+    compose = set(re.findall(pinned, _COMPOSE.read_text(encoding="utf-8")))
+    cluster = {image for text in manifests().values() for image in re.findall(pinned, text)}
+    config = (_ROOT / "renovate.json5").read_text(encoding="utf-8")
+
+    assert compose == cluster
+    assert "'kubernetes'," in config
+    assert "managerFilePatterns: ['/(^|/)deploy/k8s/.+\\\\.yaml$/']" in config
+
+
+def test_kubernetes_search_engine_answers_in_the_shape_its_row_asks_for() -> None:
+    """The settings compose mounts, generated into the ConfigMap the pod mounts."""
+    kustomization = _KUSTOMIZATION.read_text(encoding="utf-8")
+
+    assert "- settings.yml=searxng/settings.yml" in kustomization
+    assert "- BUY_AGENT_BACKEND=searxng" in kustomization
 
 
 def test_every_install_of_the_tools_is_held_to_the_lock() -> None:
