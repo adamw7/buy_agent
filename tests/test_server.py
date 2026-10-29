@@ -2078,6 +2078,13 @@ def test_json_lines_are_asked_for_by_the_environment(monkeypatch, started) -> No
         ("BUY_AGENT_MAX_RUNS", "0", "must be between 1 and 64; got 0"),
         ("BUY_AGENT_MAX_RUNS", "lots", "must be a whole number; got 'lots'"),
         ("BUY_AGENT_PORT", "http", "must be a whole number; got 'http'"),
+        # Kubernetes' service link for a Service named buy-agent (ADR-0093).
+        (
+            "BUY_AGENT_PORT",
+            "tcp://10.43.53.197:8000",
+            "got 'tcp://10.43.53.197:8000', which Kubernetes sets for a Service named "
+            "buy-agent: set enableServiceLinks: false on the pod",
+        ),
     ],
 )
 def test_a_misspelt_variable_is_a_usage_error(

@@ -1,0 +1,68 @@
+# A search engine that needs no key, answering the JSON the searxng row asks for.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: searxng
+  labels:
+    app.kubernetes.io/name: searxng
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: searxng
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: searxng
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      containers:
+        - name: searxng
+          image: searxng/searxng:2026.10.19-81371861f@sha256:5ed0323b5f5f8701264ef65e239a2bd83cb57098f2b971fa30bf79c06eeae271
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # Its own HMAC key, never published: the token is a long random string already.
+            - name: SEARXNG_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: buy-agent
+                  key: api-token
+            # IPv4: the image listens on "::", which a node without IPv6 refuses.
+            - name: GRANIAN_HOST
+              value: 0.0.0.0
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          securityContext:
+            # Its entrypoint starts as root to take ownership of its directories.
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+              add: [CHOWN, SETGID, SETUID]
+          volumeMounts:
+            # Where the entrypoint looks; present, it is read and never rewritten.
+            - name: settings
+              mountPath: /etc/searxng/settings.yml
+              subPath: settings.yml
+              readOnly: true
+      volumes:
+        - name: settings
+          configMap:
+            name: searxng
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: searxng
+spec:
+  selector:
+    app.kubernetes.io/name: searxng
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

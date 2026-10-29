@@ -1,0 +1,54 @@
+# What compose.yaml runs, on Kubernetes: the web tier, the model server it asks and a
+# search engine that needs no key (ADR-0093). docs/docker.md says what each setting
+# is for.
+#
+#   kubectl create namespace buy-agent
+#   kubectl -n buy-agent create secret generic buy-agent \
+#     --from-literal=api-token="$(openssl rand -hex 24)"
+#   kubectl apply -k deploy
+#
+# The web tier starts once its model is pulled, which takes as long as its size does.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Created beside the secret, so deleting what this applies leaves both.
+namespace: buy-agent
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: buy-agent
+
+resources:
+  - k8s/buy-agent.yaml
+  - k8s/ollama.yaml
+  - k8s/searxng.yaml
+
+# With an NVIDIA GPU for the model server, through the device plugin's nvidia.com/gpu:
+# components:
+#   - k8s/gpu
+
+images:
+  # Which build runs; latest follows full releases. Pin one with `newTag: "4.0"`.
+  - name: ghcr.io/adamw7/buy_agent
+    newTag: latest
+
+configMapGenerator:
+  # The web tier's settings, read as its environment; a change restarts it.
+  - name: buy-agent
+    literals:
+      # The names browsers reach it by, comma-separated; unset answers any.
+      # - BUY_AGENT_ALLOWED_HOSTS=shop.example.com
+      # 1 behind an ingress that sets X-Forwarded-Host and X-Forwarded-For.
+      - BUY_AGENT_BEHIND_PROXY=0
+      - BUY_AGENT_MAX_RUNS=4
+      - BUY_AGENT_ACCESS_LOG=1
+      - BUY_AGENT_LOG_FORMAT=json
+      - BUY_AGENT_BACKEND=searxng
+      - SEARXNG_HOST=http://searxng:8080
+      - OLLAMA_HOST=http://ollama:11434
+      # Pulled before the server starts, unless Ollama has it.
+      - OLLAMA_MODEL=gemma4:12b
+  # The file compose.yaml mounts, mounted the same way.
+  - name: searxng
+    files:
+      - settings.yml=searxng/settings.yml

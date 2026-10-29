@@ -55,7 +55,8 @@ ENV BUY_AGENT_CACHE_DIR=/var/cache/buy-agent
 RUN useradd --create-home --uid 1000 shopper \
     && mkdir -p /var/cache/buy-agent \
     && chown shopper /var/cache/buy-agent
-USER shopper
+# By number: Kubernetes' runAsNonRoot refuses a name it cannot check (ADR-0093).
+USER 1000:1000
 VOLUME ["/var/cache/buy-agent"]
 
 # Every provider's address on the host (on Linux, via --add-host).

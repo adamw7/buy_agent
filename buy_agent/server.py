@@ -1014,6 +1014,21 @@ def whole_number(limits: tuple[int, int]) -> Callable[[str], int]:
 #: ``--port`` as argparse takes it: a bindable port. Shared with the benchmark.
 port_number = whole_number(_PORTS)
 
+#: What Kubernetes sets ``$BUY_AGENT_PORT`` to in a pod beside a Service named
+#: ``buy-agent``, unless the pod turns its service links off (ADR-0093).
+_SERVICE_LINK = re.compile(r"tcp://\S+:\d+")
+
+
+def listening_port(text: str) -> int:
+    """The server's ``--port``: :data:`port_number`, naming where a Kubernetes service
+    link came from, since a pod deployed as ``buy-agent`` is handed one unasked."""
+    if _SERVICE_LINK.fullmatch(text.strip()):
+        raise argparse.ArgumentTypeError(
+            f"must be a whole number; got {text!r}, which Kubernetes sets for a Service "
+            "named buy-agent: set enableServiceLinks: false on the pod"
+        )
+    return port_number(text)
+
 
 class _Help(argparse.HelpFormatter):
     """Wraps help with :func:`~buy_agent.logging_setup.wrap_help`."""
@@ -1047,7 +1062,7 @@ def build_parser(deployed: ServerEnvironment | None = None) -> argparse.Argument
              "$BUY_AGENT_HOST). Binding anywhere else answers any Host header unless "
              "--allowed-host names one, and asks only the model server and the merchant "
              "it was started with.")
-    add("--port", type=port_number, default=env.port or DEFAULT_PORT,
+    add("--port", type=listening_port, default=env.port or DEFAULT_PORT,
         help=f"Port to bind (default: {DEFAULT_PORT}, or $BUY_AGENT_PORT; 0 takes "
              "whichever one is free and says which at startup).")
     add("--ui-dir", type=Path, default=DEFAULT_UI_DIR,
