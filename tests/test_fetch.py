@@ -873,7 +873,7 @@ def test_an_empty_declaration_reads_as_none() -> None:
 @pytest.mark.parametrize(
     "host",
     ["shop.example", "www.amazon.co.uk", "8.8.8.8", "2606:4700:4700::1111", "bad.cafe",
-     "xn--bcher-kva.example", "shop.example."],
+     "xn--bcher-kva.example", "shop.example.", "64:ff9b::808:808"],
 )
 def test_a_page_on_the_public_web_is_fetched(host: str) -> None:
     assert on_the_public_web(host)
@@ -887,6 +887,8 @@ def test_a_page_on_the_public_web_is_fetched(host: str) -> None:
         "ollama", "searxng", "app.localhost", "printer.local", "metadata.google.internal",
         "nas.lan", "router.home.arpa", "wiki.intranet", "2130706433", "0x7f.1",
         "0177.0.0.1", "127.1", "",
+        # NAT64's prefix is global, and the gateway behind it connects to what it holds.
+        "64:ff9b::7f00:1", "64:ff9b::a00:5", "64:ff9b::169.254.169.254",
     ],
 )
 def test_an_address_behind_the_public_web_is_not(host: str) -> None:
