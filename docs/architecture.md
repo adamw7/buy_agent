@@ -111,7 +111,7 @@ graph TB
         server("<b>HTTP server</b><br/><i>[Container: Python, stdlib]</i><br/>The built UI, the JSON API,<br/>and a run's log lines as<br/>Server-Sent Events")
         paying("<b>Paying</b><br/><i>[Container: Python library,<br/>optional]</i><br/>A cart from one grounded<br/>product, two signed AP2<br/>mandates and a rail. After<br/>the pipeline, never in it")
         pipeline("<b>Agent pipeline</b><br/><i>[Container: Python library]</i><br/>BuyAgent.run(): search,<br/>extract, ground, deduplicate,<br/>rank, for every front end")
-        camera("<b>Camera</b><br/><i>[Container: Playwright,<br/>optional]</i><br/>One headless Chromium<br/>photographing a card's page,<br/>on a loopback server only")
+        camera("<b>Camera</b><br/><i>[Container: Playwright,<br/>optional]</i><br/>One headless Chromium<br/>(screenshots.py)<br/>photographing a card's page,<br/>on a loopback server only")
         store[("<b>Cache directory</b><br/><i>[Container: JSON files]</i><br/>$BUY_AGENT_CACHE_DIR: the<br/>pages and answers a run may<br/>reuse, the journal of past<br/>runs, the benchmark's board")]
     end
 

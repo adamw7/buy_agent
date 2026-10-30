@@ -3758,6 +3758,67 @@ def test_every_colour_the_page_declares_has_a_dark_value_too() -> None:
     )
 
 
+# -- the C4 diagrams -----------------------------------------------------------
+
+#: A node's label in a Mermaid diagram -- ``agent("...")``, ``user(["..."])``,
+#: ``store[("...")]`` -- and never an arrow's, which is written ``|"..."|``.
+_MERMAID_NODE = re.compile(r'\b\w+(?:\(\[|\[\(|\()"([^"]*)"')
+
+#: Where a component the diagrams name may be: a module of either Python package, or
+#: a file or component folder of the UI.
+_COMPONENT_HOMES = (
+    SOURCE_ROOT / "buy_agent",
+    SOURCE_ROOT / "benchmark",
+    SOURCE_ROOT / "ui" / "src" / "app",
+)
+
+
+def c4_nodes() -> list[str]:
+    """The label of every node the diagrams in ``docs/architecture.md`` draw."""
+    text = (SOURCE_ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
+    nodes = [
+        label
+        for block in re.findall(r"```mermaid\n(.*?)```", text, re.S)
+        for label in _MERMAID_NODE.findall(block)
+    ]
+    assert nodes, "no diagram found; this section has outlived its rule"
+    return nodes
+
+
+def test_every_module_of_the_package_is_drawn_in_the_c4_diagrams() -> None:
+    """``CLAUDE.md``: "Keep ``docs/architecture.md`` (C4) in step when a responsibility
+    or boundary moves" -- which only a reader comparing the two would notice going
+    undone. A module is a component of its own, or named in the box that holds it, as
+    ``structured.py`` is in Fetch's and ``alerts.py`` in the report's; a module named
+    in no box is a responsibility the diagrams have lost."""
+    nodes = "\n".join(c4_nodes())
+    undrawn = sorted(
+        path.name
+        for path in _PACKAGE.glob("*.py")
+        if path.name != "__init__.py"
+        and not re.search(rf"(?<![\w.]){re.escape(path.name)}", nodes)
+    )
+
+    assert not undrawn, f"named in no box of docs/architecture.md: {undrawn}"
+
+
+def test_every_component_the_c4_diagrams_name_is_there() -> None:
+    """The other way about: a renamed or deleted module leaves its box naming a file
+    that renders as well as ever and that nobody can open."""
+    named = {
+        name.replace("<br/>", "").strip()
+        for label in c4_nodes()
+        for names in re.findall(r"\[Component: ([^\]]+)\]", label)
+        for name in names.split(",")
+    }
+    missing = sorted(
+        name for name in named if not any((home / name).exists() for home in _COMPONENT_HOMES)
+    )
+
+    assert named, "no component found; this rule has outlived the diagrams"
+    assert not missing, f"docs/architecture.md draws components that are not there: {missing}"
+
+
 # -- the prose -----------------------------------------------------------------
 
 #: A Markdown link, as every file here writes one: ``[the tour](README.md#what-this-is)``.

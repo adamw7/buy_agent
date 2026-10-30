@@ -170,6 +170,8 @@ Coverage cannot see rules that hold *between* files, so
   cache, mounted where the image keeps it; and the cluster runs compose's images,
   which Renovate reads in both (ADR-0093);
 - ADRs are indexed, skills name real paths, and every Markdown link resolves;
+- every module of the package is named in a box of `docs/architecture.md`'s
+  diagrams, and every component a box names is a file or folder that is there;
 - `ci.yml`'s browser job runs the browser tests a bare run leaves out, refuses to
   pass by skipping them, and opens the build the `ui` job tested (ADR-0087);
 - the tsconfig strictness stays on, every `computed` a template iterates declares
@@ -196,7 +198,7 @@ remove a whole product call `record` while the four that blank do not (ADR-0055)
 
 `tests/test_architecture.py` asserts the import graph with
 [ArchUnitPython](https://github.com/LukasNiessen/ArchUnitPython) (ADR-0047), in
-forty-three rules:
+forty-five rules:
 
 - no cycles, and no imports from `tests/`, `integration/`, `browser/`,
   `benchmark/`, `demo/` or `scripts/`;
@@ -208,6 +210,9 @@ forty-three rules:
 - one module per seam (`ap2`, model clients, search libraries, the HTML parser,
   Playwright, `argparse`), and HTTP only in `fetch`, `providers`, `rails` and
   `search`;
+- the optional installs (the AP2 SDK and its signing stack, Playwright) imported
+  only inside the functions that use them, and, in a process that cannot import
+  them, every module loading and both doors printing their help;
 - `tempfile`/`hashlib` only in `cache`, and `decimal` only in `money`;
 - env reads only in `config`, the three tables, `cache` and `mandates`;
 - no clock in `search` or `fetch`, which are handed a `wait` (ADR-0053);
@@ -231,11 +236,11 @@ forty-three rules:
 
 Every rule uses `ignore_type_checking_imports=True`, since an import under
 `if TYPE_CHECKING:` never runs. A negated rule over nothing passes, so the helpers
-naming modules check each exists, and a forty-fourth test checks every module sits
+naming modules check each exists, and a forty-sixth test checks every module sits
 in exactly one layer. Edges inside a layer are skipped, which is why the two
 doors, the seams under the journal and the domain under `money.py` have rules of
 their own. Every rule also skips an edge onto `__init__.py`, which is how
-`from buy_agent import mandates` is drawn, so a forty-fifth test reads those
+`from buy_agent import mandates` is drawn, so a forty-seventh test reads those
 imports with `ast` and holds them to `_THROUGH_THE_PACKAGE`, each an edge the
 layer table names outright.
 
@@ -418,7 +423,9 @@ scored under (`benchmark/pipeline.py`): a fingerprint of the code between the
 pages and the scorecard, docstrings and comments aside, the settings that reach
 the model, and the digest its server lists for the tag. One made under other code
 or settings is kept, ranked and marked **stale**, and a row whose runs span two
-builds says so (ADR-0075). `--json` writes the standings as the page reads them;
+builds says so (ADR-0075). Every module `BuyAgent.run` reaches is either in
+`pipeline.MODULES` or in `tests/test_benchmark_compare.py`'s
+`OUTSIDE_THE_FINGERPRINT` with why it moves nothing a case scores. `--json` writes the standings as the page reads them;
 `--baseline FILE` sets each run beside the same contender's run of the case in
 such a file, metric by metric, which the board, keeping only the latest, cannot.
 
@@ -437,7 +444,8 @@ every page mentioning it listed, every verdict a line of a page about its produc
 every line the opinion sweep would take given to a product or listed as about
 nobody, each `PERFECT` scoring exactly 1.000, each `SLOPPY` hitting its pinned
 counts. **Editing a case's pages means re-running it.** `tests/test_benchmark.py`
-keeps the scorer's own rules, `tests/test_benchmark_compare.py` the comparison,
+keeps the scorer's own rules, among them the names it may take from the pipeline it
+scores and the key's taking none that decide anything (ADR-0073), `tests/test_benchmark_compare.py` the comparison,
 the board and the command line, and `tests/test_benchmark_server.py` the page: its
 routes, and its script, which may load nothing inline, write no markup, and read
 only fields a payload carries.

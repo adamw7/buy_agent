@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -160,6 +161,20 @@ def _imports_that_run(node: ast.AST) -> Iterator[ast.ImportFrom]:
             yield from _imports_that_run(child)
 
 
+def _imports_on_load(node: ast.AST) -> Iterator[ast.Import | ast.ImportFrom]:
+    """Every import in ``node`` that runs as its module is loaded: not one inside a
+    function, which runs when the function is called, nor one under
+    ``if TYPE_CHECKING:``, which never runs."""
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        yield node
+    elif isinstance(node, ast.If) and ast.unparse(node.test) == "TYPE_CHECKING":
+        for statement in node.orelse:
+            yield from _imports_on_load(statement)
+    elif not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        for child in ast.iter_child_nodes(node):
+            yield from _imports_on_load(child)
+
+
 def reached_through_the_package() -> set[tuple[str, str]]:
     """Every ``(importer, module)`` that a ``from buy_agent import module`` -- or a
     ``from . import module`` -- names, deferred imports included."""
@@ -170,6 +185,36 @@ def reached_through_the_package() -> set[tuple[str, str]]:
         if (node.level, node.module) in {(0, "buy_agent"), (1, None)}
         for alias in node.names
     }
+
+
+def imports_of(module: str) -> set[str]:
+    """The modules of the package that loading ``module`` loads: every import of one
+    that runs, deferred ones included. A name ``__init__.py`` re-exports, rather than a
+    module, is an import of ``__init__.py``."""
+    found: set[str] = set()
+    tree = ast.parse((Path(_PACKAGE) / module).read_text(encoding="utf-8"))
+    for node in _imports_that_run(tree):
+        if node.level == 0 and node.module and node.module.startswith("buy_agent."):
+            found.add(f"{node.module.split('.')[1]}.py")
+        elif (node.level, node.module) in {(0, "buy_agent"), (1, None)}:
+            found |= {
+                f"{alias.name}.py" if f"{alias.name}.py" in _MODULES else "__init__.py"
+                for alias in node.names
+            }
+    return found - {module}
+
+
+def loaded_by(module: str) -> set[str]:
+    """Every module of the package ``module`` reaches through imports that run, however
+    many lie between, ``module`` included -- what its code can call, which no rule on
+    one edge at a time can say."""
+    loaded: set[str] = set()
+    pending = [module]
+    while pending:
+        if (current := pending.pop()) not in loaded:
+            loaded.add(current)
+            pending.extend(imports_of(current))
+    return loaded
 
 
 def third_party_imports() -> list[str]:
@@ -358,6 +403,63 @@ def test_only_mandates_imports_the_ap2_sdk() -> None:
         "cryptography*",
         because="an optional dependency imported anywhere else is not optional",
     )
+
+
+#: What the two optional installs bring: the AP2 SDK with the stack it signs with
+#: (ADR-0046), and Playwright (ADR-0065).
+_OPTIONAL = ("ap2", "jwcrypto", "cryptography", "playwright")
+
+
+def test_the_optional_installs_are_imported_only_when_they_are_used() -> None:
+    """The rule above and the one below say *which* module imports an optional install;
+    this one says *when*. ``mandates`` and ``screenshots`` import theirs inside the
+    functions that need them, "which is why a checkout without the optional SDK still
+    has a working ``--help``". CI installs both, so an import moved to the top of either
+    module would pass every rule here and fail only on the machine that never
+    installed it."""
+    hoisted = sorted(
+        f"{path.name}: {ast.unparse(node)}"
+        for path in Path(_PACKAGE).glob("*.py")
+        for node in _imports_on_load(ast.parse(path.read_text(encoding="utf-8")))
+        if any(
+            name.split(".")[0] in _OPTIONAL
+            for name in (
+                [alias.name for alias in node.names]
+                if isinstance(node, ast.Import)
+                else [node.module or ""]
+            )
+        )
+    )
+
+    assert not hoisted, f"imported as the module loads, so required after all: {hoisted}"
+
+
+def test_a_checkout_without_the_optional_installs_loads_and_answers_help() -> None:
+    """The rule above, run rather than read: with neither install importable, every
+    module of the package loads and both doors print their help. In a process of its
+    own, since this one has long since imported everything."""
+    script = "\n".join(
+        (
+            "import importlib, pathlib, sys",
+            f"sys.modules.update(dict.fromkeys({_OPTIONAL!r}))",
+            f"for path in sorted(pathlib.Path({_PACKAGE!r}).glob('*.py')):",
+            "    importlib.import_module(f'buy_agent.{path.stem}'.removesuffix('.__init__'))",
+            "from buy_agent.__main__ import build_parser",
+            "from buy_agent.server import build_parser as build_server_parser",
+            "build_parser().format_help()",
+            "build_server_parser().format_help()",
+        )
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=SOURCE_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_only_screenshots_imports_playwright() -> None:

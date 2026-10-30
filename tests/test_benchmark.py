@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import logging
 
@@ -34,8 +35,49 @@ from benchmark.scoring import (
     score_run,
 )
 from benchmark.scripted import PERFECT, SCRIPTS, SLOPPY, ScriptedLLM
+from tests.conftest import SOURCE_ROOT
 
 SONY, BOSE, SENNHEISER, AIRPODS, ANKER, LIFE, JLAB = ANSWER_KEY
+
+#: Everything the scorer takes from the code it scores, by name. ADR-0073 is why this is
+#: a list: names and quotes were "judged by rules no stricter than the pipeline's own,
+#: so the benchmark was blind to exactly the mistakes the pipeline is blind to". What
+#: it shares is the words a name is made of, the bar a name is held to, the order a
+#: ranking is put in, and the types; a judgement borrowed beside them is a blind spot.
+BORROWED: dict[str, dict[str, set[str]]] = {
+    "query.py": {"buy_agent.verification": {"running_words"}},
+    "scoring.py": {
+        "buy_agent.models": {"Product"},
+        "buy_agent.ranking": {"rank_products"},
+        "buy_agent.search": {"SearchResult"},
+        "buy_agent.verification": {
+            "NAME_COVERAGE",
+            "build_haystack",
+            "distinctive_words",
+            "running_words",
+            "word_coverage",
+        },
+    },
+}
+
+#: The answer key and the corpus it is about: written down, never worked out, so they
+#: may name the types a run passes around and the settings it is given, and nothing
+#: that decides what a run reports.
+_THE_KEY = ("answers.py", "cases.py", "corpus.py", "espresso.py", "laptops.py", "scripted.py")
+
+
+def taken_from_the_package(module: str) -> dict[str, set[str]]:
+    """What ``benchmark/<module>`` imports from ``buy_agent``, by module and name."""
+    tree = ast.parse((SOURCE_ROOT / "benchmark" / module).read_text(encoding="utf-8"))
+    taken: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("buy_agent"):
+            taken.setdefault(node.module or "", set()).update(alias.name for alias in node.names)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.startswith("buy_agent"):
+                    taken.setdefault(alias.name, set()).add("*")
+    return taken
 
 
 @pytest.fixture(scope="module")
@@ -66,6 +108,24 @@ def corpus(served: tuple[SearchResult, ...]) -> str:
 
 
 # -- the answer key ------------------------------------------------------------
+
+
+@pytest.mark.parametrize("module", sorted(BORROWED))
+def test_the_scorer_borrows_from_the_pipeline_only_what_it_lists(module: str) -> None:
+    """A new name taken from the pipeline is a decision made here, beside the record of
+    what the last one cost."""
+    assert taken_from_the_package(module) == BORROWED[module]
+
+
+@pytest.mark.parametrize("module", _THE_KEY)
+def test_the_answer_key_works_nothing_out_with_the_pipeline(module: str) -> None:
+    """A key that asked the code it grades would move with it, and score a regression
+    1.000."""
+    assert set(taken_from_the_package(module)) <= {
+        "buy_agent.config",
+        "buy_agent.models",
+        "buy_agent.search",
+    }
 
 
 def test_the_corpus_is_about_more_products_than_a_run_can_report() -> None:
