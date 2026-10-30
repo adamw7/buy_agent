@@ -91,6 +91,24 @@ def test_a_price_in_another_currency_cannot_meet_it() -> None:
     )
 
 
+def test_a_vote_for_an_unplaceable_currency_meets_nothing() -> None:
+    """"¥" is the yen's sign and the yuan's (ADR-0054): the set may vote for it and rank
+    in it, but 8,000 of it is no amount paying will send, so it wakes no price watch."""
+    alert = price_alert(
+        ranked(
+            Product(name="Cooker", price=8000.0, currency="¥"),
+            Product(name="Dearer cooker", price=12000.0, currency="¥"),
+        ),
+        9000,
+    )
+
+    assert alert.met == []
+    assert alert.detail == (
+        "Nothing found is at or under 9,000.00 ¥: ¥ names no currency this run can count "
+        "in, and nothing is converted."
+    )
+
+
 def test_an_unknown_price_cannot_meet_it() -> None:
     alert = price_alert(ranked(Product(name="Unpriced")), 100)
 

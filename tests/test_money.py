@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from buy_agent.money import (
+    decimals,
     minor_units,
 )
 
@@ -44,6 +45,15 @@ def test_a_price_becomes_the_currencys_smallest_unit(
     price: float, currency: str, expected: int
 ) -> None:
     assert minor_units(price, currency) == expected
+
+
+@pytest.mark.parametrize(
+    ("currency", "places"),
+    [("USD", 2), ("JPY", 0), ("KWD", 3), ("XYZ", 2), ("", 2), (None, 2)],
+)
+def test_a_currency_is_counted_to_its_own_places(currency: str | None, places: int) -> None:
+    """What ``minor_units`` scales by, and what a declared price is written to."""
+    assert decimals(currency) == places
 
 
 def test_a_figure_that_is_not_a_number_is_refused_rather_than_counted() -> None:

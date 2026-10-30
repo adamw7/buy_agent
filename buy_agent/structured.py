@@ -9,6 +9,8 @@ import re
 from math import isfinite
 from typing import TYPE_CHECKING, Any
 
+from buy_agent.money import decimals
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
@@ -146,7 +148,10 @@ def _offer(offer: dict[str, Any]) -> str:
     currency = offer.get("priceCurrency")
     if price is not None and price > 0:
         code = currency.strip().upper() if isinstance(currency, str) else ""
-        parts.append(f"{price:.2f} {code}" if _CODE.fullmatch(code) else f"{price:.2f}")
+        # To the places the currency counts in, two at least: "12.345 KWD" written as
+        # 12.35 was a price no page declared, and grounding takes these lines as printed.
+        figure = f"{price:.{max(2, decimals(code))}f}"
+        parts.append(f"{figure} {code}" if _CODE.fullmatch(code) else figure)
     for value, words in (
         (offer.get("availability"), _AVAILABILITY),
         (offer.get("itemCondition"), _CONDITION),

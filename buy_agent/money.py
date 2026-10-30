@@ -130,11 +130,20 @@ def amount_label(price: float, currency: str | None = None) -> str:
     return f"{price:,.2f}{unit}"
 
 
+def decimals(currency: str | None) -> int:
+    """The places a price in ``currency`` is counted to: two, unless it has no minor unit
+    or counts in thousandths."""
+    return 0 if currency in _ZERO_DECIMAL else 3 if currency in _THREE_DECIMAL else 2
+
+
 def minor_units(price: float, currency: str) -> int:
     """``price`` in the currency's smallest unit, rounded half up."""
-    exponent = 0 if currency in _ZERO_DECIMAL else 3 if currency in _THREE_DECIMAL else 2
     try:
-        scaled = Decimal(str(price)).scaleb(exponent).quantize(Decimal(1), rounding=ROUND_HALF_UP)
+        scaled = (
+            Decimal(str(price))
+            .scaleb(decimals(currency))
+            .quantize(Decimal(1), rounding=ROUND_HALF_UP)
+        )
         # Inside the guard: ``int`` is what refuses a NaN.
         return int(scaled)
     # Every ``DecimalException`` is an ``ArithmeticError``.

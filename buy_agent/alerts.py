@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
 
 from buy_agent.models import and_list, comparable_price, dominant_currency
-from buy_agent.money import amount_label
+from buy_agent.money import amount_label, placeable
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -39,12 +39,15 @@ def price_alert(
     products = [entry.product for entry in ranked]
     currency = dominant_currency(products, named)
     line = amount_label(below, currency)
+    # The vote may land on "¥" (ADR-0054), which ranks but is no amount to pay.
+    countable = currency is not None and placeable(currency) is not None
     priced = sorted(
         (
             (price, product)
             for product in products
             # Ranking counts a bare price on the run's scale (ADR-0043); this does not.
-            if product.currency is not None
+            if countable
+            and product.currency is not None
             and (price := comparable_price(product, currency)) is not None
         ),
         key=lambda pair: pair[0],
@@ -70,6 +73,11 @@ def price_alert(
         )
     elif priced:
         detail = f"Nothing found that can be bought is at or under {line}."
+    elif currency and not countable:
+        detail = (
+            f"Nothing found is at or under {line}: {currency} names no currency this run "
+            f"can count in, and nothing is converted."
+        )
     elif currency:
         detail = (
             f"Nothing found is at or under {line}: no page printed a price this run "

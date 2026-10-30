@@ -264,6 +264,42 @@ def test_a_brave_answer_becomes_search_results(monkeypatch) -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("region", "country", "language"),
+    [
+        # The region the help suggests: Brave calls the UK GB, and its English en-gb.
+        ("uk-en", "GB", "en-gb"),
+        ("us-en", "US", "en"),
+        ("br-pt", "BR", "pt-br"),
+        ("pt-pt", "PT", "pt-pt"),
+        ("kr-kr", "KR", "ko"),
+        ("jp-jp", "JP", "jp"),
+        ("hk-tzh", "HK", "zh-hant"),
+        ("cn-zh", "CN", "zh-hans"),
+        ("no-no", "NO", "nb"),
+        ("ue-es", "US", "es"),
+        # DuckDuckGo's "no region", and regions of no one country.
+        ("wt-wt", "ALL", None),
+        ("xa-ar", "ALL", "ar"),
+        ("xl-es", "ALL", "es"),
+        # A country and a language Brave does not list are not sent as written.
+        ("ie-en", "ALL", "en"),
+        ("ph-tl", "PH", None),
+    ],
+)
+def test_brave_is_asked_in_its_own_codes(
+    monkeypatch, region: str, country: str, language: str | None
+) -> None:
+    """The region is DuckDuckGo's, and Brave takes a listed country and language only:
+    split as written, "uk-en" asked for a country called UK."""
+    seen = stub_http(monkeypatch, payload={"web": {"results": []}})
+
+    search_web("headphones", region=region, backend=_with_key(BRAVE, "k"))
+
+    assert seen["params"]["country"] == country
+    assert seen["params"].get("search_lang") == language
+
+
 def test_brave_without_a_key_says_which_variable_to_set(monkeypatch) -> None:
     """Not a transport failure, so it is not asked twice: a second keyless request is
     a second refusal."""

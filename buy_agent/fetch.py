@@ -91,6 +91,9 @@ _PRIVATE = "pointed inside a private network"
 _PRIVATE_SUFFIXES = (".localhost", ".local", ".internal", ".lan", ".home.arpa", ".intranet")
 #: A label an address may be spelt in that ``ipaddress`` does not read: ``0x7f``, ``0177``.
 _NUMERIC_LABEL = re.compile(r"0x[0-9a-f]*|[0-9]+", re.IGNORECASE)
+#: NAT64's well-known prefix (RFC 6052): a gateway connects to the IPv4 address in its last
+#: 32 bits, which ``is_global`` never reads -- it judges the prefix, which is global.
+_NAT64 = ipaddress.IPv6Network("64:ff9b::/96")
 
 
 class PrivateAddress(httpx.InvalidURL):
@@ -245,9 +248,13 @@ def on_the_public_web(host: str) -> bool:
     public name resolving to a private address is not caught here (ADR-0092)."""
     name = host.strip().rstrip(".").lower()
     try:
-        return ipaddress.ip_address(name).is_global
+        address = ipaddress.ip_address(name)
     except ValueError:
         pass
+    else:
+        if address in _NAT64:
+            address = ipaddress.IPv4Address(int(address) & 0xFFFF_FFFF)
+        return address.is_global
     labels = name.split(".")
     if len(labels) < 2 or name.endswith(_PRIVATE_SUFFIXES) or name == "localhost":
         return False
