@@ -375,6 +375,29 @@ def test_a_price_with_a_decimal_comma_is_read_as_the_page_prints_it() -> None:
     assert not mentions_number(haystack, 12999)
 
 
+def test_a_price_in_thousandths_keeps_its_third_place() -> None:
+    """Written to two places, "12.345 KWD" became 12.35: a price no page declared, which
+    grounding then accepted since the line written is page text, and the 12.345 the page
+    did declare was blanked. A currency counted in hundredths still reads as one."""
+    for price, currency, line in (
+        ("12.345", "KWD", "Kettle: 12.345 KWD"),
+        ("12.5", "KWD", "Kettle: 12.500 KWD"),
+        ("4980", "JPY", "Kettle: 4980.00 JPY"),
+        ("19.99", "USD", "Kettle: 19.99 USD"),
+    ):
+        offer = {"@type": "Offer", "price": price, "priceCurrency": currency}
+        assert declared([script({"@type": "Product", "name": "Kettle", "offers": offer})]) == [
+            line
+        ], price
+
+    offer = {"@type": "Offer", "price": "12.345", "priceCurrency": "KWD"}
+    [written] = declared([script({"@type": "Product", "name": "Kettle", "offers": offer})])
+    haystack = build_haystack([SearchResult(url="https://shop.example/kettle", content=written)])
+
+    assert mentions_number(haystack, 12.345)
+    assert not mentions_number(haystack, 12.35)
+
+
 def test_a_rating_with_a_decimal_comma_is_read_too() -> None:
     """Read as a thousands comma, "4,6" was a 46 that no five-point scale holds, and the
     page's rating was dropped."""
