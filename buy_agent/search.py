@@ -23,6 +23,25 @@ _RETRY_WAIT = 2.0
 _TIMEOUT = 10.0
 #: Brave refuses a larger ``count`` rather than answering fewer.
 _BRAVE_MAX_COUNT = 20
+#: The ``country`` and ``search_lang`` values Brave takes, as its own MCP server lists
+#: them (github.com/brave/brave-search-mcp-server, ``src/tools/web/params.ts``).
+_BRAVE_COUNTRIES = frozenset(
+    """
+    ALL AR AU AT BE BR CA CL DK FI FR DE HK IN ID IT JP KR MY MX NL NZ NO CN PL PT PH
+    RU SA ZA ES SE CH TW TR GB US
+    """.split()
+)
+_BRAVE_LANGUAGES = frozenset(
+    """
+    ar eu bn bg ca zh-hans zh-hant hr cs da nl en en-gb et fi fr gl de el gu he hi hu
+    is it ja jp kn ko lv lt ms ml mr nb pl pt-br pt-pt pa ro ru sr sk sl es sv ta te
+    th tr uk vi
+    """.split()
+)
+#: A region's halves as DuckDuckGo spells them where Brave spells them otherwise: the
+#: UK is GB, and a region of no one country (all, Arabia, Latin America) is ALL.
+_BRAVE_COUNTRY_FOR = {"uk": "GB", "ue": "US", "ct": "ES", "wt": "ALL", "xa": "ALL", "xl": "ALL"}
+_BRAVE_LANGUAGE_FOR = {"zh": "zh-hans", "tzh": "zh-hant", "kr": "ko", "no": "nb"}
 #: Not imported: :mod:`buy_agent.config` imports this module.
 _DEFAULT_REGION = "us-en"
 
@@ -53,10 +72,6 @@ class Query:
     text: str
     max_results: int
     region: str = _DEFAULT_REGION
-
-    @property
-    def country(self) -> str:
-        return self.region.partition("-")[0].upper()
 
     @property
     def language(self) -> str:
@@ -136,14 +151,17 @@ def _brave_find(backend: Backend, query: Query) -> list[SearchResult]:
             f"off the environment and has no flag and no form field, the way every "
             f"other key here is -- or search through {DDG.label}, which needs none."
         )
+    params: dict[str, str | int] = {
+        "q": query.text,
+        "count": min(query.max_results, _BRAVE_MAX_COUNT),
+        "country": _brave_country(query.region),
+    }
+    # Left out where Brave has no word for it, rather than refused: it then reads English.
+    if language := _brave_language(query.region):
+        params["search_lang"] = language
     response = httpx.get(
         backend.endpoint,
-        params={
-            "q": query.text,
-            "count": min(query.max_results, _BRAVE_MAX_COUNT),
-            "country": query.country,
-            "search_lang": query.language,
-        },
+        params=params,
         headers={"Accept": "application/json", "X-Subscription-Token": backend.api_key},
         timeout=_TIMEOUT,
     )
@@ -153,6 +171,27 @@ def _brave_find(backend: Backend, query: Query) -> list[SearchResult]:
         web.get("results") if isinstance(web, dict) else None, url_key="url",
         text_key="description", limit=query.max_results,
     )
+
+
+def _brave_country(region: str) -> str:
+    """A DuckDuckGo region's country as Brave names it, else Brave's ALL: a code it
+    does not list ("uk", which it calls GB) is not one to send."""
+    country = region.partition("-")[0]
+    named = _BRAVE_COUNTRY_FOR.get(country, country.upper())
+    return named if named in _BRAVE_COUNTRIES else "ALL"
+
+
+def _brave_language(region: str) -> str | None:
+    """A DuckDuckGo region's language as Brave names it, or ``None`` where it has none;
+    the country says which Portuguese and which English."""
+    country, _, language = region.partition("-")
+    if language == "pt":
+        named = "pt-br" if country == "br" else "pt-pt"
+    elif (country, language) == ("uk", "en"):
+        named = "en-gb"
+    else:
+        named = _BRAVE_LANGUAGE_FOR.get(language, language)
+    return named if named in _BRAVE_LANGUAGES else None
 
 
 def _brave_hint(backend: Backend, exc: Exception) -> str:
