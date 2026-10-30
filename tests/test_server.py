@@ -1736,6 +1736,7 @@ def test_the_metrics_are_answered_to_any_host_and_behind_the_token(tmp_path: Pat
 
 
 def test_a_run_past_the_cap_is_a_503_that_says_when_to_come_back(tmp_path: Path) -> None:
+    StubAgent.captured = {}
     with served(tmp_path, policy=Policy(max_runs=1, sealer=SEALER)) as (base, httpd):
         assert httpd.traffic.admit_run() is None, "a run already going"
         status, headers, answer = asked(f"{base}/api/search", {"request": "headphones"})
