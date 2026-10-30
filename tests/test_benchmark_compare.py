@@ -53,6 +53,7 @@ from benchmark.query import QueryCheck, QueryVerdict
 from benchmark.runner import run_benchmark
 from benchmark.scoring import FLOORS, MEANINGS, METRICS
 from benchmark.scripted import ScriptedLLM
+from tests.test_architecture import loaded_by
 
 #: A scorecard's counts at every share: full, half and none.
 FULL = {name: (2, 2) for name in METRICS}
@@ -635,6 +636,49 @@ def test_the_pipeline_is_the_code_between_the_pages_and_the_scorecard() -> None:
     assert not names & {"benchmark.cases", "benchmark.corpus", "benchmark.answers"}
     assert pipeline.code() == pipeline.code()
     assert len(pipeline.code()) == 16
+
+
+#: What a run reaches that cannot move what it reports or how that scores, each with
+#: why. Every other module ``BuyAgent.run`` reaches is ``pipeline.MODULES``'s.
+OUTSIDE_THE_FINGERPRINT: dict[str, str] = {
+    "cache.py": "every case runs with nothing remembered: its cache_ttl is 0 (ADR-0044)",
+    "config.py": "it resolves values: each case fixes the counts and the cache, and "
+                 "pipeline.settings records what reaches the model (ADR-0075)",
+    "journal.py": "what moved since the last run is told, never ranked on (ADR-0060)",
+    "logging_setup.py": "the report's wording; a scorecard reads the ranked products",
+    "mandates.py": "paying comes after the run, and a benchmark never pays",
+    "payment.py": "paying comes after the run, and a benchmark never pays",
+    "rails.py": "paying comes after the run, and a benchmark never pays",
+    "search.py": "the runner hands every agent its case's corpus in place of search_web",
+    "sources.py": "no case names a source, so its corpus is searched whole",
+}
+
+
+def test_every_module_a_run_reaches_is_fingerprinted_or_says_why_not() -> None:
+    """``CLAUDE.md``: "a module coming to decide what a run reports or how it scores
+    joins ``pipeline.MODULES``" -- which held only while somebody remembered, since the
+    test above names three. A module ``BuyAgent.run`` comes to reach is a failing test
+    until it is fingerprinted or set down beside why it moves nothing a case scores, and
+    the two reasons that are facts about the cases are checked as facts."""
+    reached = loaded_by("agent.py")
+    fingerprinted = {
+        f"{module.__name__.removeprefix('buy_agent.')}.py"
+        for module in pipeline.MODULES
+        if module.__name__.startswith("buy_agent.")
+    }
+    unplaced = sorted(reached - fingerprinted - set(OUTSIDE_THE_FINGERPRINT))
+
+    assert not unplaced, (
+        f"a run reaches {unplaced}: add each to pipeline.MODULES, or to "
+        "OUTSIDE_THE_FINGERPRINT with why it moves nothing a case scores"
+    )
+    assert fingerprinted <= reached, "a module no run reaches cannot move its answer"
+    assert set(OUTSIDE_THE_FINGERPRINT) <= reached - fingerprinted, (
+        "a reason kept for a module the run no longer reaches, or now fingerprints"
+    )
+    for case in CASES.values():
+        assert case.settings().cache_ttl == 0, case.name
+        assert case.settings().sources == (), case.name
 
 
 def test_the_settings_are_what_reaches_the_model_and_what_it_is_shown() -> None:
