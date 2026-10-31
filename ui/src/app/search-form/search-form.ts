@@ -1,16 +1,4 @@
-import {
-  Component,
-  ElementRef,
-  Injector,
-  afterNextRender,
-  computed,
-  effect,
-  inject,
-  input,
-  output,
-  signal,
-  untracked,
-} from '@angular/core';
+import { Component, computed, effect, input, output, signal, untracked } from '@angular/core';
 import type { WritableSignal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -22,6 +10,7 @@ import type {
   Limit,
   ModelSource,
   ModelStatus,
+  NoticedBound,
   ProviderOption,
   RailOption,
   SearchOptions,
@@ -140,7 +129,7 @@ export class SearchForm {
   readonly rejected = input<Rejection | null>(null);
   /** The results' currency, which a payment is made in (ADR-0056). */
   readonly countedIn = input<string | null>(null);
-  /** Bounds the request states in words: offered, never applied (ADR-0059). */
+  /** Bounds the request states in words: filled in, shown, and undone in a click (ADR-0094). */
   readonly noticed = input<BoundsCheck | null>(null);
 
   /** Not `search`, which a native DOM event would also answer. */
@@ -192,10 +181,7 @@ export class SearchForm {
   /** The settings a run was started with. */
   private readonly submitted = signal<SearchOptions | null>(null);
 
-  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
-  private readonly injector = inject(Injector);
-
-  /** The server is still reading the request, so a submit waits for it (ADR-0059). */
+  /** The server is still reading the request, so a submit waits for it (ADR-0094). */
   private reading = false;
 
   /** Tells a reading landing from the request being typed into. */
@@ -203,9 +189,6 @@ export class SearchForm {
 
   /** A submit waiting on that reading, by its request. */
   private readonly held = signal<string | null>(null);
-
-  /** The box a held submit stopped at, which says so until something is sent. */
-  protected readonly stoppedAt = signal<NumberKey | null>(null);
 
   /** Every number field, in the order the form draws them. */
   protected readonly numberFields: NumberField[] = [
@@ -241,15 +224,15 @@ export class SearchForm {
     field('num_ctx', 'Context window', this.numCtx, {
       hint: () =>
         this.takesNumCtx()
-          ? 'Thinking models need the room to answer; the default leaves it.'
+          ? 'Room for the pages and the answer; the default suits most models.'
           : `${this.providerLabel()} is started with the window it serves, so this is not a per-run setting there.`,
       off: () => !this.takesNumCtx(),
     }),
     field('model_timeout', 'Wait for the model', this.modelTimeout, {
-      hint: 'Seconds to wait for one answer. Asked once, so this is the whole wait.',
+      hint: 'Seconds to wait for one answer from the model. It is not asked again.',
     }),
-    field('cache_ttl', 'Cache pages for', this.cacheTtl, {
-      hint: 'Seconds a page, and the answer about it, stay usable: 86400 is a day, 0 is off.',
+    field('cache_ttl', 'Reuse pages for (seconds)', this.cacheTtl, {
+      hint: '86400 is a day. 0 reads every page and asks the model afresh.',
     }),
     field('spend_limit', 'Spend limit', this.spendLimit, {
       step: 0.01,
@@ -468,6 +451,27 @@ export class SearchForm {
     return offer && row?.value() === offer.value ? offer.note : '';
   }
 
+  /** The bounds the request filled in that their boxes still hold, in the shopper's
+   *  words: what a search applies, said beside the request (ADR-0094). */
+  protected readonly fromRequest = computed<NoticedBound[]>(() =>
+    this.noticedNow().filter(
+      (offer) => this.numberFields.find((row) => row.key === offer.bound)?.value() === offer.value,
+    ),
+  );
+
+  /** Whether the last search sent was this request with those bounds: undoing them is
+   *  then searching again without them. */
+  protected readonly searchedWithIt = computed(() => {
+    const sent = this.submitted();
+    const applied = this.fromRequest();
+    return (
+      sent !== null &&
+      applied.length > 0 &&
+      sent.request === this.request().trim() &&
+      applied.every((offer) => sent[offer.bound as NumberKey] === offer.value)
+    );
+  });
+
   /** Offers made, as `key=figure`, so a box the shopper cleared stays clear. */
   private readonly offered = new Set<string>();
 
@@ -551,8 +555,9 @@ export class SearchForm {
       }
     });
 
-    // Fill a noticed bound into an empty box once, and open the panel (ADR-0059). A box
-    // the form filled follows the request; one the shopper touched is theirs.
+    // Fill a noticed bound into an empty box once, said beside the request rather than by
+    // opening the panel (ADR-0094). A box the form filled follows the request; one the
+    // shopper touched is theirs.
     effect(() => {
       const check = this.noticed();
       const answered = check !== null && check.request === this.request().trim();
@@ -564,8 +569,6 @@ export class SearchForm {
         if (landed) {
           this.reading = false;
         }
-        // Boxes this reading changed.
-        const shown: NumberKey[] = [];
         for (const [key, value] of this.filled) {
           const row = this.numberFields.find((field) => field.key === key);
           if (row?.value() !== value) {
@@ -588,16 +591,12 @@ export class SearchForm {
           }
           this.offered.add(mark);
           if (owned || row.value() === null) {
-            if (row.value() !== bound.value) {
-              shown.push(row.key);
-            }
             row.value.set(bound.value);
             this.filled.set(bound.bound, bound.value);
-            this.advanced.set(true);
           }
         }
         if (landed && this.held() !== null) {
-          this.release(shown);
+          this.release();
         }
       });
     });
@@ -644,7 +643,8 @@ export class SearchForm {
     if (!this.canSubmit() || this.running()) {
       return;
     }
-    // Enter leaves the box and submits at once, so the reading is behind the run (ADR-0059).
+    // Enter leaves the box and submits at once, so the reading is behind the run: the
+    // run waits for it, so what the request asks for goes with it (ADR-0094).
     if (this.reading) {
       this.held.set(this.request().trim());
       return;
@@ -653,39 +653,34 @@ export class SearchForm {
   }
 
   private send(): void {
-    this.stoppedAt.set(null);
     this.remember();
     const options = this.options();
     this.submitted.set(options);
     this.run.emit(options);
   }
 
-  /** The reading a submit waited on has landed: send it, unless it put a figure in a
-   *  box, where the shopper is taken instead, never applying an offer unseen. */
-  private release(shown: readonly NumberKey[]): void {
+  /** The reading a submit waited on has landed: send it, with whatever it filled in,
+   *  which the line beside the request names (ADR-0094). */
+  private release(): void {
     const request = this.held();
     this.held.set(null);
-    if (request !== this.request().trim()) {
-      return;
-    }
-    const first = shown[0];
-    if (first === undefined) {
+    if (request === this.request().trim()) {
       // Again, so a box marked in the meantime still stops it.
       this.submit();
-      return;
     }
-    this.stoppedAt.set(first);
-    // Once its panel is drawn; the whole field, so the sentences under the box show.
-    afterNextRender(
-      () => {
-        const box = this.host.nativeElement.querySelector<HTMLInputElement>(
-          `input[name="${first}"]`,
-        );
-        box?.focus({ preventScroll: true });
-        box?.closest('.field')?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
-      },
-      { injector: this.injector },
-    );
+  }
+
+  /** Clear what the request filled in, and search again if the results came from it. */
+  protected dropFromRequest(): void {
+    const again = this.searchedWithIt();
+    for (const offer of this.fromRequest()) {
+      // Its offer stays made, so it is not filled in again.
+      this.numberFields.find((row) => row.key === offer.bound)?.value.set(null);
+      this.filled.delete(offer.bound);
+    }
+    if (again) {
+      this.submit();
+    }
   }
 
   private options(): SearchOptions {
@@ -745,7 +740,6 @@ export class SearchForm {
 
   /** Ask the server what the request asks for in words. */
   protected requestChanged(): void {
-    this.stoppedAt.set(null);
     const request = this.request().trim();
     // An empty request is not asked about.
     this.reading = request !== '';

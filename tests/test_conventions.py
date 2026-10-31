@@ -579,8 +579,8 @@ def test_a_change_is_mirrored_field_for_field_in_typescript() -> None:
 
 
 def test_what_the_request_asks_for_is_mirrored_field_for_field_in_typescript() -> None:
-    """Offered and never applied, so the form reads both halves: the request it was
-    about, and each bound with Python's own sentence (ADR-0059)."""
+    """Applied and shown, so the form reads both halves: the request it was about, and
+    each bound with the shopper's words and Python's own sentence (ADR-0094)."""
     answer = bounds_payload("headphones under $200")
     assert answer["noticed"], "the request has to ask for something to check anything"
 
@@ -589,8 +589,8 @@ def test_what_the_request_asks_for_is_mirrored_field_for_field_in_typescript() -
 
 
 def test_every_bound_the_request_can_ask_for_is_one_the_form_draws_a_box_for() -> None:
-    """A bound noticed with nowhere to be offered is a reading nobody is shown
-    (ADR-0059), and the box is what the ranges and the placeholders hang off."""
+    """A bound noticed with no box to fill is a reading nobody is shown (ADR-0094),
+    and the box is what the ranges and the placeholders hang off."""
     assert set(get_args(Bound)) <= set(limits_payload())
 
 

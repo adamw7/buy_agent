@@ -91,14 +91,15 @@ goes under the text.
 
 **Noticed bounds.** `GET /api/bounds` reads "under $200" out of the request, and
 the matching box is filled once, only while empty, under Python's note
-([ADR-0059](../docs/adr/0059-notice-a-bound-in-the-request-and-offer-it.md)): a
-hint, never a mark, and a cleared box is not refilled. The note sits above the
-box's hint, which says the currency the figure is read in. The request is read on
+([ADR-0094](../docs/adr/0094-apply-a-bound-the-request-states-where-the-shopper-sees-it.md)):
+a hint, never a mark, and a cleared box is not refilled. The note sits above the
+box's hint, which says the currency the figure is read in. The panel is not opened
+for it: a line beside the request (`fromRequest`) quotes each filled bound in the
+shopper's words, with one button that clears them -- or, once the results came from
+them (`searchedWithIt`), searches again without them. The request is read on
 `change`, which Enter fires on its way to submitting, so a submit waits for a
-reading on its way (`reading`, `held`). If the reading filled a box, it sends
-nothing, focuses that box and brings its whole field into view, where a line under
-Python's note says nothing was searched yet (`stoppedAt`); pressing again searches
-with it. `App` answers a failed reading as one that noticed nothing.
+reading on its way (`reading`, `held`) and then goes with what it filled in. `App`
+answers a failed reading as one that noticed nothing.
 
 **Storage.** Settings are remembered in `localStorage`, the request is not, and
 every call is wrapped. `pay` is never remembered: "you may spend my money" is not

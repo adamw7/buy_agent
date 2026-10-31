@@ -120,7 +120,7 @@ def _check(product: Product, currency: str | None) -> tuple[float, str]:
             field="products",
         )
     if placeable(currency) is None:
-        # The vote may land on "¥" (ADR-0054): ranking scores it neutral, paying refuses.
+        # The vote may land on "¥" (ADR-0054): ranking scores it unplaced, paying refuses.
         raise PaymentError(
             f"{product.name} is priced in {currency}, which names no currency this can "
             f"count in. Nothing is converted and no scale is guessed, so that is a "

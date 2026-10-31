@@ -68,6 +68,7 @@ const RESULT: SearchResult = {
   changes: [],
   compared_with: null,
   alert: null,
+  why_empty: null,
   seal: 'sealed by the server',
 };
 
@@ -112,6 +113,7 @@ class FakeAgent {
       changes: [],
       compared_with: null,
       alert: null,
+      why_empty: null,
       // The same set, so the same seal (ADR-0092).
       seal: options.seal ?? null,
     });
@@ -573,7 +575,27 @@ describe('App', () => {
     expect(page.querySelector('app-progress-log .save')).not.toBeNull();
   });
 
-  it('explains an empty result instead of showing an empty list', async () => {
+  it("says which step left an empty result, in Python's sentence", async () => {
+    /* The run knows which of its steps left nothing; listing all three and pointing
+       at the log was the page guessing (ADR-0012). */
+    const fixture = await render();
+    await searchFor(fixture, 'kettle');
+    const why = "All 7 products found are outside this run's limits; clear one to see them.";
+    agent.stream.next({
+      kind: 'result',
+      result: { ...RESULT, count: 0, products: [], why_empty: why },
+    });
+    agent.stream.complete();
+    await fixture.whenStable();
+
+    const said = (fixture.nativeElement as HTMLElement)
+      .querySelector('.banner.quiet')!
+      .textContent!.replace(/\s+/g, ' ')
+      .trim();
+    expect(said).toBe(`Nothing came back for “kettle”. ${why}`);
+  });
+
+  it('lists what can leave an empty result when the server does not say which', async () => {
     const fixture = await render();
     await searchFor(fixture, 'kettle');
     agent.stream.next({
@@ -588,13 +610,10 @@ describe('App', () => {
     expect(said).toContain('Nothing came back');
     /* All three of the things that end a run with nothing, because naming only
        the two the pipeline does is what sent a reader looking at the web for a
-       report their own Min reviews had emptied. The limits are the one of the
-       three that is a box on this page. */
+       report their own Min reviews had emptied. */
     expect(said).toContain('no pages worth reading');
-    expect(said).toContain('survived grounding');
-    expect(said).toContain('limits you set');
-    /* And no guess at which: the run logs a line for whichever it was, and the
-       panel holding it is on the page above this. */
+    expect(said).toContain('confirmed by the pages');
+    expect(said).toContain('the limits may have removed');
     expect(said).toContain('Progress');
   });
 
@@ -899,8 +918,9 @@ describe('App keeping a run in view', () => {
     agent = new FakeAgent();
     TestBed.configureTestingModule({ providers: [{ provide: AgentService, useValue: agent }] });
     top = window.innerHeight + 500;
+    // Every element is drawn 200 pixels tall from `top`.
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
-      () => ({ top }) as DOMRect,
+      () => ({ top, bottom: top + 200 }) as DOMRect,
     );
     scrolled = [];
     proto.scrollIntoView = function (this: HTMLElement, how?: ScrollIntoViewOptions) {
@@ -996,6 +1016,22 @@ describe('App keeping a run in view', () => {
     expect(agent.searched).toHaveLength(2);
     expect(fixture.nativeElement.querySelector('.results')).not.toBeNull();
     expect(scrolled).toEqual(['results start']);
+  });
+
+  it('brings the results into view when the first card is cut off by the fold', async () => {
+    /* A laptop's window showed the heading and the top 100 pixels of the first card,
+       which started above the fold and so was never scrolled to. */
+    top = window.innerHeight - 100;
+    await ran(agent, 'kettle', RESULT);
+
+    expect(scrolled).toEqual(['results start']);
+  });
+
+  it('measures an empty run by its sentence, there being no card', async () => {
+    top = window.innerHeight - 100;
+    await ran(agent, 'kettle', { ...RESULT, count: 0, products: [] });
+
+    expect(scrolled).toEqual(['card banner quiet start']);
   });
 });
 
@@ -1625,12 +1661,19 @@ describe('App reading the request', () => {
   });
 
   it('offers what the server read, in the box that would enforce it', async () => {
-    /* Offered and never applied: the form fills the box and the shopper submits it
-       or clears it (ADR-0059). */
+    /* Filled in and shown: the form fills the box, says so beside the request, and
+       the shopper submits it or undoes it (ADR-0094). */
     agent.boundsResponse = (request) =>
       of({
         request,
-        noticed: [{ bound: 'max_price', value: 90, note: 'From your request: "under $90".' }],
+        noticed: [
+          {
+            bound: 'max_price',
+            value: 90,
+            phrase: 'under $90',
+            note: 'From your request: "under $90".',
+          },
+        ],
       });
     const fixture = await render();
 
@@ -1640,6 +1683,7 @@ describe('App reading the request', () => {
     const box = page.querySelector<HTMLInputElement>('input[name="max_price"]')!;
     expect(box.value).toBe('90');
     expect(page.textContent).toContain('From your request: "under $90".');
+    expect(page.querySelector('.from-request')!.textContent).toContain('“under $90”');
   });
 
   it('keeps the form working when the server cannot be asked', async () => {
@@ -1653,7 +1697,7 @@ describe('App reading the request', () => {
   });
 
   it('runs a search that waited on a reading the server then could not give', async () => {
-    /* The form holds a submit until the request it sends has been read (ADR-0059); a
+    /* The form holds a submit until the request it sends has been read (ADR-0094); a
        reading that fails is one that noticed nothing, and a run left waiting on it
        would wait for ever. */
     const reading = new Subject<BoundsCheck>();

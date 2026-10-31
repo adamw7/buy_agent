@@ -1,4 +1,4 @@
-"""Reading a bound out of the request, which is only ever an offer (ADR-0059)."""
+"""Reading a bound out of the request, which the doors apply and say so (ADR-0094)."""
 
 from __future__ import annotations
 

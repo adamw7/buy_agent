@@ -445,7 +445,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             "/api/models": self._models,
             # 200 either way: the answer is the verdict (ADR-0033).
             "/api/sources": lambda params: sources_payload(params.get("sources", "")),
-            # Offered to the form, never applied (ADR-0059).
+            # For the form to fill in and show (ADR-0094).
             "/api/bounds": lambda params: bounds_payload(params.get("request", "")),
             "/api/screenshot": lambda params: screenshot(params.get("url", ""), self.camera),
         }

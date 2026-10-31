@@ -382,10 +382,12 @@ def test_the_sloppy_run_scores_exactly_what_its_mistakes_cost(sloppy: Scorecard)
         "links": (3, 3),
         "quotes": (2, 3),
         "faithful": (2, 3),
-        "order": (2, 3),
+        # Its Bose is priced in euros, which the run cannot place: scored as the dearest
+        # price (ADR-0096), it no longer passes the Sony, and the order is the key's.
+        "order": (3, 3),
     }
     assert (sloppy.invented, sloppy.repeated) == (1, 1)
-    assert sloppy.score == pytest.approx(0.6752136752136753)
+    assert sloppy.score == pytest.approx(0.7264957264957265)
 
 
 def test_the_scorer_catches_the_three_the_pipeline_cannot(sloppy: Scorecard) -> None:
@@ -506,7 +508,7 @@ def test_the_score_says_what_it_is_made_of(sloppy: Scorecard) -> None:
     what it is a mean of."""
     expected = (
         "identified/genuine 0.600 x5, figures/attribution 0.778 x4, links 1.000 x1, "
-        "quotes/faithful 0.667 x2, order 0.333 x1"
+        "quotes/faithful 0.667 x2, order 1.000 x1"
     )
 
     assert sloppy.parts_label() == expected
@@ -596,8 +598,8 @@ def test_the_command_line_writes_the_scorecard_as_a_record(tmp_path, capsys) -> 
     (run,) = row["runs"]
 
     assert [metric["name"] for metric in run["metrics"]] == list(METRICS)
-    assert run["score"] == pytest.approx(0.6752136752136753, abs=1e-4)
-    assert row["score_label"] == "0.675"
+    assert run["score"] == pytest.approx(0.7264957264957265, abs=1e-4)
+    assert row["score_label"] == "0.726"
     capsys.readouterr()
 
 

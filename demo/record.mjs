@@ -172,16 +172,8 @@ cue('click');
 const find = page.getByRole('button', { name: 'Find products' });
 await find.click();
 
-// A budget written in the request is offered in its box before any run goes out
-// (ADR-0059), so a press may only show the offer -- the laptops' "below 1000 USD"
-// does -- and the next one searches with it. Held on screen a moment in between,
-// the offer being part of what the page does.
-await page.locator('app-progress-log, small.noticed').first().waitFor();
-if (!(await page.locator('app-progress-log').count())) {
-  await page.waitForTimeout(900);
-  cue('click');
-  await find.click();
-}
+// A budget written in the request goes out with the one press, and the line beside
+// the request names it (ADR-0094): the laptops' "below 1000 USD" does.
 
 // The progress panel appears with the first log line and the results with the
 // last, so both waits end exactly when there is something new to look at. The

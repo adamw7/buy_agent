@@ -15,8 +15,11 @@ if TYPE_CHECKING:
 
 SortBy = Literal["score", "price", "rating"]
 
-#: What a missing figure scores: mid-field, not last (ADR-0007).
+#: What a missing rating or review count scores: mid-field, not last (ADR-0096).
 NEUTRAL = 0.5
+
+#: A listing a page says is gone: ranked below every other, in every order (ADR-0095).
+_GONE = "out of stock"
 
 #: Fields of both :class:`RankingWeights` and :class:`~buy_agent.models.ScoreParts`.
 CRITERIA: tuple[str, ...] = ("rating", "popularity", "price")
@@ -58,6 +61,13 @@ def _price_share(
     return (priciest - placed) / (priciest - cheapest)
 
 
+def _unknown_price_share(cheapest: float | None, priciest: float | None) -> float:
+    """What a price nobody could place scores: what the dearest placed one does, so an
+    unknown never outranks a known price on price (ADR-0096); neutral with no spread."""
+    share = _price_share(priciest, cheapest, priciest)
+    return NEUTRAL if share is None else share
+
+
 def score_product(
     product: Product,
     *,
@@ -79,7 +89,11 @@ def score_product(
         ),
         "price": _price_share(placed, cheapest, priciest),
     }
-    shares = {name: NEUTRAL if share is None else share for name, share in read.items()}
+    unknown = {"price": _unknown_price_share(cheapest, priciest)}
+    shares = {
+        name: unknown.get(name, NEUTRAL) if share is None else share
+        for name, share in read.items()
+    }
     weighted = sum(getattr(weights, name) * share for name, share in shares.items())
     return ScoreParts(
         **shares,
@@ -136,6 +150,9 @@ def rank_products(
     else:
         # Name breaks ties, so equal scores come out in a reproducible order.
         scored.sort(key=lambda item: (-item.parts.total, item.product.name.lower()))
+    # Stable, so each half keeps the order just given: a listing no page has in stock is
+    # one nobody can buy now, and comes after every one somebody can (ADR-0095).
+    scored.sort(key=lambda item: item.product.availability == _GONE)
 
     return [
         RankedProduct(product=item.product, breakdown=item.parts, rank=index, scale=currency)

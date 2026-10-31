@@ -130,6 +130,8 @@ export interface SearchResult {
   compared_with: string | null;
   /** `null` unless the run was given one, and from a re-sort; the page keeps the run's. */
   alert: PriceAlert | null;
+  /** Why an empty run found nothing, in Python's sentence; `null` when it found something. */
+  why_empty: string | null;
   /** Handed back by a re-sort and a payment: the server takes only what it sealed (ADR-0092). */
   seal: string | null;
 }
@@ -241,11 +243,13 @@ export interface SourcesCheck {
   error: string;
 }
 
-/** A bound the request states in words; offered to its box, never applied (ADR-0059). */
+/** A bound the request states in words; filled into its box and shown (ADR-0094). */
 export interface NoticedBound {
-  /** The setting that would enforce it: `max_price`, `min_rating`, `min_reviews`. */
+  /** The setting that enforces it: `max_price`, `min_rating`, `min_reviews`. */
   bound: string;
   value: number;
+  /** The shopper's own words it was read from, quoted back so a misreading shows. */
+  phrase: string;
   note: string;
 }
 

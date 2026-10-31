@@ -1,5 +1,5 @@
-"""Bounds read out of the request's own words, offered and never applied (ADR-0059).
-Each is anchored on its unit, so "under 20 hours" is left alone."""
+"""Bounds read out of the request's own words, which the doors apply and say so
+(ADR-0094). Each is anchored on its unit, so "under 20 hours" is left alone."""
 
 from __future__ import annotations
 

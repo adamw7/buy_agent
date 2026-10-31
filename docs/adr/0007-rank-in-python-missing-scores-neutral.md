@@ -1,6 +1,6 @@
 # ADR-0007: Rank in Python, and score missing data neutral rather than zero
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0096](0096-score-an-unknown-price-as-the-dearest-one.md)
 - **Date:** 2026-08-25
 
 ## Context

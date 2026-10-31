@@ -609,31 +609,58 @@ def test_the_receipt_is_logged_with_the_merchant_and_what_became_of_it(
 # -- the currency and the backend (ADR-0056, ADR-0057) -------------------------
 
 
-# -- what the request itself asks for (ADR-0059) -------------------------------
+# -- what the request itself asks for (ADR-0094) -------------------------------
 
 
-def test_a_bound_the_request_asks_for_is_offered_and_not_applied(
-    fake_agent, caplog
-) -> None:
-    """The line names the words it read and the flag that would enforce them; the run
-    is the run somebody asked for."""
+def test_a_bound_the_request_asks_for_is_applied_and_said(fake_agent, caplog) -> None:
+    """The run the shopper wrote: "under $200" is a budget of 200, and the line quotes
+    the words, names the flag and says how to change it -- the misreading ADR-0059
+    feared would be in plain sight before any result."""
     with caplog.at_level(logging.INFO, logger="buy_agent"):
-        main(["headphones under $200"])
+        assert main(["headphones under $200"]) == 0
 
-    assert 'Your request says "under $200"' in caplog.text
-    assert "--max-price 200 is what would enforce it" in caplog.text
-    assert fake_agent["config"].max_price is None
+    assert fake_agent["config"].max_price == 200
+    assert (
+        'Your request says "under $200", so this run applies --max-price 200. Give '
+        "--max-price yourself to change it, or leave it out of the request to search "
+        "without it."
+    ) in caplog.text
 
 
-def test_a_bound_already_set_does_not_stop_the_next_one_being_offered(
-    fake_agent, caplog
-) -> None:
+def test_a_flag_outranks_what_the_request_says(fake_agent, caplog) -> None:
     """Skipped one at a time: the budget was given as a flag, the rating was not."""
     with caplog.at_level(logging.INFO, logger="buy_agent"):
         main(["headphones under $200 with at least 4.5 stars", "--max-price", "150"])
 
-    assert "--max-price" not in caplog.text
-    assert "--min-rating 4.5 is what would enforce it" in caplog.text
+    assert fake_agent["config"].max_price == 150
+    assert fake_agent["config"].min_rating == 4.5
+    assert "applies --max-price" not in caplog.text
+    assert "so this run applies --min-rating 4.5." in caplog.text
+
+
+def test_a_review_count_from_the_request_is_a_whole_number(fake_agent) -> None:
+    """``min_reviews`` is an int setting; the reading is a float."""
+    main(["headphones with over 500 reviews"])
+
+    assert fake_agent["config"].min_reviews == 500
+    assert isinstance(fake_agent["config"].min_reviews, int)
+
+
+def test_a_figure_its_setting_would_refuse_is_not_applied(fake_agent, caplog) -> None:
+    """Out of range is dropped at the door, as ``GET /api/bounds`` drops it."""
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        main(["a yacht under $50000000"])
+
+    assert fake_agent["config"].max_price is None
+    assert "applies" not in caplog.text
+
+
+def test_a_request_with_no_bound_applies_nothing(fake_agent, caplog) -> None:
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        main(["headphones with 200 hours of battery"])
+
+    assert fake_agent["config"].max_price is None
+    assert "Your request says" not in caplog.text
 
 
 # -- the run journal (ADR-0060) ------------------------------------------------

@@ -286,7 +286,7 @@ def test_sources_with_nothing_to_check_is_the_whole_web(server: str) -> None:
 
 def test_bounds_answers_what_the_request_asks_for_in_words(server: str) -> None:
     """The second endpoint that starts nothing, and the only one that answers with a
-    value rather than a verdict (ADR-0059)."""
+    value rather than a verdict (ADR-0094)."""
     status, payload = get(f"{server}/api/bounds?request=headphones+under+%24200")
 
     assert status == 200

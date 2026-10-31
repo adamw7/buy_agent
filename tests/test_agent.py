@@ -210,6 +210,96 @@ def test_no_extractable_products_yields_no_products(
     assert "No products could be extracted" in caplog.text
 
 
+# -- why a run found nothing, in a sentence both doors show (ADR-0012) -----------
+
+
+def test_a_run_that_searched_nothing_says_so(agent_factory) -> None:
+    agent, _ = agent_factory(FakeLLM(), [])
+
+    assert agent.run("obscure thing") == []
+    assert agent.nothing == "Search returned nothing for 'fake refined query'."
+
+
+def test_a_run_whose_model_named_nothing_says_so(agent_factory, search_results) -> None:
+    agent, _ = agent_factory(FakeLLM(products=ProductList()), search_results)
+
+    agent.run("obscure thing")
+
+    assert agent.nothing == "No products could be extracted from the pages the search returned."
+
+
+def test_a_run_that_read_only_snippets_says_reading_the_pages_finds_more(
+    agent_factory, search_results
+) -> None:
+    """Named as the setting, never the flag: the sentence reaches the browser."""
+    agent, _ = agent_factory(FakeLLM(products=ProductList()), search_results, fetch_pages=False)
+
+    agent.run("obscure thing")
+
+    assert agent.nothing == (
+        "No products could be extracted from the search snippets; reading the result "
+        "pages, which this run left off, finds more."
+    )
+
+
+def test_a_run_whose_candidates_all_failed_the_checks_counts_them(
+    agent_factory, search_results
+) -> None:
+    named = ProductList(
+        products=[
+            ExtractedProduct(name="Made Up Phones X1", price=10.0),
+            ExtractedProduct(name="Made Up Phones X2", price=12.0),
+        ]
+    )
+    agent, _ = agent_factory(FakeLLM(products=named), search_results)
+
+    assert agent.run("obscure thing") == []
+    assert agent.nothing == (
+        "The model named 2 candidates, and none passed the checks that a product is "
+        "real and named on the pages searched."
+    )
+
+
+#: Both priced on the pages ``search_results`` stands in for.
+PRICED = ProductList(
+    products=[
+        ExtractedProduct(name="Sony WH-1000XM5", price=328.0, currency="USD"),
+        ExtractedProduct(name="Anker Soundcore Q30", price=79.0, currency="USD"),
+    ]
+)
+
+
+def test_a_run_whose_limits_removed_everything_says_so(agent_factory, search_results) -> None:
+    agent, _ = agent_factory(FakeLLM(products=PRICED), search_results, max_price=50)
+
+    assert agent.run("headphones") == []
+    assert agent.nothing == "All 2 products found are outside this run's limits; clear one to see them."
+
+
+def test_one_product_or_candidate_is_counted_in_the_singular(agent_factory, search_results) -> None:
+    one = ProductList(products=PRICED.products[:1])
+    agent, _ = agent_factory(FakeLLM(products=one), search_results, max_price=50)
+    agent.run("headphones")
+    assert agent.nothing == "All 1 product found is outside this run's limits; clear one to see them."
+
+    made_up = ProductList(products=[ExtractedProduct(name="Made Up Phones X1", price=10.0)])
+    agent, _ = agent_factory(FakeLLM(products=made_up), search_results)
+    agent.run("headphones")
+    assert agent.nothing.startswith("The model named 1 candidate, and none passed")
+
+
+def test_a_run_that_found_something_has_nothing_to_explain(agent_factory, search_results) -> None:
+    """Cleared at the start of each run, so a found set never carries the last
+    empty run's sentence."""
+    agent, _ = agent_factory(FakeLLM(products=PRICED), search_results, max_price=50)
+    agent.run("headphones")
+    assert agent.nothing
+    agent.config = AgentConfig()
+
+    assert agent.run("headphones")
+    assert agent.nothing == ""
+
+
 def test_empty_request_is_rejected(agent_factory, search_results) -> None:
     agent, _ = agent_factory(FakeLLM(), search_results)
 

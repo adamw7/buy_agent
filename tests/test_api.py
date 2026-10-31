@@ -198,7 +198,7 @@ def test_a_products_offers_carry_the_amount_written_out() -> None:
     assert payload["offers_label"] == "2 listings, 329.00-349.00 USD"
 
 
-# -- what the request itself asks for, which is offered and never applied ------
+# -- what the request itself asks for, which the doors apply and say so ---------
 
 
 def test_a_figure_at_the_top_of_the_range_still_is() -> None:
@@ -228,6 +228,34 @@ def test_a_run_answers_with_ranked_products() -> None:
     assert payload["sort_by"] == "price"
     assert [p["rank"] for p in payload["products"]] == [1, 2]
     assert captured["sort_by"] == "price"
+
+
+def test_an_empty_run_says_why_in_the_agents_sentence() -> None:
+    """The page shows Python's reason rather than guessing which step it was."""
+    captured = agent_returning([])
+
+    class Explaining(captured["factory"]):
+        nothing = "Search returned nothing for 'kettle'."
+
+    payload = run_search("kettle", AgentConfig(), agent_factory=Explaining)
+
+    assert payload["why_empty"] == "Search returned nothing for 'kettle'."
+
+
+def test_a_run_that_found_something_has_no_reason_to_give() -> None:
+    """Even from an agent still holding one: only an empty run is explained."""
+    captured = agent_returning(RANKED)
+
+    class Stale(captured["factory"]):
+        nothing = "Search returned nothing for 'kettle'."
+
+    assert run_search("kettle", AgentConfig(), agent_factory=Stale)["why_empty"] is None
+
+
+def test_an_agent_that_does_not_say_leaves_the_reason_unset() -> None:
+    assert run_search("kettle", AgentConfig(), agent_factory=agent_returning([])["factory"])[
+        "why_empty"
+    ] is None
 
 
 def test_a_product_carries_both_the_figures_and_their_labels() -> None:

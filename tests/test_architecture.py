@@ -943,30 +943,29 @@ def test_the_currency_table_is_the_leaf_of_the_package() -> None:
     )
 
 
-def test_a_bound_in_the_request_is_read_beside_the_money_and_applied_by_nobody() -> None:
-    """ADR-0059: ``bounds.notice`` reads "under $200" out of the request in ordinary Python
-    and both doors *offer* what it found. "Nothing may ever apply one: the moment one is
-    applied unseen, the silent empty report is back" -- and "``bounds.py`` knows nothing of
-    ``config.LIMITS``, so a figure the setting would refuse is dropped at the door rather
-    than pre-filled into a box the form would then mark". So it reaches ``money.py``, for
-    the marks that make a figure a budget, and nothing else of this package: not the
-    constraints that do apply a bound, and not the settings that bound the setting."""
+def test_a_bound_in_the_request_is_read_beside_the_money_and_nothing_else() -> None:
+    """ADR-0094: ``bounds.notice`` reads "under $200" out of the request in ordinary Python
+    and each door applies what it found *where the shopper sees it*. ``bounds.py`` knows
+    nothing of ``config.LIMITS``, so a figure the setting would refuse is dropped at the
+    door rather than filled into a box the form would then mark. So it reaches
+    ``money.py``, for the marks that make a figure a budget, and nothing else of this
+    package: not the constraints that enforce a bound, and not the settings that bound
+    the setting."""
     knows_nothing_of(
         only("bounds.py"),
         every_module_but("bounds.py", "money.py"),
-        because="what the request asks for is read beside the money and applied by nobody",
+        because="what the request asks for is read beside the money and nothing else",
     )
 
 
-def test_a_bound_in_the_request_is_offered_at_the_doors_alone() -> None:
-    """The other half of the rule above: ``bounds.py`` is "read in Python and offered at
-    both doors (ADR-0059) -- never applied". "Nothing in the pipeline reads it.
-    ``Constraints`` is untouched." The CLI logs a line naming the flag and ``GET
-    /api/bounds`` pre-fills an empty box, once, and a bound read anywhere below them is
-    one applied without being seen -- "the failure this ADR exists to avoid is back, and
-    it is silent"."""
+def test_a_bound_in_the_request_is_applied_at_the_doors_alone() -> None:
+    """The other half of the rule above: a noticed bound is applied only by a door that
+    says so (ADR-0094). The CLI logs a line quoting the words and naming the flag, and
+    ``GET /api/bounds`` fills an empty box once, named beside the request. A bound read
+    anywhere below them is one applied without being seen -- the silent empty report
+    ADR-0059 was written to avoid."""
     knows_nothing_of(
         every_module_but("bounds.py", "__main__.py", "api.py"),
         only("bounds.py"),
-        because="what the request asks for is offered to the shopper, and set only by them",
+        because="what the request asks for is applied only where the shopper is told",
     )

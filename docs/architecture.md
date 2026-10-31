@@ -318,7 +318,7 @@ graph TB
 
     subgraph pipeline["Agent pipeline [Container: Python library]"]
         config("<b>AgentConfig</b><br/><i>[Component: config.py]</i><br/>Every setting of a run, its<br/>default and range, and what a<br/>region and a currency must<br/>look like, for both doors")
-        boundsc("<b>Noticed bounds</b><br/><i>[Component: bounds.py]</i><br/>Reads &quot;under $200&quot; out of<br/>the request in plain Python;<br/>offered at both doors and<br/>applied at neither")
+        boundsc("<b>Noticed bounds</b><br/><i>[Component: bounds.py]</i><br/>Reads &quot;under $200&quot; out of<br/>the request in plain Python;<br/>applied at both doors,<br/>which say so")
         agent("<b>BuyAgent</b><br/><i>[Component: agent.py]</i>")
         search("<b>Search</b><br/><i>[Component: search.py]</i>")
         fetch("<b>Fetch</b><br/><i>[Component: fetch.py]</i>")
@@ -334,7 +334,7 @@ graph TB
 
     doors -->|"run(request, sort_by)"| agent
     doors -.->|"build it: a flag<br/>or a request key per<br/>api.OPTIONS row"| config
-    doors -.->|"offer what the request<br/>asks for in words"| boundsc
+    doors -.->|"apply what the request<br/>asks for in words, saying so"| boundsc
     doors -.->|"write this run down and<br/>say what moved, keyed by<br/>what was asked"| journal
     doors -.->|"--version, /api/config,<br/>the Server header"| version
     config -.->|"configures"| agent

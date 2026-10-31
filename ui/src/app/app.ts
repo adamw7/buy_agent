@@ -53,7 +53,7 @@ export class App {
   /** The failure again, where it was about one setting: the form marks that box. */
   protected readonly rejected = signal<Rejection | null>(null);
   protected readonly sourcesCheck = signal<SourcesCheck | null>(null);
-  /** Bounds the request states in words, for the form to offer (ADR-0059). */
+  /** Bounds the request states in words, for the form to fill in and show (ADR-0094). */
   protected readonly boundsCheck = signal<BoundsCheck | null>(null);
   protected readonly running = signal(false);
   protected readonly started = signal(false);
@@ -320,12 +320,15 @@ export class App {
     }
   }
 
-  /** Scroll a finished run's results into view, if they start below the fold. */
+  /** Scroll a finished run's results to the top of the window unless the first of them
+   *  is already whole on screen: a heading and the top edge of a card above the fold
+   *  is results nobody can read, and was what a laptop's window showed. */
   private showResults(): void {
     afterNextRender(
       () => {
         const landed = this.host.nativeElement.querySelector('.results, .banner.quiet');
-        if (landed && landed.getBoundingClientRect().top > window.innerHeight) {
+        const first = landed?.querySelector('app-product-card') ?? landed;
+        if (landed && first && first.getBoundingClientRect().bottom > window.innerHeight) {
           landed.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
         }
       },

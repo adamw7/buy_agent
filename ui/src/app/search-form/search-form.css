@@ -19,6 +19,18 @@
   align-self: end;
 }
 
+/* What the request filled in, said where the request is typed. */
+.from-request {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0;
+  color: var(--accent);
+  font-size: 13px;
+}
+
 .examples {
   grid-column: 1 / -1;
   display: flex;

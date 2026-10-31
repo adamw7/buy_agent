@@ -129,7 +129,7 @@ python -m buy_agent "espresso machine" --alert-below 400  # exit 5 unless one is
 | `--min-rating` | no limit | Report nothing rated below this, out of 5 |
 | `--min-reviews` | no limit | Report nothing whose rating averages fewer reviews |
 | `--alert-below` | no alert | Say whether anything in stock is at or under this price; removes nothing |
-| `--cache-ttl` | `86400` | Seconds a page, and the model's answer about it, stay usable; `0` is off |
+| `--cache-ttl` | `86400` | Seconds fetched pages and the model's answers are reused; `0` is off |
 | `--journal` / `--no-journal` | `--journal` | Write this run down for the next run to compare against |
 | `--compare` | off | Report what is cheaper, dearer, new or gone since the last run |
 | `--temperature` | `0.0` | 0-2; above `0` answers vary, so they are never cached |
@@ -253,16 +253,18 @@ python -m buy_agent "espresso machine" --min-rating 4.5 --min-reviews 500
   ([ADR-0039](docs/adr/0039-enforce-the-shoppers-bounds-in-python.md)).
 - **Prices are compared inside one currency, never converted.** The run counts in
   the commonest currency its pages printed; a price in another passes the budget,
-  scores neutral and is marked "assumed"
+  scores as the dearest price does and is marked "assumed"
   ([ADR-0043](docs/adr/0043-compare-prices-only-within-one-currency.md)).
 - **`--currency` names that scale** instead, and the budget is read in it:
   `--max-price 800 --currency PLN` means 800 złoty. A currency no page quotes gets
   a warning ([ADR-0056](docs/adr/0056-let-the-shopper-name-the-currency.md)).
 
-A bound in the request is never applied ("200 hours of battery" would drop every
-product); it is noticed and offered: the CLI names the flag, and the browser
-pre-fills the box
-([ADR-0059](docs/adr/0059-notice-a-bound-in-the-request-and-offer-it.md)).
+A bound written in the request ("under $200", "at least 4 stars", "over 500
+reviews") is applied as if its setting had been given, unless it was: the CLI logs
+a line quoting your words and the flag it stands for, and the browser fills the box
+and names it beside the request, with a button to search without it. The reading is
+anchored on the unit, so "200 hours of battery" is no budget
+([ADR-0094](docs/adr/0094-apply-a-bound-the-request-states-where-the-shopper-sees-it.md)).
 
 ### Letting it buy
 
@@ -509,7 +511,7 @@ curl -X POST http://127.0.0.1:8000/api/search `
 | `GET /api/config` | The form's defaults -- the same ones `--help` prints |
 | `GET /api/models` | What a named server is serving, or why it could not be asked |
 | `GET /api/sources` | Whether a Trusted sources field names sites |
-| `GET /api/bounds` | What the request itself asks for, offered and never applied |
+| `GET /api/bounds` | What the request itself asks for, for the form to fill in and show |
 | `GET /api/screenshot` | A JPEG of the page at `url`, where the server takes pictures |
 | `POST /api/search` | One run, as JSON |
 | `POST /api/rank` | A finished run's products in another order |
@@ -576,7 +578,7 @@ quotes and bounds above:
   [ADR-0078](docs/adr/0078-read-what-a-page-declares-as-lines-it-prints.md)).
 - **Grounding.** `buy_agent/verification.py` drops products whose name no source
   mentions and blanks any figure the text does not show, so a blanked figure
-  scores neutral instead of winning.
+  never wins: a rating or count scores neutral, a price as the dearest one.
 
 ### Ranking
 
@@ -588,8 +590,14 @@ quotes and bounds above:
 | Popularity | 0.2 | `log10(reviews)`, saturating at 1,000 reviews |
 | Price | 0.3 | Relative to the other candidates: cheapest 1.0, dearest 0.0 |
 
-A missing criterion scores 0.5, not 0, so an unpublished rating is not buried
-under a bad one. Change the mix with
+A missing rating or review count scores 0.5, not 0, so an unpublished rating is
+not buried under a bad one. A missing price scores what the dearest priced
+candidate does (0.0 when prices differ): a product nobody priced can be neither
+bought nor held to a budget, so it never wins on price
+([ADR-0096](docs/adr/0096-score-an-unknown-price-as-the-dearest-one.md)). A
+listing a page says is out of stock comes after every other, in every order
+([ADR-0095](docs/adr/0095-rank-a-listing-no-page-has-in-stock-after-every-other.md)).
+Change the mix with
 `AgentConfig(weights=RankingWeights(rating=0.7, price=0.3, ...))`. Because 0.5 is
 also an average score, each score reports its shares, their weights, and which
 were assumed
@@ -691,9 +699,9 @@ five-minute cap (ADR-0026). `tests/test_architecture.py` holds the import graph
 - **A model number can be one off.** Grounding reads a name's words against a 0.6
   bar, so "WH-1000XM4" survives pages about the XM5; the benchmark counts it as a
   product nobody wrote about.
-- **A bound has to be typed.** It is noticed and offered, never applied.
 - **Stock and condition are only what a page said**, and most say neither. An
-  unknown standing is not refused at payment, ranking reads neither, and only
+  unknown standing is not refused at payment, ranking reads only "out of stock"
+  (it goes last), and only
   JSON-LD declarations are read, not Microdata or RDFa.
 - **A cached page or answer is as current as its age**, up to a day by default.
 - **A named source is a domain, not an author.** `--source @mkbhd` keeps YouTube

@@ -112,6 +112,11 @@ describe('SearchForm', () => {
     await fixture.whenStable();
   };
 
+  /** The line beside the request naming what it filled in, or '' with none. */
+  const fromRequest = (): string =>
+    element('.from-request span')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+  const undo = () => element<HTMLButtonElement>('.from-request button');
+
   /** Tell the form what the server read out of the request it was asked about. */
   const noticed = async (request: string, bounds: NoticedBound[]) => {
     fixture.componentRef.setInput('noticed', { request, noticed: bounds });
@@ -187,11 +192,16 @@ describe('SearchForm', () => {
   });
 
   it('offers a bound the server read out of the request, in the box that holds it', async () => {
-    /* Offered and never applied: the form fills the box and the shopper submits it
-       or clears it (ADR-0059). */
+    /* Filled in and shown: the form fills the box and the shopper submits it or
+       clears it (ADR-0094). */
     await type('input[name="request"]', 'kettle under $90');
     await noticed('kettle under $90', [
-      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+      {
+        bound: 'max_price',
+        value: 90,
+        phrase: 'under $90',
+        note: 'From your request: "under $90".',
+      },
     ]);
 
     expect(element<HTMLInputElement>('input[name="max_price"]').value).toBe('90');
@@ -203,7 +213,12 @@ describe('SearchForm', () => {
     /* Nothing is wrong with it, so a mark would be a refusal nobody can act on. */
     await type('input[name="request"]', 'kettle under $90');
     await noticed('kettle under $90', [
-      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+      {
+        bound: 'max_price',
+        value: 90,
+        phrase: 'under $90',
+        note: 'From your request: "under $90".',
+      },
     ]);
     const box = element<HTMLInputElement>('input[name="max_price"]').closest('label')!;
 
@@ -213,14 +228,19 @@ describe('SearchForm', () => {
   });
 
   it('still names the currency a budget read out of the request is counted in', async () => {
-    /* No currency is carried over (ADR-0059): "below 1000 EUR" offers a bare 1000,
+    /* No currency is carried over (ADR-0094): "below 1000 EUR" offers a bare 1000,
        counted in whatever the run counts in, "and the box says so". The note took the
        place of the hint that did, so the box said where the number came from and
        nothing about which currency it was being read in -- nor that a product nobody
        priced is kept. */
     await type('input[name="request"]', 'laptop below 1000 EUR');
     await noticed('laptop below 1000 EUR', [
-      { bound: 'max_price', value: 1000, note: 'From your request: "below 1000 EUR".' },
+      {
+        bound: 'max_price',
+        value: 1000,
+        phrase: 'below 1000 EUR',
+        note: 'From your request: "below 1000 EUR".',
+      },
     ]);
     const box = element('input[name="max_price"]').closest('label')!;
 
@@ -230,20 +250,33 @@ describe('SearchForm', () => {
     expect(await accessibilityProblems(fixture.nativeElement)).toEqual([]);
   });
 
-  it('opens the settings, since an offer nobody can see is not one', async () => {
+  it('says what it filled in beside the request, leaving the settings shut', async () => {
+    /* An offer nobody can see is not one; a panel of twenty fields thrown open under
+       the request was seeing it the hard way (ADR-0094). */
     await type('input[name="request"]', 'kettle under $90');
     await noticed('kettle under $90', [
-      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+      {
+        bound: 'max_price',
+        value: 90,
+        phrase: 'under $90',
+        note: 'From your request: "under $90".',
+      },
     ]);
 
-    expect(element<HTMLDetailsElement>('details.advanced').open).toBe(true);
+    expect(element<HTMLDetailsElement>('details.advanced').open).toBe(false);
+    expect(fromRequest()).toBe('Applied from your request: “under $90”.');
   });
 
   it('leaves a bound the shopper typed alone', async () => {
     await type('input[name="max_price"]', '50');
     await type('input[name="request"]', 'kettle under $90');
     await noticed('kettle under $90', [
-      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+      {
+        bound: 'max_price',
+        value: 90,
+        phrase: 'under $90',
+        note: 'From your request: "under $90".',
+      },
     ]);
 
     expect(element<HTMLInputElement>('input[name="max_price"]').value).toBe('50');
@@ -253,7 +286,12 @@ describe('SearchForm', () => {
     /* Re-offering a figure somebody deleted is enforcing it slowly. */
     await type('input[name="request"]', 'kettle under $90');
     const offer: NoticedBound[] = [
-      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+      {
+        bound: 'max_price',
+        value: 90,
+        phrase: 'under $90',
+        note: 'From your request: "under $90".',
+      },
     ];
     await noticed('kettle under $90', offer);
     await type('input[name="max_price"]', '');
@@ -267,7 +305,12 @@ describe('SearchForm', () => {
     /* The answer is in flight while the box is typed into, as the sources one is. */
     await type('input[name="request"]', 'kettle');
     await noticed('kettle under $90', [
-      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+      {
+        bound: 'max_price',
+        value: 90,
+        phrase: 'under $90',
+        note: 'From your request: "under $90".',
+      },
     ]);
 
     expect(element<HTMLInputElement>('input[name="max_price"]').value).toBe('');
@@ -279,18 +322,33 @@ describe('SearchForm', () => {
     const box = () => element<HTMLInputElement>('input[name="max_price"]');
     await type('input[name="request"]', 'kettle under $90');
     await noticed('kettle under $90', [
-      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+      {
+        bound: 'max_price',
+        value: 90,
+        phrase: 'under $90',
+        note: 'From your request: "under $90".',
+      },
     ]);
 
     await type('input[name="request"]', 'kettle under $150');
     await noticed('kettle under $150', [
-      { bound: 'max_price', value: 150, note: 'From your request: "under $150".' },
+      {
+        bound: 'max_price',
+        value: 150,
+        phrase: 'under $150',
+        note: 'From your request: "under $150".',
+      },
     ]);
     expect(box().value).toBe('150');
 
     await type('input[name="request"]', 'kettle under $90');
     await noticed('kettle under $90', [
-      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+      {
+        bound: 'max_price',
+        value: 90,
+        phrase: 'under $90',
+        note: 'From your request: "under $90".',
+      },
     ]);
     expect(box().value).toBe('90');
 
@@ -303,7 +361,12 @@ describe('SearchForm', () => {
 
     await type('input[name="request"]', 'kettle under $90');
     await noticed('kettle under $90', [
-      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+      {
+        bound: 'max_price',
+        value: 90,
+        phrase: 'under $90',
+        note: 'From your request: "under $90".',
+      },
     ]);
     expect(box().value).toBe('90');
   });
@@ -311,7 +374,12 @@ describe('SearchForm', () => {
   it('leaves a figure it filled in alone once the shopper has changed it', async () => {
     await type('input[name="request"]', 'kettle under $90');
     await noticed('kettle under $90', [
-      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+      {
+        bound: 'max_price',
+        value: 90,
+        phrase: 'under $90',
+        note: 'From your request: "under $90".',
+      },
     ]);
     await type('input[name="max_price"]', '80');
 
@@ -325,7 +393,12 @@ describe('SearchForm', () => {
     await type('input[name="max_price"]', '50');
     await type('input[name="request"]', 'kettle under $90');
     await noticed('kettle under $90', [
-      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+      {
+        bound: 'max_price',
+        value: 90,
+        phrase: 'under $90',
+        note: 'From your request: "under $90".',
+      },
     ]);
     const box = element<HTMLInputElement>('input[name="max_price"]').closest('label')!;
 
@@ -337,7 +410,12 @@ describe('SearchForm', () => {
        next visit as a filter nobody typed and no note explains. */
     await type('input[name="request"]', 'kettle under $90');
     await noticed('kettle under $90', [
-      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+      {
+        bound: 'max_price',
+        value: 90,
+        phrase: 'under $90',
+        note: 'From your request: "under $90".',
+      },
     ]);
     await send();
 
@@ -398,7 +476,9 @@ describe('SearchForm', () => {
     /* A fourth bound named by Python and not yet drawn here is nothing to fill in,
        and never a crash. */
     await type('input[name="request"]', 'kettle');
-    await noticed('kettle', [{ bound: 'min_weight', value: 2, note: 'From your request.' }]);
+    await noticed('kettle', [
+      { bound: 'min_weight', value: 2, phrase: 'at least 2 kg', note: 'From your request.' },
+    ]);
 
     expect(element<HTMLDetailsElement>('details.advanced').open).toBe(false);
   });
@@ -414,149 +494,120 @@ describe('SearchForm', () => {
     expect(asked).toEqual(['wireless noise cancelling headphones under $200']);
   });
 
-  it('shows a figure read out of the request before any run is sent with it', async () => {
+  it('sends a submit that waited with what the reading filled in, and says so by the request', async () => {
     /* Enter leaves the request box and submits it in one keystroke, so the reading
-       landed a few milliseconds after the run had gone: Max price then read 700 "From
-       your request" above results running to 899, and opened the panel under a run
-       already going. The run now waits for the reading, and a figure it puts in a box
-       is shown -- and focused, so it is read out -- before anything is sent with it or
-       without it. Sent with it at once, it would be applied unseen (ADR-0059). */
+       lands just after the press. The run waits for it and goes with the figure it
+       put in the box -- once held back until a second press, behind a panel thrown
+       open, which turned the headline request into two presses. What it applied is
+       said beside the request, with the panel left shut (ADR-0094). */
     await type('input[name="request"]', 'laptop under $700');
     await leave('input[name="request"]');
     await send();
     expect(submitted).toEqual([]);
 
     await noticed('laptop under $700', [
-      { bound: 'max_price', value: 700, note: 'From your request: "under $700".' },
+      {
+        bound: 'max_price',
+        value: 700,
+        phrase: 'under $700',
+        note: 'From your request: "under $700".',
+      },
     ]);
-
-    const box = element<HTMLInputElement>('input[name="max_price"]');
-    expect(submitted).toEqual([]);
-    expect(box.value).toBe('700');
-    expect(element<HTMLDetailsElement>('details.advanced').open).toBe(true);
-    expect(document.activeElement).toBe(box);
-
-    await send();
 
     expect(submitted).toHaveLength(1);
     expect(submitted[0].max_price).toBe(700);
+    expect(element<HTMLInputElement>('input[name="max_price"]').value).toBe('700');
+    expect(element<HTMLDetailsElement>('details.advanced').open).toBe(false);
+    expect(fromRequest()).toBe('Applied from your request: “under $700”.');
+    expect(undo().textContent!.trim()).toBe('Search again without it');
   });
 
-  describe('where a held submit takes the shopper', () => {
-    /* Focus alone scrolled the box to the bottom edge of the window, with the panel it
-       is in only just opened above it, and left both sentences under it -- where the
-       figure came from, and that nothing had been searched -- below the fold: a press
-       of Find products that started nothing and said nothing anybody could see. jsdom
-       lays nothing out, so a scroll is recorded by what it was asked of and how. */
-    const proto = HTMLElement.prototype as HTMLElement & { scrollIntoView?: unknown };
-    const original = proto.scrollIntoView;
-    let scrolled: { field: string; block?: ScrollLogicalPosition; behavior?: ScrollBehavior }[];
-
-    beforeEach(() => {
-      scrolled = [];
-      proto.scrollIntoView = function (this: HTMLElement, how?: ScrollIntoViewOptions) {
-        const box = this.querySelector('input');
-        scrolled.push({
-          field: box?.name ?? this.className,
-          block: how?.block,
-          behavior: how?.behavior,
-        });
-      };
-    });
-
-    afterEach(() => {
-      proto.scrollIntoView = original;
-    });
-
-    const stopAtTheBudget = async () => {
-      await type('input[name="request"]', 'laptop under $700');
+  describe('what the request filled in, beside the request', () => {
+    const read = async (request = 'laptop under $700 with at least 4 stars') => {
+      await type('input[name="request"]', request);
       await leave('input[name="request"]');
-      await send();
-      await noticed('laptop under $700', [
-        { bound: 'max_price', value: 700, note: 'From your request: "under $700".' },
+      await noticed(request, [
+        {
+          bound: 'max_price',
+          value: 700,
+          phrase: 'under $700',
+          note: 'From your request: "under $700".',
+        },
+        {
+          bound: 'min_rating',
+          value: 4,
+          phrase: 'at least 4 stars',
+          note: 'From your request: "at least 4 stars".',
+        },
       ]);
     };
 
-    /** What the box says beside Python's note, read off the field it is in. */
-    const unsearched = (name: string): string =>
-      element<HTMLInputElement>(`input[name="${name}"]`)
-        .closest('.field')!
-        .querySelector('.unsearched')
-        ?.textContent?.trim() ?? '';
+    it("names each bound in the shopper's words, with the panel shut", async () => {
+      await read();
 
-    it('brings the whole field into view, as little as shows it', async () => {
-      /* The focus is told not to scroll: left to, it puts the box at the window's edge
-         first, which is the jump this replaces. jsdom ignores the option, so it is read
-         off the call. Read before the spy is restored, which forgets its calls. */
-      const focused = vi.spyOn(HTMLElement.prototype, 'focus');
-      await stopAtTheBudget();
-      const how = focused.mock.calls.map((call) => call[0]);
-      focused.mockRestore();
-
-      expect(how).toEqual([{ preventScroll: true }]);
-      expect(scrolled).toEqual([{ field: 'max_price', block: 'nearest', behavior: 'smooth' }]);
-      expect(document.activeElement).toBe(element('input[name="max_price"]'));
+      expect(fromRequest()).toBe('Applied from your request: “under $700”, “at least 4 stars”.');
+      expect(element('.from-request').getAttribute('role')).toBe('status');
+      expect(undo().textContent!.trim()).toBe('Don’t apply it');
+      expect(element<HTMLDetailsElement>('details.advanced').open).toBe(false);
+      expect(submitted).toEqual([]);
+      expect(await accessibilityProblems(fixture.nativeElement)).toEqual([]);
     });
 
-    it('says beside the box that nothing was searched yet, and how to search', async () => {
-      await stopAtTheBudget();
+    it('clears what it filled in on a click, sends nothing, and does not fill it again', async () => {
+      await read();
+      undo().click();
+      await fixture.whenStable();
 
-      expect(unsearched('max_price')).toBe(
-        'Nothing was searched yet: press Enter, or Find products, to search with it.',
-      );
-      // A hint under Python's own sentence, never a mark (ADR-0059).
-      const box = element<HTMLInputElement>('input[name="max_price"]');
-      expect(box.getAttribute('aria-invalid')).toBeNull();
-      expect(box.closest('.field')!.querySelector('.noticed')!.textContent).toContain(
-        'From your request',
-      );
-      /* Part of the box's name, read out when the focus lands on it, as every note
-         in its label is. A `role="status"` took it out of the name -- a status is not
-         named by its contents -- and, inserted already holding its text, was no
-         reliable announcement either: a screen reader heard nothing of it. */
-      const line = box.closest('label')!.querySelector('.unsearched')!;
-      expect(line.getAttribute('role')).toBeNull();
-      expect(line.closest('[aria-hidden]')).toBeNull();
-    });
+      expect(element<HTMLInputElement>('input[name="max_price"]').value).toBe('');
+      expect(element<HTMLInputElement>('input[name="min_rating"]').value).toBe('');
+      expect(fromRequest()).toBe('');
+      expect(submitted).toEqual([]);
 
-    it('stops saying so once the search is sent', async () => {
-      await stopAtTheBudget();
+      // A box the shopper cleared is theirs (ADR-0094).
+      await read();
+      expect(element<HTMLInputElement>('input[name="max_price"]').value).toBe('');
       await send();
-
-      expect(submitted).toHaveLength(1);
-      expect(unsearched('max_price')).toBe('');
+      expect(submitted[0].max_price).toBeNull();
+      expect(submitted[0].min_rating).toBeNull();
     });
 
-    it('stops saying so once the request is a new question', async () => {
-      /* Its reading offers the same figure, so Python's note is back over the box the
-         form still owns -- and no press stopped at it this time. */
-      await stopAtTheBudget();
-      await type('input[name="request"]', 'laptop under $700, in silver');
-      await leave('input[name="request"]');
-      await noticed('laptop under $700, in silver', [
-        { bound: 'max_price', value: 700, note: 'From your request: "under $700".' },
-      ]);
+    it('searches again without it once the results came from it', async () => {
+      await read();
+      await send();
+      expect(submitted[0]).toMatchObject({ max_price: 700, min_rating: 4 });
+      expect(undo().textContent!.trim()).toBe('Search again without it');
 
-      expect(
-        element('input[name="max_price"]').closest('.field')!.querySelector('.noticed'),
-      ).not.toBeNull();
-      expect(unsearched('max_price')).toBe('');
+      undo().click();
+      await fixture.whenStable();
+
+      expect(submitted).toHaveLength(2);
+      expect(submitted[1]).toMatchObject({ max_price: null, min_rating: null });
+      expect(fromRequest()).toBe('');
     });
 
-    it('says nothing of the kind for a figure no press stopped at', async () => {
-      /* Filled when the request was left, with nothing pressed: there is no press to
-         explain, and the box's own note says where the figure came from. */
-      await type('input[name="request"]', 'laptop under $700');
-      await leave('input[name="request"]');
-      await noticed('laptop under $700', [
-        { bound: 'max_price', value: 700, note: 'From your request: "under $700".' },
-      ]);
+    it('offers no search again once the request is another question', async () => {
+      /* The results on screen were not of these words, so undoing the figure is
+         only clearing it. */
+      await read();
+      await send();
+      await read('laptop under $700 with at least 4 stars, in silver');
 
-      expect(
-        element('input[name="max_price"]').closest('.field')!.querySelector('.noticed'),
-      ).not.toBeNull();
-      expect(unsearched('max_price')).toBe('');
-      expect(scrolled).toEqual([]);
+      expect(undo().textContent!.trim()).toBe('Don’t apply it');
+    });
+
+    it('names only what its box still holds', async () => {
+      await read();
+      await type('input[name="max_price"]', '650');
+
+      expect(fromRequest()).toBe('Applied from your request: “at least 4 stars”.');
+    });
+
+    it('cannot be undone while a search is running', async () => {
+      await read();
+      fixture.componentRef.setInput('running', true);
+      await fixture.whenStable();
+
+      expect(undo().disabled).toBe(true);
     });
   });
 
@@ -576,7 +627,12 @@ describe('SearchForm', () => {
     /* Seen once already, when the request was first left; the reading of the longer
        request only says it again. */
     const offer: NoticedBound[] = [
-      { bound: 'max_price', value: 90, note: 'From your request: "under $90".' },
+      {
+        bound: 'max_price',
+        value: 90,
+        phrase: 'under $90',
+        note: 'From your request: "under $90".',
+      },
     ];
     await type('input[name="request"]', 'kettle under $90');
     await leave('input[name="request"]');
@@ -1937,11 +1993,11 @@ describe('SearchForm', () => {
       element('select[name="currency"]').closest('label')!.querySelector('small')!.textContent ??
       '';
 
-    expect(hint()).toContain('commonest currency');
+    expect(hint()).toContain('the currency most pages use');
 
     await choose('select[name="currency"]', 'PLN');
 
-    expect(hint()).toContain('scores neutral');
+    expect(hint()).toContain('scores as the dearest one does');
   });
 
   it('sends the search backend that was picked', async () => {

@@ -108,10 +108,9 @@ node demo/record.mjs --url http://127.0.0.1:8000 --script books --sound `
 
 Pass the same `--script` to both: the server searches that fabricated web, and the
 recorder reads the request and shop pages from it; `--request` types something
-else. The recorder prints the length and cue count. A budget in the request stops
-the first press at the offered bound
-([ADR-0059](../docs/adr/0059-notice-a-bound-in-the-request-and-offer-it.md)), so
-the recorder presses twice.
+else. The recorder prints the length and cue count. A budget in the request goes
+out with the one press, named beside the request
+([ADR-0094](../docs/adr/0094-apply-a-bound-the-request-states-where-the-shopper-sees-it.md)).
 
 `record.mjs` needs Playwright (local or global), Python on PATH, and an ffmpeg
 with the `mpeg` muxer and the `mpeg2video` and `mp2` encoders. Playwright's own

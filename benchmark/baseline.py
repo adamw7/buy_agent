@@ -63,8 +63,11 @@ def _number(value: Any) -> float | None:
 
 
 def _moved(name: str, then: float, now: float, digits: int = 3) -> str:
-    """One figure, then and now: "identified 0.600 -> 0.800 (+0.200)"."""
-    return f"{name} {then:.{digits}f} -> {now:.{digits}f} ({now - then:+.{digits}f})"
+    """One figure, then and now: "identified 0.600 -> 0.800 (+0.200)". The change is of
+    the figures as shown, so a score kept to four places and read back reads +0.000
+    unchanged, never -0.000."""
+    shown = round(now, digits) - round(then, digits)
+    return f"{name} {then:.{digits}f} -> {now:.{digits}f} ({shown + 0.0:+.{digits}f})"
 
 
 def against(run: CaseRun, earlier: dict[str, Any]) -> list[str]:

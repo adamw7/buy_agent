@@ -292,7 +292,8 @@ class ScoreParts(BaseModel):
     popularity: float
     price: float
     total: float
-    #: The criteria scored ``NEUTRAL`` for want of a figure.
+    #: The criteria scored for want of a figure: ``NEUTRAL``, or for a price the
+    #: dearest placed price's share (ADR-0096).
     neutral: list[str] = []
 
 
