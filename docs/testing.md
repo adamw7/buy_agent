@@ -533,11 +533,9 @@ exemption naming a missing file. pip-audit has no severity threshold; npm uses
 saying why, never `|| true`.
 
 A fix a parent package has not picked up yet is an exact pin in
-`ui/package.json`'s `overrides`, listed here with what removes it:
-
-- `vite` 8.3.5, for the `launch-editor` advisories against 8.3.0 to 8.3.2
-  (GHSA-r825-w8mm-5pxw and two others). It goes once a stable `@angular/build`
-  pins vite 8.3.3 or later; 22.2.4 still pins 8.3.0, and 22.3.0-next.3 pins 8.3.4.
+`ui/package.json`'s `overrides`, listed here with what removes it. There is none
+now: the last, `vite` 8.3.5 for the `launch-editor` advisories (GHSA-r825-w8mm-5pxw
+and two others), went when `@angular/build` 22.2.5 pinned 8.3.5 itself.
 
 ## Merging
 
