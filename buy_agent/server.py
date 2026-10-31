@@ -29,39 +29,15 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from buy_agent.agent import BuyAgent, Checkpoint, every_step_passes
 from buy_agent.api import (
-    ApiError,
-    Sealer,
-    bounds_payload,
-    defaults_payload,
-    installed_models,
-    parse_options,
-    pay_now,
-    rank_again,
-    run_search,
-    screenshot,
-    sources_payload,
+    ApiError, Sealer, bounds_payload, defaults_payload, installed_models, parse_options, pay_now,
+    rank_again, run_search, screenshot, sources_payload,
 )
 from buy_agent.config import (
-    DEFAULT_BACKEND,
-    DEFAULT_PROVIDER,
-    DEFAULT_RAIL,
-    ServerEnvironment,
-    server_environment,
+    DEFAULT_BACKEND, DEFAULT_PROVIDER, DEFAULT_RAIL, ServerEnvironment, server_environment,
 )
 from buy_agent.deployment import (
-    DEFAULT_MAX_RUNS,
-    DRAIN_SECONDS,
-    MAX_CONNECTIONS,
-    MAX_RUNS,
-    MIN_TOKEN,
-    Policy,
-    Terminated,
-    Traffic,
-    authorised,
-    fixed_address,
-    request_id,
-    same_address,
-    stopped_by_sigterm,
+    DEFAULT_MAX_RUNS, DRAIN_SECONDS, MAX_CONNECTIONS, MAX_RUNS, MIN_TOKEN, Policy, Terminated,
+    Traffic, authorised, fixed_address, request_id, same_address, stopped_by_sigterm,
 )
 from buy_agent.logging_setup import configure_logging, wrap_help
 from buy_agent.providers import PROVIDERS, provider_for
@@ -279,14 +255,9 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
     request_id = ""
 
     def __init__(
-        self,
-        *args: Any,
-        ui_dir: Path,
-        agent_factory: AgentFactory,
-        allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS,
-        camera: Camera | None = None,
-        policy: Policy | None = None,
-        **kwargs: Any,
+        self, *args: Any, ui_dir: Path, agent_factory: AgentFactory,
+        allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS, camera: Camera | None = None,
+        policy: Policy | None = None, **kwargs: Any,
     ) -> None:
         self.ui_dir = ui_dir
         self.agent_factory = agent_factory
@@ -374,10 +345,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         self.close_connection = True
         logger.warning(
             "Refused a %s %s from origin %r with host %r and fetch site %r",
-            self.command,
-            self.path,
-            self.headers.get("Origin"),
-            self.headers.get("Host"),
+            self.command, self.path, self.headers.get("Origin"), self.headers.get("Host"),
             self.headers.get("Sec-Fetch-Site"),
         )
         self._send_json(403, {"error": "This API only answers its own page."})
@@ -581,9 +549,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         not started with: it would reach whatever address anybody typed (ADR-0092)."""
         own = config.model_server.base_url
         if self.policy.fixed_addresses and not same_address(config.base_url, own):
-            raise ApiError(
-                fixed_address(config.model_server.label, own), field="base_url"
-            )
+            raise ApiError(fixed_address(config.model_server.label, own), field="base_url")
 
     def _search(
         self, data: dict[str, Any], *, checkpoint: Checkpoint = every_step_passes
@@ -711,8 +677,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
             self._send_json(503, {"error": _UNBUILT.format(remedy=remedy)})
             return
         self._send_bytes(
-            503,
-            _UNBUILT_PAGE.format(remedy=escape(_unbuilt_remedy(self.ui_dir))).encode("utf-8"),
+            503, _UNBUILT_PAGE.format(remedy=escape(_unbuilt_remedy(self.ui_dir))).encode("utf-8"),
             "text/html; charset=utf-8",
         )
 
@@ -767,8 +732,7 @@ class BuyAgentHandler(BaseHTTPRequestHandler):
         return payload
 
     def _send_json(
-        self, status: int, payload: dict[str, Any], *,
-        headers: Sequence[tuple[str, str]] = (),
+        self, status: int, payload: dict[str, Any], *, headers: Sequence[tuple[str, str]] = (),
     ) -> None:
         body = json.dumps(payload).encode("utf-8")
         self._send_bytes(status, body, "application/json; charset=utf-8", headers=headers)
@@ -949,22 +913,15 @@ class Server(ThreadingHTTPServer):
             logger.warning("Stopped with %d request(s) still unanswered", unanswered)
 
 
-def bind(
-    host: str, port: int, handler: Any, *, max_runs: int = DEFAULT_MAX_RUNS
-) -> Server:
+def bind(host: str, port: int, handler: Any, *, max_runs: int = DEFAULT_MAX_RUNS) -> Server:
     """A threading server for ``handler`` on ``host``; shared with the benchmark."""
     return Server((host, port), handler, Traffic(max_runs))
 
 
 def create_server(
-    host: str = DEFAULT_HOST,
-    port: int = DEFAULT_PORT,
-    *,
-    ui_dir: Path | None = None,
-    agent_factory: AgentFactory = BuyAgent,
-    allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS,
-    camera: Camera | None = None,
-    policy: Policy | None = None,
+    host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, *, ui_dir: Path | None = None,
+    agent_factory: AgentFactory = BuyAgent, allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS,
+    camera: Camera | None = None, policy: Policy | None = None,
 ) -> Server:
     """Build the HTTP server without starting it."""
     policy = policy or Policy()
@@ -1041,9 +998,7 @@ def log_format(text: str) -> str:
     """``--log-format`` as argparse takes it, so a misspelt variable is refused too:
     ``choices`` is never asked of a default."""
     if text not in _LOG_FORMATS:
-        raise argparse.ArgumentTypeError(
-            f"must be one of {', '.join(_LOG_FORMATS)}; got {text!r}"
-        )
+        raise argparse.ArgumentTypeError(f"must be one of {', '.join(_LOG_FORMATS)}; got {text!r}")
     return text
 
 
@@ -1053,8 +1008,7 @@ def build_parser(deployed: ServerEnvironment | None = None) -> argparse.Argument
     env = deployed or server_environment()
     parser = argparse.ArgumentParser(
         prog="buy_agent.server",
-        description="Serve the buy_agent UI and its JSON API on localhost.",
-        formatter_class=_Help,
+        description="Serve the buy_agent UI and its JSON API on localhost.", formatter_class=_Help,
     )
     add = parser.add_argument
     add("--host", default=env.host or DEFAULT_HOST,
@@ -1132,12 +1086,8 @@ def main(argv: list[str] | None = None) -> int:
             "for it."
         )
     policy = Policy(
-        token=deployed.token,
-        fixed_addresses=exposed,
-        behind_proxy=args.behind_proxy,
-        access_log=args.access_log,
-        max_runs=args.max_runs,
-        sealer=Sealer.keyed_by(deployed.token),
+        token=deployed.token, fixed_addresses=exposed, behind_proxy=args.behind_proxy,
+        access_log=args.access_log, max_runs=args.max_runs, sealer=Sealer.keyed_by(deployed.token),
     )
     # Behind a proxy a loopback bind is anybody's, and so would be its camera (ADR-0065).
     camera = None if args.behind_proxy else camera_for(args.host)

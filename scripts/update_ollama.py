@@ -14,9 +14,7 @@ from buy_agent.providers import OLLAMA, OllamaClient, OllamaError, tag_digests
 #: Transport failures that mean "the server is not there": the tuple ``BuyAgent._invoke``
 #: catches, read off the provider's own row rather than written down again -- what a
 #: stopped Ollama raises is that row's to say (ADR-0029), and it is wider than it looks.
-UNREACHABLE = tuple(
-    failure for failure in OLLAMA.transport_errors if failure is not OllamaError
-)
+UNREACHABLE = tuple(failure for failure in OLLAMA.transport_errors if failure is not OllamaError)
 
 #: What a status reads as in the report, in the order the summary lists them.
 LABELS = {
@@ -74,9 +72,7 @@ def stream(client: Any, model: str) -> Iterator[str]:
 
 
 def update(
-    client: Any,
-    models: Iterable[str] = (),
-    echo: Callable[[str], None] = print,
+    client: Any, models: Iterable[str] = (), echo: Callable[[str], None] = print,
 ) -> list[Outcome]:
     """Pull each named model, or every installed one, and report what changed."""
     before = digests(client)

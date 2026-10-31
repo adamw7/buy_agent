@@ -9,12 +9,7 @@ from typing import TYPE_CHECKING
 
 from buy_agent.chat import Prompt
 from buy_agent.models import (
-    MAX_OPINIONS,
-    QUALIFIERS,
-    Offer,
-    Removal,
-    distinct_quotes,
-    nothing_recorded,
+    MAX_OPINIONS, QUALIFIERS, Offer, Removal, distinct_quotes, nothing_recorded,
 )
 
 if TYPE_CHECKING:
@@ -93,8 +88,7 @@ _SITE_SUFFIX = re.compile(r"\s+\|\s+")
 
 #: Words models tack onto a name when copying it off a review page.
 _TRAILING_NOISE = re.compile(
-    r"\s*[-|:,]?\s*\b(reviews?|prices?|deals?|on sale|tested|hands[- ]on)\b\s*$",
-    re.IGNORECASE,
+    r"\s*[-|:,]?\s*\b(reviews?|prices?|deals?|on sale|tested|hands[- ]on)\b\s*$", re.IGNORECASE,
 )
 
 #: Letters and digits in one token, as a model number has ("1000xm5").

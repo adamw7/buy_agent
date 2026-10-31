@@ -6,11 +6,7 @@ import json
 
 from buy_agent.structured import _MAX_DEPTH, declared
 from buy_agent.verification import (
-    build_haystack,
-    mentions_number,
-    mentions_rating,
-    mentions_review_count,
-    mentions_standing,
+    build_haystack, mentions_number, mentions_rating, mentions_review_count, mentions_standing,
 )
 from buy_agent.search import SearchResult
 
@@ -121,8 +117,7 @@ def test_every_offer_of_a_list_is_written_once() -> None:
     ]
 
     assert declared([script({"@type": "Product", "name": "Kettle", "offers": offers})]) == [
-        "Kettle: 348.00 USD",
-        "Kettle: 329.00 USD",
+        "Kettle: 348.00 USD", "Kettle: 329.00 USD",
     ]
 
 
@@ -291,8 +286,7 @@ def test_each_variant_of_a_product_group_is_a_product() -> None:
     }
 
     assert declared([script(group)]) == [
-        "Sony WH-1000XM5 Black: 348.00 USD",
-        "Sony WH-1000XM5 Silver: 329.00 USD",
+        "Sony WH-1000XM5 Black: 348.00 USD", "Sony WH-1000XM5 Silver: 329.00 USD",
     ]
 
 
@@ -329,9 +323,7 @@ def test_a_damaged_condition_is_said_and_claims_no_standing() -> None:
     [line] = declared([script({"@type": "Product", "name": "Kettle", "offers": offer})])
 
     assert line == "Kettle: 10.00, condition: damaged"
-    assert not any(
-        mentions_standing(line, standing) for standing in ("new", "used", "refurbished")
-    )
+    assert not any(mentions_standing(line, standing) for standing in ("new", "used", "refurbished"))
 
 
 def test_a_rating_out_of_a_hundred_is_put_on_five() -> None:

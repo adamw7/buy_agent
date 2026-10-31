@@ -197,13 +197,8 @@ def reads_like_an_opinion(segment: str) -> bool:
 
 
 def fetch_page(
-    client: httpx.Client,
-    url: str,
-    *,
-    max_chars: int,
-    opinion_chars: int = _OPINION_BUDGET,
-    cache: DiskCache | None = None,
-    wait: Callable[[float], None] | None = None,
+    client: httpx.Client, url: str, *, max_chars: int, opinion_chars: int = _OPINION_BUDGET,
+    cache: DiskCache | None = None, wait: Callable[[float], None] | None = None,
 ) -> PageText:
     """One URL, off the cache or the web, condensed (ADR-0040, ADR-0053)."""
     text = cache.get(url) if cache else None
@@ -285,10 +280,7 @@ def _markup(client: httpx.Client, url: str) -> PageText:
 
 
 def _asked_again(
-    client: httpx.Client,
-    url: str,
-    exc: Exception,
-    wait: Callable[[float], None] | None,
+    client: httpx.Client, url: str, exc: Exception, wait: Callable[[float], None] | None,
 ) -> PageText:
     """The page on a second attempt, where this failure was worth one."""
     if wait is None or (delay := _come_back_in(exc)) is None:
@@ -365,14 +357,9 @@ def _as_the_caller(context: Context) -> None:
 
 
 def enrich(
-    results: Sequence[SearchResult],
-    *,
-    max_chars: int = _PAGE_BUDGET,
-    opinion_chars: int = _OPINION_BUDGET,
-    timeout: float = 8.0,
-    workers: int = 8,
-    cache_ttl: float = 0.0,
-    wait: Callable[[float], None] | None = None,
+    results: Sequence[SearchResult], *, max_chars: int = _PAGE_BUDGET,
+    opinion_chars: int = _OPINION_BUDGET, timeout: float = 8.0, workers: int = 8,
+    cache_ttl: float = 0.0, wait: Callable[[float], None] | None = None,
 ) -> list[SearchResult]:
     """Attach condensed page content to each result, in parallel (ADR-0040, ADR-0053)."""
     # Each address once; a hit with none keeps its snippet and has nothing to fetch.

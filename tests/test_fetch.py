@@ -15,18 +15,8 @@ import buy_agent.fetch as fetch_module
 from buy_agent import money
 from buy_agent.cache import DiskCache
 from buy_agent.fetch import (
-    _MAX_RETRY_WAIT,
-    _MAX_SEGMENT,
-    _RETRY_WAIT,
-    PageText,
-    condense,
-    describe_failure,
-    enrich,
-    fetch_page,
-    html_to_text,
-    on_the_public_web,
-    quotes_a_figure,
-    refuse_private,
+    _MAX_RETRY_WAIT, _MAX_SEGMENT, _RETRY_WAIT, PageText, condense, describe_failure, enrich,
+    fetch_page, html_to_text, on_the_public_web, quotes_a_figure, refuse_private,
     summarise_failures,
 )
 from buy_agent.search import SearchResult
@@ -80,10 +70,7 @@ def test_the_same_figure_under_two_names_is_two_figures() -> None:
     page = "Sony WH-1000XM5\n$349.00\nBose QuietComfort Ultra\n$349.00"
 
     assert condense(page, max_chars=1000).splitlines() == [
-        "Sony WH-1000XM5",
-        "$349.00",
-        "Bose QuietComfort Ultra",
-        "$349.00",
+        "Sony WH-1000XM5", "$349.00", "Bose QuietComfort Ultra", "$349.00",
     ]
 
 
@@ -115,19 +102,13 @@ def stub_client(monkeypatch, handler) -> None:
 
 
 def make_response(
-    url: str,
-    body: str,
-    *,
-    status: int = 200,
-    content_type: str = "text/html",
+    url: str, body: str, *, status: int = 200, content_type: str = "text/html",
     retry_after: str | None = None,
 ):
     headers = {"content-type": content_type}
     if retry_after is not None:
         headers["retry-after"] = retry_after
-    return httpx.Response(
-        status, text=body, headers=headers, request=httpx.Request("GET", url),
-    )
+    return httpx.Response(status, text=body, headers=headers, request=httpx.Request("GET", url))
 
 
 def one_reachable_one_not(monkeypatch) -> list[SearchResult]:
@@ -202,9 +183,7 @@ def test_a_response_without_a_content_type_is_read_as_html(monkeypatch) -> None:
     """Shops that omit the header still serve pages worth reading."""
     stub_client(
         monkeypatch,
-        lambda url: httpx.Response(
-            200, content=PAGE.encode(), request=httpx.Request("GET", url)
-        ),
+        lambda url: httpx.Response(200, content=PAGE.encode(), request=httpx.Request("GET", url)),
     )
 
     with httpx.Client() as client:
@@ -537,9 +516,7 @@ def test_the_ceiling_is_counted_across_every_piece_that_arrived(
     stub_client(
         monkeypatch,
         lambda url: httpx.Response(
-            200,
-            headers={"content-type": "text/html"},
-            content=iter(_CHUNKS),
+            200, headers={"content-type": "text/html"}, content=iter(_CHUNKS),
             request=httpx.Request("GET", url),
         ),
     )
@@ -557,8 +534,7 @@ def test_the_pieces_of_a_page_are_joined_with_nothing_between_them(monkeypatch) 
     stub_client(
         monkeypatch,
         lambda url: httpx.Response(
-            200,
-            headers={"content-type": "text/html"},
+            200, headers={"content-type": "text/html"},
             content=iter((b"<p>Sony WH-CH720N $12", b"9.00</p>")),
             request=httpx.Request("GET", url),
         ),
@@ -721,8 +697,7 @@ def test_what_a_retry_after_header_is_allowed_to_ask_for(
     "answer",
     [
         make_response("https://shop.example", PAGE, status=403),
-        make_response("https://shop.example", PAGE, status=404),
-        httpx.ConnectError("refused"),
+        make_response("https://shop.example", PAGE, status=404), httpx.ConnectError("refused"),
         httpx.ConnectTimeout("too slow"),
     ],
 )
@@ -743,8 +718,7 @@ def test_an_answer_that_is_not_come_back_later_is_asked_once(monkeypatch, answer
 def test_the_second_answer_is_the_last_one(monkeypatch) -> None:
     """Asked again and refused again, the page is gone and says how."""
     handler, asked = answering(
-        make_response("https://shop.example", PAGE, status=429),
-        httpx.ConnectError("refused"),
+        make_response("https://shop.example", PAGE, status=429), httpx.ConnectError("refused"),
     )
     stub_client(monkeypatch, handler)
 
@@ -780,9 +754,7 @@ def test_enrich_hands_every_page_the_wait(monkeypatch) -> None:
     stub_client(monkeypatch, handler)
     waits: list[float] = []
 
-    enriched = enrich(
-        [SearchResult(url="https://a.example")], max_chars=1000, wait=waits.append
-    )
+    enriched = enrich([SearchResult(url="https://a.example")], max_chars=1000, wait=waits.append)
 
     assert "$129.99" in enriched[0].content
     assert waits == [_RETRY_WAIT]
@@ -921,8 +893,7 @@ def test_a_redirect_into_a_private_network_is_never_followed() -> None:
         return httpx.Response(302, headers={"location": "http://10.0.0.5/admin"})
 
     with httpx.Client(
-        transport=httpx.MockTransport(answer),
-        follow_redirects=True,
+        transport=httpx.MockTransport(answer), follow_redirects=True,
         event_hooks={"request": [refuse_private]},
     ) as client:
         page = fetch_page(client, "https://shop.example/deal", max_chars=100)

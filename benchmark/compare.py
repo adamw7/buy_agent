@@ -24,13 +24,7 @@ from benchmark.cases import CASES, SCRIPTS
 from benchmark.query import QueryVerdict, judge_query
 from benchmark.runner import run_benchmark
 from benchmark.scoring import (
-    FLOORS,
-    MEANINGS,
-    METRICS,
-    Scorecard,
-    match_products,
-    page_words,
-    quotes_a_verdict,
+    FLOORS, MEANINGS, METRICS, Scorecard, match_products, page_words, quotes_a_verdict,
 )
 
 if TYPE_CHECKING:
@@ -196,9 +190,7 @@ class CaseRun(BaseModel):
         """On today's weights."""
         if self.counts is None:
             return None
-        return Scorecard(
-            counts=dict(self.counts), invented=self.invented, repeated=self.repeated
-        )
+        return Scorecard(counts=dict(self.counts), invented=self.invented, repeated=self.repeated)
 
     @property
     def score(self) -> float:
@@ -216,10 +208,7 @@ def _now() -> str:
 
 
 def run_case(
-    contender: Contender,
-    case: Case,
-    *,
-    clock: Callable[[], float] = time.perf_counter,
+    contender: Contender, case: Case, *, clock: Callable[[], float] = time.perf_counter,
     checkpoint: Checkpoint = every_step_passes,
 ) -> CaseRun:
     """Run one contender over one case and score what it reported. A model that could
@@ -255,16 +244,10 @@ def _kept(
 ) -> CaseRun:
     """With what it was scored under (ADR-0075)."""
     return CaseRun(
-        contender=contender,
-        case=case.name,
-        fingerprint=case.fingerprint,
-        finished=_now(),
-        query=judge_query(watched.query, case.request, case.query),
-        seconds=dict(watched.seconds),
-        pipeline=pipeline.code(),
-        settings=pipeline.settings(config),
-        build=contender.build_on(config),
-        **outcome,
+        contender=contender, case=case.name, fingerprint=case.fingerprint, finished=_now(),
+        query=judge_query(watched.query, case.request, case.query), seconds=dict(watched.seconds),
+        pipeline=pipeline.code(), settings=pipeline.settings(config),
+        build=contender.build_on(config), **outcome,
     )
 
 
@@ -406,10 +389,7 @@ def standings(runs: Iterable[CaseRun], cases: Sequence[Case]) -> list[Standing]:
     ]
     unranked.sort(
         key=lambda standing: (
-            -len(standing.runs),
-            -standing.score,
-            -standing.query,
-            standing.seconds,
+            -len(standing.runs), -standing.score, -standing.query, standing.seconds,
             standing.contender.label,
         )
     )
@@ -486,9 +466,7 @@ def run_payload(run: CaseRun) -> dict[str, Any]:
         "steps_label": ", ".join(
             f"{step} {seconds_label(seconds)}" for step, seconds in run.seconds.items()
         ),
-        "products": [
-            {**product.model_dump(), "line": product.line} for product in run.products
-        ],
+        "products": [{**product.model_dump(), "line": product.line} for product in run.products],
         "finished": run.finished,
         "finished_label": finished_label(run.finished),
         "scored_with_label": scored_with(run),
@@ -548,9 +526,7 @@ def standings_payload(runs: Iterable[CaseRun], cases: Sequence[Case]) -> dict[st
     """The leaderboard over ``cases``: what ``--json`` writes and the page draws."""
     return {
         "cases": [case_payload(case) for case in cases],
-        "standings": [
-            standing_payload(standing, cases) for standing in standings(runs, cases)
-        ],
+        "standings": [standing_payload(standing, cases) for standing in standings(runs, cases)],
     }
 
 

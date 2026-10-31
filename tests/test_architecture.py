@@ -9,13 +9,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from archunitpython import (
-    CheckOptions,
-    assert_passes,
-    extract_graph,
-    project_files,
-    project_layers,
-)
+from archunitpython import CheckOptions, assert_passes, extract_graph, project_files, project_layers
 
 from tests.conftest import SOURCE_ROOT
 
@@ -45,40 +39,20 @@ _LAYERS: dict[str, tuple[str, ...]] = {
     "web": ("api.py", "deployment.py"),
     "orchestration": ("agent.py",),
     "pipeline": (
-        "extraction.py",
-        "verification.py",
-        "constraints.py",
-        "ranking.py",
-        "fetch.py",
-        "alerts.py",
+        "extraction.py", "verification.py", "constraints.py", "ranking.py", "fetch.py", "alerts.py",
     ),
     "paying": ("payment.py", "rails.py", "mandates.py"),
     # ``search.py`` is here and not among the steps: it is the table a backend is one
     # row of (ADR-0057), so it reads its rows' addresses and keys off the environment,
     # which is the one thing a step may never do.
-    "seams": (
-        "chat.py",
-        "providers.py",
-        "cache.py",
-        "search.py",
-        "journal.py",
-        "screenshots.py",
-    ),
+    "seams": ("chat.py", "providers.py", "cache.py", "search.py", "journal.py", "screenshots.py"),
     "settings": ("config.py", "logging_setup.py", "version.py"),
     "domain": ("models.py", "money.py", "sources.py", "bounds.py", "structured.py"),
 }
 
 #: Which layer may reach which, and nothing else.
 _MAY_DEPEND_ON: dict[str, tuple[str, ...]] = {
-    "entry points": (
-        "web",
-        "orchestration",
-        "pipeline",
-        "paying",
-        "seams",
-        "settings",
-        "domain",
-    ),
+    "entry points": ("web", "orchestration", "pipeline", "paying", "seams", "settings", "domain"),
     # The one edge inside: a deployment's policy carries the seal ``api.py`` signs with.
     "web": ("web", "orchestration", "pipeline", "paying", "seams", "settings", "domain"),
     "orchestration": ("pipeline", "seams", "settings", "domain"),
@@ -318,8 +292,7 @@ def test_the_re_export_surface_imports_only_what_it_re_exports() -> None:
     ``BuyAgent``, ``AgentConfig``, ``Product``, ``RankedProduct``, ``RankingWeights``,
     ``rank_products``; anything else is reached by its module"."""
     knows_nothing_of(
-        only("__init__.py"),
-        every_module_but("__init__.py", *_RE_EXPORTED),
+        only("__init__.py"), every_module_but("__init__.py", *_RE_EXPORTED),
         because="what the package imports is what importing anything of it costs",
     )
 
@@ -328,13 +301,7 @@ def test_the_package_imports_none_of_the_trees_that_import_it() -> None:
     """``tests/``, ``integration/``, ``browser/``, ``benchmark/``, ``demo/`` and
     ``scripts/`` all import ``buy_agent``, and nothing there is a dependency of it."""
     imports_none_of(
-        EVERY_MODULE,
-        "*tests*",
-        "*integration*",
-        "*browser*",
-        "*benchmark*",
-        "*demo*",
-        "*scripts*",
+        EVERY_MODULE, "*tests*", "*integration*", "*browser*", "*benchmark*", "*demo*", "*scripts*",
         because="what ships is the package; those six are what is left behind",
     )
 
@@ -348,10 +315,7 @@ def test_the_package_starts_no_process() -> None:
     only the server asks, and which the rule below keeps the only module that can
     (ADR-0065)."""
     imports_none_of(
-        EVERY_MODULE,
-        "subprocess*",
-        "multiprocessing*",
-        "webbrowser*",
+        EVERY_MODULE, "subprocess*", "multiprocessing*", "webbrowser*",
         because="the package is a guest in whatever process runs it",
     )
 
@@ -371,10 +335,7 @@ def test_nothing_here_awaits_and_the_threads_are_the_five_that_wait() -> None:
     take (ADR-0065). Playwright runs a loop of its own under its synchronous API, inside
     that thread, and nothing here awaits it."""
     imports_none_of(
-        EVERY_MODULE,
-        "asyncio*",
-        "anyio*",
-        "trio*",
+        EVERY_MODULE, "asyncio*", "anyio*", "trio*",
         because="nothing here awaits, so nothing here needs a loop underneath it",
     )
     imports_none_of(
@@ -397,10 +358,7 @@ def test_only_mandates_imports_the_ap2_sdk() -> None:
     ``ap2``, which is why the import is deferred into the functions that need it and
     why a checkout without the optional SDK still has a working ``--help``."""
     imports_none_of(
-        every_module_but("mandates.py"),
-        "ap2*",
-        "jwcrypto*",
-        "cryptography*",
+        every_module_but("mandates.py"), "ap2*", "jwcrypto*", "cryptography*",
         because="an optional dependency imported anywhere else is not optional",
     )
 
@@ -440,14 +398,12 @@ def test_a_checkout_without_the_optional_installs_loads_and_answers_help() -> No
     own, since this one has long since imported everything."""
     script = "\n".join(
         (
-            "import importlib, pathlib, sys",
-            f"sys.modules.update(dict.fromkeys({_OPTIONAL!r}))",
+            "import importlib, pathlib, sys", f"sys.modules.update(dict.fromkeys({_OPTIONAL!r}))",
             f"for path in sorted(pathlib.Path({_PACKAGE!r}).glob('*.py')):",
             "    importlib.import_module(f'buy_agent.{path.stem}'.removesuffix('.__init__'))",
             "from buy_agent.__main__ import build_parser",
             "from buy_agent.server import build_parser as build_server_parser",
-            "build_parser().format_help()",
-            "build_server_parser().format_help()",
+            "build_parser().format_help()", "build_server_parser().format_help()",
         )
     )
 
@@ -468,8 +424,7 @@ def test_only_screenshots_imports_playwright() -> None:
     imports every module -- and so the only one that can start the browser the rule
     about processes above makes its one exception for."""
     imports_none_of(
-        every_module_but("screenshots.py"),
-        "playwright*",
+        every_module_but("screenshots.py"), "playwright*",
         because="an optional dependency imported anywhere else is not optional",
     )
 
@@ -478,9 +433,7 @@ def test_only_providers_imports_a_model_client() -> None:
     """ADR-0028 and ADR-0029: everything that differs between Ollama and vLLM is one row
     in ``providers.PROVIDERS``, and its clients are the difference at its widest."""
     imports_none_of(
-        every_module_but("providers.py"),
-        "ollama*",
-        "openai*",
+        every_module_but("providers.py"), "ollama*", "openai*",
         because="a model server is one row in one table, reached one way",
     )
 
@@ -489,8 +442,7 @@ def test_only_search_imports_the_search_backend() -> None:
     """ADR-0021 and ADR-0057: ``search.py`` is the table a search backend is one row of,
     and the one library any of them is reached through is that table's."""
     imports_none_of(
-        every_module_but("search.py"),
-        "ddgs*",
+        every_module_but("search.py"), "ddgs*",
         because="a search backend is one row in one table, reached one way",
     )
 
@@ -499,8 +451,7 @@ def test_only_fetch_imports_the_html_parser() -> None:
     """Reading a page is ``fetch.py``'s whole job: stream it to a ceiling, keep the lines
     that quote a figure or pass judgement, and tally how the rest failed."""
     imports_none_of(
-        every_module_but("fetch.py"),
-        "lxml*",
+        every_module_but("fetch.py"), "lxml*",
         because="one reading of a page, shared by the extractor and the check",
     )
 
@@ -510,8 +461,7 @@ def test_only_the_four_modules_that_speak_to_somebody_import_httpx() -> None:
     ``rails.py`` presents an authorisation to a counterparty, and ``search.py`` asks
     whichever backend is not reached through a library of its own (ADR-0057)."""
     imports_none_of(
-        every_module_but("fetch.py", "providers.py", "rails.py", "search.py"),
-        "httpx*",
+        every_module_but("fetch.py", "providers.py", "rails.py", "search.py"), "httpx*",
         because="four modules reach the network, and the suite patches all four",
     )
 
@@ -520,16 +470,8 @@ def test_the_standard_library_s_network_is_the_server_s_alone() -> None:
     """The rule above says the three modules that reach out reach out through ``httpx``,
     which is what makes all three patchable in one line each."""
     imports_none_of(
-        every_module_but("server.py"),
-        "socket*",
-        "ssl*",
-        "http.client*",
-        "http.server*",
-        "urllib.request*",
-        "urllib.error*",
-        "ftplib*",
-        "smtplib*",
-        "xmlrpc*",
+        every_module_but("server.py"), "socket*", "ssl*", "http.client*", "http.server*",
+        "urllib.request*", "urllib.error*", "ftplib*", "smtplib*", "xmlrpc*",
         because="one module listens; the three that call out are the patched three",
     )
 
@@ -538,8 +480,7 @@ def test_the_server_is_stdlib_only() -> None:
     """ADR-0010: the dependency list is already the interesting part of this project, and
     a run that takes a minute and serves one person does not need a framework under it."""
     imports_none_of(
-        only("server.py"),
-        re.compile(rf"^(?:{'|'.join(third_party_imports())})\b"),
+        only("server.py"), re.compile(rf"^(?:{'|'.join(third_party_imports())})\b"),
         because="no framework between the request and the run",
     )
 
@@ -549,8 +490,7 @@ def test_only_the_entry_points_parse_a_command_line() -> None:
     ``__main__.build_parser`` for the run and ``server.build_parser`` for the server it
     is served from."""
     imports_none_of(
-        every_module_but("__main__.py", "server.py"),
-        "argparse*",
+        every_module_but("__main__.py", "server.py"), "argparse*",
         because="an argv is the entry points' to read; everything else is given values",
     )
 
@@ -563,9 +503,7 @@ def test_only_the_cache_puts_a_file_on_disk_the_one_way() -> None:
     subtly wrong on its own". A ``tempfile`` or a ``hashlib`` anywhere else is that
     second copy, and the half it would get wrong is the half nothing reads back."""
     imports_none_of(
-        every_module_but("cache.py"),
-        "tempfile*",
-        "hashlib*",
+        every_module_but("cache.py"), "tempfile*", "hashlib*",
         because="one temporary-file dance and one hashed name, imported rather than repeated",
     )
 
@@ -582,11 +520,7 @@ def test_the_environment_is_read_where_a_setting_is_declared() -> None:
     imports_none_of(
         every_module_but(
             "cache.py",
-            "config.py",
-            "mandates.py",
-            "providers.py",
-            "rails.py",
-            "search.py",
+            "config.py", "mandates.py", "providers.py", "rails.py", "search.py",
         ),
         "os*",
         "dotenv*",
@@ -602,9 +536,7 @@ def test_the_two_modules_that_ask_the_web_twice_are_handed_their_clock() -> None
     unreadable. ``fetch.py`` is held to this by the rule about the steps as well;
     ``search.py`` is a seam, and this is the rule that holds it."""
     imports_none_of(
-        only("fetch.py", "search.py"),
-        "time*",
-        "datetime*",
+        only("fetch.py", "search.py"), "time*", "datetime*",
         because="a retry that keeps its own clock is a test that waits",
     )
 
@@ -617,9 +549,7 @@ def test_only_money_turns_a_price_into_what_is_charged() -> None:
     else is a second way of counting the same price's cents, and the one place two
     roundings disagreeing would cost somebody money."""
     imports_none_of(
-        every_module_but("money.py"),
-        "decimal*",
-        "fractions*",
+        every_module_but("money.py"), "decimal*", "fractions*",
         because="an amount is counted out in one place, the place a currency is added",
     )
 
@@ -635,8 +565,7 @@ def test_the_steps_and_the_orchestrator_declare_no_schema() -> None:
     a schema outside the module whose tests say what one may hold, or catching a failure
     the seam had already translated."""
     imports_none_of(
-        only("agent.py", *_LAYERS["pipeline"]),
-        "pydantic*",
+        only("agent.py", *_LAYERS["pipeline"]), "pydantic*",
         because="what the model is asked for is the domain's, and reading it back chat's",
     )
 
@@ -649,8 +578,7 @@ def test_the_tables_know_nothing_about_the_config_they_are_read_from() -> None:
     way" (ADR-0029); ``rails.py`` is that same table for counterparties (ADR-0046) and
     ``search.py`` for search backends (ADR-0057)."""
     knows_nothing_of(
-        only("providers.py", "rails.py", "search.py"),
-        only("config.py"),
+        only("providers.py", "rails.py", "search.py"), only("config.py"),
         because="config resolves its defaults off the rows, not the other way about",
     )
 
@@ -665,8 +593,7 @@ def test_a_model_server_and_a_rail_are_reached_through_the_config() -> None:
     it; the layer table lets it reach any seam, and this is the seam it may not."""
     for table in ("providers.py", "rails.py"):
         knows_nothing_of(
-            every_module_but(table, "config.py", "__main__.py", "api.py", "server.py"),
-            only(table),
+            every_module_but(table, "config.py", "__main__.py", "api.py", "server.py"), only(table),
             because="a row becomes behaviour in one place, and that place is the config",
         )
 
@@ -687,8 +614,7 @@ def test_the_web_is_asked_from_the_orchestrator_alone() -> None:
         because="one call site, on the module the suite patches",
     )
     knows_nothing_of(
-        every_module_but("fetch.py", "agent.py"),
-        only("fetch.py"),
+        every_module_but("fetch.py", "agent.py"), only("fetch.py"),
         because="one call site, on the module the suite patches",
     )
 
@@ -698,8 +624,7 @@ def test_search_knows_nothing_of_the_package_it_is_asked_from() -> None:
     pipeline does not use, and it knows about no other module of this package --
     ``config.py`` reads the rows, exactly as it reads the providers' and the rails'."""
     knows_nothing_of(
-        only("search.py"),
-        because="a backend is replaceable exactly as long as the table is alone",
+        only("search.py"), because="a backend is replaceable exactly as long as the table is alone",
     )
 
 
@@ -709,15 +634,10 @@ def test_sources_decides_what_a_source_is_and_does_no_io() -> None:
     DuckDuckGo wrapper.* Both halves of that are checkable: no page fetcher, no search
     backend, no HTTP client, and no module of this package either."""
     knows_nothing_of(
-        only("sources.py"),
-        because="what a source is has to be decidable without asking the web",
+        only("sources.py"), because="what a source is has to be decidable without asking the web",
     )
     imports_none_of(
-        only("sources.py"),
-        "httpx*",
-        "ddgs*",
-        "lxml*",
-        because="deciding is not fetching",
+        only("sources.py"), "httpx*", "ddgs*", "lxml*", because="deciding is not fetching",
     )
 
 
@@ -746,8 +666,7 @@ def test_only_the_web_tier_knows_about_pictures() -> None:
     one failure; nothing else knows a browser exists. The layer table cannot say this --
     the browser is a seam, and the orchestrator and every step may reach a seam."""
     knows_nothing_of(
-        every_module_but("screenshots.py", "server.py", "api.py"),
-        only("screenshots.py"),
+        every_module_but("screenshots.py", "server.py", "api.py"), only("screenshots.py"),
         because="a picture is asked for by the card, not taken by the run",
     )
 
@@ -756,16 +675,8 @@ def test_the_web_tier_is_split_at_the_payload_and_the_api_speaks_no_http() -> No
     """The module table: ``api.py`` is "request options in, ranked products out -- the
     web-facing half worth testing", and ``server.py`` is "a stdlib HTTP server"."""
     imports_none_of(
-        only("api.py"),
-        "http",
-        "http.*",
-        "socket",
-        "socketserver*",
-        "ssl",
-        "mimetypes*",
-        "threading*",
-        "queue*",
-        "urllib.request*",
+        only("api.py"), "http", "http.*", "socket", "socketserver*", "ssl", "mimetypes*",
+        "threading*", "queue*", "urllib.request*",
         because="options in and payloads out is what makes the web tier testable",
     )
 
@@ -780,13 +691,7 @@ def test_the_server_sends_what_the_api_shaped() -> None:
     ``rails.py`` is the one module of the paying layer left off the list."""
     knows_nothing_of(
         only("server.py"),
-        only(
-            *_LAYERS["pipeline"],
-            *_LAYERS["domain"],
-            "payment.py",
-            "mandates.py",
-            "journal.py",
-        ),
+        only(*_LAYERS["pipeline"], *_LAYERS["domain"], "payment.py", "mandates.py", "journal.py"),
         because="a payload is shaped where it can be tested without a socket",
     )
 
@@ -797,20 +702,11 @@ def test_the_steps_take_values_and_answer_values() -> None:
     steps = only(*_LAYERS["pipeline"], *_LAYERS["domain"])
 
     imports_none_of(
-        steps,
-        "os*",
-        "pathlib*",
-        "tempfile*",
-        "shutil*",
+        steps, "os*", "pathlib*", "tempfile*", "shutil*",
         because="a step is given its settings; it does not go and look them up",
     )
     imports_none_of(
-        steps,
-        "time*",
-        "datetime*",
-        "random*",
-        "secrets*",
-        "uuid*",
+        steps, "time*", "datetime*", "random*", "secrets*", "uuid*",
         because="an answer that moves on its own is one the cache would keep wrongly",
     )
 
@@ -819,8 +715,7 @@ def test_the_steps_do_not_chain_themselves() -> None:
     """The order of the pipeline lives in ``BuyAgent.run`` and nowhere else."""
     knows_nothing_of(
         only(*(step for step in _LAYERS["pipeline"] if step != "verification.py")),
-        only(*_LAYERS["pipeline"]),
-        because="the order of the steps is the orchestrator's to know",
+        only(*_LAYERS["pipeline"]), because="the order of the steps is the orchestrator's to know",
     )
 
 
@@ -866,8 +761,7 @@ def test_nothing_in_the_journal_reaches_the_pipeline() -> None:
     answer to a run the ranked products and nothing else". The seams' row lets a step
     import ``journal.py``, and this is the edge that row was never meant to open."""
     knows_nothing_of(
-        only(*_LAYERS["pipeline"]),
-        only("journal.py"),
+        only(*_LAYERS["pipeline"]), only("journal.py"),
         because="what moved since the last run is reported, never ranked on",
     )
 
@@ -879,8 +773,7 @@ def test_the_answer_cache_is_invisible_to_who_asks_and_who_answers() -> None:
     ``providers.py``" -- neither row has to declare it. So the module that asks, through
     its chains, and the table that answers know nothing of the cache between them."""
     knows_nothing_of(
-        only("extraction.py", "providers.py"),
-        only("cache.py"),
+        only("extraction.py", "providers.py"), only("cache.py"),
         because="a remembered answer is one neither side of it can tell from a fresh one",
     )
 
@@ -894,8 +787,7 @@ def test_the_two_doors_do_not_know_about_each_other() -> None:
     buy_agent``, and ``__main__.py`` imported from the server puts an ``argv``'s worth of
     defaults behind a form."""
     knows_nothing_of(
-        only("__main__.py", "server.py"),
-        only("__main__.py", "server.py"),
+        only("__main__.py", "server.py"), only("__main__.py", "server.py"),
         because="two doors onto one config, and neither is reached through the other",
     )
 
@@ -921,8 +813,7 @@ def test_verification_shares_only_the_extractors_vocabulary() -> None:
     on what a name's words are (ADR-0008). One edge: left out of the subject of the
     chaining rule, ``verification.py`` is out of it for every other step too."""
     knows_nothing_of(
-        only("verification.py"),
-        only("constraints.py", "fetch.py", "ranking.py"),
+        only("verification.py"), only("constraints.py", "fetch.py", "ranking.py"),
         because="one shared vocabulary is an edge; a second is the line chaining itself",
     )
 
@@ -933,12 +824,10 @@ def test_the_currency_table_is_the_leaf_of_the_package() -> None:
     are six modules it has never heard of. It is the bottom of the domain, so it is the one
     module whose rule is that it reaches nothing at all, installed or not."""
     knows_nothing_of(
-        only("money.py"),
-        because="the table everything reads is the one thing that reads nothing",
+        only("money.py"), because="the table everything reads is the one thing that reads nothing",
     )
     imports_none_of(
-        only("money.py"),
-        re.compile(rf"^(?:{'|'.join(third_party_imports())})\b"),
+        only("money.py"), re.compile(rf"^(?:{'|'.join(third_party_imports())})\b"),
         because="a currency is a table and a rounding rule, and needs nothing installed",
     )
 
@@ -952,8 +841,7 @@ def test_a_bound_in_the_request_is_read_beside_the_money_and_nothing_else() -> N
     package: not the constraints that enforce a bound, and not the settings that bound
     the setting."""
     knows_nothing_of(
-        only("bounds.py"),
-        every_module_but("bounds.py", "money.py"),
+        only("bounds.py"), every_module_but("bounds.py", "money.py"),
         because="what the request asks for is read beside the money and nothing else",
     )
 
@@ -965,7 +853,6 @@ def test_a_bound_in_the_request_is_applied_at_the_doors_alone() -> None:
     anywhere below them is one applied without being seen -- the silent empty report
     ADR-0059 was written to avoid."""
     knows_nothing_of(
-        every_module_but("bounds.py", "__main__.py", "api.py"),
-        only("bounds.py"),
+        every_module_but("bounds.py", "__main__.py", "api.py"), only("bounds.py"),
         because="what the request asks for is applied only where the shopper is told",
     )

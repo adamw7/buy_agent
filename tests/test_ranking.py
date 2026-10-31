@@ -9,13 +9,7 @@ import pytest
 import buy_agent.ranking as ranking_module
 from buy_agent.models import Limit, Product
 from buy_agent.ranking import (
-    CRITERIA,
-    NEUTRAL,
-    RankingWeights,
-    SortBy,
-    placement_note,
-    rank_products,
-    score_product,
+    CRITERIA, NEUTRAL, RankingWeights, SortBy, placement_note, rank_products, score_product,
 )
 
 
@@ -47,11 +41,7 @@ def test_sort_by_rating_puts_a_zero_rating_below_every_other() -> None:
     """0.0 is a rating somebody gave, and the worst one: it sorts under 0.5 and above
     a product nobody rated, rather than being read as the missing figure it is not."""
     ranked = rank_products(
-        [
-            product("unrated"),
-            product("awful", rating=0.0),
-            product("poor", rating=0.5),
-        ],
+        [product("unrated"), product("awful", rating=0.0), product("poor", rating=0.5)],
         sort_by="rating",
     )
     assert [entry.product.name for entry in ranked] == ["poor", "awful", "unrated"]
@@ -76,9 +66,7 @@ def test_every_criterion_a_score_has_is_one_the_weights_name() -> None:
 def popularity_of(review_count: int | None) -> float:
     """The popularity term on its own, with the other criteria weighted out."""
     return score_product(
-        product("x", review_count=review_count),
-        cheapest=None,
-        priciest=None,
+        product("x", review_count=review_count), cheapest=None, priciest=None,
         weights=RankingWeights(rating=0.0, popularity=1.0, price=0.0),
     ).total
 
@@ -101,10 +89,8 @@ def test_scores_are_normalised_by_the_total_weight() -> None:
     """Weights that do not sum to 1 must not push scores outside [0, 1]."""
     weights = RankingWeights(rating=2.0, popularity=1.0, price=1.0)
     best = score_product(
-        Product(name="Best", rating=5.0, review_count=10_000, price=10.0),
-        cheapest=10.0,
-        priciest=100.0,
-        weights=weights,
+        Product(name="Best", rating=5.0, review_count=10_000, price=10.0), cheapest=10.0,
+        priciest=100.0, weights=weights,
     )
 
     assert best.total == pytest.approx(1.0)
@@ -249,8 +235,7 @@ def test_an_unknown_price_is_neutral_where_every_price_ties() -> None:
     ranked = rank_products(
         [
             Product(name="A", price=50.0, currency="USD"),
-            Product(name="B", price=50.0, currency="USD"),
-            Product(name="Unpriced"),
+            Product(name="B", price=50.0, currency="USD"), Product(name="Unpriced"),
         ]
     )
 
@@ -270,8 +255,7 @@ def test_a_price_in_another_currency_scores_as_the_dearest_too() -> None:
         for entry in rank_products(
             [
                 Product(name="Here", price=100.0, currency="USD"),
-                Product(name="Dear", price=300.0, currency="USD"),
-                EURO,
+                Product(name="Dear", price=300.0, currency="USD"), EURO,
             ]
         )
     }

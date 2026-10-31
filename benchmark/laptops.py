@@ -194,43 +194,35 @@ About BudgetGamer
 #: The results the search hands back, ``content`` empty until the corpus is served.
 PAGES: tuple[SearchResult, ...] = (
     SearchResult(
-        title="ASUS ROG Zephyrus G14 review | LaptopLab",
-        url=LAPTOPLAB,
+        title="ASUS ROG Zephyrus G14 review | LaptopLab", url=LAPTOPLAB,
         snippet="The ASUS ROG Zephyrus G14 costs $1,399.99 and is rated 4.6 out of 5.",
     ),
     SearchResult(
-        title="Lenovo Legion Slim 5 gaming laptop | LaptopLane",
-        url=LAPTOPLANE,
+        title="Lenovo Legion Slim 5 gaming laptop | LaptopLane", url=LAPTOPLANE,
         snippet="Lenovo Legion Slim 5, $1,249.00, or $52.04/month.",
     ),
     SearchResult(
-        title="The 7 Best Gaming Laptops Under $1,500 in 2026 | GamingRoundup",
-        url=ROUNDUP,
+        title="The 7 Best Gaming Laptops Under $1,500 in 2026 | GamingRoundup", url=ROUNDUP,
         snippet="Our picks: the ASUS ROG Zephyrus G14 at $1,399.99, the Legion Slim 5 at $1,249.",
     ),
     SearchResult(
-        title="ASUS ROG Zephyrus G14 gaming laptop | NorthByte Computers",
-        url=NORTHBYTE,
+        title="ASUS ROG Zephyrus G14 gaming laptop | NorthByte Computers", url=NORTHBYTE,
         snippet="ASUS ROG Zephyrus G14, C$1,899.99, in stock and shipping from Toronto.",
     ),
     SearchResult(
-        title="Gaming laptops for college: what to carry | StudentGear",
-        url=STUDENTGEAR,
+        title="Gaming laptops for college: what to carry | StudentGear", url=STUDENTGEAR,
         snippet="Which gaming laptops survive a semester in a backpack.",
     ),
     SearchResult(
-        title="Razer Blade 14 review | BladeReview",
-        url=BLADEREVIEW,
+        title="Razer Blade 14 review | BladeReview", url=BLADEREVIEW,
         snippet="The Razer Blade 14 is $2,199.99, rated 4.4 out of 5.",
     ),
     SearchResult(
-        title="Gaming laptop price history | DealWatch",
-        url=DEALWATCH,
+        title="Gaming laptop price history | DealWatch", url=DEALWATCH,
         snippet="Current and lowest-ever prices across 30 retailers.",
     ),
     SearchResult(
-        title="Cheap gaming laptops that are actually worth it | BudgetGamer",
-        url=BUDGETGAMER,
+        title="Cheap gaming laptops that are actually worth it | BudgetGamer", url=BUDGETGAMER,
         snippet="The Gigabyte G6X is rated 4.1 out of 5 from 720 reviews.",
     ),
 )
@@ -384,8 +376,7 @@ SLOPPY = ProductList(
             opinions=["The battery lasts all day and the screen never reflects a thing."],
         ),
         ExtractedProduct(
-            name="The 7 Best Gaming Laptops Under $1,500 in 2026", price=1500.0,
-            currency="USD",
+            name="The 7 Best Gaming Laptops Under $1,500 in 2026", price=1500.0, currency="USD",
         ),
         # The shop.
         ExtractedProduct(name="LaptopLane", url=LAPTOPLANE),

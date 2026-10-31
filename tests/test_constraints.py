@@ -20,11 +20,7 @@ def product(name: str, **figures) -> Product:
 
 @pytest.mark.parametrize(
     "bounds",
-    [
-        Constraints(max_price=200.0),
-        Constraints(min_rating=4.0),
-        Constraints(min_reviews=100),
-    ],
+    [Constraints(max_price=200.0), Constraints(min_rating=4.0), Constraints(min_reviews=100)],
 )
 def test_a_figure_the_run_never_learned_is_not_a_violation(bounds: Constraints) -> None:
     """The rule that keeps this from punishing the extractor for its misses."""
@@ -37,8 +33,7 @@ def test_a_product_kept_for_want_of_a_figure_is_marked_with_the_limit(caplog) ->
     bounds = Constraints(max_price=200.0, min_rating=4.0, min_reviews=100)
     found = [
         product("checked", price=150.0, currency="USD", rating=4.5, review_count=500),
-        product("unpriced", rating=4.5, review_count=500),
-        product("silent"),
+        product("unpriced", rating=4.5, review_count=500), product("silent"),
     ]
 
     with caplog.at_level(logging.INFO, logger="buy_agent"):
@@ -151,9 +146,7 @@ ELSEWHERE = Product(name="Elsewhere", price=300.0, currency="EUR")
         ),
     ],
 )
-def test_what_a_budget_in_one_currency_admits(
-    products: list[Product], kept: list[str]
-) -> None:
+def test_what_a_budget_in_one_currency_admits(products: list[Product], kept: list[str]) -> None:
     assert [p.name for p in Constraints(max_price=200.0).apply(products)] == kept
 
 

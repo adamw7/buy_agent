@@ -18,11 +18,7 @@ from buy_agent.providers import PROVIDERS, VLLM
 from buy_agent.rails import RAILS
 from buy_agent.ranking import rank_products
 from buy_agent.search import SearchError
-from tests.conftest import (
-    needs_ap2,
-    payable_product,
-    ranked_product,
-)
+from tests.conftest import needs_ap2, payable_product, ranked_product
 
 RANKED = [
     ranked_product(Product(name="Sony WH-1000XM5", price=328.0), score=0.9, rank=1),
@@ -71,12 +67,8 @@ def test_flags_reach_the_config(fake_agent) -> None:
     main(
         [
             "espresso machine",
-            "--model", "qwen2.5",
-            "--results", "6",
-            "--top", "2",
-            "--region", "pl-pl",
-            "--temperature", "0.4",
-            "--sort-by", "price",
+            "--model", "qwen2.5", "--results", "6", "--top", "2", "--region", "pl-pl",
+            "--temperature", "0.4", "--sort-by", "price",
         ]
     )
     config = fake_agent["config"]
@@ -112,11 +104,7 @@ def test_the_help_names_every_exit_code(fake_agent) -> None:
 
 @pytest.mark.parametrize(
     "error",
-    [
-        ModelUnavailableError("no model"),
-        SearchError("rate limited"),
-        ValueError("empty request"),
-    ],
+    [ModelUnavailableError("no model"), SearchError("rate limited"), ValueError("empty request")],
 )
 def test_expected_failures_exit_one_with_a_logged_reason(fake_agent, caplog, error) -> None:
     fake_agent["result"] = error
@@ -168,8 +156,7 @@ def test_the_source_flag_repeats_to_name_several(fake_agent) -> None:
     main(["headphones", "--source", "rtings.com", "--source", "@mkbhd"])
 
     assert [source.domain for source in fake_agent["config"].sources] == [
-        "rtings.com",
-        "youtube.com",
+        "rtings.com", "youtube.com",
     ]
 
 
@@ -221,9 +208,7 @@ def test_the_json_is_written_for_a_person_to_read(fake_agent, tmp_path) -> None:
     assert destination.read_text(encoding="utf-8").startswith('[\n  {\n    "')
 
 
-def test_the_json_is_counted_on_the_currency_the_run_was_told_to(
-    fake_agent, tmp_path
-) -> None:
+def test_the_json_is_counted_on_the_currency_the_run_was_told_to(fake_agent, tmp_path) -> None:
     """The file is what a script buys from, so it is on the scale the ranking used and
     not a second vote of the set -- which here would have been dollars (ADR-0056)."""
     fake_agent["result"] = [
@@ -270,9 +255,7 @@ def test_a_json_path_with_no_directory_is_a_usage_error_before_the_run(
     assert "--json" in error and "no-such-directory" in error and "out.json" in error
 
 
-def test_a_json_path_naming_a_directory_is_a_usage_error_too(
-    fake_agent, tmp_path, capsys
-) -> None:
+def test_a_json_path_naming_a_directory_is_a_usage_error_too(fake_agent, tmp_path, capsys) -> None:
     with pytest.raises(SystemExit) as exit_info:
         main(["headphones", "--json", str(tmp_path)])
 
@@ -349,9 +332,7 @@ def test_a_cpu_only_run_the_provider_ignores_is_called_out(
     ("flag", "value"),
     [("--rail", "http"), ("--merchant-url", "https://pay.example"), ("--spend-limit", "250")],
 )
-def test_a_paying_flag_without_pay_is_called_out(
-    fake_agent, caplog, flag: str, value: str
-) -> None:
+def test_a_paying_flag_without_pay_is_called_out(fake_agent, caplog, flag: str, value: str) -> None:
     """The form draws none of these until its paying switch is ticked."""
     with caplog.at_level(logging.WARNING):
         main(["headphones", flag, value])
@@ -378,9 +359,7 @@ def test_the_defaults_survive_a_provider_the_environment_got_wrong(monkeypatch) 
     assert defaults.num_products == AgentConfig().num_products
 
 
-def test_a_provider_the_environment_got_right_is_the_one_the_flags_default_to(
-    monkeypatch,
-) -> None:
+def test_a_provider_the_environment_got_right_is_the_one_the_flags_default_to(monkeypatch) -> None:
     """The half the fallback above must not swallow."""
     other = next(name for name in PROVIDERS if name != next(iter(PROVIDERS)))
     monkeypatch.setattr(main_module, "DEFAULT_PROVIDER", other)
@@ -566,9 +545,7 @@ def test_a_paying_rail_with_nowhere_to_pay_is_a_usage_error(capsys) -> None:
     assert "Traceback" not in said
 
 
-def test_a_rail_the_environment_got_right_is_the_one_the_flags_default_to(
-    monkeypatch,
-) -> None:
+def test_a_rail_the_environment_got_right_is_the_one_the_flags_default_to(monkeypatch) -> None:
     """The half the fallback above must not swallow: ``$BUY_AGENT_RAIL`` is how
     an operator points a whole machine at their own counterparty."""
     other = next(name for name in RAILS if name != next(iter(RAILS)))
@@ -579,9 +556,7 @@ def test_a_rail_the_environment_got_right_is_the_one_the_flags_default_to(
 
 @needs_ap2
 @pytest.mark.parametrize("answer", ["y", "yes", "YES", " Yes \n"])
-def test_the_short_and_the_shouted_yes_both_authorise(
-    fake_agent, monkeypatch, answer
-) -> None:
+def test_the_short_and_the_shouted_yes_both_authorise(fake_agent, monkeypatch, answer) -> None:
     """Somebody is being asked a yes/no question at a terminal, so the answers a
     terminal gets are the answers this takes."""
     fake_agent["result"] = PAYABLE
@@ -666,9 +641,7 @@ def test_a_request_with_no_bound_applies_nothing(fake_agent, caplog) -> None:
 # -- the run journal (ADR-0060) ------------------------------------------------
 
 
-def test_a_run_is_written_down_and_the_next_one_says_what_moved(
-    fake_agent, capsys
-) -> None:
+def test_a_run_is_written_down_and_the_next_one_says_what_moved(fake_agent, capsys) -> None:
     """The reason to run the same search twice."""
     fake_agent["result"] = [
         ranked_product(Product(name="Sage", price=349.0, currency="USD"), score=0.9, rank=1)
@@ -787,9 +760,7 @@ def test_an_alert_is_read_in_the_currency_the_run_was_told_to(fake_agent, capsys
     assert "can count in EUR" in capsys.readouterr().out
 
 
-def test_paying_decides_the_exit_code_even_with_an_alert_unmet(
-    fake_agent, monkeypatch
-) -> None:
+def test_paying_decides_the_exit_code_even_with_an_alert_unmet(fake_agent, monkeypatch) -> None:
     """Declined at the prompt, so nothing was bought: that is the answer --pay asked
     for, whatever the alert said (ADR-0080)."""
     fake_agent["result"] = PAYABLE

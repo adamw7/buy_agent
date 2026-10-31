@@ -7,11 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from buy_agent.models import (
-    RankedProduct,
-    ScoreParts,
-    and_list,
-    comparable_price,
-    dominant_currency,
+    RankedProduct, ScoreParts, and_list, comparable_price, dominant_currency,
 )
 
 if TYPE_CHECKING:
@@ -83,11 +79,7 @@ def _unknown_price_share(cheapest: float | None, priciest: float | None) -> floa
 
 
 def score_product(
-    product: Product,
-    *,
-    cheapest: float | None,
-    priciest: float | None,
-    weights: RankingWeights,
+    product: Product, *, cheapest: float | None, priciest: float | None, weights: RankingWeights,
     currency: str | None = None,
 ) -> ScoreParts:
     """One product's score in ``[0, 1]`` against the set (ADR-0041, ADR-0043)."""
@@ -110,8 +102,7 @@ def score_product(
     }
     weighted = sum(getattr(weights, name) * share for name, share in shares.items())
     return ScoreParts(
-        **shares,
-        total=weighted / weights.total if weights.total else 0.0,
+        **shares, total=weighted / weights.total if weights.total else 0.0,
         neutral=[name for name, share in read.items() if share is None],
     )
 
@@ -125,11 +116,8 @@ class _Scored(NamedTuple):
 
 
 def rank_products(
-    products: Sequence[Product],
-    *,
-    weights: RankingWeights | None = None,
-    sort_by: SortBy = "score",
-    currency: str | None = None,
+    products: Sequence[Product], *, weights: RankingWeights | None = None,
+    sort_by: SortBy = "score", currency: str | None = None,
 ) -> list[RankedProduct]:
     """Products best-first with score and 1-based rank; ``currency`` overrides the
     set's vote (ADR-0056)."""
@@ -145,11 +133,7 @@ def rank_products(
             product,
             price,
             score_product(
-                product,
-                cheapest=cheapest,
-                priciest=priciest,
-                weights=weights,
-                currency=currency,
+                product, cheapest=cheapest, priciest=priciest, weights=weights, currency=currency,
             ),
         )
         for product, price in zip(products, prices, strict=True)
@@ -158,18 +142,14 @@ def rank_products(
     if sort_by == "price":
         scored.sort(key=lambda item: (item.price is None, item.price or 0.0))
     elif sort_by == "rating":
-        scored.sort(
-            key=lambda item: (item.product.rating is None, -(item.product.rating or 0.0))
-        )
+        scored.sort(key=lambda item: (item.product.rating is None, -(item.product.rating or 0.0)))
     else:
         # Name breaks ties, so equal scores come out in a reproducible order.
         scored.sort(key=lambda item: (-item.parts.total, item.product.name.lower()))
     # Stable, so each group keeps the order just given: a product a limit could not
     # check comes after those it could (ADR-0097), and a listing no page has in stock --
     # one nobody can buy now -- after every one somebody can (ADR-0095).
-    scored.sort(
-        key=lambda item: (item.product.availability == _GONE, bool(item.product.unchecked))
-    )
+    scored.sort(key=lambda item: (item.product.availability == _GONE, bool(item.product.unchecked)))
 
     return [
         RankedProduct(product=item.product, breakdown=item.parts, rank=index, scale=currency)

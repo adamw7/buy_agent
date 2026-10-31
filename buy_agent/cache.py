@@ -140,10 +140,7 @@ class DiskCache:
                     break
         logger.debug(
             "Dropped %d cached entr%s from %s to stay under %d bytes",
-            evicted,
-            "y" if evicted == 1 else "ies",
-            self.directory,
-            self.max_bytes,
+            evicted, "y" if evicted == 1 else "ies", self.directory, self.max_bytes,
         )
         return evicted
 
@@ -201,11 +198,7 @@ class RememberedAnswers:
 
 
 def remember_answers(
-    model: ChatModel,
-    *,
-    fingerprint: Mapping[str, Any],
-    ttl: float,
-    deterministic: bool,
+    model: ChatModel, *, fingerprint: Mapping[str, Any], ttl: float, deterministic: bool,
 ) -> ChatModel:
     """``model``, cached on disk when the run is deterministic (ADR-0044)."""
     if not deterministic:

@@ -6,11 +6,7 @@ import json
 
 import pytest
 
-from buy_agent.chat import (
-    Chain,
-    Prompt,
-    first_line,
-)
+from buy_agent.chat import Chain, Prompt, first_line
 from buy_agent.models import SearchQuery
 
 PROMPT = Prompt(system="Extract at most {limit} products.", human="Wanted: {request}")

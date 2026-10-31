@@ -126,9 +126,7 @@ class Constraints:
                 return kept, currency
             inside, judged = kept, currency
 
-    def _set(
-        self,
-    ) -> Iterator[tuple[Limit, Reader, float, Callable[[float, float], bool], str]]:
+    def _set(self) -> Iterator[tuple[Limit, Reader, float, Callable[[float, float], bool], str]]:
         """The rows of :data:`_BOUNDS` the shopper gave a number for."""
         for name, read, outside, phrase in _BOUNDS:
             bound = getattr(self, name)

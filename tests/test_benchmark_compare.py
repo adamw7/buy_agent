@@ -13,14 +13,7 @@ import pytest
 
 from buy_agent.agent import ModelUnavailableError
 from buy_agent.chat import UnreadableAnswerError
-from buy_agent.models import (
-    Opinion,
-    Product,
-    ProductList,
-    RankedProduct,
-    ScoreParts,
-    SearchQuery,
-)
+from buy_agent.models import Opinion, Product, ProductList, RankedProduct, ScoreParts, SearchQuery
 import buy_agent.providers as providers_module
 from buy_agent.providers import OllamaReply
 from benchmark import __main__ as benchmark_main
@@ -29,25 +22,9 @@ from benchmark.baseline import against, read_baseline
 from benchmark.board import BOARD, FILENAME, VERSION, Board
 from benchmark.cases import CASES, ESPRESSO, HEADPHONES, LAPTOPS
 from benchmark.compare import (
-    CaseRun,
-    Contender,
-    Stopwatch,
-    case_payload,
-    describe,
-    finished_label,
-    metrics_payload,
-    build_label,
-    reported,
-    run_case,
-    run_payload,
-    scored_run,
-    scored_under,
-    settings_now,
-    standing_payload,
-    standings,
-    standings_payload,
-    summary_markdown,
-    write_standings,
+    CaseRun, Contender, Stopwatch, case_payload, describe, finished_label, metrics_payload,
+    build_label, reported, run_case, run_payload, scored_run, scored_under, settings_now,
+    standing_payload, standings, standings_payload, summary_markdown, write_standings,
 )
 from benchmark.query import QueryCheck, QueryVerdict
 from benchmark.runner import run_benchmark
@@ -67,25 +44,17 @@ LARGE = Contender(provider="ollama", model="large:12b", base_url="http://127.0.0
 
 
 def kept(
-    contender: Contender,
-    case: str = "headphones",
-    *,
-    counts: dict[str, tuple[int, int]] | None = FULL,
-    seconds: float = 1.0,
-    passed: bool = True,
+    contender: Contender, case: str = "headphones", *,
+    counts: dict[str, tuple[int, int]] | None = FULL, seconds: float = 1.0, passed: bool = True,
     failure: str | None = None,
 ) -> CaseRun:
     """A run as the board keeps one, made to order, and made by this checkout."""
     return CaseRun(
-        contender=contender,
-        case=case,
-        fingerprint=CASES[case].fingerprint,
+        contender=contender, case=case, fingerprint=CASES[case].fingerprint,
         finished="2026-10-02T09:05:30+00:00",
         query=QueryVerdict(query="q", checks=[QueryCheck(check="Keeps 'q'", passed=passed)]),
-        seconds={"query": 0.0, "extract": seconds},
-        counts=None if failure else counts,
-        failure=failure,
-        pipeline=pipeline.code(),
+        seconds={"query": 0.0, "extract": seconds}, counts=None if failure else counts,
+        failure=failure, pipeline=pipeline.code(),
         settings=pipeline.settings(CASES[case].settings(**contender.settings())),
     )
 
@@ -382,8 +351,7 @@ def test_what_a_run_reported_is_read_against_the_key_in_its_order() -> None:
 
     found = reported(
         [
-            ranked("Soundcore Space Q45", 1),
-            ranked("Anker Soundcore Space Q45", 2),
+            ranked("Soundcore Space Q45", 1), ranked("Anker Soundcore Space Q45", 2),
             ranked("AudioSite", 3),
         ],
         HEADPHONES,
@@ -404,8 +372,7 @@ def test_each_quote_a_run_reported_says_whose_line_the_key_makes_it() -> None:
     """So a run under the faithful floor names the quotes that put it there."""
     own = "In our tests the noise cancelling was still the best of anything at this price."
     quotes = [
-        own,
-        "Owners praised the folding hinge and the case.",
+        own, "Owners praised the folding hinge and the case.",
         "Buyers found the January sales the best value of the year.",
         "The Sony WH-1000XM5 costs $328 at most shops.",
     ]
@@ -460,17 +427,12 @@ def test_a_contender_that_ran_more_cases_ranks_above_one_that_ran_fewer() -> Non
 
 def test_equal_scores_are_ordered_by_the_query_then_the_time() -> None:
     runs = [
-        kept(TINY, seconds=9.0, passed=False),
-        kept(LARGE, seconds=9.0),
-        kept(PERFECT, seconds=1.0, passed=False),
-        kept(SLOPPY, seconds=1.0, passed=False),
+        kept(TINY, seconds=9.0, passed=False), kept(LARGE, seconds=9.0),
+        kept(PERFECT, seconds=1.0, passed=False), kept(SLOPPY, seconds=1.0, passed=False),
     ]
 
     assert [row.contender for row in standings(runs, [HEADPHONES])] == [
-        LARGE,
-        PERFECT,
-        SLOPPY,
-        TINY,
+        LARGE, PERFECT, SLOPPY, TINY,
     ]
 
 
@@ -1076,8 +1038,7 @@ def test_the_command_line_writes_the_standings_as_the_page_reads_them(
 
     assert [case["name"] for case in written_out["cases"]] == list(CASES)
     assert [row["label"] for row in written_out["standings"]] == [
-        "perfect (scripted)",
-        "sloppy (scripted)",
+        "perfect (scripted)", "sloppy (scripted)",
     ]
     assert written_out["standings"][1]["score_label"] == "0.614"
 
@@ -1147,8 +1108,7 @@ def test_a_run_is_compared_with_its_baseline_metric_by_metric() -> None:
     next(metric for metric in earlier["metrics"] if metric["name"] == "figures")["value"] = 0.5
 
     assert against(now, earlier) == [
-        "    score 0.550 -> 0.574 (+0.024)",
-        "    figures 0.500 -> 0.667 (+0.167)",
+        "    score 0.550 -> 0.574 (+0.024)", "    figures 0.500 -> 0.667 (+0.167)",
         "    query 0.50 -> 1.00 (+0.50), model time 3.0 s -> 0.5 s",
         "    (the baseline was scored against another version of this case)",
     ]

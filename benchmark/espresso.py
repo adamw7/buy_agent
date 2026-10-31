@@ -177,43 +177,35 @@ Newsletter signup
 #: The results the search hands back, ``content`` empty until the corpus is served.
 PAGES: tuple[SearchResult, ...] = (
     SearchResult(
-        title="De'Longhi Dedica Arte EC885 | KaffeeHaus",
-        url=KAFFEEHAUS,
+        title="De'Longhi Dedica Arte EC885 | KaffeeHaus", url=KAFFEEHAUS,
         snippet="De'Longhi Dedica Arte EC885 espresso machine, 279,00 €.",
     ),
     SearchResult(
-        title="Sage Bambino Plus review | EspressoReview",
-        url=ESPRESSOREVIEW,
+        title="Sage Bambino Plus review | EspressoReview", url=ESPRESSOREVIEW,
         snippet="The Sage Bambino Plus costs €399.95 and is rated 4.7 out of 5.",
     ),
     SearchResult(
-        title="The 6 Best Espresso Machines Under €400 | KitchenRoundup",
-        url=ROUNDUP,
+        title="The 6 Best Espresso Machines Under €400 | KitchenRoundup", url=ROUNDUP,
         snippet="Our picks: the Sage Bambino Plus at €399.95, the Dedica Arte at €279.",
     ),
     SearchResult(
-        title="De'Longhi Dedica Arte review | BrewLab",
-        url=BREWLAB,
+        title="De'Longhi Dedica Arte review | BrewLab", url=BREWLAB,
         snippet="The Dedica Arte sells for $299.95 in the US.",
     ),
     SearchResult(
-        title="Gaggia Classic Evo Pro | BaristaShop",
-        url=BARISTASHOP,
+        title="Gaggia Classic Evo Pro | BaristaShop", url=BARISTASHOP,
         snippet="Gaggia Classic Evo Pro, 449,00 €, with €50 cashback.",
     ),
     SearchResult(
-        title="Compact espresso machines for a small kitchen | SmallKitchen",
-        url=SMALLKITCHEN,
+        title="Compact espresso machines for a small kitchen | SmallKitchen", url=SMALLKITCHEN,
         snippet="Machines measured for a small kitchen, narrowest first.",
     ),
     SearchResult(
-        title="Espresso machine prices in euros | PriceTracker",
-        url=PRICETRACKER,
+        title="Espresso machine prices in euros | PriceTracker", url=PRICETRACKER,
         snippet="Current and lowest-ever prices across 25 European shops.",
     ),
     SearchResult(
-        title="Philips 3200 LatteGo review | BeanToCup",
-        url=BEANTOCUP,
+        title="Philips 3200 LatteGo review | BeanToCup", url=BEANTOCUP,
         snippet="The Philips 3200 LatteGo is 429,00 €, rated 4,5 out of 5.",
     ),
 )
@@ -315,9 +307,7 @@ PERFECT = ProductList(
         ExtractedProduct(
             name="De'Longhi Dedica Arte EC885", price=279.0, currency="EUR",
             rating=4.5, review_count=3_412, url=KAFFEEHAUS,
-            opinions=[
-                "Owners report it fits beside the kettle with room to spare at 15 cm wide."
-            ],
+            opinions=["Owners report it fits beside the kettle with room to spare at 15 cm wide."],
         ),
         ExtractedProduct(
             name="Krups Virtuoso XP442", price=199.99, currency="EUR",
@@ -336,16 +326,12 @@ PERFECT = ProductList(
         ExtractedProduct(
             name="Gaggia Classic Evo Pro", price=449.0, currency="EUR",
             rating=4.6, review_count=1_050, url=BARISTASHOP,
-            opinions=[
-                "Owners praised the commercial portafilter as built to last for decades."
-            ],
+            opinions=["Owners praised the commercial portafilter as built to last for decades."],
         ),
         ExtractedProduct(
             name="Lelit Anna PL41TEM", price=389.0, currency="EUR",
             rating=4.4, review_count=312, url=SMALLKITCHEN,
-            opinions=[
-                "Reviewers found the Lelit Anna PL41TEM compact enough for a studio flat."
-            ],
+            opinions=["Reviewers found the Lelit Anna PL41TEM compact enough for a studio flat."],
         ),
     ]
 )
@@ -357,9 +343,7 @@ SLOPPY = ProductList(
             # The euro sign read as a dollar, and "3.412 reviews" read as three.
             name="De'Longhi Dedica Arte EC885", price=279.0, currency="USD",
             rating=4.5, review_count=3, url=KAFFEEHAUS,
-            opinions=[
-                "Owners report it fits beside the kettle with room to spare at 15 cm wide."
-            ],
+            opinions=["Owners report it fits beside the kettle with room to spare at 15 cm wide."],
         ),
         ExtractedProduct(name="The 6 Best Espresso Machines Under €400", price=400.0),
         # The shop.
@@ -379,9 +363,7 @@ SLOPPY = ProductList(
             ],
         ),
         # The Dedica again, under less of its name.
-        ExtractedProduct(
-            name="De'Longhi Dedica", price=279.0, currency="EUR", url=SMALLKITCHEN
-        ),
+        ExtractedProduct(name="De'Longhi Dedica", price=279.0, currency="EUR", url=SMALLKITCHEN),
         # Never reported: the cap ran out.
         ExtractedProduct(name="Lelit Anna PL41TEM", price=389.0, currency="EUR"),
     ]

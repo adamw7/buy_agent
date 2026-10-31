@@ -8,13 +8,7 @@ import re
 from typing import TYPE_CHECKING
 
 from buy_agent.extraction import GENERIC_WORDS, NAME_TOKENS, SUPERLATIVES
-from buy_agent.models import (
-    JUDGEMENT,
-    QUALIFIERS,
-    STANDING_PHRASES,
-    Removal,
-    nothing_recorded,
-)
+from buy_agent.models import JUDGEMENT, QUALIFIERS, STANDING_PHRASES, Removal, nothing_recorded
 from buy_agent.money import plain_figures
 
 if TYPE_CHECKING:
@@ -141,9 +135,7 @@ def drop_ungrounded(
 
 
 def ground(
-    products: Sequence[Product],
-    results: Sequence[SearchResult],
-    *,
+    products: Sequence[Product], results: Sequence[SearchResult], *,
     record: Recorder = nothing_recorded,
 ) -> list[Product]:
     """Keep only the products, figures, quotes and links the sources support. Only a
@@ -228,9 +220,7 @@ def mentions_standing(haystack: str, value: str) -> bool:
 _STANDINGS = ("availability", "condition")
 
 
-def verify_standing(
-    products: Sequence[Product], results: Sequence[SearchResult]
-) -> list[Product]:
+def verify_standing(products: Sequence[Product], results: Sequence[SearchResult]) -> list[Product]:
     """Blank a stock or condition no page about the product prints (ADR-0079)."""
     pages = _page_haystacks(results)
     verified: list[Product] = []
@@ -299,9 +289,7 @@ def said_of(text: str, quote: str, name: str, names: Sequence[str]) -> bool:
     return False
 
 
-def verify_opinions(
-    products: Sequence[Product], results: Sequence[SearchResult]
-) -> list[Product]:
+def verify_opinions(products: Sequence[Product], results: Sequence[SearchResult]) -> list[Product]:
     """Keep the quotes that judge, which a page about this product printed where it was
     talking about this product, with that page (ADR-0024, ADR-0042, ADR-0090)."""
     pages = [(url, text, running_words(text)) for url, text in _page_haystacks(results)]

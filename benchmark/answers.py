@@ -41,37 +41,21 @@ class Expected:
     def as_product(self) -> Product:
         """This entry as a perfect run reports it."""
         return Product(
-            name=self.name,
-            price=self.price,
-            currency=self.currency,
-            rating=self.rating,
+            name=self.name, price=self.price, currency=self.currency, rating=self.rating,
             review_count=self.review_count,
         )
 
 
 def entry(
-    name: str,
-    price: float,
-    rating: float,
-    reviews: int,
-    *,
-    prices: set[tuple[float, str]],
-    pages: set[str],
-    ratings: tuple[tuple[float, int], ...] = (),
-    currency: str = "USD",
+    name: str, price: float, rating: float, reviews: int, *, prices: set[tuple[float, str]],
+    pages: set[str], ratings: tuple[tuple[float, int], ...] = (), currency: str = "USD",
     verdicts: tuple[str, ...] = (),
 ) -> Expected:
     """One row of a key: the canonical figures, every other pair the pages print for it
     besides, and the verdicts they pass on it."""
     return Expected(
-        name=name,
-        price=price,
-        rating=rating,
-        review_count=reviews,
-        prices=frozenset(prices),
-        ratings=frozenset({(rating, reviews), *ratings}),
-        pages=frozenset(pages),
-        currency=currency,
+        name=name, price=price, rating=rating, review_count=reviews, prices=frozenset(prices),
+        ratings=frozenset({(rating, reviews), *ratings}), pages=frozenset(pages), currency=currency,
         verdicts=frozenset(verdicts),
     )
 

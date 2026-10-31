@@ -17,9 +17,7 @@ if TYPE_CHECKING:
 _MISSING_MODEL = "buy-agent-no-such-model:0b"
 
 
-def test_ollama_lists_the_model_the_tests_are_running_on(
-    live_config: AgentConfig,
-) -> None:
+def test_ollama_lists_the_model_the_tests_are_running_on(live_config: AgentConfig) -> None:
     """The provider's own listing is what names the installed models in the
     CLI's hint and fills the UI's model picker; both go through this one call."""
     installed = live_config.model_server.installed(live_config)
@@ -27,9 +25,7 @@ def test_ollama_lists_the_model_the_tests_are_running_on(
     assert live_config.model in [model.name for model in installed]
 
 
-def test_a_live_listing_says_which_models_can_answer_a_prompt(
-    live_config: AgentConfig,
-) -> None:
+def test_a_live_listing_says_which_models_can_answer_a_prompt(live_config: AgentConfig) -> None:
     """The half of the listing no faked client can vouch for: ``capabilities`` is a real
     field of a real ``ollama show``, and a rename or a removal there would leave every
     unit test passing and the picker marking nothing (ADR-0032)."""
@@ -39,9 +35,7 @@ def test_a_live_listing_says_which_models_can_answer_a_prompt(
     assert entry.completion is True
 
 
-def test_the_model_picker_reports_a_reachable_server(
-    tiny_model: str, base_url: str
-) -> None:
+def test_the_model_picker_reports_a_reachable_server(tiny_model: str, base_url: str) -> None:
     """``installed_models`` swallows every transport failure into ``reachable:
     False``, so on a broken client it answers exactly as it does on a stopped
     server -- and a unit test with a faked client cannot tell the two apart."""

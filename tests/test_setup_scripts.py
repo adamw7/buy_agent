@@ -30,19 +30,8 @@ def probe(script: Path, report: Path) -> dict[str, Any]:
     """What the probe found in ``script``: its parse errors, functions and commands."""
     finished = subprocess.run(
         [
-            POWERSHELL,
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(_PROBE),
-            "-Script",
-            str(script),
-            "-Python",
-            sys.executable,
-            "-OutFile",
-            str(report),
+            POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+            str(_PROBE), "-Script", str(script), "-Python", sys.executable, "-OutFile", str(report),
         ],
         capture_output=True,
         text=True,

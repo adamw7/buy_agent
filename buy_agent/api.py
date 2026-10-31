@@ -15,43 +15,22 @@ from urllib.parse import urlparse
 from pydantic import ValidationError
 
 from buy_agent.agent import (
-    BuyAgent,
-    Checkpoint,
-    ModelUnavailableError,
-    every_step_passes,
-    journal_for,
+    BuyAgent, Checkpoint, ModelUnavailableError, every_step_passes, journal_for,
 )
 from buy_agent.alerts import price_alert
 from buy_agent.bounds import Noticed, notice
 from buy_agent.chat import release
-from buy_agent.config import (
-    SWITCHED_OFF,
-    SWITCHED_ON,
-    AgentConfig,
-    parse_currency,
-    parse_region,
-)
+from buy_agent.config import SWITCHED_OFF, SWITCHED_ON, AgentConfig, parse_currency, parse_region
 from buy_agent.models import Offer, Product, Removal, dominant_currency
 from buy_agent.money import CODES, amount_label, code_for
 from buy_agent.payment import (
-    Cart,
-    PaymentError,
-    RailUnreachableError,
-    cart_for,
-    merchant_for,
-    pay_for,
-    terms_for,
+    Cart, PaymentError, RailUnreachableError, cart_for, merchant_for, pay_for, terms_for,
     unattended,
 )
 from buy_agent.providers import PROVIDERS, provider_options
 from buy_agent.rails import RAILS, rail_options
 from buy_agent.ranking import (
-    ORDERINGS,
-    RankingWeights,
-    SortBy,
-    placement_note,
-    rank_products,
-    scale_of,
+    ORDERINGS, RankingWeights, SortBy, placement_note, rank_products, scale_of,
 )
 from buy_agent.screenshots import ScreenshotError
 from buy_agent.search import BACKENDS, SearchError, backend_options
@@ -193,12 +172,8 @@ class Finished:
 
 
 def run_agent(
-    request: str,
-    config: AgentConfig,
-    *,
-    sort_by: SortBy = "score",
-    agent_factory: AgentFactory = BuyAgent,
-    checkpoint: Checkpoint = every_step_passes,
+    request: str, config: AgentConfig, *, sort_by: SortBy = "score",
+    agent_factory: AgentFactory = BuyAgent, checkpoint: Checkpoint = every_step_passes,
 ) -> Finished:
     """One run, as both doors make it: one agent built and let go of, between opening
     the search's journal and asking it what moved. Raises what :meth:`BuyAgent.run`
@@ -209,9 +184,7 @@ def run_agent(
     agent = None
     try:
         agent = agent_factory(config)
-        ranked = agent.run(
-            request, sort_by=sort_by, checkpoint=checkpoint, record=removals.append
-        )
+        ranked = agent.run(request, sort_by=sort_by, checkpoint=checkpoint, record=removals.append)
     finally:
         release(agent)
     # Always recorded, so the next run has something to compare with.
@@ -219,26 +192,20 @@ def run_agent(
     # A stand-in agent may not say; the browser then falls back to its own sentence.
     why_empty = "" if ranked else str(getattr(agent, "nothing", ""))
     return Finished(
-        ranked, removals, changes, journal.compared_with(), alert_for(ranked, config),
-        why_empty,
+        ranked, removals, changes, journal.compared_with(), alert_for(ranked, config), why_empty,
     )
 
 
 def run_search(
-    request: str,
-    config: AgentConfig,
-    *,
-    sort_by: SortBy = "score",
-    agent_factory: AgentFactory = BuyAgent,
-    checkpoint: Checkpoint = every_step_passes,
+    request: str, config: AgentConfig, *, sort_by: SortBy = "score",
+    agent_factory: AgentFactory = BuyAgent, checkpoint: Checkpoint = every_step_passes,
     sealer: Sealer | None = None,
 ) -> dict[str, Any]:
     """Run the pipeline and shape the answer as JSON-ready data (ADR-0034); ``sealer``
     signs its products for a re-sort or a payment over HTTP (ADR-0092)."""
     try:
         finished = run_agent(
-            request, config, sort_by=sort_by, agent_factory=agent_factory,
-            checkpoint=checkpoint,
+            request, config, sort_by=sort_by, agent_factory=agent_factory, checkpoint=checkpoint,
         )
     # Built from ``_STATUS``, which pylint cannot read exceptions out of.
     except tuple(_STATUS) as exc:  # pylint: disable=catching-non-exception
@@ -328,8 +295,7 @@ def _witnessed(data: Mapping[str, Any], cart: Cart) -> None:
             field="approved",
         )
     shown = (
-        str(approved.get("title", "")).strip(),
-        str(approved.get("currency", "")).strip().upper(),
+        str(approved.get("title", "")).strip(), str(approved.get("currency", "")).strip().upper(),
     )
     if shown != (cart.title, cart.currency) or not _same_price(approved, cart.price):
         raise ApiError(

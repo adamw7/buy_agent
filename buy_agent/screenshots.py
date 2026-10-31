@@ -133,10 +133,7 @@ class Camera:
     """Takes pictures of pages, one at a time; ``launch`` is the test seam."""
 
     def __init__(
-        self,
-        *,
-        launch: Callable[[], Browser] = Chromium,
-        idle: float = IDLE_SECONDS,
+        self, *, launch: Callable[[], Browser] = Chromium, idle: float = IDLE_SECONDS,
         wait: float = WAIT_SECONDS,
     ) -> None:
         self._launch = launch

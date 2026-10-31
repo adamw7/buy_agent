@@ -18,22 +18,11 @@ from buy_agent.config import DEFAULT_PROVIDER
 from buy_agent.logging_setup import configure_logging, seconds_label
 from buy_agent.providers import PROVIDERS, provider_for, provider_options
 from buy_agent.server import (
-    BuyAgentHandler,
-    allowed_hosts_for,
-    bind,
-    browsable_url,
-    port_number,
-    serve_until_interrupted,
+    BuyAgentHandler, allowed_hosts_for, bind, browsable_url, port_number, serve_until_interrupted,
 )
 from benchmark.board import Board
 from benchmark.cases import CASES, SCRIPTS
-from benchmark.compare import (
-    Contender,
-    case_payload,
-    metrics_payload,
-    run_case,
-    standings_payload,
-)
+from benchmark.compare import Contender, case_payload, metrics_payload, run_case, standings_payload
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -98,10 +87,7 @@ class Bench:
     """One comparison at a time, run on a thread of its own, and the board it adds to."""
 
     def __init__(
-        self,
-        board: Board | None = None,
-        *,
-        run: Callable[..., CaseRun] = run_case,
+        self, board: Board | None = None, *, run: Callable[..., CaseRun] = run_case,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.board = board or Board()
@@ -205,9 +191,7 @@ class Bench:
                     job.done += 1
                     logger.info(
                         "%s on %s: %s in %s",
-                        contender.label,
-                        case.name,
-                        "failed" if run.failure else f"{run.score:.3f}",
+                        contender.label, case.name, "failed" if run.failure else f"{run.score:.3f}",
                         seconds_label(run.model_seconds),
                     )
             job.outcome = "finished"
@@ -304,10 +288,7 @@ _LOOPBACK = allowed_hosts_for(DEFAULT_HOST)
 
 
 def create_server(
-    host: str = DEFAULT_HOST,
-    port: int = DEFAULT_PORT,
-    *,
-    bench: Bench | None = None,
+    host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, *, bench: Bench | None = None,
     allowed_hosts: frozenset[str] | None = _LOOPBACK,
 ) -> ThreadingHTTPServer:
     """Build the page's server without starting it (ADR-0018)."""

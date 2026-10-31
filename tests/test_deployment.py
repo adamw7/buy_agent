@@ -11,16 +11,8 @@ import pytest
 
 import buy_agent.deployment as deployment_module
 from buy_agent.deployment import (
-    DEFAULT_MAX_RUNS,
-    OUTCOMES,
-    Policy,
-    Terminated,
-    Traffic,
-    authorised,
-    fixed_address,
-    request_id,
-    same_address,
-    stopped_by_sigterm,
+    DEFAULT_MAX_RUNS, OUTCOMES, Policy, Terminated, Traffic, authorised, fixed_address, request_id,
+    same_address, stopped_by_sigterm,
 )
 from buy_agent.version import current
 
@@ -45,12 +37,7 @@ def test_the_token_is_taken_as_a_bearer_or_as_a_basic_password(header: str) -> N
 @pytest.mark.parametrize(
     "header",
     [
-        "",
-        "Bearer",
-        "Bearer wrong",
-        f"Token {TOKEN}",
-        basic(TOKEN, "wrong"),
-        "Basic not base64!",
+        "", "Bearer", "Bearer wrong", f"Token {TOKEN}", basic(TOKEN, "wrong"), "Basic not base64!",
         "Basic " + base64.b64encode(b"\xff\xfe:x").decode(),
     ],
     ids=["none", "empty", "wrong", "scheme", "name-not-password", "garbled", "not-utf8"],

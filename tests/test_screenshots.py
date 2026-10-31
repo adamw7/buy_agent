@@ -18,15 +18,7 @@ import pytest
 
 from buy_agent import screenshots
 from buy_agent.screenshots import (
-    INSTALL,
-    LOAD_SECONDS,
-    QUALITY,
-    SCALE,
-    SETTLE_SECONDS,
-    USER_AGENT,
-    VIEWPORT,
-    Camera,
-    Chromium,
+    INSTALL, LOAD_SECONDS, QUALITY, SCALE, SETTLE_SECONDS, USER_AGENT, VIEWPORT, Camera, Chromium,
     ScreenshotError,
 )
 
@@ -38,10 +30,7 @@ class StandIn:
     """A browser that answers every address with a picture naming it, unless told not to."""
 
     def __init__(
-        self,
-        failures: dict[str, Exception] | None = None,
-        *,
-        hold: threading.Event | None = None,
+        self, failures: dict[str, Exception] | None = None, *, hold: threading.Event | None = None,
         close_fails: bool = False,
     ) -> None:
         self.failures = failures or {}
@@ -316,8 +305,7 @@ def playwright_module(world: World) -> ModuleType:
         package,
         "sync_api",
         SimpleNamespace(
-            Error=FakeError,
-            TimeoutError=FakeTimeout,
+            Error=FakeError, TimeoutError=FakeTimeout,
             sync_playwright=lambda: SimpleNamespace(start=lambda: started),
         ),
     )
@@ -347,9 +335,7 @@ def test_a_missing_playwright_is_reported_rather_than_raised(no_playwright: None
     assert screenshots.available() is False
 
 
-def test_a_missing_playwright_is_one_command_and_not_an_import_error(
-    no_playwright: None,
-) -> None:
+def test_a_missing_playwright_is_one_command_and_not_an_import_error(no_playwright: None) -> None:
     with pytest.raises(ScreenshotError) as refused:
         Chromium()
 
@@ -392,9 +378,7 @@ def test_a_page_still_loading_is_photographed_as_far_as_it_got(world: World) -> 
 
 
 @pytest.mark.parametrize("status", [400, 403])
-def test_a_page_that_answered_with_an_error_is_not_photographed(
-    world: World, status: int
-) -> None:
+def test_a_page_that_answered_with_an_error_is_not_photographed(world: World, status: int) -> None:
     """A shop's "access denied" beside its product says the link is broken, when it
     opens fine in the shopper's own browser -- from the first error status on."""
     world.status = status

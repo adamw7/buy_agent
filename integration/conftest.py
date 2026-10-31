@@ -16,22 +16,12 @@ from buy_agent.config import AgentConfig
 from buy_agent.providers import OLLAMA
 from benchmark.cases import HEADPHONES
 from benchmark.compare import (
-    CaseRun,
-    Contender,
-    Stopwatch,
-    describe,
-    scored_run,
-    summary_markdown,
-    write_standings,
+    CaseRun, Contender, Stopwatch, describe, scored_run, summary_markdown, write_standings,
 )
 from benchmark.runner import Report, serving_the_corpus
 from benchmark.scoring import score_run
 from integration import (
-    LIVE_TIMEOUT_SECONDS,
-    MODEL_ENV_VAR,
-    REQUIRE_ENV_VAR,
-    SCORECARD_ENV_VAR,
-    TINY_MODEL,
+    LIVE_TIMEOUT_SECONDS, MODEL_ENV_VAR, REQUIRE_ENV_VAR, SCORECARD_ENV_VAR, TINY_MODEL,
 )
 
 if TYPE_CHECKING:

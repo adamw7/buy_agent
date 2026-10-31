@@ -46,10 +46,7 @@ def serving_the_corpus(
         return [result.model_copy() for result in pages[:max_results]]
 
     def enrich(
-        results: Sequence[SearchResult],
-        *,
-        max_chars: int = 1200,
-        opinion_chars: int = 400,
+        results: Sequence[SearchResult], *, max_chars: int = 1200, opinion_chars: int = 400,
         **_: object,
     ) -> list:
         condensed = partial(condense, max_chars=max_chars, opinion_chars=opinion_chars)
@@ -68,10 +65,7 @@ def serving_the_corpus(
 
 
 def run_benchmark(
-    *,
-    llm: ChatModel | None = None,
-    config: AgentConfig | None = None,
-    case: Case = HEADPHONES,
+    *, llm: ChatModel | None = None, config: AgentConfig | None = None, case: Case = HEADPHONES,
     checkpoint: Checkpoint = every_step_passes,
 ) -> Report:
     """Run the agent over one case's pages and score it against that case's key.

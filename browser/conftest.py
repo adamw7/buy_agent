@@ -29,11 +29,7 @@ if TYPE_CHECKING:
 #: What a run finds, unless a test parametrizes ``answer``.
 FOUND = (
     Product(
-        name="Sony WH-1000XM5",
-        price=328.0,
-        currency="USD",
-        rating=4.7,
-        review_count=3200,
+        name="Sony WH-1000XM5", price=328.0, currency="USD", rating=4.7, review_count=3200,
         url="https://shop.example/xm5",
     ),
     Product(name="Anker Q30", price=79.0, currency="USD", rating=4.4),

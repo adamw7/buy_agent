@@ -11,20 +11,9 @@ from buy_agent import mandates, payment
 from buy_agent.config import AgentConfig
 from buy_agent.models import Offer, Product
 from buy_agent.payment import (
-    PaymentError,
-    RailUnreachableError,
-    cart_for,
-    merchant_for,
-    terms_for,
-    pay_for,
-    unattended,
+    PaymentError, RailUnreachableError, cart_for, merchant_for, terms_for, pay_for, unattended,
 )
-from tests.conftest import (
-    enrolled_key,
-    needs_ap2,
-    open_mandate,
-    payable_product,
-)
+from tests.conftest import enrolled_key, needs_ap2, open_mandate, payable_product
 
 SONY = payable_product(rating=4.6, review_count=1200)
 
@@ -387,9 +376,7 @@ def test_an_item_id_is_the_dedup_key_with_no_spaces_in_it() -> None:
 
 def test_a_very_long_name_is_cut_to_an_id_a_merchant_can_hold() -> None:
     long_name = Product(
-        name="Sony " + "Extremely " * 40 + "Long",
-        price=10.0,
-        currency="USD",
+        name="Sony " + "Extremely " * 40 + "Long", price=10.0, currency="USD",
         url="https://audiosite.example/x",
     )
 

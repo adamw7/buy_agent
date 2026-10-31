@@ -9,16 +9,7 @@ from pathlib import Path
 import pytest
 
 from scripts.mutation_report import (
-    MUTMUT,
-    STRYKER,
-    Tool,
-    main,
-    read_mutmut,
-    read_stryker,
-    readable,
-    report,
-    score,
-    tool_for,
+    MUTMUT, STRYKER, Tool, main, read_mutmut, read_stryker, readable, report, score, tool_for,
 )
 
 RESULTS = """\
@@ -259,9 +250,7 @@ def test_a_run_that_stopped_at_its_baseline_is_not_reported_as_a_clean_sheet(
     assert "| `buy_agent." not in published
 
 
-@pytest.mark.parametrize(
-    "name, tool", [("absent.txt", MUTMUT), ("absent.json", STRYKER)]
-)
+@pytest.mark.parametrize("name, tool", [("absent.txt", MUTMUT), ("absent.json", STRYKER)])
 def test_a_missing_results_file_is_told_apart_from_a_failed_run(
     name: str, tool: Tool, tmp_path: Path, capsys
 ) -> None:
@@ -285,9 +274,7 @@ def shards_of(tmp_path: Path, report_json: dict[str, object]) -> list[str]:
     ]
 
 
-def test_a_run_split_into_shards_is_reported_as_the_one_run_it_is(
-    tmp_path: Path, capsys
-) -> None:
+def test_a_run_split_into_shards_is_reported_as_the_one_run_it_is(tmp_path: Path, capsys) -> None:
     """The score is over the front end, not over whichever shard the reader opens:
     every shard's mutants are added together before anything is counted."""
     whole = write_stryker(tmp_path, STRYKER_REPORT)
@@ -298,9 +285,7 @@ def test_a_run_split_into_shards_is_reported_as_the_one_run_it_is(
     assert capsys.readouterr().out == expected
 
 
-def test_a_shard_that_reported_nothing_is_named_and_fails_the_run(
-    tmp_path: Path, capsys
-) -> None:
+def test_a_shard_that_reported_nothing_is_named_and_fails_the_run(tmp_path: Path, capsys) -> None:
     """A shard that died leaves a score of the others that can clear the floor on its
     own. It is published, since its survivors are still worth reading, but under a line
     naming what is missing, and the run fails whatever the rest came to."""

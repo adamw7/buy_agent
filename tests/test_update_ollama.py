@@ -9,20 +9,8 @@ import pytest
 
 from buy_agent.providers import OllamaClient
 from scripts.update_ollama import (
-    OllamaError,
-    _connect,
-    Outcome,
-    describe,
-    digests,
-    hint,
-    main,
-    report,
-    short,
-    status,
-    stream,
-    summary,
-    tagged,
-    update,
+    OllamaError, _connect, Outcome, describe, digests, hint, main, report, short, status, stream,
+    summary, tagged, update,
 )
 
 
@@ -30,9 +18,7 @@ class FakeClient:
     """An Ollama whose pulls land the digests it was told they would."""
 
     def __init__(
-        self,
-        installed: dict[str, str] | None = None,
-        pulls: dict[str, str] | None = None,
+        self, installed: dict[str, str] | None = None, pulls: dict[str, str] | None = None,
         fails: dict[str, Exception] | None = None,
     ) -> None:
         self.installed = dict(installed or {})
@@ -223,8 +209,7 @@ def test_a_missing_digest_is_named_rather_than_printed_blank() -> None:
 
 def test_the_summary_counts_each_kind_and_skips_the_kinds_with_none() -> None:
     outcomes = [
-        Outcome("a:1", "sha256:aaa", "sha256:ccc"),
-        Outcome("b:1", "sha256:bbb", "sha256:bbb"),
+        Outcome("a:1", "sha256:aaa", "sha256:ccc"), Outcome("b:1", "sha256:bbb", "sha256:bbb"),
         Outcome("c:1", "sha256:ccc", "sha256:ccc"),
     ]
     assert summary(outcomes) == "3 model(s): 1 updated, 2 already current."

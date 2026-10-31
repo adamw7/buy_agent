@@ -184,11 +184,7 @@ def merchant_for(product: Product) -> str:
 
 
 def cart_for(
-    product: Product,
-    products: Sequence[Product],
-    config: AgentConfig,
-    *,
-    scale: str | None = None,
+    product: Product, products: Sequence[Product], config: AgentConfig, *, scale: str | None = None,
 ) -> Cart:
     """The cart for one product of a finished run, in the shopper's currency, else
     ``scale``, else the set's vote (ADR-0056)."""
@@ -208,13 +204,8 @@ def cart_for(
         raise PaymentError(str(exc), field="products") from exc
     merchant, page = _paid_to(product)
     return Cart(
-        title=product.name,
-        price=price,
-        currency=currency,
-        amount=amount,
-        merchant=merchant,
-        url=page,
-        item_id=product.dedup_key.replace(" ", "-")[:120],
+        title=product.name, price=price, currency=currency, amount=amount, merchant=merchant,
+        url=page, item_id=product.dedup_key.replace(" ", "-")[:120],
         listing=product.listing_label(),
     )
 
@@ -258,19 +249,10 @@ def pay_for(cart: Cart, config: AgentConfig) -> Receipt:
         raise RailUnreachableError(rail.hint(config, exc)) from exc
 
     return Receipt(
-        paid=settlement.paid,
-        rail=rail.name,
-        merchant=cart.merchant,
-        title=cart.title,
-        price=cart.price,
-        currency=cart.currency,
-        amount=cart.amount,
-        price_label=cart.label(),
-        transaction_id=authorisation.transaction_id,
-        reference=authorisation.reference,
-        autonomous=authorisation.autonomous,
-        enrolled_key=enrolled,
-        detail=settlement.detail,
+        paid=settlement.paid, rail=rail.name, merchant=cart.merchant, title=cart.title,
+        price=cart.price, currency=cart.currency, amount=cart.amount, price_label=cart.label(),
+        transaction_id=authorisation.transaction_id, reference=authorisation.reference,
+        autonomous=authorisation.autonomous, enrolled_key=enrolled, detail=settlement.detail,
     )
 
 

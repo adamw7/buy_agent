@@ -9,20 +9,8 @@ import pytest
 
 from buy_agent.agent import every_step_passes, journal_for
 from buy_agent.api import (
-    LIMITS,
-    ApiError,
-    Sealer,
-    bounds_payload,
-    defaults_payload,
-    installed_models,
-    parse_options,
-    pay_now,
-    product_payload,
-    rank_again,
-    results_payload,
-    run_agent,
-    run_search,
-    screenshot,
+    LIMITS, ApiError, Sealer, bounds_payload, defaults_payload, installed_models, parse_options,
+    pay_now, product_payload, rank_again, results_payload, run_agent, run_search, screenshot,
 )
 from buy_agent.config import AgentConfig
 from buy_agent.models import Offer, Product, nothing_recorded
@@ -31,25 +19,14 @@ from buy_agent.providers import LITELLM, TRTLLM
 from buy_agent.search import SearchError
 from buy_agent.sources import Source
 from tests.conftest import (
-    enrolled_key,
-    needs_ap2,
-    Photographer,
-    open_mandate,
-    payable_product,
-    ranked_product,
-    said,
+    enrolled_key, needs_ap2, Photographer, open_mandate, payable_product, ranked_product, said,
 )
 
 RANKED = [
     ranked_product(
         Product(
-            name="Sony WH-1000XM5",
-            price=328.0,
-            currency="USD",
-            rating=4.7,
-            review_count=12000,
-            seller="Amazon",
-            url="https://example.com/sony",
+            name="Sony WH-1000XM5", price=328.0, currency="USD", rating=4.7, review_count=12000,
+            seller="Amazon", url="https://example.com/sony",
             opinions=said("the noise cancelling is uncanny", page="https://example.com/sony"),
         ),
         score=0.912345,
@@ -68,11 +45,7 @@ def agent_returning(result):
             captured["config"] = config
 
         def run(
-            self,
-            request,
-            *,
-            sort_by="score",
-            checkpoint=every_step_passes,
+            self, request, *, sort_by="score", checkpoint=every_step_passes,
             record=nothing_recorded,
         ):
             captured["request"] = request
@@ -218,9 +191,7 @@ def test_a_run_answers_with_ranked_products() -> None:
     captured = agent_returning(RANKED)
     payload = run_search(
         "  headphones  ",
-        AgentConfig(top_n=2),
-        sort_by="price",
-        agent_factory=captured["factory"],
+        AgentConfig(top_n=2), sort_by="price", agent_factory=captured["factory"],
     )
     assert payload["request"] == "headphones"
     assert payload["count"] == 2
@@ -274,15 +245,11 @@ def test_a_second_run_of_one_search_says_what_moved_since_the_first() -> None:
     config = AgentConfig()
     run_search("headphones", config, agent_factory=agent_returning(RANKED)["factory"])
     cheaper = [
-        ranked_product(
-            RANKED[0].product.model_copy(update={"price": 299.0}), score=0.9, rank=1
-        ),
+        ranked_product(RANKED[0].product.model_copy(update={"price": 299.0}), score=0.9, rank=1),
         RANKED[1],
     ]
 
-    payload = run_search(
-        "headphones", config, agent_factory=agent_returning(cheaper)["factory"]
-    )
+    payload = run_search("headphones", config, agent_factory=agent_returning(cheaper)["factory"])
 
     assert payload["compared_with"]
     assert {
@@ -738,11 +705,7 @@ def test_a_re_sort_refuses_a_currency_the_way_a_run_does() -> None:
 _TIED = [
     Product(name="Bose QC45", price=299.0, currency="EUR", url="https://shop.example/b"),
     Product(
-        name="Sony XM5",
-        price=329.0,
-        currency="USD",
-        rating=4.8,
-        review_count=3200,
+        name="Sony XM5", price=329.0, currency="USD", rating=4.8, review_count=3200,
         url="https://audio.example/s",
     ),
 ]
@@ -859,8 +822,7 @@ def test_an_out_of_stock_product_says_why_it_cannot_be_bought() -> None:
 def test_a_run_given_a_price_alert_says_whether_it_was_met() -> None:
     payload = run_search(
         "headphones",
-        AgentConfig(alert_below=330),
-        agent_factory=agent_returning(RANKED)["factory"],
+        AgentConfig(alert_below=330), agent_factory=agent_returning(RANKED)["factory"],
     )
 
     assert payload["alert"] == {

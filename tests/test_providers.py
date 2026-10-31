@@ -141,9 +141,7 @@ def completing(monkeypatch):
     sent: dict = {}
 
     def install(
-        answered: str = '{"query": "a refined query"}',
-        *,
-        choices: list | None = None,
+        answered: str = '{"query": "a refined query"}', *, choices: list | None = None,
         stopped: str = "stop",
     ) -> dict:
         class FakeOpenAI:
@@ -175,11 +173,8 @@ def pulled(monkeypatch):
     """Stand in for an Ollama being asked what it holds, so a listing opens no socket."""
 
     def install(
-        models: list[str],
-        *,
-        entries: list[dict] | None = None,
-        capabilities: dict[str, list[str] | None] | None = None,
-        error: Exception | None = None,
+        models: list[str], *, entries: list[dict] | None = None,
+        capabilities: dict[str, list[str] | None] | None = None, error: Exception | None = None,
     ) -> dict:
         asked: dict = {"shown": [], "opened": {}, "tags": {}}
         reported = {} if capabilities is None else capabilities
@@ -249,9 +244,7 @@ _CONVERSATION = [
 
 
 @pytest.mark.parametrize("provider", _OPENAI_STYLE)
-def test_the_prompt_is_what_an_openai_compatible_server_is_asked(
-    completing, provider: str
-) -> None:
+def test_the_prompt_is_what_an_openai_compatible_server_is_asked(completing, provider: str) -> None:
     sent = completing()
 
     chat_model(AgentConfig(provider=provider)).answer(_CONVERSATION, SearchQuery)
@@ -267,13 +260,9 @@ def test_ollama_is_told_to_offload_nothing_for_a_cpu_only_run(chatting) -> None:
 
 
 @pytest.mark.parametrize("provider", _OPENAI_STYLE)
-def test_an_openai_style_server_is_pointed_at_the_api_it_serves(
-    completing, provider: str
-) -> None:
+def test_an_openai_style_server_is_pointed_at_the_api_it_serves(completing, provider: str) -> None:
     config = AgentConfig(
-        provider=provider,
-        model="Qwen/Qwen3-8B",
-        base_url="http://gpu.internal:8000/v1",
+        provider=provider, model="Qwen/Qwen3-8B", base_url="http://gpu.internal:8000/v1",
         temperature=0.2,
     )
 
@@ -322,9 +311,7 @@ def test_vllm_sends_nothing_when_thinking_is_left_alone(completing, provider: st
 
 
 @pytest.mark.parametrize("provider", _EVERY)
-def test_a_server_that_answers_with_nothing_says_so(
-    chatting, completing, provider: str
-) -> None:
+def test_a_server_that_answers_with_nothing_says_so(chatting, completing, provider: str) -> None:
     """A dropped stream leaves an empty message, and "Invalid JSON answer:" with
     nothing after it names no symptom at all."""
     chatting("")
@@ -367,9 +354,7 @@ def test_an_answer_with_no_choice_in_it_is_one_with_nothing_to_read(
 # -- what the server is serving ------------------------------------------------
 
 
-def test_a_tag_spelled_only_the_way_ollama_list_prints_it_is_still_offered(
-    pulled,
-) -> None:
+def test_a_tag_spelled_only_the_way_ollama_list_prints_it_is_still_offered(pulled) -> None:
     """``/api/tags`` names a model twice, ``model`` and ``name``, and an entry carrying
     only the second used to vanish: the client's typed listing declares the first and
     pydantic discards what it does not declare."""
@@ -430,9 +415,7 @@ def test_the_address_is_asked_however_it_was_written(pulled, base_url: str) -> N
         ("http://gpu-box.lan", "http://gpu-box.lan/api/tags"),
     ],
 )
-def test_an_address_with_no_scheme_is_on_ollamas_own_port(
-    pulled, base_url: str, url: str
-) -> None:
+def test_an_address_with_no_scheme_is_on_ollamas_own_port(pulled, base_url: str, url: str) -> None:
     """``OLLAMA_HOST=0.0.0.0`` is how Ollama is told to listen everywhere, and its client
     reads the address as port 11434. The listing read it as HTTP's port 80, so a server
     every run reached was unreachable in the picker and "unknown" in every hint."""
@@ -479,8 +462,7 @@ def test_a_tag_that_will_not_say_what_it_can_do_is_still_offered(pulled) -> None
     pulled(["gemma4:12b", "qwen3:8b"], capabilities={"gemma4:12b": [_COMPLETION]})
 
     assert listed(OLLAMA_CONFIG) == [
-        installed("gemma4:12b", completion=True),
-        installed("qwen3:8b", completion=True),
+        installed("gemma4:12b", completion=True), installed("qwen3:8b", completion=True),
     ]
 
 
@@ -872,8 +854,7 @@ def test_a_proxy_lists_every_alias_marked_by_its_mode(monkeypatch) -> None:
     config = AgentConfig(provider="litellm", base_url="http://proxy:4000/v1/", api_key="k")
 
     assert listed(config) == [
-        installed("local_model", completion=True),
-        installed("embedder", completion=False),
+        installed("local_model", completion=True), installed("embedder", completion=False),
         installed("unsaid", completion=True),
     ]
     assert asked_for == [
@@ -905,8 +886,7 @@ def _answered(kind: type[openai.APIStatusError], status: int, said: str) -> Exce
         (_answered(openai.AuthenticationError, 401, "no"), "$LITELLM_API_KEY", "litellm --config"),
         (
             _answered(openai.BadRequestError, 400, "Invalid model name passed in model=x"),
-            "(routing: embedder), or add it to the model_list",
-            "litellm --config",
+            "(routing: embedder), or add it to the model_list", "litellm --config",
         ),
         (
             # A key a proxy with no database cannot look up, answered with a 400.
@@ -927,8 +907,7 @@ def _answered(kind: type[openai.APIStatusError], status: int, said: str) -> Exce
         (
             # The routed server's own miss, relayed: the alias is the proxy's.
             _answered(
-                openai.NotFoundError,
-                404,
+                openai.NotFoundError, 404,
                 "litellm.NotFoundError: Ollama_chatException - model 'qwen3' not found",
             ),
             "answered, but the model behind 'local_model' failed (litellm.NotFoundError",
@@ -948,8 +927,7 @@ def _answered(kind: type[openai.APIStatusError], status: int, said: str) -> Exce
         (httpx.ReadTimeout("slow"), "or a shorter prompt", "litellm --config"),
         (
             UnreadableAnswerError("Invalid json output: {"),
-            "the model the proxy routes to a larger context window",
-            "--max-model-len",
+            "the model the proxy routes to a larger context window", "--max-model-len",
         ),
     ],
 )
@@ -996,10 +974,7 @@ def test_a_trtllm_started_without_guided_decoding_is_told_how_to_turn_it_on() ->
     [
         (openai.APIConnectionError(request=_REQUEST), "Start it with:  trtllm-serve Qwen/Qwen3-8B"),
         (_status_error(openai.AuthenticationError, 401), "Set $TRTLLM_API_KEY"),
-        (
-            _status_error(openai.NotFoundError, 404),
-            "A TensorRT-LLM process serves one model",
-        ),
+        (_status_error(openai.NotFoundError, 404), "A TensorRT-LLM process serves one model"),
         (httpx.ReadTimeout("slow"), "or a shorter prompt."),
         (UnreadableAnswerError("Invalid json output: {"), "guided decoding on"),
     ],
@@ -1067,11 +1042,8 @@ def test_a_chat_is_one_post_saying_everything_the_run_set() -> None:
     client, requests = ollama_answering(httpx.Response(200, json=reply))
 
     answered = client.chat(
-        model="gemma4:12b",
-        messages=[{"role": "user", "content": "hi"}],
-        schema={"title": "SearchQuery"},
-        options={"temperature": 0.0},
-        think=False,
+        model="gemma4:12b", messages=[{"role": "user", "content": "hi"}],
+        schema={"title": "SearchQuery"}, options={"temperature": 0.0}, think=False,
     )
 
     (request,) = requests
@@ -1138,15 +1110,11 @@ def test_a_pull_streams_each_line_and_skips_the_blank_ones() -> None:
     [
         pytest.param(
             httpx.Response(500, json={"error": "pull model manifest: file does not exist"}),
-            "pull model manifest: file does not exist",
-            500,
-            id="refused before streaming",
+            "pull model manifest: file does not exist", 500, id="refused before streaming",
         ),
         pytest.param(
             httpx.Response(200, content=b'{"status": "pulling"}\n{"error": "disk full"}\n'),
-            "disk full",
-            200,
-            id="refused mid-stream",
+            "disk full", 200, id="refused mid-stream",
         ),
     ],
 )
@@ -1166,22 +1134,18 @@ def test_a_refused_pull_is_an_ollama_error(
     [
         pytest.param(
             httpx.Response(404, json={"error": "model 'x' not found"}),
-            "model 'x' not found (status code: 404)",
-            id="Ollama's own words",
+            "model 'x' not found (status code: 404)", id="Ollama's own words",
         ),
         pytest.param(
             httpx.Response(502, text="Bad gateway from the proxy"),
-            "Bad gateway from the proxy (status code: 502)",
-            id="a body that is not JSON",
+            "Bad gateway from the proxy (status code: 502)", id="a body that is not JSON",
         ),
         pytest.param(
             httpx.Response(400, json=["not", "an", "object"]),
-            '["not","an","object"] (status code: 400)',
-            id="JSON that is not an object",
+            '["not","an","object"] (status code: 400)', id="JSON that is not an object",
         ),
         pytest.param(
-            httpx.Response(503, text=""),
-            "Service Unavailable (status code: 503)",
+            httpx.Response(503, text=""), "Service Unavailable (status code: 503)",
             id="nothing said at all",
         ),
         pytest.param(

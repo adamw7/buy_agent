@@ -32,19 +32,8 @@ from tests.conftest import Photographer, payable_product, ranked_product
 from buy_agent.providers import VLLM
 from buy_agent.screenshots import INSTALL, Camera, ScreenshotError
 from buy_agent.server import (
-    _LOOPBACK_HOSTS,
-    _MAX_BODY_BYTES,
-    _SECURITY_HEADERS,
-    BuyAgentHandler,
-    Server,
-    _bound_host,
-    _family_for,
-    _relay,
-    _workspace_for,
-    allowed_hosts_for,
-    build_parser,
-    camera_for,
-    create_server,
+    _LOOPBACK_HOSTS, _MAX_BODY_BYTES, _SECURITY_HEADERS, BuyAgentHandler, Server, _bound_host,
+    _family_for, _relay, _workspace_for, allowed_hosts_for, build_parser, camera_for, create_server,
     main,
 )
 
@@ -76,12 +65,7 @@ class StubAgent:
         StubAgent.captured["config"] = config
 
     def run(
-        self,
-        request,
-        *,
-        sort_by="score",
-        checkpoint=every_step_passes,
-        record=nothing_recorded,
+        self, request, *, sort_by="score", checkpoint=every_step_passes, record=nothing_recorded,
     ):
         StubAgent.captured["request"] = request
         StubAgent.captured["sort_by"] = sort_by
@@ -120,9 +104,7 @@ def unbuilt_workspace(tmp_path: Path) -> Path:
 
 @contextmanager
 def serving(
-    ui_dir: Path,
-    allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS,
-    camera: Any = None,
+    ui_dir: Path, allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS, camera: Any = None,
     policy: Policy | None = None,
 ) -> Iterator[str]:
     """Run a server on a loopback port for the duration of the block."""
@@ -132,19 +114,13 @@ def serving(
 
 @contextmanager
 def served(
-    ui_dir: Path,
-    allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS,
-    camera: Any = None,
+    ui_dir: Path, allowed_hosts: frozenset[str] | None = _LOOPBACK_HOSTS, camera: Any = None,
     policy: Policy | None = None,
 ) -> Iterator[tuple[str, Server]]:
     """:func:`serving`, with the server itself, for a test that reads its traffic."""
     httpd = create_server(
         "127.0.0.1",
-        0,
-        ui_dir=ui_dir,
-        agent_factory=StubAgent,
-        allowed_hosts=allowed_hosts,
-        camera=camera,
+        0, ui_dir=ui_dir, agent_factory=StubAgent, allowed_hosts=allowed_hosts, camera=camera,
         policy=policy or Policy(sealer=SEALER),
     )
     # 0.01 rather than the default 0.5s poll: otherwise shutdown costs half a
@@ -264,9 +240,7 @@ def events(url: str) -> list[tuple[str, Any]]:
 # -- the JSON API --------------------------------------------------------------
 
 
-def test_sources_says_what_is_wrong_with_a_field_without_running_anything(
-    server: str,
-) -> None:
+def test_sources_says_what_is_wrong_with_a_field_without_running_anything(server: str) -> None:
     """The one endpoint that starts nothing: it reads the field the way a run
     would and answers, so the page never opens a stream to be told (ADR-0033)."""
     status, payload = get(f"{server}/api/sources?sources=Marques+Brownlee")
@@ -404,9 +378,7 @@ def test_nothing_follows_the_headers_of_an_answer_to_head(server: str) -> None:
     connection open would read as the start of its next answer."""
     parsed = urlparse(server)
     with socket.create_connection((parsed.hostname, parsed.port), timeout=10) as sock:
-        sock.sendall(
-            b"HEAD /api/config HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
-        )
+        sock.sendall(b"HEAD /api/config HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
         reply = read_all(sock)
 
     head, _, after = reply.partition(b"\r\n\r\n")
@@ -417,8 +389,7 @@ def test_nothing_follows_the_headers_of_an_answer_to_head(server: str) -> None:
 def test_a_body_over_the_cap_is_refused_without_being_read(server: str) -> None:
     """The length is enough to refuse on; reading 100 KB to then reject it is not."""
     reply = raw(
-        server,
-        b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 100000\r\n\r\n{}",
+        server, b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 100000\r\n\r\n{}",
     )
 
     assert "413" in reply.splitlines()[0]
@@ -462,9 +433,7 @@ def test_a_request_with_no_body_is_read_as_an_empty_object(server: str) -> None:
     assert StubAgent.captured["request"] == ""
 
 
-def test_a_post_with_no_length_header_at_all_is_read_as_an_empty_object(
-    server: str,
-) -> None:
+def test_a_post_with_no_length_header_at_all_is_read_as_an_empty_object(server: str) -> None:
     """The header absent, rather than present and zero -- which is what a client that
     meant to send nothing actually sends."""
     StubAgent.result = ValueError("Nothing to shop for: the request is empty.")
@@ -487,9 +456,7 @@ def test_a_refusal_names_the_header_that_decided_it(server: str, caplog) -> None
     assert "fetch site 'cross-site'" in caplog.text
 
 
-def test_a_refusal_names_the_host_when_the_host_is_what_decided_it(
-    server: str, caplog
-) -> None:
+def test_a_refusal_names_the_host_when_the_host_is_what_decided_it(server: str, caplog) -> None:
     """The other header a refusal can turn on, and the one a reader least expects."""
     with caplog.at_level(logging.WARNING, logger="buy_agent.server"):
         assert "403" in ask(server, Host="attacker.example").splitlines()[0]
@@ -540,8 +507,7 @@ def test_a_request_line_the_base_class_refuses_keeps_its_refusal(server: str) ->
 def test_head_is_guarded_like_the_others(server: str) -> None:
     """It answers by way of do_GET, so a guard only on GET would still run it."""
     reply = raw(
-        server,
-        b"HEAD /api/config HTTP/1.1\r\nHost: evil.example\r\nConnection: close\r\n\r\n",
+        server, b"HEAD /api/config HTTP/1.1\r\nHost: evil.example\r\nConnection: close\r\n\r\n",
     )
 
     assert "403" in reply.splitlines()[0]
@@ -699,9 +665,7 @@ def test_an_address_typed_at_the_command_line_is_read_without_its_brackets() -> 
     assert _bound_host("") == ""
 
 
-def test_a_request_sending_no_host_is_refused_by_a_server_that_names_one(
-    tmp_path: Path,
-) -> None:
+def test_a_request_sending_no_host_is_refused_by_a_server_that_names_one(tmp_path: Path) -> None:
     """The other half of that, over the wire: urllib will not build a request without a
     ``Host``, so this one is spoken by hand."""
     (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
@@ -942,9 +906,7 @@ def test_a_ui_dir_with_no_workspace_above_it_is_not_told_to_build(tmp_path: Path
     assert "npm" not in said, f"nothing to run npm in, so nothing said about npm: {said}"
 
 
-def test_a_hashed_file_is_kept_for_good_and_the_page_is_asked_about_again(
-    tmp_path: Path,
-) -> None:
+def test_a_hashed_file_is_kept_for_good_and_the_page_is_asked_about_again(tmp_path: Path) -> None:
     """``index.html`` names the hashed files, so it is the one that must never go stale."""
     (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
     for name in ("main-AC2JNJ6W.js", "styles-5JQDSYP3.css", "main.js", "favicon.ico"):
@@ -1008,9 +970,7 @@ def _refusing(reason: int):
     return refuse
 
 
-def test_the_port_a_model_server_also_wants_is_named_in_the_refusal(
-    monkeypatch, caplog
-) -> None:
+def test_the_port_a_model_server_also_wants_is_named_in_the_refusal(monkeypatch, caplog) -> None:
     """vLLM's own default is http://localhost:8000/v1 and this server's default
     port is 8000, so the two collide on exactly the machine that runs both --
     and "Address already in use" says nothing about a model server."""
@@ -1074,9 +1034,7 @@ def test_a_port_no_socket_could_take_is_a_usage_error(given: str, says: str, cap
 
 
 @pytest.mark.parametrize("given", [0, 65535])
-def test_both_ends_of_the_port_range_are_ports(
-    given: int, monkeypatch, tmp_path: Path
-) -> None:
+def test_both_ends_of_the_port_range_are_ports(given: int, monkeypatch, tmp_path: Path) -> None:
     """The range is inclusive: 0 asks the system for any free port, and 65535 is the
     last there is."""
     bound: list[int] = []
@@ -1187,9 +1145,7 @@ def test_a_built_ui_is_not_warned_about(monkeypatch, tmp_path: Path, caplog) -> 
     assert "npm run build" not in caplog.text
 
 
-def test_the_server_is_built_where_the_command_line_says(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_the_server_is_built_where_the_command_line_says(monkeypatch, tmp_path: Path) -> None:
     """The address, the port and the build, as given -- and the camera is decided by
     the same address the socket is bound to (ADR-0065)."""
     built: dict[str, Any] = {}
@@ -1319,9 +1275,7 @@ def test_a_body_nobody_is_left_to_read_is_not_an_error() -> None:
     handler._send_bytes(200, b"body", "text/plain")
 
 
-def test_the_server_refuses_to_start_on_a_provider_nothing_can_serve(
-    monkeypatch, caplog
-) -> None:
+def test_the_server_refuses_to_start_on_a_provider_nothing_can_serve(monkeypatch, caplog) -> None:
     """Fail where the shell that set it is still on screen."""
     monkeypatch.setattr(server_module, "DEFAULT_PROVIDER", "olama")
 
@@ -1332,9 +1286,7 @@ def test_the_server_refuses_to_start_on_a_provider_nothing_can_serve(
     assert "ollama, vllm" in caplog.text, "the servers that do exist are the whole message"
 
 
-def test_the_server_refuses_to_start_on_a_rail_nothing_can_pay_through(
-    monkeypatch, caplog
-) -> None:
+def test_the_server_refuses_to_start_on_a_rail_nothing_can_pay_through(monkeypatch, caplog) -> None:
     """The rail's half of the check above, and there for the same reason."""
     monkeypatch.setattr(server_module, "DEFAULT_RAIL", "dryrun")
 
@@ -1548,9 +1500,7 @@ def test_the_camera_is_handed_to_the_server_and_let_go_on_the_way_out(
 #: ``RANKED`` with the currency printed: a bare price never meets an alert (ADR-0046).
 PRICED = [
     ranked_product(
-        Product(name="Sony WH-1000XM5", price=328.0, currency="USD", rating=4.7),
-        score=0.9,
-        rank=1,
+        Product(name="Sony WH-1000XM5", price=328.0, currency="USD", rating=4.7), score=0.9, rank=1,
     ),
     ranked_product(Product(name="Anker Q30", price=79.0, currency="USD"), score=0.7, rank=2),
 ]
@@ -1596,9 +1546,7 @@ def test_a_re_sort_over_the_wire_carries_the_standing_back(server: str) -> None:
     gone = payable_product(name="Bose QC", availability="out of stock")
     products = results_payload([ranked_product(gone, score=0.5, rank=1)])
 
-    status, payload = post(
-        f"{server}/api/rank", sealed({"products": products, "sort_by": "price"})
-    )
+    status, payload = post(f"{server}/api/rank", sealed({"products": products, "sort_by": "price"}))
 
     assert status == 200
     assert payload["products"][0]["availability"] == "out of stock"
@@ -1640,9 +1588,7 @@ def test_paying_for_an_out_of_stock_listing_is_refused_on_the_products(server: s
 TOKEN = "a token long enough to keep"
 
 
-def asked(
-    url: str, payload: Any = None, **headers: str
-) -> tuple[int, dict[str, str], Any]:
+def asked(url: str, payload: Any = None, **headers: str) -> tuple[int, dict[str, str], Any]:
     """A GET, or a POST of ``payload``, with headers of the test's choosing."""
     data = None if payload is None else json.dumps(payload).encode()
     if data is not None:
@@ -1655,9 +1601,7 @@ def asked(
         return error.code, dict(error.headers), _decode(error)
 
 
-def test_a_token_is_asked_of_the_page_and_the_api_and_a_browser_is_told_how(
-    tmp_path: Path,
-) -> None:
+def test_a_token_is_asked_of_the_page_and_the_api_and_a_browser_is_told_how(tmp_path: Path) -> None:
     """The page too: a browser asks its reader on the first answer and then sends the
     password with every request after it, the stream's included."""
     (tmp_path / "index.html").write_text("<app-root></app-root>", encoding="utf-8")
@@ -1676,10 +1620,8 @@ def test_a_token_is_asked_of_the_page_and_the_api_and_a_browser_is_told_how(
 def test_a_posted_body_is_refused_unread_without_the_token(tmp_path: Path) -> None:
     with serving(tmp_path, policy=Policy(token=TOKEN, sealer=SEALER)) as base:
         smuggled(
-            base,
-            b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 2\r\n\r\n{}",
-            "401",
-            "the refused body was parsed as a request",
+            base, b"POST /api/search HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 2\r\n\r\n{}",
+            "401", "the refused body was parsed as a request",
         )
 
 

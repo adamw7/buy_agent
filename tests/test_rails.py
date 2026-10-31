@@ -85,9 +85,7 @@ def test_the_http_rail_reads_its_address_off_its_own_variable(
 
 
 @needs_ap2
-def test_the_http_rail_asks_the_merchant_to_sign_the_checkout(
-    posted: Endpoint,
-) -> None:
+def test_the_http_rail_asks_the_merchant_to_sign_the_checkout(posted: Endpoint) -> None:
     merchant_signed = signed_checkout()
     posted.answers.append(
         FakeResponse({"checkout_jwt": merchant_signed.jwt, "nonce": "from-the-merchant"})
@@ -116,9 +114,7 @@ def test_an_answer_that_is_not_json_is_the_counterpartys_failure_and_not_the_sho
 
 
 @needs_ap2
-def test_settling_presents_both_mandates_and_the_transaction_they_share(
-    posted: Endpoint,
-) -> None:
+def test_settling_presents_both_mandates_and_the_transaction_they_share(posted: Endpoint) -> None:
     authorisation = mandates.authorise(
         CART, signed_checkout(), key=mandates.generate_key("agent"), nonce="n"
     )
@@ -136,24 +132,18 @@ def test_settling_presents_both_mandates_and_the_transaction_they_share(
 
 
 @needs_ap2
-def test_a_refused_payment_carries_the_far_ends_own_reason(
-    posted: Endpoint,
-) -> None:
+def test_a_refused_payment_carries_the_far_ends_own_reason(posted: Endpoint) -> None:
     authorisation = mandates.authorise(
         CART, signed_checkout(), key=mandates.generate_key("agent"), nonce="n"
     )
-    posted.answers.append(
-        FakeResponse({"paid": False, "detail": "Card declined"})
-    )
+    posted.answers.append(FakeResponse({"paid": False, "detail": "Card declined"}))
 
     with pytest.raises(PaymentError, match="Card declined"):
         rails.HTTP.settle(CART, authorisation, http_config())
 
 
 @needs_ap2
-def test_a_refusal_with_no_reason_still_says_what_did_not_happen(
-    posted: Endpoint,
-) -> None:
+def test_a_refusal_with_no_reason_still_says_what_did_not_happen(posted: Endpoint) -> None:
     authorisation = mandates.authorise(
         CART, signed_checkout(), key=mandates.generate_key("agent"), nonce="n"
     )
@@ -171,9 +161,7 @@ def test_a_refusal_with_no_reason_still_says_what_did_not_happen(
 
 
 @needs_ap2
-def test_a_settlement_that_says_nothing_about_the_detail_still_reads(
-    posted: Endpoint,
-) -> None:
+def test_a_settlement_that_says_nothing_about_the_detail_still_reads(posted: Endpoint) -> None:
     authorisation = mandates.authorise(
         CART, signed_checkout(), key=mandates.generate_key("agent"), nonce="n"
     )
@@ -199,9 +187,7 @@ def test_a_nonce_that_is_not_usable_text_is_replaced_with_one_of_ours(
 ) -> None:
     """The nonce is what stops a presentation being replayed, so a counterparty
     that answers with nothing usable does not get to leave the run without one."""
-    posted.answers.append(
-        FakeResponse({"checkout_jwt": signed_checkout().jwt, "nonce": offered})
-    )
+    posted.answers.append(FakeResponse({"checkout_jwt": signed_checkout().jwt, "nonce": offered}))
 
     _signed, nonce = rails.HTTP.checkout(CART, http_config())
 

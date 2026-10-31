@@ -122,13 +122,8 @@ def test_a_deployed_server_reads_its_settings_when_it_starts(monkeypatch) -> Non
         monkeypatch.setenv(name, value)
 
     assert asdict(server_environment()) == asdict(ServerEnvironment(
-        host="0.0.0.0",
-        port="8080",
-        allowed_hosts=("shop.example", "buy.example", "other.example"),
-        max_runs="2",
-        behind_proxy=True,
-        access_log=True,
-        log_format="json",
+        host="0.0.0.0", port="8080", allowed_hosts=("shop.example", "buy.example", "other.example"),
+        max_runs="2", behind_proxy=True, access_log=True, log_format="json",
         token="a token long enough to keep",
     ))
 

@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from buy_agent.money import (
-    decimals,
-    minor_units,
-)
+from buy_agent.money import decimals, minor_units
 
 
 # -- placing a spelling --------------------------------------------------------

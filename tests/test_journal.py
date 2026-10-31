@@ -9,12 +9,7 @@ from pathlib import Path
 import pytest
 
 from buy_agent.journal import (
-    Entry,
-    Journal,
-    Recorded,
-    _forget_the_least_recent,
-    compare,
-    open_journal,
+    Entry, Journal, Recorded, _forget_the_least_recent, compare, open_journal,
 )
 from buy_agent.models import Product, price_label
 from tests.conftest import raising
@@ -32,9 +27,7 @@ def journal(tmp_path: Path, request: str = "espresso machine", **asked: object) 
 # -- what it keeps -------------------------------------------------------------
 
 
-def test_a_journal_that_is_off_remembers_nothing_and_compares_nothing(
-    tmp_path: Path,
-) -> None:
+def test_a_journal_that_is_off_remembers_nothing_and_compares_nothing(tmp_path: Path) -> None:
     """One setting, and a run that keeps no history is not a failure of one."""
     open_journal("espresso", asked={}, keeping=False, directory=tmp_path).against(
         [priced("Sage Bambino", 349.0)]
@@ -50,9 +43,7 @@ def test_the_least_recently_run_search_is_the_one_forgotten(tmp_path: Path) -> N
     """Pruning oldest-*entry*-first would delete exactly the entry a comparison wants,
     so what goes is a whole search nobody has run lately."""
     for name in ("kettle", "laptop", "headphones"):
-        open_journal(
-            name, asked={}, keeping=True, directory=tmp_path,
-        ).against([priced(name, 10.0)])
+        open_journal(name, asked={}, keeping=True, directory=tmp_path).against([priced(name, 10.0)])
     # The one run longest ago, whatever order the filesystem lists them in.
     oldest = min(tmp_path.glob("*.json"), key=lambda path: path.stat().st_mtime)
 
@@ -83,8 +74,7 @@ def test_a_price_that_moved_is_reported_with_how_far(
     assert change.movement == movement
     assert said in change.detail
     assert (change.price_label, change.was_label) == (
-        f"{now:,.2f} USD",
-        f"{before:,.2f} USD",
+        f"{now:,.2f} USD", f"{before:,.2f} USD",
     )
 
 
@@ -128,9 +118,7 @@ def test_a_product_that_has_left_the_report_is_listed_last(tmp_path: Path) -> No
     ],
 )
 def test_two_prices_that_cannot_be_held_against_each_other_report_no_movement(
-    tmp_path: Path,
-    before: tuple[float | None, str | None],
-    now: tuple[float | None, str | None],
+    tmp_path: Path, before: tuple[float | None, str | None], now: tuple[float | None, str | None],
     converted: bool,
 ) -> None:
     journal(tmp_path).against([priced("Sage Bambino", *before)])
@@ -196,9 +184,7 @@ def test_a_movement_is_measured_to_the_cent(
 # -- what makes two searches two questions -------------------------------------
 
 
-def test_the_order_the_settings_arrive_in_is_not_part_of_what_was_asked(
-    tmp_path: Path,
-) -> None:
+def test_the_order_the_settings_arrive_in_is_not_part_of_what_was_asked(tmp_path: Path) -> None:
     journal(tmp_path, region="uk-en", max_price=500.0).against([priced("Sage Bambino", 349.0)])
 
     assert journal(tmp_path, max_price=500.0, region="uk-en").compared_with() is not None
@@ -281,8 +267,7 @@ def test_a_search_another_run_is_replacing_right_now_is_stepped_over(
     # was asked about.
     told = Path.stat
     monkeypatch.setattr(
-        Path,
-        "stat",
+        Path, "stat",
         lambda self, *a, **k: _raise_gone() if self.suffix == ".json" else told(self, *a, **k),
     )
 

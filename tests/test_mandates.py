@@ -18,13 +18,8 @@ if TYPE_CHECKING:
 
 
 CART = Cart(
-    title="Sony WH-1000XM5",
-    price=329.99,
-    currency="USD",
-    amount=32999,
-    merchant="AudioSite",
-    url="https://audiosite.example/xm5",
-    item_id="sony-wh-1000xm5",
+    title="Sony WH-1000XM5", price=329.99, currency="USD", amount=32999, merchant="AudioSite",
+    url="https://audiosite.example/xm5", item_id="sony-wh-1000xm5",
 )
 
 
@@ -109,8 +104,7 @@ def test_a_key_that_cannot_sign_es256_is_refused_before_anything_is_signed(
     path = tmp_path / "agent.pem"
     path.write_bytes(
         made.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.PKCS8,
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
             serialization.NoEncryption(),
         )
     )
@@ -276,10 +270,7 @@ def test_a_chain_presented_to_the_wrong_audience_does_not_verify(
 
     with pytest.raises(MandateError, match="did not verify"):
         mandates.verify(
-            authorisation.payment,
-            issuer=issuer,
-            audience="merchant",
-            nonce="n",
+            authorisation.payment, issuer=issuer, audience="merchant", nonce="n",
             transaction_id=authorisation.transaction_id,
         )
 
@@ -293,11 +284,8 @@ def test_a_chain_replayed_with_another_nonce_does_not_verify(
 
     with pytest.raises(MandateError, match="did not verify"):
         mandates.verify(
-            authorisation.payment,
-            issuer=issuer,
-            audience=mandates.CREDENTIAL_PROVIDER_AUDIENCE,
-            nonce="second",
-            transaction_id=authorisation.transaction_id,
+            authorisation.payment, issuer=issuer, audience=mandates.CREDENTIAL_PROVIDER_AUDIENCE,
+            nonce="second", transaction_id=authorisation.transaction_id,
         )
 
 
@@ -321,9 +309,7 @@ def test_both_mandates_expire() -> None:
         (authorisation.payment, PaymentMandate),
         (authorisation.checkout, CheckoutMandate),
     ):
-        payload = client.verify(
-            token=token, key_or_provider=key, payload_type=kind
-        ).mandate_payload
+        payload = client.verify(token=token, key_or_provider=key, payload_type=kind).mandate_payload
         assert payload.iat is not None
         assert payload.iat >= before
         assert payload.exp == payload.iat + mandates.TTL_SECONDS
@@ -391,11 +377,8 @@ def test_a_chain_bound_to_another_checkout_reports_a_violation(
     authorisation = mandates.authorise(CART, signed_checkout(), key=agent, nonce="n")
 
     violations = mandates.verify(
-        authorisation.payment,
-        issuer=issuer,
-        audience=mandates.CREDENTIAL_PROVIDER_AUDIENCE,
-        nonce="n",
-        transaction_id="some-other-checkout",
+        authorisation.payment, issuer=issuer, audience=mandates.CREDENTIAL_PROVIDER_AUDIENCE,
+        nonce="n", transaction_id="some-other-checkout",
     )
 
     assert violations
@@ -430,9 +413,7 @@ def test_a_half_installed_signing_stack_names_what_is_missing(
 
 
 @needs_ap2
-def test_an_import_failure_with_no_module_name_still_reads(
-    monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_an_import_failure_with_no_module_name_still_reads(monkeypatch: pytest.MonkeyPatch) -> None:
     """A bare `ImportError` carries no `name`; the sentence has to survive that."""
     import builtins
 

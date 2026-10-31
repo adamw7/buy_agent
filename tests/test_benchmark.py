@@ -13,11 +13,7 @@ from buy_agent.agent import ModelUnavailableError
 from buy_agent.models import Opinion, Product, ProductList
 from buy_agent.search import SearchResult
 from buy_agent.verification import (
-    build_haystack,
-    mentions_name,
-    mentions_number,
-    mentions_rating,
-    mentions_review_count,
+    build_haystack, mentions_name, mentions_number, mentions_rating, mentions_review_count,
 )
 from benchmark import __main__ as benchmark_main
 from benchmark.answers import ANSWER_KEY, Expected
@@ -25,14 +21,7 @@ from benchmark.cases import ESPRESSO, HEADPHONES, LAPTOPS
 from benchmark.corpus import NUM_PRODUCTS, PAGES, PAGE_TEXT, REQUEST, TOP_N
 from benchmark.runner import run_benchmark, serving_the_corpus
 from benchmark.scoring import (
-    FLOORS,
-    METRICS,
-    Scorecard,
-    best_match,
-    figure_verdicts,
-    identifies,
-    page_words,
-    score_run,
+    FLOORS, METRICS, Scorecard, best_match, figure_verdicts, identifies, page_words, score_run,
 )
 from benchmark.scripted import PERFECT, SCRIPTS, SLOPPY, ScriptedLLM
 from tests.conftest import SOURCE_ROOT
@@ -52,10 +41,7 @@ BORROWED: dict[str, dict[str, set[str]]] = {
         "buy_agent.search": {"SearchResult"},
         "buy_agent.verification": {
             "NAME_COVERAGE",
-            "build_haystack",
-            "distinctive_words",
-            "running_words",
-            "word_coverage",
+            "build_haystack", "distinctive_words", "running_words", "word_coverage",
         },
     },
 }
@@ -122,9 +108,7 @@ def test_the_answer_key_works_nothing_out_with_the_pipeline(module: str) -> None
     """A key that asked the code it grades would move with it, and score a regression
     1.000."""
     assert set(taken_from_the_package(module)) <= {
-        "buy_agent.config",
-        "buy_agent.models",
-        "buy_agent.search",
+        "buy_agent.config", "buy_agent.models", "buy_agent.search",
     }
 
 
@@ -228,13 +212,8 @@ def test_the_publishers_name_is_not_a_product() -> None:
 def test_an_ambiguous_name_goes_to_its_best_match_and_stays_there() -> None:
     """Ties break on the key's order, so the same answer scores the same twice."""
     twin = Expected(
-        name="Anker Space Q45",
-        price=99.0,
-        rating=4.4,
-        review_count=31_200,
-        prices=frozenset({(99.0, "USD")}),
-        ratings=frozenset({(4.4, 31_200)}),
-        pages=frozenset(),
+        name="Anker Space Q45", price=99.0, rating=4.4, review_count=31_200,
+        prices=frozenset({(99.0, "USD")}), ratings=frozenset({(4.4, 31_200)}), pages=frozenset(),
     )
 
     assert best_match("Anker Space Q45", (twin, ANKER)) is twin
@@ -268,8 +247,7 @@ def test_a_qualifier_is_judged_with_the_figure_it_qualifies() -> None:
     crossed = Product(name="Bose", rating=4.3, review_count=12_480)
 
     assert figure_verdicts(Product(name="Bose", rating=4.3, review_count=5_600), BOSE)[1:] == [
-        True,
-        True,
+        True, True,
     ]
     assert figure_verdicts(crossed, BOSE)[1:] == [False, False]
 

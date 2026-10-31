@@ -9,15 +9,7 @@ import pytest
 from ddgs.exceptions import DDGSException
 
 from buy_agent.search import (
-    _NO_RESULTS,
-    _RETRY_WAIT,
-    BRAVE,
-    DDG,
-    SEARXNG,
-    Backend,
-    SearchError,
-    SearchResult,
-    search_web,
+    _NO_RESULTS, _RETRY_WAIT, BRAVE, DDG, SEARXNG, Backend, SearchError, SearchResult, search_web,
 )
 
 
@@ -133,9 +125,7 @@ def test_a_search_that_fails_twice_is_the_failure_it_always_was(monkeypatch) -> 
     assert len(asked) == 2
 
 
-def test_a_search_that_matched_nothing_on_the_second_try_is_still_an_answer(
-    monkeypatch,
-) -> None:
+def test_a_search_that_matched_nothing_on_the_second_try_is_still_an_answer(monkeypatch) -> None:
     """The no-results check is inside the loop, so it is asked of both attempts."""
     asked = stub_sequence(monkeypatch, DDGSException("rate limit"), DDGSException(_NO_RESULTS))
 
@@ -373,9 +363,7 @@ def test_a_brave_outage_falls_back_to_the_address_sentence(monkeypatch) -> None:
         search_web("headphones", backend=_with_key(BRAVE, "k"))
 
 
-def test_the_backend_being_asked_is_named_in_the_line_that_says_so(
-    monkeypatch, caplog
-) -> None:
+def test_the_backend_being_asked_is_named_in_the_line_that_says_so(monkeypatch, caplog) -> None:
     """Two backends can be configured on one machine, so which one a run asked is the
     half of that line a reader cannot work out."""
     stub_http(monkeypatch, payload={"results": []})
@@ -389,13 +377,8 @@ def test_the_backend_being_asked_is_named_in_the_line_that_says_so(
 def _with_key(backend: Backend, key: str) -> Backend:
     """``backend`` as it would have been built with that key in its environment."""
     return Backend(
-        name=backend.name,
-        label=backend.label,
-        endpoint=backend.endpoint,
-        api_key=key,
-        needs_key=backend.needs_key,
-        find=backend.find,
-        transport_errors=backend.transport_errors,
+        name=backend.name, label=backend.label, endpoint=backend.endpoint, api_key=key,
+        needs_key=backend.needs_key, find=backend.find, transport_errors=backend.transport_errors,
         hint=backend.hint,
     )
 
@@ -403,12 +386,7 @@ def _with_key(backend: Backend, key: str) -> Backend:
 def _at(backend: Backend, endpoint: str) -> Backend:
     """``backend`` as it would have been built with that address in its environment."""
     return Backend(
-        name=backend.name,
-        label=backend.label,
-        endpoint=endpoint,
-        api_key=backend.api_key,
-        needs_key=backend.needs_key,
-        find=backend.find,
-        transport_errors=backend.transport_errors,
+        name=backend.name, label=backend.label, endpoint=endpoint, api_key=backend.api_key,
+        needs_key=backend.needs_key, find=backend.find, transport_errors=backend.transport_errors,
         hint=backend.hint,
     )

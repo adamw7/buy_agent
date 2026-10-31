@@ -216,10 +216,7 @@ def authorise(cart: Cart, checkout: SignedCheckout, *, key: Any, nonce: str) -> 
         open_token, issuer = configured
         try:
             payment = client.present(
-                holder_key=key,
-                mandate_token=open_token,
-                payloads=[payload],
-                nonce=nonce,
+                holder_key=key, mandate_token=open_token, payloads=[payload], nonce=nonce,
                 aud=CREDENTIAL_PROVIDER_AUDIENCE,
             )
         # A token that is no SD-JWT is a plain ``ValueError``; any refusal is the file's.
@@ -241,8 +238,7 @@ def authorise(cart: Cart, checkout: SignedCheckout, *, key: Any, nonce: str) -> 
         checkout=client.create(payloads=[_checkout_mandate(checkout, now)], issuer_key=key),
         payment=payment,
         reference=sdk.utils.compute_sha256_b64url(client.get_closed_mandate_jwt(payment)),
-        transaction_id=checkout.hash,
-        autonomous=configured is not None,
+        transaction_id=checkout.hash, autonomous=configured is not None,
     )
 
 
@@ -280,9 +276,7 @@ def verify(chain: str, *, issuer: Any, audience: str, nonce: str, transaction_id
 
     try:
         payloads = sdk.mandate.MandateClient().verify(
-            token=chain,
-            key_or_provider=lambda _token: issuer,
-            expected_aud=audience,
+            token=chain, key_or_provider=lambda _token: issuer, expected_aud=audience,
             expected_nonce=nonce,
         )
         parsed = PaymentMandateChain.parse(payloads)

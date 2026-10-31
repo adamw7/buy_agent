@@ -94,11 +94,7 @@ class Journal:
     run: off or unwritable, it remembers and compares nothing."""
 
     def __init__(
-        self,
-        directory: Path | None,
-        key: str,
-        *,
-        keep: int = MAX_RUNS,
+        self, directory: Path | None, key: str, *, keep: int = MAX_RUNS,
         searches: int = MAX_SEARCHES,
     ) -> None:
         self.directory = directory
@@ -192,9 +188,7 @@ def compare(before: Entry, now: Sequence[Recorded]) -> list[Change]:
     found = {item.key for item in now}
     changes += [
         Change(
-            name=item.name,
-            movement="gone",
-            was_label=item.label(),
+            name=item.name, movement="gone", was_label=item.label(),
             detail=f"Reported at {item.label()} on {when}, and not in this run.",
         )
         for item in before.products
@@ -214,21 +208,14 @@ def _moved(now: Recorded, before: Recorded | None, when: str) -> Change:
         missing = now.price is None or before.price is None
         why = "" if missing else "; nothing is converted"
         return Change(
-            name=now.name,
-            movement="unplaced",
-            price_label=label,
-            was_label=was,
+            name=now.name, movement="unplaced", price_label=label, was_label=was,
             detail=f"{label} now and {was} on {when}{why}, so there is no movement to report.",
         )
     delta = round(now.price - before.price, 2)
     movement: Movement = "steady" if delta == 0 else "cheaper" if delta < 0 else "dearer"
     moved = f"{amount_label(abs(delta), now.currency)} {movement} than on {when}"
     return Change(
-        name=now.name,
-        movement=movement,
-        price_label=label,
-        was_label=was,
-        delta=delta or 0.0,
+        name=now.name, movement=movement, price_label=label, was_label=was, delta=delta or 0.0,
         detail=f"{label}, {moved}." if delta else f"{label}, unchanged since {when}.",
     )
 

@@ -142,10 +142,7 @@ def _parts(breakdown: ScoreParts, weights: RankingWeights) -> str:
 
 
 def log_top_products(
-    ranked: Sequence[RankedProduct],
-    top_n: int,
-    *,
-    weights: RankingWeights | None = None,
+    ranked: Sequence[RankedProduct], top_n: int, *, weights: RankingWeights | None = None,
     sort_by: SortBy = "score",
 ) -> None:
     """Log the best ``top_n`` products, one block each."""
@@ -181,9 +178,7 @@ def log_top_products(
         # Quotes last: the longer read (ADR-0042).
         for opinion in product.opinions:
             elsewhere = opinion.url and opinion.url != product.url
-            _report(
-                "     says   : %s%s", opinion.text, f"  -- {opinion.url}" if elsewhere else ""
-            )
+            _report("     says   : %s%s", opinion.text, f"  -- {opinion.url}" if elsewhere else "")
     _report(_RULE)
 
 

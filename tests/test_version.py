@@ -12,14 +12,7 @@ from buy_agent.__main__ import build_parser
 from buy_agent.api import defaults_payload
 from buy_agent.server import BuyAgentHandler
 from buy_agent.server import build_parser as build_server_parser
-from buy_agent.version import (
-    DEVELOPMENT,
-    STAMP,
-    Version,
-    checkout_commit,
-    current,
-    read_version,
-)
+from buy_agent.version import DEVELOPMENT, STAMP, Version, checkout_commit, current, read_version
 from tests.conftest import SOURCE_ROOT
 
 if TYPE_CHECKING:
@@ -210,8 +203,7 @@ def test_this_package_is_read_once(monkeypatch: pytest.MonkeyPatch) -> None:
     ("parser", "prog"), [(build_parser, "buy_agent"), (build_server_parser, "buy_agent.server")]
 )
 def test_both_entry_points_say_which_build_they_are(
-    parser: Callable[[], argparse.ArgumentParser],
-    prog: str, capsys: pytest.CaptureFixture[str]
+    parser: Callable[[], argparse.ArgumentParser], prog: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with pytest.raises(SystemExit) as stopped:
         parser().parse_args(["--version"])

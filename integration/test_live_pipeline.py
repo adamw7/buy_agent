@@ -8,12 +8,7 @@ import pytest
 
 from buy_agent.extraction import looks_like_a_product, merge_variants
 from buy_agent.verification import (
-    build_haystack,
-    mentions_name,
-    mentions_number,
-    mentions_rating,
-    quotes_sources,
-    running_words,
+    build_haystack, mentions_name, mentions_number, mentions_rating, quotes_sources, running_words,
     source_urls,
 )
 

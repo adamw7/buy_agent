@@ -28,19 +28,8 @@ def probed(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     report = tmp_path_factory.mktemp("start_script") / "probe.json"
     finished = subprocess.run(
         [
-            POWERSHELL,
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(_PROBE),
-            "-Script",
-            str(_START),
-            "-Python",
-            sys.executable,
-            "-OutFile",
-            str(report),
+            POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+            str(_PROBE), "-Script", str(_START), "-Python", sys.executable, "-OutFile", str(report),
         ],
         capture_output=True,
         text=True,

@@ -10,13 +10,7 @@ from pathlib import Path
 import pytest
 
 from buy_agent.cache import (
-    ANSWERS,
-    DEFAULT_TTL,
-    PAGES,
-    DiskCache,
-    RememberedAnswers,
-    default_dir,
-    open_cache,
+    ANSWERS, DEFAULT_TTL, PAGES, DiskCache, RememberedAnswers, default_dir, open_cache,
 )
 from buy_agent.chat import UnreadableAnswerError
 from buy_agent.models import SearchQuery
@@ -78,9 +72,7 @@ def test_an_entry_exactly_its_time_to_live_old_is_fresh_to_reader_and_pruner_ali
         pytest.param(json.dumps({"key": URL, "value": 42}).encode(), id="a value that is not text"),
     ],
 )
-def test_anything_that_is_not_this_url_s_entry_is_a_miss(
-    cache: DiskCache, written: bytes
-) -> None:
+def test_anything_that_is_not_this_url_s_entry_is_a_miss(cache: DiskCache, written: bytes) -> None:
     """Every way a file can fail to be this URL's entry means "fetch it", which is
     the direction a cache is allowed to be wrong in."""
     cache.put(URL, "text")
@@ -262,9 +254,7 @@ def _remembering(tmp_path: Path, server: FakeLLM, **fingerprint: object):
 ASKED = [{"role": "user", "content": "headphones"}]
 
 
-def test_the_order_a_fingerprint_is_written_in_is_not_part_of_the_question(
-    tmp_path: Path,
-) -> None:
+def test_the_order_a_fingerprint_is_written_in_is_not_part_of_the_question(tmp_path: Path) -> None:
     """A key is read back by a later process, which owes this one no dict order."""
     model = FakeLLM(query=SearchQuery(query="wireless headphones"))
     cache = DiskCache(tmp_path / ANSWERS, ttl=DEFAULT_TTL)

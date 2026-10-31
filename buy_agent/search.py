@@ -160,8 +160,7 @@ def _brave_find(backend: Backend, query: Query) -> list[SearchResult]:
     if language := _brave_language(query.region):
         params["search_lang"] = language
     response = httpx.get(
-        backend.endpoint,
-        params=params,
+        backend.endpoint, params=params,
         headers={"Accept": "application/json", "X-Subscription-Token": backend.api_key},
         timeout=_TIMEOUT,
     )
@@ -267,14 +266,10 @@ SEARXNG = Backend(
 )
 
 BRAVE = Backend(
-    name="brave",
-    label="Brave Search",
+    name="brave", label="Brave Search",
     endpoint=os.getenv("BRAVE_HOST", "https://api.search.brave.com/res/v1/web/search"),
-    api_key=os.getenv("BRAVE_API_KEY", ""),
-    needs_key=True,
-    find=_brave_find,
-    transport_errors=(httpx.HTTPError, httpx.InvalidURL, OSError, UnicodeError),
-    hint=_brave_hint,
+    api_key=os.getenv("BRAVE_API_KEY", ""), needs_key=True, find=_brave_find,
+    transport_errors=(httpx.HTTPError, httpx.InvalidURL, OSError, UnicodeError), hint=_brave_hint,
 )
 
 #: By the name the CLI, the API and ``$BUY_AGENT_BACKEND`` use (ADR-0057).
@@ -299,12 +294,8 @@ def backend_options() -> list[dict[str, object]]:
 
 
 def search_web(
-    query: str,
-    *,
-    max_results: int = 10,
-    region: str = _DEFAULT_REGION,
-    wait: Callable[[float], None] | None = None,
-    backend: Backend = DDG,
+    query: str, *, max_results: int = 10, region: str = _DEFAULT_REGION,
+    wait: Callable[[float], None] | None = None, backend: Backend = DDG,
 ) -> list[SearchResult]:
     """One text search through ``backend``, asked again once on failure (ADR-0053)."""
     logger.info("Searching %s for %r (max %d results)", backend.label, query, max_results)

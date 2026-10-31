@@ -17,9 +17,7 @@ if TYPE_CHECKING:
 _MAX_QUERY_LENGTH = 200
 
 
-def test_query_refinement_answers_with_a_query_and_not_with_prose(
-    live_config: AgentConfig,
-) -> None:
+def test_query_refinement_answers_with_a_query_and_not_with_prose(live_config: AgentConfig) -> None:
     """One line of search terms is what ``search_web`` is handed verbatim."""
     answer = BuyAgent(live_config).query_chain.invoke({"request": HEADPHONES.request})
 

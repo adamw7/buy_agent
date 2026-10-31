@@ -9,27 +9,15 @@ import pytest
 from buy_agent.models import Opinion, Product, Removal
 from buy_agent.search import SearchResult
 from buy_agent.verification import (
-    attribute_sources,
-    build_haystack,
-    drop_ungrounded,
-    ground,
-    judges,
-    mentions_name,
-    mentions_number,
-    mentions_rating,
-    mentions_review_count,
-    mentions_standing,
-    said_of,
-    verify_numbers,
-    verify_opinions,
-    verify_standing,
+    attribute_sources, build_haystack, drop_ungrounded, ground, judges, mentions_name,
+    mentions_number, mentions_rating, mentions_review_count, mentions_standing, said_of,
+    verify_numbers, verify_opinions, verify_standing,
 )
 from tests.conftest import said
 
 SOURCES = [
     SearchResult(
-        title="Sony WH-CH720N deal",
-        snippet="Now $129, rated 4.3 out of 5 from 12,500 shoppers.",
+        title="Sony WH-CH720N deal", snippet="Now $129, rated 4.3 out of 5 from 12,500 shoppers.",
     ),
 ]
 HAYSTACK = build_haystack(SOURCES)
@@ -178,13 +166,11 @@ def test_the_coverage_bar_is_three_distinctive_words_in_five() -> None:
 
 PAGES = [
     SearchResult(
-        title="Sony WH-CH720N deal",
-        url="https://shop.example/sony",
+        title="Sony WH-CH720N deal", url="https://shop.example/sony",
         snippet="Now $129, rated 4.3 out of 5 from 12,500 shoppers.",
     ),
     SearchResult(
-        title="Anker Soundcore Q30 review",
-        url="https://review.example/anker",
+        title="Anker Soundcore Q30 review", url="https://review.example/anker",
         snippet="The Q30 is $79.",
     ),
 ]
@@ -196,8 +182,7 @@ def test_a_searched_link_is_kept_over_an_earlier_page_that_also_mentions_it() ->
     the shop in the results mentions it too, and the shop is where the model was
     pointing (ADR-0017)."""
     roundup = SearchResult(
-        title="The best cheap headphones",
-        url="https://roundup.example/cheap",
+        title="The best cheap headphones", url="https://roundup.example/cheap",
         snippet="Our pick is the Sony WH-CH720N.",
     )
     product = Product(name="Sony WH-CH720N", url="https://shop.example/sony")
@@ -242,8 +227,7 @@ OPINIONATED = [
         url="https://audiosite.example/ch720n",
     ),
     SearchResult(
-        title="Anker Q45 review",
-        snippet="Great sound, and it ships in black.",
+        title="Anker Q45 review", snippet="Great sound, and it ships in black.",
         url="https://audiosite.example/q45",
     ),
 ]
@@ -286,9 +270,7 @@ def test_a_quote_of_nothing_is_not_a_quote() -> None:
     assert opinions_after("!!!") == []
 
 
-def test_the_opinions_dropped_are_counted_across_products_and_not_the_kept_ones(
-    caplog,
-) -> None:
+def test_the_opinions_dropped_are_counted_across_products_and_not_the_kept_ones(caplog) -> None:
     """Two products, one invented quote each and a real one beside the first: two
     dropped, which is neither the last product's count nor every quote there was."""
     products = [
@@ -442,9 +424,7 @@ def test_review_counts_are_recognised_however_they_are_written(snippet: str) -> 
 def test_a_product_no_page_mentions_is_removed_and_says_so() -> None:
     """The panel's sentence, pinned beside the step that writes it."""
     removed: list[Removal] = []
-    drop_ungrounded(
-        [Product(name="Bonavita Gooseneck Kettle")], "", record=removed.append
-    )
+    drop_ungrounded([Product(name="Bonavita Gooseneck Kettle")], "", record=removed.append)
 
     assert [entry.name for entry in removed] == ["Bonavita Gooseneck Kettle"]
     assert removed[0].step == "ground"

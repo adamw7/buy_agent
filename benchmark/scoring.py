@@ -9,11 +9,7 @@ from typing import TYPE_CHECKING
 from buy_agent.models import Product
 from buy_agent.ranking import rank_products
 from buy_agent.verification import (
-    NAME_COVERAGE,
-    build_haystack,
-    distinctive_words,
-    running_words,
-    word_coverage,
+    NAME_COVERAGE, build_haystack, distinctive_words, running_words, word_coverage,
 )
 from benchmark.answers import ANSWER_KEY, Expected
 from benchmark.corpus import NUM_PRODUCTS
@@ -282,11 +278,8 @@ def _above(value: float, chance: float) -> float:
 
 
 def score_run(
-    products: Sequence[Product],
-    results: Sequence[SearchResult],
-    *,
-    key: Sequence[Expected] = ANSWER_KEY,
-    slots: int = NUM_PRODUCTS,
+    products: Sequence[Product], results: Sequence[SearchResult], *,
+    key: Sequence[Expected] = ANSWER_KEY, slots: int = NUM_PRODUCTS,
 ) -> Scorecard:
     """Score one run's products, in ranked order, against the key. Recall is measured
     against ``slots``, the cap being part of the run; every count but ``genuine``'s is
@@ -301,9 +294,7 @@ def score_run(
     invented = sum(verdict == INVENTED for _, verdict in verdicts)
     repeated = sum(verdict == REPEATED for _, verdict in verdicts)
 
-    figures = [
-        verdict for product, entry in matched for verdict in figure_verdicts(product, entry)
-    ]
+    figures = [verdict for product, entry in matched for verdict in figure_verdicts(product, entry)]
     reported_figures = sum(verdict is not None for verdict in figures)
     faithful = [
         [quote for quote in product.opinions if quotes_a_verdict(quote.text, entry, pages)]
@@ -321,8 +312,7 @@ def score_run(
             "genuine": (len(matched), len(products)),
             "figures": (sum(verdict is True for verdict in figures), 3 * len(matched)),
             "attribution": (
-                reported_figures - sum(verdict is False for verdict in figures),
-                reported_figures,
+                reported_figures - sum(verdict is False for verdict in figures), reported_figures,
             ),
             "links": (sum(p.url in e.pages for p, e in matched), len(matched)),
             "quotes": (sum(bool(quotes) for quotes in faithful), judged),

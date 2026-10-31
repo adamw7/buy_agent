@@ -12,14 +12,8 @@ from importlib import metadata
 import pytest
 
 from buy_agent.logging_setup import (
-    _NOISY_LIBRARIES,
-    _REPORT_FORMAT,
-    _TRACE_LIBRARIES,
-    configure_logging,
-    log_alert,
-    log_changes,
-    log_top_products,
-    seconds_label,
+    _NOISY_LIBRARIES, _REPORT_FORMAT, _TRACE_LIBRARIES, configure_logging, log_alert, log_changes,
+    log_top_products, seconds_label,
 )
 from buy_agent.alerts import Alert
 from buy_agent.chat import release
@@ -69,17 +63,9 @@ def test_every_known_field_reaches_the_report(report) -> None:
     log_top_products(
         ranked(
             Product(
-                name="Sony WH-1000XM5",
-                price=328.0,
-                currency="USD",
-                rating=4.7,
-                review_count=12000,
-                seller="Amazon",
-                url="https://shop.example/sony",
-                notes="Best noise cancelling.",
-                opinions=said(
-                    "the noise cancelling is uncanny", page="https://shop.example/sony"
-                ),
+                name="Sony WH-1000XM5", price=328.0, currency="USD", rating=4.7, review_count=12000,
+                seller="Amazon", url="https://shop.example/sony", notes="Best noise cancelling.",
+                opinions=said("the noise cancelling is uncanny", page="https://shop.example/sony"),
             )
         ),
         1,
@@ -90,11 +76,8 @@ def test_every_known_field_reaches_the_report(report) -> None:
     assert lines(report)[3:-1] == [
         "#1  Sony WH-1000XM5",
         "     score  : 1.000  (rating 1.00 x0.50, popularity 1.00 x0.20, price 1.00 x0.30)",
-        "     price  : 328.00 USD",
-        "     rating : 4.7/5 (12,000 reviews)",
-        "     seller : Amazon",
-        "     url    : https://shop.example/sony",
-        "     note   : Best noise cancelling.",
+        "     price  : 328.00 USD", "     rating : 4.7/5 (12,000 reviews)", "     seller : Amazon",
+        "     url    : https://shop.example/sony", "     note   : Best noise cancelling.",
         "     says   : the noise cancelling is uncanny",
     ]
 
@@ -354,9 +337,7 @@ def test_a_handler_that_is_not_the_console_still_sees_the_whole_run(split_stream
     assert any("Sony WH-1000XM5" in message for message in collected)
 
 
-def test_a_stream_that_is_not_the_console_is_not_told_to_skip_the_report(
-    split_streams,
-) -> None:
+def test_a_stream_that_is_not_the_console_is_not_told_to_skip_the_report(split_streams) -> None:
     """A handler on the root writing to a file of somebody's is not the terminal the
     report was taken off, so the whole run still reaches it."""
     split_streams()
@@ -461,8 +442,7 @@ def test_a_quote_names_its_page_only_where_that_is_news(
     log_top_products(
         ranked(
             Product(
-                name="Sony WH-1000XM5",
-                url="https://shop.example/sony",
+                name="Sony WH-1000XM5", url="https://shop.example/sony",
                 opinions=said("the fit is snug", page=page),
             )
         ),
@@ -477,9 +457,7 @@ def test_every_opinion_gets_its_own_line(report) -> None:
     """Two verdicts on one line would read as one reviewer's sentence."""
     log_top_products(
         ranked(
-            Product(
-                name="Sony WH-1000XM5", opinions=said("the fit is snug", "the case is bulky")
-            )
+            Product(name="Sony WH-1000XM5", opinions=said("the fit is snug", "the case is bulky"))
         ),
         1,
     )
@@ -510,8 +488,7 @@ def test_the_report_says_what_each_criterion_was_weighted_at(caplog) -> None:
     gone wrong, and say nothing about which criterion a placing turned on."""
     with caplog.at_level(logging.INFO, logger="buy_agent"):
         log_top_products(
-            rank_products([Product(name="Sony", rating=5.0)]),
-            1,
+            rank_products([Product(name="Sony", rating=5.0)]), 1,
             weights=RankingWeights(rating=3.0, popularity=1.0, price=0.0),
         )
 
@@ -562,34 +539,24 @@ def test_the_ordering_named_is_the_one_the_run_sorted_by(report) -> None:
     assert lines.index("#1  Beta") < lines.index("#2  Alpha"), "the block really is by rating"
 
 
-def test_the_listings_a_product_was_priced_at_are_reported_under_the_price(
-    report,
-) -> None:
+def test_the_listings_a_product_was_priced_at_are_reported_under_the_price(report) -> None:
     """The half a merge used to throw away, under the one figure it kept (ADR-0058)."""
     priced = Product(
-        name="Sony WH-1000XM5",
-        price=349.0,
-        currency="USD",
-        offers=[
-            Offer(price=349.0, currency="USD"),
-            Offer(price=329.0, currency="USD"),
-        ],
+        name="Sony WH-1000XM5", price=349.0, currency="USD",
+        offers=[Offer(price=349.0, currency="USD"), Offer(price=329.0, currency="USD")],
     )
 
     log_top_products(ranked(priced), 1)
 
     assert lines(report)[5:7] == [
-        "     price  : 349.00 USD",
-        "     offers : 2 listings, 329.00-349.00 USD",
+        "     price  : 349.00 USD", "     offers : 2 listings, 329.00-349.00 USD",
     ]
 
 
 def test_one_listing_earns_no_line_of_its_own(report) -> None:
     """A spread of one is the price said twice."""
     priced = Product(
-        name="Sony WH-1000XM5",
-        price=349.0,
-        currency="USD",
+        name="Sony WH-1000XM5", price=349.0, currency="USD",
         offers=[Offer(price=349.0, currency="USD")],
     )
 
@@ -649,9 +616,7 @@ def test_a_long_name_does_not_push_the_sentence_off_the_column(report) -> None:
     assert line == "  " + "A" * 32 + " 329.00 USD, unchanged since 11 Sep."
 
 
-def test_a_search_with_no_earlier_run_says_so_rather_than_printing_a_block(
-    caplog,
-) -> None:
+def test_a_search_with_no_earlier_run_says_so_rather_than_printing_a_block(caplog) -> None:
     """A first run of a search is the ordinary case, not a failure."""
     with caplog.at_level(logging.INFO, logger="buy_agent"):
         log_changes([], None)
@@ -674,10 +639,7 @@ def test_a_listings_stock_and_condition_follow_its_price(report) -> None:
     log_top_products(
         ranked(
             Product(
-                name="Sony WH-1000XM5",
-                price=299.0,
-                currency="USD",
-                availability="in stock",
+                name="Sony WH-1000XM5", price=299.0, currency="USD", availability="in stock",
                 condition="refurbished",
             )
         ),
@@ -704,8 +666,7 @@ def test_the_alert_is_part_of_the_report(report) -> None:
     log_alert(unmet)
 
     assert lines(report) == [
-        "PRICE ALERT MET: At or under it: Sony.",
-        "PRICE ALERT NOT MET: Nothing found is.",
+        "PRICE ALERT MET: At or under it: Sony.", "PRICE ALERT NOT MET: Nothing found is.",
     ]
     assert all(getattr(record, "report", False) for record in report.records)
 

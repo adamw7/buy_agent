@@ -12,22 +12,12 @@ from buy_agent.chat import Chain, UnreadableAnswerError, first_line, release
 from buy_agent.config import DEFAULT_REGION, AgentConfig
 from buy_agent.constraints import Constraints
 from buy_agent.extraction import (
-    EXTRACTION_PROMPT,
-    QUERY_PROMPT,
-    clean_products,
-    deduplicate,
-    format_results,
+    EXTRACTION_PROMPT, QUERY_PROMPT, clean_products, deduplicate, format_results,
 )
 from buy_agent.fetch import enrich
 from buy_agent.journal import Journal, open_journal
 from buy_agent.logging_setup import log_top_products, seconds_label
-from buy_agent.models import (
-    ProductList,
-    SearchQuery,
-    and_list,
-    comparable_price,
-    nothing_recorded,
-)
+from buy_agent.models import ProductList, SearchQuery, and_list, comparable_price, nothing_recorded
 from buy_agent.ranking import rank_products
 from buy_agent.search import search_web
 from buy_agent.verification import ground
@@ -131,8 +121,7 @@ class BuyAgent:
         # Here, not in ``providers``: caching is no server's concern.
         self.llm = llm or remember_answers(
             self.config.model_server.chat_model(self.config),
-            fingerprint=_asks_the_same_question(self.config),
-            ttl=self.config.cache_ttl,
+            fingerprint=_asks_the_same_question(self.config), ttl=self.config.cache_ttl,
             deterministic=self.config.temperature == 0,
         )
         #: Only a model this agent opened, never one handed in.
@@ -147,12 +136,8 @@ class BuyAgent:
         release(self._opened)
 
     def run(
-        self,
-        request: str,
-        *,
-        sort_by: SortBy = "score",
-        checkpoint: Checkpoint = every_step_passes,
-        record: Recorder = nothing_recorded,
+        self, request: str, *, sort_by: SortBy = "score",
+        checkpoint: Checkpoint = every_step_passes, record: Recorder = nothing_recorded,
     ) -> list[RankedProduct]:
         """Search, rank and log the top products; ``record`` receives each candidate
         the run removed (ADR-0034, ADR-0055).
@@ -180,12 +165,7 @@ class BuyAgent:
         return ranked
 
     def _shop(
-        self,
-        request: str,
-        watch: _Stopwatch,
-        *,
-        sort_by: SortBy,
-        checkpoint: Checkpoint,
+        self, request: str, watch: _Stopwatch, *, sort_by: SortBy, checkpoint: Checkpoint,
         record: Recorder,
     ) -> list[RankedProduct]:
         """The run itself, each step it waits on timed by ``watch``."""
@@ -258,9 +238,7 @@ class BuyAgent:
     def _warn_if_nothing_is_on_the_named_scale(self, products: Sequence[Product]) -> None:
         """Warn when the named currency prices nothing (ADR-0056)."""
         named = self.config.currency
-        if not named or any(
-            comparable_price(product, named) is not None for product in products
-        ):
+        if not named or any(comparable_price(product, named) is not None for product in products):
             return
         logger.warning(
             "Nothing found is priced in %s, so every price is a figure this run cannot "
@@ -294,15 +272,12 @@ class BuyAgent:
                 # A WARNING when nothing was left: that source then reports nothing.
                 logger.log(
                     logging.INFO if kept else logging.WARNING,
-                    "Ignored %d result(s) from outside %s%s",
-                    len(outside),
-                    source.domain,
+                    "Ignored %d result(s) from outside %s%s", len(outside), source.domain,
                     "" if kept else ", which leaves nothing from it",
                 )
                 logger.debug(
                     "From outside %s: %s",
-                    source.domain,
-                    ", ".join(result.url for result in outside),
+                    source.domain, ", ".join(result.url for result in outside),
                 )
             for result in kept:
                 pooled.setdefault(result.url, result)
@@ -361,9 +336,7 @@ class BuyAgent:
         # pylint: disable-next=broad-exception-caught
         except Exception as exc:
             # One line both doors show; the traceback is for -v.
-            logger.warning(
-                "Query refinement failed (%s); using the raw request", first_line(exc)
-            )
+            logger.warning("Query refinement failed (%s); using the raw request", first_line(exc))
             logger.debug("Why query refinement failed", exc_info=True)
             return request
 
@@ -374,10 +347,7 @@ class BuyAgent:
         return query
 
     def _extract_products(
-        self,
-        request: str,
-        results: Sequence[SearchResult],
-        watch: _Stopwatch,
+        self, request: str, results: Sequence[SearchResult], watch: _Stopwatch,
         record: Recorder = nothing_recorded,
     ) -> list[Product]:
         """Read products out of the results, then keep only what the sources back."""

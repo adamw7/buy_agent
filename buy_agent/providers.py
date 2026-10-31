@@ -122,9 +122,7 @@ class OllamaClient:
         self._base_url = base_url
         # As Ollama's Python client did: a proxy in front of it may redirect.
         self._http = httpx.Client(
-            timeout=timeout,
-            transport=transport,
-            follow_redirects=True,
+            timeout=timeout, transport=transport, follow_redirects=True,
             headers={"Accept": "application/json"},
         )
 
@@ -219,11 +217,8 @@ class _OllamaChat:
         if self.cpu_only:
             options["num_gpu"] = 0
         response = self.client.chat(
-            model=self.model,
-            messages=list(messages),
-            schema=schema.model_json_schema(),
-            options=options,
-            think=self.reasoning,
+            model=self.model, messages=list(messages), schema=schema.model_json_schema(),
+            options=options, think=self.reasoning,
         )
         return read_answer(response.content, schema, cut_off=response.done_reason == _CUT_OFF)
 
@@ -233,11 +228,8 @@ class _OllamaChat:
 
 def _ollama_chat_model(config: AgentConfig) -> ChatModel:
     return _OllamaChat(
-        client=OllamaClient(config.base_url, timeout=config.model_timeout),
-        model=config.model,
-        temperature=config.temperature,
-        num_ctx=config.num_ctx,
-        reasoning=config.reasoning,
+        client=OllamaClient(config.base_url, timeout=config.model_timeout), model=config.model,
+        temperature=config.temperature, num_ctx=config.num_ctx, reasoning=config.reasoning,
         cpu_only=config.cpu_only,
     )
 
@@ -391,10 +383,8 @@ def _openai_chat_model(
         extra_body = {} if config.reasoning is None else thinking(config.reasoning)
         return _OpenAIChat(
             client=openai.OpenAI(
-                base_url=config.base_url,
-                api_key=config.api_key or _NO_KEY,
-                timeout=config.model_timeout,
-                max_retries=0,
+                base_url=config.base_url, api_key=config.api_key or _NO_KEY,
+                timeout=config.model_timeout, max_retries=0,
             ),
             model=config.model,
             temperature=config.temperature,
@@ -475,8 +465,7 @@ def _litellm_installed(config: AgentConfig) -> list[InstalledModel]:
     try:
         response = httpx.get(
             f"{config.base_url.rstrip('/').removesuffix('/v1')}/model/info",
-            headers=_authorised(config),
-            timeout=_LIST_TIMEOUT,
+            headers=_authorised(config), timeout=_LIST_TIMEOUT,
         )
         response.raise_for_status()
         entries = response.json().get("data", [])

@@ -39,8 +39,7 @@ def _a_row_of(table: Mapping[str, Any], named: str) -> str:
 
 def _defaults() -> AgentConfig:
     return AgentConfig(
-        provider=_a_row_of(PROVIDERS, DEFAULT_PROVIDER),
-        rail=_a_row_of(RAILS, DEFAULT_RAIL),
+        provider=_a_row_of(PROVIDERS, DEFAULT_PROVIDER), rail=_a_row_of(RAILS, DEFAULT_RAIL),
         backend=_a_row_of(BACKENDS, DEFAULT_BACKEND),
     )
 
@@ -378,8 +377,7 @@ def main(argv: list[str] | None = None) -> int:
         # Otherwise buying nothing would read as a failed rail.
         logger.warning(
             "Nothing will be bought: %s %s nothing without --pay.",
-            ", ".join(idle),
-            "does" if len(idle) == 1 else "do",
+            ", ".join(idle), "does" if len(idle) == 1 else "do",
         )
 
     if args.num_ctx is not None and not config.model_server.takes_num_ctx:

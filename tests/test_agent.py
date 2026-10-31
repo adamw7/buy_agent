@@ -31,11 +31,7 @@ def agent_factory(monkeypatch):
         calls: list[dict] = []
 
         def fake_search(
-            query: str,
-            *,
-            max_results: int = 10,
-            region: str = "us-en",
-            wait: object = None,
+            query: str, *, max_results: int = 10, region: str = "us-en", wait: object = None,
             **_: object,
         ) -> list:
             calls.append(
@@ -200,9 +196,7 @@ def test_an_empty_search_with_nothing_narrowing_it_stops_after_the_query(
     assert empty and empty[0].rstrip().endswith("'."), empty
 
 
-def test_no_extractable_products_yields_no_products(
-    agent_factory, search_results, caplog
-) -> None:
+def test_no_extractable_products_yields_no_products(agent_factory, search_results, caplog) -> None:
     agent, _ = agent_factory(FakeLLM(products=ProductList()), search_results)
 
     with caplog.at_level(logging.WARNING):
@@ -346,9 +340,7 @@ def test_figures_absent_from_the_search_results_are_not_ranked_on(
     agent, _ = agent_factory(FakeLLM(products=invented), search_results)
 
     ranked = agent.run("headphones")
-    unsupported = next(
-        entry for entry in ranked if entry.product.name == "Unknown Brand Buds"
-    )
+    unsupported = next(entry for entry in ranked if entry.product.name == "Unknown Brand Buds")
 
     assert unsupported.product.price is None
     assert unsupported.product.rating is None
@@ -374,9 +366,7 @@ def test_result_pages_are_fetched_by_default(
     }
 
 
-def test_fetching_can_be_turned_off(
-    agent_factory, search_results, extracted_products
-) -> None:
+def test_fetching_can_be_turned_off(agent_factory, search_results, extracted_products) -> None:
     agent, calls = agent_factory(
         FakeLLM(products=extracted_products), search_results, fetch_pages=False
     )
@@ -392,8 +382,7 @@ def test_a_page_the_search_repeats_is_fetched_once(agent_factory, extracted_prod
     repeated = [
         SearchResult(title="Sony", url="https://shop.example/a"),
         SearchResult(title="Sony again", url="https://shop.example/a"),
-        SearchResult(title="no link", url=""),
-        SearchResult(title="no link either", url=""),
+        SearchResult(title="no link", url=""), SearchResult(title="no link either", url=""),
     ]
     agent, calls = agent_factory(FakeLLM(products=extracted_products), repeated)
 
@@ -610,8 +599,7 @@ def test_the_configured_weights_reach_the_ranking(
 ) -> None:
     """The default blend puts the cheap Anker first; rating alone puts the Sony there."""
     agent, _ = agent_factory(
-        FakeLLM(products=extracted_products),
-        search_results,
+        FakeLLM(products=extracted_products), search_results,
         weights=RankingWeights(rating=1.0, popularity=0.0, price=0.0),
     )
 
@@ -732,8 +720,7 @@ def test_each_named_source_is_searched_for_on_its_own(source_search) -> None:
     agent.run("headphones")
 
     assert [query for query, _ in asked] == [
-        "headphones site:a.com",
-        'headphones site:youtube.com "@mkbhd"',
+        "headphones site:a.com", 'headphones site:youtube.com "@mkbhd"',
     ]
 
 
@@ -752,9 +739,7 @@ def test_the_search_width_is_shared_out_rather_than_multiplied(source_search) ->
     assert [width for _, width in asked] == [3, 3, 3, 3]
 
 
-def test_a_result_from_outside_a_source_never_reaches_the_model(
-    source_search, caplog
-) -> None:
+def test_a_result_from_outside_a_source_never_reaches_the_model(source_search, caplog) -> None:
     """The operator is the backend's promise; this is the check on it."""
     agent, _, _reached = source_search(
         {
@@ -814,9 +799,7 @@ def test_a_source_left_with_nothing_is_a_warning(source_search, caplog) -> None:
     }
 
 
-def test_a_source_that_kept_everything_says_nothing_about_ignoring(
-    source_search, caplog
-) -> None:
+def test_a_source_that_kept_everything_says_nothing_about_ignoring(source_search, caplog) -> None:
     """No "Ignored 0": the count is only logged when something was refused."""
     agent, _, _reached = source_search(
         {"headphones site:a.com": [_page("Anker Q30", "https://a.com/anker")]},
@@ -1056,9 +1039,7 @@ def test_a_failed_run_does_not_say_it_finished(timed_agent, monkeypatch, caplog)
     assert not any(line.startswith("Finished") for line in _said(caplog))
 
 
-def test_a_run_names_the_model_it_opened_and_where(
-    ollama_request, monkeypatch, caplog
-) -> None:
+def test_a_run_names_the_model_it_opened_and_where(ollama_request, monkeypatch, caplog) -> None:
     """A log downloaded from a failed run, or pasted into a bug report, says which
     model it was, which the settings left to their defaults never did."""
     monkeypatch.setattr("buy_agent.agent.search_web", lambda *_args, **_kwargs: [])
@@ -1068,8 +1049,7 @@ def test_a_run_names_the_model_it_opened_and_where(
         BuyAgent(config).run("headphones")
 
     assert _said(caplog)[:2] == [
-        "Shopping for: headphones",
-        "Asking qwen3:0.6b on Ollama at http://gpu-box:11434",
+        "Shopping for: headphones", "Asking qwen3:0.6b on Ollama at http://gpu-box:11434",
     ]
 
 
@@ -1158,8 +1138,7 @@ def test_the_report_names_the_weights_the_run_ranked_by(
     """The score line puts each share beside its weight (ADR-0045), and a run blended
     on rating alone is read against that blend and not the default one."""
     agent, _ = agent_factory(
-        FakeLLM(products=extracted_products),
-        search_results,
+        FakeLLM(products=extracted_products), search_results,
         weights=RankingWeights(rating=1.0, popularity=0.0, price=0.0),
     )
 
@@ -1176,9 +1155,7 @@ def test_the_named_currency_reaches_the_ranking(
     agent_factory, search_results, extracted_products
 ) -> None:
     """The scale is the config's, and the pipeline is handed it rather than reading it."""
-    agent, _ = agent_factory(
-        FakeLLM(products=extracted_products), search_results, currency="JPY"
-    )
+    agent, _ = agent_factory(FakeLLM(products=extracted_products), search_results, currency="JPY")
 
     ranked = agent.run("headphones")
 
@@ -1191,9 +1168,7 @@ def test_a_currency_nothing_is_priced_in_is_said_out_loud(
 ) -> None:
     """The one way to ask for a report whose price criterion is entirely assumed, so
     the run says so rather than quietly ranking on two criteria (ADR-0056)."""
-    agent, _ = agent_factory(
-        FakeLLM(products=extracted_products), search_results, currency="JPY"
-    )
+    agent, _ = agent_factory(FakeLLM(products=extracted_products), search_results, currency="JPY")
 
     with caplog.at_level(logging.WARNING, logger="buy_agent.agent"):
         agent.run("headphones")
@@ -1247,9 +1222,7 @@ def _sony(**fields) -> ProductList:
     return ProductList(products=[ExtractedProduct(name="Sony WH-1000XM5", **fields)])
 
 
-def test_a_declared_offer_is_shown_to_the_model_and_survives_grounding(
-    declaring_shop
-) -> None:
+def test_a_declared_offer_is_shown_to_the_model_and_survives_grounding(declaring_shop) -> None:
     """The figures exist only in the page's JSON-LD, so without ADR-0078 the model
     never saw them and grounding blanked whatever it said."""
     llm = FakeLLM(
@@ -1338,9 +1311,7 @@ def test_a_declaration_nobody_can_read_leaves_the_page_it_is_on(
     assert entry.product.price == 299.0
 
 
-def test_a_name_declared_cut_mid_emoji_reaches_the_model_as_text_it_can_send(
-    monkeypatch,
-) -> None:
+def test_a_name_declared_cut_mid_emoji_reaches_the_model_as_text_it_can_send(monkeypatch) -> None:
     """``json`` reads the ``"\\ud83c"`` as half a pair, which the clients cannot encode
     as UTF-8, and the run ended as "Could not reach Ollama"."""
     _a_shop_printing(

@@ -91,8 +91,7 @@ class ExtractedProduct(BaseModel):
 
     name: Annotated[str, Field(description="Product name including brand and model.")]
     price: Annotated[
-        float,
-        Field(description="Numeric price without currency symbol. Use -1 if unknown."),
+        float, Field(description="Numeric price without currency symbol. Use -1 if unknown."),
     ] = _UNKNOWN_NUMBER
     currency: Annotated[
         str, Field(description="ISO currency code such as USD or EUR. Empty if unknown.")
@@ -106,9 +105,7 @@ class ExtractedProduct(BaseModel):
     seller: Annotated[
         str, Field(description="Shop or site offering it, e.g. Amazon. Empty if unknown.")
     ] = ""
-    url: Annotated[
-        str, Field(description="Link to the product or the page it was found on.")
-    ] = ""
+    url: Annotated[str, Field(description="Link to the product or the page it was found on.")] = ""
     notes: Annotated[
         str, Field(description="One short sentence on what stands out about this product.")
     ] = ""
@@ -118,9 +115,7 @@ class ExtractedProduct(BaseModel):
     ] = ""
     condition: Annotated[
         str,
-        Field(
-            description='"new", "used" or "refurbished", as the results say. Empty if unknown.'
-        ),
+        Field(description='"new", "used" or "refurbished", as the results say. Empty if unknown.'),
     ] = ""
     opinions: Annotated[
         list[str],

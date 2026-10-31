@@ -13,11 +13,7 @@ from buy_agent.extraction import clean_products, deduplicate
 from buy_agent.models import Product, Removal, nothing_recorded
 from buy_agent.search import SearchResult
 from buy_agent.verification import (
-    attribute_sources,
-    build_haystack,
-    drop_ungrounded,
-    verify_numbers,
-    verify_opinions,
+    attribute_sources, build_haystack, drop_ungrounded, verify_numbers, verify_opinions,
     verify_standing,
 )
 from tests.conftest import said
@@ -141,9 +137,7 @@ HEURISTICS = {
     ),
 }
 
-CASES = pytest.mark.parametrize(
-    "heuristic", HEURISTICS.values(), ids=list(HEURISTICS)
-)
+CASES = pytest.mark.parametrize("heuristic", HEURISTICS.values(), ids=list(HEURISTICS))
 
 
 def _where(removing: bool) -> pytest.MarkDecorator:

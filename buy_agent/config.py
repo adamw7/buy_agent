@@ -49,8 +49,7 @@ class ServerEnvironment:
 def server_environment() -> ServerEnvironment:
     """Read when the server starts, not when this module is imported."""
     return ServerEnvironment(
-        host=os.getenv("BUY_AGENT_HOST", "").strip(),
-        port=os.getenv("BUY_AGENT_PORT", "").strip(),
+        host=os.getenv("BUY_AGENT_HOST", "").strip(), port=os.getenv("BUY_AGENT_PORT", "").strip(),
         allowed_hosts=tuple(os.getenv("BUY_AGENT_ALLOWED_HOSTS", "").replace(",", " ").split()),
         max_runs=os.getenv("BUY_AGENT_MAX_RUNS", "").strip(),
         behind_proxy=_switched(os.getenv("BUY_AGENT_BEHIND_PROXY", "")),

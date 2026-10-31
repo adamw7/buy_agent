@@ -16,13 +16,7 @@ from benchmark.baseline import Baseline, compared, read_baseline
 from benchmark.board import Board
 from benchmark.cases import CASES, SCRIPTS
 from benchmark.compare import (
-    CaseRun,
-    Contender,
-    Standing,
-    describe,
-    run_case,
-    standings,
-    write_standings,
+    CaseRun, Contender, Standing, describe, run_case, standings, write_standings,
 )
 
 if TYPE_CHECKING:

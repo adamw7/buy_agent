@@ -44,8 +44,7 @@ def read_mutmut(text: str) -> list[Mutant]:
     found = [match for match in map(_RESULT.match, text.splitlines()) if match]
     return [
         Mutant(
-            match.group("mutant").rpartition(".")[0],
-            readable(match.group("mutant")),
+            match.group("mutant").rpartition(".")[0], readable(match.group("mutant")),
             match.group("status"),
         )
         for match in found
@@ -86,29 +85,17 @@ class Tool:
 #: "no tests" is deliberately not unchecked: an uncovered mutant counts against the
 #: score, as Stryker's `NoCoverage` does.
 MUTMUT = Tool(
-    name="mutmut",
-    mutates="buy_agent",
-    rows="Module",
-    clusters="function",
-    floor=75.0,
+    name="mutmut", mutates="buy_agent", rows="Module", clusters="function", floor=75.0,
     caught=frozenset({"killed", "timeout", "caught by type check"}),
-    survived=frozenset({"survived"}),
-    unchecked=frozenset({"skipped", "not checked"}),
-    suffix=".txt",
-    read=read_mutmut,
+    survived=frozenset({"survived"}), unchecked=frozenset({"skipped", "not checked"}),
+    suffix=".txt", read=read_mutmut,
 )
 
 #: `CompileError` and `RuntimeError` mutants never ran, so they are unchecked.
 STRYKER = Tool(
-    name="Stryker",
-    mutates="ui/src/app",
-    rows="File",
-    clusters="file and mutator",
-    floor=60.0,
-    caught=frozenset({"Killed", "Timeout"}),
-    survived=frozenset({"Survived", "NoCoverage"}),
-    unchecked=frozenset({"Ignored", "Pending", "CompileError", "RuntimeError"}),
-    suffix=".json",
+    name="Stryker", mutates="ui/src/app", rows="File", clusters="file and mutator", floor=60.0,
+    caught=frozenset({"Killed", "Timeout"}), survived=frozenset({"Survived", "NoCoverage"}),
+    unchecked=frozenset({"Ignored", "Pending", "CompileError", "RuntimeError"}), suffix=".json",
     read=read_stryker,
 )
 

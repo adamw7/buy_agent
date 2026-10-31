@@ -100,9 +100,7 @@ SLOPPY = ProductList(
         # The Anker again, without its brand.
         ExtractedProduct(name="Soundcore Space Q45", price=99.0, url=SOUNDCHECK),
         # Never reported: the cap ran out.
-        ExtractedProduct(
-            name="Sennheiser Accentum", price=179.0, currency="USD", url=ROUNDUP
-        ),
+        ExtractedProduct(name="Sennheiser Accentum", price=179.0, currency="USD", url=ROUNDUP),
     ]
 )
 

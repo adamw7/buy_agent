@@ -30,9 +30,7 @@ class Alert:
         return asdict(self)
 
 
-def price_alert(
-    ranked: Sequence[RankedProduct], below: float, named: str | None = None
-) -> Alert:
+def price_alert(ranked: Sequence[RankedProduct], below: float, named: str | None = None) -> Alert:
     """Which products are priced at or under ``below`` in the run's currency and not out
     of stock (ADR-0079); an unknown or unplaceable price never meets it, nor one no page
     printed a currency for, which paying will not take either (ADR-0046)."""
@@ -90,10 +88,7 @@ def price_alert(
     detail += _also(gone, "at or under it, but out of stock where it was priced")
     detail += _also(bare, "priced at or under it, but with no currency printed")
     return Alert(
-        below=below,
-        below_label=line,
-        met=[product.name for _price, product in met],
-        detail=detail,
+        below=below, below_label=line, met=[product.name for _price, product in met], detail=detail,
     )
 
 

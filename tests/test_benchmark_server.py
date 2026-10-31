@@ -30,19 +30,8 @@ from benchmark.compare import CaseRun, Contender, run_case, run_payload
 from benchmark.query import QueryCheck, QueryVerdict
 from benchmark.scoring import METRICS
 from benchmark.server import (
-    DEFAULT_HOST,
-    DEFAULT_PORT,
-    DOING,
-    WEB_DIR,
-    Bench,
-    Job,
-    Stopped,
-    _names,
-    build_parser,
-    config_payload,
-    create_server,
-    main,
-    read_plan,
+    DEFAULT_HOST, DEFAULT_PORT, DOING, WEB_DIR, Bench, Job, Stopped, _names, build_parser,
+    config_payload, create_server, main, read_plan,
 )
 
 PERFECT = Contender.scripted("perfect")
@@ -53,13 +42,10 @@ FULL = {name: (1, 1) for name in METRICS}
 def kept(contender: Contender, case: str) -> CaseRun:
     """A finished run, made to order."""
     return CaseRun(
-        contender=contender,
-        case=case,
-        fingerprint=CASES[case].fingerprint,
+        contender=contender, case=case, fingerprint=CASES[case].fingerprint,
         finished="2026-10-02T09:05:30+00:00",
         query=QueryVerdict(query="q", checks=[QueryCheck(check="Keeps 'q'", passed=True)]),
-        seconds={"query": 0.5, "extract": 1.5},
-        counts=FULL,
+        seconds={"query": 0.5, "extract": 1.5}, counts=FULL,
     )
 
 

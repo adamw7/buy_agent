@@ -4,12 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from buy_agent.sources import (
-    format_sources,
-    parse_named_sources,
-    parse_source,
-    parse_sources,
-)
+from buy_agent.sources import format_sources, parse_named_sources, parse_source, parse_sources
 
 
 # -- what a source may look like -----------------------------------------------
@@ -54,13 +49,8 @@ def test_a_fragment_names_a_place_on_a_page_and_is_not_part_of_the_source() -> N
     "spec",
     [
         "",
-        "   ",
-        "Marques Brownlee",
-        "rtings",
-        "the review site with the good graphs",
-        "/headphones",
-        "-rtings.com",
-        "https://",
+        "   ", "Marques Brownlee", "rtings", "the review site with the good graphs", "/headphones",
+        "-rtings.com", "https://",
     ],
 )
 def test_something_that_names_no_site_is_refused_with_the_shapes_that_work(spec) -> None:
@@ -101,8 +91,7 @@ def test_a_separator_in_front_of_the_first_one_names_nothing_and_stops_nothing()
     """``, rtings.com`` is a field somebody started typing into after a comma, and
     the empty piece in front of it is skipped rather than read as the end."""
     assert [source.domain for source in parse_sources(", rtings.com @mkbhd")] == [
-        "rtings.com",
-        "youtube.com",
+        "rtings.com", "youtube.com",
     ]
 
 

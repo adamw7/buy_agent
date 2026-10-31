@@ -15,13 +15,7 @@ import pytest
 from buy_agent import mandates
 from buy_agent.logging_setup import _NOISY_LIBRARIES, _TRACE_LIBRARIES
 from buy_agent.models import (
-    ExtractedProduct,
-    Opinion,
-    Product,
-    ProductList,
-    RankedProduct,
-    ScoreParts,
-    SearchQuery,
+    ExtractedProduct, Opinion, Product, ProductList, RankedProduct, ScoreParts, SearchQuery,
 )
 from buy_agent.screenshots import ScreenshotError
 from buy_agent.search import SearchResult
@@ -77,13 +71,8 @@ def pay_with_nothing_of_the_developers(monkeypatch: pytest.MonkeyPatch) -> None:
 #: The server's deployment, read off the environment it starts in (ADR-0092).
 _SERVER_ENVIRONMENT = (
     "BUY_AGENT_HOST",
-    "BUY_AGENT_PORT",
-    "BUY_AGENT_ALLOWED_HOSTS",
-    "BUY_AGENT_MAX_RUNS",
-    "BUY_AGENT_BEHIND_PROXY",
-    "BUY_AGENT_ACCESS_LOG",
-    "BUY_AGENT_LOG_FORMAT",
-    "BUY_AGENT_API_TOKEN",
+    "BUY_AGENT_PORT", "BUY_AGENT_ALLOWED_HOSTS", "BUY_AGENT_MAX_RUNS", "BUY_AGENT_BEHIND_PROXY",
+    "BUY_AGENT_ACCESS_LOG", "BUY_AGENT_LOG_FORMAT", "BUY_AGENT_API_TOKEN",
 )
 
 
@@ -118,10 +107,7 @@ OPEN_MANDATE_PAYEE = "audiosite.example"
 
 
 def open_mandate(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    maximum: int = OPEN_MANDATE_LIMIT,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, maximum: int = OPEN_MANDATE_LIMIT,
     payee: str = OPEN_MANDATE_PAYEE,
 ) -> tuple[Any, Any]:
     """Put a pre-signed open mandate where ``$BUY_AGENT_AP2_MANDATE`` will find it.
@@ -130,9 +116,7 @@ def open_mandate(
         The agent key the mandate delegates to, and the issuer's.
     """
     from ap2.sdk.generated.open_payment_mandate import (
-        AllowedPayees,
-        AmountRange,
-        OpenPaymentMandate,
+        AllowedPayees, AmountRange, OpenPaymentMandate,
     )
     from ap2.sdk.generated.types.merchant import Merchant
     from ap2.sdk.mandate import MandateClient
@@ -146,9 +130,7 @@ def open_mandate(
                 constraints=[
                     AmountRange(currency="USD", min=0, max=maximum),
                     AllowedPayees(
-                        allowed=[
-                            Merchant(id=payee, name="AudioSite", website=f"https://{payee}")
-                        ]
+                        allowed=[Merchant(id=payee, name="AudioSite", website=f"https://{payee}")]
                     ),
                 ],
                 cnf={"jwk": json.loads(agent.export_public())},
@@ -167,9 +149,7 @@ def open_mandate(
     return agent, issuer
 
 
-def enrolled_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: Any | None = None
-) -> Any:
+def enrolled_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: Any | None = None) -> Any:
     """An EC P-256 key on disk, with ``$BUY_AGENT_AP2_KEY`` naming it.
 
     Returns:
@@ -205,10 +185,7 @@ class FakeLLM:
     """Stands in for a model server: a canned object per requested schema."""
 
     def __init__(
-        self,
-        *,
-        query: SearchQuery | None = None,
-        products: ProductList | None = None,
+        self, *, query: SearchQuery | None = None, products: ProductList | None = None,
         raises: Exception | None = None,
     ) -> None:
         self.query = query or SearchQuery(query="fake refined query")
@@ -295,18 +272,15 @@ def payable_product(**extra: Any) -> Product:
 def search_results() -> list[SearchResult]:
     return [
         SearchResult(
-            title="Sony WH-1000XM5 review",
-            url="https://example.com/sony",
+            title="Sony WH-1000XM5 review", url="https://example.com/sony",
             snippet="$328, rated 4.7 out of 5 from 12000 reviews.",
         ),
         SearchResult(
-            title="Anker Soundcore Q30",
-            url="https://example.com/anker",
+            title="Anker Soundcore Q30", url="https://example.com/anker",
             snippet="$79, rated 4.3 out of 5 from 90000 reviews.",
         ),
         SearchResult(
-            title="Unknown Brand Buds land this week",
-            url="https://example.com/unknown",
+            title="Unknown Brand Buds land this week", url="https://example.com/unknown",
             snippet="The Unknown Brand Buds are out now. No word on pricing.",
         ),
     ]
@@ -317,23 +291,12 @@ def extracted_products() -> ProductList:
     return ProductList(
         products=[
             ExtractedProduct(
-                name="Sony WH-1000XM5",
-                price=328.0,
-                currency="usd",
-                rating=4.7,
-                review_count=12000,
-                seller="Amazon",
-                url="https://example.com/sony",
-                notes="Best noise cancelling.",
+                name="Sony WH-1000XM5", price=328.0, currency="usd", rating=4.7, review_count=12000,
+                seller="Amazon", url="https://example.com/sony", notes="Best noise cancelling.",
             ),
             ExtractedProduct(
-                name="Anker Soundcore Q30",
-                price=79.0,
-                currency="USD",
-                rating=4.3,
-                review_count=90000,
-                seller="Anker",
-                url="https://example.com/anker",
+                name="Anker Soundcore Q30", price=79.0, currency="USD", rating=4.3,
+                review_count=90000, seller="Anker", url="https://example.com/anker",
             ),
             ExtractedProduct(name="Unknown Brand Buds"),
         ]

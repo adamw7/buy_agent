@@ -24,25 +24,9 @@ from buy_agent.__main__ import build_parser
 from buy_agent.__main__ import main as cli_main
 from buy_agent.agent import BuyAgent
 from buy_agent.api import (
-    BACKEND_OPTIONS,
-    LIMITS,
-    OPTIONS,
-    PAY_STATUS,
-    PROVIDER_OPTIONS,
-    RAIL_OPTIONS,
-    SORT_OPTIONS,
-    _STATUS,
-    ApiError,
-    bounds_payload,
-    defaults_payload,
-    limits_payload,
-    model_payload,
-    parse_options,
-    pay_now,
-    product_payload,
-    rank_again,
-    results_payload,
-    run_search,
+    BACKEND_OPTIONS, LIMITS, OPTIONS, PAY_STATUS, PROVIDER_OPTIONS, RAIL_OPTIONS, SORT_OPTIONS,
+    _STATUS, ApiError, bounds_payload, defaults_payload, limits_payload, model_payload,
+    parse_options, pay_now, product_payload, rank_again, results_payload, run_search,
     sources_payload,
 )
 from buy_agent.bounds import Bound
@@ -347,9 +331,7 @@ def test_both_doors_say_which_end_of_each_criterion_comes_first() -> None:
 
 
 @pytest.mark.parametrize("key", sorted(limits_payload()))
-def test_both_front_doors_refuse_text_in_a_number_in_the_same_words(
-    key: str, capsys
-) -> None:
+def test_both_front_doors_refuse_text_in_a_number_in_the_same_words(key: str, capsys) -> None:
     """Worded at each door on its own, the form was told "must be a number" and the
     terminal "invalid float value" -- the name of the converter that failed, which
     is what argparse says when a ``type`` raises ``ValueError``."""
@@ -467,9 +449,7 @@ def test_every_currency_a_price_is_read_in_is_one_the_run_can_place(spelling: st
         )
 
 
-@pytest.mark.parametrize(
-    "spelling", sorted((money.ALIASES.keys() | money.CODES) - money.UNSCANNED)
-)
+@pytest.mark.parametrize("spelling", sorted((money.ALIASES.keys() | money.CODES) - money.UNSCANNED))
 def test_every_currency_the_run_can_place_is_one_a_price_is_read_in(spelling: str) -> None:
     """The same rule the other way round, which is the direction that was wrong."""
     assert fetch_module.quotes_a_figure(f"it sells for {spelling}99") or (
@@ -565,9 +545,7 @@ def test_an_installed_model_is_mirrored_field_for_field_in_typescript() -> None:
 
 
 def test_a_finished_run_is_mirrored_field_for_field_in_typescript() -> None:
-    payload = run_search(
-        "headphones", AgentConfig(), agent_factory=lambda _config: _StubAgent()
-    )
+    payload = run_search("headphones", AgentConfig(), agent_factory=lambda _config: _StubAgent())
 
     assert set(ts_interface("SearchResult")) == set(payload)
 
@@ -1704,10 +1682,8 @@ _CHECKS_A_TOOLCHAIN = (_START, _SETUP, _HOOK)
 
 #: Where a person is told which Python and which Node to have.
 _NAMES_A_TOOLCHAIN = (
-    *_CHECKS_A_TOOLCHAIN,
-    _ROOT / ".claude" / "skills" / "preflight" / "SKILL.md",
-    _ROOT / "README.md",
-    _ROOT / "CLAUDE.md",
+    *_CHECKS_A_TOOLCHAIN, _ROOT / ".claude" / "skills" / "preflight" / "SKILL.md",
+    _ROOT / "README.md", _ROOT / "CLAUDE.md",
 )
 
 
@@ -1974,13 +1950,11 @@ def test_the_browser_job_opens_the_build_the_ui_job_tested() -> None:
     put where the server serves it from."""
     kept = re.search(
         r"uses: actions/upload-artifact@\S+\n\s+with:\n\s+name: (.+)\n\s+path: (\S+)$",
-        workflow_jobs(_CI)["ui"],
-        re.M,
+        workflow_jobs(_CI)["ui"], re.M,
     )
     opened = re.search(
         r"uses: actions/download-artifact@\S+\n\s+with:\n\s+name: (.+)\n\s+path: (\S+)$",
-        browser_job(),
-        re.M,
+        browser_job(), re.M,
     )
     assert kept, "the ui job keeps no build"
     assert opened, "the browser job fetches no build"
@@ -2916,9 +2890,7 @@ def frontmatter(path: Path) -> dict[str, str]:
     """The `key: value` lines of a skill's YAML header."""
     header = re.match(r"---\n(.*?)\n---\n", path.read_text(encoding="utf-8"), re.S)
     assert header, f"{path} has no frontmatter"
-    return dict(
-        re.findall(r"^([a-z-]+): (.+)$", header.group(1), re.M),
-    )
+    return dict(re.findall(r"^([a-z-]+): (.+)$", header.group(1), re.M))
 
 
 def quoted(text: str) -> list[str]:
@@ -3262,9 +3234,7 @@ def declared_classes() -> dict[str, tuple[str, ...]]:
     return declared
 
 
-def raisable(
-    name: str, declared: dict[str, tuple[str, ...]], seen: tuple[str, ...] = ()
-) -> bool:
+def raisable(name: str, declared: dict[str, tuple[str, ...]], seen: tuple[str, ...] = ()) -> bool:
     """Whether ``name`` reaches ``BaseException`` through what the package declares."""
     builtin = getattr(builtins, name, None)
     if isinstance(builtin, type) and issubclass(builtin, BaseException):
@@ -3742,15 +3712,11 @@ def test_every_token_a_stylesheet_reads_is_one_the_page_declares(path: Path) -> 
     none, and one it does not is the mistake the comma hides. A property a stylesheet
     declares for itself (`--log-height`) is its own to read."""
     written = _CSS_COMMENT.sub("", path.read_text(encoding="utf-8"))
-    declared = tokens_declared(_UI_STYLES.read_text(encoding="utf-8")) | tokens_declared(
-        written
-    )
+    declared = tokens_declared(_UI_STYLES.read_text(encoding="utf-8")) | tokens_declared(written)
 
     for token, after in _TOKEN_READ.findall(written):
         assert token in declared, f"{path.name} reads {token}, which nothing declares"
-        assert after == ")", (
-            f"{path.name} gives {token} a fallback, a colour for one scheme only"
-        )
+        assert after == ")", (f"{path.name} gives {token} a fallback, a colour for one scheme only")
 
 
 def test_every_colour_the_page_declares_has_a_dark_value_too() -> None:
@@ -3779,9 +3745,7 @@ _MERMAID_NODE = re.compile(r'\b\w+(?:\(\[|\[\(|\()"([^"]*)"')
 #: Where a component the diagrams name may be: a module of either Python package, or
 #: a file or component folder of the UI.
 _COMPONENT_HOMES = (
-    SOURCE_ROOT / "buy_agent",
-    SOURCE_ROOT / "benchmark",
-    SOURCE_ROOT / "ui" / "src" / "app",
+    SOURCE_ROOT / "buy_agent", SOURCE_ROOT / "benchmark", SOURCE_ROOT / "ui" / "src" / "app",
 )
 
 

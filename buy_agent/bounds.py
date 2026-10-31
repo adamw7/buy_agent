@@ -9,13 +9,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from buy_agent.money import (
-    GROUP_SPACES,
-    SCANNED_CODES,
-    SIGNS,
-    SPACED_THOUSANDS,
-    WORDS,
-    plain_figures,
-    ungroup,
+    GROUP_SPACES, SCANNED_CODES, SIGNS, SPACED_THOUSANDS, WORDS, plain_figures, ungroup,
 )
 
 #: Named as the settings that enforce them.

@@ -8,15 +8,8 @@ import pytest
 
 from buy_agent.chat import read_answer
 from buy_agent.models import (
-    _MAX_OPINION_LENGTH,
-    STANDING_PHRASES,
-    Availability,
-    Condition,
-    ExtractedProduct,
-    Offer,
-    Product,
-    ProductList,
-    dominant_currency,
+    _MAX_OPINION_LENGTH, STANDING_PHRASES, Availability, Condition, ExtractedProduct, Offer,
+    Product, ProductList, dominant_currency,
 )
 from tests.conftest import said
 
@@ -107,9 +100,7 @@ def test_a_quote_exactly_as_long_as_a_card_holds_is_kept() -> None:
     )
     assert len(quote) == _MAX_OPINION_LENGTH
 
-    assert ExtractedProduct(name="Thing", opinions=[quote]).to_product().opinions == said(
-        quote
-    )
+    assert ExtractedProduct(name="Thing", opinions=[quote]).to_product().opinions == said(quote)
 
 
 def test_a_review_count_of_zero_is_no_count_at_all() -> None:
@@ -163,9 +154,7 @@ def offer(price: float, currency: str | None = "USD", **rest: object) -> Offer:
 
 def test_several_listings_are_reported_as_a_range() -> None:
     priced = Product(
-        name="Sony WH-1000XM5",
-        price=329.0,
-        currency="USD",
+        name="Sony WH-1000XM5", price=329.0, currency="USD",
         offers=[offer(329.0), offer(149.0), offer(349.0)],
     )
 
@@ -203,9 +192,7 @@ def test_a_listing_off_the_scale_says_where_it_was(elsewhere: list[Offer], expec
 
 def test_listings_none_of_which_are_on_the_scale_are_only_counted() -> None:
     priced = Product(
-        name="Sony WH-1000XM5",
-        price=None,
-        currency=None,
+        name="Sony WH-1000XM5", price=None, currency=None,
         offers=[offer(329.0), offer(299.0, "EUR")],
     )
 

@@ -8,12 +8,7 @@ from itertools import permutations
 import pytest
 
 from buy_agent.extraction import (
-    _MAX_NAME_LENGTH,
-    clean_name,
-    clean_products,
-    deduplicate,
-    format_results,
-    looks_like_a_product,
+    _MAX_NAME_LENGTH, clean_name, clean_products, deduplicate, format_results, looks_like_a_product,
     merge_variants,
 )
 from buy_agent.models import Offer, Product, Removal
@@ -32,8 +27,7 @@ def test_format_results_numbers_every_result(search_results) -> None:
 def test_deduplicate_counts_merges_and_nameless_drops_apart(caplog) -> None:
     """Two different things happen here, and one number reported them as merges."""
     products = [
-        Product(name="Sony WH-1000XM5"),
-        Product(name="Sony WH-1000XM5 Wireless"),
+        Product(name="Sony WH-1000XM5"), Product(name="Sony WH-1000XM5 Wireless"),
         Product(name="   "),
     ]
 
@@ -48,8 +42,7 @@ def test_both_of_those_name_what_they_took_for_the_reader_who_asked(caplog) -> N
     """A merge is the other way a product leaves the report, and the only one a
     reader cannot reconstruct from what survived: the longer name is gone."""
     products = [
-        Product(name="Sony WH-1000XM5"),
-        Product(name="Sony WH-1000XM5 Wireless"),
+        Product(name="Sony WH-1000XM5"), Product(name="Sony WH-1000XM5 Wireless"),
         Product(name="   "),
     ]
 
@@ -76,11 +69,7 @@ def test_a_product_named_after_a_superlative_is_kept() -> None:
 def test_a_headline_qualified_by_a_model_number_is_still_a_headline() -> None:
     """The qualifier sits between the superlative and the category, and nothing
     names a single model after it -- which is what tells these from a brand."""
-    for headline in (
-        "Best PS5 Headsets",
-        "Cheapest 4K TVs",
-        "Best 1080p Monitors",
-    ):
+    for headline in ("Best PS5 Headsets", "Cheapest 4K TVs", "Best 1080p Monitors"):
         assert not looks_like_a_product(headline), headline
 
 
@@ -179,11 +168,8 @@ def test_a_currency_never_moves_to_a_price_from_another_page() -> None:
         [
             Product(name="Sony WH-CH720N", price=129.0, review_count=800, url="https://us/a"),
             Product(
-                name="Sony WH-CH720N Wireless Headphones",
-                price=249.0,
-                currency="EUR",
-                review_count=90,
-                url="https://eu/b",
+                name="Sony WH-CH720N Wireless Headphones", price=249.0, currency="EUR",
+                review_count=90, url="https://eu/b",
             ),
         ]
     )
@@ -284,10 +270,7 @@ def test_the_surviving_name_is_the_one_the_merge_kept_not_the_first_seen() -> No
     sentence has to be built off the merged entry rather than off the loop."""
     removed = taken(
         lambda record: merge_variants(
-            [
-                Product(name="Sony WH-CH720N Wireless Headphones"),
-                Product(name="Sony WH-CH720N"),
-            ],
+            [Product(name="Sony WH-CH720N Wireless Headphones"), Product(name="Sony WH-CH720N")],
             record=record,
         )
     )
@@ -337,8 +320,7 @@ def test_a_name_folded_on_a_second_pass_is_said_once_and_keeps_its_listing() -> 
 
     assert [product.name for product in kept] == ["Sony WH-1000XM5"]
     assert sorted(entry.name for entry in removed) == [
-        "Sony WH-1000XM5 Black",
-        "Sony WH-1000XM5 Wireless",
+        "Sony WH-1000XM5 Black", "Sony WH-1000XM5 Wireless",
     ]
     assert sorted(offer.price for offer in kept[0].offers) == [348.0, 399.0]
 
@@ -352,10 +334,7 @@ def test_every_listing_that_was_priced_becomes_an_offer() -> None:
     kept = deduplicate(
         [
             Product(
-                name="Sony WH-1000XM5",
-                price=329.0,
-                currency="USD",
-                seller="Shop",
+                name="Sony WH-1000XM5", price=329.0, currency="USD", seller="Shop",
                 url="https://shop.example/xm5",
             )
         ],
@@ -374,19 +353,11 @@ def test_a_merge_keeps_both_listings_prices() -> None:
     merged = deduplicate(
         [
             Product(
-                name="Sony WH-1000XM5 Wireless",
-                price=149.0,
-                currency="USD",
-                seller="ShopB",
-                url="https://b.example/p",
-                rating=4.5,
-                review_count=100,
+                name="Sony WH-1000XM5 Wireless", price=149.0, currency="USD", seller="ShopB",
+                url="https://b.example/p", rating=4.5, review_count=100,
             ),
             Product(
-                name="Sony WH-1000XM5",
-                price=129.0,
-                currency="USD",
-                seller="ShopA",
+                name="Sony WH-1000XM5", price=129.0, currency="USD", seller="ShopA",
                 url="https://a.example/p",
             ),
         ],
@@ -407,10 +378,7 @@ def test_a_listings_standing_is_seeded_onto_its_offer() -> None:
     [kept] = deduplicate(
         [
             Product(
-                name="Sony WH-1000XM5",
-                price=299.0,
-                currency="USD",
-                availability="in stock",
+                name="Sony WH-1000XM5", price=299.0, currency="USD", availability="in stock",
                 condition="refurbished",
             )
         ],
@@ -428,16 +396,11 @@ def test_a_price_filled_in_by_a_merge_brings_its_standing_with_it() -> None:
     [merged] = deduplicate(
         [
             Product(
-                name="Sony WH-1000XM5 Wireless",
-                rating=4.6,
-                review_count=900,
+                name="Sony WH-1000XM5 Wireless", rating=4.6, review_count=900,
                 url="https://reviews.example/xm5",
             ),
             Product(
-                name="Sony WH-1000XM5",
-                price=249.0,
-                currency="USD",
-                availability="out of stock",
+                name="Sony WH-1000XM5", price=249.0, currency="USD", availability="out of stock",
                 condition="used",
             ),
         ],
@@ -445,7 +408,5 @@ def test_a_price_filled_in_by_a_merge_brings_its_standing_with_it() -> None:
     )
 
     assert (merged.price, merged.availability, merged.condition) == (
-        249.0,
-        "out of stock",
-        "used",
+        249.0, "out of stock", "used",
     )

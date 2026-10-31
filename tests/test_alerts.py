@@ -78,11 +78,7 @@ def test_everything_priced_being_out_of_stock_is_said_so() -> None:
 
 def test_a_price_in_another_currency_cannot_meet_it() -> None:
     """Nothing is converted (ADR-0043): 90 EUR is not under 100 USD, nor over it."""
-    alert = price_alert(
-        ranked(Product(name="Euro", price=90.0, currency="EUR")),
-        100,
-        "USD",
-    )
+    alert = price_alert(ranked(Product(name="Euro", price=90.0, currency="EUR")), 100, "USD")
 
     assert alert.met == []
     assert alert.detail == (
@@ -157,10 +153,8 @@ def test_a_price_with_no_currency_printed_never_meets_it() -> None:
     is said beside the line, as an out-of-stock one is."""
     alert = price_alert(
         ranked(
-            Product(name="Dollar", price=150.0, currency="USD"),
-            Product(name="Unsaid", price=90.0),
-            Product(name="Also unsaid", price=85.0),
-            Product(name="Dear and unsaid", price=120.0),
+            Product(name="Dollar", price=150.0, currency="USD"), Product(name="Unsaid", price=90.0),
+            Product(name="Also unsaid", price=85.0), Product(name="Dear and unsaid", price=120.0),
         ),
         100,
     )
@@ -175,8 +169,7 @@ def test_a_price_with_no_currency_printed_never_meets_it() -> None:
 def test_a_met_alert_still_names_a_bare_price_under_it() -> None:
     alert = price_alert(
         ranked(
-            Product(name="Dollar", price=80.0, currency="USD"),
-            Product(name="Unsaid", price=90.0),
+            Product(name="Dollar", price=80.0, currency="USD"), Product(name="Unsaid", price=90.0),
         ),
         100,
     )
@@ -192,8 +185,7 @@ def test_a_run_whose_pages_printed_no_currency_meets_nothing() -> None:
     """Before, with no currency anywhere, every bare price was on the scale and any of
     them could meet it."""
     alert = price_alert(
-        ranked(Product(name="Unsaid", price=90.0), Product(name="Dear", price=150.0)),
-        100,
+        ranked(Product(name="Unsaid", price=90.0), Product(name="Dear", price=150.0)), 100,
     )
 
     assert alert.met == []

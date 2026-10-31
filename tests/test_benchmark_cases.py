@@ -13,11 +13,7 @@ from buy_agent.fetch import _MIN_OPINION, reads_like_an_opinion
 from buy_agent.models import ProductList, SearchQuery
 from buy_agent.search import SearchResult
 from buy_agent.verification import (
-    build_haystack,
-    mentions_name,
-    mentions_number,
-    mentions_rating,
-    mentions_review_count,
+    build_haystack, mentions_name, mentions_number, mentions_rating, mentions_review_count,
     running_words,
 )
 from benchmark import corpus
@@ -294,8 +290,7 @@ def test_the_request_itself_names_no_brand_a_query_is_held_to(case: Case) -> Non
 
 
 KEY = QueryKey(
-    keeps=(("espresso",), ("400",), ("euro", "euros", "€")),
-    brands=("sage", "de longhi"),
+    keeps=(("espresso",), ("400",), ("euro", "euros", "€")), brands=("sage", "de longhi"),
 )
 
 
@@ -304,12 +299,8 @@ def test_a_query_keeping_everything_and_adding_nothing_passes_every_check() -> N
 
     assert verdict.score == 1.0
     assert [check.check for check in verdict.checks] == [
-        "Keeps 'espresso'",
-        "Keeps '400'",
-        "Keeps 'euro'",
-        "Names no brand the shopper did not",
-        "Adds no figure the shopper did not give",
-        "Reads as one query (5 words)",
+        "Keeps 'espresso'", "Keeps '400'", "Keeps 'euro'", "Names no brand the shopper did not",
+        "Adds no figure the shopper did not give", "Reads as one query (5 words)",
     ]
 
 
