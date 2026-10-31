@@ -154,8 +154,9 @@ Keep `docs/architecture.md` (C4) in step when a responsibility or boundary moves
 `docs/adr/` is the decision log: a new ADR is a file from
 `docs/adr/0000-template.md` plus its row in `docs/adr/README.md`. Contradict an
 accepted record by superseding it with a new one; never reuse a number or rewrite
-an accepted record. Every record is Accepted but ADR-0020, ADR-0038, ADR-0065 and
-ADR-0067, which ADR-0037, ADR-0088, ADR-0087 and ADR-0091 supersede.
+an accepted record. Every record is Accepted but ADR-0007, ADR-0020, ADR-0038,
+ADR-0059, ADR-0065 and ADR-0067, which ADR-0096, ADR-0037, ADR-0088, ADR-0094,
+ADR-0087 and ADR-0091 supersede.
 
 `.claude/skills/` holds checklists over these rules: `add-option` (a setting),
 `add-row` (a model server, rail or search backend), `add-adr` (the next record)
@@ -189,9 +190,9 @@ against the set it leaves (ADR-0043).
 | `cache.py` | What a run can reuse: page text and answers, nothing else |
 | `journal.py` | What past runs of this search reported, and what moved since |
 | `verification.py` | Drops products, figures and quotes the sources lack; links what is left |
-| `constraints.py` | The shopper's bounds, applied before ranking |
+| `constraints.py` | The shopper's bounds, applied before ranking, marking what they could not check |
 | `alerts.py` | Whether a finished run met the price alert; told, never applied |
-| `bounds.py` | What the request itself asks for, offered at both doors, never applied |
+| `bounds.py` | What the request itself asks for, applied at both doors, which say so |
 | `ranking.py` | Scoring and sorting, and what each score is made of; no LLM |
 | `models.py` | `ExtractedProduct` (LLM-facing) vs `Product` (domain); which currency a set is counted in |
 | `money.py` | Every currency table |
@@ -283,7 +284,8 @@ where HTTP, threads, env reads and files may go; ADR-0047), listed in
   per `Availability`/`Condition` value (ADR-0079): `verify_standing` keeps one
   only where a page about the product prints it, `fetch` keeps lines in it,
   `structured` writes in it; "new" or "used" alone never counts. Ranking reads
-  neither; `Product.listing_label` is the one wording.
+  only "out of stock", to rank it last (ADR-0095), and never condition;
+  `Product.listing_label` is the one wording.
 - **A page's declaration is page text** (ADR-0078): `fetch.html_to_text` puts
   `structured.declared`'s lines first, each one grounding accepts; nothing
   downstream knows it was declared.
@@ -299,9 +301,14 @@ where HTTP, threads, env reads and files may go; ADR-0047), listed in
   (realness, links, quotes) stricter at its 0.6 coverage bar. Compare token to
   token, never substring; add only words that identify nothing ("wireless",
   "black").
-- **Missing data scores neutral, and says so.** `ranking.NEUTRAL` (0.5) stands in
-  for an unknown rating, count or price (ADR-0007); sorts sink unknowns, bounds
-  keep them (ADR-0039). Prices compare within one currency, never converted:
+- **Missing data never wins, and says so.** `ranking.NEUTRAL` (0.5) stands in for
+  an unknown rating or count; an unknown price scores what the dearest placed price
+  does (`_unknown_price_share`, ADR-0096); sorts sink unknowns, bounds keep them
+  (ADR-0039). `Constraints.apply` marks a kept product with the limits that had no
+  figure for it (`Product.unchecked`, ADR-0097), and ranking puts it after the
+  checked; a listing no page has in stock ranks after every other, in every order
+  (ADR-0095). The score is untouched; `ranking.placement_note` says why, beside it,
+  at both doors. Prices compare within one currency, never converted:
   `models.dominant_currency` picks it (the shopper's `currency`, else a vote,
   ADR-0056), and `models.comparable_price`, used by `rank_products` and
   `Constraints`, is `None` outside it (ADR-0043). `score_product` answers
@@ -312,11 +319,12 @@ where HTTP, threads, env reads and files may go; ADR-0047), listed in
   either side of the figure; words case-fold, codes read as written ("Try" isn't
   TRY). The exemptions `UNPLACEABLE` (`¥`) and `UNSCANNED` ("pounds") are tested
   both ways.
-- **A bound written in the request is offered, never applied** (ADR-0059).
-  `bounds.notice` reads "under $200", "at least 4 stars", "over 500 reviews" in
-  plain Python, anchored on the unit, blind to the settings' ranges. The CLI logs
-  a line naming the flag; `GET /api/bounds` pre-fills an empty box once, as a
-  hint.
+- **A bound written in the request is applied where the shopper sees it**
+  (ADR-0094). `bounds.notice` reads "under $200", "at least 4 stars", "over 500
+  reviews" in plain Python, anchored on the unit, blind to the settings' ranges.
+  The CLI applies each whose flag was not given (`_apply_noticed_bounds`) and logs
+  a line quoting the words and naming the flag; `GET /api/bounds` fills an empty
+  box once, named beside the request. A given setting always wins.
 - **The report says its order:** `ranking.ORDERINGS` has a phrase per `SortBy`
   ("cheapest first") for the heading, `sort_labels` and `--sort-by`'s help; a new
   criterion needs one.
@@ -503,6 +511,8 @@ Reasons are in `ui/README.md`. These must hold:
 - No sentence about the model server is written in TS: `App.unreachable` is
   Python's `hint`; `App.asking` holds the in-flight `ModelSource`. Re-ask on load,
   on Check again, and after a contradicting run.
+- A card shows Python's `placement_note` beside the score where the score did not
+  decide its place (ADR-0097).
 - `progress-log` is presentation; Download log only for failed or stopped runs.
   `App.reveal`/`showResults` scroll results into view (`nearest`), never to a
   failure naming a field.
@@ -528,10 +538,12 @@ Reasons are in `ui/README.md`. These must hold:
   a bound an older build stored is not restored (ADR-0077). Every storage call is
   wrapped.
 - A request-noticed bound fills its box once (`noticedNow`, `offered`) and marks
-  nothing; its note sits above the box's hint. A submit waits for a reading on its
-  way (`reading`, `held`); one that fills a box sends nothing, focuses the box,
-  scrolls its field into view and says beside it nothing was searched yet
-  (`stoppedAt`). `App` takes a failed reading as noticing nothing.
+  nothing; its note sits above the box's hint, and the panel is not opened for it.
+  `fromRequest` quotes each filled bound beside the request, with one button
+  clearing them, or searching again without them once the results came from them
+  (`searchedWithIt`). A submit waits for a reading on its way (`reading`, `held`)
+  and then goes with what it filled in. `App` takes a failed reading as noticing
+  nothing.
 - `problems()` gates `canSubmit` on server ranges and the last sources answer.
   Disabled fields are neither checked nor sent; a switched-off number box shows
   empty so its placeholder reads. `notes()` adds the server's `rejected` field

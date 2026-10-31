@@ -244,10 +244,12 @@ def test_the_sloppy_laptops_score_exactly_what_their_mistakes_cost() -> None:
         "links": (3, 3),
         "quotes": (1, 3),
         "faithful": (1, 2),
-        "order": (2, 3),
+        # Its Acer is priced in Canadian dollars, which the run cannot place: scored as
+        # the dearest price (ADR-0096), it falls below the ASUS the key puts it above.
+        "order": (1, 3),
     }
     assert (card.invented, card.repeated) == (1, 1)
-    assert card.score == pytest.approx(0.6)
+    assert card.score == pytest.approx(0.5743589743589743)
 
 
 def test_the_sloppy_espresso_scores_exactly_what_its_mistakes_cost() -> None:

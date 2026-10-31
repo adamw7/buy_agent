@@ -198,6 +198,20 @@ describe('ProductCard', () => {
     expect(listing.classList).toContain('gone');
   });
 
+  it("says why it ranks below what may score less, in Python's sentence", async () => {
+    /* Out of stock at 94% under a 66% was a place nothing on the card explained
+       (ADR-0095, ADR-0097). */
+    const note = 'Ranked last: a page says it is out of stock.';
+    const card = await render(product({ availability: 'out of stock', placement_note: note }));
+
+    expect(card.querySelector('.placement')!.textContent!.trim()).toBe(note);
+    expect(await accessibilityProblems(card)).toEqual([]);
+  });
+
+  it('says nothing of its place where its score alone put it there', async () => {
+    expect((await render(SONY)).querySelector('.placement')).toBeNull();
+  });
+
   it('says nothing of stock where no page did', async () => {
     expect((await render(SONY)).querySelector('.listing')).toBeNull();
   });

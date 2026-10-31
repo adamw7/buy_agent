@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
     from buy_agent.chat import ChatModel
-    from buy_agent.models import Product, RankedProduct, Recorder
+    from buy_agent.models import Product, RankedProduct, Recorder, Removal
     from buy_agent.ranking import SortBy
     from buy_agent.search import SearchResult
 
@@ -86,6 +86,16 @@ def journal_for(request: str, config: AgentConfig) -> Journal:
     )
 
 
+def _noting(into: list[Removal], record: Recorder) -> Recorder:
+    """``record``, with a copy of each removal kept in ``into`` too."""
+
+    def both(removal: Removal) -> None:
+        into.append(removal)
+        record(removal)
+
+    return both
+
+
 class _Stopwatch:
     """Where one run's time went: the whole of it, and each step timed, in the order
     the steps ran (ADR-0084)."""
@@ -129,6 +139,9 @@ class BuyAgent:
         self._opened = None if llm else self.llm
         self.query_chain = Chain(QUERY_PROMPT, self.llm, SearchQuery)
         self.extraction_chain = Chain(EXTRACTION_PROMPT, self.llm, ProductList)
+        #: Why the last run found nothing, as one sentence either door shows; "" after a
+        #: run that found something. Named settings, never flags (ADR-0071).
+        self.nothing = ""
 
     def close(self) -> None:
         release(self._opened)
@@ -176,12 +189,14 @@ class BuyAgent:
         record: Recorder,
     ) -> list[RankedProduct]:
         """The run itself, each step it waits on timed by ``watch``."""
+        self.nothing = ""
         query = self._refine_query(request, watch)
         checkpoint("search")
         with watch.timing("search"):
             results = self._search(query)
         if not results:
-            logger.warning("Search returned nothing for %r%s", query, self._empty_search_note())
+            self.nothing = f"Search returned nothing for {query!r}{self._empty_search_note()}"
+            logger.warning("%s", self.nothing)
             return []
 
         if self.config.fetch_pages:
@@ -194,14 +209,23 @@ class BuyAgent:
                 )
 
         checkpoint("extract")
-        products = self._extract_products(request, results, watch, record)
+        checked: list[Removal] = []
+        products = self._extract_products(request, results, watch, _noting(checked, record))
         if not products:
-            logger.warning("No products could be extracted from the search results.")
+            self.nothing = self._nothing_extracted(len(checked))
+            logger.warning("%s", self.nothing)
             return []
 
         # After merging, which may supply the price a bound judges (ADR-0039).
+        found = len(products)
         products = Constraints.from_config(self.config).apply(products, record=record)
         if not products:
+            # ``apply`` has logged the count and the limits; this is the browser's line.
+            self.nothing = (
+                f"All {found} product{'' if found == 1 else 's'} found "
+                f"{'is' if found == 1 else 'are'} outside this run's limits; clear one "
+                "to see them."
+            )
             return []
 
         self._warn_if_nothing_is_on_the_named_scale(products)
@@ -214,6 +238,22 @@ class BuyAgent:
         )
         log_top_products(ranked, self.config.top_n, weights=self.config.weights, sort_by=sort_by)
         return ranked
+
+    def _nothing_extracted(self, checked: int) -> str:
+        """Why extraction left nothing: the model named none, or none it named passed the
+        checks (ADR-0006), each of which ``record`` was told."""
+        if checked:
+            return (
+                f"The model named {checked} candidate{'' if checked == 1 else 's'}, and "
+                "none passed the checks that a product is real and named on the pages "
+                "searched."
+            )
+        if not self.config.fetch_pages:
+            return (
+                "No products could be extracted from the search snippets; reading the "
+                "result pages, which this run left off, finds more."
+            )
+        return "No products could be extracted from the pages the search returned."
 
     def _warn_if_nothing_is_on_the_named_scale(self, products: Sequence[Product]) -> None:
         """Warn when the named currency prices nothing (ADR-0056)."""

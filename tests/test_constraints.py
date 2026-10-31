@@ -31,6 +31,48 @@ def test_a_figure_the_run_never_learned_is_not_a_violation(bounds: Constraints) 
     assert [entry.name for entry in bounds.apply([product("silent")])] == ["silent"]
 
 
+def test_a_product_kept_for_want_of_a_figure_is_marked_with_the_limit(caplog) -> None:
+    """Kept (ADR-0039), and marked with which set limit had nothing to check it by, so
+    ranking puts it after those it could check (ADR-0097)."""
+    bounds = Constraints(max_price=200.0, min_rating=4.0, min_reviews=100)
+    found = [
+        product("checked", price=150.0, currency="USD", rating=4.5, review_count=500),
+        product("unpriced", rating=4.5, review_count=500),
+        product("silent"),
+    ]
+
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        kept = bounds.apply(found)
+
+    assert {entry.name: entry.unchecked for entry in kept} == {
+        "checked": [],
+        "unpriced": ["max_price"],
+        "silent": ["max_price", "min_rating", "min_reviews"],
+    }
+    assert "2 of them had no figure for a limit to check, and rank after the rest" in caplog.text
+
+
+def test_a_price_in_another_currency_is_one_the_budget_cannot_check() -> None:
+    """Unplaceable on the run's scale (ADR-0043), so unchecked, as a blank is."""
+    kept = Constraints(max_price=200.0).apply(
+        [
+            product("here", price=150.0, currency="USD"),
+            product("there", price=150.0, currency="USD"),
+            product("elsewhere", price=90.0, currency="EUR"),
+        ]
+    )
+
+    assert [entry.unchecked for entry in kept] == [[], [], ["max_price"]]
+
+
+def test_only_the_limits_set_can_leave_a_product_unchecked(caplog) -> None:
+    with caplog.at_level(logging.INFO, logger="buy_agent"):
+        kept = Constraints(min_rating=4.0).apply([product("unpriced", rating=4.5)])
+
+    assert kept[0].unchecked == []
+    assert "had no figure" not in caplog.text
+
+
 # -- what the run is told about it ---------------------------------------------
 
 

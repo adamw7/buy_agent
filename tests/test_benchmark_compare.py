@@ -1079,7 +1079,7 @@ def test_the_command_line_writes_the_standings_as_the_page_reads_them(
         "perfect (scripted)",
         "sloppy (scripted)",
     ]
-    assert written_out["standings"][1]["score_label"] == "0.605"
+    assert written_out["standings"][1]["score_label"] == "0.614"
 
 
 # -- --baseline ----------------------------------------------------------------
@@ -1127,6 +1127,16 @@ def test_what_a_file_cannot_have_meant_is_passed_over(tmp_path: Path) -> None:
     assert read_baseline(str(target)).runs == {("k", "laptops"): kept_run}
 
 
+def test_a_score_kept_to_four_places_reads_back_unchanged() -> None:
+    """A file keeps a score to four places, so 0.57436 read back is 0.5744: the change
+    is of the figures as shown, which read the same, and says +0.000 -- never -0.000."""
+    now = run_case(SLOPPY, LAPTOPS, clock=ticking(0.25))
+    earlier = json.loads(json.dumps(run_payload(now)))
+    earlier["score"] = round(now.score, 4) + 0.00004
+
+    assert against(now, earlier)[0] == f"    score {now.score:.3f} -> {now.score:.3f} (+0.000)"
+
+
 def test_a_run_is_compared_with_its_baseline_metric_by_metric() -> None:
     """Only what moved, then the query and the time, and a word where the baseline was
     scored against another version of the case."""
@@ -1137,7 +1147,7 @@ def test_a_run_is_compared_with_its_baseline_metric_by_metric() -> None:
     next(metric for metric in earlier["metrics"] if metric["name"] == "figures")["value"] = 0.5
 
     assert against(now, earlier) == [
-        "    score 0.550 -> 0.600 (+0.050)",
+        "    score 0.550 -> 0.574 (+0.024)",
         "    figures 0.500 -> 0.667 (+0.167)",
         "    query 0.50 -> 1.00 (+0.50), model time 3.0 s -> 0.5 s",
         "    (the baseline was scored against another version of this case)",
@@ -1189,7 +1199,7 @@ def test_the_command_line_compares_its_runs_with_a_baseline(
 
     assert code == 0
     assert f"\nAgainst {target}:\n  sloppy (scripted) on laptops:\n" in printed
-    assert "    score 0.600 -> 0.600 (+0.000)\n    no metric moved\n" in printed
+    assert "    score 0.574 -> 0.574 (+0.000)\n    no metric moved\n" in printed
     assert "  perfect (scripted) on laptops: not in the baseline" in printed
 
 

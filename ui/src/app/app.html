@@ -171,12 +171,17 @@
         }
       </section>
     } @else {
-      <!-- Which of the three it was is the log line just above this. -->
+      <!-- Python says which step left nothing (ADR-0012); an older server says nothing, and
+           the three it could have been are listed. -->
       <p class="card banner quiet">
-        Nothing came back for “{{ found.request }}”. The search may have found no pages worth
-        reading; nothing on them may have survived grounding — every figure shown here has to appear
-        in the sources; or the limits you set may have excluded everything that did. Progress,
-        above, says which.
+        Nothing came back for “{{ found.request }}”.
+        @if (found.why_empty; as why) {
+          {{ why }}
+        } @else {
+          The search may have found no pages worth reading, nothing on them may have been confirmed
+          by the pages, or the limits may have removed everything that was. Progress, above, says
+          which.
+        }
       </p>
     }
 

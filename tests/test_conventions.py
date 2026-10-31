@@ -311,6 +311,18 @@ def test_a_listings_standing_is_spelled_the_same_in_typescript(union: str) -> No
     assert set(re.findall(r"'([^']+)'", match.group(1))) == python
 
 
+def test_the_limits_a_product_can_be_unchecked_by_are_spelled_the_same_in_typescript() -> None:
+    """``unchecked`` names settings (ADR-0097): a limit renamed on one side only is a
+    mark the page reads as something else -- and each is a box the form draws."""
+    source = _TYPES_TS.read_text(encoding="utf-8")
+    match = re.search(r"export type LimitName = ([^;]+);", source)
+    assert match, "no LimitName union in agent.types.ts"
+    python = set(get_args(models_module.Limit))
+
+    assert set(re.findall(r"'([^']+)'", match.group(1))) == python
+    assert python <= set(limits_payload())
+
+
 def test_both_doors_say_which_end_of_each_criterion_comes_first() -> None:
     """In the words the report's heading uses. A criterion's name does not carry its
     direction -- ``price`` is cheapest first here and could as well be dearest -- so
@@ -579,8 +591,8 @@ def test_a_change_is_mirrored_field_for_field_in_typescript() -> None:
 
 
 def test_what_the_request_asks_for_is_mirrored_field_for_field_in_typescript() -> None:
-    """Offered and never applied, so the form reads both halves: the request it was
-    about, and each bound with Python's own sentence (ADR-0059)."""
+    """Applied and shown, so the form reads both halves: the request it was about, and
+    each bound with the shopper's words and Python's own sentence (ADR-0094)."""
     answer = bounds_payload("headphones under $200")
     assert answer["noticed"], "the request has to ask for something to check anything"
 
@@ -589,8 +601,8 @@ def test_what_the_request_asks_for_is_mirrored_field_for_field_in_typescript() -
 
 
 def test_every_bound_the_request_can_ask_for_is_one_the_form_draws_a_box_for() -> None:
-    """A bound noticed with nowhere to be offered is a reading nobody is shown
-    (ADR-0059), and the box is what the ranges and the placeholders hang off."""
+    """A bound noticed with no box to fill is a reading nobody is shown (ADR-0094),
+    and the box is what the ranges and the placeholders hang off."""
     assert set(get_args(Bound)) <= set(limits_payload())
 
 

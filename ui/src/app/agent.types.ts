@@ -48,6 +48,9 @@ export type Availability = 'in stock' | 'out of stock';
 /** The state a listing comes in, as a page said (ADR-0079). */
 export type Condition = 'new' | 'used' | 'refurbished';
 
+/** A limit the shopper can set, by setting, as `models.Limit` names them (ADR-0097). */
+export type LimitName = 'max_price' | 'min_rating' | 'min_reviews';
+
 /** One ranked product. The `*_label` fields are written by Python's `Product`. */
 export interface RankedProduct {
   /** Why this product cannot be bought, or `null` where it can. */
@@ -73,12 +76,16 @@ export interface RankedProduct {
   /** Every priced listing, the headline among them; ranking reads only the headline. */
   offers: Offer[];
   notes: string | null;
+  /** The limits set for the run that had no figure to check this by (ADR-0097). */
+  unchecked: LimitName[];
   price_label: string;
   rating_label: string;
   /** "3 listings, 129.00-149.00 USD", or `null` for fewer than two. */
   offers_label: string | null;
   /** "In stock, refurbished", or `null` where no page said either (ADR-0079). */
   listing_label: string | null;
+  /** Python's sentence for why it ranks below what may score less (ADR-0095, ADR-0097). */
+  placement_note: string | null;
 }
 
 /** Whether a run found the price the shopper is waiting for; never applied (ADR-0080). */
@@ -130,6 +137,8 @@ export interface SearchResult {
   compared_with: string | null;
   /** `null` unless the run was given one, and from a re-sort; the page keeps the run's. */
   alert: PriceAlert | null;
+  /** Why an empty run found nothing, in Python's sentence; `null` when it found something. */
+  why_empty: string | null;
   /** Handed back by a re-sort and a payment: the server takes only what it sealed (ADR-0092). */
   seal: string | null;
 }
@@ -241,11 +250,13 @@ export interface SourcesCheck {
   error: string;
 }
 
-/** A bound the request states in words; offered to its box, never applied (ADR-0059). */
+/** A bound the request states in words; filled into its box and shown (ADR-0094). */
 export interface NoticedBound {
-  /** The setting that would enforce it: `max_price`, `min_rating`, `min_reviews`. */
+  /** The setting that enforces it: `max_price`, `min_rating`, `min_reviews`. */
   bound: string;
   value: number;
+  /** The shopper's own words it was read from, quoted back so a misreading shows. */
+  phrase: string;
   note: string;
 }
 

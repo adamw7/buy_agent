@@ -15,7 +15,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0004](0004-json-schema-and-sentinels.md) | Constrain both LLM calls with a JSON schema, and use sentinels rather than nullable fields | Accepted |
 | [0005](0005-fetch-and-condense-pages.md) | Extract from fetched pages, condensed to their priced lines, not from search snippets | Accepted |
 | [0006](0006-ground-every-figure.md) | Ground every product and every figure against the sources before ranking | Accepted |
-| [0007](0007-rank-in-python-missing-scores-neutral.md) | Rank in Python, and score missing data neutral rather than zero | Accepted |
+| [0007](0007-rank-in-python-missing-scores-neutral.md) | Rank in Python, and score missing data neutral rather than zero | Superseded by [ADR-0096](0096-score-an-unknown-price-as-the-dearest-one.md) |
 | [0008](0008-post-extraction-order-and-shared-vocabulary.md) | Clean, then ground, then deduplicate -- over one shared word list | Accepted |
 | [0009](0009-three-failure-modes.md) | Raise exactly three failure modes, and list them in three places | Accepted |
 | [0010](0010-stdlib-http-server.md) | Serve the web tier from the standard library | Accepted |
@@ -67,7 +67,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0056](0056-let-the-shopper-name-the-currency.md) | Let the shopper name the currency a run is counted in | Accepted |
 | [0057](0057-a-search-backend-is-a-row-in-a-table.md) | Make a search backend a row in a table, beside a provider and a rail | Accepted |
 | [0058](0058-keep-every-listing-a-product-was-priced-at.md) | Keep every listing a product was priced at, and pay the one being bought | Accepted |
-| [0059](0059-notice-a-bound-in-the-request-and-offer-it.md) | Notice a bound in the request, and offer it rather than enforcing it | Accepted |
+| [0059](0059-notice-a-bound-in-the-request-and-offer-it.md) | Notice a bound in the request, and offer it rather than enforcing it | Superseded by [ADR-0094](0094-apply-a-bound-the-request-states-where-the-shopper-sees-it.md) |
 | [0060](0060-keep-a-run-journal-beside-the-cache-not-in-it.md) | Keep a run journal beside the cache, not in it | Accepted |
 | [0061](0061-mutation-test-the-front-end-through-its-own-builder.md) | Mutation-test the front end, through the builder it is already tested with | Accepted |
 | [0062](0062-audit-both-dependency-lists-on-a-schedule.md) | Audit both dependency lists on a schedule, and review what a pull request adds | Accepted |
@@ -102,6 +102,10 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0091](0091-pin-each-toolchain-once-and-let-ci-run-the-gate-script.md) | Pin each toolchain once, and let CI run the gate script | Accepted |
 | [0092](0092-deploy-the-server-for-more-than-one-machine.md) | Deploy the server for more than one machine | Accepted |
 | [0093](0093-run-on-kubernetes-what-compose-runs.md) | Run on Kubernetes what compose runs | Accepted |
+| [0094](0094-apply-a-bound-the-request-states-where-the-shopper-sees-it.md) | Apply a bound the request states, where the shopper sees it and can undo it | Accepted |
+| [0095](0095-rank-a-listing-no-page-has-in-stock-after-every-other.md) | Rank a listing no page has in stock after every other | Accepted |
+| [0096](0096-score-an-unknown-price-as-the-dearest-one.md) | Score an unknown price as the dearest one | Accepted |
+| [0097](0097-rank-what-a-limit-could-not-check-after-what-it-could.md) | Rank what a limit could not check after what it could, and say why | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

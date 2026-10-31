@@ -60,19 +60,22 @@ _PAYING_FLAGS: tuple[tuple[str, str, Callable[[Any], bool]], ...] = (
 )
 
 
-def _offer_noticed_bounds(request: str, config: AgentConfig) -> None:
-    """Log the bounds the request states in words and the flag enforcing each; never
-    apply them (ADR-0059)."""
+def _apply_noticed_bounds(request: str, settings: dict[str, Any]) -> None:
+    """Set each bound the request states in words whose flag was not given, and log
+    the words it read, the flag it stands for and how to change it (ADR-0094)."""
     for seen in notice(request):
-        if not takeable(seen) or getattr(config, seen.bound) is not None:
+        if not takeable(seen) or settings[seen.bound] is not None:
             continue
+        settings[seen.bound] = int(seen.value) if seen.bound == "min_reviews" else seen.value
+        # Flags are named only at this door.
+        flag = f"--{seen.bound.replace('_', '-')}"
         logger.info(
-            'Your request says "%s", which shapes the search and nothing else. '
-            "%s %s is what would enforce it.",
+            'Your request says "%s", so this run applies %s %s. Give %s yourself to '
+            "change it, or leave it out of the request to search without it.",
             seen.phrase,
-            # Flags are named only at this door.
-            f"--{seen.bound.replace('_', '-')}",
+            flag,
             seen.figure,
+            flag,
         )
 
 
@@ -135,168 +138,126 @@ class _Help(argparse.RawDescriptionHelpFormatter):
 
 
 def _written() -> dict[str, dict[str, Any]]:
-    """Each ``api.OPTIONS`` row's help, and where its flag differs from the row."""
+    """Each ``api.OPTIONS`` row's help, and where its flag differs from the row. A line
+    or two each: what it does, its default, and the one thing that would surprise; the
+    reasons are in the README and the ADRs."""
     return {
         "provider": {
             # As written, so a misspelt variable is refused by name.
             "default": DEFAULT_PROVIDER,
-            "help": f"Which model server to talk to (default: {DEFAULT_PROVIDER}, "
-            "override with $BUY_AGENT_PROVIDER). It decides what --model and --base-url "
-            "mean.",
+            "help": f"Which model server to use (default: {DEFAULT_PROVIDER}, or "
+            "$BUY_AGENT_PROVIDER). It decides what --model and --base-url mean.",
         },
         # "" because the right default depends on --provider (ADR-0012).
         "model": {
-            "help": "Model to use, empty for the provider's own default "
-            f"({_provider_defaults('model')}). Override with $OLLAMA_MODEL, $VLLM_MODEL, "
-            "$LITELLM_MODEL or $TRTLLM_MODEL.",
+            "help": "Model to use, empty for the provider's default "
+            f"({_provider_defaults('model')}), or $OLLAMA_MODEL, $VLLM_MODEL, "
+            "$LITELLM_MODEL, $TRTLLM_MODEL.",
         },
         "base_url": {
-            "help": "Model server URL, empty for the provider's own default "
-            f"({_provider_defaults('base_url')}). Override with $OLLAMA_HOST, "
-            "$VLLM_HOST, $LITELLM_HOST or $TRTLLM_HOST.",
+            "help": "Model server address, empty for the provider's default "
+            f"({_provider_defaults('base_url')}), or $OLLAMA_HOST, $VLLM_HOST, "
+            "$LITELLM_HOST, $TRTLLM_HOST.",
         },
         "results": {
             "help": f"How many products to find (default: {_DEFAULTS.num_products}).",
         },
-        "top": {"help": f"How many products to log (default: {_DEFAULTS.top_n})."},
+        "top": {"help": f"How many products to show (default: {_DEFAULTS.top_n})."},
         "region": {
-            "help": "Search region: a country and then a language, hyphenated (default: "
-            f"{_DEFAULTS.region}; also uk-en, pl-pl). Anything else is a usage error, "
-            "since a region no search engine knows returns nothing at all.",
+            "help": "Search region, a country then a language (default: "
+            f"{_DEFAULTS.region}; also uk-en, pl-pl).",
         },
         "backend": {
             "default": DEFAULT_BACKEND,
-            "help": f"Which search backend to ask (default: {DEFAULT_BACKEND}, override "
-            "with $BUY_AGENT_BACKEND). The default needs no key and no account and "
-            "rate-limits heavy use; the others are an instance you run ($SEARXNG_HOST) "
-            "and a key you hold ($BRAVE_API_KEY), each read off the environment and "
-            "neither a flag.",
+            "help": f"Search backend (default: {DEFAULT_BACKEND}, or $BUY_AGENT_BACKEND). "
+            "ddg needs no account but limits heavy use; searxng needs $SEARXNG_HOST, "
+            "brave needs $BRAVE_API_KEY.",
         },
         "currency": {
             "metavar": "CODE",
             # Spellings fold, so no ``choices``; the help lists the codes.
-            "help": "Count this run's prices in this currency, empty for whatever the "
-            f"pages quote (the default). One of: {', '.join(sorted(CODES))} -- or any "
-            "spelling a page uses for one of them ($, usd, euros). Nothing is converted, "
-            "so a price in any other currency is one this run cannot place: it scores "
-            "neutral, sinks in a price sort and passes every limit. Naming one your "
-            "pages never quote is the way to ask for a report whose price criterion is "
-            "entirely assumed, and the run says so.",
+            "help": "Compare prices in this currency (default: the one most pages "
+            f"use). One of {', '.join(sorted(CODES))}, or a spelling such as $ or "
+            "euros. Nothing is converted: a price in another currency ranks as the "
+            "dearest and passes every limit.",
         },
         "max_price": {
-            "help": "Report nothing dearer than this (default: no limit). Read in the "
-            "currency the run's prices are counted in -- the commonest one the pages "
-            "quote -- and nothing is converted, so a price in another currency is one "
-            "this cannot judge and does not. A product whose price no page printed is "
-            "kept too: a blank is the extractor's miss, not a $900 tag.",
+            "help": "Leave out anything dearer than this, in the run's currency "
+            "(default: no limit). Products with no price are kept, after the rest.",
         },
         "min_rating": {
-            "help": "Report nothing rated below this, out of 5 (default: no limit). "
-            "Unrated products are kept, for the reason unpriced ones are.",
+            "help": "Leave out anything rated below this, out of 5 (default: no limit). "
+            "Unrated products are kept, after the rest.",
         },
         "min_reviews": {
-            "help": "Report nothing whose rating was averaged over fewer reviews than "
-            "this (default: no limit). A 5.0 from two people is not a rating. A rating "
-            "with no count beside it is kept, for the reason unpriced products are.",
+            "help": "Leave out ratings averaged over fewer reviews than this (default: "
+            "no limit). Ratings with no review count are kept, after the rest.",
         },
         "alert_below": {
             "metavar": "PRICE",
-            "help": "Say whether anything found is at or under this price, and exit "
-            f"with {ABOVE_ALERT} when nothing is (default: no alert) -- for a scheduled "
-            "run that waits for a price to drop. Unlike --max-price it removes nothing: "
-            "it is read in the currency the run's prices are counted in, and only a "
-            "price a page printed in that currency, on a listing no page says is out "
-            "of stock, can meet it.",
+            "help": "Say whether anything in stock is at or under this price, and exit "
+            f"with {ABOVE_ALERT} if not (default: no alert). Unlike --max-price it "
+            "removes nothing.",
         },
         "cache_ttl": {
             "metavar": "SECONDS",
-            "help": "How long a fetched page, and the model's answer about it, stay "
-            f"usable on disk (default: {_DEFAULTS.cache_ttl:g}, a day; 0 reads every "
-            "page off the web and asks the model every question). Most of a repeated "
-            "run is opening the same pages again and asking the same thing about "
-            "them. A run at a temperature above 0 is never remembered. "
-            "$BUY_AGENT_CACHE_DIR says where it is all kept.",
+            "help": "How long fetched pages and the model's answers are reused "
+            f"(default: {_DEFAULTS.cache_ttl:g}, a day; 0 turns it off). Kept under "
+            "$BUY_AGENT_CACHE_DIR.",
         },
         "journal": {
-            "help": "Write down what this run reported, so the next run of the same "
-            "search can say what moved (default: "
-            f"{'--journal' if _DEFAULTS.journal else '--no-journal'}). It keeps a name, "
-            f"a price and a currency per product and nothing else, at most {MAX_RUNS} "
-            f"runs per search, in {RUNS}/ beside the cached pages under "
-            "$BUY_AGENT_CACHE_DIR -- deleting that directory throws the whole history "
-            "away. Unlike the cache it does not expire: a record that did is no use for "
-            "the one question it answers.",
+            "help": "Remember a name and price per product, so --compare can say what "
+            "changed next time (default: "
+            f"{'--journal' if _DEFAULTS.journal else '--no-journal'}; at most "
+            f"{MAX_RUNS} runs per search, in {RUNS}/ under $BUY_AGENT_CACHE_DIR).",
         },
         "pay": {
-            "help": "Buy the top-ranked product once you have approved it (default: "
-            "--no-pay). The purchase is authorised with signed AP2 mandates rather "
-            "than a stored card, and only a product whose price a source actually "
-            "printed can be paid for. With $BUY_AGENT_AP2_MANDATE naming a pre-signed "
-            "open mandate this runs unattended, within that mandate's constraints; "
-            "without one you are asked, and a run with nothing to type into is "
-            "refused rather than assumed.",
+            "help": "Buy the top product once you approve it (default: --no-pay). Only a "
+            "price a page printed can be paid; $BUY_AGENT_AP2_MANDATE pre-approves "
+            "runs that nobody watches.",
         },
         "rail": {
             "default": DEFAULT_RAIL,
-            "help": f"Who to pay through (default: {DEFAULT_RAIL}, override with "
-            "$BUY_AGENT_RAIL). The default signs a real authorisation and charges "
-            "nobody, so --pay on its own never spends anything.",
+            "help": f"Who to pay through (default: {DEFAULT_RAIL}, or $BUY_AGENT_RAIL). "
+            "dry-run charges nobody.",
         },
         "merchant_url": {
-            "help": "Payment endpoint: the AP2-speaking address a paying rail talks to, "
-            "empty for the rail's own default ($BUY_AGENT_MERCHANT_URL). It is asked "
-            "for a signed checkout at {url}/checkout and presented the mandates at "
-            "{url}/payment.",
+            "help": "The payment endpoint a paying rail talks to, empty for the rail's "
+            "default ($BUY_AGENT_MERCHANT_URL).",
         },
         "spend_limit": {
             "metavar": "AMOUNT",
-            "help": "Refuse to pay more than this for one product (default: no limit), "
-            "in the currency the run's prices are counted in. Unlike --max-price, a "
-            "price this run cannot place fails it: a bound that cannot judge a "
-            "candidate keeps it, but an amount nobody can place is not one to send.",
+            "help": "Refuse to pay more than this for one product, in the run's currency "
+            "(default: no limit). A price it cannot read is refused.",
         },
         "temperature": {
-            "help": f"Model temperature (default: {_DEFAULTS.temperature}). Extraction "
-            "copies what the pages say, and 0 copies it the same way every time, which "
-            "makes it the only temperature whose answers --cache-ttl keeps. Above 0 the "
-            "model samples: every run asks it again, and two runs over the same pages "
-            "can report different products.",
+            "help": f"Model temperature (default: {_DEFAULTS.temperature}). Above 0 the "
+            "answers vary between runs and --cache-ttl keeps none of them.",
         },
         "num_ctx": {
             # None, so only a typed number earns the warning in ``main``.
             "default": None,
-            "help": f"Context window in tokens (default: {_DEFAULTS.num_ctx}). The "
-            "extraction prompt runs to ~4.3k tokens, so a larger window leaves room for "
-            "more products; a model that need not think is fine on Ollama's own 4096. "
-            "Ollama only -- vLLM fixes its window with --max-model-len and TensorRT-LLM "
-            "with --max_seq_len when they start, and a LiteLLM proxy leaves it to the "
-            "server it routes to.",
+            "help": f"Context window in tokens (default: {_DEFAULTS.num_ctx}). Ollama "
+            "only: vLLM and TensorRT-LLM set it when they start, and a LiteLLM proxy "
+            "leaves it to the server it routes to.",
         },
         "model_timeout": {
             "metavar": "SECONDS",
-            "help": "How long to wait for one answer from the model server (default: "
-            f"{_DEFAULTS.model_timeout:g}). Asked once and not retried, so this is the "
-            "whole wait: a server that took the prompt and went quiet ends the run with "
-            "something to act on rather than hanging it. A slow model on a long prompt "
-            "is what the wait is for -- try a smaller model or a smaller --num-ctx "
-            "before a bigger number here.",
+            "help": "How long to wait for one answer from the model (default: "
+            f"{_DEFAULTS.model_timeout:g}). Not retried.",
         },
         "think": {
-            "help": "Force the model's thinking mode on or off (default: --no-think). "
-            "Thinking models need --no-think: they reason until the context runs out "
-            "and never answer; a model that cannot think ignores either.",
+            "help": "Turn the model's thinking mode on or off (default: --no-think, "
+            "which thinking models need to answer at all).",
         },
         "cpu_only": {
-            "help": "Keep the model off the GPU entirely (default: --no-cpu-only, which "
-            "leaves the offload to the model server). Slower, but it leaves the card "
-            "free and runs a model too large to fit on it. Ollama only -- vLLM and "
-            "TensorRT-LLM pick their device when they start, and a LiteLLM proxy leaves "
-            "it to the server it routes to.",
+            "help": "Keep the model off the GPU (default: --no-cpu-only). Ollama only: "
+            "vLLM and TensorRT-LLM pick their device when they start, and a LiteLLM "
+            "proxy leaves it to the server it routes to.",
         },
         "fetch": {
-            "help": "Open the result pages and extract from them (default: --fetch). "
-            "--no-fetch extracts from search snippets only: much faster, but snippets "
-            "rarely quote a price.",
+            "help": "Read each result page (default: --fetch). --no-fetch reads only the "
+            "search snippets: faster, but they rarely give a price.",
         },
     }
 
@@ -309,6 +270,9 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "The report is written to stdout and the progress to stderr, so\n"
             "`... > top.txt` keeps the report and leaves the narration on screen.\n"
+            "\n"
+            "A limit written in the request (\"under $200\", \"at least 4 stars\") is\n"
+            "applied as if its flag were given, unless the flag is given.\n"
             "\n"
             "Exit codes:\n"
             "  0  products were found and reported\n"
@@ -326,19 +290,16 @@ def build_parser() -> argparse.ArgumentParser:
     for option in OPTIONS:
         add(f"--{option.key.replace('_', '-')}", **_flag_for(option, _written()[option.key]))
     add("--sort-by", choices=get_args(SortBy), default="score",
-        help="How to order the report: "
+        help="Order: "
              + ", ".join(f"{name} for {phrase}" for name, phrase in ORDERINGS.items())
              + " (default: score, a blend of rating, reviews and price).")
     # ``--source ""`` is a mistake here, not "unset".
     add("--source", action="append", metavar="SITE", type=_flag(_source),
-        help="Take the facts from this source only; repeat for several. A site "
-             "(rtings.com), a section of one (rtings.com/headphones) or a YouTube "
-             "handle (@mkbhd). Without it the whole web is searched.")
+        help="Search only this site (rtings.com), section (rtings.com/headphones) or "
+             "YouTube handle (@mkbhd); repeat for several.")
     add("--compare", action="store_true",
-        help="Report what changed since the last run of this same search: what is "
-             "cheaper, what is dearer, what is new and what has gone. Reads what --journal "
-             "wrote, and a search whose settings differ -- another region, another budget "
-             "-- is a different question and has a history of its own.")
+        help="Say what is cheaper, dearer, new or gone since the last run of this "
+             "search with the same settings.")
     add("--json", type=_json_file, metavar="FILE",
         help="Also write all results, not only the top ones, to this JSON file.")
     add("-v", "--verbose", action="store_true", help="Debug logging.")
@@ -410,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
     # What the table cannot say: the ``--num-ctx`` sentinel and the sources.
     settings["num_ctx"] = _DEFAULTS.num_ctx if args.num_ctx is None else args.num_ctx
     settings["sources"] = parse_sources(args.source) if args.source else _DEFAULTS.sources
+    _apply_noticed_bounds(args.request, settings)
 
     config = _configured(parser, **settings)
     if not config.pay and (idle := _idle_paying_flags(args)):
@@ -443,8 +405,6 @@ def main(argv: list[str] | None = None) -> int:
             "--compare has nothing to read: --no-journal is what keeps a run from "
             "being written down."
         )
-
-    _offer_noticed_bounds(args.request, config)
 
     try:
         finished = run_agent(args.request, config, sort_by=args.sort_by, agent_factory=BuyAgent)

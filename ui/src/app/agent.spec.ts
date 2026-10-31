@@ -209,7 +209,7 @@ describe('AgentService', () => {
 
   it('asks the server what the request itself asks for', () => {
     /* Reading "under $200" in TypeScript would be a second answer to what the
-       request says; Python's is the only one (ADR-0059). */
+       request says; Python's is the only one (ADR-0094). */
     let offered: string[] = [];
     service
       .checkBounds('headphones under $200')
@@ -221,7 +221,14 @@ describe('AgentService', () => {
 
     asked.flush({
       request: 'headphones under $200',
-      noticed: [{ bound: 'max_price', value: 200, note: 'From your request: "under $200".' }],
+      noticed: [
+        {
+          bound: 'max_price',
+          value: 200,
+          phrase: 'under $200',
+          note: 'From your request: "under $200".',
+        },
+      ],
     });
     expect(offered).toEqual(['max_price']);
     http.verify();

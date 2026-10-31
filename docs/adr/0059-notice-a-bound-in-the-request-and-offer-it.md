@@ -1,6 +1,6 @@
 # ADR-0059: Notice a bound in the request, and offer it rather than enforcing it
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0094](0094-apply-a-bound-the-request-states-where-the-shopper-sees-it.md)
 - **Date:** 2026-09-19
 
 ## Context

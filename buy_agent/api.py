@@ -45,7 +45,14 @@ from buy_agent.payment import (
 )
 from buy_agent.providers import PROVIDERS, provider_options
 from buy_agent.rails import RAILS, rail_options
-from buy_agent.ranking import ORDERINGS, RankingWeights, SortBy, rank_products, scale_of
+from buy_agent.ranking import (
+    ORDERINGS,
+    RankingWeights,
+    SortBy,
+    placement_note,
+    rank_products,
+    scale_of,
+)
 from buy_agent.screenshots import ScreenshotError
 from buy_agent.search import BACKENDS, SearchError, backend_options
 from buy_agent.sources import Source, format_sources, parse_sources
@@ -181,6 +188,8 @@ class Finished:
     changes: list[Change]
     compared_with: str | None
     alert: Alert | None
+    #: Why nothing came back, in the agent's own sentence; "" when something did.
+    why_empty: str = ""
 
 
 def run_agent(
@@ -207,8 +216,11 @@ def run_agent(
         release(agent)
     # Always recorded, so the next run has something to compare with.
     changes = journal.against([entry.product for entry in ranked])
+    # A stand-in agent may not say; the browser then falls back to its own sentence.
+    why_empty = "" if ranked else str(getattr(agent, "nothing", ""))
     return Finished(
-        ranked, removals, changes, journal.compared_with(), alert_for(ranked, config)
+        ranked, removals, changes, journal.compared_with(), alert_for(ranked, config),
+        why_empty,
     )
 
 
@@ -351,6 +363,8 @@ def _run_payload(request: str, finished: Finished, reported: _Reported) -> dict[
         "changes": [change.model_dump() for change in finished.changes],
         "compared_with": finished.compared_with,
         "alert": finished.alert.payload() if finished.alert else None,
+        # Python's sentence for an empty run, so the page need not guess (ADR-0012).
+        "why_empty": finished.why_empty or None,
         # Handed back by a re-sort or a payment over HTTP (ADR-0092).
         "seal": reported.seal,
     }
@@ -391,6 +405,8 @@ def product_payload(entry: RankedProduct, currency: str | None = None) -> dict[s
         "rating_label": entry.product.rating_label(),
         "offers_label": entry.product.offers_label(),
         "listing_label": entry.product.listing_label(),
+        # Why it sits below what may score less (ADR-0095, ADR-0097).
+        "placement_note": placement_note(entry.product),
     }
 
 
@@ -431,12 +447,12 @@ def limits_payload() -> dict[str, dict[str, int]]:
 
 
 def bounds_payload(request: str) -> dict[str, Any]:
-    """Bounds the request states in words, offered to the form and never applied
-    (ADR-0059); a figure outside its setting's range is dropped."""
+    """Bounds the request states in words, for the form to fill in and show (ADR-0094);
+    a figure outside its setting's range is dropped."""
     return {
         "request": request,
         "noticed": [
-            {"bound": seen.bound, "value": seen.value, "note": seen.note}
+            {"bound": seen.bound, "value": seen.value, "phrase": seen.phrase, "note": seen.note}
             for seen in notice(request)
             if takeable(seen)
         ],

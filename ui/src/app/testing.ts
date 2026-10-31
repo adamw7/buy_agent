@@ -235,6 +235,8 @@ export function product(overrides: Partial<RankedProduct> = {}): RankedProduct {
     rating_label: '4.7/5 (12,000 reviews)',
     offers_label: '2 listings, 328.00-349.00 USD',
     listing_label: null,
+    unchecked: [],
+    placement_note: null,
     cannot_pay: null,
     pay_currency: 'USD',
     pay_label: '328.00 USD',

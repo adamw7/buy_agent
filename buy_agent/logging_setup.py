@@ -9,7 +9,7 @@ import textwrap
 import time
 from typing import TYPE_CHECKING
 
-from buy_agent.ranking import CRITERIA, ORDERINGS, RankingWeights
+from buy_agent.ranking import CRITERIA, ORDERINGS, RankingWeights, placement_note
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -162,6 +162,9 @@ def log_top_products(
         product = entry.product
         _report("#%d  %s", entry.rank, product.name)
         _report("     score  : %.3f  (%s)", entry.score, _parts(entry.breakdown, weights))
+        # Beside the score it outranks, or is outranked by (ADR-0095, ADR-0097).
+        if note := placement_note(product):
+            _report("     placed : %s", note)
         # A state only where a page said (ADR-0079), offers where several priced it
         # (ADR-0058); price and rating always.
         for label, said in (

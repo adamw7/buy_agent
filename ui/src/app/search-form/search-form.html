@@ -25,18 +25,12 @@
     />
     <!-- eslint-enable @angular-eslint/template/no-duplicate-attributes -->
     <!-- What is wrong, then why it holds a number nobody typed (a hint, never a mark,
-         above the box's own hint, which names the currency; ADR-0059). -->
+         above the box's own hint, which names the currency; ADR-0094). -->
     @if (notes()[number.key]; as problem) {
       <small class="problem" role="alert" [attr.id]="problemId(number.key)">{{ problem }}</small>
     } @else {
       @if (noticedNote(number.key); as noticed) {
         <small class="noticed">{{ noticed }}</small>
-        <!-- In the label, so a screen reader reads it when the focus is moved here. -->
-        @if (stoppedAt() === number.key) {
-          <small class="noticed unsearched"
-            >Nothing was searched yet: press Enter, or Find products, to search with it.</small
-          >
-        }
       }
       @if (number.hint(); as hint) {
         <small>{{ hint }}</small>
@@ -66,6 +60,27 @@
       <button type="submit" [disabled]="!canSubmit()">Find products</button>
     }
   </div>
+
+  <!-- Beside the request, with the panel shut: what a search applies that nobody typed
+       in a box, in the shopper's words, and the one click undoing it (ADR-0094). -->
+  @if (fromRequest().length) {
+    <p class="from-request" role="status">
+      <span>
+        Applied from your request:
+        @for (offer of fromRequest(); track offer.bound; let last = $last) {
+          “{{ offer.phrase }}”{{ last ? '.' : ',' }}
+        }
+      </span>
+      <button
+        type="button"
+        class="secondary small"
+        [disabled]="running()"
+        (click)="dropFromRequest()"
+      >
+        {{ searchedWithIt() ? 'Search again without it' : 'Don’t apply it' }}
+      </button>
+    </p>
+  }
 
   <div class="examples">
     @for (example of examples; track example) {
@@ -193,10 +208,10 @@
         </select>
         <small>
           @if (currency()) {
-            Nothing is converted, so a price in any other currency scores neutral and sinks in a
-            price sort.
+            Nothing is converted, so a price in any other currency scores as the dearest one does
+            and sinks in a price sort.
           } @else {
-            The commonest currency the pages quote decides the scale.
+            Prices are compared in the currency most pages use; others are not converted.
           }
         </small>
       </label>
@@ -352,8 +367,8 @@
         }
       } @else {
         <p class="hint">
-          Paying is not available on this server: the AP2 SDK it signs mandates with is an optional
-          install.
+          Paying is not set up on this server: it needs an optional install, described in the
+          README.
         </p>
       }
     </div>

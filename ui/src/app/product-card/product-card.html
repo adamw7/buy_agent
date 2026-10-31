@@ -101,6 +101,11 @@
       <span class="value">{{ scoreLabel() }}</span>
     </div>
 
+    <!-- Python's sentence, beside the score it may be above (ADR-0095, ADR-0097). -->
+    @if (product().placement_note; as note) {
+      <p class="placement">{{ note }}</p>
+    }
+
     <ul class="parts">
       @for (part of parts(); track part.name) {
         <li [class.assumed]="part.assumed">

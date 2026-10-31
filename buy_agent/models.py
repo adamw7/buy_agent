@@ -28,6 +28,10 @@ _MAX_OPINION_LENGTH = 240
 Availability: TypeAlias = Literal["in stock", "out of stock"]
 Condition: TypeAlias = Literal["new", "used", "refurbished"]
 
+#: The shopper's limits, by setting: what ``Constraints`` marks a product it kept but
+#: could not check against (ADR-0097).
+Limit: TypeAlias = Literal["max_price", "min_rating", "min_reviews"]
+
 #: How a page prints each standing: what grounding looks for and ``fetch`` keeps. "New"
 #: and "used" alone are everywhere ("new for 2026", "used it daily"), so each needs the
 #: words that make it a listing's condition.
@@ -211,6 +215,9 @@ class Product(BaseModel):
     #: Every priced listing, the headline among them; seeded by ``deduplicate``.
     offers: list[Offer] = []
     notes: str | None = None
+    #: The limits set for the run that had no figure to check this product by, which
+    #: kept it (ADR-0039) and rank it after those they could check (ADR-0097).
+    unchecked: list[Limit] = []
 
     @property
     def dedup_key(self) -> str:
@@ -292,7 +299,8 @@ class ScoreParts(BaseModel):
     popularity: float
     price: float
     total: float
-    #: The criteria scored ``NEUTRAL`` for want of a figure.
+    #: The criteria scored for want of a figure: ``NEUTRAL``, or for a price the
+    #: dearest placed price's share (ADR-0096).
     neutral: list[str] = []
 
 
