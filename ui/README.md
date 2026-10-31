@@ -57,6 +57,10 @@ nothing for minutes, and `App.tabTitle` puts **Searching…**, **7 found**,
 
 ## `product-card`
 
+Where the score did not decide a card's place -- out of stock, or a figure no limit
+could check -- Python's `placement_note` says why, beside the score
+([ADR-0097](../docs/adr/0097-rank-what-a-limit-could-not-check-after-what-it-could.md)).
+
 Buying takes **two** clicks. The second restates the *cart*: title, `pay_label`
 (in the currency a page printed beside the price, since a bare "329.00" is ranked
 in the run's currency and never paid in it,

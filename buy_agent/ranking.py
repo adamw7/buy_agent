@@ -6,7 +6,13 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
-from buy_agent.models import RankedProduct, ScoreParts, comparable_price, dominant_currency
+from buy_agent.models import (
+    RankedProduct,
+    ScoreParts,
+    and_list,
+    comparable_price,
+    dominant_currency,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -20,6 +26,14 @@ NEUTRAL = 0.5
 
 #: A listing a page says is gone: ranked below every other, in every order (ADR-0095).
 _GONE = "out of stock"
+
+#: Why a limit could not check a product, which then ranks after those it could
+#: (ADR-0097); one phrase per ``models.Limit``.
+_UNCHECKED: dict[str, str] = {
+    "max_price": "its price is unknown or in another currency",
+    "min_rating": "it has no rating",
+    "min_reviews": "its review count is unknown",
+}
 
 #: Fields of both :class:`RankingWeights` and :class:`~buy_agent.models.ScoreParts`.
 CRITERIA: tuple[str, ...] = ("rating", "popularity", "price")
@@ -150,14 +164,28 @@ def rank_products(
     else:
         # Name breaks ties, so equal scores come out in a reproducible order.
         scored.sort(key=lambda item: (-item.parts.total, item.product.name.lower()))
-    # Stable, so each half keeps the order just given: a listing no page has in stock is
-    # one nobody can buy now, and comes after every one somebody can (ADR-0095).
-    scored.sort(key=lambda item: item.product.availability == _GONE)
+    # Stable, so each group keeps the order just given: a product a limit could not
+    # check comes after those it could (ADR-0097), and a listing no page has in stock --
+    # one nobody can buy now -- after every one somebody can (ADR-0095).
+    scored.sort(
+        key=lambda item: (item.product.availability == _GONE, bool(item.product.unchecked))
+    )
 
     return [
         RankedProduct(product=item.product, breakdown=item.parts, rank=index, scale=currency)
         for index, item in enumerate(scored, start=1)
     ]
+
+
+def placement_note(product: Product) -> str | None:
+    """Why ``product`` ranks below products that may score less, in a sentence both doors
+    show; ``None`` where its score alone placed it (ADR-0095, ADR-0097)."""
+    if product.availability == _GONE:
+        return "Ranked last: a page says it is out of stock."
+    if product.unchecked:
+        why = and_list([_UNCHECKED[limit] for limit in product.unchecked])
+        return f"Ranked after the products this run's limits could check: {why}."
+    return None
 
 
 def scale_of(ranked: Sequence[RankedProduct]) -> str | None:

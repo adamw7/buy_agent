@@ -251,7 +251,7 @@ graph LR
     sources("<b>Sources</b><br/><i>[Component: sources.py]</i><br/>A trusted source as a domain<br/>and a term: narrows the query,<br/>and says whether a result<br/>came from it")
     fetch("<b>Fetch</b><br/><i>[Component: fetch.py]</i><br/>Fetches pages in parallel,<br/>writes their JSON-LD as lines<br/>(structured.py), keeps the lines<br/>quoting a figure or stock and<br/>those passing judgement, asks<br/>a page that said to again once,<br/>and tallies the failures")
     verification("<b>Verification</b><br/><i>[Component: verification.py]</i><br/>Drops products no source<br/>named, blanks figures, stock,<br/>condition and quotes the text<br/>lacks, and links each product<br/>and quote to its page")
-    constraints("<b>Constraints</b><br/><i>[Component: constraints.py]</i><br/>The shopper's bounds, after<br/>merging and before ranking;<br/>an unknown figure passes")
+    constraints("<b>Constraints</b><br/><i>[Component: constraints.py]</i><br/>The shopper's bounds, after<br/>merging and before ranking;<br/>an unknown figure passes,<br/>marked to rank after the rest")
     ranking("<b>Ranking</b><br/><i>[Component: ranking.py]</i><br/>Weighted score over rating,<br/>popularity and price in one<br/>currency, and the shares it<br/>was blended from. No LLM")
     logsetup("<b>Report and logging</b><br/><i>[Component: logging_setup.py]</i><br/>The log format, the top-N<br/>report, what moved since the<br/>last run, and whether a price<br/>alert was met (alerts.py)")
 

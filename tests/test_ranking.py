@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+from typing import get_args
+
 import pytest
 
-from buy_agent.models import Product
+import buy_agent.ranking as ranking_module
+from buy_agent.models import Limit, Product
 from buy_agent.ranking import (
     CRITERIA,
     NEUTRAL,
     RankingWeights,
     SortBy,
+    placement_note,
     rank_products,
     score_product,
 )
@@ -166,6 +170,58 @@ def test_condition_does_not_move_a_listing() -> None:
     ranked = rank_products([STOCKED, refurbished])
 
     assert ranked[0].product.name == "Unsaid"
+
+
+# -- what a limit could not check ranks as, and why each place is what it is (ADR-0097)
+
+#: Scores highest of the three, and no limit had a figure to check it by.
+UNJUDGED = Product(name="Unjudged", rating=4.9, review_count=9000, unchecked=["max_price"])
+WITHIN = Product(name="Within", price=150.0, currency="USD", rating=4.2, review_count=300)
+
+
+@pytest.mark.parametrize("sort_by", ["score", "price", "rating"])
+def test_a_product_no_limit_could_check_ranks_after_those_one_could(sort_by: SortBy) -> None:
+    ranked = rank_products([UNJUDGED, WITHIN, GONE], sort_by=sort_by)
+
+    assert [entry.product.name for entry in ranked] == ["Within", "Unjudged", "Gone"]
+
+
+def test_out_of_stock_comes_last_even_among_the_unchecked() -> None:
+    gone_and_unjudged = GONE.model_copy(update={"unchecked": ["max_price"]})
+
+    ranked = rank_products([gone_and_unjudged, UNJUDGED, WITHIN])
+
+    assert [entry.product.name for entry in ranked] == ["Within", "Unjudged", "Gone"]
+
+
+def test_the_unchecked_keep_the_score_they_would_have() -> None:
+    ranked = {entry.product.name: entry for entry in rank_products([UNJUDGED, WITHIN])}
+
+    assert ranked["Unjudged"].score > ranked["Within"].score
+    assert ranked["Unjudged"].rank == 2
+
+
+def test_each_place_a_score_did_not_decide_is_said_in_a_sentence() -> None:
+    assert placement_note(GONE) == "Ranked last: a page says it is out of stock."
+    assert placement_note(UNJUDGED) == (
+        "Ranked after the products this run's limits could check: its price is unknown "
+        "or in another currency."
+    )
+    every = Product(name="x", unchecked=["max_price", "min_rating", "min_reviews"])
+    assert placement_note(every) == (
+        "Ranked after the products this run's limits could check: its price is unknown "
+        "or in another currency, it has no rating and its review count is unknown."
+    )
+    assert placement_note(WITHIN) is None
+    # Out of stock is the place it takes, whatever else is unknown.
+    assert placement_note(GONE.model_copy(update={"unchecked": ["min_rating"]})) == (
+        "Ranked last: a page says it is out of stock."
+    )
+
+
+def test_every_limit_has_its_phrase() -> None:
+    """A limit added to ``models.Limit`` without one would fail on the card."""
+    assert set(ranking_module._UNCHECKED) == set(get_args(Limit))
 
 
 # -- what an unknown price scores (ADR-0096) -------------------------------------

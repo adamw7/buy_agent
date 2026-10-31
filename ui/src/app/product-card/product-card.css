@@ -216,6 +216,14 @@ h3 a:hover {
 }
 
 /* The three numbers are not slices of the total. */
+/* Why it sits below what may score less: read beside the score. */
+.placement {
+  margin: 6px 0 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .parts-note {
   margin: 6px 0 0;
   color: var(--text-dim);

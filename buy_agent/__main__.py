@@ -183,15 +183,15 @@ def _written() -> dict[str, dict[str, Any]]:
         },
         "max_price": {
             "help": "Leave out anything dearer than this, in the run's currency "
-            "(default: no limit). Products with no price are kept.",
+            "(default: no limit). Products with no price are kept, after the rest.",
         },
         "min_rating": {
             "help": "Leave out anything rated below this, out of 5 (default: no limit). "
-            "Unrated products are kept.",
+            "Unrated products are kept, after the rest.",
         },
         "min_reviews": {
             "help": "Leave out ratings averaged over fewer reviews than this (default: "
-            "no limit). Ratings with no review count are kept.",
+            "no limit). Ratings with no review count are kept, after the rest.",
         },
         "alert_below": {
             "metavar": "PRICE",

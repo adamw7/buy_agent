@@ -111,6 +111,26 @@ def test_unknown_fields_are_left_out_rather_than_shown_blank(report) -> None:
     assert "says" not in text
 
 
+def test_a_place_the_score_did_not_decide_is_said_beside_the_score(report) -> None:
+    """Out of stock at 0.94 under a 0.66 is a place the report has to explain
+    (ADR-0095, ADR-0097)."""
+    log_top_products(
+        rank_products(
+            [
+                Product(name="Gone", price=10.0, currency="USD", rating=5.0,
+                        availability="out of stock"),
+                Product(name="Here", price=20.0, currency="USD", rating=3.0),
+            ]
+        ),
+        2,
+    )
+
+    written = lines(report)
+    gone = written.index("#2  Gone")
+    assert written[gone + 2] == "     placed : Ranked last: a page says it is out of stock."
+    assert "placed" not in "\n".join(written[: gone])
+
+
 def test_each_product_gets_its_own_numbered_block(report) -> None:
     log_top_products(ranked(Product(name="Alpha"), Product(name="Beta")), 3)
 

@@ -347,6 +347,25 @@ def test_reordering_keeps_the_request_and_the_count_it_was_given() -> None:
     assert payload["top_n"] == 1, "how many to highlight is the page's to carry over"
 
 
+def test_a_re_sort_keeps_what_the_limits_could_not_check_after_the_rest() -> None:
+    """The mark travels with the products, so the order a run gave on it holds through
+    a re-sort, which never sees the limits (ADR-0097)."""
+    unjudged = Product(name="Unjudged", rating=4.9, review_count=9000, unchecked=["max_price"])
+    within = Product(name="Within", price=150.0, currency="USD", rating=4.0, review_count=50)
+    sent = results_payload(rank_products([unjudged, within]))
+    assert [entry["name"] for entry in sent] == ["Within", "Unjudged"]
+
+    payload = rank_again({"products": list(reversed(sent))})
+
+    assert [entry["name"] for entry in payload["products"]] == ["Within", "Unjudged"]
+    assert payload["products"][1]["unchecked"] == ["max_price"]
+    assert payload["products"][1]["placement_note"] == (
+        "Ranked after the products this run's limits could check: its price is unknown "
+        "or in another currency."
+    )
+    assert payload["products"][0]["placement_note"] is None
+
+
 def test_reordering_refuses_a_criterion_nothing_sorts_by() -> None:
     with pytest.raises(ApiError) as excinfo:
         rank_again(posted(sort_by="cheapness"))

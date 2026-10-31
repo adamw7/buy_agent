@@ -311,6 +311,18 @@ def test_a_listings_standing_is_spelled_the_same_in_typescript(union: str) -> No
     assert set(re.findall(r"'([^']+)'", match.group(1))) == python
 
 
+def test_the_limits_a_product_can_be_unchecked_by_are_spelled_the_same_in_typescript() -> None:
+    """``unchecked`` names settings (ADR-0097): a limit renamed on one side only is a
+    mark the page reads as something else -- and each is a box the form draws."""
+    source = _TYPES_TS.read_text(encoding="utf-8")
+    match = re.search(r"export type LimitName = ([^;]+);", source)
+    assert match, "no LimitName union in agent.types.ts"
+    python = set(get_args(models_module.Limit))
+
+    assert set(re.findall(r"'([^']+)'", match.group(1))) == python
+    assert python <= set(limits_payload())
+
+
 def test_both_doors_say_which_end_of_each_criterion_comes_first() -> None:
     """In the words the report's heading uses. A criterion's name does not carry its
     direction -- ``price`` is cheapest first here and could as well be dearest -- so

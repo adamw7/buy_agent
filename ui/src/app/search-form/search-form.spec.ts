@@ -246,7 +246,7 @@ describe('SearchForm', () => {
 
     expect(box.querySelector('.noticed')!.textContent).toContain('below 1000 EUR');
     expect(box.textContent).toContain('In the currency most of the pages quote');
-    expect(box.textContent).toContain('Unpriced products are still shown');
+    expect(box.textContent).toContain('Unpriced products are still shown, after the rest');
     expect(await accessibilityProblems(fixture.nativeElement)).toEqual([]);
   });
 

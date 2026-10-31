@@ -48,6 +48,9 @@ export type Availability = 'in stock' | 'out of stock';
 /** The state a listing comes in, as a page said (ADR-0079). */
 export type Condition = 'new' | 'used' | 'refurbished';
 
+/** A limit the shopper can set, by setting, as `models.Limit` names them (ADR-0097). */
+export type LimitName = 'max_price' | 'min_rating' | 'min_reviews';
+
 /** One ranked product. The `*_label` fields are written by Python's `Product`. */
 export interface RankedProduct {
   /** Why this product cannot be bought, or `null` where it can. */
@@ -73,12 +76,16 @@ export interface RankedProduct {
   /** Every priced listing, the headline among them; ranking reads only the headline. */
   offers: Offer[];
   notes: string | null;
+  /** The limits set for the run that had no figure to check this by (ADR-0097). */
+  unchecked: LimitName[];
   price_label: string;
   rating_label: string;
   /** "3 listings, 129.00-149.00 USD", or `null` for fewer than two. */
   offers_label: string | null;
   /** "In stock, refurbished", or `null` where no page said either (ADR-0079). */
   listing_label: string | null;
+  /** Python's sentence for why it ranks below what may score less (ADR-0095, ADR-0097). */
+  placement_note: string | null;
 }
 
 /** Whether a run found the price the shopper is waiting for; never applied (ADR-0080). */

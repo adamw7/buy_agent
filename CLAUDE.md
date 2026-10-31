@@ -190,7 +190,7 @@ against the set it leaves (ADR-0043).
 | `cache.py` | What a run can reuse: page text and answers, nothing else |
 | `journal.py` | What past runs of this search reported, and what moved since |
 | `verification.py` | Drops products, figures and quotes the sources lack; links what is left |
-| `constraints.py` | The shopper's bounds, applied before ranking |
+| `constraints.py` | The shopper's bounds, applied before ranking, marking what they could not check |
 | `alerts.py` | Whether a finished run met the price alert; told, never applied |
 | `bounds.py` | What the request itself asks for, applied at both doors, which say so |
 | `ranking.py` | Scoring and sorting, and what each score is made of; no LLM |
@@ -304,8 +304,11 @@ where HTTP, threads, env reads and files may go; ADR-0047), listed in
 - **Missing data never wins, and says so.** `ranking.NEUTRAL` (0.5) stands in for
   an unknown rating or count; an unknown price scores what the dearest placed price
   does (`_unknown_price_share`, ADR-0096); sorts sink unknowns, bounds keep them
-  (ADR-0039). A listing no page has in stock ranks after every other, in every
-  order (ADR-0095). Prices compare within one currency, never converted:
+  (ADR-0039). `Constraints.apply` marks a kept product with the limits that had no
+  figure for it (`Product.unchecked`, ADR-0097), and ranking puts it after the
+  checked; a listing no page has in stock ranks after every other, in every order
+  (ADR-0095). The score is untouched; `ranking.placement_note` says why, beside it,
+  at both doors. Prices compare within one currency, never converted:
   `models.dominant_currency` picks it (the shopper's `currency`, else a vote,
   ADR-0056), and `models.comparable_price`, used by `rank_products` and
   `Constraints`, is `None` outside it (ADR-0043). `score_product` answers
@@ -508,6 +511,8 @@ Reasons are in `ui/README.md`. These must hold:
 - No sentence about the model server is written in TS: `App.unreachable` is
   Python's `hint`; `App.asking` holds the in-flight `ModelSource`. Re-ask on load,
   on Check again, and after a contradicting run.
+- A card shows Python's `placement_note` beside the score where the score did not
+  decide its place (ADR-0097).
 - `progress-log` is presentation; Download log only for failed or stopped runs.
   `App.reveal`/`showResults` scroll results into view (`nearest`), never to a
   failure naming a field.

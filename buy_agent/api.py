@@ -45,7 +45,14 @@ from buy_agent.payment import (
 )
 from buy_agent.providers import PROVIDERS, provider_options
 from buy_agent.rails import RAILS, rail_options
-from buy_agent.ranking import ORDERINGS, RankingWeights, SortBy, rank_products, scale_of
+from buy_agent.ranking import (
+    ORDERINGS,
+    RankingWeights,
+    SortBy,
+    placement_note,
+    rank_products,
+    scale_of,
+)
 from buy_agent.screenshots import ScreenshotError
 from buy_agent.search import BACKENDS, SearchError, backend_options
 from buy_agent.sources import Source, format_sources, parse_sources
@@ -398,6 +405,8 @@ def product_payload(entry: RankedProduct, currency: str | None = None) -> dict[s
         "rating_label": entry.product.rating_label(),
         "offers_label": entry.product.offers_label(),
         "listing_label": entry.product.listing_label(),
+        # Why it sits below what may score less (ADR-0095, ADR-0097).
+        "placement_note": placement_note(entry.product),
     }
 
 

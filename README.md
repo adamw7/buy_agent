@@ -250,7 +250,9 @@ python -m buy_agent "espresso machine" --min-rating 4.5 --min-reviews 500
 
 - **A product whose figure the run never learned is kept**: a blank is more often
   a page that printed none than a product that costs too much
-  ([ADR-0039](docs/adr/0039-enforce-the-shoppers-bounds-in-python.md)).
+  ([ADR-0039](docs/adr/0039-enforce-the-shoppers-bounds-in-python.md)). It ranks
+  after the products the limits could check, and says so
+  ([ADR-0097](docs/adr/0097-rank-what-a-limit-could-not-check-after-what-it-could.md)).
 - **Prices are compared inside one currency, never converted.** The run counts in
   the commonest currency its pages printed; a price in another passes the budget,
   scores as the dearest price does and is marked "assumed"
@@ -596,7 +598,10 @@ candidate does (0.0 when prices differ): a product nobody priced can be neither
 bought nor held to a budget, so it never wins on price
 ([ADR-0096](docs/adr/0096-score-an-unknown-price-as-the-dearest-one.md)). A
 listing a page says is out of stock comes after every other, in every order
-([ADR-0095](docs/adr/0095-rank-a-listing-no-page-has-in-stock-after-every-other.md)).
+([ADR-0095](docs/adr/0095-rank-a-listing-no-page-has-in-stock-after-every-other.md)),
+and a product a limit you set could not check comes after those it could; either
+says why beside its score, on the card and in the report's `placed` line
+([ADR-0097](docs/adr/0097-rank-what-a-limit-could-not-check-after-what-it-could.md)).
 Change the mix with
 `AgentConfig(weights=RankingWeights(rating=0.7, price=0.3, ...))`. Because 0.5 is
 also an average score, each score reports its shares, their weights, and which

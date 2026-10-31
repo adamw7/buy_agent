@@ -105,6 +105,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0094](0094-apply-a-bound-the-request-states-where-the-shopper-sees-it.md) | Apply a bound the request states, where the shopper sees it and can undo it | Accepted |
 | [0095](0095-rank-a-listing-no-page-has-in-stock-after-every-other.md) | Rank a listing no page has in stock after every other | Accepted |
 | [0096](0096-score-an-unknown-price-as-the-dearest-one.md) | Score an unknown price as the dearest one | Accepted |
+| [0097](0097-rank-what-a-limit-could-not-check-after-what-it-could.md) | Rank what a limit could not check after what it could, and say why | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written

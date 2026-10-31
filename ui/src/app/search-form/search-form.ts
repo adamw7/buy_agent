@@ -195,16 +195,17 @@ export class SearchForm {
     // A bound keeps a product with no figure (ADR-0039), and is never remembered (ADR-0077).
     field('max_price', 'Max price', this.maxPrice, {
       step: 0.01,
-      hint: () => `In ${this.scale()}; nothing is converted. Unpriced products are still shown.`,
+      hint: () =>
+        `In ${this.scale()}; nothing is converted. Unpriced products are still shown, after the rest.`,
       remembered: false,
     }),
     field('min_rating', 'Min rating', this.minRating, {
       step: 0.1,
-      hint: 'Out of 5. Unrated products are still shown.',
+      hint: 'Out of 5. Unrated products are still shown, after the rest.',
       remembered: false,
     }),
     field('min_reviews', 'Min reviews', this.minReviews, {
-      hint: 'How many reviews a rating has to average. Products with no count are still shown.',
+      hint: 'How many reviews a rating has to average. Products with no count are still shown, after the rest.',
       remembered: false,
     }),
     // Told, never applied, and asked of one search as a bound is (ADR-0080).
