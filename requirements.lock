@@ -44,11 +44,11 @@ openai==3.42.1
     # via -r requirements.txt
 primp==2.0.1
     # via ddgs
-pydantic==2.14.1
+pydantic==2.14.2
     # via
     #   -r requirements.txt
     #   openai
-pydantic-core==2.50.1
+pydantic-core==2.50.2
     # via pydantic
 sniffio==1.3.1
     # via openai

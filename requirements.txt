@@ -4,6 +4,6 @@
 # The optional AP2 SDK is in requirements-ap2.txt.
 openai==3.42.1
 ddgs==9.16.1
-pydantic==2.14.1
+pydantic==2.14.2
 httpx==0.28.1
 lxml==6.1.3
