@@ -20,7 +20,7 @@ COPY ui/ ./
 RUN npm run build
 
 # -- stage 2: the server, on the Python .python-version pins ------------------
-FROM python:3.15-slim@sha256:94d3426f1def7db4a106a232ac121bfd975393e5dfd40a619b955fae45fe7913 AS runtime
+FROM python:3.15-slim@sha256:8c13a3f37a6a5b71498228e902c4b9f51c1f7900d49fabf71f9a650c6120e0d0 AS runtime
 
 # The terms the image is published under, said where a registry reads them.
 LABEL org.opencontainers.image.licenses="MIT"
