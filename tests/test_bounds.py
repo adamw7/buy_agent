@@ -72,6 +72,39 @@ def test_a_figure_is_read_whole_in_each_convention(request_: str, figure: str) -
     assert only(request_).figure == figure
 
 
+@pytest.mark.parametrize(
+    "request_",
+    [
+        'monitor under 27" for gaming',
+        "4K TV under 55”",
+        "TV under 65″",
+        "bike for riders under 5'5",
+        "battery drain under 20%",
+        "drill bits under 1/4 inch",
+        "sleeping bag comfortable under 20°",
+    ],
+)
+def test_a_figure_marked_as_a_measure_is_no_budget(request_: str) -> None:
+    """A mark is a unit as a word is: "under 27" monitor" read as a budget of 27 removed
+    every monitor, since a bound the request states is now applied (ADR-0094)."""
+    assert notice(request_) == []
+
+
+@pytest.mark.parametrize(
+    ("request_", "figure"),
+    [
+        ('monitor under $300"', "300"),
+        ("headphones under 200€", "200"),
+        ("headphones under 200 (wireless)", "200"),
+    ],
+)
+def test_a_budget_is_still_read_beside_a_mark_that_is_no_measure(
+    request_: str, figure: str
+) -> None:
+    """A currency sign settles it, and a sign after the figure is no measure."""
+    assert only(request_).figure == figure
+
+
 @pytest.mark.parametrize("request_", ["headphones with .5+ stars", "headphones x4.5+ stars"])
 def test_no_reading_starts_inside_a_figure(request_: str) -> None:
     """Half a star was offered as five, read from after the dot."""

@@ -43,8 +43,16 @@ _CARRIES_ON = (
     "plus", "if", "ideally", "preferably",
 )
 
-#: What may follow a bare figure for it to be an amount: a currency, a join, or no word.
-_NOTHING_ELSE = rf"(?:{_UNIT}|(?![\s-]*[A-Za-z])|(?=\s+(?:{'|'.join(_CARRIES_ON)})\b))"
+#: Marks a measure is written with, as a word unit is: inches and feet, straight or as a
+#: phone types them ("27"", "5'5"), a share, degrees, and a fraction ("1/2 inch").
+_MEASURE = "\"'%/°’”′″"
+
+#: What may follow a bare figure for it to be an amount: a currency, a join, or no word
+#: and no mark of a measure -- "under 27" monitor" is a size, not a budget of 27.
+_NOTHING_ELSE = (
+    rf"(?:{_UNIT}|(?![\s-]*[A-Za-z{re.escape(_MEASURE)}])"
+    rf"|(?=\s+(?:{'|'.join(_CARRIES_ON)})\b))"
+)
 
 #: Not in a letter running on ("$2k" is no budget of 2), unless a currency ("$200USD").
 _FIGURE_ENDS = rf"(?={_UNIT}|(?![A-Za-z]))"
