@@ -694,6 +694,57 @@ def test_an_openai_style_server_counts_every_way_of_not_being_there(
     assert isinstance(failure, AgentConfig(provider=provider).model_server.transport_errors)
 
 
+# -- an address no client can read ---------------------------------------------
+
+
+@pytest.mark.parametrize("provider", _EVERY)
+@pytest.mark.parametrize(
+    "address",
+    [
+        # One bracket short of an IPv6 literal: the typo this was found by.
+        "http://[::1/",
+        # A name IDNA cannot encode.
+        "http://ü..:8000",
+    ],
+)
+def test_an_address_no_client_can_read_is_refused_before_the_client_is_built(
+    provider: str, address: str, chatting, completing
+) -> None:
+    """``httpx.InvalidURL`` is in no row's ``transport_errors``, and the OpenAI client
+    raises its own while it is built, so either escaped a run as a crash rather than as
+    one of its three failures (ADR-0009). Refused as a ``ValueError``, it is a 400 and an
+    exit 1 at the two doors, in a sentence naming the setting."""
+    clients = (chatting(), completing())
+    config = AgentConfig(provider=provider, base_url=address)
+
+    with pytest.raises(ValueError, match="cannot be read as an address") as refused:
+        chat_model(config)
+
+    assert f"Set the {config.model_server.label} address" in str(refused.value)
+    assert not any("client" in sent for sent in clients), "refused before one was built"
+
+
+@pytest.mark.parametrize(
+    "address",
+    # No scheme reads as plain HTTP on Ollama's own port, as its client reads one.
+    ["localhost:11434", ":11434", "0.0.0.0", "[::1]:11434"],
+)
+def test_an_ollama_address_its_client_can_read_is_still_taken(chatting, address: str) -> None:
+    sent = asked(AgentConfig(provider="ollama", base_url=address), chatting())
+
+    assert sent["base_url"] == address
+
+
+@pytest.mark.parametrize("address", ["[::1", "localhost:99999"])
+def test_an_ollama_address_with_no_scheme_is_read_as_its_client_reads_it(
+    address: str,
+) -> None:
+    """Prefixed with ``http://`` (``_ollama_url``), these are an unclosed bracket and a
+    port past 65535, which ``urlsplit`` refuses with a ``ValueError`` of its own."""
+    with pytest.raises(ValueError, match="cannot be read as an address"):
+        chat_model(AgentConfig(provider="ollama", base_url=address))
+
+
 # -- what each server defaults to ----------------------------------------------
 
 
