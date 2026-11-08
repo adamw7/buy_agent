@@ -110,10 +110,19 @@ try {
         Note 'the AP2 SDK is here -- the page will offer to buy what it finds'
     } elseif ($paying) {
         Note 'an AP2 setting is set, so this run means to pay -- installing what that needs'
-        Run $python @(
-            '-m', 'pip', 'install', '--quiet', '--disable-pip-version-check',
-            '-r', 'requirements-ap2-deps.txt'
-        ) 'could not install requirements-ap2-deps.txt'
+        # PyYAML, which only sd-jwt needs, can have no wheel yet for a new Python, and
+        # building its C extension takes a compiler this machine may lack. This builds
+        # it as pure Python, and means nothing where a wheel exists.
+        $env:PYYAML_FORCE_LIBYAML = '0'
+        try {
+            Run $python @(
+                '-m', 'pip', 'install', '--quiet', '--disable-pip-version-check',
+                '-r', 'requirements-ap2-deps.txt'
+            ) 'could not install requirements-ap2-deps.txt'
+        } finally {
+            # The shell that ran this script is this process, and keeps what is left.
+            Remove-Item Env:\PYYAML_FORCE_LIBYAML
+        }
         Run $python @(
             '-m', 'pip', 'install', '--quiet', '--disable-pip-version-check',
             '--no-deps', '-r', 'requirements-ap2.txt'

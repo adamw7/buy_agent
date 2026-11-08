@@ -267,7 +267,10 @@ clock and web request, and reads back JSON; `tests/test_setup_scripts.py` does t
 same for `scripts/setup.ps1` and `scripts/preflight.ps1`. What `setup.ps1`
 installs is held against `ci.yml` in `tests/test_conventions.py` (ADR-0067), and
 what `preflight.ps1` checks is what `ci.yml` runs, since each of its jobs runs the
-script (ADR-0091).
+script (ADR-0091). Both setting-up scripts install `requirements-ap2-deps.txt` with
+`$PYYAML_FORCE_LIBYAML` at `0`, so PyYAML installs with no compiler where it has no
+wheel. Runners have a compiler and would not notice its loss, so a convention test
+holds it.
 
 ## Integration tests
 

@@ -76,7 +76,9 @@ python -m playwright install --only-shell chromium
 ```
 
 `--no-deps` is deliberate: the AP2 SDK's metadata pins versions this project
-does not use, so its real requirements are pinned in the first file.
+does not use, so its real requirements are pinned in the first file. If that
+first file fails asking for a C compiler, PyYAML has no wheel for your Python:
+`$env:PYYAML_FORCE_LIBYAML = '0'` builds it as pure Python, as the scripts below do.
 
 To work on it, `setup.ps1` sets up everything the gate needs, the AP2 SDK
 included (without it the payment tests skip and the coverage floor is out of

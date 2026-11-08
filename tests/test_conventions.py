@@ -1686,6 +1686,22 @@ def test_the_setup_script_installs_the_ap2_sdk_the_way_mandates_says_to() -> Non
         assert command.split()[2:] in ran, f"the setup script never runs: {command}"
 
 
+@pytest.mark.parametrize("path", (_START, _SETUP), ids=lambda path: path.name)
+def test_the_ap2_install_asks_for_no_c_compiler(path: Path) -> None:
+    """PyYAML, which only `sd-jwt` needs, can have no wheel yet for the Python
+    ``.python-version`` pins, and pip then builds its C extension: a failed install on a
+    Windows machine with no compiler, where a runner has one and CI stays green. The
+    variable builds it as pure Python, and goes again, the caller's shell being this
+    process."""
+    assert re.search(
+        r"\$env:PYYAML_FORCE_LIBYAML = '0'\s+try \{\s+Run \$python @\("
+        r".*?'requirements-ap2-deps\.txt'.*?"
+        r"\} finally \{.*?Remove-Item Env:\\PYYAML_FORCE_LIBYAML",
+        path.read_text(encoding="utf-8"),
+        re.S,
+    ), f"{path.name} installs requirements-ap2-deps.txt asking for a C compiler"
+
+
 def test_the_setup_script_asks_python_whether_paying_is_available() -> None:
     """pip exits 0 for an install of the SDK that cannot be imported, so the setup asks
     the question both front doors ask rather than trusting the exit code."""

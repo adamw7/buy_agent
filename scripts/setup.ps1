@@ -107,11 +107,20 @@ try {
             '-m', 'pip', 'install', '--quiet', '--disable-pip-version-check',
             '-r', 'requirements-dev.txt'
         ) 'could not install requirements-dev.txt'
+        # PyYAML, which only sd-jwt needs, can have no wheel yet for a new Python, and
+        # building its C extension takes a compiler this machine may lack. This builds
+        # it as pure Python, and means nothing where a wheel exists.
+        $env:PYYAML_FORCE_LIBYAML = '0'
+        try {
+            Run $python @(
+                '-m', 'pip', 'install', '--quiet', '--disable-pip-version-check',
+                '-r', 'requirements-ap2-deps.txt'
+            ) 'could not install requirements-ap2-deps.txt'
+        } finally {
+            # The shell that ran this script is this process, and keeps what is left.
+            Remove-Item Env:\PYYAML_FORCE_LIBYAML
+        }
         # --no-deps applies to a whole file, hence requirements-ap2.txt.
-        Run $python @(
-            '-m', 'pip', 'install', '--quiet', '--disable-pip-version-check',
-            '-r', 'requirements-ap2-deps.txt'
-        ) 'could not install requirements-ap2-deps.txt'
         Run $python @(
             '-m', 'pip', 'install', '--quiet', '--disable-pip-version-check',
             '--no-deps', '-r', 'requirements-ap2.txt'
