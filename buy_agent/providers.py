@@ -231,7 +231,26 @@ class _OllamaChat:
         self.client.close()
 
 
+def _readable_address(config: AgentConfig, sent_to: Callable[[], str]) -> None:
+    """Refuse an address no client can send to, as a run's ``ValueError`` (ADR-0009),
+    before the client is built. ``httpx.InvalidURL`` is outside every row's
+    ``transport_errors`` -- httpx's root does not hold it, and the OpenAI client raises
+    its own as it is built -- so "http://[::1/" failed a run as an unexpected 500, or a
+    traceback, after it had searched. The OpenAI client's ``httpx2`` reads an address
+    as ``httpx`` does, word for word."""
+    try:
+        httpx.URL(sent_to())
+    # ``urlsplit``'s own, from ``_ollama_url``, for "[::1" with no scheme.
+    except (httpx.InvalidURL, ValueError) as exc:
+        label = config.model_server.label
+        raise ValueError(
+            f"{config.base_url!r} cannot be read as an address ({exc}). Set the {label} "
+            f"address to the scheme, host and port {label} is serving at."
+        ) from exc
+
+
 def _ollama_chat_model(config: AgentConfig) -> ChatModel:
+    _readable_address(config, lambda: _ollama_url(config.base_url, "/api/chat"))
     return _OllamaChat(
         client=OllamaClient(config.base_url, timeout=config.model_timeout),
         model=config.model,
@@ -388,6 +407,7 @@ def _openai_chat_model(
     ``reasoning`` sent in the row's own words, or nothing sent for ``None`` (ADR-0019)."""
 
     def chat_model(config: AgentConfig) -> ChatModel:
+        _readable_address(config, lambda: config.base_url)
         extra_body = {} if config.reasoning is None else thinking(config.reasoning)
         return _OpenAIChat(
             client=openai.OpenAI(

@@ -856,6 +856,27 @@ def test_an_out_of_stock_product_says_why_it_cannot_be_bought() -> None:
     assert payload["pay_label"] is None
 
 
+@pytest.mark.parametrize("provider", ["ollama", "vllm"])
+def test_a_model_address_no_client_can_read_is_a_400_before_anything_is_searched(
+    monkeypatch, provider: str
+) -> None:
+    """Through the real agent: Ollama's client raised ``httpx.InvalidURL`` at its first
+    question, which refinement swallowed, so the run searched the web and then failed
+    as a 500; vLLM's raised while the agent was built. Either is one of the three
+    failures now (ADR-0009), before the web is asked."""
+    searched: list[str] = []
+    monkeypatch.setattr(
+        "buy_agent.agent.search_web", lambda query, **_kwargs: searched.append(query) or []
+    )
+
+    with pytest.raises(ApiError) as refused:
+        run_search("headphones", AgentConfig(provider=provider, base_url="http://[::1/"))
+
+    assert refused.value.status == 400
+    assert "cannot be read as an address" in str(refused.value)
+    assert searched == []
+
+
 def test_a_run_given_a_price_alert_says_whether_it_was_met() -> None:
     payload = run_search(
         "headphones",
