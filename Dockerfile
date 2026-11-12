@@ -8,7 +8,7 @@
 # -- stage 1: build the UI, on the Node .nvmrc pins ---------------------------
 # On the builder's own platform: the bundle is the same bytes for every image, and an
 # arm64 image needs no emulated Node to build it.
-FROM --platform=$BUILDPLATFORM node:26.13.0-bookworm-slim@sha256:add5c17c14752c54d2f3d519ec46a3815684d41c33f198bcb09fb998f7dcbf68 AS ui
+FROM --platform=$BUILDPLATFORM node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS ui
 
 WORKDIR /ui
 
