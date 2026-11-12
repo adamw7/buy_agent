@@ -156,8 +156,7 @@
             @if (rail(); as chosen) {
               <br />
               {{ chosen.label }} — you
-              <strong>{{ chosen.moves_money ? 'will be charged' : 'will NOT be charged' }}</strong
-              >.
+              <strong>{{ chosen.moves_money ? 'will be charged' : 'will NOT be charged' }}</strong>.
             }
           </p>
           <button type="button" class="pay" [disabled]="locked()" (click)="confirm()">
