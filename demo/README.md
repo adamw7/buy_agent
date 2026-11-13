@@ -6,7 +6,7 @@ local counterparty for the `http` payment rail (see the end).
 
 | Video | The shopper asks for | Ends on | Sound |
 | --- | --- | --- | --- |
-| `wwii-books-1944-45.mpg` | *"wwii books about war in Europe 1944-45"* | the top 3, with the rest folded away | no |
+| `wwii-books-1944-45.mpg` | *"wwii books about war in Europe 1944-45"* | the four below the top 3, unfolded, the unpriced one last | no |
 | `wwii-books-1944-45-with-sound.mpg` | the same | the same | yes |
 | `laptops-under-1000.mpg` | *"new laptop below 1000 USD, not too heavy or loud. windows 11 installed"* | the shop page behind the top product's link | no |
 
@@ -33,7 +33,7 @@ the fake model wrong in six ways, and the panel shows each being caught:
 | `Discarded 1 result(s) that were pages, not products` | A listicle headline reported as a product |
 | `Dropped 1 product(s) absent from the search results` | A name no page mentions |
 | `Dropped unsupported figures on 1 product(s)` | A price no page printed -- the card reads "price unknown" |
-| `Dropped 1 opinion(s) the sources never printed` | A verdict nobody wrote |
+| `Dropped 1 opinion(s) no page passed on that product` | A verdict nobody wrote |
 | `Dropped 1 link(s) to pages that were never searched` | A link to a page the agent never saw |
 | `Merged 1 duplicate listing(s)` | One product listed twice, in two currencies |
 
@@ -55,9 +55,9 @@ Main Level's 224 KB buffer, since at 3.5 Mbit/s a scroll through a page of text
 drained it, and `encode` refuses to write a file when ffmpeg reports a buffer
 underflow or overflow, the only notice of one a lenient player would show anyway.
 
-The three shop recordings predate all of this and are still MPEG-1 system streams
-around MPEG-2 video (pack byte `0x21`, where an MPEG-2 one has `0x44`); a new take
-of any of them is a proper MPEG-2 program stream.
+The three shop recordings are MPEG-2 program streams: byte 4, the first after the
+pack start code, is `0x44`, where an MPEG-1 system stream, as they were until
+retaken, has `0x21`.
 
 Even so, a stock Windows 10 or 11 decodes the MP2 sound and ships no MPEG-2 video
 decoder, so the narration plays over a black screen until Microsoft's MPEG-2 Video
@@ -111,6 +111,10 @@ recorder reads the request and shop pages from it; `--request` types something
 else. The recorder prints the length and cue count. A budget in the request goes
 out with the one press, named beside the request
 ([ADR-0094](../docs/adr/0094-apply-a-bound-the-request-states-where-the-shopper-sees-it.md)).
+
+Start a fresh `demo.server` for each take. It keeps its runs out of the shopper's
+cache, in a directory deleted on Ctrl-C, but a second run on the same server
+shows what moved since the first, below the results.
 
 `record.mjs` needs Playwright (local or global), Python on PATH, and an ffmpeg
 with the `mpeg` muxer and the `mpeg2video` and `mp2` encoders. Playwright's own
@@ -174,8 +178,8 @@ take in which any model had memory on a GPU; the last card states what it saw.
 ## The README's pictures
 
 `screenshot.mjs` takes `docs/ui.png` (the form with settings open) and, given
-`--script`, `docs/results.png` (the top 3, after pressing the button twice where
-the request names a budget):
+`--script`, `docs/results.png` (the top 3, after one press, which sends a budget
+the request names along with it):
 
 ```powershell
 python -m demo.server --pace 0 --port 8000        # in one terminal

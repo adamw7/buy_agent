@@ -105,13 +105,9 @@ await box.pressSequentially(request, { delay: 5 });
 let top = 0;
 let bottom;
 if (results) {
-  const find = page.getByRole("button", { name: "Find products" });
-  await find.click();
-  // A budget written in the request is offered in its box before any run goes out
-  // (ADR-0059): a press that only showed the offer is followed by the one that
-  // searches with it, as the shopper's would be.
-  await page.locator("app-progress-log, small.noticed").first().waitFor();
-  if (!(await page.locator("app-progress-log").count())) await find.click();
+  // A budget written in the request goes out with the one press, named beside the
+  // request (ADR-0094): the laptops' "below 1000 USD" does.
+  await page.getByRole("button", { name: "Find products" }).click();
   const section = page.locator("section.results");
   await section.waitFor({ state: "visible", timeout: 60_000 });
   await page.waitForTimeout(300);
@@ -128,6 +124,17 @@ if (results) {
   top = Math.max(0, box.top - 12);
   bottom = box.bottom;
 } else {
+  // The server reads the request for bounds when the box is left (ADR-0094), and
+  // the line naming them pushes the form down. Leaving it here and waiting for the
+  // answer settles the form before Settings is clicked; otherwise it moves under the
+  // pointer, and the picture shows whatever lands there hovered.
+  if (request.trim()) {
+    const reading = page.waitForResponse((response) =>
+      new URL(response.url()).pathname.endsWith("/api/bounds"),
+    );
+    await box.blur();
+    await reading;
+  }
   // Settings are folded away by default and everything inside them is hidden
   // until they are opened -- the model <select> included, which is why this waits
   // for it after the click rather than before.

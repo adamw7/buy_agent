@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import importlib
 import logging
+import os
 import sys
+import tempfile
 import time
 import webbrowser
 from pathlib import Path
@@ -180,26 +182,34 @@ def main(argv: Sequence[str] | None = None) -> int:
     script = load_script(args.script)
     install_fake_web(script, args.pace)
     install_fake_models()
-    server = create_server(
-        args.host,
-        args.port,
-        ui_dir=args.ui_dir,
-        agent_factory=lambda config: demo_agent(config, script, pace=args.pace),
-    )
-    url = f"http://{args.host}:{server.server_address[1]}"
-    logger.info(
-        "buy_agent demo UI on %s -- the %s script, no Ollama and no web",
-        url,
-        args.script,
-    )
-    if args.open:
-        webbrowser.open(url)
-    try:
-        server.serve_forever(0.05)
-    except KeyboardInterrupt:
-        logger.warning("Interrupted.")
-    finally:
-        server.server_close()
+    # The script's runs are made up, so they stay out of the shopper's cache and
+    # journal, in a directory forgotten when the server stops: otherwise a real run
+    # of the same request reports what moved since a fabricated one, and a take
+    # recorded on a fresh server shows what moved since the last take.
+    with tempfile.TemporaryDirectory(
+        prefix="buy-agent-demo-", ignore_cleanup_errors=True
+    ) as cache:
+        os.environ["BUY_AGENT_CACHE_DIR"] = cache
+        server = create_server(
+            args.host,
+            args.port,
+            ui_dir=args.ui_dir,
+            agent_factory=lambda config: demo_agent(config, script, pace=args.pace),
+        )
+        url = f"http://{args.host}:{server.server_address[1]}"
+        logger.info(
+            "buy_agent demo UI on %s -- the %s script, no Ollama and no web",
+            url,
+            args.script,
+        )
+        if args.open:
+            webbrowser.open(url)
+        try:
+            server.serve_forever(0.05)
+        except KeyboardInterrupt:
+            logger.warning("Interrupted.")
+        finally:
+            server.server_close()
     return 0
 
 

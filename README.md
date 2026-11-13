@@ -654,6 +654,8 @@ the metrics, the board and how the keys are kept honest.
 `qwen3:0.6b` (Q4_K_M, 397 MB, Ollama 0.35.1, 6 October 2026) scored 0.725,
 between `sloppy`'s 0.605 and `perfect`'s 1.000, in 2 min 29 s for the whole
 comparison (a take on 3 October, scored before ADR-0074, gave the same counts).
+These are that day's scores: the scorer has moved since, and `sloppy` now scores
+0.614 (0.726, 0.574, 0.540).
 Every query passed every check, and nothing reported was invented or repeated. It
 lost points by reporting too little -- three or four products for five slots, and
 not one quote -- and, on the euro case, by misattributing two of nine figures and
