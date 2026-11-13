@@ -226,7 +226,17 @@ if (followLink) {
   ]);
   await shop.waitForLoadState('domcontentloaded');
   await shop.bringToFront();
-  await shop.waitForTimeout(2500);
+  // Chromium hands the recorder a frame only when a page paints, and a tab that
+  // painted before its recording began and never changes after records as the blank
+  // page it opened on -- a second of white, in one take of three. A change of
+  // background too slight to see keeps it painting until the shop is on film.
+  await shop.evaluate(
+    () =>
+      document.body.animate([{ backgroundColor: '#f6f7f8' }, { backgroundColor: '#f6f7f9' }], {
+        duration: 600,
+      }).finished,
+  );
+  await shop.waitForTimeout(1900);
   pages.push(shop);
 }
 
