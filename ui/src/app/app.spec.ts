@@ -1535,10 +1535,20 @@ describe('App what changed since last time', () => {
     expect(getComputedStyle(cheaper!).display).toBe('flex');
     expect(getComputedStyle(cheaper!).gap).toBeTruthy();
     expect(getComputedStyle(cheaper!.querySelector('.moved-name')!).fontWeight).toBe('600');
-    // The sentence says "cheaper" either way; the colour is the glance.
-    expect(getComputedStyle(cheaper!.querySelector('.moved-why')!).color).not.toBe(
-      getComputedStyle(steady!.querySelector('.moved-why')!).color,
-    );
+    /* The sentence says "cheaper" either way; the colour is the glance. The tokens
+       live in styles.css, which the unit tests do not load, and jsdom 31 resolves
+       var(): left undefined, both lines would inherit the same black. */
+    const root = document.documentElement.style;
+    root.setProperty('--good', '#0f7b52');
+    root.setProperty('--text-dim', '#5c6470');
+    try {
+      expect(getComputedStyle(cheaper!.querySelector('.moved-why')!).color).not.toBe(
+        getComputedStyle(steady!.querySelector('.moved-why')!).color,
+      );
+    } finally {
+      root.removeProperty('--good');
+      root.removeProperty('--text-dim');
+    }
   });
 
   it('shows no panel for a first run of a search', async () => {
