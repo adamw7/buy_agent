@@ -847,11 +847,11 @@ def test_the_image_installs_the_runtime_dependencies_only() -> None:
     exactly the lock, nothing resolved on the day (ADR-0092)."""
     assert "requirements-dev.txt" not in dockerfile()
     assert re.search(
-        r"^RUN pip install .*--no-deps -r requirements\.lock( && pip check)?$", dockerfile(), re.M
+        r"^RUN pip install .*--no-deps -r requirements-lock\.txt( && pip check)?$", dockerfile(), re.M
     )
 
 
-_LOCK = _ROOT / "requirements.lock"
+_LOCK = _ROOT / "requirements-lock.txt"
 #: ``name==version``, before any marker or comment.
 _PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s;]+)", re.M)
 
@@ -1044,7 +1044,7 @@ def test_every_install_of_the_tools_is_held_to_the_lock() -> None:
     install, so constraining it there holds every one of them to what the image runs."""
     lines = (_ROOT / "requirements-dev.txt").read_text(encoding="utf-8").splitlines()
 
-    assert "-c requirements.lock" in lines
+    assert "-c requirements-lock.txt" in lines
 
 
 # -- what the build is shown ---------------------------------------------------

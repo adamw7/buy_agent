@@ -86,9 +86,10 @@ carry `LICENSE` and the git-ignored `buy_agent/_version.txt`, written by shell
 (`release.yml`; the `Dockerfile` from its `VERSION`/`REVISION` build arguments)
 and read by `version.py` (ADR-0083). `.dockerignore` covers what `.gitignore`
 names plus `.env`, catches nothing the `Dockerfile` copies, and accounts for every
-top-level directory. The image installs `requirements.lock` `--no-deps` (no
+top-level directory. The image installs `requirements-lock.txt` `--no-deps` (no
 hashes, so it also constrains `requirements-dev.txt`; regenerate it by its
-header's command when `requirements.txt` moves), binds through
+header's command when `requirements.txt` moves; a `.txt` name so the dependency
+graph can read it, ADR-0098), binds through
 `ENV BUY_AGENT_HOST=0.0.0.0`, caches in a volume at `/var/cache/buy-agent`, and
 checks `/healthz`. `compose.yaml` won't start without the token (ADR-0092).
 `deploy/kustomization.yaml` runs the same on Kubernetes (ADR-0093): every pod sets

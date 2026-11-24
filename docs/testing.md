@@ -159,7 +159,7 @@ Coverage cannot see rules that hold *between* files, so
   install (ADR-0091);
 - everything a release publishes is scanned before it is pushed and attested,
   and only a job that attests can mint a token naming the run (ADR-0069);
-- the image installs `requirements.lock`, which pins what `requirements.txt` pins,
+- the image installs `requirements-lock.txt`, which pins what `requirements.txt` pins,
   names in its header a command Renovate can parse to regenerate it, and
   constrains every install of `requirements-dev.txt`; `compose.yaml` refuses
   to start without a token, gives the server longer to stop than it drains for,
@@ -518,7 +518,7 @@ cd ui; npm audit --audit-level=high
 zizmor --config .github/zizmor.yml .github/workflows    # from the root
 ```
 
-`requirements-dev.txt` installs under `-c requirements.lock`, so the audit
+`requirements-dev.txt` installs under `-c requirements-lock.txt`, so the audit
 resolves the versions the image ships. zizmor reads the workflows themselves: a
 checkout leaving its token on disk, a cache a release reads, an action a moved tag
 or a known advisory reaches; `.github/zizmor.yml` names its one exception,

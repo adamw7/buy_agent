@@ -150,7 +150,7 @@ What is left to the cluster:
 published ([ADR-0030](adr/0030-publish-a-release-as-an-archive-and-an-image.md)),
 for amd64 and arm64 under one tag; the UI stage is built once, on the runner's
 platform, and the amd64 image is the one the smoke test and the scan below
-checked. It installs `requirements.lock`, the versions CI tested
+checked. It installs `requirements-lock.txt`, the versions CI tested
 ([ADR-0092](adr/0092-deploy-the-server-for-more-than-one-machine.md)). `latest`
 follows full releases only:
 
