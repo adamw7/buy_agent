@@ -4,7 +4,7 @@
 # (ADR-0048) and mypy (ADR-0063).
 -r requirements.txt
 # What those pull in, at the versions the image installs (ADR-0092).
--c requirements.lock
+-c requirements-lock.txt
 pytest==9.2.0
 coverage==7.17.4
 archunitpython==1.8.1

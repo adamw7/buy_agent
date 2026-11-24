@@ -50,6 +50,7 @@ jobs:
         run: |
           python -m pip_audit --progress-spinner off \
             -r requirements.txt \
+            -r requirements-lock.txt \
             -r requirements-dev.txt \
             -r requirements-mutation.txt \
             -r requirements-ap2-deps.txt \

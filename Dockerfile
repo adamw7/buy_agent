@@ -34,8 +34,8 @@ WORKDIR /app
 
 # The lock, not requirements.txt: every package at the version CI installed it at,
 # and nothing pip would otherwise resolve on the day of the build (ADR-0092).
-COPY requirements.lock ./
-RUN pip install --no-cache-dir --no-deps -r requirements.lock && pip check
+COPY requirements-lock.txt ./
+RUN pip install --no-cache-dir --no-deps -r requirements-lock.txt && pip check
 
 COPY LICENSE ./
 COPY buy_agent/ ./buy_agent/
