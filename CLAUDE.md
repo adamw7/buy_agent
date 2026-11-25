@@ -301,7 +301,9 @@ where HTTP, threads, env reads and files may go; ADR-0047), listed in
   `extraction.py`. A new word merges more names *and* makes `mentions_name`
   (realness, links, quotes) stricter at its 0.6 coverage bar. Compare token to
   token, never substring; add only words that identify nothing ("wireless",
-  "black").
+  "black"). Beside the bar, every word of a name with a digit in it must be on the
+  pages, or two adjacent words run together ("16 GB"), so "WH-1000XM6" never rides
+  in on the XM5's page (ADR-0099).
 - **Missing data never wins, and says so.** `ranking.NEUTRAL` (0.5) stands in for
   an unknown rating or count; an unknown price scores what the dearest placed price
   does (`_unknown_price_share`, ADR-0096); sorts sink unknowns, bounds keep them

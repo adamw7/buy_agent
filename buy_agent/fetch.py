@@ -277,7 +277,8 @@ def _markup(client: httpx.Client, url: str) -> PageText:
         raise PrivateAddress(f"{host} is not on the public web")
     with client.stream("GET", url) as response:
         response.raise_for_status()
-        content_type = response.headers.get("content-type", "html")
+        # Case-insensitive, as a media type is: "Text/HTML" is HTML.
+        content_type = response.headers.get("content-type", "html").lower()
         if "html" not in content_type:
             logger.debug("Skipped %s: served as %r", url, content_type)
             return PageText("", _NOT_HTML)

@@ -172,8 +172,54 @@ def test_the_coverage_bar_is_three_distinctive_words_in_five() -> None:
     """Where the 0.6 floor falls decides whether an invented name can pass."""
     haystack = build_haystack([SearchResult(snippet="The Anker Soundcore Life sits at $99.")])
 
-    assert mentions_name(haystack, "Anker Soundcore Life Q30 Pro"), "3 of 5 clears the bar"
+    assert mentions_name(haystack, "Anker Soundcore Life Tune Pro"), "3 of 5 clears the bar"
     assert not mentions_name(haystack, "Anker Soundcore Boost Max Pro"), "2 of 5 does not"
+
+
+def test_a_model_number_no_page_prints_is_not_grounded_by_the_bar() -> None:
+    """Brand and series are two words in three, which cleared the bar on their own: the
+    XM6 and the AirPods Pro 3 passed on pages about the XM5 and the Pro 2 (ADR-0099)."""
+    haystack = build_haystack(
+        [SearchResult(snippet="The Sony WH-1000XM5 is $299. Apple AirPods Pro 2 for $199.")]
+    )
+
+    assert mentions_name(haystack, "Sony WH-1000XM5")
+    assert not mentions_name(haystack, "Sony WH-1000XM6")
+    assert not mentions_name(haystack, "Apple AirPods Pro 3")
+    assert not mentions_name(haystack, "Anker Soundcore Life Q30 Pro"), "3 of 5, but not Q30"
+
+
+def test_a_model_number_may_be_printed_as_two_words() -> None:
+    """A page's "16 GB" or "Q 30" is the name's "16GB" or "Q30", and the run keeps it;
+    two words a page prints apart are still not one."""
+    haystack = build_haystack(
+        [SearchResult(snippet="Lenovo Legion Slim 5 with 16 GB, and the Anker Q 30.")]
+    )
+
+    assert mentions_name(haystack, "Lenovo Legion Slim 5 16GB")
+    assert mentions_name(haystack, "Anker Q30")
+    assert not mentions_name(haystack, "Lenovo Legion Slim 516")
+
+
+def test_an_invented_generation_borrows_nothing_from_its_neighbour() -> None:
+    """Grounded whole, the XM6 took the XM5's price, rating, count, page and quote, and
+    every check paying asks would then have passed (ADR-0099)."""
+    page = SearchResult(
+        title="Sony WH-1000XM5 review",
+        url="https://audio.example/xm5",
+        content=(
+            "Sony WH-1000XM5\nThe Sony WH-1000XM5 is $299 (4.6/5 from 3,200 ratings).\n"
+            "We loved the comfort on long flights."
+        ),
+    )
+    invented = Product(
+        name="Sony WH-1000XM6", price=299.0, currency="USD", rating=4.6, review_count=3200,
+        opinions=[Opinion(text="We loved the comfort on long flights.")],
+    )
+    removed: list[Removal] = []
+
+    assert ground([invented], [page], record=removed.append) == []
+    assert [removal.name for removal in removed] == ["Sony WH-1000XM6"]
 
 
 PAGES = [

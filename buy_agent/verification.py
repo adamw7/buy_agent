@@ -1,10 +1,11 @@
 """Check extracted products against their source text (ADR-0006, ADR-0017, ADR-0024,
-ADR-0025, ADR-0090)."""
+ADR-0025, ADR-0090, ADR-0099)."""
 
 from __future__ import annotations
 
 import logging
 import re
+from itertools import pairwise
 from typing import TYPE_CHECKING
 
 from buy_agent.extraction import GENERIC_WORDS, NAME_TOKENS, SUPERLATIVES
@@ -18,7 +19,7 @@ from buy_agent.models import (
 from buy_agent.money import plain_figures
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterable, Sequence
 
     from buy_agent.models import Opinion, Product, Recorder
     from buy_agent.search import SearchResult
@@ -109,13 +110,30 @@ def distinctive_words(name: str) -> list[str]:
 
 def word_coverage(tokens: Sequence[str], text: str) -> float:
     """Share of ``tokens`` appearing in ``text`` as words of their own."""
-    words = frozenset(NAME_TOKENS.findall(text.lower()))
+    return _coverage(tokens, frozenset(NAME_TOKENS.findall(text.lower())))
+
+
+def _coverage(tokens: Sequence[str], words: frozenset[str]) -> float:
     return sum(token in words for token in tokens) / len(tokens) if tokens else 0.0
 
 
+def _model_numbers(words: Iterable[str]) -> set[str]:
+    """The words of a name with a digit in them: what tells one model from the next."""
+    return {word for word in words if any(character.isdigit() for character in word)}
+
+
 def mentions_name(haystack: str, name: str) -> bool:
-    """Whether the distinctive words of ``name`` appear in ``haystack``."""
-    return word_coverage(distinctive_words(name), haystack) >= NAME_COVERAGE
+    """Whether the distinctive words of ``name`` appear in ``haystack``, its model
+    numbers every one: the 0.6 bar alone let "WH-1000XM6" pass on a page about the XM5,
+    borrowing its figures, link and quotes (ADR-0099)."""
+    tokens = distinctive_words(name)
+    written = NAME_TOKENS.findall(haystack.lower())
+    words = frozenset(written)
+    numbers = _model_numbers(tokens)
+    if not numbers <= words:
+        # Spelt across two words is the same number: "16GB" printed as "16 GB".
+        words |= numbers & {first + second for first, second in pairwise(written)}
+    return numbers <= words and _coverage(tokens, words) >= NAME_COVERAGE
 
 
 def drop_ungrounded(

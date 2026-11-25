@@ -107,6 +107,7 @@ running on the shopper's own machine, and it cannot be trusted with judgement.
 | [0096](0096-score-an-unknown-price-as-the-dearest-one.md) | Score an unknown price as the dearest one | Accepted |
 | [0097](0097-rank-what-a-limit-could-not-check-after-what-it-could.md) | Rank what a limit could not check after what it could, and say why | Accepted |
 | [0098](0098-name-the-lock-so-the-dependency-graph-can-read-it.md) | Name the lock so the dependency graph can read it | Accepted |
+| [0099](0099-hold-a-names-model-numbers-to-the-page.md) | Hold a name's model numbers to the page, beside the coverage bar | Accepted |
 
 ADR-0002 onwards are retrospective: they record decisions that were already in
 the code when the log was started, so their dates are when they were written
