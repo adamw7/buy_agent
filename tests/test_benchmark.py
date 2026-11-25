@@ -206,17 +206,18 @@ def test_a_model_number_on_one_side_only_is_a_spec_or_a_shortening() -> None:
     assert best_match("De'Longhi Dedica", ESPRESSO.key) is by_name["De'Longhi Dedica Arte EC885"]
 
 
-def test_a_run_reporting_the_wrong_generation_has_invented_a_product() -> None:
-    """Through the whole pipeline: grounding lets the XM4 through, and the scorer is what
-    says it is not what the pages are about."""
+def test_a_run_reporting_the_wrong_generation_reports_it_nowhere() -> None:
+    """Through the whole pipeline: no page prints "1000XM4", so grounding drops it
+    (ADR-0099), where it once passed and was left to the scorer to call invented. The
+    slot it took stays empty."""
     renamed = PERFECT.products[0].model_copy(update={"name": "Sony WH-1000XM4"})
     answer = ProductList(products=[renamed, *PERFECT.products[1:]])
 
     card = run_benchmark(llm=ScriptedLLM(answer)).scorecard
 
-    assert card.invented == 1
+    assert card.invented == 0
     assert card.counts["identified"] == (4, 5)
-    assert card.counts["genuine"] == (4, 5)
+    assert card.counts["genuine"] == (4, 4)
 
 
 def test_the_publishers_name_is_not_a_product() -> None:

@@ -183,6 +183,19 @@ def test_non_html_responses_are_ignored(monkeypatch) -> None:
     assert page == PageText("", "did not answer with HTML")
 
 
+def test_a_media_type_is_read_whatever_its_case(monkeypatch) -> None:
+    """``Text/HTML`` is HTML: a media type is case-insensitive, and the page is read."""
+    stub_client(
+        monkeypatch,
+        lambda url: make_response(url, PAGE, content_type="Text/HTML; charset=UTF-8"),
+    )
+    with httpx.Client() as client:
+        page = fetch_page(client, "https://shop.example/p", max_chars=1000)
+
+    assert page.problem is None
+    assert "Sony WH-CH720N" in page.text
+
+
 def test_the_price_pattern_is_built_from_the_currency_tables() -> None:
     """Derived, not copied (ADR-0054)."""
     assert not quotes_a_figure("it costs 42 QUATLOOS")
