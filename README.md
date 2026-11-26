@@ -705,9 +705,11 @@ five-minute cap (ADR-0026). `tests/test_architecture.py` holds the import graph
   was named above it, as does one under a product the model never reported, and a
   bare price line can pass as a quote. The quote's `source` link shows the page;
   the benchmark's `faithful` metric measures this.
-- **A model number can be one off.** Grounding reads a name's words against a 0.6
-  bar, so "WH-1000XM4" survives pages about the XM5; the benchmark counts it as a
-  product nobody wrote about.
+- **A variant named by a word can pass for its sibling.** Every word of a name
+  with a digit in it must be on the pages (ADR-0099, ADR-0100), so "WH-1000XM6"
+  no longer survives pages about the XM5; the other words need only reach the 0.6
+  bar, so "Bose QuietComfort Ultra Earbuds" survives a page about the Ultra
+  Headphones, and "Sony WH-1000XM5 Pro" one about the XM5.
 - **Stock and condition are only what a page said**, and most say neither. An
   unknown standing is not refused at payment, ranking reads only "out of stock"
   (it goes last), and only
