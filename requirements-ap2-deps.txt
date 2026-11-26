@@ -1,5 +1,5 @@
 # What the AP2 SDK imports, installed normally: `--no-deps` applies to a whole
 # file, so these cannot sit beside the SDK (cryptography needs cffi).
 cryptography==50.0.2
-jwcrypto==1.6.1
+jwcrypto==1.6.2
 sd-jwt==0.10.4
