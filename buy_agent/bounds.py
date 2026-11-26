@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from buy_agent.money import (
+    APOSTROPHE_THOUSANDS,
     GROUP_SPACES,
     SCANNED_CODES,
     SIGNS,
@@ -23,12 +24,12 @@ Bound = Literal["max_price", "min_rating", "min_reviews"]
 
 _TOP_RATING = 5.0
 
-#: A number in any convention ("1.299,99", "1 500 zł"), read whole and only from where it
+#: A number in any convention ("1.299,99", "1 500 zł", "1'299"), read whole and only from where it
 #: starts: the atomic group never gives part of one back ("1500" read as "150"), and none
 #: starts inside another. A run of digits and separators is then read once, not once per
 #: digit and length -- which took a minute and a half over 4,000 characters of "1.1.1".
 _NUMBER = (
-    rf"(?<![\d,.])(?:{SPACED_THOUSANDS}"
+    rf"(?<![\d,.])(?:{SPACED_THOUSANDS}|{APOSTROPHE_THOUSANDS}"
     rf"|(?>\d(?:[\d,.]*\d)?)(?![{re.escape(GROUP_SPACES)}]\d{{3}}(?!\d)))"
 )
 

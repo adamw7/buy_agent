@@ -65,6 +65,8 @@ def test_the_ends_of_each_scale_are_still_bounds(request_: str, bound: str, figu
         ("espresso machine under 1.299,99 €", "1299.99"),
         ("laptop under 1 500 zł", "1500"),
         ("laptop under 1\u00a0299,50 €", "1299.5"),
+        ("laptop under 1'299 CHF", "1299"),
+        ("laptop under 1\u2019299.50 CHF", "1299.5"),
     ],
 )
 def test_a_figure_is_read_whole_in_each_convention(request_: str, figure: str) -> None:
