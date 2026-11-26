@@ -1,6 +1,6 @@
 # ADR-0099: Hold a name's model numbers to the page, beside the coverage bar
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0100](0100-read-a-model-number-run-together-either-way.md)
 - **Date:** 2026-11-25
 
 ## Context

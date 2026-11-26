@@ -201,6 +201,20 @@ def test_a_model_number_may_be_printed_as_two_words() -> None:
     assert not mentions_name(haystack, "Lenovo Legion Slim 516")
 
 
+def test_a_model_number_named_as_two_words_may_be_printed_as_one() -> None:
+    """The other way round: a name's "256 GB" or "S 24" is a page's "256GB" or "S24".
+    Only the first direction was read, so an iPhone the model named "256 GB" was dropped
+    as on no page, a product the coverage bar alone had kept (ADR-0100)."""
+    haystack = build_haystack(
+        [SearchResult(snippet="Apple iPhone 15 Pro 256GB, and the Samsung Galaxy S24 Ultra.")]
+    )
+
+    assert mentions_name(haystack, "Apple iPhone 15 Pro 256 GB")
+    assert mentions_name(haystack, "Samsung Galaxy S 24 Ultra")
+    assert not mentions_name(haystack, "Apple iPhone 15 Pro 512 GB"), "512GB is not printed"
+    assert not mentions_name(haystack, "Samsung Galaxy S 25 Ultra"), "nor is S25"
+
+
 def test_an_invented_generation_borrows_nothing_from_its_neighbour() -> None:
     """Grounded whole, the XM6 took the XM5's price, rating, count, page and quote, and
     every check paying asks would then have passed (ADR-0099)."""
@@ -221,6 +235,19 @@ def test_an_invented_generation_borrows_nothing_from_its_neighbour() -> None:
     assert ground([invented], [page], record=removed.append) == []
     assert [removal.name for removal in removed] == ["Sony WH-1000XM6"]
 
+
+
+@pytest.mark.parametrize("written", ["CHF 1'299.00", "CHF 1\u2019299.00", "CHF 1'299.–"])
+def test_a_swiss_price_grouped_with_an_apostrophe_is_grounded(written: str) -> None:
+    """Swiss shops group thousands with an apostrophe, straight or typeset; read as
+    written, "1'299" was no 1299, and every such price was blanked."""
+    haystack = build_haystack([SearchResult(snippet=f"Sony WH-1000XM5 for {written}")])
+    product = Product(name="Sony WH-1000XM5", price=1299.0, currency="CHF")
+
+    [checked] = verify_numbers([product], haystack)
+
+    assert checked.price == 1299.0
+    assert not mentions_number(haystack, 299)
 
 PAGES = [
     SearchResult(

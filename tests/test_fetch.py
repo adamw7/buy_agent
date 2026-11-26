@@ -902,6 +902,8 @@ def test_a_page_on_the_public_web_is_fetched(host: str) -> None:
         "0177.0.0.1", "127.1", "",
         # NAT64's prefix is global, and the gateway behind it connects to what it holds.
         "64:ff9b::7f00:1", "64:ff9b::a00:5", "64:ff9b::169.254.169.254",
+        # The IPv4-compatible form, which ``is_global`` reads as IPv6 and passes.
+        "::127.0.0.1", "::a00:5", "::169.254.169.254", "::",
     ],
 )
 def test_an_address_behind_the_public_web_is_not(host: str) -> None:

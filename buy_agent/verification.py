@@ -1,5 +1,5 @@
 """Check extracted products against their source text (ADR-0006, ADR-0017, ADR-0024,
-ADR-0025, ADR-0090, ADR-0099)."""
+ADR-0025, ADR-0090, ADR-0099, ADR-0100)."""
 
 from __future__ import annotations
 
@@ -125,7 +125,7 @@ def _model_numbers(words: Iterable[str]) -> set[str]:
 def mentions_name(haystack: str, name: str) -> bool:
     """Whether the distinctive words of ``name`` appear in ``haystack``, its model
     numbers every one: the 0.6 bar alone let "WH-1000XM6" pass on a page about the XM5,
-    borrowing its figures, link and quotes (ADR-0099)."""
+    borrowing its figures, link and quotes (ADR-0099, ADR-0100)."""
     tokens = distinctive_words(name)
     written = NAME_TOKENS.findall(haystack.lower())
     words = frozenset(written)
@@ -133,7 +133,21 @@ def mentions_name(haystack: str, name: str) -> bool:
     if not numbers <= words:
         # Spelt across two words is the same number: "16GB" printed as "16 GB".
         words |= numbers & {first + second for first, second in pairwise(written)}
+        # And the other way round: "256 GB" named, "256GB" printed (ADR-0100).
+        words |= _run_together(NAME_TOKENS.findall(name.lower()), numbers - words, words)
     return numbers <= words and _coverage(tokens, words) >= NAME_COVERAGE
+
+
+def _run_together(
+    named: Sequence[str], missing: set[str], words: frozenset[str]
+) -> set[str]:
+    """The ``missing`` numbers of a name the pages print run together with the name's
+    word beside them: "256" of "256 GB", on a page printing "256GB" (ADR-0100)."""
+    found: set[str] = set()
+    for first, second in pairwise(named):
+        if first + second in words:
+            found |= missing & {first, second}
+    return found
 
 
 def drop_ungrounded(

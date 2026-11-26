@@ -94,6 +94,10 @@ _NUMERIC_LABEL = re.compile(r"0x[0-9a-f]*|[0-9]+", re.IGNORECASE)
 #: NAT64's well-known prefix (RFC 6052): a gateway connects to the IPv4 address in its last
 #: 32 bits, which ``is_global`` never reads -- it judges the prefix, which is global.
 _NAT64 = ipaddress.IPv6Network("64:ff9b::/96")
+#: The deprecated IPv4-compatible form (RFC 4291), ``::127.0.0.1``: ``is_global`` judges
+#: it as IPv6 and passes it, so it is read as the IPv4 address it spells. Holds ``::``
+#: and ``::1`` too, which read as 0.0.0.0 and 0.0.0.1, neither global.
+_IPV4_COMPATIBLE = ipaddress.IPv6Network("::/96")
 
 
 class PrivateAddress(httpx.InvalidURL):
@@ -252,7 +256,7 @@ def on_the_public_web(host: str) -> bool:
     except ValueError:
         pass
     else:
-        if address in _NAT64:
+        if address in _NAT64 or address in _IPV4_COMPATIBLE:
             address = ipaddress.IPv4Address(int(address) & 0xFFFF_FFFF)
         return address.is_global
     labels = name.split(".")

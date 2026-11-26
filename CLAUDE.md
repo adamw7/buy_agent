@@ -156,8 +156,8 @@ Keep `docs/architecture.md` (C4) in step when a responsibility or boundary moves
 `docs/adr/0000-template.md` plus its row in `docs/adr/README.md`. Contradict an
 accepted record by superseding it with a new one; never reuse a number or rewrite
 an accepted record. Every record is Accepted but ADR-0007, ADR-0020, ADR-0038,
-ADR-0059, ADR-0065 and ADR-0067, which ADR-0096, ADR-0037, ADR-0088, ADR-0094,
-ADR-0087 and ADR-0091 supersede.
+ADR-0059, ADR-0065, ADR-0067 and ADR-0099, which ADR-0096, ADR-0037, ADR-0088,
+ADR-0094, ADR-0087, ADR-0091 and ADR-0100 supersede.
 
 `.claude/skills/` holds checklists over these rules: `add-option` (a setting),
 `add-row` (a model server, rail or search backend), `add-adr` (the next record)
@@ -302,8 +302,9 @@ where HTTP, threads, env reads and files may go; ADR-0047), listed in
   (realness, links, quotes) stricter at its 0.6 coverage bar. Compare token to
   token, never substring; add only words that identify nothing ("wireless",
   "black"). Beside the bar, every word of a name with a digit in it must be on the
-  pages, or two adjacent words run together ("16 GB"), so "WH-1000XM6" never rides
-  in on the XM5's page (ADR-0099).
+  pages, or run together with its neighbour either way ("16 GB" printed for "16GB",
+  "256GB" for "256 GB"), so "WH-1000XM6" never rides in on the XM5's page (ADR-0099,
+  ADR-0100).
 - **Missing data never wins, and says so.** `ranking.NEUTRAL` (0.5) stands in for
   an unknown rating or count; an unknown price scores what the dearest placed price
   does (`_unknown_price_share`, ADR-0096); sorts sink unknowns, bounds keep them

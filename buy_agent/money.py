@@ -92,7 +92,14 @@ SPACED_THOUSANDS = (
     rf"(?:,\d{{1,2}}(?![\d.,]*\d)|(?=,-)|(?:,\d{{1,2}})?(?={_CURRENCY_AFTER})))"
 )
 
+#: "CHF 1'299.00": Switzerland and Liechtenstein group thousands with an apostrophe,
+#: straight or typeset, and keep the decimal dot. Shared with :mod:`buy_agent.bounds`.
+#: Three digits after each, so "5'11" (a height) is no figure of its own.
+APOSTROPHE_THOUSANDS = r"[1-9]\d{0,2}(?:['\u2019]\d{3})+(?:\.\d{1,2})?(?![\d'\u2019])"
+
 _SPACED = re.compile(rf"(?<![\d.,]){SPACED_THOUSANDS}")
+_APOSTROPHED = re.compile(rf"(?<![\d.,'\u2019]){APOSTROPHE_THOUSANDS}")
+_APOSTROPHE = re.compile("['\u2019]")
 _GROUP_SPACE = re.compile(f"[{re.escape(GROUP_SPACES)}]")
 
 #: A comma before three digits groups ("1,299"); before one or two it is decimal.
@@ -101,9 +108,12 @@ _DECIMAL_COMMA = re.compile(r"(?<=\d),(?=\d{1,2}(?!\d))")
 
 
 def plain_figures(text: str) -> str:
-    """Every figure ungrouped with a decimal dot ("1.299,99" -> 1299.99), so a page and a
-    request are read the same way."""
-    ungrouped = _DOTTED_THOUSANDS.sub(lambda match: match.group(0).replace(".", ""), text)
+    """Every figure ungrouped with a decimal dot ("1.299,99" and "1'299.99" -> 1299.99),
+    so a page and a request are read the same way."""
+    ungrouped = _APOSTROPHED.sub(lambda match: _APOSTROPHE.sub("", match.group(0)), text)
+    ungrouped = _DOTTED_THOUSANDS.sub(
+        lambda match: match.group(0).replace(".", ""), ungrouped
+    )
     ungrouped = _SPACED.sub(lambda match: ungroup(match.group(0)), ungrouped)
     return _DECIMAL_COMMA.sub(".", _THOUSANDS_COMMA.sub("", ungrouped))
 
