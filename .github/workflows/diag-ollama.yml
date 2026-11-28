@@ -1,7 +1,8 @@
 name: Diagnose Ollama version (temporary)
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [claude/github-actions-workflow-fr7b4s]
 
 permissions:
   contents: read
