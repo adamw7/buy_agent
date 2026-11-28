@@ -1,0 +1,49 @@
+name: Diagnose Ollama version (temporary)
+
+on:
+  push:
+    branches: [claude/github-actions-workflow-fr7b4s]
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    # Both versions in one job, so they share one CPU.
+    name: qwen3:0.6b on Ollama 0.40.18 then 0.40.19
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+      - run: pip install -r requirements-dev.txt
+      - run: lscpu | grep -E 'Model name'
+      - name: Ollama 0.40.18
+        run: curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION=0.40.18 sh
+      - run: |
+          for _ in $(seq 1 30); do curl -fsS http://localhost:11434/api/version && exit 0; sleep 1; done; exit 1
+      - run: ollama pull qwen3:0.6b
+      - name: Extract on 0.40.18 (1)
+        run: python .github/diag/raw_extraction.py
+      - name: Extract on 0.40.18 (2)
+        run: python .github/diag/raw_extraction.py
+      - name: Ollama 0.40.19
+        run: |
+          curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION=0.40.19 sh
+          sudo systemctl restart ollama
+          for _ in $(seq 1 30); do curl -fsS http://localhost:11434/api/version && exit 0; sleep 1; done; exit 1
+      - name: Extract on 0.40.19 (1)
+        if: always()
+        run: python .github/diag/raw_extraction.py
+      - name: Extract on 0.40.19 (2)
+        if: always()
+        run: python .github/diag/raw_extraction.py
