@@ -1,0 +1,35 @@
+name: Diagnose Ollama version (temporary)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    name: qwen3:0.6b on Ollama ${{ matrix.ollama }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        ollama: ["0.40.18", "0.40.19"]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+      - run: pip install -r requirements-dev.txt
+      - run: lscpu | grep -E 'Model name|Flags' | cut -c1-400
+      - run: curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION=${{ matrix.ollama }} sh
+      - run: |
+          for _ in $(seq 1 30); do curl -fsS http://localhost:11434/api/version && exit 0; sleep 1; done; exit 1
+      - run: ollama pull qwen3:0.6b
+      - run: python .github/diag/raw_extraction.py
+      - run: python .github/diag/raw_extraction.py
